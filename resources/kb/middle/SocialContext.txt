@@ -1,0 +1,21 @@
+;; SocialContext — theory over the social relations: what acquaintance follows from,
+;; and how employment relates to membership. Sees the shared upper ontology via
+;; UniverseContext; WellContext sees it.
+;;
+;; Every rule here runs one way only. `knows` is deliberately not symmetric — a great
+;; many people know someone who does not know them — so friendship and marriage, which
+;; *are* symmetric, each yield acquaintance in both directions through their own
+;; symmetry rather than through a symmetry `knows` does not have. Stating (symmetric
+;; knows) would have been one word and would have made the KB assert the converse of
+;; every acquaintance it ever learned.
+
+(genlContext SocialContext UniverseContext)
+(genlContext WellContext SocialContext)
+
+(implies (and (friendOf ?x ?y)) (knows ?x ?y))
+
+(implies (and (marriedTo ?x ?y)) (knows ?x ?y))
+
+;; Employment is one way of belonging to a body of people; belonging is not a way of
+;; being employed by it, so there is no converse rule.
+(implies (and (worksFor ?x ?o)) (memberOf ?x ?o))

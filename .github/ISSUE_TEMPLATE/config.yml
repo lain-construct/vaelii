@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: mailto:support@vaelii.com
+    about: >-
+      Please do not open public issues for vulnerabilities. Use GitHub's
+      "Report a vulnerability" on this repository, or email with
+      "SECURITY" in the subject. See .github/SECURITY.md.

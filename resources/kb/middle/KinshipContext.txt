@@ -1,0 +1,20 @@
+;; KinshipContext — kinship & age theory: the rules that derive ancestorOf and
+;; grandparentOf from parentOf, and olderThan from birthYearOf. Sees the shared
+;; upper ontology via UniverseContext; WellContext sees it.
+
+(genlContext KinshipContext UniverseContext)
+(genlContext WellContext KinshipContext)
+
+(implies (and (parentOf ?x ?y)) (ancestorOf ?x ?y))
+
+(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z))
+
+(set/backwardRule
+  (implies (and (birthYearOf ?x ?bx) (birthYearOf ?y ?by) (lessThan ?bx ?by))
+           (olderThan ?x ?y)))
+
+;; Maternity and paternity each entail parenthood, and neither converse holds: a parent
+;; is one or the other, and nothing in a parentOf fact says which.
+(implies (and (fatherOf ?child ?father)) (parentOf ?father ?child))
+
+(implies (and (motherOf ?child ?mother)) (parentOf ?mother ?child))

@@ -1,0 +1,147 @@
+name: deep
+
+# The deep run: everything the pull-request gate defers.
+#
+# Named for what it does rather than when it runs, so a change of cadence is not
+# a rename. It runs weekly: eight backends at `:all` plus perf is ~43 billed
+# minutes, and a tree that changes a few times a week does not have a fresh
+# answer every day — running it daily would buy six identical verdicts and turn
+# one real failure into six lines of noise.
+#
+# test.yml runs the `:default` selector on two of the eight backends, because a
+# contributor should not wait an hour for a verdict. That leaves two real gaps,
+# and this workflow is both of them:
+#
+#   - **The `^:slow` half of the suite.** Eighteen tests carry 118k of the
+#     suite's 238k assertions — the exhaustive cross-products and the randomized
+#     oracles. `lein gate` skips them, test.yml skips them, and a mark that
+#     defers a test is only honest if something eventually runs it. This is that
+#     something.
+#   - **The other six backends.** Seven legal record×index pairs plus the
+#     overlay decorator, and the suite is expected to be failing-set-identical
+#     across all eight — a backend that answers differently is a bug in the
+#     backend. The pull-request gate exercises two of the eight.
+#
+# **Informational, never a required check.** Nothing here blocks a merge: these
+# jobs are long, the perf one is a timing measurement on a shared runner, and a
+# gate a maintainer routinely overrides is not a gate. A failure here is a bug
+# report addressed to the maintainer, which is why the artifacts are uploaded.
+on:
+  schedule:
+    # Sundays 04:00 UTC. A whole day clear of the Mon 08:00 canary on lint and
+    # test, so a Monday morning never starts eleven runners at once, and it
+    # lands before the week rather than after it — a failure is waiting when you
+    # sit down, not discovered next Saturday.
+    - cron: '0 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# No cancel-in-progress: a scheduled deep run has no successor to be superseded
+# by, and a manual dispatch while one is running is usually a deliberate re-run.
+concurrency:
+  group: deep-${{ github.ref }}
+
+jobs:
+  backends:
+    name: ${{ matrix.backend }} (:all)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      # Every backend reports, whatever the others did. The question this job
+      # answers is *which* backends differ, and fail-fast would answer it with
+      # "at least one".
+      fail-fast: false
+      matrix:
+        # The seven legal record×index pairs (`<records>-<index>`), then the
+        # overlay decorator — which is not an eighth pair but the fork over an
+        # empty base, the claim that a fork of nothing behaves like the thing it
+        # forked. RAM records under a durable index is refused and has no name.
+        backend:
+          - memory
+          - memory-dense
+          - memory-columnar
+          - disk-memory
+          - disk-dense
+          - disk-columnar
+          - disk
+          - overlay
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        with:
+          lein: latest
+
+      - name: Cache Maven deps
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2
+          key: m2-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            m2-
+
+      # One backend per runner, so the script's own reason for running its eight
+      # sequentially does not apply: two durable suites collide on the
+      # single-writer lock and `VAELII_TEST_SPACE` admits only three
+      # non-overlapping blocks, but separate VMs share neither a disk nor a
+      # registry. Eight in parallel is ~20 minutes instead of ~3 hours, and on a
+      # public repo the minutes are unmetered.
+      - name: Suite (${{ matrix.backend }}, :all)
+        run: ./scripts/test-backends.sh :all ${{ matrix.backend }}
+
+      - name: Upload run log
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: deep-${{ matrix.backend }}
+          path: target/test-backends/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  perf:
+    name: perf
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        with:
+          lein: latest
+
+      - name: Cache Maven deps
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2
+          key: m2-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            m2-
+
+      # `lein perf` measures GROWTH RATIOS, not milliseconds, which is what
+      # makes it runnable on a shared runner at all: a noisy neighbour slows
+      # both sizes and the ratio survives. It is still noisier here than on a
+      # quiet laptop, hence the raised tolerance — and hence "informational".
+      # A regression this job reports is a lead, and `lein perf` locally is the
+      # confirmation.
+      #
+      # `--tolerance` MULTIPLIES each bound (1.5 on a noisy box, 1.0 in anger),
+      # so a number below 1 tightens the gate rather than loosening it. A shared
+      # two-core runner is the noisy box the flag was written for.
+      - name: Scaling claims
+        run: lein perf --tolerance 1.5

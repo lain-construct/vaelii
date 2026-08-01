@@ -1,0 +1,588 @@
+(ns vaelii.impl.inherit
+  "**Argument-position preservation** — when a claim about one term licenses the same
+  claim about another.
+
+  `(largerThan dog cat)` says something about two *kinds*.  Whether it also says
+  something about a golden retriever and a maine coon is not decidable from the
+  sentence: it depends on whether the relation distributes over the kinds' members.
+  Some relations do (`disjoint` — subtypes of disjoint types are disjoint) and some
+  emphatically do not (a chihuahua is a dog, a maine coon is a cat, and the maine coon
+  is bigger).  So it is **declared**, per predicate, per argument position:
+
+      (argPreserving        P n R)   ; a stored (P … w …) licenses (P … a …) when (R a w)
+      (argPreservingInverse P n R)   ; …licenses it when (R w a)
+
+  `R` is any **transitive** relation — `genl` and `genlContext` through their cached
+  closures, or a predicate declared `(transitive R)` walked over stored facts.  A
+  declaration over anything else is refused at assert
+  (`wff/arg-preserving-problems`): the reach is walked to a fixpoint, so a relation
+  that was never said to compose would have transitivity *manufactured* for it, and
+  `(argIsa argPreserving 3 transitivePredicate)` cannot say so — argIsa is
+  open-world, and an untyped relation cannot violate it.  Naming the relation is what
+  keeps this from being a `genl` special case: an argument can equally be preserved
+  along `partOf`, `connectedTo`, or anything else transitive.  The inverse form exists
+  so the *other* direction never requires declaring an inverse predicate that has no
+  other purpose.
+
+  Several declarations may name one argument position; their reaches **union**, since
+  each independently licenses the claim.
+
+  ## Preservation stays on one side of the type/instance line
+
+  `genl` relates **types**, so `(largerThan dog cat)` preserved along `genl` reaches
+  `golden_retriever` and `maine_coon` and stops there.  It says nothing about Rex and
+  Whiskers, and that is not a gap here to fill: `relationKind` is a `disjointMetatype`
+  over `typeRelationPredicate` and `instanceRelationPredicate`, so one predicate
+  symbol relates kinds *or* instances and never both.  A `largerThan` that inherited
+  across the line would be a predicate of both kinds at once, which the KB's own
+  meta-ontology refuses.
+
+  Preservation moves an argument along a relation, leaving the predicate and the level
+  it lives at alone.  Crossing the line is a *different* claim — it links two
+  predicates and has a quantifier reading to pin down (every member? some member?) —
+  and the vocabulary for it is `(typeToInstancePred TypePred InstancePred)`, which the
+  engine does not yet act on.
+
+  ## Specificity, and why it is not the deleted axis
+
+  The interesting case is a claim that inherits *and* a more specific claim that
+  disagrees.  `(typicallyLargerThan dog cat)` reaches `[chihuahua maine_coon]`;
+  `(typicallyLargerThan maine_coon chihuahua)` is stated directly.  The stated one
+  wins, and the general one simply **does not fire for that pair** — undercutting, not
+  defeat.  Nothing is derived, so there is nothing to arbitrate.
+
+  That matters, because `docs/nmtms.md` deleted genl-based specificity as an
+  arbitration axis on the grounds that it was inference *about* the knowledge rather
+  than *from* it: it scored a type by the size of its up-closure, a numeric proxy that
+  tied silently whenever the exception was not keyed on a narrower type.  Nothing here
+  reconstructs an ordering.  Two claims are compared along the **very relation the
+  inheritance travels down** — `[maine_coon chihuahua]` is below `[cat dog]` because
+  `(genl maine_coon cat)` and `(genl chihuahua dog)` are edges the KB holds.  Claims
+  that are genuinely incomparable are not ranked at all; they come back `:ambiguous`,
+  which is the same answer the engine gives every other unresolvable clash.
+
+  ## Strict versus typical, for free
+
+  A `:monotonic` claim is **never** undercut.  Strength already propagates from a
+  justification's antecedents, so `(largerThan dog cat)` asserted `{:strength
+  :monotonic}` inherits as known-true and a contrary specific claim is a
+  contradiction — `checks/asymmetry-problem` refuses it — while `(typicallyLargerThan
+  dog cat)` at the default `:default` inherits defeasibly and yields to the specific
+  claim.  One declaration, both behaviours, and the difference is stated where it
+  belongs: on the claim, not on the vocabulary.
+
+  Ground goals only.  An open argument is left to the fact and rule provers, in the
+  shape `different` and the NAF operators already use — enumerating it would mean
+  walking the inverse reach of every stored witness, which is a different and much
+  larger question than the one a closed goal asks."
+  (:require [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.naming :as nm]
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.resolution :as res]
+            [vaelii.impl.sentex :as sx]
+            [vaelii.impl.strength :as st]
+            [vaelii.impl.taxonomy :as tax]))
+
+(def declarations
+  "The two declaration functors, mapped to whether they read `R` backwards."
+  '{argPreserving false, argPreservingInverse true})
+
+;; ---- one question, one set of closure reads ------------------------------
+
+(def ^:dynamic *memo*
+  "A per-question cache for the two reads every layer here repeats — an atom of
+  `{[:positions pred context] -> …, [:reach rel inverse? x context] -> set}`, or nil
+  for no memoization.
+
+  Answering one ground goal asks for a predicate's declared positions from
+  `applicable?`, `verdict`, `surviving` and `claims`, and for a term's reach once per
+  preserved position and then again per *pair* of claims inside `undercut?`.  Neither
+  answer can change while the question is being answered — a query never mutates
+  belief — so the memo is created fresh per top-level question and needs no
+  invalidation protocol at all.  `with-memo` reuses an outer one when a caller has
+  already opened it, which is the discipline `observe/*reach-memo*` follows for the
+  transitive closure."
+  nil)
+
+(defmacro with-memo
+  "Answer `body` under a memo, reusing the enclosing one when there is one."
+  [& body]
+  `(binding [*memo* (or *memo* (atom {}))] ~@body))
+
+(defn- memoized [k f]
+  (if-let [m *memo*]
+    (if (contains? @m k)
+      (get @m k)
+      (let [v (f)] (swap! m assoc k v) v))
+    (f)))
+
+(def virtual-relations
+  "The relations `witness-terms` walks from a cached closure of the engine's own
+  rather than from stored `(R a b)` facts — the type hierarchy and the context
+  hierarchy.  Both are transitive by construction, so there is no `(transitive R)`
+  declaration to demand of them and none possible; every other relation must carry
+  one, which is what `wff/arg-preserving-problems` reads this set to decide."
+  '#{genl genlContext})
+
+;; ---- the declared positions ---------------------------------------------
+;; Read as ordinary stored sentexes through `matches-visible`, exactly as `argIsa` and
+;; `argGenl` are — so they are context-scoped and belief-following with no cache of
+;; their own, and a retracted declaration stops applying the moment it stops being
+;; believed.
+
+(defn usable-relation?
+  "May a declaration's `R` be walked?  Either the engine owns its closure, or the KB
+  says it composes.  Read at *use* and not only at assert, so retracting
+  `(transitive R)` stops the inheritance it licensed the way retracting anything else
+  here does — the declaration is stored, but a relation nobody currently says is
+  transitive is one whose reach we have no right to close.  Read from `context`, like
+  the declaration itself: a transitivity claim some invisible microtheory makes is not
+  a licence this one holds."
+  [tax rel context]
+  (boolean (or (contains? virtual-relations rel)
+               (tax/has-prop? tax :transitive rel context))))
+
+(def ^:private declaration-functors
+  "`declarations`' keys, held rather than re-`keys`-ed: `declared-anywhere?` runs on
+  every `applicable?` of a preservation-aware prover."
+  (vec (keys declarations)))
+
+(defn declared-about?
+  "Could any stored declaration name `pred`?  The declaration functors' roots
+  intersected with the argument root at position 1, where a declaration's predicate
+  sits — one set intersection per functor, against a root that is empty for nearly
+  every KB and tiny for the rest.
+
+  This is a **gate, not an answer**: it is neither belief-filtered nor context-scoped,
+  so a true says only that the real read is worth making.  A false is exact, because a
+  declaration naming `pred` would be in that intersection whatever anyone believes
+  about it.  That is also what makes it the right question for a *conservative* caller
+  that wants no answer at all, only \"could preservation be in play here\":
+  `settle/cross-argument-predicate?` reads it to decide whether an exception conjunct's
+  arguments may be compared with a trigger's, where an under-selection is a missed
+  withdrawal.
+
+  It earns its place on the query path rather than the assert path.  `positions` is
+  read by `ArgPreservingProver.applicable?` and by `provers/shadowing-channels`, so it
+  runs for **every goal's functor in the KB**, and each real read is two
+  `matches-visible` calls.  Ungated, one declaration anywhere made a `genl` goal cost
+  2.8x what it costs in a KB with none — a tax every query pays for a feature almost
+  none of them use.
+
+  Two stages, because the two questions have different prices and different answers.
+  The **cardinality** read is O(1) and false for nearly every KB there is, so it comes
+  first and nothing else runs; the **intersection** is a real (if small) index read
+  and only a KB that declares something ever pays it."
+  [kb pred]
+  (let [idx (:index kb)]
+    (boolean
+     (some (fn [f]
+             (and (pos? (p/count-with-functor idx f))
+                  (seq (p/sentexes-with-args idx f {1 pred}))))
+           declaration-functors))))
+
+(defn positions
+  "`[{:n :rel :inverse?} …]` — the preserved argument positions declared for `pred`,
+  visible from `context`, whose relation is one this may actually walk.  Empty (the
+  overwhelmingly common case) means the predicate inherits nothing and every consumer
+  here is a no-op.
+
+  Several declarations may name one position; they are not collapsed here, because
+  their reaches **union** (`reach`) rather than compete.
+
+  Realized rather than lazy, and memoized on `[pred context]`: four layers of one
+  question ask for this, and each computation is two `matches-visible` calls.
+
+  Behind a root-intersection gate on any declaration naming `pred` at all, so a
+  predicate nobody declared about — which is every predicate but a handful, in every
+  KB — pays one intersection against an empty root rather than two index lookups.  The
+  same shape of gate `special.clj` puts in front of the exception re-check triggers,
+  for the same reason."
+  [kb pred context]
+  (when (and (symbol? pred) (declared-about? kb pred))
+    (memoized [:positions pred context]
+              #(vec (for [[f inverse?] declarations
+                          [_ b] (res/matches-visible kb (list f pred '?n '?rel) context)
+                          :let  [n (get b '?n) rel (get b '?rel)]
+                          :when (and (integer? n) (pos? n) (symbol? rel)
+                                     (usable-relation? (:taxonomy kb) rel context))]
+                      {:n n :rel rel :inverse? inverse?})))))
+
+(defn declared
+  "Every declaration's `[P R]` pair — the predicate that inherits, and the relation it
+  inherits along — read off the functor roots rather than through `matches-visible`.
+
+  Deliberately **not** context-scoped and not belief-filtered, because the callers are
+  `vaelii.impl.special`'s exception re-check triggers, and a trigger must be
+  conservative in the direction the answer is: a declaration this edge cannot see
+  still qualifies a rule in some context that can, and a missed trigger leaves a
+  conclusion blocked (or unblocked) on evidence that has since moved.  Over-queueing
+  costs a level-6 query at the next settle; under-queueing is a wrong belief.
+
+  Costs one set-cardinality read per functor on a KB that declares none, which is
+  nearly all of them, and the callers are additionally gated on some rule carrying an
+  `exceptWhen` at all — so the record fetches here are paid only by a KB using both
+  features."
+  [kb]
+  (let [recs (:records kb) idx (:index kb)]
+    (into #{}
+          (comp (filter #(pos? (p/count-with-functor idx %)))
+                (mapcat #(p/sentexes-with-functor idx %))
+                (keep #(p/get-sentex recs %))
+                (keep (fn [sxr]
+                        (let [[_ pred _ rel] (:sentence sxr)]
+                          (when (and (symbol? pred) (symbol? rel)) [pred rel])))))
+          (keys declarations))))
+
+;; ---- the reach of one argument ------------------------------------------
+
+(defn- fact-reach
+  "Reflexive-transitive reach of `x` over a declared-transitive `rel`, read from the
+  believed facts.  The virtual relations never come here — their closures are the
+  engine's own, which is the whole reason they are `virtual-relations`."
+  [kb rel inverse? x context]
+  (let [step (fn [n]
+               (into #{} (keep #(get (second %) '?rv))
+                     (res/matches-visible
+                      kb (if inverse? (list rel '?rv n) (list rel n '?rv)) context)))]
+    (loop [seen #{x}, frontier [x]]
+      (if-let [n (peek frontier)]
+        (let [fresh (remove seen (step n))]
+          (recur (into seen fresh) (into (pop frontier) fresh)))
+        seen))))
+
+(defn witness-terms
+  "The terms a claim's argument may be **stated of** for it to reach `x` at this
+  position: `{w : (rel x w)}` for `argPreserving`, `{w : (rel w x)}` for the inverse
+  form.  Reflexive, so `x` itself is always among them and a directly-stated claim is
+  found by the same walk as an inherited one.
+
+  One declaration's reach.  Callers want a *position's*, which is the union over the
+  declarations made at it — `reach`.
+
+  The `genl` walk is **scoped to `context`**, exactly as `fact-reach` is: a claim
+  travels along the edges the asking context can see and no others, or a microtheory
+  would inherit `(largerThan dog cat)` down to a subtype some invisible theory
+  declared.  `genlContext` stays global — the context closure is (docs/taxonomy.md,
+  the stated exception), and a preservation along it is a claim about the topology,
+  which is universal.
+
+  Memoized on `[rel inverse? x context]` for the life of one question.  The virtual
+  relations read a cached closure and would survive without it; a **fact-relation** is
+  the one that must not be re-walked, since each walk costs a `matches-visible` per
+  node and `undercut?` asks for the same term's reach once per pair of claims."
+  [kb {:keys [rel inverse?]} x context]
+  (memoized [:reach rel inverse? x context]
+            (fn []
+              (let [tx (:taxonomy kb)]
+                (case rel
+                  genl        (if inverse? (tax/specs tx x context) (tax/genls tx x context))
+                  genlContext (if inverse? (tax/context-down tx x) (tax/context-up tx x)) ; global on purpose
+                  (fact-reach kb rel inverse? x context))))))
+
+(defn- reach
+  "The terms one argument may be stated of, over **every** declaration at its
+  position: a union, because each independently licenses the claim.  A position
+  preserved along both `genl` and a declared-transitive `partOf` reaches what either
+  reaches, and `below?` compares along the same union."
+  [kb poss x context]
+  (if (= 1 (count poss))
+    (witness-terms kb (first poss) x context)   ; the common case: no set to rebuild
+    (into #{} (mapcat #(witness-terms kb % x context)) poss)))
+
+;; ---- the claims bearing on a goal ---------------------------------------
+
+(defn- by-position
+  "The declarations grouped by the argument position they preserve, dropping any
+  position the goal does not have — a declaration naming argument 3 of a binary
+  predicate is ill-advised but stored, and reading past the tuple's end is not the
+  way to report it."
+  [positions arity]
+  (into {} (filter (fn [[n _]] (<= n arity))) (group-by :n positions)))
+
+(defn- slots
+  "What a claim's argument may be, per argument position of the goal: `{:reach terms}`
+  at a preserved position, `{:pinned term}` where the goal's own argument stands.
+
+  The **product** of the reaches is the set of tuples a claim could be stated at, and
+  it is what the two retrieval paths below are two ways of intersecting with what is
+  actually stored."
+  [kb positions args context]
+  (let [by-n (by-position positions (count args))]
+    (mapv (fn [i]
+            (if-let [poss (by-n (inc i))]
+              {:reach (reach kb poss (nth args i) context)}
+              {:pinned (nth args i)}))
+          (range (count args)))))
+
+(defn- product-tuples
+  "Every argument tuple a claim could be stated at — the product of the reaches,
+  pinned elsewhere."
+  [slots]
+  (reduce (fn [tuples s]
+            (let [terms (or (:reach s) #{(:pinned s)})]
+              (for [t tuples, w terms] (conj t w))))
+          [[]]
+          slots))
+
+(def ^:private product-ceiling
+  "Past this the product's size stops being counted and is simply *large*.  The number
+  is only ever compared against a stored extent, and no extent reaches it."
+  1e12)
+
+(defn- product-size
+  "How many tuples the product holds — the count the extent is weighed against."
+  ^double [slots]
+  (reduce (fn [^double n s]
+            (if (>= n product-ceiling)
+              n
+              (* n (double (if-let [r (:reach s)] (count r) 1)))))
+          1.0 slots))
+
+(defn- extent-size
+  "How many stored sentexes one open probe would walk: the predicate's functor root,
+  narrowed by whichever pinned argument position is most selective.
+
+  Read through `order`, because that is where the pinned term will actually **sit** in
+  the probe.  The converse an asymmetric predicate is denied by swaps the tuple
+  indices, so a term pinned at tuple index 0 is looked up at sentence position 2 — and
+  counting it at position 1 estimates a probe nobody is about to make.  For the
+  forward order the two coincide, which is why this reads the same as counting by
+  tuple index everywhere else.
+
+  Both roots span either polarity, so this covers the negated probe as well as the
+  positive one.  It is an under-count where a **sub-predicate** contributes through
+  the genl fan — which makes it a cost estimate rather than a count, and the direction
+  is the safe one: an under-count only ever prefers the path whose cost is linear in
+  what was written."
+  ^double [kb pred slots order]
+  (let [idx (:index kb)]
+    (double
+     (reduce (fn [n j]
+               (let [s (nth slots (nth order j))]
+                 (if-some [t (:pinned s)] (min n (p/count-with-arg idx (inc j) t)) n)))
+             (p/count-with-functor idx pred)
+             (range (count order))))))
+
+;; ---- the two ways to find them ------------------------------------------
+;; A claim bearing on the goal is a stored sentence whose argument tuple lies in the
+;; product.  There are two ways to intersect a product with a store, and which is
+;; cheaper is a property of the KB rather than of the feature: **enumerate the
+;; product** and probe each tuple (cost: the product), or **read the extent** of the
+;; predicate with a variable at every preserved position and keep the tuples that land
+;; in the product (cost: what was written about that predicate).  Both go through
+;; `matches-visible`, so subsumption, the symmetric mirror, context visibility and
+;; belief are the same set either way — the choice is retrieval, never semantics.
+
+(defn- probe-var [j] (symbol (str "?w" j)))
+
+(defn- probe-sentence
+  "The sentence to look up.  `order` maps each argument position of the *sentence* to
+  the tuple index it fills: the identity for a claim read forwards, `[1 0]` for the
+  converse an asymmetric predicate is denied by.  `terms` supplies a term for a tuple
+  index, or nil to leave a variable there."
+  [pred slots order terms]
+  (cons pred (map-indexed (fn [j ti]
+                            (let [s (nth slots ti)]
+                              (if (:reach s) (or (terms ti) (probe-var j)) (:pinned s))))
+                          order)))
+
+(defn- in-product?
+  "Is `tuple` one of the tuples a claim bearing on the goal could be stated at?  Asked
+  of every position, pinned ones included: the symmetric mirror can hand back a match
+  whose arguments sit in the other order, and a pinned position is only pinned in the
+  pattern."
+  [slots tuple]
+  (and (= (count tuple) (count slots))
+       (every? (fn [i]
+                 (let [s (nth slots i) t (nth tuple i)]
+                   (if-let [r (:reach s)] (contains? r t) (= t (:pinned s)))))
+               (range (count slots)))))
+
+(defn- bound-tuple
+  "The tuple a match is a statement about, read back through `order` — the bindings at
+  the preserved positions, the goal's own terms at the pinned ones.  nil when a
+  preserved position came back unbound, which no match of this pattern can do."
+  [bindings slots order]
+  (reduce (fn [t j]
+            (let [ti (nth order j) s (nth slots ti)]
+              (if (:reach s)
+                (if-some [v (get bindings (probe-var j))] (assoc t ti v) (reduced nil))
+                (assoc t ti (:pinned s)))))
+          (vec (repeat (count slots) nil))
+          (range (count order))))
+
+(defn- believed-matches
+  "`[tuple handle sentex]` for every believed sentex matching `sentence` that states
+  something about a tuple in the product.  `known` is the tuple when the caller
+  already has it — a ground probe binds nothing to read one back from."
+  [kb sentence slots order context known]
+  (for [[h b] (res/matches-visible kb sentence context)
+        :let  [tuple (or known (bound-tuple b slots order))]
+        :when (and tuple (in-product? slots tuple))
+        :let  [sxr (p/get-sentex (:records kb) h)]
+        :when (and sxr (jtms/in? (:tms kb) h))]
+    [tuple h sxr]))
+
+(def ^:dynamic *retrieval*
+  "Which of the two paths finds the claims: `:auto` weighs the extent against the
+  product per goal, `:extent` and `:product` force one.  The forcing values exist so a
+  test can hold the two against each other on the same KB — they answer the identical
+  claim set by construction (both filter `matches-visible` by the same
+  `in-product?`), and `inherit_oracle_test` is the claim that they do."
+  :auto)
+
+(defn- found-claims
+  "Every believed statement bearing on the goal at `order` and `negated?`, by whichever
+  of the two retrieval paths is cheaper for this KB."
+  [kb pred slots order negated? context]
+  (let [wrap (fn [s] (if negated? (list 'not s) s))]
+    (if (case *retrieval*
+          :extent  true
+          :product false
+          (<= (extent-size kb pred slots order) (product-size slots)))
+      (believed-matches kb (wrap (probe-sentence pred slots order (constantly nil)))
+                        slots order context nil)
+      (mapcat (fn [tuple]
+                (believed-matches kb (wrap (probe-sentence pred slots order tuple))
+                                  slots order context tuple))
+              (product-tuples slots)))))
+
+(defn- strongest-per-tuple
+  "One claim per tuple — the **strongest** believed statement of it, with its
+  defeat-class.
+
+  Strongest, and not merely the first found, because one tuple can be stated in
+  several visible contexts at different strengths.  `:class` decides both whether a
+  claim can be undercut and whether `checks/asymmetry-problem` refuses, so taking the
+  first would key an *admission* decision on handle iteration order — and handles are
+  allocated in assertion order, which is the one thing belief may never depend on.
+  The maximum over the class lattice is a function of the content alone, and the ties
+  it leaves are broken on the context **name** for the same reason."
+  [kb polarity found]
+  (->> found
+       (map (fn [[tuple h sxr]]
+              {:polarity polarity :handle h :sentence (:sentence sxr)
+               :context (:context sxr) :tuple tuple
+               :class (or (jtms/defeat-class (:tms kb) h) :default)}))
+       (group-by :tuple)
+       (map (fn [[_ cs]]
+              (first (sort-by (juxt #(- (st/rank-of (:class %))) #(str (:context %))) cs))))))
+
+(defn claims
+  "Every believed claim bearing on the ground goal `(P a1 … an)`, each tagged with the
+  argument tuple it is stated at and whether it argues `:for` or `:against`.
+
+  Against comes from two places: an explicit `(not (P …))` at a tuple in range, and —
+  when `P` is declared `asymmetric` — the converse `(P … y … x …)`, since a relation
+  that cannot hold both ways is denied by its own mirror.  The converse is only read
+  for a **binary** goal, which is the only arity for which `asymmetric` means
+  anything.
+
+  **Every probe is made, and one tuple can yield several claims.**  A tuple where both
+  `P` and `(not P)` are believed is a contradiction the KB already reports through
+  `(contradictions kb)`; taking whichever probe answered first would have this read it
+  as a clean `:for` and hand `verdict` a decision that the engine, looking at the same
+  two sentexes, refuses to make.  Collecting both sends it to `verdict` as the
+  `:ambiguous` it is.  The price is two probes per tuple rather than short-circuiting on
+  the positive (three for an asymmetric predicate) — the two `:against` sources are
+  kept separately rather than folded, since they can be believed at different
+  strengths and `undercut?` reads that per claim.
+
+  The converse probe is skipped at a **self tuple** `[a a]`, where it would read the
+  very sentex the positive probe just read and file it as opposition.  That is one
+  fact disputing itself, not two claims disagreeing, and it is the one shape where
+  collecting both polarities would manufacture the dilemma rather than report it.
+  (`(P a a)` under an `asymmetric P` *is* wrong — asymmetry implies irreflexivity —
+  but it is wrong in a way `contradictions` does not report either, so answering
+  `:ambiguous` here would be this function inventing a verdict on its own.)"
+  [kb goal context]
+  (with-memo
+    (let [pred  (nm/functor goal)
+          args  (vec (nm/args goal))
+          poss  (positions kb pred context)
+          asym? (tax/has-prop? (:taxonomy kb) :asymmetric pred context)
+          ;; With no preserved position the product is the goal's own arguments alone,
+          ;; so this still answers "what is believed about exactly this tuple" — which
+          ;; is what the asymmetry check needs of a predicate that inherits nothing.
+          sl    (slots kb poss args context)
+          fwd   (vec (range (count args)))
+          probe (fn [order negated? polarity]
+                  (strongest-per-tuple
+                   kb polarity (found-claims kb pred sl order negated? context)))]
+      (concat
+       (probe fwd false :for)
+       (probe fwd true  :against)
+       ;; The converse is read with the tuple indices swapped, so a stored `(P x y)`
+       ;; is filed against the tuple `[y x]` it denies.
+       (when (and asym? (= 2 (count args)))
+         (remove #(= (first (:tuple %)) (second (:tuple %)))
+                 (probe [1 0] false :against)))))))
+
+;; ---- specificity ---------------------------------------------------------
+
+(defn- below?
+  "Is tuple `t1` at or below `t2` — for every preserved position, is `t2`'s term one
+  of the terms `t1`'s can be stated of?  The order is read off the same relations the
+  inheritance travels, never off a score."
+  [kb positions t1 t2 context]
+  (every? (fn [[n poss]]
+            (contains? (reach kb poss (nth t1 (dec n)) context) (nth t2 (dec n))))
+          (by-position positions (count t1))))
+
+(defn- undercut?
+  "Is `c` displaced by a strictly more specific claim?  Only a `:default` claim can
+  be: a `:monotonic` one is known-true, so a contrary specific claim is a
+  contradiction to report rather than a refinement to defer to."
+  [kb positions c others context]
+  (and (= :default (:class c))
+       (boolean (some (fn [o] (and (not= (:tuple o) (:tuple c))
+                                   (below? kb positions (:tuple o) (:tuple c) context)))
+                      others))))
+
+(defn surviving
+  "The believed claims bearing on `goal` that a strictly more specific one has not
+  displaced, each carrying its `:polarity` and `:class`.  The raw material both
+  consumers read: the prover turns it into a verdict, and `checks/asymmetry-problem`
+  asks the narrower question of whether any survivor is **known-true**."
+  [kb goal context]
+  (with-memo
+    (let [poss (positions kb (nm/functor goal) context)
+          cs   (claims kb goal context)]
+      (remove #(undercut? kb poss % cs context) cs))))
+
+(defn verdict
+  "What the preserved claims say about the ground goal:
+
+    `:for`       — some claim reaches it and nothing surviving disagrees
+    `:against`   — the surviving claims deny it
+    `:ambiguous` — surviving claims disagree at incomparable specificity, which is a
+                   dilemma and is deliberately not decided here
+    `nil`        — nothing bears on it, or the predicate declares no preserved position
+
+  Claims displaced by a strictly more specific one drop out first; that is where a
+  general default yields to a specific statement without either being defeated."
+  [kb goal context]
+  ;; Gated on a declared position: without one there is no inheritance to perform, and
+  ;; answering from the goal's own tuple would just be `FactProver` wearing a hat.
+  (with-memo
+    (when (seq (positions kb (nm/functor goal) context))
+      (let [polarity (into #{} (map :polarity) (surviving kb goal context))]
+        (cond
+          (= polarity #{:for})     :for
+          (= polarity #{:against}) :against
+          (seq polarity)           :ambiguous)))))
+
+(defn ground-goal?
+  "A closed positive literal this can speak about.
+
+  A negated goal is left alone: `(not (P a b))` asks whether the claim is *refuted*,
+  and an inheritance that only ever licenses claims has nothing to say about that —
+  `:against` here means \"not licensed\", the open-world reading, not \"licensed to be
+  false\"."
+  [goal]
+  (and (sequential? goal) (seq goal)
+       (symbol? (nm/functor goal))
+       (not= 'not (nm/functor goal))
+       (seq (nm/args goal))
+       (every? sx/ground-term? (nm/args goal))))

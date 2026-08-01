@@ -1,0 +1,416 @@
+# Public API (`vaelii.core`)
+
+`vaelii.core` is the only public namespace; everything else is `vaelii.impl.*` and free
+to change — the engine internals, the ontology content, and the browser. Tests reach
+into `impl` freely, which is what unit tests are for; nothing outside this repo should.
+The file map is [namespaces.md](namespaces.md). Entry points are `lein run` (→
+`vaelii.core`) and `lein run -m vaelii.impl.web`.
+
+```clojure
+(def kb (open-kb {}))                         ; or {:record-space 15 :index-space 14}
+                                              ; :backend names a <records>-<index> pair —
+                                              ; :memory :memory-dense :memory-columnar
+                                              ; :disk-memory :disk-dense :disk-columnar
+                                              ; :disk — or :records / :index override a
+                                              ; half of one (docs/storage.md)
+                                              ; :naming and :constraints are this KB's two
+                                              ; front-door policies (docs/naming.md, nmtms.md)
+(fork kb opts?)                                ; a private writable KB over this one's stores,
+                                               ; frozen: reads fall through, writes stay in the
+                                               ; fork, the base is never written (docs/overlay.md)
+(assert kb sentence context opts)              ; premise: check + store + index + chain + settle -> handle
+                                               ; opts: {:strength :monotonic|:default :chain? bool :max-depth n}
+                                               ; `assert-opt-keys` is the roster; a key off it is refused
+(assert-rule kb antecedents consequent context)
+(assert-inert kb sentence context)              ; stored, indexed and durable, but NOT a premise:
+                                                ; never believed, never chained, never scanned for
+                                                ; contradictions — a recorded truth value
+                                                ; (docs/solving.md).  Drop it with `retract!`
+(with-deferred-settle kb & body)                ; run a batch, settle belief ONCE at the end
+(assert-many kb sentences context opts)         ; the collection form -> vector of handles
+(bulk-assert-facts! kb facts context opts?)     ; a trusted corpus's ground facts on the fast path:
+                                                ; no per-fact checks, no dedup, no provenance, no
+                                                ; chaining, one settle.  The caller owns the two
+                                                ; preconditions — well-formed, pairwise-distinct
+(edit kb {:add [[sentence context opts?] ...] :remove [handle ...]})  ; add-then-remove, one settle
+(check kb sentence context opts)                ; would assert succeed? -> [] or [{:type :message …}]
+(check-edit kb {:add […] :remove […]})          ; the same over an edit batch, each problem naming its entry
+(preview kb {:add […] :remove […]} opts)        ; what the batch would BELIEVE -> the diff, then rolled back
+(edit-with-consequences kb batch opts?)         ; `edit`, plus what it turned out to mean — the same diff, after
+(watch kb f)                                    ; call `f` with that same diff whenever belief moves -> token
+(watch kb goal context f)                       ; ...only for what `goal` answers, entries + :bindings
+(unwatch kb token) / (watchers kb)              ; drop one -> bool / what is registered, without the fns
+(forward-chain kb opts)                         ; {:derived n :truncated? bool}
+default-chain-opts                              ; the bounds a chain run takes when opts omit them —
+                                                ; max-depth (productive recursion) and max-derivations
+(conflicts kb)                                  ; irreducible clashes among known-true content —
+                                               ; same entry shape as contradictions; both sides stay believed
+(contradictions kb)                            ; coexisting pairs at :default — represented dilemmas:
+                                               ; a rebuttal (P/not-P), or a definitional clash
+                                               ; (:kind :disjoint|:functional|:asymmetric)
+(settle-stats kb) / (reset-settle-stats! kb)     ; the exceptWhen fixpoint's iteration instrumentation
+(chain-stats kb)                               ; {:runs n :last {:derived n :truncated? bool}} — a capped run is visible
+(violations kb) / (clear-violations! kb)         ; accumulating ledger of dropped derived conclusions (run-stamped, capped)
+(exposed-clashes kb)                            ; the standing cross-context disjointness clashes, asked
+                                                ; of the whole KB — settle files what a change newly
+                                                ; exposes, this answers what the KB holds now
+(last-program kb)                              ; the last edge Program solved — the tie, before belief erased it
+(set-solver kb :asp)                           ; the real answer-set backend, by name (:stub is the default)
+(set-solver kb solver)                         ; or any vaelii.impl.solve/Solver value
+(sentexes-matching kb sentence context)        ; believed literal match (context defaults to ?ctx)
+(query kb goal context opts)                   ; THE FRONT DOOR -> solutions.  No :max-depth and it
+(query? kb goal context opts)                  ; expands no rule; a :max-depth and it is the node
+                                               ; engine, bounded at that many rule rewrites.  There
+                                               ; is no default depth — name the smallest that works
+                                               ; goal = a sentence, or a VECTOR of them, at any depth
+                                               ; opts: {:max-depth n :proof? true} + node-engine keys
+(prove kb goal context)                        ; recur DFS backward chaining -> [solutions].  The
+                                               ; UNBOUNDED one: terminates on the data, facts+rules
+                                               ; goal = a sentence, or a VECTOR of them = a
+                                               ; conjunctive query (shared vars join; cost-ordered)
+(provable? kb goal context)                    ; boolean (same single-or-vector goal)
+(ask kb goal context) / (ask? kb goal context) ; the prover registry -> solutions / boolean.  Expands
+                                               ; NO rule, so it opens no proof search
+(ask-within kb goal context budget)             ; anytime ask: bound {:max-ms :max-results :max-cost}
+(prove-within kb goal context budget)           ; anytime prove: bound {:max-ms :max-results :max-depth}
+                                               ; both -> {:results :status :count :elapsed-ms :resume}
+(resume partial budget)                        ; continue a :timeout/:capped partial result
+(abduce kb goal context opts)                   ; what would have to be true for the goal to follow:
+                                               ; hypotheses minted as :default premises in a scratch
+                                               ; microtheory -> {:solutions :hypotheses :refused
+                                               ; :context :status}.  Torn down before it returns
+                                               ; unless {:keep? true}; only (abduciblePredicate P)
+                                               ; makes a predicate assumable (docs/abduction.md)
+(abduce-discard! kb result)                     ; discard a kept abduction's context and everything in it
+(query-plan kb goal context)                    ; applicable provers: est-bindings + cost tier + completeness
+(add-prover kb prover)                         ; register a custom prover
+(add-reasoner kb :allen :rcc8)                 ; register shipped ones by name -> kb
+(reasoners)                                    ; the roster: the six algebras + :duration :metric-time
+(reasoner :allen)                              ; one as a value, for a registry of your own
+(lookup kb level goal context)                 ; the lookup-to-query stack, levels 0-7
+(escalate kb goal context [floor])             ; cheapest level that answers (floor defaults to 2)
+(explain-levels kb goal context)               ; what every level yields -> per-level counts
+(levels)                                       ; the level table as data
+;; qualitative constraint reasoning (docs/qcn.md).  Reads: a network is a property of
+;; the stored facts, so these answer whether or not the calculus's prover is registered.
+(calculi)                                      ; the shipped calculi: base relations + vocabulary
+(qualitative-network kb calculus context)      ; the tightened network + :consistent? (+ :unsatisfiable)
+(possible-relations kb calculus context a b)   ; the base relations still possible between two terms
+(qualitative-scenario kb calculus context)     ; one consistent arrangement, {[a b] -> relation}, or nil
+(qualitative-scenarios kb calculus context n)  ; up to n of them (the count is exponential, so n is required)
+(recover kb)                                   ; rebuild taxonomy + JTMS from the durable stores
+(reindex kb)                                   ; rebuild the index (trie/roots/rule/term) from the records, then recover
+(clear! kb)                                    ; empty both durable stores — `recover`'s counterpart,
+                                               ; and irreversible, which is what the `!` says
+(export! kb dir opts?)                         ; write it out as a portable dump — field-map frames,
+                                               ; no class names; opts {:variant :records|:records+index
+                                               ; :compression :gzip|:xz|:none :on-progress f}
+(isa? kb individual type [context])            ; transitive type membership (context-scoped)
+(types-of kb x [context])                      ; the believed types asserted of an individual
+                                               ; — the matcher's own three filters:
+                                               ; believed, visible, not `except`-hidden
+(disjoint? kb type-a type-b [context])         ; provable disjointness (scoped with a context)
+(disjoint-metatypes kb) / (metatype-members kb m) ; the declared `disjointMetatype` cliques and one
+                                               ; clique's members — consulted, never materialized,
+                                               ; so no `(disjoint a b)` pair is stored to read back
+;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
+;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
+(genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
+(genl? kb sub super [context])                          ; subtype test, scoped the same way
+(types kb) / (contexts kb)                              ; the nodes of each hierarchy
+(context-up kb c) / (context-down kb c) / (sees? kb k y); genlContext closures + visibility test
+(has-prop? kb kind pred [context]) / (props kb kind)              ; :transitive :symmetric :asymmetric :reflexive
+                                                        ; :functional :decontextualized
+                                                        ; :forced-decontextualized
+(inverse-of kb pred [context])                                    ; the declared inverse, or nil
+;; what the engine does with its own grammar — declared *and enforced* against declared
+;; and ignored, which no naming or wff check can tell apart
+(interpreted term)                             ; {:enforced "where"} | {:inert "why"} | nil
+(vocabulary-audit kb)                          ; the whole picture, incl. :unclassified
+(term-role term)                               ; the naming role a spelling declares: :variable :number
+                                               ; :context :individual :predicate :type, or nil
+(readable-sentence sx)                         ; a sentex's sentence with the author's variable names
+                                               ; put back — a rule is stored numbered (?var0, ?var1)
+(representative kb term [context]) / (same-class? kb a b [context])  ; the equality
+(equiv-class kb term [context]) / (deprecated? kb term)  ; partition, read — scoped by
+                                                         ; context like genls / specs
+(find-sentexes kb term) / (find-sentexes-all kb terms)  ; inverted term index
+(indexable-terms sentex)                                ; the terms that make a sentex findable —
+                                                        ; exactly the keys it is posted under
+;; reified non-atomic terms (docs/nat.md).  The constant is term *identity*, not a name
+;; anybody wrote, so a display shows the expression: `reified-term?` is a pure test on
+;; the symbol and gates the read, `term-expression` is one hop (an argument that is
+;; itself reified comes back as its constant, so a caller rendering each term keeps
+;; every level addressable)
+(reified-term? term)                            ; is this an opaque nat/ constant?
+(term-expression kb term)                       ; the (F a…) it was minted from, or nil
+;; the vocabulary — the terms themselves, read off the index's term roster, so the cost
+;; is the number of distinct terms and never the number of sentexes.
+(terms kb)                                      ; every indexed term, sorted by name
+(term-count kb)                                 ; how many — one O(1) set-size read
+(sentex-count kb)                               ; how many sentexes in total — the trie's
+                                                ; own root count, O(1).  NOT the sum of
+                                                ; context-size over contexts: that misses
+                                                ; a context no genlContext edge names.
+(find-terms kb q [opts])                        ; the terms matching q, sorted
+                                                ; opts: {:match :prefix|:substring|:regex
+                                                ;        :case-sensitive? bool :limit n}
+;; extents and counts.  The count-* trio is an O(1) set-size read of what is **stored** — a
+;; defeated sentex included — so it can disagree with belief-filtering `sentexes-matching`.  The
+;; extent fns take {:believed? true} to filter, which is O(n); there is no O(1)
+;; believed count and none is pretended.
+(sentexes-in-context kb ctx [opts]) / (context-size kb ctx)              ; context root
+(sentexes-with-functor kb pred [opts]) / (count-with-functor kb pred)    ; functor root
+(sentexes-with-arg kb pos term [opts]) / (count-with-arg kb pos term)    ; argument-position root
+(ist kb Ctx sentence)                           ; ist: find or create sentence in Ctx -> handle
+(handle-of kb sentence context)                 ; find WITHOUT creating -> handle or nil (ist's counterpart)
+(contexts-of kb sentence)                       ; contexts a sentence is asserted in
+(provenance kb handle)                          ; the per-handle bookkeeping map, or nil
+(add-provenance kb handle m)                     ; merge application fields into it
+(retract! kb handle)                            ; teardown -> {:removed-sentexes n :removed-justifications n}
+(in? kb handle)
+(believed kb handles)                           ; in? in batch -> the set of handles that are IN
+(why kb handle)                                 ; proof tree: support -> rule + recursive antecedents,
+                                                ; terminating at premises, cycle-guarded, originalized
+(why-not kb handle)                             ; stored but OUT: :defeated (+ what contradicts it)
+                                                ; / :superseded (+ the restatement that displaced it)
+                                                ; / :unsupported (+ the missing antecedents) / :not-stored
+;; introspection: sentex, justification, supporting-justifications, dependent-justifications, premise?, defeat-class
+```
+
+## Choosing a query function
+
+Five entry points answer a goal, and the axis that separates them is **how much rule
+expansion each will do**.  Pick by what you are asking, not by habit:
+
+| Reach for | When you want | Machinery | Returns |
+|-----------|---------------|-----------|---------|
+| **`query` / `query?`** | **the default** — one door, one dial: how deep to expand rules | no `:max-depth` and the registry answers alone; a `:max-depth` and the node engine expands rules that deep.  Either way a **conjunctive** join (vector goal) | binding maps `{?x v}` |
+| `ask` / `ask?` | an answer from what the KB stores or has cached, at a cost that does not depend on the rule graph | the prover registry (facts, transitivity, disjointness, inverse/symmetric metadata, evaluable arithmetic, NAF, argIsa) — **no rule expansion** | binding maps `{?x v}` |
+| `sentexes-matching` | *stored, believed* literals matching a pattern — retrieval, not reasoning | belief-filtered index read; no inference, no subtype expansion | **sentex maps** |
+| `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, facts + rules only; a **conjunctive** join (vector goal) | a vector of binding maps |
+| `lookup` / `escalate` / `explain-levels` | *diagnostics* — which level of machinery reaches this, and how dear | one explicit level of the 8-level stack | level maps |
+
+**Result shapes differ by family.** `sentexes-matching` and the extent/term readers
+(`find-sentexes`, `sentexes-in-context`, …) return **sentex maps**; `query` / `ask` /
+`prove` return **binding maps**; `lookup` returns **level-result maps**
+(`{:level :handle :sentence :context :bindings}`).
+
+A **sentex map** has the stable keys `:id` (the handle), `:sentence`, `:context`,
+`:truth`, and for a rule `:antecedent` / `:consequent` / `:direction`.  Key into it.
+The concrete record class behind it (`vaelii.impl.sentex/AtomicSentex` / `RuleSentex`) is an
+`impl` detail and not part of the contract — never `instance?`-test it.
+
+## Batched assertion
+
+A plain `assert` settles belief before returning, so a bulk load pays that
+reconciliation once per fact.  `with-deferred-settle` runs a whole batch and settles
+**once** at the end (chaining still runs per assert; only the settle is deferred) —
+same belief for one reconciliation instead of N, since belief is order-independent.
+`assert-many` is the collection form.  Only the assert path is deferred; a `retract!`
+inside a batch settles eagerly, and nesting composes (only the outermost settles).
+
+The taxonomy's depth potential is deferred with it, so a batch that adds `genl` /
+`genlContext` edges does not pay the per-edge repair either (`docs/taxonomy.md`).  A
+batch that **throws** leaves belief unsettled — that is the documented state, and
+re-running or settling by hand recovers it — but the depth potential is repaired on
+the way out, since nothing else would ever repair it and every later reachability read
+would pay for that.
+
+`edit` batches assertions **and** retractions into one settle — `{:add [[sentence
+context opts?] …] :remove [handle …]}`.  The adds land **before** the removes, so a
+conclusion the removed premises solely-supported but an added one re-derives keeps a
+witness through the dependency-directed sweep: it is not swept and rebuilt, and never
+flickers OUT and back.  The final belief equals running the asserts and retracts
+singly — `edit` skips the intermediate tear-down and the N per-op settles.  Use it to
+*replace* knowledge (a rule by a refined rule, a fact by a corrected one) without the
+conclusions resting on it going dark in between.
+
+## Validating without writing
+
+`assert` answers "would this store?" by *doing* it: the first failing check throws and
+nothing lands.  A caller that wants the answer rather than the effect — an editor
+validating a line, a critic grading a proposed batch, an importer triaging a corpus —
+asks **`check`** instead.
+
+`(check kb sentence context opts)` runs `assert`'s own checks, in `assert`'s order, for
+their answer: naming, groundness, structural well-formedness, edge stratification, then
+the three definitional constraints; for a rule, the imperative ban, range-restriction,
+naming and rule-set stratification, per conjunct of a conjunctive consequent.  It
+follows `assert`'s dispatch into `(ist Ctx S)`, a `set/*Rule` wrapper, and an
+`exceptWhen`.  **Nothing is stored** — no sentex, no index entry, no taxonomy edge, no
+chaining, no settle.
+
+The naming stage checks **every literal** the sentence contains, not its outermost
+functor alone, so a rule's antecedents and consequent are reported by frame and
+spelling — `functor lives_in in rule consequent (lives_in ?x cold_place) is snake_case
+… write it camelCase as livesIn` (docs/naming.md).
+
+It returns a **vector of problems**, empty when the sentence is admissible.  Each is a
+map with the `:type` keyword `assert` would have thrown — `:naming`, `:not-ground`,
+`:not-well-formed`, `:not-range-restricted`, `:not-stratified`, `:not-assertible`,
+`:arg-type`, `:inter-arg-type`, `:arity`, `:disjoint`, `:functional` — a readable
+`:message`, and whatever else that check knows (`:arg` / `:expected` / `:position` for an
+argIsa breach, plus `:trigger` and `:trigger-position` for the `interArgIsa` form, which
+names the argument whose type made the constraint fire; `:cycle` for a stratification
+one).  Three further types are about the *request* rather than the
+knowledge: `:shape` (the context is not a symbol, the sentence is not an s-expression,
+`opts` is not a map), `:unknown-option` (an `opts` key `assert` does not read, or a
+`:strength` that is not an assertable class — below) and `:not-checkable` (a top-level
+`do/` imperative, which `check` will not run to find out what it does).  The stages stop
+at the first that finds anything, since each later one reads the KB assuming the earlier
+ones held.
+
+`check-edit` is the same over an `edit` batch, and each problem additionally carries
+`:in` (`:add` / `:remove`), `:index` and `:entry`, so a caller can point at the line
+rather than at the batch.  An `:add` is judged against the KB **as it stands**, and a
+`:remove` for naming an actually stored handle (`:unknown-handle`).
+
+Two things `assert` does that `check` deliberately does not: it does not reify a ground
+reifiable NAT (that mints a constant, which is a write), and it does not evaluate an
+imperative.
+
+## Previewing the consequences
+
+`check` answers whether a batch would be *admitted*.  **`preview`** answers what it
+would *mean*: `(preview kb {:add […] :remove […]} opts)` returns the belief the batch
+would add and the belief it would take away, and then puts the KB back exactly as it
+found it.
+
+**`edit-with-consequences`** is the same question after the fact — `edit`'s
+`{:added :removed}` with `:believed-added` / `:believed-removed` merged in, in `preview`'s
+entry shapes, so a caller renders a promise and its outcome with one renderer.  `edit`
+alone reports the handles it stored, which is what the caller already said; this reports
+what followed, and `:premise?` on each entry is what separates the two.  Its removed half
+omits what the sweep *deleted* (there is no record left to describe) — for that, ask
+`preview`, which suspends rather than retracts.  See [preview.md](preview.md).
+
+## Being told, instead of asking again
+
+**`watch`** turns that same diff into a feed.  `(watch kb f)` calls `f` with
+`{:believed-added :believed-removed}` — `preview`'s entry shapes — after every settle that
+moved belief; `(watch kb goal context f)` is a **standing query**, calling `f` only for the
+entries `goal` answers and carrying the `:bindings` that answered.  Both return a token for
+`unwatch`; `watchers` lists what is registered.
+
+A batch settles once, so a batch is one call, and its halves are what
+`edit-with-consequences` reports for the same batch.  A `preview` and a `recover` are
+silent, a mutation that moved no belief is silent, and a goal whose truth is not a function
+of the moved region — a conjunction, an aggregate, `unknown`, `thereExists`, an evaluable,
+an `ist` — is **refused** (`:not-watchable`) rather than watched for nothing.  A listener
+runs after the settle, so it may write; one that throws loses its own event and nothing
+else.  See [feed.md](feed.md).
+
+## Argument-shape contracts
+
+**`assert-opt-keys`** is the roster of every key `assert` / `assert-rule` reads, and a
+key off it is **refused** (`:unknown-option`) rather than ignored — as is a `:strength`
+outside `{:default :monotonic}`.  Both failures are otherwise silent in the same way:
+the sentence lands, at a defeat class the caller did not ask for, and a stored sentex
+carries no record of the class it was meant to have.  `{:strenth :monotonic}` makes
+known-true content defeasible; `{:strength 0.7}` names a class the KB does not have.
+`check` reports both, so a batch critic catches them before anything is written.
+
+`vaelii.impl.spec` carries opt-in `clojure.spec` `fdef`s for the whole shape-carrying
+surface (every entry point taking a handle, context, level, strength/direction, or an
+option/budget map) — the shapes *inside* an option the roster admits, plus a string
+where a millisecond count belongs.  Nothing runs until a caller
+`(clojure.spec.test.alpha/instrument vaelii.impl.spec/public-syms)`.  They double as
+machine-checked documentation.
+
+**A trailing `!` marks an operation that is not easily reversible** — one the KB cannot
+take back. Usually that means destroying or removing stored knowledge, and on
+`vaelii.core` the whole roster is:
+
+| | |
+|---|---|
+| `retract!` | tears down premise support and everything solely resting on it |
+| `clear!` | wipes every record and index entry |
+| `clear-violations!` | empties the dropped-conclusion ledger (the drops are final either way) |
+| `abduce-discard!` | drops an abduction's scratch context and everything it licensed |
+| `reset-settle-stats!` | clears the settle instrumentation and its histogram |
+| `bulk-assert-facts!` | only adds — but on a fast path whose two preconditions the *caller* owns, so a violated one is a store the checks would have refused |
+| `export!` | writes a directory tree outside the process |
+
+Inside `vaelii.impl.*` the same convention runs — `delete-sentex!`, `unindex-sentex!`,
+`del-genl!`, `unmark-prop!`, `clear-records!`, `clear-index!`.
+
+Everything that *adds* or *recomputes* is bare even though it mutates: `assert`,
+`assert-rule`, `add-premise`, `index-sentex`, `mark-prop`, `forward-chain`, `settle`,
+`recover`. So the `!` is a warning about not being able to undo, not a note that a
+function has effects — which is why `vaelii.core` excludes `clojure.core/assert` and
+callers write `v/assert`.
+
+Assert known-true facts with `{:strength :monotonic}`; the default is `:default`
+(most of a common-sense KB), and a default is defeasible at the edges.
+
+`opts` on assert: `{:chain? false}` skips forward chaining, `{:max-depth n}`
+bounds it. `vaelii.impl.core-context/load-into` asserts the CoreContext vocabulary — every special
+predicate the engine interprets (types/contexts, argIsa/argGenl/interArgIsa,
+disjoint/disjointMetatype,
+implies + the `set/*Rule` wrappers, the transitive/symmetric/reflexive/functional/
+inverse/decontextualizedPredicate metadata, `not`, `contradicts`, `ist`, and the
+predicate meta-ontology (`predicate` ⊃ unary/binary/ternary + the algebraic
+subtypes)), each documented by a `(comment <term> "...")` sentex so the KB
+documents itself in its own representation (`core-context/comment-of` reads them back),
+plus the metadata⇒predicate-type rules. `vaelii.impl.starter/load-into` builds a
+**schema-only** common-sense KB on top — types, relation definitions, and theory
+rules, but **no individuals or facts**. Its declarative content lives as plain text
+under `resources/kb/`, one file per context, read by `vaelii.impl.seed`
+(`read-sentences` / `load-context`, via `clojure.edn`, so a KB file is data and can
+never run code). Every sentence about a term is grouped **term-centrically** (blocks in
+natural sort order), and every context file is **discovered on the classpath and loaded
+on kb start** (`seed/layer-contexts`), so adding a KB is dropping a `<Context>.txt`
+file — no code change. What stays in `starter.clj` is the *order the layers* load in
+and the one computed batch (every type is a `unaryPredicate`, placed in CoreContext).
+The context topology is a **five-layer spindle**, most general (top) to most specific
+(bottom): **CoreContext** (the vocabulary head, every context sees it) → the **upper**
+definitional band (`kb/upper/`: `AbstractContext` = the abstract type skeleton, body
+parts and substances, `partOf`/`locatedIn`/`madeOf`, and the two **type-level**
+relations `largerThan`/`partType`; `OrganismContext` = the biological taxonomy +
+disjointness; `LifeContext` = organism relations and states; `SocietyContext` = social
+relations; `MeasureContext` = the theory of measurement; `SpaceContext` = RCC-8 region
+relations and cardinal directions; `TimeContext` = Allen's interval relations) →
+**UniverseContext** (the mid anchor, free for lifted universal facts) → the **middle**
+theory band (`kb/middle/`: `KinshipContext`, `MereologyContext`, `BiologyContext`,
+`SocialContext` — the rules; `AnatomyContext` and `SizeContext` — claims about kinds) →
+**WellContext** (the bottom anchor, transitively seeing the whole ontology).
+upper is *definitional* (what things **are**, always true, like `genl`); middle is
+*theory* (how they **interrelate**, where several overlapping accounts can coexist).
+Each upper/middle file wires itself into the axis, so the topology is data; a
+CoreContext-only KB is just the vocabulary head, and a user adds a sibling in either band.
+The middle theories are the defeasible defaults that state their own exception with
+`exceptWhen` (birds fly except penguins; animals breathe air except fish; living things
+are alive until they are dead and awake until they are asleep — four rules of one shape,
+differing in whether the exception names a species, a whole class, or a state that
+changes) and the rules with **connected conjunctive antecedents** (antecedents sharing
+a variable so they join — grandparentOf, part-location, owns-parts).
+
+**Every binary predicate says which level it relates at.** `relationKind` is a
+`disjointMetatype` over `instanceRelationPredicate` and `typeRelationPredicate`, and the
+shipped vocabulary marks all of them: `parentOf`, `northOf` and `madeOf` relate
+individuals; `genl`, `disjoint`, `largerThan` and `partType` relate kinds. *At most* one,
+not exactly one — five are honestly neither and are left unmarked rather than forced
+(`implies` is a connective; `rewriteOf` takes either role so long as its two sides agree;
+`resultIsa` and `resultGenl` relate a function to a type;
+`functionCorrespondingPredicate` relates a function to a predicate). The distinction is what
+`typeToInstancePred` is stated over, and it is the difference between `(largerThan dog
+cat)` — dogs are bigger than cats — and a claim about two particular animals.
+
+**Contingent data lives in the tests.** The starter ships no cast: individuals, facts,
+and the worked fables hang **below WellContext** in the test-world. `test/vaelii/world.clj`
+loads a cast (type memberships + natural-world facts in `NaturalWorldContext`, social
+facts in a sibling `SocialWorldContext`); `test/vaelii/world_fables.clj` adds four Aesop
+fables as microtheories under `StoriesContext` (`LionMouseContext`, `TortoiseHareContext`,
+`AntGrasshopperContext`, `CriedWolfContext`), each *deriving* its moral by joined
+inference; `test/vaelii/world_narrative.clj` layers a **story-understanding ontology**
+(types agent/event/action/goal/mental_state and relations
+wants/does/brings/achieves/causes/beforeEvent/afterEvent with metadata — `causes`,
+`beforeEvent` transitive; `beforeEvent`/`afterEvent` inverse — and argIsa, plus a forward
+goal-achievement rule `wants + brings + achieves ⇒ achievesGoal`) on a new fable
+`FoxCrowContext` and retrofitted onto `TortoiseHareContext`. Because `sentexes-matching` is
+exact-context and a middle theory is seen by every WellContext descendant, a rule firing
+over cast facts in `NaturalWorldContext` places its conclusion back there. `afterEvent`
+inverts a transitively-derived `beforeEvent` as well as a direct one: `InverseProver`
+hands the swapped goal back to the engine (minus itself and backchaining) rather than
+matching raw facts, so an inverse composes with its partner's transitivity.

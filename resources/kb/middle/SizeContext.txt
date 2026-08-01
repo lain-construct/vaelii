@@ -1,0 +1,60 @@
+;; SizeContext — comparative size, said the two ways it can be said: among *kinds* as
+;; stated `largerThan` claims, and between two particular objects as a comparison
+;; computed from their measures. Sees the shared upper ontology via UniverseContext;
+;; WellContext sees it.
+;;
+;; The kind-level half is the worked example of argument-position preservation
+;; (docs/inherit.md). `largerThan` is declared argPreserving along `genl` on both
+;; positions, so each claim below reaches every pair of subkinds beneath it: (largerThan
+;; mammal insect) answers (largerThan dog ant) with nothing stored about dogs or ants,
+;; and (largerThan tree flower) answers (largerThan oak rose). Eleven stated claims, and
+;; the closure of what they answer is far larger — which is what makes the declaration
+;; worth its keep and also what makes it dangerous, since the inheritance is a claim
+;; about the relation and not a fact about the world.
+;;
+;; Every pair below is between kinds that are **not** genl-related, and that is a
+;; requirement rather than a coincidence. `largerThan` is asymmetric, hence irreflexive,
+;; and preservation runs downward — so a claim about a kind and one of its own subkinds
+;; would license (largerThan K K) and contradict itself. (largerThan mammal mouse) is
+;; not a fact this ontology can hold, however true it sounds.
+;;
+;; The instance-level half moves in the opposite direction: nothing is inherited and
+;; nothing is stated, since `heavierThan` and `tallerThan` are read off two measures
+;; through the quantity provers. The two halves are deliberately not connected. A dog
+;; being a larger kind than a cat does not make this dog heavier than that cat, and a
+;; rule bridging them would put a claim about kinds where a claim about things belongs.
+;; Both rules are backward-only, like `olderThan`, whose shape they share: an ordering
+;; over every pair of measured objects is a great many facts nobody asked for.
+
+(genlContext SizeContext UniverseContext)
+(genlContext WellContext SizeContext)
+
+(set/backwardRule
+  (implies (and (weightOf ?x ?wx) (weightOf ?y ?wy) (quantityGreaterThan ?wx ?wy))
+           (heavierThan ?x ?y)))
+
+(largerThan bird insect)
+
+(largerThan cow sheep)
+
+(largerThan dog cat)
+
+(largerThan eagle sparrow)
+
+(largerThan horse dog)
+
+(largerThan lion cat)
+
+(largerThan mammal insect)
+
+(largerThan reptile insect)
+
+(largerThan tree flower)
+
+(largerThan tree grass)
+
+(largerThan wolf fox)
+
+(set/backwardRule
+  (implies (and (heightOf ?x ?hx) (heightOf ?y ?hy) (quantityGreaterThan ?hx ?hy))
+           (tallerThan ?x ?y)))

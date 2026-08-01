@@ -1,0 +1,150 @@
+;; MeasureContext — the theory of measurement: the two measure terms (QuantityFn and
+;; QuantityIntervalFn, unreifiableFunction applications that stay structural so a
+;; magnitude and its unit remain readable), the unit table the quantity provers
+;; normalize against (dimensionOf / conversionFactor), and the five comparisons they
+;; compute (sameQuantity / quantityLessThan / quantityGreaterThan and the two
+;; or-equal forms). Sees CoreContext; UniverseContext sees it, so a measure is
+;; comparable from every microtheory.
+;;
+;; A comparison is never stored — the provers compute it from ground measures against
+;; the table, and two measures of different dimensions are simply not comparable. See
+;; docs/quantity.md.
+;;
+;; The units themselves ship, and the test for one is the same test CoreContext applies
+;; to its vocabulary: a unit belongs here when its factor is a **definition** rather than
+;; a measurement. A minute is sixty seconds by stipulation, so the table can state it;
+;; how much a particular dog weighs is a measurement, so it cannot. Three dimensions are
+;; covered — Length in Meter, Mass in Kilogram, Duration in Second — and a KB measuring
+;; anything else states its own units the same way. Shipping them is what stops every
+;; consumer of the measure vocabulary from spelling its own Gram, which is the
+;; fragmentation this KB exists to prevent, and it is the difference between a grammar
+;; nobody can compute with and one that answers.
+
+(genlContext MeasureContext CoreContext)
+(genlContext UniverseContext MeasureContext)
+
+(comment Centimeter "A hundredth of a metre.")
+(dimensionOf Centimeter Length)
+(conversionFactor Centimeter Meter 0.01)
+
+(comment conversionFactor
+         "(conversionFactor ?unit ?baseUnit ?factor) means that one ?unit equals ?factor of ?baseUnit. So (conversionFactor Gram Kilogram 0.001) says a gram is a thousandth of a kilogram. Every unit states its factor against its dimension's base unit directly rather than against a neighbouring one, so normalizing a magnitude is a single multiply and never a chain. An ordinary stored fact, read by the quantity provers.")
+(ternaryPredicate conversionFactor)
+
+(comment Day "Twenty-four hours.")
+(dimensionOf Day Duration)
+(conversionFactor Day Second 86400)
+
+(comment dimensionOf
+         "(dimensionOf ?unit ?dimension) means that ?unit measures ?dimension. So (dimensionOf Kilogram Mass) says kilograms measure mass. Two measures are comparable only within one dimension, so this is what the quantity provers consult before they normalize anything, and a mismatch comes back not comparable rather than false. An ordinary stored fact.")
+(binaryPredicate dimensionOf)
+(instanceRelationPredicate dimensionOf)
+
+(comment Duration "The dimension of extent in time. Its base unit is Second, and an interval's length is measured in it.")
+
+(comment Gram "A thousandth of a kilogram.")
+(dimensionOf Gram Mass)
+(conversionFactor Gram Kilogram 0.001)
+
+(comment heavierThan
+         "(heavierThan ?object1 ?object2) means that ?object1 weighs more than ?object2. Between two particular objects, and derived rather than asserted: a rule compares their two weightOf measures with quantityGreaterThan, so it holds exactly when both weights are known and ordered. The instance-level counterpart of the type-level largerThan, and declared asymmetric, so a KB told it both ways round has a contradiction to report.")
+(binaryPredicate heavierThan)
+(instanceRelationPredicate heavierThan)
+(argIsa heavierThan 1 physical_object)
+(argIsa heavierThan 2 physical_object)
+(asymmetric heavierThan)
+
+(comment heightOf
+         "(heightOf ?object ?measure) means that ?object stands ?measure tall. A measure of Length, exact as (QuantityFn 2 Meter) or bounded as (QuantityIntervalFn 1 2 Meter). Functional, like weightOf and for the same reason: with no time argument to say when, a second height is a contradiction rather than a second fact.")
+(binaryPredicate heightOf)
+(instanceRelationPredicate heightOf)
+(argIsa heightOf 1 physical_object)
+(functional heightOf)
+
+(comment Hour "Sixty minutes.")
+(dimensionOf Hour Duration)
+(conversionFactor Hour Second 3600)
+
+(comment Kilogram "The base unit of mass.")
+(dimensionOf Kilogram Mass)
+(conversionFactor Kilogram Kilogram 1)
+
+(comment Kilometer "A thousand metres.")
+(dimensionOf Kilometer Length)
+(conversionFactor Kilometer Meter 1000)
+
+(comment Length "The dimension of spatial extent. Its base unit is Meter.")
+
+(comment Mass "The dimension of how much matter a thing has. Its base unit is Kilogram.")
+
+(comment Meter "The base unit of length.")
+(dimensionOf Meter Length)
+(conversionFactor Meter Meter 1)
+
+(comment Millimeter "A thousandth of a metre.")
+(dimensionOf Millimeter Length)
+(conversionFactor Millimeter Meter 0.001)
+
+(comment Minute "Sixty seconds.")
+(dimensionOf Minute Duration)
+(conversionFactor Minute Second 60)
+
+(comment QuantityFn
+         "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms. An unreifiableFunction application, a NAUT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
+(unreifiableFunction QuantityFn)
+
+(comment quantityGreaterThan
+         "(quantityGreaterThan ?measure1 ?measure2) means that ?measure1 is greater than ?measure2 once both are normalized to their dimension's base unit. Necessarily greater, so for intervals all of ?measure1 must lie strictly above all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
+(binaryPredicate quantityGreaterThan)
+(instanceRelationPredicate quantityGreaterThan)
+
+(comment quantityGreaterThanOrEqual
+         "(quantityGreaterThanOrEqual ?measure1 ?measure2) means that ?measure1 is at least ?measure2 once both are normalized to their dimension's base unit. Necessarily at least, so for intervals every value of ?measure1 must reach every value of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
+(binaryPredicate quantityGreaterThanOrEqual)
+(instanceRelationPredicate quantityGreaterThanOrEqual)
+
+(comment QuantityIntervalFn
+         "(QuantityIntervalFn ?lo ?hi ?unit) means the measure lying somewhere between ?lo and ?hi ?unit. So (QuantityIntervalFn 1 2 Meter) is between one and two metres. An unreifiableFunction application like QuantityFn, and compared under the necessary reading: a claim holds of the interval only when it holds of every value in it.")
+(unreifiableFunction QuantityIntervalFn)
+
+(comment quantityLessThan
+         "(quantityLessThan ?measure1 ?measure2) means that ?measure1 is less than ?measure2 once both are normalized to their dimension's base unit. Necessarily less, so for intervals all of ?measure1 must lie strictly below all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
+(binaryPredicate quantityLessThan)
+(instanceRelationPredicate quantityLessThan)
+
+(comment quantityLessThanOrEqual
+         "(quantityLessThanOrEqual ?measure1 ?measure2) means that ?measure1 is at most ?measure2 once both are normalized to their dimension's base unit. Necessarily at most, so for intervals every value of ?measure1 must stay under every value of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
+(binaryPredicate quantityLessThanOrEqual)
+(instanceRelationPredicate quantityLessThanOrEqual)
+
+(comment sameQuantity
+         "(sameQuantity ?measure1 ?measure2) means that ?measure1 and ?measure2 are the same quantity once both are normalized to their dimension's base unit. So a thousand grams and one kilogram are the same quantity though they are different terms. Computed by a prover from the dimensionOf and conversionFactor facts, never stored, and never an equality: the equality closure is a partition over symbols and holds no numbers or compounds, so this says two measures agree and not that two names denote one thing.")
+(binaryPredicate sameQuantity)
+(instanceRelationPredicate sameQuantity)
+
+(comment Second "The base unit of duration.")
+(dimensionOf Second Duration)
+(conversionFactor Second Second 1)
+
+(comment tallerThan
+         "(tallerThan ?object1 ?object2) means that ?object1 stands higher than ?object2. Derived by comparing two heightOf measures, the same shape heavierThan has over weights, and asymmetric for the same reason.")
+(binaryPredicate tallerThan)
+(instanceRelationPredicate tallerThan)
+(argIsa tallerThan 1 physical_object)
+(argIsa tallerThan 2 physical_object)
+(asymmetric tallerThan)
+
+(comment Tonne "A thousand kilograms.")
+(dimensionOf Tonne Mass)
+(conversionFactor Tonne Kilogram 1000)
+
+(comment Week "Seven days.")
+(dimensionOf Week Duration)
+(conversionFactor Week Second 604800)
+
+(comment weightOf
+         "(weightOf ?object ?measure) means that ?object weighs ?measure. A measure of Mass, exact as (QuantityFn 20 Kilogram) or bounded as (QuantityIntervalFn 18 22 Kilogram). Declared functional: one object, one weight, since nothing here says at what time — and two measures are compounds rather than symbols, so a second one is refused outright instead of merging the way two names for one thing would.")
+(binaryPredicate weightOf)
+(instanceRelationPredicate weightOf)
+(argIsa weightOf 1 physical_object)
+(functional weightOf)

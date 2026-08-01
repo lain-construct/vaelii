@@ -1,0 +1,77 @@
+name: lint
+
+# Static analysis, and the doc gates that go with it — `lein lint`, which is
+# scripts/lint.sh: glossary structure, relative-link resolution, doc/code drift,
+# clj-kondo, cljfmt and shellcheck. One job, because the script already runs all
+# six and is deliberately NOT fail-fast: splitting them into six jobs would cost
+# six JVM boots to learn what one run already knows, and would lose the report.
+#
+# Nothing here needs a KB, a backend or a network call, so this is the cheap gate
+# — it answers "is the tree well-formed" while test.yml answers "is it right".
+# Keep it the required check that a doc-only change still has to pass: test.yml
+# skips doc-only changes and this workflow does not, so the doc gates are exactly
+# the thing a README edit is still gated on.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  schedule:
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+# Least privilege: this job reads the repo and runs analysis. It never writes
+# back, and it touches no secret — so a fork's pull request runs it in full.
+permissions:
+  contents: read
+
+# Supersede a pull request's older runs, never a push or the canary: cancelling
+# a push run would leave main's last commit with no verdict at all.
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        with:
+          lein: latest
+
+      # kondo runs as a standalone binary, not through lein — `lein lint-kondo`
+      # shells out to it. Install the official release.
+      - name: Install clj-kondo
+        run: |
+          curl -sLO https://raw.githubusercontent.com/clj-kondo/clj-kondo/master/script/install-clj-kondo
+          chmod +x install-clj-kondo
+          sudo ./install-clj-kondo --dir /usr/local/bin
+
+      - name: Cache Maven deps
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2
+          key: m2-${{ hashFiles('project.clj') }}
+          # Partial-restore on a project.clj bump instead of a full re-download.
+          restore-keys: |
+            m2-
+
+      # shellcheck and python3 are preinstalled on ubuntu-latest; lint.sh names
+      # what it needs and fails the check with an install hint if one is absent,
+      # so a runner image that drops one reports it rather than skipping it.
+      #
+      # The whole report in one command, so CI and a local run cannot diverge:
+      # `lein lint` here is the same `lein lint` a contributor runs, and its exit
+      # status is already non-zero iff any check failed.
+      - name: Lint
+        run: lein lint

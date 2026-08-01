@@ -1,0 +1,221 @@
+;; TimeContext — the theory of time: qualitative relations between INTERVALS in Allen's
+;; algebra, qualitative order between INSTANTS in the point algebra, the two joined by an
+;; interval's endpoints, and the metric layer that puts real measures on the gaps. Sees
+;; CoreContext; UniverseContext sees it, so a temporal relation is stateable from every
+;; microtheory. An interval and an instant are both ordinary individuals — nothing here
+;; declares them, and nothing here is about clocks or calendars.
+;;
+;; Thirteen BASE relations, jointly exhaustive and pairwise disjoint, so exactly one holds
+;; of any two intervals. Writing an interval as its start and end: before (A ends before B
+;; starts), meets (A ends exactly where B starts), overlaps (A starts first and they share
+;; a middle), finishedBy / contains / startedBy (A extends past B on one or both sides),
+;; starts / during / finishes (B extends past A on one or both sides), intervalEqual (same
+;; start, same end), and the converses overlappedBy, metBy and after. Six converse pairs
+;; and one self-converse: before/after, meets/metBy, overlaps/overlappedBy,
+;; starts/startedBy, during/contains, finishes/finishedBy, and intervalEqual.
+;;
+;; Seven DERIVED relations each name a disjunction of them: precedes (before or meets) and
+;; its converse precededBy, for an ordering that does not care whether the intervals
+;; touch; subintervalOf (during, starts, finishes or intervalEqual), properSubintervalOf
+;; (the same without intervalEqual) and hasSubinterval (its converse), for temporal
+;; containment; and the complementary pair sharesTimeWith (the nine relations under which
+;; two intervals share some time) and temporallyDisjoint (the four under which they do
+;; not).
+;;
+;; intervalEqual is a claim about extent in time, not about the identity of two terms, so
+;; it is not the equality closure's equals: two distinct meetings can run start to finish
+;; together without being one meeting.
+;;
+;; Instants are the other unit, and the smaller one: a moment has no extent, so the only
+;; question about two of them is which came first. Three BASE relations, again jointly
+;; exhaustive and pairwise disjoint — instantBefore, instantEqual, instantAfter — and three
+;; DERIVED ones, each the complement of one of them and so, over a jointly-exhaustive
+;; triple, literally its negation: instantNotAfter (at or before, the ≤ of time),
+;; instantNotBefore (at or after, the ≥) and instantNotEqual. Every name carries the
+;; instant prefix because before and after already belong to the intervals, and a moment
+;; ordered against a moment is a different claim from a stretch ordered against a stretch.
+;;
+;; startOf and endOf join the two: they name an interval's two bounding instants, so an
+;; Allen relation between two intervals and an ordering between their endpoints are claims
+;; about the same thing. That is also where the metric layer attaches. temporalDistance
+;; states how far apart two instants are, as a measure — an exact (QuantityFn N Unit) or a
+;; bounded (QuantityIntervalFn Lo Hi Unit), and negative when the second instant comes
+;; first. A prover closes those constraints by all-pairs shortest paths, answers the
+;; tightest separation entailed between any two instants, and reports a network that
+;; contradicts itself. See docs/stp.md.
+;;
+;; Duration is the quantitative half, and it is where time meets measurement. An
+;; interval's own duration is the stored fact (length I M), whose measure M is one of
+;; MeasureContext's NAUTs. totalDuration and overlapDuration are computed from those and
+;; never stored: a prover reads the lengths, normalizes them against the unit table, does
+;; the arithmetic on magnitude bounds, and renders the answer in the dimension's base
+;; unit — as a point when it is exact and an interval when it is only bounded, so an
+;; over-approximation says so rather than claiming a figure. See docs/duration.md.
+;;
+;; All of them are ordinary stored facts. A prover reads every interval relation visible
+;; in a context into a single constraint network, tightens it by composition, and answers
+;; a goal by entailment — (P a b) holds iff every relation still possible between a and b
+;; satisfies P. So (before A B) and (before B C) answer (before A C), and (during A B)
+;; with (during B C) answers (during A C) and the weaker (subintervalOf A C) with it. The
+;; prover is opt-in; the vocabulary is not. See docs/time.md.
+
+(genlContext TimeContext CoreContext)
+(genlContext UniverseContext TimeContext)
+
+(comment after
+         "(after ?interval1 ?interval2) means that ?interval1 begins strictly after ?interval2 ends. They share no time and do not touch, so some gap separates them. The converse of before.")
+(binaryPredicate after)
+(instanceRelationPredicate after)
+
+(comment before
+         "(before ?interval1 ?interval2) means that ?interval1 ends strictly before ?interval2 begins. They share no time and do not touch, so some gap separates them. One of Allen's thirteen base relations, with after as its converse.")
+(binaryPredicate before)
+(instanceRelationPredicate before)
+
+(comment contains
+         "(contains ?interval1 ?interval2) means that ?interval1 begins strictly before ?interval2 and ends strictly after it. So ?interval2 falls wholly inside ?interval1 with room either side. The converse of during.")
+(binaryPredicate contains)
+(instanceRelationPredicate contains)
+
+(comment during
+         "(during ?interval1 ?interval2) means that ?interval1 falls wholly inside ?interval2, beginning strictly after it and ending strictly before it. The converse of contains.")
+(binaryPredicate during)
+(instanceRelationPredicate during)
+
+(comment endOf
+         "(endOf ?interval ?instant) means that ?instant is the moment ?interval ends. One of the interval's two bounding instants, the other being its startOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants: one interval before another is exactly its end instant before the other's start.")
+(binaryPredicate endOf)
+(instanceRelationPredicate endOf)
+
+(comment finishedBy
+         "(finishedBy ?interval1 ?interval2) means that ?interval1 and ?interval2 end together, and ?interval1 began first. So ?interval2 is a closing part of ?interval1. The converse of finishes.")
+(binaryPredicate finishedBy)
+(instanceRelationPredicate finishedBy)
+
+(comment finishes
+         "(finishes ?interval1 ?interval2) means that ?interval1 and ?interval2 end together, and ?interval1 began later. So ?interval1 is a closing part of ?interval2. The converse of finishedBy.")
+(binaryPredicate finishes)
+(instanceRelationPredicate finishes)
+
+(comment hasSubinterval
+         "(hasSubinterval ?interval1 ?interval2) means that ?interval2 falls within ?interval1, sharing an end, a start, or neither. Any of contains, startedBy, finishedBy or intervalEqual. The converse of subintervalOf.")
+(binaryPredicate hasSubinterval)
+(instanceRelationPredicate hasSubinterval)
+
+(comment instantAfter
+         "(instantAfter ?instant1 ?instant2) means that ?instant1 falls strictly later in time than ?instant2. A claim about moments rather than about intervals, which is why it is spelled apart from Allen's after. The converse of instantBefore.")
+(binaryPredicate instantAfter)
+(instanceRelationPredicate instantAfter)
+
+(comment instantBefore
+         "(instantBefore ?instant1 ?instant2) means that ?instant1 falls strictly earlier in time than ?instant2. A claim about moments rather than about intervals, which is why it is spelled apart from Allen's before. The converse of instantAfter.")
+(binaryPredicate instantBefore)
+(instanceRelationPredicate instantBefore)
+
+(comment instantEqual
+         "(instantEqual ?instant1 ?instant2) means that ?instant1 and ?instant2 are the same moment. The identity of the point algebra, and a claim about time rather than about the identity of the two terms, so it is not the equality closure's equals.")
+(binaryPredicate instantEqual)
+(instanceRelationPredicate instantEqual)
+
+(comment instantNotAfter
+         "(instantNotAfter ?instant1 ?instant2) means that ?instant1 falls at or before ?instant2. Either instantBefore or instantEqual, the ≤ of time. The complement of instantAfter, which over three jointly exhaustive relations is exactly its negation.")
+(binaryPredicate instantNotAfter)
+(instanceRelationPredicate instantNotAfter)
+
+(comment instantNotBefore
+         "(instantNotBefore ?instant1 ?instant2) means that ?instant1 falls at or after ?instant2. Either instantAfter or instantEqual, the ≥ of time. The complement of instantBefore, which over three jointly exhaustive relations is exactly its negation.")
+(binaryPredicate instantNotBefore)
+(instanceRelationPredicate instantNotBefore)
+
+(comment instantNotEqual
+         "(instantNotEqual ?instant1 ?instant2) means that ?instant1 and ?instant2 are different moments, one before the other. Either instantBefore or instantAfter, and the complement of instantEqual.")
+(binaryPredicate instantNotEqual)
+(instanceRelationPredicate instantNotEqual)
+
+(comment intervalEqual
+         "(intervalEqual ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together and end together. The identity of the interval algebra, and a claim about extent in time rather than about the identity of the two terms, so it is not the equality closure's equals.")
+(binaryPredicate intervalEqual)
+(instanceRelationPredicate intervalEqual)
+
+(comment length
+         "(length ?interval ?measure) means that ?interval lasts ?measure. Exact as (QuantityFn 2 Hour), and bounded as (QuantityIntervalFn 1 2 Hour) when only bounds are known. An interval's one primitive duration and the only quantitative fact stated about it, since totalDuration and overlapDuration are both computed from these. A duration, not a spatial extent.")
+(binaryPredicate length)
+(instanceRelationPredicate length)
+
+(comment meets
+         "(meets ?interval1 ?interval2) means that ?interval1 ends exactly where ?interval2 begins. No gap and no overlap, which is what separates it from before. The converse of metBy.")
+(binaryPredicate meets)
+(instanceRelationPredicate meets)
+
+(comment metBy
+         "(metBy ?interval1 ?interval2) means that ?interval1 begins exactly where ?interval2 ends. The converse of meets.")
+(binaryPredicate metBy)
+(instanceRelationPredicate metBy)
+
+(comment overlapDuration
+         "(overlapDuration ?interval1 ?interval2 ?duration) means that ?duration is how long ?interval1 and ?interval2 overlap. Computed from their lengths and the Allen relations still possible between them: zero when they are temporallyDisjoint, the contained length when one is a subintervalOf the other, and the bounded (QuantityIntervalFn 0 shorter unit) otherwise, so an over-approximation renders as an interval and says as much. Computed by a prover, never stored.")
+(ternaryPredicate overlapDuration)
+
+(comment overlappedBy
+         "(overlappedBy ?interval1 ?interval2) means that ?interval2 begins first, and ?interval1 begins before ?interval2 ends and ends after it. So they share a middle stretch and each has time the other does not. The converse of overlaps.")
+(binaryPredicate overlappedBy)
+(instanceRelationPredicate overlappedBy)
+
+(comment overlaps
+         "(overlaps ?interval1 ?interval2) means that ?interval1 begins first, and ?interval2 begins before ?interval1 ends and ends after it. So they share a middle stretch and each has time the other does not. The converse of overlappedBy.")
+(binaryPredicate overlaps)
+(instanceRelationPredicate overlaps)
+
+(comment precededBy
+         "(precededBy ?interval1 ?interval2) means that ?interval1 begins at or after the moment ?interval2 ends. Either after or metBy. The converse of precedes.")
+(binaryPredicate precededBy)
+(instanceRelationPredicate precededBy)
+
+(comment precedes
+         "(precedes ?interval1 ?interval2) means that ?interval1 ends at or before the moment ?interval2 begins. Either before or meets, so it is the ordering that does not care whether the two touch. Derived rather than base, and the converse of precededBy.")
+(binaryPredicate precedes)
+(instanceRelationPredicate precedes)
+
+(comment properSubintervalOf
+         "(properSubintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2 and is not the whole of it. Any of during, starts or finishes. Irreflexive, unlike subintervalOf.")
+(binaryPredicate properSubintervalOf)
+(instanceRelationPredicate properSubintervalOf)
+
+(comment sharesTimeWith
+         "(sharesTimeWith ?interval1 ?interval2) means that ?interval1 and ?interval2 have some time in common. Any relation but before, after, meets and metBy, so it is the complement of temporallyDisjoint.")
+(binaryPredicate sharesTimeWith)
+(instanceRelationPredicate sharesTimeWith)
+
+(comment startedBy
+         "(startedBy ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together, and ?interval1 ends later. So ?interval2 is an opening part of ?interval1. The converse of starts.")
+(binaryPredicate startedBy)
+(instanceRelationPredicate startedBy)
+
+(comment startOf
+         "(startOf ?interval ?instant) means that ?instant is the moment ?interval begins. One of the interval's two bounding instants, the other being its endOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants.")
+(binaryPredicate startOf)
+(instanceRelationPredicate startOf)
+
+(comment starts
+         "(starts ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together, and ?interval1 ends earlier. So ?interval1 is an opening part of ?interval2. The converse of startedBy.")
+(binaryPredicate starts)
+(instanceRelationPredicate starts)
+
+(comment subintervalOf
+         "(subintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2, sharing an end, a start, or neither. Any of during, starts, finishes or intervalEqual, so it is derived rather than base. Reflexive: every interval is a subinterval of itself.")
+(binaryPredicate subintervalOf)
+(instanceRelationPredicate subintervalOf)
+
+(comment temporalDistance
+         "(temporalDistance ?instant1 ?instant2 ?measure) means that ?instant2 falls ?measure later than ?instant1. So a negative measure says ?instant2 comes first. Exact as (QuantityFn N Unit) and bounded as (QuantityIntervalFn Lo Hi Unit). A stated one is an ordinary fact; a prover closes every such constraint visible in a context by all-pairs shortest paths and answers the tightest separation they entail between any two instants, binding the measure when it is open and checking containment when it is ground.")
+(ternaryPredicate temporalDistance)
+
+(comment temporallyDisjoint
+         "(temporallyDisjoint ?interval1 ?interval2) means that ?interval1 and ?interval2 have no time in common. Any of before, after, meets or metBy, so it is the complement of sharesTimeWith.")
+(binaryPredicate temporallyDisjoint)
+(instanceRelationPredicate temporallyDisjoint)
+
+(comment totalDuration
+         "(totalDuration (list ?interval1 ?interval2 …) ?duration) means that ?duration is the sum of the listed intervals' lengths, which must all be of one dimension. Binary rather than ternary: the (list …) of components is one argument, which is also why the signature is read as a description instead of substituted into. Computed by a prover, never stored.")
+(binaryPredicate totalDuration)
+(instanceRelationPredicate totalDuration)

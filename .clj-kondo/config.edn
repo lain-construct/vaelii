@@ -1,0 +1,83 @@
+;; clj-kondo configuration for vaelii.
+;;
+;; The test suite drives the KB through a handful of binding macros in
+;; `vaelii.test-util`.  clj-kondo can't see the bindings they introduce, so out of
+;; the box it reported ~940 phantom `Unresolved symbol` errors:
+;;
+;;   - deftest-kb        binds `kb`             (a deftest whose body has kb bound)
+;;   - with-terms        binds a vector of temps (with-terms [dog Fido] …)
+;;   - with-kb / with-neutral-kb / with-cleared-kb   bind a KB symbol
+;;
+;; `:lint-as` teaches clj-kondo the deftest/let shape of each; the matching
+;; `:unresolved-symbol` excludes tell it not to flag the names those macros bind
+;; inside their own bodies.  (A hook that macroexpanded them was tried and rejected:
+;; it turned the implicit `kb` binding into an *unused-binding* warning on every
+;; test that doesn't touch kb.)  `with-kb` is NOT lint-as'd: its binding vector is a
+;; single symbol (`(with-kb [kb] …)`), which is not the even-arity shape `let` wants,
+;; so the exclude below carries it instead.  `defspec` (test.check) defines a var by
+;; its first arg, like `deftest`.
+;;
+;; `vaelii.impl.access/defreads` is the same shape one level up: it takes a list of op
+;; names and *defines* a wrapper per name, so those names are definitions rather than
+;; calls and must not be read as unresolved.
+{:lint-as
+ {vaelii.test-util/deftest-kb             clojure.test/deftest
+  vaelii.test-util/with-neutral-kb        clojure.core/let
+  vaelii.test-util/with-cleared-kb        clojure.core/let
+  clojure.test.check.clojure-test/defspec clojure.test/deftest}
+
+ :linters
+ {:unresolved-symbol
+  {:exclude [(vaelii.test-util/deftest-kb)
+             (vaelii.test-util/with-terms)
+             (vaelii.test-util/with-kb)
+             (vaelii.test-util/with-neutral-kb)
+             (vaelii.test-util/with-cleared-kb)
+             ;; `defreads` defines one target-first wrapper per op name, so the names
+             ;; in its list are being *defined*, not called.
+             (vaelii.impl.access/defreads)]}
+
+  ;; Many test namespaces `:refer` deftest but drive the KB through `deftest-kb`
+  ;; (which expands to clojure.test/deftest), so the direct `deftest` reads as
+  ;; unused.  It isn't — the idiom uses it indirectly — so don't flag it.
+  :unused-referred-var {:exclude {clojure.test [deftest]}}
+
+  ;; The tests use a deliberate two-level `let` — an outer binding the fresh
+  ;; gensym'd temps, an inner binding what's derived from them — to separate
+  ;; "arrange" from "act".  clj-kondo reads the nesting as mergeable; flattening
+  ;; it would erase that structure, so this pedantic linter stays off.
+  :redundant-let {:level :off}
+
+  ;; nippy's compressor singletons (`nippy/zstd-compressor` / `lz4-compressor`,
+  ;; used by the opt-in disk compression in vaelii.impl.disk.files) are `def`'d
+  ;; through an indirection clj-kondo doesn't follow, so it reads them as
+  ;; unresolved.  They exist; exclude the two by name.
+  ;; `vaelii.impl.access`'s whole read surface is defined by `defreads`, one var per op
+  ;; name, so *no* var of that namespace is visible to clj-kondo and every call to one
+  ;; reads as unresolved.  Exclude the namespace rather than list a name at a time.
+  :unresolved-var {:exclude [taoensso.nippy/zstd-compressor
+                             taoensso.nippy/lz4-compressor
+                             vaelii.impl.access]}}
+
+ ;; The disk backend guards each on-disk file family with a shared `Object` held on
+ ;; its record/backend (created once at open, stored in a field).  clj-kondo's
+ ;; :locking linter can't see that `(:lock k)` returns that same stable object each
+ ;; call, so it flags every `(locking (:lock k) …)` as a per-call lock.  It isn't —
+ ;; scope the linter off in the two disk namespaces that use the pattern.
+ ;;
+ ;; The three `:unused-excluded-var` scopings below are each a `:refer-clojure :exclude`
+ ;; clj-kondo reads as dead, for two different reasons.  `access` really does define
+ ;; `isa?` — `defreads` mints one wrapper per op name, and the macro is opaque to the
+ ;; linter (the :unresolved-symbol exclude above is the same blindness seen from the
+ ;; other side), so without the exclusion the `def` collides with `clojure.core/isa?`.
+ ;; `naming` and `sentex` define no `name`, and that is the point: they are the two
+ ;; namespaces where "name" is domain vocabulary, so excluding it makes a bare `name` an
+ ;; unresolved symbol rather than silently `clojure.core/name`.  Both reach the core fn
+ ;; by its full spelling (`naming`'s `nm` helper exists for exactly that), so dropping
+ ;; the exclusion would cost the guard and change nothing else.
+ :config-in-ns
+ {vaelii.impl.disk.record-store {:linters {:locking-suspicious-lock {:level :off}}}
+  vaelii.impl.disk.kv           {:linters {:locking-suspicious-lock {:level :off}}}
+  vaelii.impl.access            {:linters {:unused-excluded-var {:level :off}}}
+  vaelii.impl.naming            {:linters {:unused-excluded-var {:level :off}}}
+  vaelii.impl.sentex            {:linters {:unused-excluded-var {:level :off}}}}}

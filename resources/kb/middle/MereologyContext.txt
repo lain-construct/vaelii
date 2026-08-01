@@ -1,0 +1,12 @@
+;; MereologyContext — part/location/ownership theory: a part is located wherever
+;; its whole is, and owning a whole entails owning its parts. Sees the shared
+;; upper ontology via UniverseContext; WellContext sees it.
+
+(genlContext MereologyContext UniverseContext)
+(genlContext WellContext MereologyContext)
+
+(implies (and (partOf ?part ?whole) (locatedIn ?whole ?place))
+         (locatedIn ?part ?place))
+
+(implies (and (owns ?p ?whole) (partOf ?part ?whole))
+         (owns ?p ?part))

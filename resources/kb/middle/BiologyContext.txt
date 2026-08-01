@@ -1,0 +1,71 @@
+;; BiologyContext — defeasible biology theory: birds fly by default except penguins,
+;; animals breathe air except fish, living things are alive until they are dead and
+;; awake until they are asleep, and warm-bloodedness follows from the class. Sees the
+;; shared upper ontology via UniverseContext; WellContext sees it.
+;;
+;; Four of these rules are the same shape, deliberately: a default with its own
+;; exception. What differs is what the exception names, which is the thing worth
+;; comparing. `penguin` is one awkward species; `fish` is a whole class, and reaches
+;; every kind of fish ever added because matching fans an antecedent out over the
+;; subtype closure; `dead` and `asleep` are states that change, so the same machinery
+;; that handles a permanent species fact handles a temporary one with no extra
+;; vocabulary and no notion of time.
+
+(genlContext BiologyContext UniverseContext)
+(genlContext WellContext BiologyContext)
+
+;; ---- alive until told otherwise -----------------------------------------
+;; The negation is derived separately, so death is a positive claim and not merely
+;; the failure of a default: an application can query (not (alive X)) and argue from
+;; it, where "we never concluded it was alive" supports nothing at all.
+(implies (and (dead ?x)) (not (alive ?x)))
+(exceptWhen (dead ?x)
+  (set/defaultRule (implies (and (living_thing ?x)) (alive ?x))))
+
+;; ---- awake until told otherwise ------------------------------------------
+;; Sleep is what this theory is willing to assume. A proof that dead-ends on an animal
+;; not acting may hypothesize that it is asleep — the one explanation here cheap enough
+;; to be worth guessing, since an animal is asleep for part of every day and nothing
+;; else follows from it. Nothing else is granted: an abducer that will assume anything
+;; explains everything and is worth nothing, so each grant is a policy this microtheory
+;; states rather than a capability the engine has.
+(abduciblePredicate asleep)
+
+(implies (and (asleep ?x)) (not (awake ?x)))
+(exceptWhen (asleep ?x)
+  (set/defaultRule (implies (and (animal ?x)) (awake ?x))))
+
+;; ---- air-breathing, excepted by a whole class ----------------------------
+(exceptWhen (fish ?x)
+  (set/defaultRule (implies (and (animal ?x)) (breathesAir ?x))))
+
+(implies (and (flies ?x)) (canTravel ?x))
+
+;; The exception is written **on the rule it excepts** (exceptWhen), not as a second
+;; rule concluding the opposite literal.  That is undercutting rather than rebutting:
+;; for a penguin the flight rule simply does not conclude, so there is no (flies Pingu)
+;; to defeat, nothing to arbitrate, and no reliance on penguin happening to be the more
+;; specific type.  See docs/exceptions.md.
+;;
+;; (not (flies ?x)) stays, and is not the same statement: it is a positive claim that
+;; penguins are flightless, which an application can query and argue from.
+(implies (and (penguin ?x)) (not (flies ?x)))
+(exceptWhen (penguin ?x)
+  (set/defaultRule (implies (and (bird ?x)) (flies ?x))))
+
+;; ---- where an animal lives is where it is, by default --------------------
+;; A default rather than a bare rule: an animal that lives in a burrow is in it now
+;; only until something says where it actually is.
+(set/defaultRule (implies (and (livesIn ?a ?p)) (locatedIn ?a ?p)))
+
+(set/defaultRule (implies (and (living_thing ?x)) (mortal ?x)))
+
+;; ---- warm-bloodedness, read off the class --------------------------------
+;; Never asserted of any particular animal: the five vertebrate classes are pairwise
+;; disjoint, so exactly one of these fires for a typed animal and the KB cannot hold
+;; both halves of the contradiction.
+(implies (and (amphibian ?x)) (not (warmBlooded ?x)))
+(implies (and (bird ?x)) (warmBlooded ?x))
+(implies (and (fish ?x)) (not (warmBlooded ?x)))
+(implies (and (mammal ?x)) (warmBlooded ?x))
+(implies (and (reptile ?x)) (not (warmBlooded ?x)))

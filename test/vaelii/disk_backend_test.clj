@@ -1,0 +1,139 @@
+(ns vaelii.disk-backend-test
+  "The `:disk` backend wiring: the single-writer lock fails a second opener fast, and
+  two KBs over one directory in a process share the durable stores (the restart
+  contract the recovery tests rely on)."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.core :as v]
+            [vaelii.impl.disk.backend :as backend]
+            [vaelii.impl.disk.lock :as lock])
+  (:import [java.io RandomAccessFile]
+           [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]))
+
+(defn- tmpdir ^String []
+  (str (Files/createTempDirectory "vaelii-disk-be-" (into-array FileAttribute []))))
+
+(defn- rm-rf! [^String dir]
+  (doseq [f (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File f)))
+
+(defn- with-tmp
+  "Run `(f dir)` in a fresh temp directory, closing any disk stores opened on it (so
+  the durability daemon doesn't outlive the dir) and deleting it afterwards."
+  [f]
+  (let [dir (tmpdir)]
+    (try (f dir)
+         (finally (backend/close-dir! dir) (rm-rf! dir)))))
+
+(deftest a-second-jvm-holding-the-lock-fails-fast
+  (with-tmp
+    (fn [dir]
+      ;; stand in for another process: hold an exclusive OS FileLock on the lock file
+      ;; directly.  The store's own tryLock on the same file (a different channel) then
+      ;; conflicts, exactly as a second JVM would.
+      (let [lockfile (io/file dir ".vaelii.lock")
+            _        (io/make-parents lockfile)
+            raf      (RandomAccessFile. lockfile "rw")
+            ch       (.getChannel raf)
+            other    (.tryLock ch)]
+        (try
+          (is (some? other) "the test itself took the lock")
+          (testing "opening the disk KB fails fast rather than corrupting the logs"
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"locked by another JVM"
+                                  (v/open-kb {:backend :disk :dir dir :recover? false}))))
+          (finally
+            (.release other)
+            (.close ch)))))))
+
+(deftest lock-releases-when-the-holder-goes-away
+  (with-tmp
+    (fn [dir]
+      ;; after the stand-in lock is released, the KB opens cleanly
+      (let [lockfile (io/file dir ".vaelii.lock")
+            _        (io/make-parents lockfile)
+            raf      (RandomAccessFile. lockfile "rw")
+            ch       (.getChannel raf)
+            other    (.tryLock ch)]
+        (.release other)
+        (.close ch))
+      (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+        (is (lock/held? dir) "the KB now holds the lock")
+        (v/assert kb '(genl dog animal) 'UniverseContext {:strength :monotonic})
+        (is (v/genl? kb 'dog 'animal))))))
+
+(deftest two-kbs-over-one-directory-share-the-durable-store
+  (with-tmp
+    (fn [dir]
+      (let [kb1 (v/open-kb {:backend :disk :dir dir :recover? false})]
+        (v/assert kb1 '(genl dog animal) 'UniverseContext {:strength :monotonic})
+        (v/assert kb1 '(dog Fido) 'UniverseContext {:strength :monotonic})
+        (testing "a KB reopened over the same directory (a restart) starts with an empty
+                 in-memory graph but the same durable records, and recover rebuilds it"
+          (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
+            (is (not (v/isa? kb2 'Fido 'animal)) "taxonomy not rebuilt yet")
+            ;; the durable record is in the shared store — handle-of answers about
+            ;; storage, not belief, so it is visible before recover (query is
+            ;; belief-filtered by kb2's still-empty TMS, so it is not)
+            (is (some? (v/handle-of kb2 '(dog Fido) 'UniverseContext))
+                "the durable record is visible at the storage layer")
+            (is (empty? (v/sentexes-matching kb2 '(dog ?x) 'UniverseContext))
+                "but not believed until recover rebuilds the TMS")
+            (v/recover kb2)
+            (is (v/isa? kb2 'Fido 'animal) "recover rebuilt the taxonomy from the store")
+            (is (seq (v/sentexes-matching kb2 '(dog ?x) 'UniverseContext)) "and belief with it")))))))
+
+(deftest close-then-reopen-from-disk-survives
+  (with-tmp
+    (fn [dir]
+      (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+        (v/assert kb '(genl dog animal) 'UniverseContext {:strength :monotonic})
+        (v/assert kb '(dog Fido) 'UniverseContext {:strength :monotonic}))
+      ;; a genuine restart: fsync + close + release the lock + forget the stores, so the
+      ;; reopen reads the durable logs from disk with fresh RAM state (not the shared
+      ;; in-process registry the test above relies on)
+      (backend/close-dir! dir)
+      (is (not (lock/held? dir)) "the lock is released on close")
+      (testing "a brand-new KB reads the durable store back from disk"
+        (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
+          (is (some? (v/handle-of kb2 '(dog Fido) 'UniverseContext)) "the record survived")
+          (v/recover kb2)
+          (is (v/isa? kb2 'Fido 'animal) "and its taxonomy edge"))))))
+
+(deftest distinct-directories-are-isolated
+  (with-tmp
+    (fn [dir1]
+      (with-tmp
+        (fn [dir2]
+          (let [kb1 (v/open-kb {:backend :disk :dir dir1 :recover? false})
+                kb2 (v/open-kb {:backend :disk :dir dir2 :recover? false})]
+            (v/assert kb1 '(dog Fido) 'UniverseContext {:strength :monotonic})
+            (is (some? (v/handle-of kb1 '(dog Fido) 'UniverseContext)))
+            (is (nil? (v/handle-of kb2 '(dog Fido) 'UniverseContext))
+                "a second directory shares nothing with the first")))))))
+
+(deftest reindex-rebuilds-index-from-records-on-disk
+  (with-tmp
+    (fn [dir]
+      (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+        (v/assert kb '(genl dog animal) 'UniverseContext {:strength :monotonic})
+        (v/assert kb '(dog Fido) 'UniverseContext {:strength :monotonic})
+        (v/assert-rule kb ['(dog ?x)] '(barks ?x) 'UniverseContext)
+        (let [before {:dogs (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'UniverseContext)))
+                      :isa  (v/isa? kb 'Fido 'animal)
+                      :term (count (v/find-sentexes kb 'Fido))}]
+          (v/reindex kb)                          ; wipe the index, rebuild from the records, recover
+          (testing "every index read answers as it did before the rebuild"
+            (is (= (:dogs before) (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'UniverseContext)))))
+            (is (= (:isa before) (v/isa? kb 'Fido 'animal)))
+            (is (= (:term before) (count (v/find-sentexes kb 'Fido))))))))))
+
+(deftest disk-dir-derivation
+  (is (= "/some/where" (backend/disk-dir {:dir "/some/where"}))
+      ":dir names the directory outright")
+  (testing "otherwise it derives a distinct directory from the space pair"
+    (let [d (backend/disk-dir {:record-space 15 :index-space 14})]
+      (is (str/includes? d "space-15-14")))
+    (is (not= (backend/disk-dir {:record-space 15 :index-space 14})
+              (backend/disk-dir {:record-space 13 :index-space 12}))
+        "different space pairs derive different directories")))

@@ -1,0 +1,34 @@
+;; AnatomyContext — what kinds of thing have what kinds of part. Every sentence here
+;; is a `partType` claim, which is the *type-level* reading of `partOf`: (partType bird
+;; wing) says birds have wings, where (partOf LeftWing Pingu) would say one particular
+;; thing is part of another. Sees the shared upper ontology via UniverseContext;
+;; WellContext sees it.
+;;
+;; Nothing here concludes anything about an individual, and that is the point. Going
+;; from "birds have wings" to "Pingu has a wing" needs a quantifier reading — every
+;; bird has SOME wing, a wing nobody has named — and inventing one is how a claim about
+;; kinds silently becomes a false claim about things. `typeToInstancePred` records that
+;; partType and partOf are two readings of one relation without moving a claim between
+;; them; a KB that wants the individual parts states them.
+
+(genlContext AnatomyContext UniverseContext)
+(genlContext WellContext AnatomyContext)
+
+(partType arachnid leg)
+
+(partType bird feather)
+(partType bird leg)
+(partType bird wing)
+
+(partType fish fin)
+
+(partType flower petal)
+
+(partType insect leg)
+(partType insect wing)
+
+(partType mammal fur)
+(partType mammal leg)
+
+(partType tree leaf)
+(partType tree root)

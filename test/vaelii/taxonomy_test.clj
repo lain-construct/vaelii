@@ -1,0 +1,972 @@
+(ns vaelii.taxonomy-test
+  "Pure unit tests for the genl / genlContext closures and context placement.
+
+  Edges are *supported*: every mutation names the sentex handle asserting the edge,
+  and the edge is active while at least one supporter is believed.  The handles here
+  are bare integers — the closure math does not care where they came from."
+  (:require [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.taxonomy :as tax]))
+
+(deftest genl-closures
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genl t 'dog 'animal 1)
+    (tax/add-genl t 'animal 'thing 2)
+    (tax/add-genl t 'cat 'animal 3)
+    (testing "reflexive-transitive up/down"
+      (is (= '#{dog animal thing} (tax/genls t 'dog)))
+      (is (= '#{animal dog cat} (tax/specs t 'animal)))
+      (is (tax/genl? t 'dog 'thing))
+      (is (not (tax/genl? t 'thing 'dog))))
+    (testing "removing an edge recomputes the closure"
+      (tax/del-genl! t 'dog 'animal 1)
+      (is (not (tax/genl? t 'dog 'thing)))
+      (is (= '#{dog} (tax/genls t 'dog))))))
+
+(deftest an-edge-survives-while-any-supporter-remains
+  (let [t (tax/create-taxonomy)]
+    (testing "two sentexes assert the same edge — dropping one keeps it"
+      (tax/add-genl t 'dog 'animal 1)
+      (tax/add-genl t 'dog 'animal 2)
+      (tax/del-genl! t 'dog 'animal 1)
+      (is (tax/genl? t 'dog 'animal)))
+    (testing "dropping the last supporter removes it"
+      (tax/del-genl! t 'dog 'animal 2)
+      (is (not (tax/genl? t 'dog 'animal))))))
+
+(deftest closures-follow-belief
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genl t 'dog 'animal 1)
+    (tax/add-genl t 'animal 'thing 2)
+    (testing "a disbelieved supporter withdraws its edge"
+      (tax/refresh-beliefs t #{2})                    ; only #2 is IN
+      (is (not (tax/genl? t 'dog 'animal)))
+      (is (tax/genl? t 'animal 'thing)))
+    (testing "and believing it again revives the edge"
+      (tax/refresh-beliefs t #{1 2})
+      (is (tax/genl? t 'dog 'thing)))
+    (testing "an edge with one believed supporter of two stays active"
+      (tax/add-genl t 'dog 'animal 9)
+      (tax/refresh-beliefs t #{2 9})                  ; #1 out, #9 in
+      (is (tax/genl? t 'dog 'animal)))))
+
+(deftest clear-relations-drops-support-too
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genl t 'dog 'animal 1)
+    (tax/add-genlContext t 'BioContext 'UniverseContext 2)
+    (tax/clear-relations! t)
+    (testing "both transitive relations are empty, edges and support alike"
+      (is (empty? (tax/genl-edges t)))
+      (is (empty? (tax/genlContext-edges t)))
+      (is (not (tax/genl? t 'dog 'animal))))
+    (testing "and a refresh cannot resurrect them"
+      (tax/refresh-beliefs t (constantly true))
+      (is (empty? (tax/genl-edges t))))))
+
+;; ---- the four flat caches follow belief the same way --------------------
+;; `refresh-beliefs` reconciles `disjoint`, the disjoint metatypes + members, the
+;; predicate properties, and `inverse` against belief, keyed on the shared
+;; `:cache-support` count.  Bare integer handles again — the belief question is the
+;; same wherever they came from.
+
+(deftest disjoint-follows-belief
+  (let [t (tax/create-taxonomy)]
+    (tax/add-disjoint t 'dog 'cat 1)
+    (is (tax/disjoint? t 'dog 'cat))
+    (testing "a disbelieved supporter drops the pair"
+      (tax/refresh-beliefs t #{})
+      (is (not (tax/disjoint? t 'dog 'cat))))
+    (testing "and believing it again revives it"
+      (tax/refresh-beliefs t #{1})
+      (is (tax/disjoint? t 'dog 'cat)))))
+
+(deftest disjoint-refcount-crosses-belief
+  (let [t (tax/create-taxonomy)]
+    (tax/add-disjoint t 'dog 'cat 1)
+    (tax/add-disjoint t 'dog 'cat 2)                    ; two contexts, one pair
+    (testing "one of two supporters disbelieved: the pair stands"
+      (tax/refresh-beliefs t #{2})
+      (is (tax/disjoint? t 'dog 'cat)))
+    (testing "both disbelieved: it drops"
+      (tax/refresh-beliefs t #{})
+      (is (not (tax/disjoint? t 'dog 'cat))))
+    (testing "retracting one supporter leaves the other to hold it"
+      (tax/refresh-beliefs t #{1 2})
+      (tax/del-disjoint! t 'dog 'cat 1)
+      (is (tax/disjoint? t 'dog 'cat)))))
+
+(deftest predicate-property-follows-belief
+  (let [t (tax/create-taxonomy)]
+    (tax/mark-prop t :symmetric 'siblingOf 1)
+    (is (tax/has-prop? t :symmetric 'siblingOf))
+    (tax/refresh-beliefs t #{})
+    (is (not (tax/has-prop? t :symmetric 'siblingOf)))
+    (tax/refresh-beliefs t #{1})
+    (is (tax/has-prop? t :symmetric 'siblingOf))))
+
+(deftest inverse-follows-belief
+  (let [t (tax/create-taxonomy)]
+    (tax/add-inverse t 'parentOf 'childOf 1)
+    (is (= 'childOf (tax/inverse-of t 'parentOf)))
+    (is (= 'parentOf (tax/inverse-of t 'childOf)))
+    (testing "defeat drops both directions"
+      (tax/refresh-beliefs t #{})
+      (is (nil? (tax/inverse-of t 'parentOf)))
+      (is (nil? (tax/inverse-of t 'childOf))))
+    (testing "revival restores both"
+      (tax/refresh-beliefs t #{1})
+      (is (= 'childOf (tax/inverse-of t 'parentOf)))
+      (is (= 'parentOf (tax/inverse-of t 'childOf))))))
+
+(deftest disjoint-metatype-follows-belief
+  (let [t (tax/create-taxonomy)]
+    (tax/mark-disjoint-metatype t 'species 1)
+    (tax/add-metatype-member t 'species 'dog 2)
+    (tax/add-metatype-member t 'species 'cat 3)
+    (is (tax/disjoint? t 'dog 'cat))
+    (testing "defeating the metatype mark stops it separating anyone"
+      (tax/refresh-beliefs t #{2 3})                    ; #1 (the mark) out
+      (is (not (tax/disjoint? t 'dog 'cat))))
+    (testing "reviving the mark brings the whole clique back — members were kept"
+      (tax/refresh-beliefs t #{1 2 3})
+      (is (tax/disjoint? t 'dog 'cat)))
+    (testing "defeating one member releases only that member's pairs"
+      (tax/add-metatype-member t 'species 'fish 4)
+      (tax/refresh-beliefs t #{1 2 4})                  ; cat (#3) out
+      (is (not (tax/disjoint? t 'dog 'cat)))
+      (is (tax/disjoint? t 'dog 'fish)))))
+
+(deftest unmarking-a-metatype-takes-its-members-handles-with-it
+  ;; Unmarking is the one teardown that drops `:cache-support` entries without going
+  ;; through `support-drop`, so it is the one that can leave `:cache-support-handles`
+  ;; holding a handle whose entry is gone.  That set is not decoration: `refresh-beliefs`
+  ;; reads it to skip the flat-cache reconcile when no supporter moved, so a stale handle
+  ;; makes every settle that relabels *that* sentex walk the whole vocabulary to find
+  ;; nothing — for the life of the KB, since nothing ever removes it.
+  (let [t       (tax/create-taxonomy)
+        handles #(:cache-support-handles @t)]
+    (tax/mark-disjoint-metatype t 'species 1)
+    (doseq [[h ty] (map vector [2 3 4] '[dog cat fish])]
+      (tax/add-metatype-member t 'species ty h))
+    (tax/add-disjoint t 'plant 'mineral 5)
+    (is (= #{1 2 3 4 5} (handles)))
+    (tax/unmark-disjoint-metatype! t 'species 1)
+    (testing "the mark, the members, and every handle behind them are gone"
+      (is (empty? (tax/disjoint-metatypes t)))
+      (is (empty? (tax/metatype-members t 'species)))
+      (is (= #{5} (handles)) "and only the unrelated declaration's handle is left"))
+    (testing "the invariant behind the gate: the set is the live support map's handles"
+      (is (= (handles) (into #{} (mapcat keys) (vals (:cache-support @t))))))))
+
+;; ---- the incremental closure, checked against the reference ---------------
+
+(defn- oracle
+  "What a from-scratch materialized rebuild says about the current edge set — the
+  reference `closures`, keyed by node."
+  [t rel-key]
+  (select-keys (tax/closures (get-in @t [rel-key :edges])) [:up :down]))
+
+(defn- incremental
+  "What the live on-demand accessors say, one up/down closure per node the reference
+  build knows about.  The taxonomy does not materialize `:up` / `:down`; it stores
+  adjacency and answers `genls` / `specs` on demand, so the oracle compares those
+  answers against the reference rather than a stored map."
+  [t rel-key]
+  (let [[up-fn dn-fn] (if (= rel-key :genlContext)
+                        [tax/context-up tax/context-down]
+                        [tax/genls tax/specs])
+        nodes (into #{} (mapcat identity) (get-in @t [rel-key :edges]))]
+    {:up   (into {} (map (fn [n] [n (up-fn t n)])) nodes)
+     :down (into {} (map (fn [n] [n (dn-fn t n)])) nodes)}))
+
+(defn- agrees?
+  "Does the incrementally-maintained adjacency answer every closure exactly as a
+  from-scratch materialized rebuild would?"
+  [t rel-key] (= (incremental t rel-key) (oracle t rel-key)))
+
+(deftest incremental-closure-agrees-with-a-full-rebuild
+  ;; The interesting cases are the ones where a pair survives an edge deletion by an
+  ;; alternative path, and where deleting an edge isolates a node entirely.
+  (testing "a diamond: removing one side keeps what the other still proves"
+    (let [t (tax/create-taxonomy)]
+      (tax/add-genl t 'd 'l 1) (tax/add-genl t 'd 'r 2)
+      (tax/add-genl t 'l 'top 3) (tax/add-genl t 'r 'top 4)
+      (is (agrees? t :genl))
+      (tax/del-genl! t 'l 'top 3)
+      (is (agrees? t :genl))
+      (is (tax/genl? t 'd 'top))                        ; still reachable via r
+      (tax/del-genl! t 'r 'top 4)
+      (is (agrees? t :genl))
+      (is (not (tax/genl? t 'd 'top)))))
+  (testing "deleting the only edge at a node drops it from the taxonomy entirely"
+    (let [t (tax/create-taxonomy)]
+      (tax/add-genl t 'x 'y 1)
+      (is (some #{'x} (tax/types t)))
+      (tax/del-genl! t 'x 'y 1)
+      (is (agrees? t :genl))
+      (is (empty? (tax/types t)))))                     ; not merely isolated — gone
+  (testing "inserting into the middle of a chain rewires both cones"
+    (let [t (tax/create-taxonomy)]
+      (tax/add-genl t 'a 'b 1) (tax/add-genl t 'c 'd 2)
+      (tax/add-genl t 'b 'c 3)                          ; joins the two chains
+      (is (agrees? t :genl))
+      (is (tax/genl? t 'a 'd)))))
+
+(deftest incremental-closure-survives-random-edit-sequences
+  ;; Oracle comparison over pseudo-random DAGs. Edges only ever point from a lower
+  ;; index to a higher one, so no sequence can produce a cycle — `reachable?`'s depth
+  ;; pruning assumes acyclicity, and `wff` enforces it for real genl edges.
+  ;; Deletion is the half that leaves depths loose, so the walk deletes from the
+  ;; *live* set rather than hoping to re-pick an existing edge — otherwise deletions
+  ;; are a few percent of the edits and the risky path is barely covered.
+  (let [nodes (mapv #(symbol (str "n_" %)) (range 12))
+        rnd   (java.util.Random. 42)                    ; fixed seed: a failure reproduces
+        edge  (fn [] (let [i (.nextInt rnd (count nodes))
+                           j (.nextInt rnd (count nodes))]
+                       (when (< i j) [(nodes i) (nodes j)])))]
+    (dotimes [trial 25]
+      (let [t (tax/create-taxonomy), live (atom #{})]
+        (dotimes [_ 40]
+          (let [delete? (and (seq @live) (< (.nextInt rnd 10) 4))
+                [a b]   (if delete?
+                          (nth (sort @live) (.nextInt rnd (count @live)))
+                          (edge))]
+            (when a
+              (if delete?
+                (do (tax/del-genl! t a b 1) (swap! live disj [a b]))
+                (do (tax/add-genl t a b 1) (swap! live conj [a b])))
+              ;; the invariant, after every single edit
+              (is (agrees? t :genl)
+                  (str "trial " trial " diverged after "
+                       (if delete? "deleting " "adding ") [a b]
+                       "\n  incremental: " (pr-str (incremental t :genl))
+                       "\n  oracle:      " (pr-str (oracle t :genl)))))))))))
+
+(deftest genl?-agrees-with-reference-under-loose-depths
+  ;; `genl?` / `sees?` answer reachability with a depth-pruned early-exit walk, *not*
+  ;; by building the full closure `agrees?` compares.  The prune is sound only while
+  ;; the depth potential holds (`edge x→y ⇒ depth[x] > depth[y]`); deletion leaves
+  ;; depths loose, so this hammers `genl?` for **every ordered pair** against the
+  ;; reference closure's membership after every add/delete — the direct gate that a
+  ;; loose depth never yields a wrong reachability verdict.
+  (let [nodes (mapv #(symbol (str "m_" %)) (range 12))
+        rnd   (java.util.Random. 314159)
+        edge  (fn [] (let [i (.nextInt rnd (count nodes))
+                           j (.nextInt rnd (count nodes))]
+                       (when (< i j) [(nodes i) (nodes j)])))
+        ref-up (fn [t] (:up (tax/closures (get-in @t [:genl :edges]))))]
+    (dotimes [trial 25]
+      (let [t (tax/create-taxonomy), live (atom #{})]
+        (dotimes [_ 45]
+          (let [delete? (and (seq @live) (< (.nextInt rnd 10) 5))  ; deletion-heavy
+                [a b]   (if delete?
+                          (nth (sort @live) (.nextInt rnd (count @live)))
+                          (edge))]
+            (when a
+              (if delete?
+                (do (tax/del-genl! t a b 1) (swap! live disj [a b]))
+                (do (tax/add-genl t a b 1) (swap! live conj [a b])))
+              (let [up (ref-up t)]
+                (is (every? (fn [x] (every? (fn [y]
+                                              (= (tax/genl? t x y)
+                                                 (contains? (get up x #{x}) y)))
+                                            nodes))
+                            nodes)
+                    (str "trial " trial " genl? diverged after "
+                         (if delete? "deleting " "adding ") [a b]))))))))))
+
+(deftest sees?-agrees-with-reference-over-cyclic-context-graphs
+  ;; The `genlContext` twin of the test above, with the acyclicity restriction lifted —
+  ;; a context cycle is admitted, because `genlMt` states them and mutual visibility is
+  ;; a claim rather than a contradiction.  So the edge generator is free to point
+  ;; either way, every trial closes cycles and splits them again, and `sees?` is
+  ;; checked for **every ordered pair** against the reference closure.
+  ;;
+  ;; That is the gate on the condensation potential.  A stale component would answer
+  ;; *true* for a pair a deletion has just separated; a stale depth would answer
+  ;; *false* for a real path.  Both are invisible to a closure comparison that only
+  ;; ever reads a repaired taxonomy, so the pairs are checked while the relation is
+  ;; still loose as well as after `restore-depths` has run.
+  (let [nodes (mapv #(symbol (str "c_" % "Context")) (range 10))
+        rnd   (java.util.Random. 271828)
+        edge  (fn [] (let [i (.nextInt rnd (count nodes))
+                           j (.nextInt rnd (count nodes))]
+                       (when (not= i j) [(nodes i) (nodes j)])))
+        ref-up (fn [t] (:up (tax/closures (get-in @t [:genlContext :edges]))))
+        check  (fn [t trial what]
+                 (let [up (ref-up t)]
+                   (is (every? (fn [x] (every? (fn [y]
+                                                 (= (tax/sees? t x y)
+                                                    (contains? (get up x #{x}) y)))
+                                               nodes))
+                               nodes)
+                       (str "trial " trial " sees? diverged " what))))]
+    (dotimes [trial 20]
+      (let [t (tax/create-taxonomy), live (atom #{})]
+        (dotimes [step 40]
+          (let [delete? (and (seq @live) (< (.nextInt rnd 10) 4))
+                [a b]   (if delete?
+                          (nth (sort @live) (.nextInt rnd (count @live)))
+                          (edge))]
+            (when a
+              (if delete?
+                (do (tax/del-genlContext! t a b 1) (swap! live disj [a b]))
+                (do (tax/add-genlContext t a b 1) (swap! live conj [a b])))
+              (check t trial (str (if delete? "deleting " "adding ") [a b]))
+              (when (zero? (mod step 7))
+                (tax/restore-depths t)
+                (check t trial (str "repairing after " [a b]))))))
+        (tax/restore-depths t)
+        (check t trial "the final repair")))))
+
+(deftest a-context-cycle-is-one-component-and-splits-when-an-edge-goes
+  ;; BaseKB's own shape: a cycle admitted, read both ways, then broken.
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genlContext t 'BaseKBContext 'UniversalVocabularyContext 1)
+    (tax/add-genlContext t 'UniversalVocabularyContext 'BaseKBContext 2)
+    (tax/add-genlContext t 'SomeTheoryContext 'BaseKBContext 3)
+    (tax/restore-depths t)
+    (testing "the cycle is mutual visibility, and it composes with the rest of the cone"
+      (is (tax/sees? t 'BaseKBContext 'UniversalVocabularyContext))
+      (is (tax/sees? t 'UniversalVocabularyContext 'BaseKBContext))
+      (is (tax/sees? t 'SomeTheoryContext 'UniversalVocabularyContext))
+      (is (not (tax/sees? t 'UniversalVocabularyContext 'SomeTheoryContext)))
+      (is (= '#{BaseKBContext UniversalVocabularyContext}
+             (tax/context-up t 'BaseKBContext)))
+      (is (= '#{SomeTheoryContext BaseKBContext UniversalVocabularyContext}
+             (tax/context-down t 'UniversalVocabularyContext))))
+    (testing "and dropping the back edge separates them again, immediately"
+      ;; immediately: the answer may not wait for a settle, so the component is
+      ;; dissolved by the deletion itself rather than by the repair that follows it
+      (tax/del-genlContext! t 'UniversalVocabularyContext 'BaseKBContext 2)
+      (is (not (tax/sees? t 'UniversalVocabularyContext 'BaseKBContext)))
+      (is (tax/sees? t 'BaseKBContext 'UniversalVocabularyContext))
+      (tax/restore-depths t)
+      (is (not (tax/sees? t 'UniversalVocabularyContext 'BaseKBContext))))))
+
+(deftest incremental-closure-agrees-through-belief-changes
+  ;; refresh-beliefs applies the difference edge by edge; the result must still match
+  ;; a rebuild of whatever edge set ends up active.
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genl t 'p 'q 1)
+    (tax/add-genl t 'q 'r 2)
+    (tax/add-genl t 'p 'q 3)                            ; a second supporter for p->q
+    (testing "withdrawing one supporter of a doubly-supported edge changes nothing"
+      (tax/refresh-beliefs t #{2 3})
+      (is (agrees? t :genl))
+      (is (tax/genl? t 'p 'r)))
+    (testing "withdrawing the last supporter drops the edge"
+      (tax/refresh-beliefs t #{2})
+      (is (agrees? t :genl))
+      (is (not (tax/genl? t 'p 'r))))
+    (testing "and restoring belief brings it back"
+      (tax/refresh-beliefs t #{1 2 3})
+      (is (agrees? t :genl))
+      (is (tax/genl? t 'p 'r)))))
+
+;; ---- the derived context state -------------------------------------------
+;; `:edge-ctxs` carries each active edge's supporting contexts, `:ctx-counts` /
+;; `:ctxs-gen` the relation-wide context census the scoped reads key their
+;; visibility interning on.  All of it is a function of `:support` and belief, the
+;; way `:edges` is — the oracle at the end recomputes exactly that.
+
+(deftest edge-contexts-track-supporters
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genl t 'dog 'animal 1 'AContext)
+    (is (= '#{AContext} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/add-genl t 'dog 'animal 2 'BContext)
+    (is (= '#{AContext BContext} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/del-genl! t 'dog 'animal 1)
+    (is (= '#{BContext} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/del-genl! t 'dog 'animal 2)
+    (is (= #{} (tax/edge-contexts t :genl '[dog animal])))
+    (testing "a contextless supporter records nil — the constrains-everywhere reading"
+      (tax/add-genl t 'dog 'animal 3)
+      (is (= #{nil} (tax/edge-contexts t :genl '[dog animal]))))))
+
+(deftest a-context-only-belief-move-retargets-the-edge
+  ;; the case the two-arm liveness diff cannot see: an edge supported from two
+  ;; contexts keeps its liveness while one supporter's belief moves.  Its context
+  ;; must leave `:edge-ctxs`, or a scoped read from there would answer through a
+  ;; defeated supporter.
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genl t 'dog 'animal 1 'AContext)
+    (tax/add-genl t 'dog 'animal 2 'BContext)
+    (is (= '#{AContext BContext} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/refresh-beliefs t #{1})
+    (testing "the edge stays active while B's support leaves"
+      (is (tax/genl? t 'dog 'animal))
+      (is (= '#{AContext} (tax/edge-contexts t :genl '[dog animal]))))
+    (tax/refresh-beliefs t #{2})
+    (is (= '#{BContext} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/refresh-beliefs t #{})
+    (is (= #{} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/refresh-beliefs t #{1 2})
+    (is (= '#{AContext BContext} (tax/edge-contexts t :genl '[dog animal])))))
+
+(deftest a-context-only-move-retires-the-read-memo
+  ;; a scoped closure read is a function of `:edge-ctxs`, so a context-only move
+  ;; must bump `:gen` exactly as an edge change does — and a belief-preserving
+  ;; refresh must not, or every settle would empty the memo.
+  (let [t (tax/create-taxonomy)
+        gen #(get-in @t [:genl :gen])]
+    (tax/add-genl t 'dog 'animal 1 'AContext)
+    (tax/add-genl t 'dog 'animal 2 'BContext)
+    (let [g (gen)]
+      (tax/refresh-beliefs t #{1})
+      (is (> (gen) g) "a context-only move bumps"))
+    (let [g (gen)]
+      (tax/refresh-beliefs t #{1})
+      (is (= g (gen)) "a belief-preserving refresh does not"))))
+
+(deftest context-counts-and-their-generation
+  (let [t (tax/create-taxonomy)
+        counts #(get-in @t [:genl :ctx-counts])
+        cgen   #(get-in @t [:genl :ctxs-gen])]
+    (let [g0 (cgen)]
+      (tax/add-genl t 'a 'b 1 'AContext)
+      (is (= '{AContext 1} (counts)))
+      (is (= (inc g0) (cgen)) "a new context key bumps")
+      (tax/add-genl t 'c 'd 2 'AContext)
+      (is (= '{AContext 2} (counts)))
+      (is (= (inc g0) (cgen)) "a repeat of a counted context does not")
+      (tax/del-genl! t 'a 'b 1)
+      (is (= '{AContext 1} (counts)))
+      (is (= (inc g0) (cgen)))
+      (tax/del-genl! t 'c 'd 2)
+      (is (= {} (counts)))
+      (is (= (+ 2 g0) (cgen)) "the last supporter of a context leaving bumps")
+      (testing "nil is never counted — it is not a context a cone could name"
+        (tax/add-genl t 'a 'b 3)
+        (is (= {} (counts)))))))
+
+(defn- edge-ctxs-oracle
+  "What `:edge-ctxs` must equal after a refresh under `believed?`: the believed
+  supporters' contexts of every edge that has at least one, straight off `:support`."
+  [t rel-key believed?]
+  (reduce-kv (fn [m e hs]
+               (let [cs (reduce-kv (fn [s h c] (if (believed? h) (conj s c) s)) #{} hs)]
+                 (if (seq cs) (assoc m e cs) m)))
+             {} (get-in @t [rel-key :support])))
+
+(defn- ctx-counts-oracle
+  "What `:ctx-counts` must equal at any moment: the context frequencies of every
+  supporter (belief-blind, nil excluded), straight off `:support`."
+  [t rel-key]
+  (frequencies (remove nil? (mapcat vals (vals (get-in @t [rel-key :support]))))))
+
+(deftest derived-context-state-agrees-with-a-recompute-after-random-edits
+  ;; the phase oracle: after ANY edit sequence, `:ctx-counts` is a pure function of
+  ;; `:support`, the keys of `:edge-ctxs` are exactly `:edges`, and after each
+  ;; refresh `:edge-ctxs` equals the believed-supporter contexts recomputed from
+  ;; scratch.  Deterministic seed; edges only ever point up the node order, so the
+  ;; graph stays a DAG and the depth machinery is exercised on its own terms.
+  (let [t      (tax/create-taxonomy)
+        rnd    (java.util.Random. 42)
+        nodes  '[na nb nc nd ne nf ng]
+        ctxs   ['AContext 'BContext 'CContext nil]
+        live   (atom {})                                     ; handle -> [sub super]
+        next-h (atom 0)]
+    (dotimes [_ 400]
+      (let [op (.nextInt rnd 3)]
+        (cond
+          (or (zero? op) (empty? @live))
+          (let [i (.nextInt rnd (dec (count nodes)))
+                j (+ i 1 (.nextInt rnd (- (count nodes) i 1)))
+                h (swap! next-h inc)
+                c (nth ctxs (.nextInt rnd (count ctxs)))]
+            (tax/add-genl t (nth nodes i) (nth nodes j) h c)
+            (swap! live assoc h [(nth nodes i) (nth nodes j)]))
+
+          (= 1 op)
+          (let [[h [x y]] (nth (vec @live) (.nextInt rnd (count @live)))]
+            (tax/del-genl! t x y h)
+            (swap! live dissoc h))
+
+          :else
+          (let [believed (into #{} (filter (fn [_] (.nextBoolean rnd))) (keys @live))]
+            (tax/refresh-beliefs t believed)
+            (is (= (edge-ctxs-oracle t :genl believed)
+                   (get-in @t [:genl :edge-ctxs]))
+                "after a refresh, :edge-ctxs is the believed recompute")))
+        (is (= (ctx-counts-oracle t :genl) (get-in @t [:genl :ctx-counts])))
+        (is (= (set (keys (get-in @t [:genl :edge-ctxs])))
+               (get-in @t [:genl :edges]))
+            ":edge-ctxs keys are exactly the active edges")))))
+
+(deftest cache-contexts-track-supporters-and-belief
+  ;; the flat-cache twin: same discipline, point lookups instead of closures.
+  (let [t (tax/create-taxonomy)
+        k [:disjoint #{'dog 'cat}]]
+    (tax/add-disjoint t 'dog 'cat 1 'AContext)
+    (tax/add-disjoint t 'dog 'cat 2 'BContext)
+    (is (= '#{AContext BContext} (tax/cache-contexts t k)))
+    (testing "a context-only belief move retargets the entry"
+      (tax/refresh-beliefs t #{1})
+      (is (tax/disjoint? t 'dog 'cat) "the pair still constrains")
+      (is (= '#{AContext} (tax/cache-contexts t k))))
+    (testing "no believed supporter: inactive, and the contexts say so"
+      (tax/refresh-beliefs t #{})
+      (is (not (tax/disjoint? t 'dog 'cat)))
+      (is (= #{} (tax/cache-contexts t k))))
+    (testing "retracting the last supporter drops the entry whole"
+      (tax/refresh-beliefs t #{1 2})
+      (tax/del-disjoint! t 'dog 'cat 1)
+      (tax/del-disjoint! t 'dog 'cat 2)
+      (is (= #{} (tax/cache-contexts t k)))
+      (is (nil? (get-in @t [:cache-ctxs k]))))))
+
+(deftest genlContext-visibility
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genlContext t 'BioContext 'UniverseContext 1)
+    (tax/add-genlContext t 'CoreContext 'UniverseContext 2)
+    (testing "a specific context sees the general one"
+      (is (tax/sees? t 'BioContext 'UniverseContext))
+      (is (not (tax/sees? t 'UniverseContext 'BioContext))))))
+
+(deftest placement
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genlContext t 'BioContext 'UniverseContext 1)
+    (tax/add-genlContext t 'CoreContext 'UniverseContext 2)
+    (testing "rule + facts all in the top context place at the top"
+      (is (= '#{UniverseContext} (tax/maximal-common-descendant-contexts t '[UniverseContext UniverseContext]))))
+    (testing "universal rule + specific facts place in the specific context"
+      (is (= '#{BioContext} (tax/maximal-common-descendant-contexts t '[UniverseContext BioContext]))))
+    (testing "incomparable contexts have no common view"
+      (is (= #{} (tax/maximal-common-descendant-contexts t '[BioContext CoreContext]))))))
+
+(deftest placement-through-the-seeing-member
+  ;; a member of `ctxs` that sees every other member is the unique maximum, answered
+  ;; by sees? probes alone; the closure fallback must agree wherever both apply.
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genlContext t 'BioContext 'UniverseContext 1)
+    (tax/add-genlContext t 'CoreContext 'UniverseContext 2)
+    (tax/add-genlContext t 'WellContext 'BioContext 3)
+    (tax/add-genlContext t 'WellContext 'CoreContext 4)
+    (tax/add-genlContext t 'LeftContext 'BioContext 5)
+    (tax/add-genlContext t 'LeftContext 'CoreContext 6)
+    (testing "a chain places at its most specific member"
+      (is (= '#{WellContext} (tax/maximal-common-descendant-contexts
+                              t '[UniverseContext BioContext WellContext]))))
+    (testing "duplicates collapse before the probes"
+      (is (= '#{BioContext} (tax/maximal-common-descendant-contexts
+                             t '[BioContext BioContext UniverseContext]))))
+    (testing "incomparable maxima both survive the fallback"
+      ;; Well and Left each see both siblings, neither sees the other — no seeing
+      ;; member exists among [Bio Core], so this is the closure path
+      (is (= '#{WellContext LeftContext}
+             (tax/maximal-common-descendant-contexts t '[BioContext CoreContext]))))))
+
+(deftest placement-over-mutually-visible-contexts
+  ;; Two contexts in a `genlContext` cycle are equally general, so each is an ancestor
+  ;; of the other and the maximality filter would strike both out — a firing with
+  ;; nowhere to land.  They are one place to stand, and the one is chosen by content.
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genlContext t 'AlphaContext 'BetaContext 1)
+    (tax/add-genlContext t 'BetaContext 'AlphaContext 2)   ; the cycle
+    (tax/add-genlContext t 'AlphaContext 'UniverseContext 3)
+    (tax/restore-depths t)
+    (testing "a cycle is one maximum, not two and not none"
+      (is (= '#{AlphaContext}
+             (tax/maximal-common-descendant-contexts t '[AlphaContext BetaContext]))))
+    (testing "and which one does not depend on the order they were handed in"
+      (is (= (tax/maximal-common-descendant-contexts t '[AlphaContext BetaContext])
+             (tax/maximal-common-descendant-contexts t '[BetaContext AlphaContext]))))
+    (testing "a rule above the cycle still places inside it"
+      (is (= '#{AlphaContext}
+             (tax/maximal-common-descendant-contexts t '[UniverseContext BetaContext]))))
+    (testing "and a descendant of the cycle still wins, being strictly more specific"
+      (tax/add-genlContext t 'WellContext 'AlphaContext 4)
+      (tax/restore-depths t)
+      (is (= '#{WellContext}
+             (tax/maximal-common-descendant-contexts t '[WellContext BetaContext]))))))
+
+(deftest common-descendant-existence
+  ;; the boolean sibling of the placement function, for the callers that only ever
+  ;; ask existence — pinned shape by shape, then against the full function wholesale.
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genlContext t 'BioContext 'UniverseContext 1)
+    (tax/add-genlContext t 'CoreContext 'UniverseContext 2)
+    (tax/add-genlContext t 'WellContext 'BioContext 3)
+    (tax/add-genlContext t 'WellContext 'CoreContext 4)
+    (tax/add-genlContext t 'DeepContext 'WellContext 5)
+    (tax/add-genlContext t 'OrphanContext 'ElsewhereContext 6)
+    (testing "a comparable pair answers through the seeing member"
+      (is (tax/common-descendant? t '[UniverseContext BioContext]))
+      (is (tax/common-descendant? t '[BioContext DeepContext])))
+    (testing "incomparable siblings share their child"
+      (is (tax/common-descendant? t '[BioContext CoreContext])))
+    (testing "no context sees both arms of a disconnected pair"
+      (is (not (tax/common-descendant? t '[BioContext OrphanContext])))
+      (is (not (tax/common-descendant? t '[UniverseContext ElsewhereContext OrphanContext]))))
+    (testing "the empty family has no witness, a singleton is its own"
+      (is (not (tax/common-descendant? t [])))
+      (is (tax/common-descendant? t '[BioContext])))
+    (testing "agreement with the maximal set over every context triple"
+      (let [cs (vec (tax/contexts t))]
+        (doseq [a cs, b cs, c cs]
+          (is (= (boolean (seq (tax/maximal-common-descendant-contexts t [a b c])))
+                 (tax/common-descendant? t [a b c]))
+              (str "disagree on " [a b c])))))))
+
+;; ---- equality: the partition over rewriteOf / sameAs / equals -------------
+;;
+;; `add-equality` takes the two terms, the handle of the sentex asserting the merge,
+;; and which term (if either) that sentex names *preferred* — nil for `sameAs` and
+;; `equals`, which merge without deprecating a name.
+
+(deftest merging-two-terms
+  (let [t (tax/create-taxonomy)]
+    (tax/add-equality t 'Obama 'BarackObama 1 nil)
+    (testing "both names now denote one thing"
+      (is (tax/same-class? t 'Obama 'BarackObama))
+      (is (= '#{Obama BarackObama} (tax/equiv-class t 'Obama)))
+      (is (= (tax/representative t 'Obama) (tax/representative t 'BarackObama))))
+    (testing "an unmerged term represents itself and is its own class"
+      (is (= 'Biden (tax/representative t 'Biden)))
+      (is (= '#{Biden} (tax/equiv-class t 'Biden)))
+      (is (not (tax/same-class? t 'Obama 'Biden))))
+    (testing "and same-class? is reflexive without any edge"
+      (is (tax/same-class? t 'Biden 'Biden)))))
+
+(deftest merges-chain-into-one-class
+  (let [t (tax/create-taxonomy)]
+    (tax/add-equality t 'A 'B 1 nil)
+    (tax/add-equality t 'B 'C 2 nil)
+    (tax/add-equality t 'C 'D 3 nil)
+    (testing "transitivity: the chain is one class, not three pairs"
+      (is (tax/same-class? t 'A 'D))
+      (is (= '#{A B C D} (tax/equiv-class t 'D)))
+      (is (= 1 (count (distinct (map #(tax/representative t %) '[A B C D]))))))))
+
+(deftest a-rewriteOf-head-represents-the-whole-class
+  (let [t (tax/create-taxonomy)]
+    (testing "chains compose: rewriteOf A B + rewriteOf B C makes A represent all three"
+      (tax/add-equality t 'A 'B 1 'A)                   ; (rewriteOf A B)
+      (tax/add-equality t 'B 'C 2 'B)                   ; (rewriteOf B C)
+      (is (= 'A (tax/representative t 'C)))
+      (is (= 'A (tax/representative t 'B)))
+      (is (= 'A (tax/representative t 'A))))
+    (testing "a plain sameAs joining the class does not unseat the head"
+      ;; Zulu sorts after A, so this only passes because the head rule beats the
+      ;; lexicographic fallback rather than merely agreeing with it.
+      (tax/add-equality t 'C 'Zulu 3 nil)
+      (is (= 'A (tax/representative t 'Zulu))))
+    (testing "nor does a sameAs member that sorts *before* the head"
+      (tax/add-equality t 'C 'Aardvark 4 nil)
+      (is (= 'A (tax/representative t 'Aardvark))))))
+
+(deftest deprecated-marks-only-the-rewriteOf-loser
+  (let [t (tax/create-taxonomy)]
+    (tax/add-equality t 'Preferred 'Stale 1 'Preferred)
+    (tax/add-equality t 'Xray 'Yankee 2 nil)            ; (sameAs Xray Yankee)
+    (testing "the dispreferred side of a rewriteOf is deprecated"
+      (is (tax/deprecated? t 'Stale)))
+    (testing "the preferred side is not"
+      (is (not (tax/deprecated? t 'Preferred))))
+    (testing "a sameAs / equals member never is — neither name is being migrated off"
+      (is (not (tax/deprecated? t 'Xray)))
+      (is (not (tax/deprecated? t 'Yankee))))
+    (testing "nor is a term nobody has merged"
+      (is (not (tax/deprecated? t 'Untouched))))
+    (testing "and a sameAs joining the deprecated term does not deprecate the joiner"
+      (tax/add-equality t 'Stale 'Zulu 3 nil)
+      (is (not (tax/deprecated? t 'Zulu)))
+      (is (tax/deprecated? t 'Stale)))))
+
+(deftest deprecation-follows-belief-and-support
+  (let [t (tax/create-taxonomy)]
+    (testing "one edge asserted twice — once as sameAs, once as rewriteOf"
+      (tax/add-equality t 'Alpha 'Beta 1 nil)           ; (sameAs Alpha Beta)
+      (tax/add-equality t 'Alpha 'Beta 2 'Beta)         ; (rewriteOf Beta Alpha)
+      (is (tax/deprecated? t 'Alpha))
+      (is (= 'Beta (tax/representative t 'Alpha))))
+    (testing "disbelieving the rewriteOf withdraws the preference, not the merge"
+      (tax/refresh-beliefs t #{1})
+      (is (tax/same-class? t 'Alpha 'Beta))
+      (is (not (tax/deprecated? t 'Alpha)))
+      (is (= 'Alpha (tax/representative t 'Beta))))     ; lexicographic fallback
+    (testing "and believing it again restores both"
+      (tax/refresh-beliefs t #{1 2})
+      (is (tax/deprecated? t 'Alpha))
+      (is (= 'Beta (tax/representative t 'Alpha))))))
+
+(deftest lexicographic-fallback
+  (let [t (tax/create-taxonomy)]
+    (testing "with no rewriteOf at all, the smallest symbol represents the class"
+      (tax/add-equality t 'Yankee 'Alpha 1 nil)
+      (tax/add-equality t 'Yankee 'Mike 2 nil)
+      (is (= 'Alpha (tax/representative t 'Yankee))))
+    (testing "a later, smaller member takes over — the rep is a function of content"
+      (tax/add-equality t 'Mike 'Aardvark 3 nil)
+      (is (= 'Aardvark (tax/representative t 'Yankee))))
+    (testing "and it breaks a tie between two rewriteOf heads"
+      (let [t (tax/create-taxonomy)]
+        (tax/add-equality t 'Zulu 'Common 1 'Zulu)      ; (rewriteOf Zulu Common)
+        (tax/add-equality t 'Mike 'Common 2 'Mike)      ; (rewriteOf Mike Common)
+        (is (= 'Mike (tax/representative t 'Common)))
+        (is (tax/deprecated? t 'Common))
+        (is (not (tax/deprecated? t 'Zulu)))))))
+
+;; The representative must be a function of the class's *content*.  Handles are
+;; allocated in assertion order, so anything keyed on them smuggles arrival order
+;; back into belief — the Nixon-diamond bug in docs/nmtms.md.  Permuting the edges
+;; of a class is the direct test of that, and it is the property most likely to
+;; break, so it gets an exhaustive one rather than a sampled one.
+
+(defn- permutations [v]
+  (if (empty? v)
+    [[]]
+    (vec (for [i (range (count v))
+               p (permutations (into (subvec v 0 i) (subvec v (inc i))))]
+           (cons (nth v i) p)))))
+
+(defn- build
+  "Apply `edits` (each [a b handle preferred]) to a fresh taxonomy."
+  [edits]
+  (let [t (tax/create-taxonomy)]
+    (doseq [[a b h p] edits] (tax/add-equality t a b h p))
+    t))
+
+(deftest representative-is-the-same-under-every-permutation
+  (testing "a rewriteOf chain plus plain merges, however the edges arrive"
+    (let [edits '[[Bravo Charlie 1 nil]                 ; (sameAs Bravo Charlie)
+                  [Alpha Bravo 2 Alpha]                 ; (rewriteOf Alpha Bravo)
+                  [Charlie Delta 3 nil]
+                  [Delta Aardvark 4 nil]]]              ; sorts before the head
+      (doseq [p (permutations edits)]
+        (let [t (build p)]
+          (is (= 'Alpha (tax/representative t 'Delta))
+              (str "permutation " (pr-str (mapv #(vec (take 2 %)) p))))
+          (is (= '#{Alpha Bravo Charlie Delta Aardvark} (tax/equiv-class t 'Bravo)))))))
+  (testing "two rewriteOf heads tie-broken lexicographically, however they arrive"
+    (let [edits '[[Zulu Common 1 Zulu]
+                  [Mike Common 2 Mike]
+                  [Common Xray 3 nil]]]
+      (doseq [p (permutations edits)]
+        (let [t (build p)]
+          (is (= 'Mike (tax/representative t 'Xray))
+              (str "permutation " (pr-str (mapv #(vec (take 2 %)) p))))))))
+  (testing "the whole partition, not just the rep, is permutation-invariant"
+    (let [edits '[[A B 1 nil] [C D 2 nil] [B C 3 nil] [E F 4 E]]]
+      (is (= 1 (count (distinct (for [p (permutations edits)]
+                                  (select-keys (:equality @(build p))
+                                               [:class :members :edges])))))))))
+
+(deftest an-equality-survives-while-any-supporter-remains
+  (let [t (tax/create-taxonomy)]
+    (testing "two sentexes assert the same merge — dropping one keeps it"
+      (tax/add-equality t 'Alpha 'Bravo 1 nil)
+      (tax/add-equality t 'Alpha 'Bravo 2 nil)
+      (tax/del-equality! t 'Alpha 'Bravo 1)
+      (is (tax/same-class? t 'Alpha 'Bravo)))
+    (testing "dropping the last supporter unmerges them"
+      (tax/del-equality! t 'Alpha 'Bravo 2)
+      (is (not (tax/same-class? t 'Alpha 'Bravo)))
+      (is (= '#{Alpha} (tax/equiv-class t 'Alpha)))
+      (is (empty? (tax/equality-edges t))))
+    (testing "and the argument order of the retraction does not matter"
+      (tax/add-equality t 'Alpha 'Bravo 3 nil)
+      (tax/del-equality! t 'Bravo 'Alpha 3)             ; mirrored
+      (is (not (tax/same-class? t 'Alpha 'Bravo))))))
+
+(deftest equality-follows-belief
+  (let [t (tax/create-taxonomy)]
+    (tax/add-equality t 'Alpha 'Bravo 1 nil)
+    (tax/add-equality t 'Bravo 'Charlie 2 nil)
+    (testing "a disbelieved supporter withdraws its merge"
+      (tax/refresh-beliefs t #{2})                      ; only #2 is IN
+      (is (not (tax/same-class? t 'Alpha 'Bravo)))
+      (is (tax/same-class? t 'Bravo 'Charlie))
+      (is (= '#{Bravo Charlie} (tax/equiv-class t 'Charlie))))
+    (testing "and believing it again revives the whole class"
+      (tax/refresh-beliefs t #{1 2})
+      (is (tax/same-class? t 'Alpha 'Charlie)))
+    (testing "an edge with one believed supporter of two stays active"
+      (tax/add-equality t 'Alpha 'Bravo 9 nil)
+      (tax/refresh-beliefs t #{2 9})                    ; #1 out, #9 in
+      (is (tax/same-class? t 'Alpha 'Charlie)))))
+
+(deftest deleting-an-equality-can-split-a-class
+  (testing "a split rebuilds both halves, each with its own representative"
+    (let [t (tax/create-taxonomy)]
+      (tax/add-equality t 'Zulu 'Alpha 1 'Zulu)         ; (rewriteOf Zulu Alpha)
+      (tax/add-equality t 'Alpha 'Bravo 2 nil)          ; the bridge
+      (tax/add-equality t 'Bravo 'Gamma 3 nil)
+      (tax/add-equality t 'Delta 'Gamma 4 'Delta)       ; (rewriteOf Delta Gamma)
+      (testing "one class, two heads, lexicographic tie-break"
+        (is (= '#{Zulu Alpha Bravo Gamma Delta} (tax/equiv-class t 'Bravo)))
+        (is (= 'Delta (tax/representative t 'Zulu))))
+      (tax/del-equality! t 'Alpha 'Bravo 2)
+      (testing "the class splits at the bridge"
+        (is (not (tax/same-class? t 'Alpha 'Bravo)))
+        (is (= '#{Zulu Alpha} (tax/equiv-class t 'Alpha)))
+        (is (= '#{Bravo Gamma Delta} (tax/equiv-class t 'Gamma))))
+      (testing "and each half recomputes its own head — no stale representative"
+        (is (= 'Zulu (tax/representative t 'Alpha)))
+        (is (= 'Delta (tax/representative t 'Gamma))))
+      (testing "deprecation is recomputed with them"
+        (is (tax/deprecated? t 'Alpha))
+        (is (tax/deprecated? t 'Gamma))
+        (is (not (tax/deprecated? t 'Bravo))))))
+  (testing "a deletion with an alternative path does not split"
+    (let [t (tax/create-taxonomy)]
+      (tax/add-equality t 'Alpha 'Bravo 1 nil)
+      (tax/add-equality t 'Bravo 'Charlie 2 nil)
+      (tax/add-equality t 'Alpha 'Charlie 3 nil)        ; closes a triangle
+      (tax/del-equality! t 'Alpha 'Charlie 3)
+      (is (tax/same-class? t 'Alpha 'Charlie))
+      (is (= '#{Alpha Bravo Charlie} (tax/equiv-class t 'Alpha)))
+      (is (= 'Alpha (tax/representative t 'Charlie)))))
+  (testing "a deletion that isolates a term drops it from the partition entirely"
+    (let [t (tax/create-taxonomy)]
+      (tax/add-equality t 'Alpha 'Bravo 1 nil)
+      (tax/del-equality! t 'Alpha 'Bravo 1)
+      (is (= {} (get-in @t [:equality :class])))        ; not merely singleton classes
+      (is (= {} (get-in @t [:equality :members])))
+      (is (= '#{Alpha} (tax/equiv-class t 'Alpha))))))
+
+(deftest clear-relations-drops-the-equality-partition-too
+  (let [t (tax/create-taxonomy)]
+    (tax/add-equality t 'Alpha 'Bravo 1 'Alpha)
+    (tax/clear-relations! t)
+    (testing "edges, classes and deprecation are all gone"
+      (is (empty? (tax/equality-edges t)))
+      (is (not (tax/same-class? t 'Alpha 'Bravo)))
+      (is (= 'Bravo (tax/representative t 'Bravo)))
+      (is (not (tax/deprecated? t 'Bravo))))
+    (testing "and a refresh cannot resurrect them — support went with the rest"
+      (tax/refresh-beliefs t (constantly true))
+      (is (empty? (tax/equality-edges t)))
+      (is (not (tax/same-class? t 'Alpha 'Bravo))))))
+
+;; ---- the incremental partition, checked against the reference -------------
+
+(defn- eq-oracle
+  "What a from-scratch rebuild says about the currently active edges and preferences."
+  [t]
+  (let [rel (:equality @t)]
+    (tax/equality-partition (:edges rel) (into #{} cat (vals (:edge-prefs rel))))))
+
+(defn- eq-incremental [t] (select-keys (:equality @t) [:class :members]))
+
+(defn- eq-agrees? [t] (= (eq-incremental t) (eq-oracle t)))
+
+(deftest incremental-partition-agrees-with-a-full-rebuild
+  (testing "a union, a rep change, a split and an isolation each land where a rebuild does"
+    (let [t (tax/create-taxonomy)]
+      (tax/add-equality t 'Bravo 'Charlie 1 nil)   (is (eq-agrees? t))
+      (tax/add-equality t 'Alpha 'Bravo 2 'Alpha)  (is (eq-agrees? t))
+      (tax/add-equality t 'Delta 'Echo 3 nil)      (is (eq-agrees? t))
+      (tax/add-equality t 'Charlie 'Delta 4 nil)   (is (eq-agrees? t))  ; joins both classes
+      (tax/del-equality! t 'Charlie 'Delta 4)      (is (eq-agrees? t))  ; splits them again
+      (tax/del-equality! t 'Delta 'Echo 3)         (is (eq-agrees? t))  ; isolates both
+      (tax/del-equality! t 'Alpha 'Bravo 2)        (is (eq-agrees? t))))
+  (testing "a second supporter adding a preference to a live edge"
+    (let [t (tax/create-taxonomy)]
+      (tax/add-equality t 'Alpha 'Bravo 1 nil)
+      (is (= 'Alpha (tax/representative t 'Bravo)))
+      (tax/add-equality t 'Alpha 'Bravo 2 'Bravo)       ; (rewriteOf Bravo Alpha)
+      (is (= 'Bravo (tax/representative t 'Alpha)))
+      (is (eq-agrees? t)))))
+
+(deftest incremental-partition-survives-random-edit-sequences
+  ;; The same oracle discipline the genl closures get, over pseudo-random merge
+  ;; sequences with a fixed seed so a failure reproduces.  Deletion is the risky
+  ;; half — insertion is a union, deletion can split a class and union-find cannot
+  ;; undo a union — so the walk deletes from the *live* set rather than hoping to
+  ;; re-pick an existing edge, and does so 40% of the time.  Roughly a third of the
+  ;; merges carry a preference, so representatives churn as classes merge and split.
+  (let [terms (mapv #(symbol (str "t_" %)) (range 10))
+        rnd   (java.util.Random. 4242)]
+    (dotimes [trial 25]
+      (let [t (tax/create-taxonomy), live (atom {}), h (atom 0)]
+        (dotimes [_ 45]
+          (let [delete? (and (seq @live) (< (.nextInt rnd 10) 4))]
+            (if delete?
+              (let [[[a b :as e] hs] (nth (sort-by key @live) (.nextInt rnd (count @live)))
+                    handle (first (sort hs))
+                    left   (disj hs handle)]
+                (tax/del-equality! t a b handle)
+                (swap! live #(if (seq left) (assoc % e left) (dissoc % e)))
+                (is (eq-agrees? t)
+                    (str "trial " trial " diverged after deleting " (pr-str e)
+                         " handle " handle)))
+              (let [a    (terms (.nextInt rnd (count terms)))
+                    b    (terms (.nextInt rnd (count terms)))
+                    pref (case (.nextInt rnd 3) 0 a, 1 b, 2 nil)
+                    hn   (swap! h inc)]
+                (when (not= a b)
+                  (tax/add-equality t a b hn pref)
+                  (swap! live update (if (neg? (compare (str a) (str b))) [a b] [b a])
+                         (fnil conj #{}) hn)
+                  (is (eq-agrees? t)
+                      (str "trial " trial " diverged after merging " a " " b
+                           " preferring " pref)))))))
+        ;; ...and belief withdrawal over whatever the sequence built
+        (let [hs (into #{} (mapcat val) @live)
+              believed (into #{} (filter even?) hs)]
+          (tax/refresh-beliefs t believed)
+          (is (eq-agrees? t) (str "trial " trial " diverged after a belief refresh"))
+          (tax/refresh-beliefs t (constantly true))
+          (is (eq-agrees? t) (str "trial " trial " diverged after restoring belief")))))))
+
+;; ---- schematic rewrite rules: content order, memoized on the rule set -----
+;;
+;; The order `rewrite-rules` hands back is load-bearing — normalization tries rules in
+;; it at each redex, so two rules that could rewrite one term must be ordered by content
+;; or the stored normal form would depend on which equation arrived first.  Memoizing
+;; that order is what keeps a `query` from re-sorting it per call, so the tests below ask
+;; the two questions a memo owes: that it answers what the sort would have, and that
+;; every writer of the rule set retires it.
+
+(defn- rewrite-lhss [t] (mapv :lhs (tax/rewrite-rules t)))
+
+(deftest rewrite-rules-are-content-ordered-however-they-arrive
+  (letfn [(lhss [rs]
+            (let [t (tax/create-taxonomy)]
+              (doseq [[h l r] rs] (tax/add-rewrite-rule t h l r 'AContext))
+              (rewrite-lhss t)))]
+    (let [a [1 '(ff (ff ?x)) '(gg ?x)]
+          b [2 '(hh (hh ?x)) '(ii ?x)]]
+      (is (= (lhss [a b]) (lhss [b a]))
+          "the same rule set in either order sorts to the same sequence")
+      (is (= '[(ff (ff ?x)) (hh (hh ?x))] (lhss [b a]))
+          "and that sequence is the content one, not the arrival one"))))
+
+(deftest the-rewrite-order-is-memoized-until-the-rule-set-moves
+  (let [t (tax/create-taxonomy)]
+    (tax/add-rewrite-rule t 1 '(ff (ff ?x)) '(gg ?x) 'AContext)
+    (is (identical? (tax/rewrite-rules t) (tax/rewrite-rules t))
+        "with the rule set unmoved, a second read hands back the seq the first sorted")
+    (testing "a second rule retires it"
+      (tax/add-rewrite-rule t 2 '(hh (hh ?x)) '(ii ?x) 'AContext)
+      (is (= '[(ff (ff ?x)) (hh (hh ?x))] (rewrite-lhss t))))
+    (testing "defeating one retires it — the rule stops rewriting"
+      (tax/refresh-beliefs t #{1})
+      (is (= '[(ff (ff ?x))] (rewrite-lhss t))))
+    (testing "and reviving it brings the rule back"
+      (tax/refresh-beliefs t #{1 2})
+      (is (= '[(ff (ff ?x)) (hh (hh ?x))] (rewrite-lhss t))))
+    (testing "retracting the equation drops it outright"
+      (tax/del-rewrite-rule! t 1)
+      (is (= '[(hh (hh ?x))] (rewrite-lhss t))))
+    (testing "and clear-relations! empties the set the memo answered from"
+      (tax/clear-relations! t)
+      (is (empty? (tax/rewrite-rules t))))))
+
+(deftest a-detached-probe-cannot-poison-the-live-rewrite-order
+  ;; A probe exists to be mutated where nothing learns of it, so it needs its own side
+  ;; atom for the same reason `:closure-memo` does — a shared one would have the probe's
+  ;; hypothetical rule answering a real read.
+  (let [t (tax/create-taxonomy)]
+    (tax/add-rewrite-rule t 1 '(ff (ff ?x)) '(gg ?x) 'AContext)
+    (is (= '[(ff (ff ?x))] (rewrite-lhss t)))
+    (let [probe (tax/detached-copy t)]
+      (is (not (identical? (:rewrite-order @t) (:rewrite-order @probe)))
+          "the copy's memo is its own atom, not the live one by reference")
+      (tax/add-rewrite-rule probe 2 '(hh (hh ?x)) '(ii ?x) 'AContext)
+      (is (= '[(ff (ff ?x)) (hh (hh ?x))] (rewrite-lhss probe)) "the probe sees its rule")
+      (is (= '[(ff (ff ?x))] (rewrite-lhss t)) "and the live taxonomy does not")
+      (testing "the live memo still answers its own rule set after the probe read"
+        (tax/add-rewrite-rule t 3 '(jj (jj ?x)) '(kk ?x) 'AContext)
+        (is (= '[(ff (ff ?x)) (jj (jj ?x))] (rewrite-lhss t)))))))

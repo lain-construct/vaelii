@@ -1,0 +1,10 @@
+# check-doc-drift.py allowlist — one literal token per line, matched against the
+# flagged token. `#` comments allowed. A dead entry (matched nothing this run)
+# is reported as an advisory — prune it.
+
+# Third-party vars legitimately named in docs (taoensso.trove, hiccup2.core).
+trove/log!
+h/raw
+
+# Unit, not a namespaced var (`m/s` in docs/quantity.md).
+m/s

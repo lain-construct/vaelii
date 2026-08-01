@@ -1,0 +1,111 @@
+name: test
+
+# The suite, once per RECORD store. Storage is two independent choices
+# (docs/storage.md) and there are seven legal record×index pairs plus the
+# overlay decorator, but a pull request does not need all eight: the axis a
+# change is most likely to break and least likely to notice is DURABILITY, so
+# the gate runs the two ends of it — everything in RAM, and everything on disk —
+# and deep.yml carries the full matrix. `scripts/test-backends.sh` is the
+# same eight runs locally, and anything touching storage, the index, records or
+# recovery owes it one before it lands.
+#
+# The `:default` selector, matching `lein gate`. The eighteen `^:slow` tests
+# carry 118k of the suite's 238k assertions and take a memory run from 219s to
+# 317s; deferring them here is only honest because deep.yml runs `:all`. If
+# that job is ever removed, this one has to become `:all`.
+#
+# No sharding, deliberately. The retired engine sharded a 162-namespace suite
+# four ways behind a `vaelii.tools.test-shard` runner and a `.test-timings.edn`
+# cache; none of that machinery exists here and the suite it was built for does
+# not either. Measure a real run before importing it — the whole `:default` pass
+# is ~2 minutes locally, and four shards of that is four JVM boots to save one.
+#
+# Hermetic: no external service, no network call, and no LLM. `^:llm` is the one
+# mark `:all` does not select, and reaching a provider additionally needs
+# VAELII_LLM_LIVE=1, which is not set here and must never be.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    paths-ignore: ["docs/**", "**.md", ".github/badges/**"]
+  schedule:
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+# Least privilege: these jobs read the repo and run the suite. Nothing is
+# written back and no secret is read, so a fork's pull request runs the whole
+# thing — which is the point. `pull_request`, never `pull_request_target`.
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  suite:
+    # The check name branch protection requires is `test / memory` and
+    # `test / disk`. It is derived from this `name:`, so renaming either value
+    # silently drops the required check from every protected branch.
+    name: ${{ matrix.backend }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Run both to completion. A durability bug that shows up only under `disk`
+      # is exactly what this matrix is for, and cancelling it because the memory
+      # run went red first would hide it until the next push.
+      fail-fast: false
+      matrix:
+        backend: [memory, disk]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        with:
+          lein: latest
+
+      - name: Cache Maven deps
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2
+          key: m2-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            m2-
+
+      # The suite owns space numbers 12-15 and clears them; the foreign-reader
+      # plugin owns 8-11, which is what lets both run at once on one machine.
+      # Nothing is set here because each matrix leg is its own runner VM, so the
+      # default block is already unshared — the convention matters to a developer
+      # running two suites locally, and `VAELII_TEST_SPACE` is how they move it.
+      #
+      # A durable run derives its store path from `vaelii.disk.dir`, so it gets a
+      # scratch directory of its own; a RAM-only run reads no directory and is
+      # given no `-D` at all. Same shape as scripts/test-backends.sh, which is
+      # the local spelling of this job.
+      - name: Run the suite (${{ matrix.backend }})
+        env:
+          VAELII_TEST_BACKEND: ${{ matrix.backend }}
+        run: |
+          if [ "${{ matrix.backend }}" = "disk" ]; then
+            export JVM_OPTS="-Dvaelii.disk.dir=$RUNNER_TEMP/vaelii-disk"
+          fi
+          lein test
+
+      # The logs are the answer to "why did it fail", and a red run is exactly
+      # when nobody can reproduce it locally. `if: failure()` so a green run
+      # uploads nothing.
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-${{ matrix.backend }}-logs
+          path: target/gate/
+          if-no-files-found: ignore
+          retention-days: 7

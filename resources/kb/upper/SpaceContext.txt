@@ -1,0 +1,308 @@
+;; SpaceContext — qualitative spatial relations. Four independent calculi: the RCC-8
+;; TOPOLOGY of regions (do they touch, overlap, nest?), the cardinal DIRECTION of one
+;; place from another (which way, and how far round the compass?), RELATIVE DIRECTION
+;; (which way is one thing from another as seen from a point of view?) and qualitative
+;; DISTANCE (how far apart, on a scale of classes rather than in numbers?). Sees
+;; CoreContext; UniverseContext sees it, so a spatial relation is stateable from every
+;; microtheory.
+;;
+;; Topology. Eight BASE relations, jointly exhaustive and pairwise disjoint, so exactly
+;; one holds of any two regions: spatiallyDisconnected (DC), externallyConnected (EC),
+;; partiallyOverlapping (PO), spatiallyEqual (EQ), tangentialProperPart (TPP),
+;; nonTangentialProperPart (NTPP) and the two inverses (TPPi, NTPPi). Six DERIVED
+;; relations each name a disjunction of them: regionConnectedTo (C), partOfRegion (P),
+;; properPartOfRegion (PP), hasRegionPart (Pi), regionOverlaps (O), regionDiscreteFrom
+;; (DR).
+;;
+;; Direction. Nine BASE relations, again jointly exhaustive and pairwise disjoint: the
+;; eight compass points (northOf, northeastOf, eastOf, southeastOf, southOf, southwestOf,
+;; westOf, northwestOf) and sameLocationAs for two places that coincide. Four DERIVED
+;; relations name one axis and leave the other open — northwardOf, southwardOf,
+;; eastwardOf, westwardOf — so northwardOf covers north, northeast and northwest alike.
+;;
+;; Relative direction. The same nine-way shape over a frame's own axes rather than the
+;; compass: leftOf, rightOf, inFrontOf, behind, the four corners between them
+;; (frontLeftOf, frontRightOf, behindLeftOf, behindRightOf) and sameRelativePositionAs.
+;; Four DERIVED relations again name one axis and leave the other open — leftwardOf,
+;; rightwardOf, frontwardOf, rearwardOf. The FRAME OF REFERENCE IS THE CONTEXT: relative
+;; direction is ternary in the literature (A is left of B from viewpoint C), and a
+;; constraint network is binary, so the viewpoint is the microtheory the facts are stated
+;; in. (leftOf Mouse Lion) in LionMouseContext is a claim in that frame and in no other;
+;; two contexts looking from opposite sides state opposite facts and neither contaminates
+;; the other. Nothing declares a viewpoint, because the context is the viewpoint.
+;;
+;; Distance. Seven BASE relations, an ordered chain of classes covering every distance
+;; exactly once: coLocatedWith (zero), veryCloseTo, closeTo, nearTo, moderatelyFarFrom,
+;; farFrom, veryFarFrom. Three DERIVED relations name a range of the chain —
+;; withinNearDistanceOf (no further than near), beyondFarDistanceFrom (at least far) and
+;; atSomeDistanceFrom (any distance above zero). Distance is symmetric, so each of these
+;; reads the same both ways round. The chain composes by the triangle inequality, which
+;; is weak: two mid-range classes usually compose to several, so this calculus earns its
+;; keep by ruling arrangements out — two things very close to a third cannot be very far
+;; from each other — rather than by pinning a distance down.
+;;
+;; All of them are ordinary stored facts. A prover reads every relation of its own
+;; calculus visible in a context into a single constraint network, tightens it by
+;; composition, and answers a goal by entailment — (P a b) holds iff every relation still
+;; possible between a and b satisfies P. So (nonTangentialProperPart A B) and
+;; (nonTangentialProperPart B C) answer (nonTangentialProperPart A C), and the weaker
+;; (partOfRegion A C) with it; (northeastOf A B) and (northeastOf B C) answer
+;; (northeastOf A C), and the weaker (northwardOf A C) and (eastwardOf A C) with it; and
+;; (leftOf A B) with (leftOf B C) answers (leftOf A C) in the frame all three were stated
+;; in; and (coLocatedWith A B) with (closeTo B C) answers (closeTo A C). Each prover is
+;; opt-in; the vocabulary is not. Regions, places and the things a
+;; frame is about are ordinary individuals — nothing here declares them. See
+;; docs/space.md.
+
+(genlContext SpaceContext CoreContext)
+(genlContext UniverseContext SpaceContext)
+
+(comment atSomeDistanceFrom
+         "(atSomeDistanceFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are some distance apart. Any class of the distance chain but the zero one, so it is the complement of coLocatedWith and holds of nothing and itself.")
+(binaryPredicate atSomeDistanceFrom)
+(instanceRelationPredicate atSomeDistanceFrom)
+
+(comment behind
+         "(behind ?object ?reference) means that ?object lies directly behind ?reference. To the rear on the front-back axis and level on the left-right one, in the frame of reference the context is. The converse of inFrontOf.")
+(binaryPredicate behind)
+(instanceRelationPredicate behind)
+
+(comment behindLeftOf
+         "(behindLeftOf ?object ?reference) means that ?object lies behind ?reference and to its left. Both axes at once. The converse of frontRightOf.")
+(binaryPredicate behindLeftOf)
+(instanceRelationPredicate behindLeftOf)
+
+(comment behindRightOf
+         "(behindRightOf ?object ?reference) means that ?object lies behind ?reference and to its right. Both axes at once. The converse of frontLeftOf.")
+(binaryPredicate behindRightOf)
+(instanceRelationPredicate behindRightOf)
+
+(comment beyondFarDistanceFrom
+         "(beyondFarDistanceFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are at least far apart. Far or very far: the upper end of the distance chain.")
+(binaryPredicate beyondFarDistanceFrom)
+(instanceRelationPredicate beyondFarDistanceFrom)
+
+(comment closeTo
+         "(closeTo ?thing1 ?thing2) means that ?thing1 and ?thing2 are close together. The third class of the distance chain, one step further out than veryCloseTo and one step in from nearTo.")
+(binaryPredicate closeTo)
+(instanceRelationPredicate closeTo)
+
+(comment coLocatedWith
+         "(coLocatedWith ?thing1 ?thing2) means that ?thing1 and ?thing2 are no distance apart at all. The zero class of the distance chain and the identity of its algebra. A claim about how far apart two things are, so it is neither the compass's sameLocationAs nor the equality closure's sameAs: two co-located things are still two things.")
+(binaryPredicate coLocatedWith)
+(instanceRelationPredicate coLocatedWith)
+
+(comment eastOf
+         "(eastOf ?place1 ?place2) means that ?place1 lies due east of ?place2. East on the east-west axis and level on the north-south one. The converse of westOf.")
+(binaryPredicate eastOf)
+(instanceRelationPredicate eastOf)
+
+(comment eastwardOf
+         "(eastwardOf ?place1 ?place2) means that ?place1 lies somewhere east of ?place2. East, northeast or southeast: it constrains the east-west axis alone and leaves the north-south one open.")
+(binaryPredicate eastwardOf)
+(instanceRelationPredicate eastwardOf)
+
+(comment externallyConnected
+         "(externallyConnected ?region1 ?region2) means that ?region1 and ?region2 touch but share no interior. RCC-8's EC, a base relation and its own converse. What two countries either side of a border stand in.")
+(binaryPredicate externallyConnected)
+(instanceRelationPredicate externallyConnected)
+
+(comment farFrom
+         "(farFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are far apart. The sixth class of the distance chain, one step in from veryFarFrom.")
+(binaryPredicate farFrom)
+(instanceRelationPredicate farFrom)
+
+(comment frontLeftOf
+         "(frontLeftOf ?object ?reference) means that ?object lies in front of ?reference and to its left. Both axes at once, so it is the strongest thing a single relative-direction fact can say. The converse of behindRightOf.")
+(binaryPredicate frontLeftOf)
+(instanceRelationPredicate frontLeftOf)
+
+(comment frontRightOf
+         "(frontRightOf ?object ?reference) means that ?object lies in front of ?reference and to its right. Both axes at once. The converse of behindLeftOf.")
+(binaryPredicate frontRightOf)
+(instanceRelationPredicate frontRightOf)
+
+(comment frontwardOf
+         "(frontwardOf ?object ?reference) means that ?object lies somewhere in front of ?reference. In front, front-left or front-right: it constrains the front-back axis alone and leaves the left-right one open.")
+(binaryPredicate frontwardOf)
+(instanceRelationPredicate frontwardOf)
+
+(comment hasRegionPart
+         "(hasRegionPart ?region1 ?region2) means that ?region2 is part of ?region1. RCC-8's Pi, the converse of partOfRegion, denoting TPPi, NTPPi or EQ. Derived, so asserting it says only that one contains the other and not how.")
+(binaryPredicate hasRegionPart)
+(instanceRelationPredicate hasRegionPart)
+
+(comment inFrontOf
+         "(inFrontOf ?object ?reference) means that ?object lies directly in front of ?reference. Forward on the front-back axis and level on the left-right one, in the frame of reference the context is. The converse of behind.")
+(binaryPredicate inFrontOf)
+(instanceRelationPredicate inFrontOf)
+
+(comment leftOf
+         "(leftOf ?object ?reference) means that ?object lies directly to the left of ?reference. Left on the left-right axis and level on the front-back one, as seen from the frame of reference the context is: a relative direction is read from a viewpoint, and here the context is that viewpoint. The converse of rightOf.")
+(binaryPredicate leftOf)
+(instanceRelationPredicate leftOf)
+
+(comment leftwardOf
+         "(leftwardOf ?object ?reference) means that ?object lies somewhere to the left of ?reference. Left, front-left or behind-left: it constrains the left-right axis alone and leaves the front-back one open.")
+(binaryPredicate leftwardOf)
+(instanceRelationPredicate leftwardOf)
+
+(comment moderatelyFarFrom
+         "(moderatelyFarFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are moderately far apart. The middle of the distance chain, between nearTo and farFrom.")
+(binaryPredicate moderatelyFarFrom)
+(instanceRelationPredicate moderatelyFarFrom)
+
+(comment nearTo
+         "(nearTo ?thing1 ?thing2) means that ?thing1 and ?thing2 are near each other. The fourth class of the distance chain, one step further out than closeTo.")
+(binaryPredicate nearTo)
+(instanceRelationPredicate nearTo)
+
+(comment nonTangentialProperPart
+         "(nonTangentialProperPart ?region1 ?region2) means that ?region1 lies strictly inside ?region2, touching no part of its boundary. RCC-8's NTPP, a base relation, with nonTangentialProperPartInverse as its converse.")
+(binaryPredicate nonTangentialProperPart)
+(instanceRelationPredicate nonTangentialProperPart)
+
+(comment nonTangentialProperPartInverse
+         "(nonTangentialProperPartInverse ?region1 ?region2) means that ?region2 lies strictly inside ?region1, touching no part of its boundary. RCC-8's NTPPi, the converse of nonTangentialProperPart.")
+(binaryPredicate nonTangentialProperPartInverse)
+(instanceRelationPredicate nonTangentialProperPartInverse)
+
+(comment northeastOf
+         "(northeastOf ?place1 ?place2) means that ?place1 lies north and east of ?place2. Both axes at once, so it is the strongest thing a single direction fact can say. The converse of southwestOf.")
+(binaryPredicate northeastOf)
+(instanceRelationPredicate northeastOf)
+
+(comment northOf
+         "(northOf ?place1 ?place2) means that ?place1 lies due north of ?place2. North on the north-south axis and level on the east-west one, so it is one of the nine base directions rather than a disjunction of them. The converse of southOf.")
+(binaryPredicate northOf)
+(instanceRelationPredicate northOf)
+
+(comment northwardOf
+         "(northwardOf ?place1 ?place2) means that ?place1 lies somewhere north of ?place2. North, northeast or northwest: it constrains the north-south axis alone and leaves the east-west one open. Derived, so it is entailed by any of the three and asserts none of them.")
+(binaryPredicate northwardOf)
+(instanceRelationPredicate northwardOf)
+
+(comment northwestOf
+         "(northwestOf ?place1 ?place2) means that ?place1 lies north and west of ?place2. Both axes at once. The converse of southeastOf.")
+(binaryPredicate northwestOf)
+(instanceRelationPredicate northwestOf)
+
+(comment partiallyOverlapping
+         "(partiallyOverlapping ?region1 ?region2) means that ?region1 and ?region2 share a part, and each also has a part outside the other. RCC-8's PO, a base relation and its own converse.")
+(binaryPredicate partiallyOverlapping)
+(instanceRelationPredicate partiallyOverlapping)
+
+(comment partOfRegion
+         "(partOfRegion ?region1 ?region2) means that ?region1 is part of ?region2. RCC-8's P, which denotes TPP, NTPP or EQ, so a region is part of itself. A derived relation: it is entailed by any of those three and asserts none of them in particular.")
+(binaryPredicate partOfRegion)
+(instanceRelationPredicate partOfRegion)
+
+(comment properPartOfRegion
+         "(properPartOfRegion ?region1 ?region2) means that ?region1 is part of ?region2 and not the whole of it. RCC-8's PP, denoting TPP or NTPP. Irreflexive, unlike partOfRegion.")
+(binaryPredicate properPartOfRegion)
+(instanceRelationPredicate properPartOfRegion)
+
+(comment rearwardOf
+         "(rearwardOf ?object ?reference) means that ?object lies somewhere behind ?reference. Behind, behind-left or behind-right: it constrains the front-back axis alone and leaves the left-right one open.")
+(binaryPredicate rearwardOf)
+(instanceRelationPredicate rearwardOf)
+
+(comment regionConnectedTo
+         "(regionConnectedTo ?region1 ?region2) means that ?region1 and ?region2 are connected. Anything but disconnected, so it is RCC-8's C, the primitive the eight base relations are defined from, and the weakest claim that says anything at all.")
+(binaryPredicate regionConnectedTo)
+(instanceRelationPredicate regionConnectedTo)
+
+(comment regionDiscreteFrom
+         "(regionDiscreteFrom ?region1 ?region2) means that ?region1 and ?region2 share no part. Disconnected or externally connected, so it is RCC-8's DR, and the complement of regionOverlaps.")
+(binaryPredicate regionDiscreteFrom)
+(instanceRelationPredicate regionDiscreteFrom)
+
+(comment regionOverlaps
+         "(regionOverlaps ?region1 ?region2) means that ?region1 and ?region2 share a part. Anything but disconnected or merely touching, so it is RCC-8's O, and the complement of regionDiscreteFrom.")
+(binaryPredicate regionOverlaps)
+(instanceRelationPredicate regionOverlaps)
+
+(comment rightOf
+         "(rightOf ?object ?reference) means that ?object lies directly to the right of ?reference. Right on the left-right axis and level on the front-back one, in the frame of reference the context is. The converse of leftOf.")
+(binaryPredicate rightOf)
+(instanceRelationPredicate rightOf)
+
+(comment rightwardOf
+         "(rightwardOf ?object ?reference) means that ?object lies somewhere to the right of ?reference. Right, front-right or behind-right: it constrains the left-right axis alone and leaves the front-back one open.")
+(binaryPredicate rightwardOf)
+(instanceRelationPredicate rightwardOf)
+
+(comment sameLocationAs
+         "(sameLocationAs ?place1 ?place2) means that ?place1 and ?place2 coincide. Level on both compass axes, and the identity of the direction algebra. A claim about position rather than about the identity of the two terms, so it is not the equality closure's sameAs.")
+(binaryPredicate sameLocationAs)
+(instanceRelationPredicate sameLocationAs)
+
+(comment sameRelativePositionAs
+         "(sameRelativePositionAs ?object ?reference) means that ?object and ?reference stand in the same place in the frame the context is. Level on both of that frame's axes, and the identity of the relative-direction algebra. A claim about a frame's own axes, so it is neither the compass's sameLocationAs nor the equality closure's sameAs.")
+(binaryPredicate sameRelativePositionAs)
+(instanceRelationPredicate sameRelativePositionAs)
+
+(comment southeastOf
+         "(southeastOf ?place1 ?place2) means that ?place1 lies south and east of ?place2. Both axes at once. The converse of northwestOf.")
+(binaryPredicate southeastOf)
+(instanceRelationPredicate southeastOf)
+
+(comment southOf
+         "(southOf ?place1 ?place2) means that ?place1 lies due south of ?place2. South on the north-south axis and level on the east-west one. The converse of northOf.")
+(binaryPredicate southOf)
+(instanceRelationPredicate southOf)
+
+(comment southwardOf
+         "(southwardOf ?place1 ?place2) means that ?place1 lies somewhere south of ?place2. South, southeast or southwest: it constrains the north-south axis alone and leaves the east-west one open.")
+(binaryPredicate southwardOf)
+(instanceRelationPredicate southwardOf)
+
+(comment southwestOf
+         "(southwestOf ?place1 ?place2) means that ?place1 lies south and west of ?place2. Both axes at once. The converse of northeastOf.")
+(binaryPredicate southwestOf)
+(instanceRelationPredicate southwestOf)
+
+(comment spatiallyDisconnected
+         "(spatiallyDisconnected ?region1 ?region2) means that ?region1 and ?region2 share no point at all. RCC-8's DC, a base relation, its own converse, and the weakest thing two regions can stand in.")
+(binaryPredicate spatiallyDisconnected)
+(instanceRelationPredicate spatiallyDisconnected)
+
+(comment spatiallyEqual
+         "(spatiallyEqual ?region1 ?region2) means that ?region1 and ?region2 occupy exactly the same extent. RCC-8's EQ, and the identity of the algebra. A claim about extent rather than about the identity of the two terms, so it is not the equality closure's sameAs: two coextensive regions are still two regions.")
+(binaryPredicate spatiallyEqual)
+(instanceRelationPredicate spatiallyEqual)
+
+(comment tangentialProperPart
+         "(tangentialProperPart ?region1 ?region2) means that ?region1 lies inside ?region2 and touches its boundary. RCC-8's TPP, a base relation, with tangentialProperPartInverse as its converse.")
+(binaryPredicate tangentialProperPart)
+(instanceRelationPredicate tangentialProperPart)
+
+(comment tangentialProperPartInverse
+         "(tangentialProperPartInverse ?region1 ?region2) means that ?region2 lies inside ?region1 and touches its boundary. RCC-8's TPPi, the converse of tangentialProperPart.")
+(binaryPredicate tangentialProperPartInverse)
+(instanceRelationPredicate tangentialProperPartInverse)
+
+(comment veryCloseTo
+         "(veryCloseTo ?thing1 ?thing2) means that ?thing1 and ?thing2 are very close together. The nearest class of the distance chain above zero. The seven classes tile the whole range without overlapping, so exactly one of them holds of any pair.")
+(binaryPredicate veryCloseTo)
+(instanceRelationPredicate veryCloseTo)
+
+(comment veryFarFrom
+         "(veryFarFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are very far apart. The last class of the distance chain, unbounded above.")
+(binaryPredicate veryFarFrom)
+(instanceRelationPredicate veryFarFrom)
+
+(comment westOf
+         "(westOf ?place1 ?place2) means that ?place1 lies due west of ?place2. West on the east-west axis and level on the north-south one. The converse of eastOf.")
+(binaryPredicate westOf)
+(instanceRelationPredicate westOf)
+
+(comment westwardOf
+         "(westwardOf ?place1 ?place2) means that ?place1 lies somewhere west of ?place2. West, northwest or southwest: it constrains the east-west axis alone and leaves the north-south one open.")
+(binaryPredicate westwardOf)
+(instanceRelationPredicate westwardOf)
+
+(comment withinNearDistanceOf
+         "(withinNearDistanceOf ?thing1 ?thing2) means that ?thing1 and ?thing2 are no further apart than near. Co-located, very close, close or near: the lower end of the distance chain.")
+(binaryPredicate withinNearDistanceOf)
+(instanceRelationPredicate withinNearDistanceOf)

@@ -1,0 +1,86 @@
+(ns vaelii.impl.overlay.mount
+  "Mounting a fork: freeze a base, compose a private writable overlay over it, and hand
+  back the two stores a KB is built from.
+
+  A **base** is any pair of stores mounted read-only (`vaelii.impl.overlay.frozen`); a
+  **fork** is a fresh writable pair composed over it.  Nothing is copied and nothing in
+  the base is written, so N JVMs mount one frozen base and each evolves its own fork —
+  the sharing needs no protocol between them, and equally offers no coherence between
+  them: a base that changes under a mounted fork is outside the contract.
+
+  ## Which index a fork can be taken over
+
+  The overlay is a `KvBackend` decorator, so it forks exactly the index path that is
+  written over that protocol: `KvIndexStore` (`vaelii.impl.kv`) and therefore the
+  `:memory`, `:dense` and `:disk` index axes.  The `:columnar` index is a **native**
+  `IndexStore` — its trie is int-id nodes in parallel arrays, with no keys and no backend
+  underneath — so a `KvBackend` decorator would fork its roots and leave its trie behind.
+  That is refused here rather than half-done.  Forking a columnar index is a different
+  construction: its compacted CSR mode is already an immutable base, so the natural shape
+  is a mutable columnar head over a frozen CSR base, not a KV decorator.
+
+  ## Bookkeeping
+
+  The record half keeps tombstones and released premise marks in a small `KvBackend`
+  beside the overlay (`vaelii.impl.overlay.store`).  An in-RAM overlay gets an in-RAM one
+  — the whole fork is ephemeral — and a disk overlay gets a durable one under
+  `<dir>/overlay-meta`, so remounting that directory over the same base serves the merged
+  view it was left in.  The index half needs none: its bookkeeping lives in the overlay
+  index itself, under reserved keys, and so is exactly as durable as the fork is."
+  (:require [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.kv :as kv]
+            [vaelii.impl.memory :as mem]
+            [vaelii.impl.overlay.frozen :as frozen]
+            [vaelii.impl.overlay.kv :as okv]
+            [vaelii.impl.overlay.store :as ostore]))
+
+(defn kv-backend-of
+  "The `KvBackend` an `IndexStore` is written over, or nil when it is not written over one
+  at all.  A `KvIndexStore` holds it as `:backend`; a native index (the columnar one) has
+  no such seam and answers nil."
+  [index-store]
+  (let [b (:backend index-store)]
+    (when (and b (satisfies? kv/KvBackend b)) b)))
+
+(defn- base-kv
+  [base-index]
+  (or (kv-backend-of base-index)
+      (throw (ex-info (str "cannot fork this index: it is not written over a KvBackend, so a "
+                           "KV decorator would fork its roots and leave its trie behind.  "
+                           "The forkable index axes are :memory, :dense and :disk.")
+                      {:type :unforkable-index :index (class base-index)}))))
+
+(defn meta-kv
+  "The bookkeeping `KvBackend` for a fork whose *record* overlay is `kind` (`:memory` or
+  `:disk`) under `opts` — in RAM for an ephemeral fork, durable beside the records for a
+  disk one, so the two are exactly as recoverable as each other."
+  [kind opts]
+  (case kind
+    :memory (mem/memory-kv-backend {:space [::meta (:record-space opts 0)]})
+    :disk   (disk/overlay-meta-for (disk/disk-dir opts))
+    (throw (ex-info (str "no overlay bookkeeping for record backend " (pr-str kind))
+                    {:records kind}))))
+
+(defn mount-records
+  "An `OverlayRecordStore`: `overlay` (writable) over `base` (frozen), with `meta` holding
+  the record-level bookkeeping."
+  [overlay base meta]
+  (ostore/overlay-record-store overlay (frozen/frozen-records base) meta))
+
+(defonce ^:private fork-seq (atom 0))
+
+(defn fresh-overlay-opts
+  "Storage opts for an **ephemeral** fork: an in-RAM overlay on a space pair nothing else
+  names, so two forks taken with no opts are independent rather than accidentally the same
+  one.  Naming the spaces explicitly is how a caller asks for the other behaviour — a
+  remount of a fork it took earlier."
+  []
+  (let [n (swap! fork-seq inc)]
+    {:backend :memory :record-space [::fork n] :index-space [::fork n :index]}))
+
+(defn mount-index
+  "A `KvIndexStore` over an `OverlayKv`: `overlay`'s backend (writable) over `base`'s
+  (frozen).  Both arguments are `IndexStore`s, and both must be `KvIndexStore`s — see the
+  namespace docstring on why the columnar index is not forkable this way."
+  [overlay base]
+  (kv/->KvIndexStore (okv/overlay-kv (base-kv overlay) (frozen/frozen-kv (base-kv base)))))

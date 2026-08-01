@@ -1,0 +1,142 @@
+;; OrganismContext — the biological upper-ontology types: animal/plant and their
+;; kinds (mammal, bird, fish, reptile, amphibian, insect, arachnid, tree, flower, …)
+;; down to the individual species used across the fables. Sees CoreContext;
+;; UniverseContext sees it, so any type here is visible from every microtheory.
+;;
+;; The five vertebrate classes are separated by one `vertebrateClass` metatype rather
+;; than by ten `disjoint` sentences. Nothing is stored for the pairs — the clique is
+;; consulted — so retracting the metatype releases all ten at once, and retracting one
+;; membership releases exactly that class's pairs and leaves the rest separated.
+
+(genlContext OrganismContext CoreContext)
+(genlContext UniverseContext OrganismContext)
+
+(comment amphibian "A cold-blooded animal that begins life in water and breathes through its skin.")
+(genl amphibian animal)
+(vertebrateClass amphibian)
+
+(comment animal "A living thing that moves and senses; disjoint from plant.")
+(genl animal living_thing)
+(disjoint animal plant)
+
+(comment ant "An industrious insect that stores food for winter.")
+(genl ant insect)
+
+(comment arachnid "An eight-legged animal — a spider, a scorpion, a mite. Not an insect, which has six.")
+(genl arachnid animal)
+(disjoint arachnid insect)
+
+(comment bee "An insect that gathers nectar and pollinates flowers.")
+(genl bee insect)
+
+(comment bird "An animal with feathers; flies by default, though some (penguins) do not.")
+(genl bird animal)
+(vertebrateClass bird)
+
+(comment cat "A domesticated feline mammal; disjoint from dog.")
+(genl cat mammal)
+
+(comment cow "A large domesticated mammal kept for milk and meat.")
+(genl cow mammal)
+
+(comment crow "A large black songbird — the flattered bird of the Fox and the Crow.")
+(genl crow bird)
+
+(comment dog "A domesticated canine mammal; disjoint from cat.")
+(genl dog mammal)
+(disjoint dog cat)
+
+(comment duck "A water bird with webbed feet.")
+(genl duck bird)
+
+(comment eagle "A large bird of prey.")
+(genl eagle bird)
+
+(comment fish "An animal that lives and breathes in water.")
+(genl fish animal)
+(vertebrateClass fish)
+
+(comment flower "A flowering plant.")
+(genl flower plant)
+
+(comment fox "A wild canine mammal — the flatterer of the Fox and the Crow.")
+(genl fox mammal)
+
+(comment frog "A tailless amphibian that jumps and swims.")
+(genl frog amphibian)
+
+(comment grass "A low green plant that covers open ground.")
+(genl grass plant)
+
+(comment grasshopper "An insect that sings all summer and starves in winter.")
+(genl grasshopper insect)
+
+(comment hare "A fast, long-eared mammal — the overconfident racer.")
+(genl hare mammal)
+
+(comment horse "A large mammal ridden and used to pull loads.")
+(genl horse mammal)
+
+(comment insect "A small six-legged animal.")
+(genl insect animal)
+
+(comment lion "A large wild cat — the strong animal of the Lion-and-Mouse fable.")
+(genl lion mammal)
+
+(comment mammal "An animal that nurses its young.")
+(genl mammal animal)
+(vertebrateClass mammal)
+
+(comment mouse "A small rodent — the weak animal that repays the lion's mercy.")
+(genl mouse mammal)
+
+(comment oak "A large hardwood tree.")
+(genl oak tree)
+
+(comment owl "A nocturnal bird of prey.")
+(genl owl bird)
+
+(comment penguin "A flightless bird — the standard exception to 'birds fly'.")
+(genl penguin bird)
+
+(comment person "A human being — a mammal that is also a social and rational agent.")
+(genl person mammal)
+
+(comment plant "A living thing that photosynthesizes; disjoint from animal.")
+(genl plant living_thing)
+
+(comment rabbit "A small burrowing mammal with long ears.")
+(genl rabbit mammal)
+
+(comment reptile "A cold-blooded, scaled animal.")
+(genl reptile animal)
+(vertebrateClass reptile)
+
+(comment rose "A thorned flowering shrub.")
+(genl rose flower)
+
+(comment sheep "A woolly mammal kept in flocks.")
+(genl sheep mammal)
+
+(comment snake "A long, limbless reptile.")
+(genl snake reptile)
+
+(comment sparrow "A small songbird.")
+(genl sparrow bird)
+
+(comment spider "An eight-legged arachnid that spins webs.")
+(genl spider arachnid)
+
+(comment tortoise "A slow, shelled reptile — the steady racer who perseveres.")
+(genl tortoise reptile)
+
+(comment tree "A tall, woody perennial plant.")
+(genl tree plant)
+
+(comment vertebrateClass
+         "(vertebrateClass ?type) means that ?type is one of the classes of animal with a backbone. A disjointMetatype, so its members are pairwise disjoint and nothing has to say so pair by pair: five members separate ten pairs, and the separation is inherited by every subtype — which is what makes a penguin and a dog disjoint without a word being written about either.")
+(unaryPredicate vertebrateClass)
+(disjointMetatype vertebrateClass)
+
+(comment wolf "A wild canine predator — the danger the boy falsely cries about.")
+(genl wolf mammal)

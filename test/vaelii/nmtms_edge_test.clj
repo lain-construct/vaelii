@@ -1,0 +1,140 @@
+(ns vaelii.nmtms-edge-test
+  "Edge cases for the non-monotonic TMS beyond the headline scenarios in
+  `nmtms_test`: defeat propagating through a downstream strict rule, strength +
+  defeat surviving `recover`, disjoint/functional staying HARD after negation
+  went soft, independent contradictions resolving without interference, a default
+  defeated in one context yet holding in a genlContext sibling, and plain support loss
+  (retracting the premise a default rested on) versus defeat."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [vaelii.core :as v]
+            [vaelii.impl.rules :as vr]
+            [vaelii.test-util :as tu]))
+
+(use-fixtures :each (tu/neutral-fresh tu/fresh))
+
+(defn- default-rule [antes conseq]
+  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+
+;; ---- 1. defeat propagates through a downstream strict rule --------------
+
+(tu/deftest-kb defeating-a-default-withdraws-its-strict-consequence
+  ;; A default draws (flies Sky); a strict rule then draws (airborne Sky) FROM it.
+  ;; Defeating the default with a later monotonic negation must also drop the
+  ;; strict conclusion — its only support runs through the now-OUT default.
+  (let [bird (tu/tmp-type) animal (tu/tmp-type)
+        flies (tu/tmp-pred) airborne (tu/tmp-pred) sky (tu/tmp-ind)]
+    (v/assert kb (list 'genl bird animal) 'UniverseContext)
+    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'UniverseContext)
+    (v/assert-rule kb [(list flies '?x)] (list airborne '?x) 'UniverseContext)   ; strict, feeds off the default
+    (v/assert kb (list bird sky) 'UniverseContext)
+    (testing "the default and its strict consequence both hold"
+      (is (seq (v/sentexes-matching kb (list flies sky) 'UniverseContext)))
+      (is (seq (v/sentexes-matching kb (list airborne sky) 'UniverseContext))))
+    (testing "a later monotonic negation of the default also withdraws the strict consequence"
+      (v/assert kb (list 'not (list flies sky)) 'UniverseContext {:strength :monotonic})
+      (is (empty? (v/sentexes-matching kb (list flies sky) 'UniverseContext)))
+      (is (empty? (v/sentexes-matching kb (list airborne sky) 'UniverseContext)))
+      (is (empty? (v/conflicts kb))))))
+
+;; ---- 2. strength + defeat survive recover ------------------------------
+
+(tu/deftest-kb strength-and-defeat-survive-recover
+  ;; monotonic (happy Tom) defeats default (not (happy Tom)); after a fresh KB
+  ;; recovers from the same durable stores, both the belief and its resolution
+  ;; must be reconstructed — the persisted premise strengths decide the tie again.
+  (let [happy (tu/tmp-pred) tom (tu/tmp-ind)]
+    (v/assert kb (list happy tom) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'not (list happy tom)) 'UniverseContext)                  ; default, gets defeated
+    (is (seq   (v/sentexes-matching kb (list happy tom) 'UniverseContext)))
+    (is (empty? (v/sentexes-matching kb (list 'not (list happy tom)) 'UniverseContext)))
+    (let [kb2 (tu/test-kb)]
+      (testing "before recover the fresh in-memory graph believes nothing"
+        (is (empty? (v/sentexes-matching kb2 (list happy tom) 'UniverseContext))))
+      (v/recover kb2)
+      (testing "after recover the monotonic belief and the default's defeat both survive"
+        (is (seq   (v/sentexes-matching kb2 (list happy tom) 'UniverseContext)))
+        (is (empty? (v/sentexes-matching kb2 (list 'not (list happy tom)) 'UniverseContext)))
+        (is (empty? (v/conflicts kb2)))))))
+
+;; ---- 3. disjoint / functional stayed HARD after negation went soft ------
+
+(tu/deftest-kb disjoint-and-functional-remain-hard-throws
+  ;; Negation is now a soft, arbitrated contradiction — but disjointness and
+  ;; functionality are still hard constraints that throw and store nothing.
+  (let [dog (tu/tmp-type) cat (tu/tmp-type) fido (tu/tmp-ind)
+        birthYearOf (tu/tmp-pred) tom (tu/tmp-ind)]
+    (testing "a disjoint type membership still throws (not softened to a contradiction)"
+      (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
+      (v/assert kb (list dog fido) 'UniverseContext)
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list cat fido) 'UniverseContext)))
+      (is (empty? (v/sentexes-matching kb (list cat fido) 'UniverseContext)))            ; the reject wrote nothing
+      (is (empty? (v/conflicts kb))))                              ; and reported no soft conflict
+    (testing "even :monotonic strength does not make disjointness a soft contradiction"
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list cat fido) 'UniverseContext {:strength :monotonic}))))
+    (testing "a functional clash still throws"
+      (v/assert kb (list 'functional birthYearOf) 'NaturalWorldContext)
+      (v/assert kb (list birthYearOf tom 1980) 'NaturalWorldContext)
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list birthYearOf tom 1990) 'NaturalWorldContext))))))
+
+;; ---- 4. two independent contradictions resolve independently ------------
+
+(tu/deftest-kb independent-contradictions-resolve-independently
+  ;; Two unrelated negation clashes in one KB, weaker side on opposite sides;
+  ;; the settle loop must defeat each weaker member without touching the other.
+  (let [happy (tu/tmp-pred) tom (tu/tmp-ind) sad (tu/tmp-pred) ann (tu/tmp-ind)]
+    (v/assert kb (list happy tom) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'not (list happy tom)) 'UniverseContext)                  ; default loses here
+    (v/assert kb (list sad ann) 'UniverseContext)                         ; default loses there
+    (v/assert kb (list 'not (list sad ann)) 'UniverseContext {:strength :monotonic})
+    (testing "each clash defeats its own weaker (default) side"
+      (is (seq   (v/sentexes-matching kb (list happy tom) 'UniverseContext)))
+      (is (empty? (v/sentexes-matching kb (list 'not (list happy tom)) 'UniverseContext)))
+      (is (empty? (v/sentexes-matching kb (list sad ann) 'UniverseContext)))
+      (is (seq   (v/sentexes-matching kb (list 'not (list sad ann)) 'UniverseContext))))
+    (testing "both resolved: nothing reported"
+      (is (empty? (v/conflicts kb))))))
+
+;; ---- 5. a default defeated in one context but holding in a sibling ------
+
+(tu/deftest-kb default-defeated-in-one-context-holds-in-sibling
+  ;; AContext and BContext both see RootContext but not each other.  The default rule lives in
+  ;; RootContext; the same bird fact in each leaf derives (flies Tweety) into that leaf.
+  ;; A monotonic negation asserted only in AContext reaches AContext's up-closure, so it
+  ;; defeats the AContext conclusion while the sibling BContext conclusion stands.
+  (let [bird (tu/tmp-type) flies (tu/tmp-pred) tweety (tu/tmp-ind)]
+    (v/assert kb (list 'genlContext 'AContext 'RootContext) 'UniverseContext)
+    (v/assert kb (list 'genlContext 'BContext 'RootContext) 'UniverseContext)
+    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'RootContext)
+    (v/assert kb (list bird tweety) 'AContext)
+    (v/assert kb (list bird tweety) 'BContext)
+    (testing "the default fires into both sibling contexts"
+      (is (seq (v/sentexes-matching kb (list flies tweety) 'AContext)))
+      (is (seq (v/sentexes-matching kb (list flies tweety) 'BContext))))
+    (testing "a negation local to AContext defeats only the AContext conclusion"
+      (v/assert kb (list 'not (list flies tweety)) 'AContext {:strength :monotonic})
+      (is (empty? (v/sentexes-matching kb (list flies tweety) 'AContext)))              ; defeated here
+      (is (seq   (v/sentexes-matching kb (list flies tweety) 'BContext)))              ; untouched in the sibling
+      (is (seq   (v/sentexes-matching kb (list 'not (list flies tweety)) 'AContext)))
+      (is (empty? (v/conflicts kb))))))
+
+;; ---- 6. support loss (retract the premise) is not defeat ----------------
+
+(tu/deftest-kb retracting-a-defaults-premise-removes-it-outright
+  ;; A defeated default is RETAINED (OUT but still stored) for possible revival.
+  ;; Losing the premise it rested on is different: the conclusion is solely
+  ;; supported by that premise, so retraction SWEEPS it from the stores entirely.
+  (let [bird (tu/tmp-type) animal (tu/tmp-type) flies (tu/tmp-pred) sky (tu/tmp-ind)]
+    (v/assert kb (list 'genl bird animal) 'UniverseContext)
+    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'UniverseContext)
+    (let [bird-h (v/assert kb (list bird sky) 'UniverseContext)]
+      (is (seq (v/sentexes-matching kb (list flies sky) 'UniverseContext)))
+      (let [flies-h (:id (first (v/sentexes-matching kb (list flies sky) 'UniverseContext)))]
+        (v/retract! kb bird-h)
+        (testing "the conclusion is gone with its support — swept, not merely defeated"
+          (is (empty? (v/sentexes-matching kb (list flies sky) 'UniverseContext)))
+          (is (not (v/in? kb flies-h)))
+          (is (nil? (v/sentex kb flies-h)))                          ; physically removed
+          (is (empty? (v/conflicts kb))))))))

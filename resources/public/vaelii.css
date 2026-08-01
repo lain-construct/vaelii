@@ -1,0 +1,1171 @@
+/* vaelii — the KB browser (vaelii.impl.web).
+
+   Two typefaces, split by what the text *is*:
+
+     • Hasklig (monospace) — the formal content: sentences, terms, handles, index
+       keys, query inputs.  A knowledge base reads like code, so it is set like code.
+     • Atkinson Hyperlegible Next (proportional) — natural-language text only:
+       headings, prose, section labels, the predicate comments.  Proportional is
+       reserved for prose; it never touches a sentence.
+
+   **One weight per family.**  Two files is the whole webfont budget — a page of
+   sentences is one typeface used well, not four cuts of it — so each family ships
+   its regular and the browser synthesizes the heavier levels (`font-weight: 600` on
+   the wordmark, a type term, an active menubar link, a table head).  Nothing here
+   asks for italic.  Declaring only 400 per family is what keeps synthesis on: a
+   `font-weight: 400 700` range would claim the face covers bold and emphasis would
+   flatten instead.
+
+   Terms inside a sentence are colour-coded by their naming role (type / individual /
+   predicate / context / number / variable), and a sentex's handle is shown as a
+   colour-coded badge encoding its kind, direction, origin, and belief.  See docs/web.md. */
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("/font/AtkinsonHyperlegibleNext-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Hasklig";
+  src: url("/font/Hasklig-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+
+  --prose: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --mono:  "Hasklig", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ---- colour palette -------------------------------------------------- */
+  /* The accent pair every themed surface derives from, picked by a
+     `data-palette` on <html> (the header's palette dot).  --accent is the fill
+     and the emphasis hue, --accent-2 its deeper/pressed partner, --accent-b the
+     second tone the palette dot's gradient runs to, and --on-accent the text a
+     filled --accent surface carries.  The values are vaelii.com's, so the
+     browser and the site read as one system.
+     Light mode's side is picked here, dark mode's in the block below. */
+  --accent:    var(--lt-accent);
+  --accent-2:  var(--lt-accent-2);
+  --accent-b:  var(--lt-accent-b);
+  --rainbow:   var(--lt-rainbow);
+  --on-accent: #fff;
+
+  /* ---- light mode surfaces -------------------------------------------- */
+  /* The dark override below flips these and the accent pair above, and nothing
+     else, so the two modes never drift out of parity (docs/web.md). */
+  --bg:         #fff;      /* page background (propagates to the viewport)  */
+  --ink:        #222;      /* body text                                     */
+  --muted:      #888;      /* secondary text, hints, faint labels           */
+  --link:       #06c;
+  --edge:       #eee;      /* the header rule, subtle separators            */
+  --card:       #fff;      /* the action bar / editor / popovers            */
+  --card-edge:  #ddd;
+  --code-bg:    #f4f4f4;
+  --field-bg:   #fafafa;   /* inputs and the textarea                       */
+  --field-edge: #ccc;
+  --btn-bg:     #f4f4f4;
+  --btn-hover:  #e8e8e8;
+  --shadow:     rgba(0, 0, 0, .16);
+  --belief-bg:  #faf7f2;
+  --err-bg:     #fdeceb;
+  --err-ink:    #c0392b;
+
+  --badge-fact:    #6a4bbd;
+  --badge-derived: #0f766e;
+  --badge-rule:    #4f46e5;
+
+  --t-type:    #0a7d5a;
+  --t-ind:     #8a2be2;
+  --t-pred:    #0645ad;
+  --t-context: #b5651d;
+  --t-num:     #cc3300;
+  --t-var:     #999;
+
+  /* derived from --accent (+ mode), so a palette change ripples automatically:
+     the wordmark, the selected-row tint/edge, and the marquee all follow the hue.
+     --brand takes the deeper partner on the light ground and the accent itself on
+     the dark one, which is the shade that reads on each. */
+  --brand:    var(--accent-2);
+  --sel-bg:   color-mix(in srgb, var(--accent) 13%, var(--card));
+  --sel-edge: color-mix(in srgb, var(--accent) 48%, var(--card));
+  --marquee:  color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* ---- the four palettes (data-palette, cycled by the header's palette dot) --- */
+/* Each declares both modes' values in one place; the light/dark switch picks a
+   side.  Violet is the default, and rainbow keeps violet's accents — it is the
+   gradient treatments further down that make it a distinct palette. */
+:root {
+  --lt-accent: #7c3aed; --lt-accent-2: #6d28d9; --lt-accent-b: #0f766e;
+  --dk-accent: #a78bfa; --dk-accent-2: #c4b5fd; --dk-accent-b: #5eead4;
+  --lt-rainbow: linear-gradient(110deg,#dc2626 0%,#d97706 25%,#16a34a 50%,#0d9488 75%,#7c3aed 100%);
+  --dk-rainbow: linear-gradient(110deg,#f0857a 0%,#fbbf24 25%,#4ade80 50%,#5eead4 75%,#a78bfa 100%);
+}
+/* cyan against the warm accent, amber against the cool one: a cross-temperature
+   pair reads as two tones rather than one hue twice */
+:root[data-palette="red"] {
+  --lt-accent: #dc2626; --lt-accent-2: #b91c1c; --lt-accent-b: #0e7490;
+  --dk-accent: #f0857a; --dk-accent-2: #fca5a5; --dk-accent-b: #67e8f9;
+}
+:root[data-palette="green"] {
+  --lt-accent: #16a34a; --lt-accent-2: #15803d; --lt-accent-b: #b45309;
+  --dk-accent: #4ade80; --dk-accent-2: #86efac; --dk-accent-b: #fbbf24;
+}
+
+/* ---- dark mode ------------------------------------------------------- */
+/* The @media form is the default, and it needs no JS: with no `data-theme` the
+   page follows the OS.  The [data-theme] forms are the explicit choice the
+   header's theme dot pins — the same variables, so a pinned theme can never
+   disagree with the OS-following one.  The accent pair flips to its dark side
+   here, and --on-accent with it: a dark-mode accent is a pastel, so the text on
+   a filled one is near-black rather than white.  sel-bg / sel-edge / marquee
+   re-derive on their own, since they mix with --card. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg:#14151b; --ink:#d7d8e0; --muted:#8b8e9c; --link:#79b8ff; --edge:#262735;
+    --card:#1b1c25; --card-edge:#343546; --code-bg:#21232e;
+    --field-bg:#1b1c25; --field-edge:#3a3b47; --btn-bg:#2a2b3a; --btn-hover:#343548;
+    --shadow:rgba(0,0,0,.5); --belief-bg:#1f1a12; --err-bg:#2b1512; --err-ink:#ff8f80;
+    --badge-fact:#8b6ee0; --badge-derived:#17a394; --badge-rule:#6c63ff;
+    --t-type:#45d18a; --t-ind:#c792ea; --t-pred:#79b8ff; --t-context:#e0a566;
+    --t-num:#ff9478; --t-var:#7f8494;
+    --accent: var(--dk-accent); --accent-2: var(--dk-accent-2);
+    --accent-b: var(--dk-accent-b); --rainbow: var(--dk-rainbow);
+    --on-accent:#15131f; --brand: var(--accent);
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#14151b; --ink:#d7d8e0; --muted:#8b8e9c; --link:#79b8ff; --edge:#262735;
+  --card:#1b1c25; --card-edge:#343546; --code-bg:#21232e;
+  --field-bg:#1b1c25; --field-edge:#3a3b47; --btn-bg:#2a2b3a; --btn-hover:#343548;
+  --shadow:rgba(0,0,0,.5); --belief-bg:#1f1a12; --err-bg:#2b1512; --err-ink:#ff8f80;
+  --badge-fact:#8b6ee0; --badge-derived:#17a394; --badge-rule:#6c63ff;
+  --t-type:#45d18a; --t-ind:#c792ea; --t-pred:#79b8ff; --t-context:#e0a566;
+  --t-num:#ff9478; --t-var:#7f8494;
+  --accent: var(--dk-accent); --accent-2: var(--dk-accent-2);
+  --accent-b: var(--dk-accent-b); --rainbow: var(--dk-rainbow);
+  --on-accent:#15131f; --brand: var(--accent);
+}
+
+/* ---- what the rainbow palette adds ----------------------------------- */
+/* Its accents stay violet's; these three surfaces go full-spectrum instead. */
+:root[data-palette="rainbow"] .wordmark {
+  background: var(--rainbow);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+:root[data-palette="rainbow"] button.primary {
+  background: var(--rainbow) !important; color: var(--on-accent);
+  border-color: transparent !important;
+}
+:root[data-palette="rainbow"] header.site { border-image: var(--rainbow) 1; }
+
+/* natural-language text is proportional */
+body {
+  font: 16px/1.55 var(--prose);
+  max-width: 62rem;
+  margin: 0 auto 3rem;
+  padding: 0 1rem;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* form controls do not inherit page colours — theme them explicitly, or a dark
+   page would show white inputs */
+input, textarea, select, button { color: var(--ink); }
+
+/* headings sit at the regular weight and take their hierarchy from size and space,
+   not from a heavier cut */
+h1, h2, h3, h4 { font-family: var(--prose); font-weight: 400; line-height: 1.25; }
+h2 { margin-top: 1.6rem; }
+h3 { margin-top: 1.2rem; }
+
+a       { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* formal content is monospace */
+.sx, code, .ref, .badge, .q input, .search {
+  font-family: var(--mono);
+}
+
+code {
+  background: var(--code-bg);
+  padding: .1em .3em;
+  border-radius: 3px;
+}
+
+ul     { margin: .3rem 0; }
+.muted { color: var(--muted); }
+
+/* ---- header ---------------------------------------------------------- */
+
+header.site {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  padding: .9rem 0;
+  margin-bottom: 1.2rem;
+  border-bottom: 1px solid var(--edge);
+}
+.brand { display: inline-flex; align-items: center; gap: .55rem; color: var(--ink); }
+.brand:hover { text-decoration: none; }
+.brand .logo { display: block; }
+.wordmark {
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--brand);
+  letter-spacing: -.01em;
+}
+
+/* the top menubar — links to the top-level tools, pushed to the right */
+.menubar { display: inline-flex; align-items: center; gap: .2rem; flex-wrap: wrap; margin-left: auto; }
+.menubar a {
+  padding: .3em .7em;
+  border-radius: 7px;
+  color: var(--ink);
+  font-size: .95rem;
+}
+.menubar a:hover { background: var(--code-bg); text-decoration: none; }
+.menubar a.active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--card));
+  color: var(--brand);
+  font-weight: 600;
+}
+.search {
+  font-size: .95rem;
+  padding: .38em .7em;
+  min-width: 15rem;
+  border: 1px solid var(--field-edge);
+  border-radius: 999px;
+  background: var(--field-bg);
+}
+.search:focus { outline: none; border-color: var(--accent); background: var(--card); }
+
+/* the two colour controls, dots rather than labels (vaelii.com's, so the two
+   surfaces read as one): the palette dot cycles the accent pair and is painted
+   in it, and the theme dot flips light against dark and shows both grounds. */
+.theme-controls { display: inline-flex; align-items: center; gap: .5rem; }
+.palette-btn, .theme-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--card-edge);
+  cursor: pointer;
+  transition: transform .15s ease, border-color .15s ease;
+}
+.palette-btn { background: linear-gradient(110deg, var(--accent) 45%, var(--accent-b) 55%); }
+:root[data-palette="rainbow"] .palette-btn { background-image: var(--rainbow); }
+.theme-btn { background: linear-gradient(90deg, var(--ink) 50%, var(--bg) 50%); }
+.palette-btn:hover, .theme-btn:hover { border-color: var(--accent); transform: scale(1.15); }
+
+/* ---- sentex handle badge --------------------------------------------- */
+/* Replaces the bare "#id" that used to precede a sentence.  Colour encodes the
+   kind and origin; the glyph encodes direction (rules) or polarity (facts);
+   modifiers encode defeasibility and belief.  `title` carries the handle + a
+   plain reading, so the number is a hover away.
+
+     colour   indigo = rule · violet = asserted fact · teal = derived fact
+     glyph    → forward · ← backward · ↔ both · · inert · • fact · ¬ negation
+     dashed   defeasible (a default rule)
+     dimmed   stored but not believed (OUT) */
+
+.badge-link { text-decoration: none; }
+.badge-link:hover { text-decoration: none; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45em;
+  height: 1.45em;
+  margin-right: .4em;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: .78em;
+  line-height: 1;
+  color: #fff;
+  vertical-align: middle;
+  user-select: none;
+}
+.badge-link:hover .badge { filter: brightness(1.12); }
+.badge-fact       { background: var(--badge-fact); }     /* an asserted (premise) fact */
+.badge-derived    { background: var(--badge-derived); }  /* a derived fact             */
+.badge-rule       { background: var(--badge-rule); }     /* a rule (any direction)     */
+.badge-defeasible { border-color: rgba(255, 255, 255, .85); border-style: dashed; }
+.badge-out        { opacity: .4; filter: grayscale(1); }  /* stored, not believed */
+
+/* a small pill for a sentex's assumption strength / defeat class, rule flag, etc. */
+.tag {
+  font-size: .8em;
+  color: #fff;
+  background: #888;
+  border-radius: 3px;
+  padding: .05em .4em;
+  margin-left: .3em;
+}
+
+/* belief-state pills — the reasons `in?` folds into one boolean (docs/nmtms.md,
+   docs/equality.md).  Colour maps to a `why-not` reason. */
+.tag-in          { background: #0a7d5a; }  /* believed                          */
+.tag-premise     { background: #6a4bbd; }  /* asserted, not derived             */
+.tag-superseded  { background: #b5651d; }  /* displaced by an equality merge    */
+.tag-defeated    { background: #c0392b; }  /* forced OUT by contradiction       */
+.tag-unsupported { background: #999;    }  /* no believed justification         */
+.tag-not-stored  { background: #999;    }
+.tag-out         { background: #bbb;    }  /* generic not-believed marker        */
+
+/* the "why not believed" detail box on the sentex page */
+.belief {
+  margin: .5rem 0;
+  padding: .4rem .8rem;
+  background: var(--belief-bg);
+  border-left: 3px solid var(--t-context);
+  border-radius: 3px;
+}
+.belief p:first-child { margin-top: .2rem; }
+.belief ul            { margin: .2rem 0; }
+
+/* index-organized groups on the term page */
+.idxgrp    { margin: .5rem 0; }
+.idxgrp h4 { margin: .5rem 0 .1rem; font-size: .95em; font-weight: 600; }
+
+/* the "#id (gone)" placeholder for a retracted handle */
+.ref { color: var(--muted); font-size: .85em; margin-right: .2em; }
+
+/* term roles (vaelii.naming) */
+a.t-type    { color: var(--t-type); font-weight: 600; }  /* dog, physical_object */
+a.t-ind     { color: var(--t-ind); }                     /* Fido, Tom            */
+a.t-pred    { color: var(--t-pred); }                    /* parentOf, genl       */
+a.t-context { color: var(--t-context); }                 /* CoreContext          */
+a.t-num     { color: var(--t-num); }                     /* 1970                 */
+.t-var      { color: var(--t-var); }                     /* ?x — not a link      */
+
+/* a reified term (docs/nat.md), shown as the expression it denotes rather than as its
+   opaque nat/ constant.  The parens are what say it is one *term* and not a compound
+   sentence — the constant and the literal expression it maps to read identically
+   otherwise — and the opening one links to the constant's own page. */
+a.nart-paren,
+.nart-paren { font-weight: 700; color: var(--ink); text-decoration: none; }
+a.nart-paren:hover { color: var(--accent); text-decoration: none; }
+
+.legend   { font-size: .85em; color: var(--muted); margin: .2rem 0; }
+.legend b { font-weight: 600; }
+.legend .badge { margin: 0 .15em 0 .5em; }
+
+/* ---- the stats page -------------------------------------------------- */
+
+.stats-grid { display: flex; flex-wrap: wrap; gap: .8rem; margin: 1rem 0 1.5rem; }
+.stat {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 7rem;
+  padding: .7rem .9rem;
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: 10px;
+  color: var(--ink);
+}
+a.stat:hover { border-color: var(--accent); text-decoration: none; }
+.stat-n { font-family: var(--mono); font-size: 1.7rem; line-height: 1.1; color: var(--brand); }
+.stat-l { font-size: .82rem; color: var(--muted); margin-top: .2rem; }
+
+.stats-table { border-collapse: collapse; margin: .4rem 0 1rem; }
+.stats-table th, .stats-table td { text-align: left; padding: .18rem 1.2rem .18rem 0; }
+.stats-table .num { text-align: right; font-family: var(--mono); }
+.stats-table thead th { border-bottom: 1px solid var(--edge); font-weight: 600; }
+
+/* the regex term-search results */
+.find-hits { columns: 3 12rem; margin: .5rem 0; padding-left: 1.2rem; }
+.find-hits li { break-inside: avoid; }
+
+/* ---- drag-selection + the editor ------------------------------------- */
+
+.hidden { display: none !important; }
+
+/* a grid of selectable sentex rows.  No list marker: the row already opens with a
+   checkbox and a handle badge, and a disc in front of those is a third glyph saying
+   nothing.  Dropping the marker's indent too, so a row starts where the surrounding
+   text does. */
+.sx-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+/* a selectable sentex row (select.js).  Text is non-selectable so a press-drag
+   marks rows instead of selecting text. */
+.sx-item {
+  user-select: none;
+  border-radius: 4px;
+  padding: .05rem .3rem;
+  margin: 0 -.3rem;
+  transition: background .06s;
+}
+.sx-item.selected { background: var(--sel-bg); box-shadow: inset 0 0 0 1px var(--sel-edge); }
+body.sx-dragging { cursor: crosshair; user-select: none; }
+
+/* the keyboard's place in the list: one row carries tabindex 0 (select.js), so Tab
+   reaches the list once and the arrows move inside it.  The ring has to be visible —
+   it is the only thing saying where the next space/enter lands. */
+.sx-item:focus         { outline: none; }
+.sx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* the toggle affordance: a checkbox that is drawn, not native, because the row it
+   sits in is a grid row whose selected state ARIA already carries (aria-selected).
+   It is the unambiguous click target — the rest of the row toggles too, but a link
+   inside it still navigates. */
+.sx-check {
+  display: inline-block;
+  width: .8em;
+  height: .8em;
+  margin-right: .45em;
+  vertical-align: baseline;
+  border: 1px solid var(--field-edge);
+  border-radius: 3px;
+  background: var(--field-bg);
+  cursor: pointer;
+}
+.sx-item:hover .sx-check    { border-color: var(--accent); }
+.sx-item.selected .sx-check { background: var(--accent); border-color: var(--accent); }
+.sx-item.selected .sx-check::after {
+  content: "";
+  display: block;
+  width: .22em;
+  height: .45em;
+  margin: -.02em auto 0 .22em;
+  border: solid var(--on-accent);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(42deg);
+}
+
+/* the per-group select-all control, in a group's heading */
+button.sx-all {
+  font: inherit;
+  font-size: .78em;
+  padding: .05em .6em;
+  margin-left: .3em;
+  vertical-align: 1px;
+  border: 1px solid var(--field-edge);
+  border-radius: 999px;
+  background: var(--btn-bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+button.sx-all:hover                    { background: var(--btn-hover); color: var(--ink); }
+button.sx-all[aria-pressed="true"]     { border-color: var(--accent); color: var(--accent); }
+.sx-head { margin: .2rem 0 0; }
+
+/* the rubber-band rectangle drawn during a drag */
+.sx-marquee {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  border: 1px dashed var(--accent);
+  background: var(--marquee);
+  border-radius: 2px;
+}
+
+/* the action bar, shown once ≥1 sentex is selected */
+#sx-bar {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .5rem .8rem;
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: 999px;
+  box-shadow: 0 4px 16px var(--shadow);
+}
+#sx-bar #sx-count { font-size: .9rem; color: var(--muted); }
+
+#sx-bar button, .editor button {
+  font: inherit;
+  font-size: .9rem;
+  padding: .3em .9em;
+  border: 1px solid var(--field-edge);
+  border-radius: 999px;
+  background: var(--btn-bg);
+  cursor: pointer;
+}
+#sx-bar button:hover, .editor button:hover { background: var(--btn-hover); }
+button.primary { background: var(--accent) !important; color: var(--on-accent); border-color: var(--accent) !important; }
+button.primary:hover { filter: brightness(1.1); }
+
+/* the editor panel — floats above the action bar */
+.editor {
+  position: fixed;
+  bottom: 4.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  width: min(48rem, 92vw);
+  max-height: 60vh;
+  overflow: auto;
+  padding: .8rem 1rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px var(--shadow);
+}
+.editor h3 { margin: .1rem 0 .6rem; }
+.editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: .95em;
+  line-height: 1.5;
+  padding: .5rem .6rem;
+  background: var(--field-bg);
+  color: var(--ink);
+  border: 1px solid var(--field-edge);
+  border-radius: 6px;
+  resize: vertical;
+}
+.editor textarea:focus { outline: none; border-color: var(--accent); }
+.editor .hint { font-size: .82em; color: var(--muted); margin: .4rem 0 .6rem; }
+.editor-actions { display: flex; gap: .5rem; }
+.edit-errors {
+  margin: .2rem 0 .6rem;
+  padding: .4rem .8rem;
+  list-style: none;
+  color: var(--err-ink);
+  background: var(--err-bg);
+  border-left: 3px solid var(--err-ink);
+  border-radius: 4px;
+  font-size: .88em;
+}
+
+/* the goal box on /levels */
+.q        { margin: 1rem 0; }
+.q input  {
+  font: inherit;
+  font-family: var(--mono);
+  padding: .3em .4em;
+  background: var(--field-bg);
+  border: 1px solid var(--field-edge);
+  border-radius: 3px;
+  margin-right: .3rem;
+}
+.q input:focus { outline: none; border-color: var(--accent); }
+.q button {
+  font: inherit;
+  padding: .3em .9em;
+  border: 1px solid var(--field-edge);
+  border-radius: 3px;
+  background: var(--btn-bg);
+  cursor: pointer;
+}
+.q button:hover { background: var(--btn-hover); }
+
+/* the request indicator — htmx marks it .htmx-request for the life of a request, so a
+   slow page says so instead of looking dead.  A hairline bar across the top, animated
+   only while it is shown; it takes no layout space, so nothing shifts when it appears. */
+#page-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity .15s ease-in;
+  pointer-events: none;
+  z-index: 40;
+}
+#page-indicator.htmx-request { opacity: 1; animation: page-sweep 1.1s linear infinite; }
+@keyframes page-sweep {
+  from { background-position: -40% 0; }
+  to   { background-position: 140% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #page-indicator.htmx-request { animation: none; background-size: 100% 100%; }
+}
+
+/* the continuation row that ends a capped list: it fetches the next page when scrolled
+   into view, and is clickable for a reader who would rather ask */
+li.more {
+  list-style: none;
+  cursor: pointer;
+  padding: .3rem 0;
+  font-size: .9em;
+}
+li.more:hover span { color: var(--accent); }
+tr.more { cursor: pointer; }
+tr.more:hover span { color: var(--accent); }
+.more-td { padding-top: .35rem; }
+.more-cell:focus         { outline: none; }
+.more-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+/* ---- asserting, retracting, chaining, and the proof tree -------------- */
+
+/* the inline "do a thing from here" link on the home / term / sentex pages */
+a.action { font-weight: 600; }
+
+/* the new-sentex form (/assert) */
+.assert-form { margin: 1rem 0; max-width: 48rem; }
+.assert-form label      { display: inline-block; font-size: .88rem; color: var(--muted); }
+.assert-form textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: .2rem;
+  font-family: var(--mono);
+  font-size: .95em;
+  line-height: 1.5;
+  padding: .5rem .6rem;
+  background: var(--field-bg);
+  color: var(--ink);
+  border: 1px solid var(--field-edge);
+  border-radius: 6px;
+  resize: vertical;
+}
+.assert-form textarea:focus, .assert-form input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.assert-form input[type="text"] {
+  font-family: var(--mono);
+  font-size: .95em;
+  padding: .3rem .5rem;
+  background: var(--field-bg);
+  color: var(--ink);
+  border: 1px solid var(--field-edge);
+  border-radius: 6px;
+}
+.assert-row  { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .6rem 0; }
+.assert-form .hint { font-size: .82em; color: var(--muted); margin: .4rem 0 .6rem; }
+label.check  { display: inline-flex; align-items: center; gap: .3em; }
+.assert-form button { font: inherit; font-size: .9rem; padding: .3em .9em;
+                      border: 1px solid var(--field-edge); border-radius: 999px;
+                      background: var(--btn-bg); cursor: pointer; }
+
+/* the retract confirmation: destructive, and it says so */
+button.danger { background: var(--err-ink); color: #fff; border-color: var(--err-ink) !important; }
+button.danger:hover { filter: brightness(1.1); }
+.retract-list { margin: .2rem 0 .6rem; max-height: 12rem; overflow: auto; }
+.editor h4    { margin: .6rem 0 .1rem; font-size: .9em; }
+
+/* the forward-chaining control on /stats, and what a run reported */
+.chain-form  { display: flex; align-items: center; gap: .5rem; margin: .6rem 0 1.2rem; }
+.chain-form button { font: inherit; font-size: .9rem; padding: .3em .9em;
+                     border: 1px solid var(--field-edge); border-radius: 999px;
+                     background: var(--btn-bg); cursor: pointer; }
+.chain-note {
+  margin: .6rem 0;
+  padding: .4rem .8rem;
+  background: var(--belief-bg);
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+}
+
+/* the hierarchy trees (/): one <details> per node with subtypes, its children
+   fetched the first time it is opened.  A leaf is a bare <li>, so the marker is
+   what distinguishes "has more below" from "this is the bottom" — which is a real
+   claim about the KB, not decoration. */
+ul.tree, ul.tree-kids   { list-style: none; padding-left: 1.1rem; margin: .1rem 0; }
+ul.tree > li            { margin: .12rem 0; }
+ul.tree summary         { cursor: pointer; list-style-position: outside; }
+ul.tree summary::marker { color: var(--muted); }
+ul.tree summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+ul.tree li.more         { list-style: none; }
+
+/* the proof tree (/why): one <details> per derived node, its justifications nested */
+ul.why          { list-style: none; padding-left: 1.1rem; margin: .1rem 0; }
+ul.why > li     { margin: .12rem 0; }
+ul.why summary  { cursor: pointer; list-style-position: outside; }
+ul.why summary::marker { color: var(--muted); }
+ul.why summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- knowledge bases (/kbs) ------------------------------------------- */
+/* One card per KB — loaded above, loadable below.  A card is a small stack: a
+   head line (name, status, key), whatever the state has to say (a progress bar
+   while loading, the counts once ready, the reason when it failed), then the
+   actions.  The active KB is the one every other page is about, so it is the one
+   the accent border points at. */
+
+.kb-active { font-family: var(--mono); font-size: .82em; }
+.kb-active .muted { font-weight: 400; }
+
+.kb-card {
+  margin: .6rem 0;
+  padding: .6rem .8rem;
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: 8px;
+}
+.kb-card.kb-on      { border-color: var(--sel-edge); background: var(--sel-bg); }
+.kb-card.kb-failed  { border-color: var(--err-ink); }
+.kb-card p          { margin: .3rem 0; }
+.kb-head            { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
+.kb-name            { font-family: var(--prose); font-size: 1.05em; }
+.kb-key             { font-family: var(--mono); font-size: .8em; margin-left: auto; }
+.kb-path            { font-family: var(--mono); font-size: .82em; color: var(--muted); }
+.kb-error           { color: var(--err-ink); background: var(--err-bg);
+                      padding: .3rem .5rem; border-radius: 4px; }
+.kb-actions         { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
+.kb-action          { display: inline; }
+.kb-actions button, .kb-load button {
+  font: inherit; font-size: .9rem; padding: .3em .9em;
+  border: 1px solid var(--field-edge); border-radius: 999px;
+  background: var(--btn-bg); color: var(--ink); cursor: pointer;
+}
+.kb-actions button:hover, .kb-load button:hover { background: var(--btn-hover); }
+.kb-load button[disabled] { opacity: .5; cursor: not-allowed; }
+button.primary      { border-color: var(--accent); }
+
+/* the state pills reuse the belief-tag shapes; these are the states a load has */
+.tag-loading   { background: var(--accent); color: var(--on-accent); }
+.tag-ready     { background: #0a7d5a; }
+.tag-failed    { background: var(--err-ink); }
+.tag-cancelled { background: #999; }
+
+/* a load in flight: a real bar when the source knows its own total, a striped
+   indeterminate one when it does not (a corpus reports its count, a generated KB
+   knows it exactly, a directory of files does not). */
+.kb-progress .bar {
+  height: 8px; margin: .4rem 0 .2rem;
+  background: var(--code-bg);
+  border-radius: 999px; overflow: hidden;
+}
+.bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 999px;
+            transition: width .4s ease; }
+.bar-fill.indeterminate {
+  width: 35%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: kb-slide 1.3s linear infinite;
+}
+@keyframes kb-slide { from { margin-left: -35%; } to { margin-left: 100%; } }
+@media (prefers-reduced-motion: reduce) {
+  .bar-fill.indeterminate { animation: none; width: 100%; opacity: .5; }
+}
+
+/* the provisional-KB strip, at the top of #main on every page: the KB being read is not
+   finished, or holds no belief.  Deliberately not styled as an error — a prefix of a
+   corpus is a correct KB with less in it, and the page below it is worth reading.  The
+   accent edge is the same one an active card gets, since it is saying something about
+   which KB you are on; a stopped load is the one case that borrows the error colour,
+   because there its content is all there will ever be. */
+#kb-caveat:empty { display: none; }
+.kb-caveat {
+  margin: 0 0 1rem;
+  padding: .5rem .8rem;
+  background: var(--sel-bg);
+  border: 1px solid var(--sel-edge);
+  border-left-width: 4px;
+  border-radius: 6px;
+}
+.kb-caveat-failed, .kb-caveat-cancelled { border-color: var(--err-ink); }
+.kb-caveat-line     { margin: 0; }
+.kb-caveat .kb-progress .bar { margin-top: .35rem; }
+.kb-caveat .kb-progress p    { margin: .15rem 0 0; }
+.kb-caveat-why {
+  margin: .35rem 0 0; padding-left: 1.1rem;
+  font-size: .9em; color: var(--muted);
+}
+.kb-caveat-why li   { margin: .15rem 0; }
+
+/* the memory strip heading the loaded list: one measured figure (the heap) and one
+   estimated one (what the loaded KBs cost).  The header line is the control that expands
+   it into the per-KB breakdown, so the pointer sits there and not on the whole strip —
+   the breakdown below is a table of numbers to read, not a second way to collapse it.
+   An estimate is written in the muted italic `.est` wherever it appears, so a figure that
+   is inferred never reads like one that was measured. */
+.kb-memory {
+  margin: .6rem 0; padding: .5rem .8rem;
+  background: var(--card); border: 1px solid var(--card-edge); border-radius: 8px;
+}
+.kb-memory .bar       { height: 6px; margin: .35rem 0 .1rem;
+                        background: var(--code-bg); border-radius: 999px; overflow: hidden; }
+.kb-mem-line          { display: flex; align-items: baseline; flex-wrap: wrap; gap: .4rem;
+                        cursor: pointer; }
+.kb-mem-line:hover .kb-mem-more   { text-decoration: underline; }
+.kb-mem-line:focus                { outline: none; }
+.kb-mem-line:focus-visible        { outline: 2px solid var(--accent); outline-offset: 2px;
+                                    border-radius: 3px; }
+.kb-mem-more          { margin-left: auto; font-size: .82em; color: var(--accent); }
+.kb-mem-detail        { margin-top: .6rem; }
+.kb-mem-table         { border-collapse: collapse; width: 100%; font-size: .88em; }
+.kb-mem-table th      { text-align: left; font-weight: 500; color: var(--muted);
+                        border-bottom: 1px solid var(--card-edge); padding: .2rem .5rem .2rem 0; }
+.kb-mem-table td      { padding: .2rem .5rem .2rem 0; font-variant-numeric: tabular-nums; }
+/* the sandbox panel on the assert page: where this session's writing goes.  Tinted like
+   a card rather than like a warning — it is the safe place, not the dangerous one — and
+   the reset inside it is the page's only irreversible control, so it names its cost. */
+.sbx-panel {
+  margin: 1rem 0; padding: .6rem .9rem;
+  background: var(--card); border: 1px solid var(--card-edge); border-radius: 8px;
+}
+.sbx-panel p         { margin: .25rem 0; }
+.sbx-panel form      { margin-top: .5rem; }
+.sbx-note            { font-size: .88em; }
+
+/* the non-monotonicity walkthrough.  Deliberately plain: the page's whole claim is that
+   nothing on it is staged, so it is styled like the rest of the browser rather than like
+   a product tour — the same belief surface, the same badges, the same links out to real
+   records.  The only emphasis is on the step you are on and on the one sentence a
+   reader is most likely to disbelieve. */
+.demo-steps { list-style: none; margin: 1rem 0; padding: 0; }
+.demo-step  { display: flex; gap: .55rem; align-items: baseline; margin: .4rem 0; }
+.demo-step.is-next { opacity: .5; }
+.demo-mark {
+  flex: 0 0 1.5rem; text-align: center; font-family: var(--mono); font-size: .8rem;
+  line-height: 1.5rem; border-radius: 50%; background: var(--card);
+  border: 1px solid var(--card-edge); color: var(--muted);
+}
+.demo-step.is-now  .demo-mark { background: var(--brand); border-color: var(--brand);
+                                color: var(--on-accent); }
+.demo-step.is-done .demo-mark { color: var(--badge-derived);
+                                border-color: var(--badge-derived); }
+.demo-step.is-now  .demo-does { font-weight: 600; }
+
+.demo-controls { display: flex; gap: .5rem; align-items: center; margin: .8rem 0; }
+.demo-run      { display: inline; margin: 0; }
+
+/* the point of the whole page, so it is the one thing here that raises its voice */
+.demo-point {
+  margin: .6rem 0 .2rem; padding: .5rem .7rem;
+  background: var(--card); border-left: 3px solid var(--badge-derived);
+  border-radius: 0 6px 6px 0;
+}
+
+.demo-facts  { list-style: none; margin: .6rem 0; padding: 0; }
+.demo-fact   { margin: .35rem 0; }
+.demo-absent { opacity: .55; }
+.demo-note   { display: block; font-size: .85em; color: var(--muted); margin-left: .2rem; }
+
+/* ---- the reasoning gallery -----------------------------------------------
+   A card per worked example. The dependency list is the load-bearing part rather
+   than the decoration, so it is set in the sentence face and not dimmed away:
+   every claim on the card is about those handles. */
+.ex-group { margin-top: 2rem; }
+.ex-card {
+  margin: 1rem 0; padding: .75rem 1rem;
+  background: var(--card); border: 1px solid var(--card-edge); border-radius: 8px;
+}
+.ex-card h3   { margin: 0 0 .35rem; }
+.ex-card > p  { margin: .35rem 0; }
+.ex-deps      { list-style: none; margin: .5rem 0; padding: 0; font-size: .92em; }
+.ex-deps li   { margin: .25rem 0; }
+.ex-premises  { margin: .5rem 0; }
+.ex-given     { list-style: none; margin: .2rem 0; padding: 0 0 0 .8rem;
+                border-left: 2px solid var(--card-edge); }
+.ex-given li  { margin: .2rem 0; }
+.ex-ask       { margin: .6rem 0 .4rem; }
+.ex-verdict {
+  margin: .4rem 0 .1rem; padding: .5rem .7rem;
+  background: var(--belief-bg); border-left: 3px solid var(--badge-derived);
+  border-radius: 0 6px 6px 0;
+}
+.ex-verdict p:first-child { margin-top: 0; }
+.ex-verdict p:last-child  { margin-bottom: 0; }
+.ex-verdict ul.why        { margin: .3rem 0; }
+
+/* "You didn't say this, but it follows" — what a commit derived, shown once and small.
+   Tinted like the belief surfaces rather than like an error: a consequence is the KB
+   working, not a problem to clear. */
+.callout {
+  margin: 1rem 0; padding: .6rem .9rem;
+  background: var(--belief-bg); border-left: 3px solid var(--badge-derived);
+  border-radius: 0 6px 6px 0;
+}
+.callout h4           { margin: 0 0 .4rem; font-weight: 400; }
+.callout-list         { list-style: none; margin: 0; padding: 0; }
+.callout-line         { margin: .3rem 0; }
+.callout-why          { display: block; font-size: .88em; margin-left: .2rem; }
+.est                  { font-style: italic; }
+.tag-est              { background: transparent; color: var(--muted);
+                        border: 1px solid var(--card-edge); }
+
+/* the load form: checkboxes and selects on their own lines, sliders in a grid of
+   label / track / readout so the numbers line up down the column */
+.kb-opts   { margin: .5rem 0; }
+.kb-opt    { display: block; margin: .3rem 0; font-size: .92em; }
+.kb-opt select, .kb-opt input[type="text"], .kb-opt input[type="number"] {
+  font: inherit; font-size: .9em; padding: .2rem .4rem;
+  background: var(--field-bg); color: var(--ink);
+  border: 1px solid var(--field-edge); border-radius: 5px;
+}
+.knob      { display: grid; grid-template-columns: 11rem 1fr 7rem; align-items: center;
+             gap: .5rem; margin: .25rem 0; }
+.knob-l    { font-size: .9em; }
+.knob-h    { display: block; font-size: .78em; color: var(--muted); }
+.knob-r    { width: 100%; accent-color: var(--accent); }
+.knob-v    { font-family: var(--mono); font-size: .85em; text-align: right; color: var(--ink); }
+@media (max-width: 40rem) {
+  .knob    { grid-template-columns: 1fr; }
+  .knob-v  { text-align: left; }
+}
+
+/* ---- the proposal panel (a term page) --------------------------------- */
+/* A card at the foot of the term page: an instruction box, and the region a turn's
+   answer swaps into.  Every line it renders is a proposal — nothing here is stored —
+   so the markers are the flat admissible / refused pair and nothing looks like belief. */
+
+.propose {
+  margin: 1.6rem 0 .6rem;
+  padding: .7rem .9rem .9rem;
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: 8px;
+}
+.propose h3   { margin: .1rem 0 .5rem; }
+.propose .hint { font-size: .82em; color: var(--muted); margin: .4rem 0 0; }
+.propose label { display: block; font-size: .9em; margin-bottom: .25rem; }
+.propose-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: .95em;
+  line-height: 1.5;
+  padding: .4rem .6rem;
+  background: var(--field-bg);
+  color: var(--ink);
+  border: 1px solid var(--field-edge);
+  border-radius: 6px;
+  resize: vertical;
+}
+.propose-form textarea:focus { outline: none; border-color: var(--accent); }
+.propose-form .editor-actions { margin-top: .5rem; }
+.propose-form button {
+  font: inherit; font-size: .9rem; padding: .3em .9em;
+  border: 1px solid var(--field-edge); border-radius: 999px;
+  background: var(--btn-bg); color: var(--ink); cursor: pointer;
+}
+.propose-form button[disabled] { opacity: .5; cursor: progress; }
+
+.propose-answer { margin-top: .8rem; border-top: 1px solid var(--edge); padding-top: .6rem; }
+.propose-lines  { list-style: none; padding-left: 0; margin: .4rem 0; }
+
+/* one proposed line: a fixed glyph gutter, then the sentence, then the chips.  The
+   gutter is a column the eye reads *down*, so the glyph's width is fixed and does not
+   depend on what the sentence beside it happens to be. */
+.p-line {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .3em;
+  padding: .22rem 0;
+  border-bottom: 1px solid var(--edge);
+}
+.p-line:last-child { border-bottom: none; }
+.p-glyph {
+  flex: 0 0 1.2rem;
+  font-family: var(--mono); font-weight: 700; text-align: center;
+  cursor: default;
+}
+.p-ok        .p-glyph { color: #0a7d5a; }
+.p-coins     .p-glyph { color: var(--accent); }
+.p-uncertain .p-glyph { color: #b5651d; }
+.p-refused   .p-glyph { color: var(--err-ink); }
+.p-refused            { opacity: .82; }
+
+/* a corrected original is superseded, not hidden: struck and dimmed, with the rewrite
+   after the arrow — the author is the one choosing between them */
+.p-was   { text-decoration: line-through; opacity: .55; }
+.p-arrow { color: var(--muted); }
+.p-alts  { font-family: var(--mono); font-size: .78em; color: var(--muted); }
+
+.p-chips { display: inline-flex; flex-wrap: wrap; gap: .25em; margin-left: auto; }
+.chip {
+  display: inline-flex; align-items: baseline; gap: .25em;
+  font-size: .75rem; line-height: 1.5;
+  padding: 0 .5em;
+  border: 1px solid var(--field-edge); border-radius: 999px;
+  background: var(--btn-bg); color: var(--ink);
+  white-space: nowrap; cursor: help;
+}
+.chip-g            { font-family: var(--mono); font-weight: 700; }
+.chip-ok           { border-color: #0a7d5a; }
+.chip-ok        .chip-g { color: #0a7d5a; }
+.chip-coins        { border-color: var(--accent); }
+.chip-coins     .chip-g { color: var(--accent); }
+.chip-uncertain    { border-color: #b5651d; }
+.chip-uncertain .chip-g { color: #b5651d; }
+.chip-refused      { border-color: var(--err-ink); }
+.chip-refused   .chip-g { color: var(--err-ink); }
+.chip-correction   { border-color: var(--muted); }
+.chip-correction .chip-g { color: var(--muted); }
+
+/* the explanation, one click away and never inline: a reviewer scanning twenty lines
+   is looking for the two that need reading */
+.p-why          { display: inline; }
+.p-why summary  {
+  display: inline-block; list-style: none;
+  width: 1.2rem; text-align: center;
+  color: var(--muted); cursor: pointer; border-radius: 3px;
+}
+.p-why summary::-webkit-details-marker { display: none; }
+.p-why summary:hover        { color: var(--accent); }
+.p-why summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.p-why-body {
+  flex-basis: 100%;
+  margin: .2rem 0 .4rem 1.5rem;
+  padding: .35rem .6rem;
+  font-size: .86em;
+  background: var(--code-bg);
+  border-left: 2px solid var(--edge);
+  border-radius: 4px;
+}
+.p-why-body p { margin: .2rem 0; }
+
+/* disclosure levels: one row at three densities.  The switch is above the list — a
+   density buried in a preferences panel is one nobody changes, and the whole point is
+   that the same reader wants two of these within a session.  `guided` spells out what
+   the `?` folds at `working`; `dense` does not render it at all. */
+.p-levels { display: flex; align-items: center; gap: .3rem; margin: .2rem 0 .5rem; }
+.p-level {
+  font: inherit; font-size: .82em;
+  padding: .1rem .5rem; cursor: pointer;
+  background: var(--btn-bg); border: 1px solid var(--field-edge); border-radius: 3px;
+}
+.p-level:hover { background: var(--btn-hover); }
+.p-level.on {
+  background: var(--sel-bg); border-color: var(--sel-edge); font-weight: 600;
+}
+.p-level:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* what `guided` says instead of folding it: the reason in the KB's own words, then what
+   the line would mean.  The gloss is composed, never generated (docs/web.md). */
+.p-said, .p-gloss {
+  flex-basis: 100%;
+  margin: .2rem 0 0 1.5rem;
+  font-size: .88em;
+}
+.p-said  { color: var(--ink); }
+.p-gloss { color: var(--muted); font-style: normal; border-left: 2px solid var(--edge);
+           padding-left: .5rem; }
+
+/* at `dense` the row is the gutter: no shape sentences, no alternatives hint, nothing
+   that is not a glyph or the claim itself */
+.p-at-dense .p-alts { display: none; }
+
+/* reviewing: the numbered shapes, the accept/reject pair, and the one button that
+   writes.  A row under the keyboard shows it — the reader's place has to be visible
+   when the hands never leave the home row. */
+.p-line:focus         { outline: none; }
+.p-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+.p-accepted { background: var(--sel-bg); box-shadow: inset 2px 0 0 #0a7d5a; }
+.p-rejected { opacity: .45; }
+.p-rejected .p-chips, .p-rejected .p-opts { visibility: hidden; }
+
+.p-opts, .p-acts { display: inline-flex; gap: .2em; }
+.p-opts { margin-left: .4em; }
+.p-opt, .p-accept, .p-reject {
+  font: inherit; font-size: .75rem; line-height: 1.4;
+  min-width: 1.5em; padding: 0 .35em;
+  border: 1px solid var(--field-edge); border-radius: 4px;
+  background: var(--btn-bg); color: var(--ink); cursor: pointer;
+}
+.p-opt:hover, .p-accept:hover, .p-reject:hover { background: var(--btn-hover); }
+.p-opt.on {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700;
+}
+.p-acts { margin-left: .4em; }
+.p-accept:hover { border-color: #0a7d5a; color: #0a7d5a; }
+.p-reject:hover { border-color: var(--err-ink); color: var(--err-ink); }
+
+/* what accepting would do: three counts, each folding open.  It sits between the list
+   and the button because that is the order the decision is made in — read the lines,
+   read what they would do, then commit. */
+.p-preview {
+  margin: .7rem 0 .2rem;
+  padding: .5rem .7rem;
+  border: 1px solid var(--edge); border-radius: 6px;
+  background: var(--code-bg);
+}
+.p-preview > p:first-child, .p-preview > p:last-child { margin: 0; }
+.p-cons-head { margin: 0 0 .4rem; font-size: .95rem; }
+.p-cons { margin: .15rem 0; }
+.p-cons summary {
+  cursor: pointer; font-size: .9rem; padding: .1rem 0;
+  border-radius: 3px;
+}
+.p-cons summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.p-cons-add  summary b { color: #0a7d5a; }
+.p-cons-drop summary b { color: #b5651d; }
+.p-cons-bad  summary b { color: var(--err-ink); }
+.p-cons-tie  summary b { color: var(--accent); }
+.p-cons-list {
+  margin: .2rem 0 .5rem 1.1rem; padding: 0;
+  list-style: none; font-size: .88em;
+}
+.p-cons-list li { margin: .12rem 0; }
+.p-cons-list .tag { margin-right: .3em; }
+.p-preview .hint { margin: .35rem 0 0; }
+
+.p-commit { display: flex; align-items: center; gap: .6rem; margin: .7rem 0 .2rem; }
+.p-commit button {
+  font: inherit; font-size: .9rem; padding: .3em .9em;
+  border: 1px solid var(--field-edge); border-radius: 999px;
+  background: var(--btn-bg); color: var(--ink); cursor: pointer;
+}
+.p-commit button[disabled] { opacity: .45; cursor: not-allowed; }
+.propose-answer kbd {
+  font-family: var(--mono); font-size: .85em;
+  padding: 0 .3em; border: 1px solid var(--field-edge); border-radius: 3px;
+  background: var(--code-bg);
+}
+.propose-answer h4 { margin: .2rem 0 .4rem; }
+
+.propose-answer .legend .chip { margin: 0 .15em; }
+.propose-raw {
+  font-family: var(--mono); font-size: .82em;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 12rem; overflow: auto;
+  padding: .4rem .6rem; margin: .3rem 0;
+  background: var(--code-bg); border-radius: 5px;
+}
+
+/* ---- the qualitative constraint network (/network) -------------------- */
+/* The matrix is the one wide thing on any page, so it scrolls inside its own
+   box rather than making the document scroll sideways. */
+
+.qcn-scroll { overflow-x: auto; max-width: 100%; margin: .4rem 0 .6rem; }
+
+.qcn-matrix { font-size: .88em; }
+.qcn-matrix th, .qcn-matrix td { padding: .12rem .5rem .12rem 0; white-space: nowrap; }
+.qcn-matrix tbody th { text-align: right; padding-right: .8rem; }
+.qcn-matrix thead th { border-bottom: 1px solid var(--edge); }
+.qcn-matrix td b { font-weight: 600; }
+
+.qcn-sizes { list-style: none; padding-left: 0; margin: .3rem 0 .8rem;
+             display: flex; flex-wrap: wrap; gap: .2rem 1.4rem; }
+.qcn-sizes .tag { margin-left: .4em; }
+
+.qcn-scenario { margin: .3rem 0; padding-left: 1.2rem; columns: 2 18rem; }
+.qcn-scenario li { break-inside: avoid; }
+
+/* ---- the concept graph (a term page) ---------------------------------- */
+/* Server-drawn inline SVG, no library.  Node colour is the SAME custom
+   property the term links use (--t-type … --t-context), so the picture is
+   theme-aware for free and can never drift from the text beside it.  The
+   viewBox is cropped to what was drawn, so height is capped here rather than
+   in the markup and a wide graph scrolls inside its own box. */
+
+.kb-graph-fig { margin: .2rem 0 1rem; }
+.kb-graph { display: block; max-height: 22rem; max-width: 100%; }
+.kb-graph-fig figcaption { font-size: .86em; margin-top: .1rem; }
+
+.g-pill { fill: var(--card); stroke: currentColor; stroke-width: 1; }
+.g-label { font-size: 12.5px; fill: currentColor;
+           font-family: ui-sans-serif, system-ui, sans-serif; }
+.g-node { color: var(--t-pred); }
+.g-node.t-type    { color: var(--t-type); }
+.g-node.t-ind     { color: var(--t-ind); }
+.g-node.t-pred    { color: var(--t-pred); }
+.g-node.t-context { color: var(--t-context); }
+.g-node.t-num     { color: var(--t-num); }
+.g-node.t-var     { color: var(--t-var); }
+.g-node.g-centre .g-pill { fill: var(--sel-bg); stroke-width: 2; }
+/* the <a> wraps the <g>, so the hover comes from outside in */
+a:hover > .g-node .g-pill { fill: var(--btn-hover); }
+
+.g-edge line { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+.g-edge.g-genlContext line { stroke-dasharray: 5 3; }
+.g-arrowhead { fill: var(--muted); }
+.g-edge-label { font-size: 10.5px; fill: var(--muted);
+                font-family: ui-sans-serif, system-ui, sans-serif; }

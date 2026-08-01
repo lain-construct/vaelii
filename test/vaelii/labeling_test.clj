@@ -1,0 +1,309 @@
+(ns vaelii.labeling-test
+  "The `do/` imperative channel and `(do/labeling Ctx)` (docs/labeling.md).
+
+  Two things are under test and they pull in opposite directions, which is the point.
+
+  **The imperative has to reach the solver.** `settle` builds no `Program` for a
+  represented dilemma, so `last-program` is nil exactly where classification is
+  interesting; `do/labeling` is the explicit opt-in that builds one from
+  `contradictions` and hands it over.
+
+  **And it has to leave the KB alone.** The engine's refusal to arbitrate a dilemma is
+  a deliberate stance (docs/exceptions.md), so an imperative that quietly moved belief
+  — or that made the same disagreement report twice — would have taken the stance back
+  by the side door. `belief-unmoved` is checked around every labeling below rather than
+  in one test, because that is the property most likely to regress and least likely to
+  be noticed.
+
+  Classification itself is exercised in `asp_label_test`; what is new here is the
+  channel, the bridge, and the containment."
+  (:require [clojure.test :refer [deftest is testing]]
+            [vaelii.core :as v]
+            [vaelii.impl.asp.edge :as edge]
+            [vaelii.impl.asp.label :as label]
+            [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.solve :as solve]
+            [vaelii.test-util :as tu]))
+
+(def ^:private asp? (solver/available?))
+
+(defn- default-rule [ante conseq]
+  (list 'set/defaultRule (list 'implies ante conseq)))
+
+(defn- dilemma
+  "The canonical rebutting dilemma on gensym'd terms — two equally-specific defaults
+  concluding `P` and `(not P)` of one individual, neither naming the other's case.
+  Returns `{:pred p :individual N :positive h :negative h}`."
+  [kb]
+  (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred)
+        republican (tu/tmp-pred) nixon (tu/tmp-ind)]
+    (v/assert kb (default-rule (list quaker '?x) (list pacifist '?x)) 'UniverseContext)
+    (v/assert kb (default-rule (list republican '?x) (list 'not (list pacifist '?x))) 'UniverseContext)
+    (v/assert kb (list quaker nixon) 'UniverseContext)
+    (v/assert kb (list republican nixon) 'UniverseContext)
+    {:pred pacifist
+     :individual nixon
+     :background (list quaker nixon)          ; uncontested, for inheritance checks
+     :positive (v/handle-of kb (list pacifist nixon) 'UniverseContext)
+     :negative (v/handle-of kb (list 'not (list pacifist nixon)) 'UniverseContext)}))
+
+(defn- belief-snapshot
+  "What the base KB believes about a dilemma, and how many it reports."
+  [kb {:keys [pred individual]}]
+  {:positive (boolean (seq (v/sentexes-matching kb (list pred individual) 'UniverseContext)))
+   :negative (boolean (seq (v/sentexes-matching kb (list 'not (list pred individual)) 'UniverseContext)))
+   :reported (count (v/contradictions kb))})
+
+;; ---- 1. the do/ channel ------------------------------------------------
+
+(deftest an-imperative-is-never-stored
+  ;; The defining property of the channel: `do/` forms are instructions, so no sentex
+  ;; exists afterwards and no term index entry points at one.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [ctx (tu/tmp-ctx "Labeling")
+          before (count (v/sentexes-in-context kb 'UniverseContext))]
+      (v/assert kb (list 'do/labeling ctx) 'UniverseContext)
+      (testing "no sentex was stored for the imperative itself"
+        (is (nil? (v/handle-of kb (list 'do/labeling ctx) 'UniverseContext)))
+        (is (empty? (v/find-sentexes kb 'do/labeling)))
+        (is (= before (count (v/sentexes-in-context kb 'UniverseContext))))))))
+
+(deftest an-imperative-is-refused-inside-a-rule
+  ;; The one hard constraint. A `do/` form in a rule would run inside the forward
+  ;; fixpoint, a number of times that depends on firing order, mutating the KB the
+  ;; fixpoint is still computing over — order independence and locality both gone.
+  ;; Every slot a rule has is checked, since the guard walks the form rather than
+  ;; inspecting three places.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [p (tu/tmp-pred) q (tu/tmp-pred) ctx (tu/tmp-ctx "Labeling")
+          imp (list 'do/labeling ctx)]
+      (doseq [[slot rule]
+              [[:consequent (list 'implies (list p '?x) imp)]
+               [:antecedent (list 'implies imp (list p '?x))]
+               [:exception  (list 'exceptWhen imp
+                                  (default-rule (list p '?x) (list q '?x)))]
+               [:nested     (list 'implies (list p '?x) (list 'not imp))]]]
+        (testing (str "refused in the " (name slot))
+          (is (thrown? clojure.lang.ExceptionInfo
+                       (v/assert kb rule 'UniverseContext)))
+          (is (= :not-assertible
+                 (try (v/assert kb rule 'UniverseContext) nil
+                      (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))))))
+
+(deftest an-unknown-imperative-names-the-known-ones
+  ;; A typo in the `do/` namespace must not read as a fact about a predicate called
+  ;; `do/labelling`; it is a caller error and says so.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [e (try (v/assert kb (list 'do/frobnicate 'X) 'UniverseContext) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e))
+      (is (= :not-assertible (:type (ex-data e))))
+      (is (contains? (:known (ex-data e)) 'do/labeling)))))
+
+(deftest labeling-checks-its-arguments
+  ;; `(do/labeling Ctx)` and `(do/labeling Ctx Base)` are the two legal shapes.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (doseq [form [(list 'do/labeling)
+                  (list 'do/labeling 42)
+                  (list 'do/labeling (tu/tmp-ctx "A") (tu/tmp-ctx "B") (tu/tmp-ctx "C"))]]
+      (is (= :not-assertible
+             (try (v/assert kb form 'UniverseContext) nil
+                  (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+          (str "refused: " (pr-str form))))
+    (testing "the two-argument form names the base explicitly"
+      (is (map? (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling") 'UniverseContext)
+                          'UniverseContext))))))
+
+;; ---- 2. the dilemma bridge ---------------------------------------------
+
+(deftest labeling-builds-the-program-settle-declined-to
+  ;; The gap this closes. The engine reports the dilemma and builds nothing; the
+  ;; imperative builds the Program from that report, which is what `contradictions`
+  ;; hands back both sides *for*.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [d (dilemma kb)
+          ctx (tu/tmp-ctx "Labeling")]
+      (testing "settle built no program for the dilemma"
+        (is (= 1 (count (v/contradictions kb))))
+        (is (nil? (v/last-program kb))))
+      (let [{:keys [program classification]} (v/assert kb (list 'do/labeling ctx) 'UniverseContext)]
+        (testing "the imperative built one, over exactly the two contested sides"
+          (is (= #{(:positive d) (:negative d)} (:assumptions program)))
+          (is (= 1 (count (:contradictions program)))))
+        (testing "and recorded it, so last-program and classify now answer"
+          (is (some? (v/last-program kb)))
+          (is (= classification (label/classify kb))))))))
+
+(deftest a-dilemma-classifies-as-supportable-on-both-sides
+  ;; What brave/cautious buys over `in?`: neither side is forced, both are available.
+  ;; That is invisible from belief alone — the TMS holds both and says nothing about
+  ;; whether either could have been given up.
+  (when asp?
+    (tu/with-neutral-kb [kb tu/fresh]
+      (let [d (dilemma kb)
+            {:keys [classification]} (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling"))
+                                               'UniverseContext)]
+        (is (= #{(:positive d) (:negative d)} (:supportable classification)))
+        (is (empty? (:true classification)))
+        (is (empty? (:false classification)))))))
+
+(deftest a-kb-with-no-dilemma-labels-nothing
+  ;; Silence is the correct answer, and minting an empty labeling context would assert
+  ;; that a choice was made where none was.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [ctx (tu/tmp-ctx "Labeling")
+          res (v/assert kb (list 'do/labeling ctx) 'UniverseContext)]
+      (is (empty? (:handles res)))
+      (is (nil? (:program res)))
+      (is (= {:true #{} :supportable #{} :false #{}} (:classification res)))
+      (is (empty? (v/sentexes-in-context kb ctx))))))
+
+;; ---- 3. what committing does, and what undoes it ------------------------
+
+(deftest labeling-commits-and-the-commitment-is-global
+  ;; The chosen semantics, stated where it can be read (docs/labeling.md). Belief is a
+  ;; property of a datum rather than of a datum-in-a-context, so strengthening inside
+  ;; `ctx` decides the dilemma for the whole KB. That is a real consequence and it is
+  ;; pinned here rather than left to be discovered: the engine still refuses to
+  ;; arbitrate on its own, and commits only because a caller wrote the imperative.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [d (dilemma kb)
+          ctx (tu/tmp-ctx "Labeling")]
+      (is (= {:positive true :negative true :reported 1} (belief-snapshot kb d))
+          "before: both sides believed, one dilemma reported")
+      (let [{:keys [handles]} (v/assert kb (list 'do/labeling ctx) 'UniverseContext)
+            after (belief-snapshot kb d)]
+        (testing "the dilemma is decided, not reported twice"
+          (is (zero? (:reported after))))
+        (testing "exactly one side survives, globally"
+          (is (not= (:positive after) (:negative after)))
+          (is (not= (v/in? kb (:positive d)) (v/in? kb (:negative d)))))
+        (testing "and the labeling context records the surviving side"
+          (is (= 1 (count handles))))))))
+
+(deftest a-labeled-context-is-a-queryable-world
+  ;; What committing buys over a detached record, and the reason it was chosen: `ctx`
+  ;; inherits the uncontested background through `genlContext`, so it can be asked
+  ;; about rather than merely read.
+  ;;
+  ;; Level 3 (`:visible`) throughout, and the level matters in both directions.
+  ;; `query` is context-exact (level 2) and reports the background missing even when it
+  ;; is inherited. Level 7 goes the other way: backward chaining re-derives a defeated
+  ;; conclusion from the rule that concluded it, so `ask` answers BOTH sides here — and
+  ;; in the base context too, which is what makes it a pre-existing property of `ask`
+  ;; rather than anything labeling introduced. Level 3 is the belief-filtered view of
+  ;; stored facts, which is what "is this world consistent" means.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [{:keys [pred individual background]} (dilemma kb)
+          ctx (tu/tmp-ctx "Labeling")]
+      (v/assert kb (list 'do/labeling ctx) 'UniverseContext)
+      (testing "ctx sees the base"
+        (is (true? (v/sees? kb ctx 'UniverseContext))))
+      (testing "the uncontested background is inherited"
+        (is (seq (v/lookup kb 3 background ctx)))
+        (is (empty? (v/sentexes-matching kb background ctx))
+            "and query is context-exact, so it does not show it"))
+      (testing "the contested pair is decided: exactly one side survives"
+        (let [pos (seq (v/lookup kb 3 (list pred individual) ctx))
+              neg (seq (v/lookup kb 3 (list 'not (list pred individual)) ctx))]
+          (is (not= (boolean pos) (boolean neg)))))
+      (testing "and the same holds in the base, since the commitment is global"
+        (let [pos (seq (v/lookup kb 3 (list pred individual) 'UniverseContext))
+              neg (seq (v/lookup kb 3 (list 'not (list pred individual)) 'UniverseContext))]
+          (is (not= (boolean pos) (boolean neg))))))))
+
+(deftest retracting-a-labeling-revives-the-dilemma
+  ;; The undo path, and the reason rival labelings can still be compared — one after
+  ;; another rather than side by side. Additive, so no `!`; that claim is only true if
+  ;; this holds.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [d (dilemma kb)
+          ctx (tu/tmp-ctx "Labeling")
+          {:keys [handles]} (v/assert kb (list 'do/labeling ctx) 'UniverseContext)]
+      (is (zero? (:reported (belief-snapshot kb d))) "committed")
+      (run! #(v/retract! kb %) handles)
+      (testing "the dilemma is back, both sides believed again"
+        (is (= {:positive true :negative true :reported 1} (belief-snapshot kb d))))
+      (testing "so a rival labeling can be built over the revived dilemma"
+        (let [ctx2 (tu/tmp-ctx "Rival")
+              {h2 :handles} (v/assert kb (list 'do/labeling ctx2) 'UniverseContext)]
+          (is (= 1 (count h2)))
+          (is (zero? (:reported (belief-snapshot kb d)))))))))
+
+;; ---- 4. the labeling solve agrees with the classification solve ---------
+
+(deftest the-labeling-is-an-answer-set-of-its-own-classification
+  ;; A labeling and its classification are two answers about one program, from two
+  ;; separate solves, and they have to agree:
+  ;;
+  ;;     :true  ⊆ labeled        :false ∩ labeled = ∅
+  ;;
+  ;; They did not. Classification enumerates optima and so goes straight to the ASP
+  ;; backend, ignoring `(:solver kb)`; the labeling used the installed solver, which on
+  ;; a default KB is the greedy stub. Two nogoods sharing a member is where greedy
+  ;; loses — it spends two defeats where the optimum spends one — and the stub then
+  ;; kept an assumption holding in NO optimum while dropping two that hold in EVERY
+  ;; one. Under commit semantics that materializes an impossible world.
+  ;;
+  ;; Built as a Program rather than through a KB because the engine only makes P/¬P
+  ;; pairs today, so a shared member is not reachable from `assert` — which is exactly
+  ;; why this needs pinning now rather than when it first becomes reachable.
+  (when asp?
+    (let [content {1 {:sentence '(aaa) :context 'C}   ; shared, sorts first
+                   2 {:sentence '(bbb) :context 'C}
+                   3 {:sentence '(ccc) :context 'C}}
+          program (solve/program #{1 2 3}
+                                 [{:nogood #{1 2} :priority 1 :sentence '(contradicts (aaa) (bbb))}
+                                  {:nogood #{1 3} :priority 1 :sentence '(contradicts (aaa) (ccc))}]
+                                 content)
+          c       (label/classify-program program)
+          labeled (fn [solver] (let [d (set (:defeat (solve/solve solver program)))]
+                                 (into #{} (remove d) (:assumptions program))))]
+      (testing "the classification is decisive here — one optimum, nothing supportable"
+        (is (= #{2 3} (:true c)))
+        (is (= #{1} (:false c)))
+        (is (empty? (:supportable c))))
+      (testing "the greedy stub disagrees with it, which is the bug"
+        (is (= #{1} (labeled solve/local-solver))))
+      (testing "the ASP edge solver agrees with it, which is the fix"
+        (is (= #{2 3} (labeled edge/edge-solver)))))))
+
+(deftest a-kb-labeling-agrees-with-its-classification
+  ;; The same invariant on the path a caller actually takes. Weaker than the unit test
+  ;; above (a KB dilemma is a plain pair, where greedy and optimal cannot diverge), but
+  ;; it is the assertion that keeps holding if the engine ever builds a wider nogood.
+  (when asp?
+    (tu/with-neutral-kb [kb tu/fresh]
+      (dilemma kb)
+      (let [{:keys [program classification handles]}
+            (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling")) 'UniverseContext)
+            labeled (set (map #(:id (v/sentex kb %)) handles))]
+        (testing "nothing classified :false was committed to"
+          (is (empty? (filter labeled (:false classification)))))
+        (testing "and the program's assumptions are the dilemma's two sides"
+          (is (= 2 (count (:assumptions program)))))))))
+
+;; ---- 5. determinism -----------------------------------------------------
+
+(deftest the-labeled-side-does-not-depend-on-assertion-order
+  ;; The engine-wide invariant does not get an exception for being inside a solver.
+  ;; The two rules are asserted in both orders across two KBs; the labeling must name
+  ;; the same *sentence* both times. Comparing sentences rather than handles is the
+  ;; whole point — handles are allocated in assertion order, so comparing those would
+  ;; pass no matter what the solver did.
+  (let [labeled (fn [flip?]
+                  (tu/with-neutral-kb [kb tu/fresh]
+                    (let [quaker 'tmp_lbl_quaker pacifist 'tmp_lbl_pacifist
+                          republican 'tmp_lbl_republican nixon 'TmpLblNixon
+                          pos (default-rule (list quaker '?x) (list pacifist '?x))
+                          neg (default-rule (list republican '?x)
+                                            (list 'not (list pacifist '?x)))]
+                      (doseq [r (if flip? [neg pos] [pos neg])]
+                        (v/assert kb r 'UniverseContext))
+                      (v/assert kb (list quaker nixon) 'UniverseContext)
+                      (v/assert kb (list republican nixon) 'UniverseContext)
+                      (let [ctx 'TmpLblLabelingContext]
+                        (v/assert kb (list 'do/labeling ctx) 'UniverseContext)
+                        (set (map :sentence (v/sentexes-in-context kb ctx)))))))]
+    (is (= (labeled false) (labeled true))
+        "the same knowledge in either order labels the same sentence")))

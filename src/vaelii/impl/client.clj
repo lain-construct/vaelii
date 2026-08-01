@@ -1,0 +1,130 @@
+(ns vaelii.impl.client
+  "A thin EDN-over-HTTP client for the vaelii daemon (`vaelii.impl.serve`).  Runs no
+  engine: it POSTs `{:op :args}` and reads the result back, over JDK `java.net.http`
+  (no dependency — JDK 21 ships it).
+
+  Every call threads an **explicit connection handle** as its first argument —
+  `(query conn '(dog ?x) 'Ctx)` — the network mirror of `vaelii.core`'s explicit-`kb`
+  API.  A `conn` from `client` holds a reusable `HttpClient`; no socket opens until a
+  call.  A daemon reply of `{:ok false}` becomes an `ex-info` carrying the daemon's
+  `:error` and `:type`, so a remote naming/disjointness refusal surfaces like a local
+  one."
+  (:refer-clojure :exclude [isa?])
+  (:require [clojure.edn :as edn])
+  (:import [java.net URI]
+           [java.net.http HttpClient HttpClient$Builder
+            HttpRequest HttpRequest$Builder HttpRequest$BodyPublishers
+            HttpResponse HttpResponse$BodyHandlers]
+           [java.time Duration]))
+
+(defn client
+  "A connection handle to a daemon at `host`:`port` (opts: `:timeout-ms`, default
+  30000).  Holds a reusable `HttpClient`; no network happens until a call."
+  ([host port] (client host port {}))
+  ([host port {:keys [timeout-ms] :or {timeout-ms 30000}}]
+   (let [^HttpClient$Builder b (HttpClient/newBuilder)]
+     (.connectTimeout b (Duration/ofMillis timeout-ms))
+     {:base-url   (str "http://" host ":" port)
+      :timeout-ms timeout-ms
+      :http       (.build b)})))
+
+(defn- send-edn
+  "POST `body` (an EDN string) to `path` and return the parsed EDN reply map."
+  [conn path body]
+  (let [^HttpClient http (:http conn)
+        ^HttpRequest$Builder rb (HttpRequest/newBuilder (URI/create (str (:base-url conn) path)))]
+    (.timeout rb (Duration/ofMillis (long (:timeout-ms conn))))
+    (.header rb "content-type" "application/edn")
+    (.POST rb (HttpRequest$BodyPublishers/ofString ^String body))
+    (let [^HttpResponse resp (.send http (.build rb) (HttpResponse$BodyHandlers/ofString))]
+      (edn/read-string ^String (.body resp)))))
+
+(defn call
+  "POST `{:op op :args args}` and return the `:result`, or throw `ex-info` on an
+  `{:ok false}` reply.  The low-level entry the convenience fns wrap; use it for an op
+  with no wrapper yet."
+  [conn op args]
+  (let [reply (send-edn conn "/op" (pr-str {:op op :args (vec args)}))]
+    (if (:ok reply)
+      (:result reply)
+      (throw (ex-info (str "vaelii daemon: " (:error reply))
+                      (assoc reply :op op :args (vec args)))))))
+
+(defn health
+  "The daemon's liveness reply, `{:ok true}` — a GET, so it needs no op."
+  [conn]
+  (let [^HttpClient http (:http conn)
+        ^HttpRequest$Builder rb (HttpRequest/newBuilder (URI/create (str (:base-url conn) "/health")))]
+    (.GET rb)
+    (let [^HttpResponse resp (.send http (.build rb) (HttpResponse$BodyHandlers/ofString))]
+      (edn/read-string ^String (.body resp)))))
+
+;; ---- convenience wrappers: the vaelii.core surface, conn-first ------------
+;; Each threads `conn` and forwards the same args the in-process fn takes.  A sentex
+;; result comes back as a plain map (the daemon projects the record), a solution as a
+;; binding map — the same shapes `vaelii.core` returns.
+
+(defn assert!
+  "Assert `sentence` in `context` (optional `opts`) — returns the handle(s)."
+  ([conn sentence context] (call conn :assert [sentence context]))
+  ([conn sentence context opts] (call conn :assert [sentence context opts])))
+
+(defn assert-rule!
+  ([conn antecedents consequent context] (call conn :assert-rule [antecedents consequent context]))
+  ([conn antecedents consequent context opts] (call conn :assert-rule [antecedents consequent context opts])))
+
+(defn assert-many
+  ([conn sentences context] (call conn :assert-many [sentences context]))
+  ([conn sentences context opts] (call conn :assert-many [sentences context opts])))
+
+(defn retract! [conn handle] (call conn :retract [handle]))
+
+(defn sentexes-matching
+  ([conn sentence] (call conn :sentexes-matching [sentence]))
+  ([conn sentence context] (call conn :sentexes-matching [sentence context])))
+
+(defn query
+  ([conn goal] (call conn :query [goal]))
+  ([conn goal context] (call conn :query [goal context]))
+  ([conn goal context opts] (call conn :query [goal context opts])))
+
+(defn ask
+  ([conn goal] (call conn :ask [goal]))
+  ([conn goal context] (call conn :ask [goal context])))
+
+(defn ask?
+  ([conn goal] (call conn :ask? [goal]))
+  ([conn goal context] (call conn :ask? [goal context])))
+
+(defn prove
+  ([conn goal] (call conn :prove [goal]))
+  ([conn goal context] (call conn :prove [goal context])))
+
+(defn provable?
+  ([conn goal] (call conn :provable? [goal]))
+  ([conn goal context] (call conn :provable? [goal context])))
+
+(defn in? [conn handle] (call conn :in? [handle]))
+(defn why [conn handle] (call conn :why [handle]))
+
+(defn why-not
+  ([conn handle] (call conn :why-not [handle]))
+  ([conn sentence context] (call conn :why-not [sentence context])))
+
+(defn isa?
+  ([conn x t] (call conn :isa? [x t]))
+  ([conn x t context] (call conn :isa? [x t context])))
+
+(defn types-of
+  ([conn x] (call conn :types-of [x]))
+  ([conn x context] (call conn :types-of [x context])))
+
+(defn genls [conn t] (call conn :genls [t]))
+(defn specs [conn t] (call conn :specs [t]))
+(defn contexts [conn] (call conn :contexts []))
+(defn sentex [conn handle] (call conn :sentex [handle]))
+(defn handle-of [conn sentence context] (call conn :handle-of [sentence context]))
+(defn find-sentexes [conn term] (call conn :find-sentexes [term]))
+(defn conflicts [conn] (call conn :conflicts []))
+(defn contradictions [conn] (call conn :contradictions []))
+(defn violations [conn] (call conn :violations []))
