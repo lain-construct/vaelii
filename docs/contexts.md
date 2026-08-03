@@ -95,7 +95,7 @@ and a bottom anchor. Data hangs below the bottom.
   context hung beneath it) transitively sees the whole ontology.
 
 Each upper/middle file wires *itself* into the axis with two `genlContext` edges, so
-the topology is **data** — dropping a `<Context>.txt` in `kb/upper/` or `kb/middle/`
+the topology is **data** — dropping a `<Context>.txt` in `resources/kb/upper/` or `resources/kb/middle/`
 adds a context, no code change, and every context present is loaded on kb start by
 default. There is **no** direct `(genlContext WellContext CoreContext)` edge; Well
 reaches Core through the whole axis (middle → Universe → upper → Core).

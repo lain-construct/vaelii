@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.tokens-test
   "The in-memory token dictionary (`vaelii.impl.tokens`) the columnar index labels its
   edges with.  It is exercised heavily but only *indirectly* — through

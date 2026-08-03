@@ -1,4 +1,4 @@
-# Solving: assumptionRules and persistent, inert labeling contexts
+# Solving: assumptionRule and persistent, inert labeling contexts
 
 How a solve is expressed, run, and **kept** — as sentexes in the records, not an
 in-memory snapshot — and why the base KB is never disturbed.

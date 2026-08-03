@@ -31,9 +31,9 @@ Generated 2026-07-31.
 | Apache-2.0 OR EPL-1.0 | 1 |
 | LGPL-2.1-or-later OR Apache-2.0 | 1 |
 
-**Nothing in the closure is GPL, AGPL or SSPL.** The one copyleft licence that
-appears is LGPL-2.1-or-later, on JNA, and it appears as one half of a dual
-licence the project states is the consumer's to choose:
+**Nothing a consumer resolves is GPL, AGPL or SSPL.** The one copyleft licence in
+the runtime closure is LGPL-2.1-or-later, on JNA, and it appears as one half of a
+dual licence the project states is the consumer's to choose:
 
 > Java Native Access (JNA) is licensed under the LGPL, version 2.1 or later,
 > or the Apache License, version 2.0. You can freely decide which license you
@@ -108,3 +108,25 @@ itself is offered.
 | * | `ring/ring-core` | 1.15.5 | MIT | The MIT License |
 | * | `ring/ring-jetty-adapter` | 1.15.5 | MIT | The MIT License |
 |  | `tigris/tigris` | 0.1.2 | EPL-1.0 | Eclipse Public License |
+
+## Development and benchmark profiles
+
+None of these ships. They are on the classpath only for the profile that names them,
+they are absent from the published POM, and nothing a consumer resolves pulls them in
+— which is why the closure above does not list them, and why the sentence about GPL is
+scoped to that closure rather than to the repository.
+
+| Profile | Coordinate | Licence | Note |
+|---|---|---|---|
+| `:bench` | `org.openjdk.jol/jol-core` | GPL-2.0 WITH Classpath-exception-2.0 | The Classpath Exception exists to permit exactly this linking: it lets an independent module link against the library without the GPL reaching that module. `bench/` is a profile-only source path and is not in the jar. |
+| `:antq` | `com.github.liquidz/antq` | EPL-2.0 | The tool that generates this file. |
+| `:dev` | `dev.weavejester/lein-cljfmt`, `lein-shell`, `lein-cloverage` | EPL-1.0 | Leiningen plugins. |
+| `:test` | `org.clojure/test.check` | EPL-1.0 | Declared `<scope>test</scope>` in the POM. |
+| `:repl` | `com.clojure-goes-fast/clj-async-profiler` | EPL-1.0 | Sampling profiler for a REPL session. |
+
+EPL is a weak, file-level copyleft: it binds the EPL'd files themselves and imposes
+nothing on a work that merely depends on them. `CONTRIBUTING.md` §7 and
+[`../legal/ICLA.md`](../legal/ICLA.md) tell contributors that GPL-family *code* cannot
+be combined into an SSPL work — that is about source you write or paste, not about a
+build-time tool a profile links, and the jol-core entry above is the reason the
+distinction is worth stating.

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.asp-edge-test
   "The ASP edge solver (`vaelii.impl.asp.edge`) behind the `solve/Solver` seam.
 

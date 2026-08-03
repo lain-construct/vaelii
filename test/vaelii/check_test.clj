@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.check-test
   "`check` / `check-edit` — `assert`'s own checks run for their answer rather than for
   their effect.  Two things have to hold of every case here: the `:type` is the one
@@ -205,7 +207,7 @@
           (is (= [{:in :add :index 1 :type :not-ground}
                   {:in :add :index 2 :type :shape}
                   {:in :remove :index 1 :type :unknown-handle}
-                  {:in :remove :index 2 :type :shape}]
+                  {:in :remove :index 2 :type :bad-handle}]
                  (mapv #(select-keys % [:in :index :type]) ps))))
         (testing "and a stored handle is a fine removal"
           (is (empty? (filter #(and (= :remove (:in %)) (= 0 (:index %))) ps))))
@@ -220,6 +222,33 @@
       (let [ps (v/check-edit kb {:add [[(list 'argIsa newPred 1 'animal) TheContext]
                                        [(list newPred Thing) TheContext]]})]
         (is (empty? ps) "an untyped argument cannot violate an open-world constraint")))))
+
+;; ---- which declaration a violation names: content, not arrival ----------
+
+(deftest an-arg-type-violation-names-the-content-sorted-declaration
+  ;; two visible argIsa declarations convict the same sentence, one per argument;
+  ;; the single reported violation must name the content-sort winner in every
+  ;; assertion order — `res/matches-visible` promises the answer *set*, so
+  ;; enumeration order may not pick the declaration a refusal is about
+  (doseq [flip? [false true]]
+    (tu/with-neutral-kb [kb kb-with-starter]
+      (tu/with-terms [relOf t_first t_second t_plain Fido Alice TheContext]
+        (v/assert kb (list 'genlContext TheContext 'CoreContext) 'CoreContext)
+        (doseq [t [t_first t_second t_plain]]
+          (v/assert kb (list 'genl t 'thing) 'CoreContext))
+        (let [d1     (list 'argIsa relOf 1 t_first)
+              d2     (list 'argIsa relOf 2 t_second)
+              winner (first (sort-by pr-str [d1 d2]))]
+          (doseq [d (if flip? [d2 d1] [d1 d2])]
+            (v/assert kb d 'CoreContext))
+          (v/assert kb (list t_plain Fido) TheContext)
+          (v/assert kb (list t_plain Alice) TheContext)
+          (let [ps (v/check kb (list relOf Fido Alice) TheContext)
+                p  (first (filter #(= :arg-type (:type %)) ps))]
+            (testing (str "assertion order " (if flip? "second first" "first second"))
+              (is (some? p) "both declarations convict, so a violation is reported")
+              (is (= (nth winner 2) (:position p)))
+              (is (= (nth winner 3) (:expected p))))))))))
 
 ;; ---- ist and the wrappers dispatch the way assert does ------------------
 

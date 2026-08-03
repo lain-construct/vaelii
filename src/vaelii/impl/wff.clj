@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.wff
   "Well-formedness checks for the special predicates: genl / genlContext (the type and
   context hierarchies), disjoint / disjointMetatype, and argIsa (argument types).

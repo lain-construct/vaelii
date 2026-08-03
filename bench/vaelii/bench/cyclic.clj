@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.cyclic
   "Does a CYCLIC forward rule set terminate?  Datalog theory says yes — range-restricted
   rules with no existential/function head invent no new terms, so the Herbrand base is

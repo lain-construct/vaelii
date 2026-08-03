@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.io.fingerprint
   "What makes a dumped index and a dumped set of records provably the same KB.
 

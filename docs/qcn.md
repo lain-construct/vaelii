@@ -322,7 +322,11 @@ would be a wrong *entailment* reported with full confidence rather than a crash 
 `:converse`, exhaustively where 2^k allows and over a seeded sample where it does not,
 across all six calculi and a synthetic one wide enough to take the fallback.
 
-Measured on the same two shapes, against the same pass over relation sets:
+Measured on the same two shapes, against the same pass over relation sets. **These are
+not the numbers above**: that table measures the incremental queue against a full
+re-sweep with relations already held as masks, and this one measures the mask
+representation against Clojure sets over the whole naive pass — so the same shape at the
+same size reads differently in each, and only the ratio within a table means anything.
 
 | nodes | tree, sets | tree, masks | order, sets | order, masks |
 |-------|-----------|-------------|-------------|--------------|
@@ -802,8 +806,9 @@ nothing, which the numbers below confirm. Loading a containment chain of *n* reg
 | 40 | 3.1 ms | 3.0 ms | 81 ms | 100 ms |
 | 80 | 5.5 ms | 5.8 ms | 528 ms | 647 ms |
 
-The cost grows with *n*, and sub-quadratically: 40 → 80 regions is 2× the facts for 6.5×
-the time. Deferring the chaining is no penalty, because the one big datum it produces
+The cost grows faster than the input and slower than *n*³: 40 → 80 regions is 2× the
+facts for 6.5× the time — super-quadratic (4× would be quadratic), sub-cubic.
+Deferring the chaining is no penalty, because the one big datum it produces
 joins over a delta like any other.
 
 Three things hold that shape, and the order of them is the useful part. **The read is the
@@ -841,6 +846,6 @@ where only pairs sharing an ancestor line compose:
 | 40 | 2.5 ms | 2.7 ms | 20 ms | 23 ms |
 | 80 | 5.1 ms | 5.8 ms | 64 ms | 48 ms |
 
-**8.5× cheaper than the chain at 80 regions**, and it is the same code — the difference is
+**8.25× cheaper than the chain at 80 regions**, and it is the same code — the difference is
 entirely how much of the network the facts pin. Both columns are worth having in view: the
 chain says what the worst case costs, the tree says what a KB is likely to pay.

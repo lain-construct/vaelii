@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.index-dump-test
   "The index in a dump: written by `:variant :records+index`, and read back only when it
   can be proved to describe the records beside it.
@@ -333,7 +335,7 @@
   (exported "truncated"
             (fn [dir t]
               (let [f   (io/file dir "index" "entries.nippy.stream")
-                    all (with-open [in (io/input-stream f)] (.readAllBytes in))]
+                    ^bytes all (with-open [in (io/input-stream f)] (.readAllBytes in))]
                 (with-open [out (io/output-stream f)]
                   (.write out all 0 (quot (alength all) 2)))
                 (is (= {:index :rebuilt :reason :entries-truncated} (rebuild-reason dir)))

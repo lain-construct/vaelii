@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.access
   "How a *read* client reaches a KB — directly in-process, or over the daemon HTTP API
   (`vaelii.impl.serve`).  It re-exports the slice of the `vaelii.core` read surface the

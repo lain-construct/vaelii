@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.except-test
   "`exceptWhen`: a rule that states its own exception.  Every test here holds against
   the shipped feature — the evaluator is `provers/exception-holds?`, the fixpoint that

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.predicate-meta-test
   "Predicate metadata: transitive / symmetric / inverse / reflexive generic
   provers, and the functional constraint."

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.literal-cache-engine-test
   "The literal cache as the engine sees it: sharing, scoping, invalidation, and the two
   ways a cached answer could be wrong — a truncated run storing a prefix as though it

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.dense-jtms
   "The dense truth-maintenance network — the `:tms :dense` option, off by default.
 

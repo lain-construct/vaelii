@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.dense-kv-oracle-test
   "Differential oracle for the dense index backend (vaelii.impl.dense-kv): the same random
   op sequence is applied to `MemoryKvBackend` and `TieredKvBackend`, and every read must

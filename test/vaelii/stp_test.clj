@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.stp-test
   "The metric temporal layer (`vaelii.impl.stp`): bounds on the gap between two instants,
   closed by all-pairs shortest paths, and the bridge that lets those bounds narrow what

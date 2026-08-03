@@ -5,10 +5,10 @@ that *drive* it. There are five:
 
 | Interface | Namespace | Launch | For |
 |-----------|-----------|--------|-----|
-| Browser | `vaelii.impl.web` | `lein run -m vaelii.impl.web` | reading a KB in a browser |
-| CLI | `vaelii.impl.cli` | `lein cli <cmd> …` | driving a KB from a shell |
-| Daemon | `vaelii.impl.serve` | `lein serve [port [dir]]` | one process owns a KB, serves it over HTTP |
-| Client | `vaelii.impl.client` | *(library)* | talking to a daemon from Clojure |
+| Browser | `vaelii.web` | `lein run -m vaelii.web` | reading a KB in a browser |
+| CLI | `vaelii.cli` | `lein cli <cmd> …` | driving a KB from a shell |
+| Daemon | `vaelii.serve` | `lein serve [port [dir]]` | one process owns a KB, serves it over HTTP |
+| Client | `vaelii.client` | *(library)* | talking to a daemon from Clojure |
 | Access | `vaelii.impl.access` | *(library)* | a read that resolves to a local KB or a remote daemon |
 
 All five go through `vaelii.core` alone — the same boundary the rest of the repo keeps
@@ -30,7 +30,7 @@ enforces it with a fail-fast file lock. That shapes how the interfaces coexist:
 - An in-memory KB (no `--dir`) has no lock and no persistence — fine for a REPL session
   or a one-shot check, useless for one-shot commands that expect earlier facts.
 
-## CLI — `vaelii.impl.cli`
+## CLI — `vaelii.cli`
 
 ```sh
 lein cli assert  '(dog Fido)' NaturalWorldContext --dir /var/lib/vaelii
@@ -67,7 +67,7 @@ lein cli repl --starter                                                    # int
 `dispatch` takes args already parsed to data, so the shell (which `edn`-reads each argv
 string) and the REPL (which reads forms off the line) share one command table.
 
-## Daemon — `vaelii.impl.serve`
+## Daemon — `vaelii.serve`
 
 ```sh
 lein serve 4200 /var/lib/vaelii                    # disk-backed; omit the dir for in-memory
@@ -91,6 +91,27 @@ lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # reachable off-machine (opt-
   returns `{:ok true}`. The op is looked up in an **allowlist** (`serve/ops`) of
   `vaelii.core` fns — the KB is supplied by the daemon, so the client sends only the op
   and the remaining args, and no client can reach an arbitrary var.
+- **`POST /op` requires `Content-Type: application/edn`** — parameters and case are
+  tolerated (`application/edn;charset=utf-8` passes), anything else is refused with 415
+  in the same `{:ok false :error … :type …}` shape every refusal carries. The
+  requirement is a CSRF guard rather than a parsing one: the type is not CORS-simple,
+  so a browser must preflight it, and the daemon answers no CORS headers — which stops
+  a page the operator merely visits from driving the write route over loopback. A
+  request stamping another site's `Origin` (or `Referer`) is refused with 403, the
+  second layer on the same door.
+- **Every route answers only a recognised `Host`** — the allowlist follows the
+  interface the daemon is bound to, so the loopback default answers only loopback
+  names, which is what closes DNS rebinding; an unrecognised `Host` gets 400.
+  `VAELII_ALLOWED_HOSTS` (comma-separated) overrides the list — a reverse proxy
+  preserving the original `Host`, or a local alias name, needs it. A request with
+  **no** `Host` header passes: every browser sends one, so its absence marks a
+  non-browser client with no ambient browser context to ride. Binding to an address
+  with `--listen` drops the allowlist (the name you reach it by is then yours to
+  know); set `VAELII_ALLOWED_HOSTS` to keep the check.
+- **A body over 16 MiB is refused** with 413 before it reaches the heap
+  (`VAELII_MAX_BODY_BYTES` adjusts the cap). An op body is a sentence and its context,
+  so the ceiling is nowhere near a legitimate call — it is there so an unauthenticated
+  caller cannot spend the daemon's heap by streaming one.
 - **Sentex records are projected to plain maps** before they hit the wire (the
   `sentex`-map contract, docs/api.md), so a client needs no `impl` record class.
 - **The vocabulary is served** (`:terms`, `:term-count`, `:find-terms`): a remote client
@@ -122,19 +143,20 @@ lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # reachable off-machine (opt-
   client back. Two consequences worth stating: it reports **no progress** (`:on-progress`
   is a function, and functions do not cross an EDN wire), and it runs under the write
   monitor, because the walk fetches record by record and a dump of a KB something is
-  asserting into is a dump of no single state.
+  asserting into is a dump of no single state. There is no `:import` op — `import!` is
+  a local operation, run in the process that owns the (empty) KB the dump lands in.
 - `serve/app` is a pure `request -> response` handler (reitit-ring), so it is tested
   without a socket; `serve/start` runs it on jetty and returns the `Server`.
 
-## Client — `vaelii.impl.client`
+## Client — `vaelii.client`
 
 ```clojure
-(require '[vaelii.impl.client :as c])
+(require '[vaelii.client :as c])
 (def conn (c/client "localhost" 4200))
-(c/assert! conn '(dog Fido) 'NaturalWorldContext)   ; => 1
-(c/query   conn '(dog ?x)   'NaturalWorldContext)   ; => [{:id 1 :sentence (dog Fido) …}]
-(c/ask?    conn '(animal Fido) 'NaturalWorldContext)
-(c/why     conn 1)
+(c/assert conn '(dog Fido) 'NaturalWorldContext)    ; => 1
+(c/query  conn '(dog ?x)   'NaturalWorldContext)    ; => ({?x Fido})
+(c/ask?   conn '(animal Fido) 'NaturalWorldContext)
+(c/why    conn 1)
 ```
 
 - A thin client over JDK `java.net.http` — **no dependency** (JDK 21 ships it).
@@ -143,12 +165,13 @@ lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # reachable off-machine (opt-
   holding a reusable `HttpClient`; no socket opens until a call.
 - A daemon `{:ok false}` reply becomes an `ex-info` carrying its `:error` and `:type`,
   so a remote naming / disjointness refusal reads like a local one.
-- The convenience wrappers (`assert!`, `sentexes-matching`, `ask`, `prove`, `why`, `retract!`, …)
-  mirror the `vaelii.core` surface; `call` reaches any allowlisted op directly.
+- The convenience wrappers (`assert`, `assert-rule`, `sentexes-matching`, `ask`, `prove`,
+  `why`, `retract!`, …) mirror the `vaelii.core` surface, bare and `!`-marked exactly as
+  it spells them; `call` reaches any allowlisted op directly.
 
 ## Browsing a live daemon — `vaelii.impl.access`
 
-The browser (`vaelii.impl.web`) reaches a KB through the `vaelii.core` surface alone. That
+The browser (`vaelii.web`) reaches a KB through the `vaelii.core` surface alone. That
 surface is re-exported by `vaelii.impl.access` as a facade whose every op takes a
 *target* that is either an in-process KB or a remote daemon — the reads the browser
 renders with (`check` among them: it writes nothing, so it is a read), plus the two
@@ -156,7 +179,7 @@ writes it performs, `edit` and `forward-chain`:
 
 ```sh
 lein serve 4200 /var/lib/vaelii              # a daemon owns the KB
-lein run -m vaelii.impl.web --attach localhost 4200   # browse it, over the API, on :3000
+lein run -m vaelii.web --attach localhost 4200   # browse it, over the API, on :3000
 ```
 
 - **Why it exists:** the single-writer lock means a second process can't open the

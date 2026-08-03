@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.matches-hierarchical-test
   "Oracle for the set-algebra retrieval (`res/matches-hierarchical`).
 

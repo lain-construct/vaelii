@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.taxonomy-depth-test
   "The `genl` / `genlContext` **depth potential** — the topological ranking that lets
   `reachable?` reject most pairs in O(1) — and what a deferred batch does to it.

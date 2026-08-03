@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.backward
   "Backward-chain rule-path scaling — the axis that matters for this corpus (99% backward
   rules), which RETE does not touch.

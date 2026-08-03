@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.overlay.store
   "`OverlayRecordStore` — a composite `RecordStore` layering a private **writable**
   overlay over a shared **read-only** base.  Reads resolve overlay-first, skipping

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.property-test
   "Property-based tests for the engine's crown-jewel invariant: **the same
   knowledge, given in any order, yields the same beliefs.**

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.plan-branches-test
   "Two things `vaelii.plan-test` leaves open: the planner's short-circuit branch when
   a **recursive** literal is present, and what actually happens when an evaluable runs

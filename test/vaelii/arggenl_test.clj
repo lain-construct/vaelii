@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.arggenl-test
   "`argGenl` — the argument constraint one level up.  Where `argIsa` asks an argument
   to be an *instance* of a type, `argGenl` asks it to be a *subtype*, which is what a

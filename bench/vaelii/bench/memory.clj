@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.memory
   "The load + scale benchmark against the **in-memory backend**
   (`vaelii.impl.memory`): Zipfian synthetic facts through the real

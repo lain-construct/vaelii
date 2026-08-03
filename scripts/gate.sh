@@ -65,8 +65,13 @@ while [[ $# -gt 0 ]]; do
     --fail-fast) fail_fast=1; shift ;;
     --quick)     quick=1; shift ;;
     --all)       all=1; shift ;;
-    --skip)      skip+=("${2:-}"); shift 2 ;;
-    --only)      only+=("${2:-}"); shift 2 ;;
+    # A value is REQUIRED. `shift 2` on a one-element stack shifts nothing and
+    # returns 1, so `while [[ $# -gt 0 ]]` never advances and `gate --skip` spins
+    # forever instead of complaining.
+    --skip)      [[ $# -ge 2 ]] || { echo "gate: --skip needs a value" >&2; exit 2; }
+                 skip+=("$2"); shift 2 ;;
+    --only)      [[ $# -ge 2 ]] || { echo "gate: --only needs a value" >&2; exit 2; }
+                 only+=("$2"); shift 2 ;;
     -h|--help)   sed -n '2,52p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "gate: unknown argument $1" >&2; exit 2 ;;
   esac

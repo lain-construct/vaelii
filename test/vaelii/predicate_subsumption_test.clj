@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.predicate-subsumption-test
   "Predicate subsumption in matching: `(genl fatherOf parentOf)` makes a `parentOf`
   query (and antecedent, and goal) reach a stored `fatherOf` fact — the subtype rule

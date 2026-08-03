@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.space-test
   "RCC-8 qualitative spatial reasoning (`vaelii.impl.space`): the eight base region
   relations and the six derived ones, answered by entailment over the path-consistent

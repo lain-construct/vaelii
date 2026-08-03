@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.world-fables
   "Children's stories as microtheories — worked examples, test-world data below the
   shipped schema (see vaelii.world).

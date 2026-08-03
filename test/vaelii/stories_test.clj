@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.stories-test
   "Connected conjunctive antecedents (rules whose antecedents share variables so
   they join) and the children's stories that use them to derive their morals — over

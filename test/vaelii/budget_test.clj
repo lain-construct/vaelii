@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.budget-test
   "Resource-bounded / anytime inference: `budget/collect` as the partial-result
   contract over a lazy stream, and its wiring into `ask-within` / `prove-within` /

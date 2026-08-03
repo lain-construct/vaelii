@@ -22,12 +22,17 @@ the **vector** of handles in that case (a single handle otherwise).
 By default a rule is used in *both* directions. Wrap it to constrain that — these
 `set/*Rule` virtual predicates are interpreted on assert, not stored as facts:
 
-| Wrapper | Indexed by | Forward-chained? | Used in backward? |
-|---------|-----------|------------------|-------------------|
-| `set/forwardRule`  | antecedent preds | yes | no |
-| `set/backwardRule` | consequent pred  | no  | yes |
-| `set/inertRule`    | neither          | no  | no (documentation) |
-| (bare `implies`)   | both             | yes | yes |
+| Wrapper | Forward-chained? | Used in backward? |
+|---------|------------------|-------------------|
+| `set/forwardRule`  | yes | no |
+| `set/backwardRule` | no  | yes |
+| `set/inertRule`    | no  | no (documentation) |
+| (bare `implies`)   | yes | yes |
+
+Direction is not an indexing choice: **every** rule is registered under all of its
+antecedent predicates *and* its consequent predicate, whatever its direction
+(`special/index-rule-sentex`, [indexing.md](indexing.md)). What the wrapper decides is
+which chainer will *use* what the index already holds.
 
 `assert-rule` also accepts `{:direction :forward|:backward|:inert|:both}`.
 
@@ -90,15 +95,23 @@ recursion terminates.
 The reference chainer re-joins a candidate rule's non-trigger antecedents against the
 store on every assert, through `res/match-pattern` (the count-aware trie). The trie
 narrows strictly left to right, so a non-trigger antecedent with a **leading
-variable** — `(parentOf ?x Pi)`, the second half of a grandparent join — can only be
-answered by scanning the whole `parentOf` extent. That is O(N) per assert, and
-it is the quadratic a grandparent-style load walks into (16.1ms/assert at n=200 →
-28.0ms at n=400).
+variable** — `(parentOf ?x Pi)`, the second half of a grandparent join — has no
+selective prefix. The **secondary argument roots** answer it instead, by one set
+intersection rather than a fan-out over every first-argument value
+([indexing.md](indexing.md), "Argument-root retrieval", `res/*arg-root-retrieval*`,
+on by default), so that shape is flat in the extent on the reference path.
 
-`vaelii.impl.rete` is an opt-in **TREAT-style alpha network** that removes it. It keeps
-the stored facts in RAM — grouped by functor and indexed by argument value, the *alpha
-memories* — and answers a non-trigger antecedent by a hash lookup on its most selective
-ground argument. The grandparent load goes **flat at ~1.9ms/assert** (14.8× at n=400).
+`vaelii.impl.rete` is an opt-in **TREAT-style alpha network** over the same question.
+It keeps the stored facts in RAM — grouped by functor and indexed by argument value,
+the *alpha memories* — and answers a non-trigger antecedent by a hash lookup on its
+most selective ground argument. What that is worth depends on the rule shape, and the
+two measurements bracket it. On the grandparent load (`lein bench-forward`, a 2-join
+and a 3-join over a sparse random parent graph) the two paths are level from n=2000
+up, both flat at ~500µs/fact with identical derived counts and RAM — the argument
+roots already answer what the alpha memories would. On the OpenRuleBench join pyramid
+the alpha memories are ahead: 16.80s against 21.31s at 1k, and 434.7s against 551.1s
+at 10k on the field bench, both on the identical answer set. Matching is 8–12% of that
+run (the rest is placement), which is the ceiling on what any matcher can move there.
 
 **One seam, one novelty.** The only thing the network changes is *which stored facts a
 non-trigger antecedent finds*. Forward chaining looks them up through a dynamic

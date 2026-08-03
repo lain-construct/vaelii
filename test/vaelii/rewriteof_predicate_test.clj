@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.rewriteof-predicate-test
   "`rewriteOf` over **predicates** and **types** — round two of equality
   (docs/equality.md).  A merge `(rewriteOf Canonical Deprecated)` where the two are

@@ -1,5 +1,5 @@
 /* vaelii — the browser's one hand-written script (docs/web.md).  htmx carries the
-   declarative interactivity; this carries the three things it cannot express:
+   declarative interactivity; this carries the five things it cannot express:
 
      1. selection over the `.sx-item[data-h]` sentex rows, by every route a reader
         expects: click the row (or its checkbox) to toggle, shift-click for a
@@ -12,6 +12,10 @@
         data-* on <html> and persisted.  The pre-paint <head> script applies the saved
         values; this wires the dots and keeps what they say about themselves current.
      3. marking the menubar link for the current path active.
+     4. the `/kbs` page's option sliders, which show their own value as it moves.
+     5. the proposal review's keys — j/k to move, a/x to accept or reject, 1-9 to pick
+        a shape — holding a decision per row *index*, since choosing a shape swaps the
+        row out from under the element that held it.
 
    The rows are a single-column ARIA **grid**: each `<li>` is a `role="row"` carrying
    `aria-selected`, and the one row that holds the keyboard's place carries

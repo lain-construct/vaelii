@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.llm.inventory
   "The KB's own vocabulary, put in front of the model — and the flag for when the model
   invents vocabulary anyway.

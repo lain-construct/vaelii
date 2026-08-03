@@ -1,0 +1,18 @@
+version: 2
+
+# GitHub Actions only. The Clojure dependencies are tracked by `lein antq`, which
+# writes docs/dependencies.md and the deps badge (scripts/update-badges.sh --deps)
+# — Dependabot has no Leiningen ecosystem, so pointing it at project.clj would do
+# nothing quietly. Actions is the half it does cover, and the half where a stale
+# pin is a supply-chain question rather than a version question: every workflow
+# here runs on fork pull requests.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies

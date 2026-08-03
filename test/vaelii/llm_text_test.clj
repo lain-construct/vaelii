@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-text-test
   "The reading path: `vaelii.impl.llm.text`, `vaelii.impl.llm.session/propose-text`, and
   `vaelii.impl.llm.score`.

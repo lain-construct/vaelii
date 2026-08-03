@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.disk-backend-test
   "The `:disk` backend wiring: the single-writer lock fails a second opener fast, and
   two KBs over one directory in a process share the durable stores (the restart
@@ -7,7 +9,9 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
-            [vaelii.impl.disk.lock :as lock])
+            [vaelii.impl.disk.lock :as lock]
+            [vaelii.impl.disk.record-store :as drs]
+            [vaelii.test-util :as tu])
   (:import [java.io RandomAccessFile]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -99,6 +103,66 @@
           (is (some? (v/handle-of kb2 '(dog Fido) 'UniverseContext)) "the record survived")
           (v/recover kb2)
           (is (v/isa? kb2 'Fido 'animal) "and its taxonomy edge"))))))
+
+(deftest public-close-releases-the-directory-and-a-reopen-recovers-by-default
+  ;; the public pair end-to-end: `open-kb` threads the directory onto the KB's `:dir`,
+  ;; and `close!` releases it through that slot.  Were the threading broken, close!
+  ;; would silently no-op — so the pin is that the lock is genuinely gone and a fresh
+  ;; open over the same directory reads the data back.
+  (with-tmp
+    (fn [dir]
+      (tu/with-terms [dog animal Fido]
+        (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+          (v/assert kb (list 'genl dog animal) 'UniverseContext {:strength :monotonic})
+          (v/assert kb (list dog Fido) 'UniverseContext {:strength :monotonic})
+          (is (identical? kb (v/close! kb)) "close! returns the KB"))
+        (is (not (lock/held? dir)) "close! released the single-writer lock")
+        (is (empty? (backend/opened dir)) "and forgot the directory's stores")
+        (testing "the same JVM reopens the directory; :recover? defaults to :auto"
+          (let [kb2 (v/open-kb {:backend :disk :dir dir})]
+            (is (seq (v/sentexes-matching kb2 (list dog Fido) 'UniverseContext))
+                "the data is back and believed with no explicit recover call")
+            (is (v/isa? kb2 Fido animal))))))))
+
+(deftest public-close-on-a-memory-kb-is-a-no-op
+  ;; an in-memory KB has no `:dir`, so close! releases nothing and the KB stays
+  ;; usable — the guarantee that makes an unconditional (close! kb) in a `finally`
+  ;; safe.  Explicitly `:memory` rather than the suite backend: under a disk run the
+  ;; scratch KB has a directory, and closing it would pull the store out from under
+  ;; every later test.
+  (let [kb (v/open-kb {:backend :memory :record-space ::noop-records
+                       :index-space ::noop-index :recover? false})]
+    (tu/with-terms [dog Fido Rex]
+      (v/assert kb (list dog Fido) 'UniverseContext)
+      (is (identical? kb (v/close! kb)) "close! returns the KB")
+      (is (some? (v/handle-of kb (list dog Fido) 'UniverseContext))
+          "the store is untouched")
+      (v/assert kb (list dog Rex) 'UniverseContext)
+      (is (some? (v/handle-of kb (list dog Rex) 'UniverseContext))
+          "and still writable")
+      (tu/clear-kb! kb))))
+
+(deftest close-dir-releases-the-lock-even-when-a-component-close-throws
+  ;; a component close fsyncs and can compact, so it can throw (a full disk).  The
+  ;; lock and the registry entry must go regardless: close! exists to hand the
+  ;; directory to another process, and a throw that kept the lock would defeat exactly
+  ;; that.  The first component failure resurfaces after the cleanup.
+  (with-tmp
+    (fn [dir]
+      (tu/with-terms [dog Fido]
+        (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+          (v/assert kb (list dog Fido) 'UniverseContext {:strength :monotonic}))
+        ;; drs/close! is a plain fn called through its var, so with-redefs intercepts
+        ;; (a protocol-method var would not)
+        (with-redefs [drs/close! (fn [_] (throw (java.io.IOException. "disk full (simulated)")))]
+          (is (thrown? java.io.IOException (backend/close-dir! dir))
+              "the component failure reaches the caller"))
+        (is (not (lock/held? dir)) "the lock is released despite the failed close")
+        (is (empty? (backend/opened dir)) "and the registry entry is dropped")
+        (testing "so a subsequent open of the same directory succeeds"
+          (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
+            (is (some? (v/handle-of kb2 (list dog Fido) 'UniverseContext))
+                "the durable record reads back in the reopened store")))))))
 
 (deftest distinct-directories-are-isolated
   (with-tmp

@@ -99,7 +99,10 @@ WANTED=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --tms) TMS="$2"; shift 2 ;;
+    # A value is REQUIRED: `shift 2` on a one-element stack shifts nothing and
+    # returns 1, so the loop never advances and `--tms` alone spins forever.
+    --tms) [[ $# -ge 2 ]] || { echo "test-backends: --tms needs a value" >&2; exit 2; }
+           TMS="$2"; shift 2 ;;
     --tms=*) TMS="${1#*=}"; shift ;;
     --fail-fast) FAIL_FAST=1; shift ;;
     --keep) KEEP=1; shift ;;
@@ -374,5 +377,15 @@ if [[ ${#FAILED[@]} -eq 0 ]]; then
   exit 0
 fi
 echo "${RED}${BOLD}${#FAILED[@]} of ${#BACKENDS[@]} failed:${OFF} ${FAILED[*]}"
-for b in "${FAILED[@]}"; do echo "  ${DIM}$OUT_DIR/$b.log${OFF}"; done
+# Same naming rule the run used, not a hardcoded `<backend>.log` — under any
+# selector but `:default` the log is `<backend>.<selector>.log`, and printing the
+# wrong path on a red run points whoever has to debug it at a file that isn't there.
+# `deep.yml` runs exactly such a selector.
+for b in "${FAILED[@]}"; do
+  if [[ "$SELECTOR" == ":default" ]]; then
+    echo "  ${DIM}$OUT_DIR/$b.log${OFF}"
+  else
+    echo "  ${DIM}$OUT_DIR/$b${SELECTOR/:/.}.log${OFF}"
+  fi
+done
 exit 1

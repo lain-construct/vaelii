@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.memconjoin
   "The conjunctive-join benchmark with the index structures held **in RAM** — the
   access-path / leapfrog experiment on the memory backend.

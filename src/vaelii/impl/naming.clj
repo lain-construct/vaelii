@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.naming
   "KB naming invariants, as predicates over symbols — and the walk that applies them to
   every **literal** of a sentence rather than to its outermost functor alone.

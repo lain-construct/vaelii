@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.backward-test
   "The recur-based backward chainer (v/prove), focusing on inference that relies
   on transitive types (genl) and context visibility (genlContext)."

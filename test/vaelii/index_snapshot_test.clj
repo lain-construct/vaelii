@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.index-snapshot-test
   "The mapped index snapshot (`vaelii.impl.disk.index-snapshot`) against real records.
 
@@ -40,10 +42,14 @@
   [^String from ^String to]
   (rm-rf! to)
   (.mkdirs (File. to))
-  (doseq [^File src (.listFiles (File. from)) :when (.isFile src)]
-    (Files/copy (.toPath src)
-                (Paths/get (str to "/" (.getName src)) (into-array String []))
-                (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))))
+  ;; hoisted and hinted: the options array is the same on every file, and unhinted it
+  ;; reads as Object at the call, which is a reflective `Files/copy` per file
+  (let [^"[Ljava.nio.file.CopyOption;" opts
+        (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING])]
+    (doseq [^File src (.listFiles (File. from)) :when (.isFile src)]
+      (Files/copy (.toPath src)
+                  (Paths/get (str to "/" (.getName src)) (into-array String []))
+                  opts))))
 
 (defn- with-snapshot-dir
   "Run `(f dir)` in a fresh directory with the snapshot switched on, restoring the property

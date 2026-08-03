@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.llm.ollama
   "A local backend: Ollama's chat API over raw HTTP.
 
@@ -16,7 +18,7 @@
   * **Constrained decoding instead of tool calls.**  `:format` carries a JSON schema
     that the sampler is restricted to, so a model with no `tools` capability still
     answers in an exact shape.  `capabilities` reads what a model can actually do, and
-    `supports-tools?` is the gate — sending 42 tool schemas to a completion-only model
+    `supports-tools?` is the gate — sending 55 tool schemas to a completion-only model
     spends the whole window on something it will never emit.
   * **Streaming is newline-delimited JSON**, not SSE: one object per token-ish chunk,
     the last carrying `done: true` and the run's counts.

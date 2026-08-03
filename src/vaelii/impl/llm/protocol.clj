@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.llm.protocol
   "The pluggable-model seam: one protocol, two methods, and a provider-neutral
   request/response shape.

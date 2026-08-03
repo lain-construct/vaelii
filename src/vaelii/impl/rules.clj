@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.rules
   "A rule *is* a sentex — same structure (sentence + context), different indexing.
   Its sentence is an implication:

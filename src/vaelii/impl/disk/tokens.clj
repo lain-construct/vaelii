@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.disk.tokens
   "A **durable** token dictionary for a disk store: `symbol/keyword ↔ int`, append-only,
   ids assigned in append order and never reused.  It is what lets a record frame spell

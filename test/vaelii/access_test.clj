@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.access-test
   "The read-access facade (`vaelii.impl.access`) and the browser's attach-to-daemon
   mode.  Access dispatches a KB read to an in-process KB or a remote daemon behind one

@@ -35,8 +35,8 @@ stored `(parentChain (fatherOf (fatherOf Tom)))` and a query `(parentChain
 
 `vaelii.impl.rewrite` is the pure term algebra — orientation, matching,
 normalization — knowing nothing of the store, belief, or the taxonomy. The taxonomy
-caches the active oriented rules (belief-following, like the partition), `kb/rewrite-
-term` threads normalization into the same path ground congruence uses, and
+caches the active oriented rules (belief-following, like the partition),
+`kb/rewrite-term` threads normalization into the same path ground congruence uses, and
 `vaelii.impl.special` justifies each rewritten twin.
 
 ## Orientation and termination
@@ -190,9 +190,9 @@ non-confluent set confluent), and AC-rewriting for permutative equations. See
   (`add-rewrite-rule`, `del-rewrite-rule!`, `rewrite-rules`, refreshed by
   `refresh-beliefs`, cleared by `clear-relations!`).
 - `vaelii.impl.kb` — `rewrite-term` threads normalization into congruence.
-- `vaelii.impl.special` — the equality table's schematic arm: `integrate-rewrite-
-  rule`, `migrate-matching`, and the schematic contributor collection in
-  `migrate-sentex`.
+- `vaelii.impl.special` — the equality table's schematic arm:
+  `integrate-rewrite-rule`, `migrate-matching`, and the schematic contributor
+  collection in `migrate-sentex`.
 - `vaelii.impl.wff` — `equality-problems` waves the schematic shape through and
   refuses an unorientable one.
 - `vaelii.impl.checks` — `check-ground` exempts a schematic equation from the

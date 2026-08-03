@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.term-index-test
   "The inverted term index (findable by any term) and ist reification."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

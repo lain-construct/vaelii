@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.web-propose-test
   "The proposal panel on a term page (`GET`/`POST /propose`), as pure request ->
   response — no server, and **no model**: every turn here runs against a scripted

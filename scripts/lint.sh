@@ -126,7 +126,8 @@ check drift      -- python3 scripts/check-doc-drift.py
 check kondo      -- clj-kondo --lint src test bench
 check cljfmt     -- lein cljfmt check
 check shellcheck -- shellcheck scripts/lint.sh scripts/lint-glossary.sh scripts/coverage.sh \
-                               scripts/gate.sh scripts/test-backends.sh scripts/update-badges.sh
+                               scripts/gate.sh scripts/test-backends.sh scripts/update-badges.sh \
+                               scripts/link-checkouts.sh
 
 total=$((pass + fail))
 if [[ $fail -eq 0 ]]; then

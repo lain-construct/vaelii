@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.stratification-state-test
   "The **search state** of `wff/negation-cycle`, which is `[rule negative?]` and not
   the rule alone.

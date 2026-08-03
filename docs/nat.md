@@ -122,7 +122,7 @@ correspondence has. A value in any other position needs the explicit form —
 `(functionCorrespondingPredicate StreetCornerFn streetCornerOf 1)`, so
 `(StreetCornerFn Xing North)` is the `Lot` of `(streetCornerOf Lot Xing North)`.
 
-The example is the shipped one: `kb/upper/LifeContext.txt` states `motherOf` and
+The example is the shipped one: `resources/kb/upper/LifeContext.txt` states `motherOf` and
 `fatherOf` with `MotherFn` and `FatherFn` beside them, so a KB that loads the starter can
 name somebody by their role before it knows their name.
 

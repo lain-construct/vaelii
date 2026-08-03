@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.common-sense-qualitative-test
   "Common sense about space, time and distance — the half of the sweep that reasons
   over a *network* rather than over a cast, which is why it sits beside

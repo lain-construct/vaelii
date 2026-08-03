@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.query-test
   "`query` — the front door — and its one dial.
 
@@ -81,9 +83,17 @@
     (v/assert-rule kb [(list parentOf '?x '?y)] (list anc '?x '?y) QContext
                    {:direction :backward})
     (let [goal (list anc Ann '?z)]
-      (testing "with no depth the rule is not expanded, and that is the contract"
-        (is (empty? (v/query kb goal QContext)))
-        (is (not (v/query? kb goal QContext))))
+      ;; Stood aside under the cross-engine sweep, and not because the contract is soft.
+      ;; The node engine refuses to start without a depth bound, so `VAELII_QUERY_ENGINE`
+      ;; makes `tu` supply one globally (`inference/*max-depth*` 8) for the whole suite —
+      ;; which means "no depth anywhere" is not a state the suite can be in while the
+      ;; sweep runs, and the assertion would be checking the harness rather than the
+      ;; engine.  `tu/query-engine-override` is what a test pinning an engine-specific
+      ;; artifact stands aside on; the depth-carrying halves below run under both.
+      (when-not (tu/query-engine-override)
+        (testing "with no depth the rule is not expanded, and that is the contract"
+          (is (empty? (v/query kb goal QContext)))
+          (is (not (v/query? kb goal QContext)))))
       (testing "a depth reaches it"
         (is (= [{'?z Bob}] (vec (v/query kb goal QContext {:max-depth 1})))))
       (testing "and `prove`, which needs no depth, reaches it too"
@@ -114,8 +124,11 @@
                         (zs (v/query kb goal QContext {:max-depth 1}))))
             "depth 1 admits one hop, so the two-hop ancestor is out of reach"))
       (testing "a *query-options* naming only a strategy leaves the depth unset"
-        (is (empty? (binding [v/*query-options* :depth-first]
-                      (v/query kb goal QContext))))
+        ;; the unset half stands aside under the sweep for the reason given in
+        ;; `no-depth-anywhere-expands-no-rule` — a depth is set, globally, by the harness
+        (when-not (tu/query-engine-override)
+          (is (empty? (binding [v/*query-options* :depth-first]
+                        (v/query kb goal QContext)))))
         (is (= #{Bob Cid} (binding [v/*query-options* :depth-first]
                             (zs (v/query kb goal QContext {:max-depth 3})))))))))
 

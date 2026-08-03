@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-verdict-test
   "The four-axis reading of a proposed batch (`vaelii.impl.llm.verdict`) — what the KB
   refuses, what shape a line should have been in, what vocabulary it invents, and what

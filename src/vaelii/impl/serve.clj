@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.serve
   "Headless EDN-over-HTTP daemon: one JVM owns one KB and serves it to remote clients
   (`vaelii.impl.client`).  A thin reitit-ring + jetty layer over `vaelii.core`, the
@@ -20,13 +22,20 @@
   the KB supplied by the daemon — the client sends only the op and the remaining args —
   so no client can reach an arbitrary var.  Sentex records in a result are projected to
   plain maps before they hit the wire (the `sentex`-map contract), so the client reads
-  them back without the `impl` record class."
+  them back without the `impl` record class.
+
+  **Nothing authenticates a caller**, so `vaelii.impl.guard` stands in for the session
+  the daemon does not have: `POST /op` requires `Content-Type: application/edn`, refuses
+  a cross-origin `Origin`, and answers only to a `Host` naming the interface it was
+  started on.  Together those stop a page the operator happens to visit from driving
+  the KB over loopback — which binding to loopback alone does not."
   (:require [clojure.edn :as edn]
             [clojure.walk :as walk]
             [reitit.ring :as ring]
             [ring.adapter.jetty :as jetty]
             [taoensso.trove :as trove]
-            [vaelii.core :as v])
+            [vaelii.core :as v]
+            [vaelii.impl.guard :as guard])
   (:import [org.eclipse.jetty.server Server ServerConnector]))
 
 ;; ---- the op table: the allowlisted vaelii.core surface -------------------
@@ -147,48 +156,113 @@
   [x]
   (walk/postwalk (fn [y] (if (record? y) (into {} y) y)) x))
 
+(def ^:private max-body-bytes
+  "The cap on a request body, `VAELII_MAX_BODY_BYTES` or 16 MiB.  An op body is a
+  sentence and its context, so the ceiling is nowhere near a legitimate call; it is
+  here so an unauthenticated caller cannot spend the daemon's heap by streaming one."
+  (or (some-> (System/getenv "VAELII_MAX_BODY_BYTES") Long/parseLong)
+      (* 16 1024 1024)))
+
+(defn- read-body
+  "The request body as a string, refusing past `max-body-bytes`.  `slurp` would read
+  an unbounded body into the heap before anything got to look at it."
+  ^String [req]
+  (if-let [^java.io.InputStream in (:body req)]
+    (let [out   (java.io.ByteArrayOutputStream.)
+          chunk (byte-array 8192)]
+      (loop []
+        (let [n (.read in chunk)]
+          (when (pos? n)
+            (when (> (+ (.size out) n) max-body-bytes)
+              (throw (ex-info (str "request body exceeds " max-body-bytes " bytes")
+                              {:type ::body-too-large :limit max-body-bytes})))
+            (.write out chunk 0 n)
+            (recur))))
+      (String. (.toByteArray out) java.nio.charset.StandardCharsets/UTF_8))
+    ""))
+
 (defn- handle-op
-  "Run one `{:op :args}` request under the write lock and answer with EDN."
+  "Run one `{:op :args}` request under the write lock and answer with EDN.
+
+  The two guards run before the body is read.  `POST /op` is the write route of an
+  unauthenticated single writer, so a page the operator merely *visits* must not be
+  able to drive it: `guard/edn-body?` forces a CORS preflight this daemon cannot
+  answer, and `guard/same-origin?` refuses a browser that stamped someone else's
+  origin.  See `vaelii.impl.guard`."
   [kb monitor req]
   (let [edn-reply (fn [status m]
                     {:status status
                      :headers {"content-type" "application/edn"}
                      :body (pr-str m)})]
     (try
-      (let [{:keys [op args]} (edn/read-string (slurp (:body req)))
-            f (ops op)]
-        (if f
-          (let [result (locking monitor (f kb (vec args)))]
-            (edn-reply 200 {:ok true :result (wire-safe result)}))
-          (edn-reply 400 {:ok false :error (str "unknown op: " (pr-str op))
-                          :ops (vec (sort (keys ops)))})))
-      (catch Exception e
-        (trove/log! {:level :warn :id ::op-error :error e})
-        (edn-reply 500 {:ok false :error (.getMessage e)
-                        :type (:type (ex-data e))})))))
+      (cond
+        (not (guard/edn-body? req))
+        (edn-reply 415 {:ok false :type ::not-edn
+                        :error "POST /op requires Content-Type: application/edn"})
 
-(defn app
-  "The ring handler for a KB — pure `request -> response`, so it is tested without a
-  socket.  One monitor per handler serializes the ops (the single-writer contract)."
-  [kb]
-  (let [monitor (Object.)]
-    (ring/ring-handler
-     (ring/router
-      [["/health" {:get (fn [_] {:status 200
-                                 :headers {"content-type" "application/edn"}
-                                 :body (pr-str {:ok true})})}]
-       ["/op" {:post (fn [req] (handle-op kb monitor req))}]])
-     (ring/create-default-handler
-      {:not-found (fn [_] {:status 404 :headers {"content-type" "application/edn"}
-                           :body (pr-str {:ok false :error "not found"})})}))))
+        (not (guard/same-origin? req))
+        (edn-reply 403 {:ok false :type ::cross-origin
+                        :error "cross-origin request refused"})
+
+        :else
+        (let [{:keys [op args]} (edn/read-string (read-body req))
+              f (ops op)]
+          (if f
+            (let [result (locking monitor (f kb (vec args)))]
+              (edn-reply 200 {:ok true :result (wire-safe result)}))
+            (edn-reply 400 {:ok false :error (str "unknown op: " (pr-str op))
+                            :ops (vec (sort (keys ops)))}))))
+      (catch clojure.lang.ExceptionInfo e
+        (if (= ::body-too-large (:type (ex-data e)))
+          (edn-reply 413 {:ok false :error (.getMessage e) :type ::body-too-large})
+          (do (trove/log! {:level :warn :id ::op-error :error e})
+              (edn-reply 500 {:ok false :error (.getMessage e)
+                              :type (:type (ex-data e))}))))
+      ;; `Throwable`, not `Exception`: an oversized or deeply-nested body raises
+      ;; `OutOfMemoryError`/`StackOverflowError`, which an `Exception` catch lets
+      ;; escape the handler and kill the connection rather than answering on it.
+      (catch Throwable t
+        (trove/log! {:level :warn :id ::op-error :error t})
+        (edn-reply 500 {:ok false :error (.getMessage t)
+                        :type (:type (ex-data t))})))))
 
 (def ^:private loopback
   "The interface the daemon binds unless told otherwise.  `POST /op` is the **write**
   route of the single writer and carries no authentication, so it answers only the
   machine it runs on; exposing it is an explicit choice (`--listen`), not the default.
   The same rule the browser holds to (`vaelii.impl.web`), and the more important of the
-  two — the browser edits a KB, and this one *is* the KB's only writer."
+  two — the browser edits a KB, and this one *is* the KB's only writer.
+
+  Loopback bounds *which machine* may reach the daemon and nothing more: a browser on
+  that machine is a local client too, which is what `vaelii.impl.guard` is for."
   "127.0.0.1")
+
+(defn app
+  "The ring handler for a KB — pure `request -> response`, so it is tested without a
+  socket.  One monitor per handler serializes the ops (the single-writer contract).
+
+  `:host` names the interface this handler will be served on, which fixes the `Host`
+  values it answers to (`guard/allowed-hosts`).  On the loopback default that refuses
+  a rebound DNS name, the one attack `same-origin?` cannot see."
+  ([kb] (app kb {}))
+  ([kb {:keys [host] :or {host loopback}}]
+   (let [monitor (Object.)
+         allowed (guard/allowed-hosts host)]
+     (guard/wrap-host-allowed
+      (ring/ring-handler
+       (ring/router
+        [["/health" {:get (fn [_] {:status 200
+                                   :headers {"content-type" "application/edn"}
+                                   :body (pr-str {:ok true})})}]
+         ["/op" {:post (fn [req] (handle-op kb monitor req))}]])
+       (ring/create-default-handler
+        {:not-found (fn [_] {:status 404 :headers {"content-type" "application/edn"}
+                             :body (pr-str {:ok false :error "not found"})})}))
+      allowed
+      (fn [_] {:status 400
+               :headers {"content-type" "application/edn"}
+               :body (pr-str {:ok false :type ::bad-host
+                              :error "unrecognized Host header"})})))))
 
 (defn start
   "Start the daemon over `kb` and return the running jetty `Server` (`:join? false`, so
@@ -198,7 +272,7 @@
   `:host` defaults to loopback; pass an address (`\"0.0.0.0\"`) to bind publicly, and
   read the note on `loopback` before doing so."
   ^Server [kb {:keys [port host] :or {port 4200 host loopback}}]
-  (jetty/run-jetty (app kb) {:port port :host host :join? false}))
+  (jetty/run-jetty (app kb {:host host}) {:port port :host host :join? false}))
 
 (defn port
   "The actual TCP port a started `Server` is listening on — the ephemeral one when it
@@ -216,7 +290,9 @@
 
   It binds **loopback** unless `--listen` says otherwise, for the reason on `loopback`
   above: `POST /op` writes, and nothing authenticates it.  Put a reverse proxy that does
-  in front of it before naming an address."
+  in front of it before naming an address — and note that naming one also drops the
+  `Host` allowlist (`guard/allowed-hosts`), since the name you reach it by is then
+  yours to know; set `VAELII_ALLOWED_HOSTS` to keep the check."
   [& args]
   (let [[port-s dir] (vec (take-while #(not (.startsWith ^String % "--")) args))
         host  (or (second (drop-while #(not= "--listen" %) args)) loopback)
@@ -232,4 +308,4 @@
                    :msg (str "daemon bound to " host " — POST /op writes and is "
                              "unauthenticated; put an authenticating proxy in front")
                    :data {:host host}}))
-    (jetty/run-jetty (app kb) {:port port :host host :join? true})))
+    (jetty/run-jetty (app kb {:host host}) {:port port :host host :join? true})))

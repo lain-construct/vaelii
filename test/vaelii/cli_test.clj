@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.cli-test
   "The command-line driver (`vaelii.impl.cli`).  `dispatch` takes data args and is the
   whole engine surface the shell and REPL both call, so testing it (plus the arg/option

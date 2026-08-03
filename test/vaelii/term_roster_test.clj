@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.term-roster-test
   "The term roster: `terms` / `term-count` / `find-terms` — the KB's vocabulary read
   off the index instead of scavenged from the records.

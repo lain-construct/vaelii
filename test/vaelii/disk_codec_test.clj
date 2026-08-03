@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.disk-codec-test
   "The positional frame codec (`vaelii.impl.disk.codec`): every record shape must
   round-trip through freeze → thaw → decode as **itself**, and a frame written before

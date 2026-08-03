@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.feed
   "The change feed's registry and its accumulator — the leaf seam a settle files its
   relabelled region into, and the one place a listener list lives.

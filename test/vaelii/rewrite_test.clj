@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.rewrite-test
   "The pure oriented-rewriting engine (`vaelii.impl.rewrite`): orientation by a
   reduction order, one-way matching, and normalization to a fixpoint.  No store, no

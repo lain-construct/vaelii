@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.qcn-kb
   "The KB glue every relation algebra over `vaelii.impl.qcn` shares — reading believed
   facts into a network, and reading entailments back out as prover solutions.

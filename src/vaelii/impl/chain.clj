@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.chain
   "Forward chaining: the semi-naive fixpoint, one agenda for bare and defeasible
   rules alike, with the definitional checks re-run on the derivation path and the

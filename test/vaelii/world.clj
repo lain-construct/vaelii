@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.world
   "The test-world: the individuals, facts, and worked fables the shipped schema no
   longer carries.  The starter (vaelii.impl.starter) ships schema only — types,

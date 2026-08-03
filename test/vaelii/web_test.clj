@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.web-test
   "Exercises the web handlers as pure request -> response (no live server)."
   (:require [clojure.java.io :as io]
@@ -406,7 +408,7 @@
   (testing "an individual is grouped by the argument position it fills"
     (let [r (GET "/term" "q=Bob")]
       (is (re-find #"argument position" (:body r)))
-      (is (re-find #"\[:argument-root" (:body r)))
+      (is (re-find #"\[:argument-slot" (:body r)))
       (is (re-find #"parentOf" (:body r))))))
 
 ;; ---- the concept graph at the top of a term page ------------------------
@@ -773,7 +775,7 @@
         (is (= 200 (:status (GET "/term" (str "q=" (java.net.URLEncoder/encode (str k) "UTF-8"))))))
         (testing "the tab, the heading and the index keys all name the expression"
           (is (str/includes? body (str "<title>vaelii · term " expr "</title>")))
-          (is (str/includes? body (str "[:argument-root 1 " expr "]"))))
+          (is (str/includes? body (str "[:argument-slot 1 " expr "]"))))
         (testing "so does the picture — its label and the description a screen reader gets"
           (is (str/includes? (svg-of body) (str "<title>" expr "</title>")))
           (is (str/includes? body (str "concept graph for " expr))))
@@ -1595,3 +1597,35 @@
 (deftest a-cross-origin-chain-is-refused
   (is (= 403 (:status (POST "/chain" {} {"host" "localhost:3000"
                                          "origin" "http://evil.example"})))))
+
+;; ---- the served handler: the Host allowlist wraps every route ------------
+;;
+;; `web/app` is the routing half and what every other test here drives — what gets
+;; *served* is `web/handler`, which adds the `Host` allowlist.  These build the
+;; wrapped value, because the wrap is what they are about: `same-origin?` folds under
+;; DNS rebinding (the attacker's page is genuinely same-origin with a domain that
+;; re-resolved to 127.0.0.1), and `host-allowed?` is the check that does not.
+
+(tu/deftest-kb the-served-handler-refuses-a-rebound-host-on-every-route
+  (let [served (web/handler kb)]
+    (testing "a GET under a rebound Host is refused — reading the KB is what rebinding is for"
+      (let [r (served {:request-method :get :uri "/"
+                       :headers {"host" "evil.example.com"}})]
+        (is (= 400 (:status r)))
+        (is (re-find #"unrecognized Host" (:body r)))))
+    (testing "a write route is refused the same way, before it writes — and with a
+              matching Origin, which is precisely the header pair rebinding forges"
+      (let [n (v/sentex-count kb)
+            r (served {:request-method :post :uri "/chain" :scheme :http
+                       :headers {"host"   "evil.example.com"
+                                 "origin" "http://evil.example.com"}})]
+        (is (= 400 (:status r)))
+        (is (= n (v/sentex-count kb)) "forward chaining never ran")))
+    (testing "the browser's own names still pass"
+      (doseq [h ["localhost:3000" "127.0.0.1:3000" "[::1]:3000"]]
+        (is (= 200 (:status (served {:request-method :get :uri "/"
+                                     :headers {"host" h}})))
+            h)))
+    (testing "no Host at all passes by design — a non-browser client, and what makes
+              driving bare `web/app` elsewhere in this namespace equivalent"
+      (is (= 200 (:status (served {:request-method :get :uri "/"})))))))

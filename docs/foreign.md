@@ -1,9 +1,12 @@
 # Foreign formats, and how they plug in
 
-Vaelii reads two formats it does not write: a dump in **another engine's record
-dialect**, and a **translated OpenCyc corpus**. Both are bridges. Each one is finished
-the day its corpus has been converted once into the export dump format we do write —
-after which the reader would be code that has to keep
+Vaelii reads formats it does not write, through a plugin: a dump in **another engine's
+record dialect**, and a **translated OpenCyc corpus**, are the two this document works
+through — [vaelii-foreign](https://github.com/vaelii/vaelii-foreign) declares five in
+all (OpenCyc, RDF/OWL, WordNet, OBO, ATOMIC), which is the number a linked build
+discovers below. They are bridges: each one is finished the day its corpus has been
+converted once into the export dump format we do write — after which the reader would be
+code that has to keep
 compiling, keep passing tests, and keep being read by whoever changes a record shape, in
 exchange for nothing.
 

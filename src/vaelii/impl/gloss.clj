@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.gloss
   "A sentence in English, **composed** from what the KB already says about its own
   vocabulary rather than generated.
@@ -59,6 +61,7 @@
   The formal sentence is never replaced by the gloss — that is the caller's contract, and
   `docs/web.md` states it for the browser."
   (:require [clojure.string :as str]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]))
 
 ;; ---- reading a comment as a template -------------------------------------
@@ -375,8 +378,16 @@
   [kb sentence ask]
   (let [g (text kb sentence)]
     (if (and ask (= :named (:source g)))
+      ;; A model failure logs before it degrades. Swallowing it made a bad key, a
+      ;; 429, a timeout and "the model returned whitespace" indistinguishable from
+      ;; each other and from "this sentence has a named gloss already" — so a reader
+      ;; who wires up a provider and sees no generated text has nothing to look at.
       (if-let [said (try (some-> (ask sentence) str str/trim not-empty)
-                         (catch Exception _ nil))]
+                         (catch Exception e
+                           (trove/log! {:level :warn :id ::gloss-failed :error e
+                                        :msg "gloss generation failed; using the composed text"
+                                        :data {:sentence sentence}})
+                           nil))]
         {:text (sentence-case (first-clause said) false) :source :generated}
         g)
       g)))

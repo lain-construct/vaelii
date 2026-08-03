@@ -3,14 +3,16 @@ name: deep
 # The deep run: everything the pull-request gate defers.
 #
 # Named for what it does rather than when it runs, so a change of cadence is not
-# a rename. It runs weekly: eight backends at `:all` plus perf is ~43 billed
-# minutes, and a tree that changes a few times a week does not have a fresh
-# answer every day — running it daily would buy six identical verdicts and turn
-# one real failure into six lines of noise.
+# a rename. It runs weekly: eight backends at `:all` is ~115 billed minutes and
+# the five sweeps add ~80 more, so a run is a few billed hours — and a tree that
+# changes a few times a week does not have a fresh answer every day. Running it
+# daily would buy six identical verdicts and turn one real failure into six lines
+# of noise. Wall clock is ~20 minutes either way, since the legs are parallel;
+# what the cadence is protecting is the minutes, not the wait.
 #
 # test.yml runs the `:default` selector on two of the eight backends, because a
-# contributor should not wait an hour for a verdict. That leaves two real gaps,
-# and this workflow is both of them:
+# contributor should not wait an hour for a verdict. That leaves three real gaps,
+# and this workflow is all three of them:
 #
 #   - **The `^:slow` half of the suite.** Eighteen tests carry 118k of the
 #     suite's 238k assertions — the exhaustive cross-products and the randomized
@@ -21,6 +23,11 @@ name: deep
 #     overlay decorator, and the suite is expected to be failing-set-identical
 #     across all eight — a backend that answers differently is a bug in the
 #     backend. The pull-request gate exercises two of the eight.
+#   - **The five alternative implementations.** The dense TMS, the incremental
+#     matcher, the node query engine, its tacticians and the reference retrieval
+#     fan-out. Each is selected by an env var `test_util.clj` reads, each must be
+#     failing-set-identical with the default it replaces, and nothing ran any of
+#     them until the `sweeps` job below — see its own comment.
 #
 # **Informational, never a required check.** Nothing here blocks a merge: these
 # jobs are long, the perf one is a timing measurement on a shared runner, and a
@@ -68,7 +75,11 @@ jobs:
           - disk
           - overlay
     steps:
+      # No credentials left in .git/config: nothing here pushes, and a token
+      # sitting in the workspace is reachable by anything the build runs.
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -79,15 +90,18 @@ jobs:
       - name: Set up Leiningen
         uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
         with:
-          lein: latest
+          lein: 2.12.0
 
       - name: Cache Maven deps
         uses: actions/cache@v5
         with:
           path: ~/.m2
-          key: m2-${{ hashFiles('project.clj') }}
+          # runner OS and JDK in the key: the same project.clj resolves different
+          # artifacts on a different platform or Java version, and a bare `m2-`
+          # key would serve one leg's ~/.m2 to another the moment a matrix grows.
+          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
           restore-keys: |
-            m2-
+            m2-${{ runner.os }}-jdk21-
 
       # One backend per runner, so the script's own reason for running its eight
       # sequentially does not apply: two durable suites collide on the
@@ -107,12 +121,52 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  perf:
-    name: perf
+  # The other axis the suite can be run on, and until now the one nothing ran.
+  #
+  # `VAELII_TEST_BACKEND` is not the only switch `test_util.clj` reads. Five more
+  # re-run the whole suite through an *alternative implementation* of something
+  # the engine otherwise picks for itself, and each is the same claim the backend
+  # matrix makes: these must be failing-set-identical, because every one of them
+  # is a cost decision and none of them is a semantic one. A tactician orders
+  # goals; it does not choose answers.
+  #
+  # The backends job crosses none of them — it varies storage and leaves all five
+  # at their defaults — so before this job existed the reference implementations
+  # were never run anywhere. That is not a hypothetical gap: running them by hand
+  # found two real defects, one of them a genuine engine bug (a clash reported
+  # against a different sentex depending on which retrieval path answered, since
+  # `res/*hierarchical-retrieval*` promises the answer *set* and a caller was
+  # reading the first element of it).
+  #
+  # On the DEFAULT backend only, and deliberately not crossed with the eight: the
+  # dimensions are independent by construction, so the product buys 40 runs to
+  # re-answer what 5 and 8 already answer separately.
+  sweeps:
+    name: ${{ matrix.name }} (:all)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    strategy:
+      # Same reason as the backends job: the question is *which* dimension
+      # diverged, and fail-fast answers "at least one".
+      fail-fast: false
+      matrix:
+        include:
+          - name: tms-dense
+            env: VAELII_TEST_TMS=dense
+          - name: rete
+            env: VAELII_RETE=1
+          - name: query-engine
+            env: VAELII_QUERY_ENGINE=inference
+          # only meaningful beside the node engine — the DFS has one order and
+          # ignores the variable, so setting it alone would run the default twice
+          - name: tactician
+            env: VAELII_QUERY_ENGINE=inference VAELII_QUERY_STRATEGY=breadth-first
+          - name: nohier
+            env: VAELII_NOHIER=1
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -123,15 +177,58 @@ jobs:
       - name: Set up Leiningen
         uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
         with:
-          lein: latest
+          lein: 2.12.0
 
       - name: Cache Maven deps
         uses: actions/cache@v5
         with:
           path: ~/.m2
-          key: m2-${{ hashFiles('project.clj') }}
+          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
           restore-keys: |
-            m2-
+            m2-${{ runner.os }}-jdk21-
+
+      # Plain `lein test`, not `test-backends.sh`: that script's whole job is to
+      # loop the backend axis and reduce each run to a ✔/✘, which is why a failure
+      # there has to be fetched from an artifact. One run on one axis has no loop
+      # to reduce, so let the failures land in the job log where they are read.
+      #
+      # `env` as a command prefix rather than a `with: env:` block, because a
+      # matrix leg needs two variables and one needs none of the other's.
+      - name: Suite (${{ matrix.name }}, :all)
+        run: env ${{ matrix.env }} lein test :all
+
+  perf:
+    name: perf
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # No credentials left in .git/config: nothing here pushes, and a token
+      # sitting in the workspace is reachable by anything the build runs.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        with:
+          lein: 2.12.0
+
+      - name: Cache Maven deps
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2
+          # runner OS and JDK in the key: the same project.clj resolves different
+          # artifacts on a different platform or Java version, and a bare `m2-`
+          # key would serve one leg's ~/.m2 to another the moment a matrix grows.
+          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            m2-${{ runner.os }}-jdk21-
 
       # `lein perf` measures GROWTH RATIOS, not milliseconds, which is what
       # makes it runnable on a shared runner at all: a noisy neighbour slows

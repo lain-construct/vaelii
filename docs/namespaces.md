@@ -1,15 +1,25 @@
 # Namespace layout
 
-What lives where, one line per file. `vaelii.core` is the only public namespace and
-everything under `vaelii.impl.*` is free to change — tests reach into `impl` freely,
-nothing outside this repo should ([api.md](api.md)). The per-subsystem notes are
-indexed in [index.md](index.md); this is the file map that sits under them.
+What lives where, one line per file. The public surface is **six namespaces** —
+`vaelii.core` plus five thin entry points (`vaelii.client`, `vaelii.starter`,
+`vaelii.web`, `vaelii.serve`, `vaelii.cli`) — and everything under `vaelii.impl.*` is
+free to change — tests reach into `impl` freely, nothing outside this repo should
+([api.md](api.md)). The per-subsystem notes are indexed in [index.md](index.md); this
+is the file map that sits under them.
 
 ```
 src/vaelii/
   core.clj          THE PUBLIC API — KB; forward chaining + context placement;
-                    checks; settle; every fn in docs/api.md.  The only vaelii.* ns;
-                    everything else is vaelii.impl.* and may change freely.
+                    checks; settle; every fn in docs/api.md
+  client.clj        public shim over impl/client.clj: the thin daemon client, spelled
+                    as vaelii.core spells it (bare assert / assert-rule, retract!)
+  starter.clj       public shim over impl/starter.clj: load-into, the shipped
+                    schema-only ontology into a KB you opened
+  web.clj           public shim over impl/web.clj: handler / start / -main for the
+                    browser (the dev-only affordances stay in impl)
+  serve.clj         public shim over impl/serve.clj: the daemon — ops / app / start /
+                    port / -main
+  cli.clj           public shim over impl/cli.clj: open-kb-from / dispatch / -main
 
 src/vaelii/impl/
   protocols.clj     RecordStore, IndexStore (trie + roots + rule index + term index)
@@ -87,6 +97,7 @@ src/vaelii/impl/
   sandbox.clj       a scratch microtheory per browser session, below WellContext: sees everything shipped, nothing shipped sees it; created on the first write, discarded whole
   examples.clj      the worked examples `/reasoning` renders: a table of questions, each naming the stored sentexes it reasons from and what the ontology should answer, plus the one fn that runs one
   svg.clj           the concept graph's drawing layer: a node, an edge, an arrowhead, and the arithmetic for a row / column / ring — pure, no KB, no graph library
+  guard.clj         the HTTP guards both servers hold to: the Host allowlist that closes DNS rebinding (the bind interface decides; VAELII_ALLOWED_HOSTS overrides) and the Origin/Referer same-origin check on writes
   web.clj           reitit-ring browser: ontology / term / sentex / justification / knowledge-base pages
   serve.clj         headless EDN-over-HTTP daemon over vaelii.core: {:op :args}, allowlisted ops, single writer, sentex→map on the wire ([operations.md](operations.md))
   cli.clj           command-line driver: lein cli <cmd> … (assert/match/ask/prove/why/retract/load/repl); --dir disk, --starter schema
@@ -110,7 +121,7 @@ resources/
 
 ## Not glossed above
 
-The map covers 81 of the 112 namespaces under `src/`. The rest are listed here by
+The map covers 86 of the 117 namespaces under `src/`. The rest are listed here by
 name rather than left out — the engine's write path (`integrate`, `special`,
 `checks`, `chain`, `settle`), the store seam (`kb`, `access`, `reindex`), the term
 layer (`nat`, `rewrite`, `inherit`, `gloss`, `spec`), the roster saying which of the

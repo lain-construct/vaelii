@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.point-test
   "The point algebra over instants (`vaelii.impl.point`): three base relations and three
   derived ones, answered by entailment over the path-consistent constraint network of

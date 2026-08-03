@@ -76,8 +76,8 @@ durable as the fork is and a remount needs no separate recovery step.
 is a selectivity structure — `plan/order` costs every conjunct off `count-at` and
 `provers/est-bindings` off the functor root — so a base-blind count would not be a wrong
 answer, it would be a silently wrong *plan* for every query touching inherited content.
-`kv-intersect` merges for the same reason: `sentexes-with-args` is one set intersection
-over the functor and argument roots, and it has to see the base's postings.
+`kv-intersect` merges for the same reason: `sentexes-with-args` intersects the
+predicate-scoped argument roots, and it has to see the base's postings.
 
 **Merging is not the same as building the merged set**, and on a fork the difference is
 what every query plan costs. Read the rule backwards: `(base ∪ overlay) − removed`

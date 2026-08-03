@@ -22,3 +22,7 @@ pom.xml.asc
 CLAUDE.local.md
 /CLAUDE.md
 .claude/
+
+# macOS Finder metadata; this is a macOS-authored repo and one of these
+# committed once is committed forever.
+.DS_Store

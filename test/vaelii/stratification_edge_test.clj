@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.stratification-edge-test
   "Stratification when a **taxonomy edge** is what closes the cycle, rather than a
   rule.  See the Stratification section of

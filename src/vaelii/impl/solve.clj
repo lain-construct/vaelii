@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.solve
   "The seam to an external solver (ultimately an ASP/clingo backend) for assigning
   truth at the *edges* — the defeasible nodes that a set of soft, prioritized

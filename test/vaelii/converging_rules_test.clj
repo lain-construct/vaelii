@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.converging-rules-test
   "A converging rule graph — one subgoal reached from many branches — answered the same
   whether or not the caches under the search are on.

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.llm.oracle
   "An outside judge over what the knowledge base concluded: every claim glossed into one
   English line, handed to a model, and answered *agree / disagree / unsure*.

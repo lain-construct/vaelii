@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.distance-test
   "Qualitative distance (`vaelii.impl.distance`): the seven classes of the distance chain
   and the three derived ranges, answered by entailment over the path-consistent constraint

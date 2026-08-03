@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.sandbox
   "Somewhere safe to be wrong.
 
@@ -47,10 +49,15 @@
   #"[0-9a-f]{8,32}")
 
 (defn mint-token
-  "A fresh session token — the low half of a random UUID, which is hex and needs no
-  encoding to sit in either a cookie or a symbol."
+  "A fresh session token: a whole random UUID with the dashes dropped, so hex that
+  needs no encoding to sit in either a cookie or a symbol.
+
+  The **whole** UUID rather than half of one.  A token names a sandbox that can be
+  read and written, so guessing another session's is guessing its contents; 48 bits
+  is thin the moment the browser is reachable by anyone but its operator, and the
+  extra 16 characters cost nothing."
   []
-  (str/replace (subs (str (java.util.UUID/randomUUID)) 0 13) "-" ""))
+  (str/replace (str (java.util.UUID/randomUUID)) "-" ""))
 
 (defn context-for
   "The sandbox context named by `token`, or nil when the token is not one we minted.

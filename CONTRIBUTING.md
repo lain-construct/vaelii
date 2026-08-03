@@ -59,16 +59,24 @@ in RAM, and everything on disk. Both run with a read-only token and read no secr
 a pull request from a fork runs them in full.
 
 What the pull-request path leaves out, the `deep` workflow picks up: the `^:slow`
-tests, which carry more than half the suite's assertions, and the six record×index
-pairs the two-backend gate skips. It blocks nothing and nobody waits on it, which is
-why a change touching storage, the index, records or recovery still owes
-`./scripts/test-backends.sh` a local run — a bug that shows up only under
-`disk-columnar` should reach you in the pull request, not the next morning.
+tests, which carry more than half the suite's assertions; the six record×index pairs
+the two-backend gate skips; and the five **sweeps** — the whole suite re-run through
+the dense TMS, the incremental matcher, the node query engine, one of its tacticians,
+and the reference retrieval fan-out. Each of those replaces something the engine
+otherwise picks for itself, and each must be failing-set-identical with the default it
+replaces, since every one is a cost decision rather than a semantic one.
+
+It blocks nothing and nobody waits on it, which is why a change touching storage, the
+index, records or recovery still owes `./scripts/test-backends.sh` a local run — a bug
+that shows up only under `disk-columnar` should reach you in the pull request, not the
+next morning. A change touching inference, matching or retrieval owes the sweep for the
+same reason: `VAELII_NOHIER=1 lein test` is one command, and the retrieval paths
+disagreeing is exactly the kind of thing only that run can see.
 
 ## 2. Project layout, and the one rule that matters
 
 ```
-src/vaelii/core.clj    the public API — the only public namespace
+src/vaelii/            the six public namespaces: core.clj (the whole API) plus five thin entry points (§2.1)
 src/vaelii/impl/       everything else: engine internals, ontology content, browser
 test/vaelii/           the suite, plus the test-world fixtures (world*.clj)
 bench/                 the load/scale harnesses (:bench profile, its own source path)
@@ -81,12 +89,17 @@ Layout is the Leiningen default — `src/` + `test/` + `resources/` — not the 
 `src/main/clojure` tree, so `project.clj` overrides no paths. Keeping tests off the
 source path is what stops `:uberjar {:aot :all}` from compiling and shipping them.
 
-### 2.1 The public surface is one namespace
+### 2.1 The public surface is six namespaces
 
-**`vaelii.core` is the only public namespace.** Everything else lives under
-`vaelii.impl.*` and is free to change without notice — the engine internals, the
-ontology content, and the browser alike. Tests reach into `impl` freely, which is what
-unit tests are for; nothing outside this repo should.
+**`vaelii.core` is the engine's whole API**, and five thin entry points are public
+beside it: `vaelii.client`, `vaelii.starter`, `vaelii.web`, `vaelii.serve` and
+`vaelii.cli`. Everything else lives under `vaelii.impl.*` and is free to change without
+notice — the engine internals, the ontology content, and the browser alike. Tests reach
+into `impl` freely, which is what unit tests are for; nothing outside this repo should.
+
+The five exist because the alternative was a lie: the README told a first-time reader
+to require `vaelii.impl.client` and run `vaelii.impl.web` on the same page that called
+`impl` free to change. A shim is cheap; a boundary nobody keeps is not a boundary.
 
 This is not a convention, it is the compatibility boundary: it is what lets the
 internals move at the pace they move at. `test/vaelii/public_api_test.clj` pins it
@@ -286,8 +299,8 @@ mocks — the in-memory stores by default, with no external dependency.
   them is a unit assertion: they are the exhaustive cross-products and the randomized
   oracles — every query pattern against every context, 1200-op index streams compared
   entry-for-entry, 720 orderings of one clash, a 20k-fact generated load. (Measured on
-  the memory backend, 2026-07-31: `:default` is 2409 tests / 120,066 assertions, `:all`
-  2426 / 238,110. Wall-clock depends on the machine, so read the difference as a ratio
+  the memory backend, 2026-08-02: `:default` is 2445 tests / 120,281 assertions, `:all`
+  2462 / 238,325. Wall-clock depends on the machine, so read the difference as a ratio
   rather than a target.)
 - **`^:llm` marks a test that can reach a language-model provider**, and it is the only
   mark `:all` does not select. `lein test` makes no model call, and two independent
@@ -444,10 +457,18 @@ A `Signed-off-by:` trailer certifies that the four DCO clauses apply to your com
 The [DCO GitHub App](https://github.com/apps/dco) checks every commit in every pull
 request and blocks the merge if any commit is missing a sign-off.
 
-The DCO's text says "the open source license indicated in the file". Vaelii's license,
-the SSPL v1, is source-available rather than OSI-approved (see the README's License
-section); for the purposes of your certification, that phrase refers to the license in
-[`LICENSE`](LICENSE).
+The DCO's text says "the open source license indicated in the file", and every `.clj`
+file under `src/`, `test/` and `bench/` indicates it — a two-line SPDX header:
+
+```clojure
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
+```
+
+Keep it on a new file. It is what makes a file that travels out of the tree still carry
+its license, which is what SSPL §4/§5's "keep intact all notices" is aimed at, and it is
+what your sign-off certifies against. Vaelii's license, the SSPL v1, is source-available
+rather than OSI-approved (see the README's License section).
 
 If you forgot, you can sign off a range of commits:
 

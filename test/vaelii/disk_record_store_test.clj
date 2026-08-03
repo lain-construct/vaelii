@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.disk-record-store-test
   "The on-disk `RecordStore` adapter (`vaelii.impl.disk.record-store`), exercised
   directly: put/get/delete across the three kinds, the derived premise set, a

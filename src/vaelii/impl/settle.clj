@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.settle
   "Belief settling: relabel the TMS, resolve soft contradictions on the one axis
   (defeat-class), report the represented dilemmas, and run the `exceptWhen`
@@ -496,9 +498,20 @@
 
 (defn- drain-recheck!
   "Take the queued `{rule-handle -> triggers}` map and clear the queue, so a re-check
-  is never done twice and a rule queued *during* a pass is picked up by the next one."
+  is never done twice and a rule queued *during* a pass is picked up by the next one.
+
+  One CAS rather than deref-then-`reset!`.  The reset shape silently discarded any
+  `swap!` landing between the two, which under incidental concurrency — a REPL thread
+  beside the web handler, which `lein browser` starts by default — dropped queued
+  re-checks outright rather than merely delaying them.  `vaelii.impl.jtms` carries the
+  same fix and the reason it was needed; this queue had been left behind."
   [kb]
-  (let [rs @(:recheck kb)] (reset! (:recheck kb) {}) rs))
+  (let [a (:recheck kb)]
+    (loop []
+      (let [old @a]
+        (if (compare-and-set! a old {})
+          old
+          (recur))))))
 
 ;; ---- narrowing the re-check to the firings a trigger can reach ----------
 ;;
@@ -853,18 +866,23 @@
   in content order.  The handle is what lets a caller tell an *arbitrated* pair from an
   exposed one — the same two memberships, asked about by two different mechanisms."
   [kb x]
-  (sort-by (fn [[t c]] [(str t) (str c)])
-           (into []
-                 (comp (keep #(p/get-sentex (:records kb) %))
-                       (filter #(jtms/in? (:tms kb) (:id %)))
-                       (keep (fn [s]
-                               (let [sen (:sentence s)]
-                                 (when (and (= :true (:truth s))
-                                            (sequential? sen) (= 2 (count sen))
-                                            (symbol? (first sen))
-                                            (= x (second sen)))
-                                   [(first sen) (:context s) (:id s)])))))
-                 (p/sentexes-with-arg (:index kb) 1 x))))
+  ;; `compare` on the symbols directly: the keyfn runs per comparison, so building two
+  ;; Strings and a vector in it allocated three objects per comparison per candidate
+  ;; term of the budgeted sweep.  Symbols are Comparable and order by ns then name,
+  ;; which is the same content order the Strings gave.
+  (sort (fn [[t1 c1] [t2 c2]]
+          (let [r (compare t1 t2)] (if (zero? r) (compare c1 c2) r)))
+        (into []
+              (comp (keep #(p/get-sentex (:records kb) %))
+                    (filter #(jtms/in? (:tms kb) (:id %)))
+                    (keep (fn [s]
+                            (let [sen (:sentence s)]
+                              (when (and (= :true (:truth s))
+                                         (sequential? sen) (= 2 (count sen))
+                                         (symbol? (first sen))
+                                         (= x (second sen)))
+                                [(first sen) (:context s) (:id s)])))))
+              (p/sentexes-with-arg (:index kb) 1 x))))
 
 (defn- exposure-probes
   "The two questions the sweep asks about a *pair* of held memberships, memoized for

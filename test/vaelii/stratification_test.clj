@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.stratification-test
   "Stratification: a rule set with a **cycle through negation** is refused at assert
   time, as a well-formedness check over the rule dependency graph beside the `genl`

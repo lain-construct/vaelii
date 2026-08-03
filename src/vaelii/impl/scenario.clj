@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.scenario
   "Scenario extraction over a qualitative constraint network — turning \"here is what is
   still possible\" into \"here is one way it could be\".

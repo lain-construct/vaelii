@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.skolem-test
   "Head existentials + skolemization: `(implies (P ?x) (exists ?y (Q ?x ?y)))` fires
   forward on `(P a)` to derive `(Q a K)` with `K` a deterministic skolem constant — the

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.scenario-test
   "Scenario extraction (`vaelii.impl.scenario`): turning the relation *sets* path consistency
   leaves into one concrete arrangement that everything believed permits.

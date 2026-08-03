@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.forward-plan-test
   "Cost-ordering the forward-chain antecedent join (`plan/order` in
   `chain/complete-antecedents` / `solve-rule`).  The semi-naive agenda pins one

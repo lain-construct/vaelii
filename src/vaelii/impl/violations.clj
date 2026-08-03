@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.violations
   "The dropped-conclusion ledger: what the derivation path refused to store, kept as a
   value a caller can read afterwards instead of thrown at whoever happened to be

@@ -12,7 +12,7 @@ report), `vaelii.impl.llm.session/propose-text` (the loop), and `vaelii.impl.llm
 
 ## Why it proposes rather than imports
 
-[gloss.md's namespace docstring](../src/vaelii/impl/gloss.clj) states the problem in the
+[`vaelii.impl.gloss`'s namespace docstring](../src/vaelii/impl/gloss.clj) states the problem in the
 other direction: *the read path is the one with no verifier*. Composing English out of the
 KB is dangerous because nothing in the engine can say an English sentence describing
 `(genl penguin bird)` is wrong.
@@ -297,9 +297,10 @@ repair, and two functors were coined (`boy`, `slowerThan`) — both flagged, and
 implicated in a confusion below.
 
 The strict column is the one worth staring at. On two of the four fables it reads **zero**
-while the aligned column reads 83% and 86%: every claim was recovered and not one of them
-named a character the way the modeller did. That gap is the measurement, and it is why
-this file reports two numbers.
+while the aligned column reads 83% and 86%: not one recovered claim named a character the
+way the modeller did. The 86% is that fable's *precision*, not its recall — its aligned
+recall is 46%, for the reason below — so this is a statement about naming, not about
+completeness. That gap is the measurement, and it is why this file reports two numbers.
 
 Wall clock was 44–59 s per fable on a loaded laptop, of which ~30–35 s was prompt
 evaluation of a 3,766–3,903-token request (the document plus the target context's

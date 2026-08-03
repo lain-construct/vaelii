@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.provenance-test
   "Per-handle provenance: a bookkeeping map (creator + creation date, plus arbitrary
   application fields) kept beside the record, stamped on `assert`, first-writer-wins

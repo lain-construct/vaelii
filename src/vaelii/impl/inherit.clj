@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.inherit
   "**Argument-position preservation** — when a claim about one term licenses the same
   claim about another.

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.chaining-contracts-test
   "Two guards on the forward-chaining path that nothing exercised.
 

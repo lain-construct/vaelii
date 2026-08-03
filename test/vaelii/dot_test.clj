@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.dot-test
   "Dotted rest-pattern unification and substitution — `(?pred . ?args)`."
   (:require [clojure.test :refer [deftest is testing]]

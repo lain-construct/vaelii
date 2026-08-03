@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.web-htmx-test
   "htmx's **inheritance**, checked over the markup we actually render.
 
@@ -225,8 +227,8 @@
         "and the answer carries the swap")))
 
 (deftest a-record-page-is-clean-too
-  (let [h     (first (v/sentexes-with-functor tu/*kb* 'genl))
-        j     (first (v/supporting-justifications tu/*kb* h))
+  (let [h     (:id (first (v/sentexes-with-functor tu/*kb* 'genl)))
+        j     (:id (first (v/supporting-justifications tu/*kb* h)))
         found (concat (audit "/sentex" (:body (GET (str "/sentex/" h))))
                       (audit "/why" (:body (GET (str "/why/" h))))
                       (when j (audit "/justification"

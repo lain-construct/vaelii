@@ -100,7 +100,8 @@ something false into the store and the defence is a reviewer between the two
 makes the claims and the model is asked whether an ordinary person would agree.
 
 Nothing a verdict says can reach the store. The namespace calls no writer, a test greps it
-for one, and a second test judges eighty claims and asserts not one sentex moved. A
+for one, and a second test judges a whole computed claim set and asserts not one sentex
+moved. A
 disagreement is **a finding for a person to read** — never a retraction, never a defeat
 class, and never a reason to edit the KB until the number goes up.
 

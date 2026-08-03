@@ -89,7 +89,10 @@ Project shall terminate as of the date such litigation is filed.
 You represent that:
 
 a. Each of Your Contributions is Your original creation, and You have the
-   right to grant the licenses in §§3–4.
+   right to grant the licenses in §§3–4 — except where a Corporate CLA
+   signed by Your employer covers the Contribution, in which case that
+   Agreement governs the grant and controls over this one, and except as
+   §5(e) provides for a submission that is not Your original creation.
 
 b. Your Contributions do not, to Your knowledge, violate any third party's
    copyrights, trademarks, patents, or other intellectual property rights.
@@ -140,3 +143,9 @@ You accept and agree to the terms of this Agreement by completing the
 sign-up flow at cla-assistant on Your first pull request; the
 cla-assistant record is the authoritative log of Your acceptance. This
 flow is the only way to accept this Agreement.
+
+## 10. Notices
+
+Notices under this Agreement go to legal@vaelii.com, or to Vaelii LLC at the
+address published at <https://vaelii.com/cla/>. Vaelii will reach You at the
+address on Your cla-assistant record.

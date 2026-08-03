@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.svg-test
   "The concept graph's drawing layer, on hand-built maps.  It takes no KB and reads
   nothing, so every claim here is arithmetic and there is no fixture."

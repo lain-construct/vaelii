@@ -38,7 +38,7 @@ position; their reaches union, since each independently licenses the claim.
 
 ## Two of them ship
 
-`largerThan` and `partType` are in the starter (`kb/upper/AbstractContext.txt`), and the
+`largerThan` and `partType` are in the starter (`resources/kb/upper/AbstractContext.txt`), and the
 pair is worth comparing because they are declared **differently on purpose**:
 
 ```clojure
@@ -97,8 +97,8 @@ Everything here is read from the asking context. The declarations come through
 so a claim travels the subtype edges the asker can see and no others; and
 `usable-relation?` reads `(transitive R)` from there too — a transitivity some invisible
 microtheory declares is not a licence this one holds. `genlContext` is the stated
-exception and stays global: the context topology is (docs/taxonomy.md), and a
-preservation along it is a claim about that topology.
+exception and stays global: the context topology is what [taxonomy.md](taxonomy.md)
+describes, and a preservation along it is a claim about that topology.
 
 The assert-time refusal is deliberately **unscoped**, and the two are not in tension.
 It asks the structural question — is this relation declared transitive anywhere — so a

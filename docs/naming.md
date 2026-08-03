@@ -119,11 +119,14 @@ never one classified differently. That is the entire cost of opening the door, a
 why the check is worth keeping on wherever the content is hand-written.
 
 A **bulk** path is not on that list because it does not consult it: an import builds
-records directly through `res/kb-sentex` and never asks, which is what makes an
-11M-record corpus loadable at all. The two doors are reconciled by a **count** instead.
+records directly through `res/kb-sentex` and never asks, which is what makes a corpus
+of this size loadable at all. The two doors are reconciled by a **count** instead.
 Both import paths fold `nm/tally` as the frames go past — the one cheap moment, with each
 record already decoded — and a non-zero result is logged and returned in the summary as
 `{:checked n :refused n :by-class {…}}`:
+
+(The figures below are from an 11.3M-record corpus in another engine's dialect — not
+the 1.18M-sentex OpenCyc conversion the rest of the docs measure.)
 
 ```
 this corpus and `assert` disagree: 11,314,049 of 11,314,049 records (100.0%) hold names

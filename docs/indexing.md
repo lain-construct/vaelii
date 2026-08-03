@@ -166,14 +166,19 @@ safe); `(reindex kb)` rebuilds the index wholesale from the records and then rec
 The trie is ordered `[pred args… ctx]`, so it narrows only left-to-right: it can
 count "predicate P" or "P with arg1 X", but **not** "context C" (context is the
 deepest level, never a prefix) and not "X in argument position 2" without fixing
-everything to its left. Three single-level roots fill that in, each a set of handles:
+everything to its left. Three single-level roots fill that in, each a set of handles,
+plus the slot roster the predicate-agnostic reads union over:
 
 ```
 [:context-root <context>]    -> #{handles}   every sentex asserted there (rules included)
 [:functor-root <pred>]       -> #{handles}   facts whose functor is pred — any arity,
                                      either polarity (a negative fact roots under
                                      its positive body's functor)
-[:argument-root <pos> <term>] -> #{handles}   facts holding term at 1-based argument pos
+[:argument-root <pred> <pos> <term>] -> #{handles}  pred's facts holding term at 1-based pos
+[:argument-slot <pos> <term>]        -> #{preds}    the predicates present at that slot —
+                                     reference-counted off the postings, so a
+                                     predicate-agnostic read is a union over a
+                                     handful of scoped keys
 ```
 
 Cardinality is the set's own size, not a parallel counter, so a count can never
@@ -186,7 +191,8 @@ They are read through `core`: `sentexes-in-context` / `context-size`,
 `count-with-arg`. Two places rely on them for speed rather than convenience:
 `core/types-of` (the individual's asserted types — the retrieval `isa?` and
 `checks/disjoint-problems` are built on, so it runs on every unary assert) goes straight
-to `[:argument-root 1 x]` instead of scanning every sentex mentioning `x` anywhere; and
+to the position-1 read (`sentexes-with-arg`, a slot-roster union) instead of scanning
+every sentex mentioning `x` anywhere; and
 the provers' `est-bindings` cost
 model reads `[:functor-root pred]`, which — unlike the trie's `count-at [pred]` — also sees
 negative facts (they key under `:false` and would otherwise estimate 0).
@@ -208,9 +214,11 @@ so `res/match-one` consults them for exactly that case, gated by
   backward / `ask` / forward-join path) drops from O(N) per call to flat (139× at
   n=400). `arg_root_retrieval_test`.
 - **Multi-column narrowing (`sentexes-with-args`).** Knowing more than one term should
-  narrow on all of them, so the functor root is intersected with *every* ground
-  argument root in one set intersection: `(rel ?x B C)` →
-  `[:functor-root rel] ∩ [:argument-root 2 B] ∩ [:argument-root 3 C]`. An individual shared at one position
+  narrow on all of them, so *every* ground argument's predicate-scoped root is
+  intersected: `(rel ?x B C)` →
+  `[:argument-root rel 2 B] ∩ [:argument-root rel 3 C]`. The scoping means a named
+  functor needs no functor-root intersection, and a single bound argument is one hash
+  lookup with nothing intersected at all. An individual shared at one position
   across K predicates then yields a candidate set at the true match count rather than
   K× it (640 → 20 at K=32). What that intersection *costs* is the backend's business: a
   flat-map index folds `clojure.set/intersection` over sets it already holds, and a dense
@@ -221,8 +229,10 @@ so `res/match-one` consults them for exactly that case, gated by
   first path token, so every ground argument is stuck behind it and the trie can only
   fan out over its whole root child set, i.e. **every functor in the KB**. That fan is
   linear in the vocabulary, which in a broad ontology is the largest thing there is.
-  The roots span every functor by construction, so `[:argument-root 1 Fido]` answers it
-  in one read, with a `nil` functor to intersect. Measured over a synthetic type
+  The predicate-agnostic read spans every functor by construction — a union of the
+  scoped roots over `[:argument-slot 1 Fido]` — so it answers in a read per predicate
+  present at that slot (one, almost always), with a `nil` functor to intersect.
+  Measured over a synthetic type
   hierarchy: 0.100 ms → 0.010 ms at 341 types, and — the point — **flat** where it was
   linear (0.037 ms at 85 types before, 0.011 ms after). A pattern with nothing
   indexable to lead with (`(?type ?x)`, `(?p ?x 1970)`) keeps the trie, since there is
@@ -406,7 +416,7 @@ Cost: this is what makes term enumeration O(vocabulary) instead of O(sentexes). 
 scan it replaces — walk every sentex, take its indexable subterms, collect the symbols
 — measures ~8µs per sentex, so listing every term costs 3ms on the starter, 37ms at
 4.4k sentexes, 495ms at 60k, and would cost seconds at a million. The roster reads one
-set and sorts it: 0.09ms, 0.20ms, 1.9ms at those same sizes (35× to 290×), because it
+set and sorts it: 0.09ms, 0.20ms, 1.9ms at those same sizes (33×, 185×, 260×), because it
 is priced by the *vocabulary* — 120, 305, 2,545 terms — which grows far slower than the
 KB. `term-count` is a set-size read and does not move at all.
 
@@ -475,7 +485,7 @@ The structural trie above indexes nested subterms of a positive fact. Three thin
 outside it, and a query that needs one of them falls back to the coarser index rather
 than failing:
 
-- **The secondary argument roots** (`[:argument-root pos term]`) and rete's alpha
+- **The secondary argument roots** (`[:argument-root pred pos term]`) and rete's alpha
   buckets are keyed by **top-level position and arity**. A term nested inside an
   argument is not a key in either.
 - **A `:false` body and a rule literal** are not structurally indexed, including the

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.llm.provider
   "Which backend a turn runs against — the selection seam.
 
@@ -21,6 +23,7 @@
   out to the `ant` CLI, and `ollama/available?` opens a socket.  Neither should happen
   because a namespace was required."
   (:require [clojure.string :as str]
+            [taoensso.trove :as trove]
             [vaelii.impl.llm.stub :as stub]))
 
 (def kinds
@@ -109,7 +112,15 @@
   ([kind opts]
    (or (when (available? kind (select-keys opts [:host]))
          (if-let [f (resolve-fn kind 'generation-provider)]
-           (try (f opts) (catch Throwable _ nil))
+           ;; Logged, not swallowed: `available?` already said yes, so a throw here
+           ;; means the backend is half-present — and falling silently through to the
+           ;; stub answers the caller with plausible fabricated text instead.
+           (try (f opts)
+                (catch Throwable t
+                  (trove/log! {:level :warn :id ::provider-build-failed :error t
+                               :msg "backend probed available but would not build; using the stub"
+                               :data {:kind kind}})
+                  nil))
            (build kind opts)))
        (stub/provider {}))))
 

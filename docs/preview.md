@@ -168,7 +168,7 @@ warm-up):
 | 20 000 | 23 404 | 0.65 ms | 0.47 ms |
 | 200 000 | 223 559 | 0.63 ms | 0.46 ms |
 
-Flat in KB size, at about 1.4× the destructive round trip — which is the second settle.
+Flat in KB size, at 1.06–1.4× the destructive round trip — which is the second settle.
 
 A batch whose conclusions **cascade** is expensive because the cascade is, and that is
 exactly the answer being asked for; bound it with `:max-derivations` when that matters.

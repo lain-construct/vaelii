@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.point
   "The point algebra over time **instants** — a relation algebra over the generic
   constraint network in `vaelii.impl.qcn`, and the smallest one there is.  Three base

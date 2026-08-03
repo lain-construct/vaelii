@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.exposure-test
   "The cross-context exposure pass: two memberships each admissible where stated,
   whose types some context can jointly see as disjoint, are a real contradiction —

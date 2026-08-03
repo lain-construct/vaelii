@@ -35,7 +35,7 @@ Two ordinary stored facts drive normalization, both read through
 Put them in a context every querent sees (e.g. `UniverseContext`) so the prover finds
 them from any asking context.
 
-**Three dimensions ship filled in.** `kb/upper/MeasureContext.txt` states Length in
+**Three dimensions ship filled in.** `resources/kb/upper/MeasureContext.txt` states Length in
 `Meter`, Mass in `Kilogram` and Duration in `Second`, with the ordinary units of each,
 and `UniverseContext` sees it — so a KB that loads the starter compares measures without
 declaring anything first. The test for a shipped unit is that its factor is a

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.disjoint-test
   "disjoint and disjointMetatype, and the contradiction detection they drive."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

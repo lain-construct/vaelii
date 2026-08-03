@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.recovery-test
   "Persistence/recovery: rebuild the in-memory taxonomy and JTMS from the durable
   stores, and atomicity of a rejected assert.
@@ -126,20 +128,41 @@
                      (v/assert kb (list dog fido) 'badContext)))               ; badContext is not a valid context
         (is (= n (p/count-at (:index kb) [])))))))
 
-(tu/deftest-kb an-unrecovered-store-can-auto-recover-at-construction
+(tu/deftest-kb the-recover-option-selects-rebuild-warn-or-silence
   ;; open-kb over non-empty databases without recovery returns a KB whose empty TMS
-  ;; and taxonomy make every query silently answer nothing.  {:recover? :auto} rebuilds
-  ;; at construction; the default (:warn) logs and leaves recovery to the caller.
+  ;; and taxonomy make every query silently answer nothing.  `:recover?` defaults to
+  ;; `:auto` — rebuild at construction (the test below pins the default itself);
+  ;; `false` opts out silently, and `:warn` opts out with a log, leaving recovery to
+  ;; the caller.
   (tu/with-terms [dog animal Fido]
     (v/assert kb (list 'genl dog animal) 'UniverseContext)
     (v/assert kb (list dog Fido) 'UniverseContext)
-    (testing "the default still constructs an empty-memory KB (recovery is the caller's)"
-      (let [kb2 (restart)]
+    (testing "{:recover? false} constructs an empty-memory KB (recovery is the caller's)"
+      (let [kb2 (restart)]                       ; tu/test-kb pins :recover? false
         (is (empty? (v/sentexes-matching kb2 (list dog Fido) 'UniverseContext)))))
+    (testing "{:recover? :warn} likewise — it logs instead of rebuilding"
+      (let [kbw (v/open-kb (assoc tu/scratch-space :recover? :warn))]
+        (is (empty? (v/sentexes-matching kbw (list dog Fido) 'UniverseContext)))
+        (is (not (v/isa? kbw Fido animal)))))
     (testing "{:recover? :auto} answers immediately"
       (let [kb3 (v/open-kb (assoc tu/scratch-space :recover? :auto))]
         (is (seq (v/sentexes-matching kb3 (list dog Fido) 'UniverseContext)))
         (is (v/isa? kb3 Fido animal))))))
+
+(tu/deftest-kb recover-defaults-to-auto-when-unstated
+  ;; The pin for the default itself.  The suite states `:recover?` on every KB it
+  ;; builds (`tu/space-opts` pins false, the tests above spell :warn / :auto out), so
+  ;; only this open does what a user's does — a non-empty durable store, no
+  ;; `:recover?` at all.  The contract: an unstated policy behaves as `:auto`, so the
+  ;; KB answers at construction rather than handing back one whose queries silently
+  ;; answer nothing.
+  (tu/with-terms [dog animal Fido]
+    (v/assert kb (list 'genl dog animal) 'UniverseContext)
+    (v/assert kb (list dog Fido) 'UniverseContext)
+    (let [kb2 (v/open-kb (dissoc tu/scratch-space :recover?))]
+      (is (seq (v/sentexes-matching kb2 (list dog Fido) 'UniverseContext))
+          "believed at construction — the unstated default recovered")
+      (is (v/isa? kb2 Fido animal)))))
 
 (tu/deftest-kb recover-re-supersedes-a-schematic-rewrite
   ;; A schematic (equals L R) normalizes stored terms to justified twins and supersedes

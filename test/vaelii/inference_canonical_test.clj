@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.inference-canonical-test
   "Every node of the node engine is a **canonicalized conjunction**, and what that buys.
 

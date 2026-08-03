@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.nat
   "Non-atomic terms (NATs) via reification — Strategy A.
 
@@ -215,7 +217,7 @@
 
   Read from the **functor root alone** and filtered in memory rather than narrowed on
   an argument root: the declarations number one per reified function and so are few,
-  where `[:argument-root 2 P]` holds every fact ever asserted about `P` — and this is
+  where the position-2 argument roots hold every fact ever asserted about `P` — and this is
   asked once per assert, which is the last place to make a cost a function of the
   corpus.  Belief is filtered here rather than through `kb/sentexes-matching`: the
   declaration has two legal arities, and a pattern query would need one probe per arity
@@ -458,9 +460,11 @@
 ;; through `wiring/assert-sentence`, so a KB with no reifiableFunction pays nothing (the
 ;; callers gate on `any-reifiable-functions?`).
 
-;; Genuine in-file cycle: `reify-or-mint-nat` mints what it could not find, and minting
-;; re-enters it for the nested NATs of the sentences the mint stores.  Reordering cannot
-;; break it — the recursion is the nesting.
+;; Forward reference, not a cycle in this file: `reify-or-mint-nat` calls `mint-nat!`,
+;; and the re-entry back into it leaves the namespace through `wiring/assert-sentence`
+;; rather than being a direct call here.  Kept because moving `mint-nat!` above this
+;; point would separate it from the minting helpers it belongs with; every var it needs
+;; is already defined above, so reordering *would* work if that ever stops being true.
 (declare mint-nat!)
 
 (defn reify-or-mint-nat

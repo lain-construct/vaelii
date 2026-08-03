@@ -1,10 +1,12 @@
 # Public API (`vaelii.core`)
 
-`vaelii.core` is the only public namespace; everything else is `vaelii.impl.*` and free
-to change — the engine internals, the ontology content, and the browser. Tests reach
-into `impl` freely, which is what unit tests are for; nothing outside this repo should.
-The file map is [namespaces.md](namespaces.md). Entry points are `lein run` (→
-`vaelii.core`) and `lein run -m vaelii.impl.web`.
+`vaelii.core` is the engine's whole API. Five thin entry points are public beside it —
+`vaelii.client`, `vaelii.starter`, `vaelii.web`, `vaelii.serve`, `vaelii.cli` — and
+those six namespaces are the compatibility boundary. Everything else is `vaelii.impl.*`
+and free to change: the engine internals, the ontology content, and the browser. Tests
+reach into `impl` freely, which is what unit tests are for; nothing outside this repo
+should. The file map is [namespaces.md](namespaces.md). Entry points are `lein run` (→
+`vaelii.core`) and `lein run -m vaelii.web`.
 
 ```clojure
 (def kb (open-kb {}))                         ; or {:record-space 15 :index-space 14}
@@ -102,9 +104,20 @@ default-chain-opts                              ; the bounds a chain run takes w
 (reindex kb)                                   ; rebuild the index (trie/roots/rule/term) from the records, then recover
 (clear! kb)                                    ; empty both durable stores — `recover`'s counterpart,
                                                ; and irreversible, which is what the `!` says
+(close! kb)                                    ; release a durable KB's directory: flush + close the
+                                               ; stores, drop the file lock.  A no-op on a KB with no
+                                               ; :dir (every in-memory backend, and forks), so it is
+                                               ; safe in a `finally`; the KB must not be used after —
+                                               ; open-kb the same directory to read it again
 (export! kb dir opts?)                         ; write it out as a portable dump — field-map frames,
                                                ; no class names; opts {:variant :records|:records+index
                                                ; :compression :gzip|:xz|:none :on-progress f}
+(import! kb dir opts?)                         ; read a dump back into the (empty) kb — export!'s
+                                               ; inverse.  opts {:belief? bool :on-progress f}:
+                                               ; :belief? true (the default) recovers belief too;
+                                               ; false stores and indexes only — browsable, not
+                                               ; belief-queryable, the path past what an in-RAM
+                                               ; JTMS scales to
 (isa? kb individual type [context])            ; transitive type membership (context-scoped)
 (types-of kb x [context])                      ; the believed types asserted of an individual
                                                ; — the matcher's own three filters:
@@ -170,8 +183,10 @@ default-chain-opts                              ; the bounds a chain run takes w
 (retract! kb handle)                            ; teardown -> {:removed-sentexes n :removed-justifications n}
 (in? kb handle)
 (believed kb handles)                           ; in? in batch -> the set of handles that are IN
-(why kb handle)                                 ; proof tree: support -> rule + recursive antecedents,
+(why kb handle opts?)                           ; proof tree: support -> rule + recursive antecedents,
                                                 ; terminating at premises, cycle-guarded, originalized
+                                                ; opts {:max-depth n} (default 256); a branch at the
+                                                ; cap reads {:truncated? true} — re-ask deeper
 (why-not kb handle)                             ; stored but OUT: :defeated (+ what contradicts it)
                                                 ; / :superseded (+ the restatement that displaced it)
                                                 ; / :unsupported (+ the missing antecedents) / :not-stored
@@ -305,11 +320,30 @@ else.  See [feed.md](feed.md).
 
 **`assert-opt-keys`** is the roster of every key `assert` / `assert-rule` reads, and a
 key off it is **refused** (`:unknown-option`) rather than ignored — as is a `:strength`
-outside `{:default :monotonic}`.  Both failures are otherwise silent in the same way:
-the sentence lands, at a defeat class the caller did not ask for, and a stored sentex
-carries no record of the class it was meant to have.  `{:strenth :monotonic}` makes
-known-true content defeasible; `{:strength 0.7}` names a class the KB does not have.
-`check` reports both, so a batch critic catches them before anything is written.
+outside `{:default :monotonic}`, and a non-map `opts` altogether.  The failures are
+otherwise silent in the same way: the sentence lands, at a defeat class the caller did
+not ask for, and a stored sentex carries no record of the class it was meant to have.
+`{:strenth :monotonic}` makes known-true content defeasible; `{:strength 0.7}` names a
+class the KB does not have; `(assert kb s ctx :monotonic)` names nothing at all.
+`check` reports all of them (the non-map shape under `:shape`), so a batch critic
+catches them before anything is written.  `why` holds its own `opts` to the same
+standard: it reads `:max-depth` alone, and a non-map `opts`, an unknown key, or a
+`:max-depth` that is not a natural number is refused (`:unknown-option`).
+
+**Every handle-taking fn holds one contract.**  `nil` is a question with an answer —
+`handle-of` answers nil for a sentence the KB does not hold, so `(in? kb (handle-of kb
+s ctx))` is an ordinary composition — and each fn answers it gracefully: `in?` and
+`premise?` false, `sentex` / `justification` / `defeat-class` / `provenance` nil,
+`supporting-justifications` / `dependent-justifications` empty, `why` `{:stored?
+false}`, `why-not` `:not-stored`, `add-provenance` a no-op, `retract!` a no-op.
+Anything else that is not an integer handle is **refused** (`:bad-handle`), a vector
+of handles included — `assert` returns a vector for a rule with a conjunctive
+consequent, so `(retract! kb (assert kb rule ctx))` would otherwise be a silent no-op
+that reads as "there was nothing to do".  The contract covers `retract!`, `in?`,
+`premise?`, `why`, `why-not`, `provenance`, `add-provenance`, `sentex`,
+`justification`, `defeat-class`, `supporting-justifications`,
+`dependent-justifications`, and `edit`'s `:remove` entries; `check-edit` reports the
+same refusal as a problem (`:bad-handle`) rather than throwing it.
 
 `vaelii.impl.spec` carries opt-in `clojure.spec` `fdef`s for the whole shape-carrying
 surface (every entry point taking a handle, context, level, strength/direction, or an
@@ -331,6 +365,8 @@ take back. Usually that means destroying or removing stored knowledge, and on
 | `reset-settle-stats!` | clears the settle instrumentation and its histogram |
 | `bulk-assert-facts!` | only adds — but on a fast path whose two preconditions the *caller* owns, so a violated one is a store the checks would have refused |
 | `export!` | writes a directory tree outside the process |
+| `import!` | fills the store wholesale, at the dump's own handles and bypassing the assert path; the only undo is `clear!` |
+| `close!` | destroys nothing — but the KB value in hand, and every KB sharing the directory, is dead afterwards; reopening yields a new KB, not the one you held |
 
 Inside `vaelii.impl.*` the same convention runs — `delete-sentex!`, `unindex-sentex!`,
 `del-genl!`, `unmark-prop!`, `clear-records!`, `clear-index!`.
@@ -365,7 +401,7 @@ file — no code change. What stays in `starter.clj` is the *order the layers* l
 and the one computed batch (every type is a `unaryPredicate`, placed in CoreContext).
 The context topology is a **five-layer spindle**, most general (top) to most specific
 (bottom): **CoreContext** (the vocabulary head, every context sees it) → the **upper**
-definitional band (`kb/upper/`: `AbstractContext` = the abstract type skeleton, body
+definitional band (`resources/kb/upper/`: `AbstractContext` = the abstract type skeleton, body
 parts and substances, `partOf`/`locatedIn`/`madeOf`, and the two **type-level**
 relations `largerThan`/`partType`; `OrganismContext` = the biological taxonomy +
 disjointness; `LifeContext` = organism relations and states; `SocietyContext` = social

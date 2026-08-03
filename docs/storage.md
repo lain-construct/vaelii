@@ -20,7 +20,7 @@ Two protocols keep the reasoning code independent of any backend:
   `[structured-key value]` projection all four index backends share — what a dump
   writes, and why an index written by one loads into another.
 
-A `KB` record bundles the four stores with the eighteen other slots the engine hangs off
+A `KB` record bundles the two stores with the twenty-odd other slots the engine hangs off
 one value — the prover registry, the solver, the contradiction and violation bookkeeping,
 the settle and chain statistics, the resident qualitative networks, the match and naming
 caches, the feed. **The engine programs against these protocols and never against a
@@ -90,7 +90,7 @@ the store rather than doubled into `:memory-memory` / `:disk-disk`.
   means two KBs constructed over the same number share one store, so a restarted KB
   (`recover`) sees the records the first wrote — the persistence tests' contract.
   Durable within a JVM, not across a process restart.
-- **Disk records** (`vaelii.impl.disk`) — an on-disk log-structured store in a directory
+- **Disk records** (`vaelii.impl.disk.record-store`) — an on-disk log-structured store in a directory
   (`:dir`, or derived from the space numbers). Durable across a process restart and
   crash-safe, with no server. Selected for the whole suite with
   `VAELII_TEST_BACKEND=disk lein test` (durability parity gate: identical results).
@@ -123,7 +123,7 @@ rebuilt before it can answer anything. `recover` alone is **not** that: it rebui
 TMS and taxonomy *by reading the index* (`special/rebuild-taxonomy` reads the functor
 root), so over an empty one it would recover an empty KB and report nothing wrong. The
 repair is `reindex` — rebuild the index from the records, *then* recover — and
-`{:recover? :auto}` runs it, logging how long it took.
+`{:recover? :auto}`, the default, runs it and logs how long it took.
 
 That log line is the point of interest: the rebuild is O(records) on **every** open, so
 whether it is worth buying back — by persisting a snapshot of the derived index, which
@@ -231,7 +231,7 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   name into every frame, which measured 56% of the store.  A sentex frame is
   `[tag sentence context id truth strength …]`, a justification frame a bare vector (one
   shape needs no tag), and provenance — an open application map — passes through as it
-  comes.  `decode` dispatches on the thawed frame's shape, so **frames written before
+  comes.  Each decoder dispatches on the thawed frame's shape, so **frames written before
   the codec still read** and no store needs rewriting.  Decoding interns the symbols it
   rebuilds, so a paged record shares one vocabulary object per name with the in-memory
   store instead of minting a private copy per fetch.
@@ -307,10 +307,17 @@ disk unchanged.
 
 **Single-writer.**  `disk.lock` takes an exclusive OS `FileLock` on `.vaelii.lock`
 when a directory opens and fails fast if another JVM holds it — enforcing the
-single-writer contract.  Within one process, stores are shared per canonical
+single-writer contract.  `vaelii.core/close!` releases it without the JVM exiting —
+flush and close each component, deregister from the durability daemon, drop the lock —
+so a long-running process can hand the directory to another process.  An unclean close
+still releases: every component gets its close attempt, the lock release and the
+registry removal run even when one throws, and the first component failure is rethrown
+*after* that cleanup — so a throw from `close!` means the directory is handed back but
+the close was not clean.  Within one process, stores are shared per canonical
 directory (`disk.backend`, a registry mirroring the memory backend's db registry), so
 two KBs over one directory share the durable store — the restart contract the recovery
-tests rely on — and the lock, file handles, and durability registration are taken once.
+tests rely on — and the lock, file handles, and durability registration are taken once;
+closing either KB closes both.
 
 ## The sentex records — `AtomicSentex` and `RuleSentex`
 

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.overlay.frozen
   "The read-only mount: a `KvBackend` and a `RecordStore` that answer every read and
   **refuse every write**.

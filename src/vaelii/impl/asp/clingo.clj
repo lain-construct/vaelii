@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.asp.clingo
   "In-process ASP solver: a JNA binding to the native clingo C API (which
    embeds clasp). Drop-in for `vaelii.impl.asp.clasp/solve` — same

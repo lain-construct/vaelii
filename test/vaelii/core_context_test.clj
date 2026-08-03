@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.core-context-test
   "The CoreContext ontology loads and documents the core predicates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

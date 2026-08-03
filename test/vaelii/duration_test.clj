@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.duration-test
   "Interval duration arithmetic (`vaelii.impl.duration`): `totalDuration` and
   `overlapDuration`, computed from the stored `(length I M)` facts, the unit table, and —

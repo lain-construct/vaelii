@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.turn-edge-test
   "Edge cases for the features that landed this turn: the `evaluate` prover
   (extra operators, nesting, and use inside a rule antecedent), dot syntax

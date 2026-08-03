@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.index-edge-test
   "Edge cases of the storage layer — the flattened trie (`vaelii.impl.kv`), the
   type-faithfulness of its keys and set members, and the record store's premise

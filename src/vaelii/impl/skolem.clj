@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.skolem
   "Head existentials: the deterministic constant a rule head `(exists ?y C)` fires to.
 

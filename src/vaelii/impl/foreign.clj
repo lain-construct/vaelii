@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.foreign
   "Formats vaelii **reads and does not write**, and the plugin seam they arrive through.
 
@@ -128,7 +130,18 @@
   `kind`, in code rather than through a manifest.  Wins over discovery, and returns the
   full registry."
   [kind sym]
-  {:pre [(keyword? kind) (qualified-symbol? sym)]}
+  ;; `ex-info` rather than `{:pre}`, for the reason `vaelii.impl.rules` gives about its
+  ;; own entry points: this is a documented public call (docs/foreign.md), and an
+  ;; AssertionError names the predicate that failed rather than the value that failed
+  ;; it — and is elided entirely under `*assert*` false, which would store the bad
+  ;; registration silently.
+  (when-not (keyword? kind)
+    (throw (ex-info (str "foreign/register: kind must be a keyword, got " (pr-str kind))
+                    {:type :bad-arg :arg :kind :value kind})))
+  (when-not (qualified-symbol? sym)
+    (throw (ex-info (str "foreign/register: sym must be a namespace-qualified symbol"
+                         " naming a var that holds a reader map, got " (pr-str sym))
+                    {:type :bad-arg :arg :sym :value sym})))
   (swap! registered assoc kind sym)
   (formats))
 

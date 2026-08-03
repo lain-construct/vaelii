@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.clash-oracle-test
   "Incremental clash discovery finds the same nogoods an exhaustive pass does.
 
@@ -71,6 +73,7 @@
             [vaelii.impl.checks :as checks]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.settle :as settle]
             [vaelii.test-util :as tu]))
@@ -206,6 +209,38 @@
                   (recur (inc step))
                   [step op si se]))))))
       (finally (tu/clear-kb! inc-kb) (tu/clear-kb! exh-kb)))))
+
+(defn- stream-reading
+  "One KB's reading after `steps` of `seed`'s stream, on whatever retrieval strategy is
+  bound around the call."
+  [seed steps]
+  (let [kb (tu/fresh)]
+    (try
+      (binding [checks/*arbitrate-constraints?* true
+                settle/*incremental-clashes*    true]
+        (build-ontology! kb)
+        (let [rng (java.util.Random. (long seed))]
+          (dotimes [_ steps] (apply-op! kb (rand-op rng))))
+        (snapshot kb))
+      (finally (tu/clear-kb! kb)))))
+
+(deftest the-retrieval-strategy-does-not-change-what-clashes
+  ;; `res/*hierarchical-retrieval*` picks how a context-scoped literal is answered, and
+  ;; is documented as a pure cost decision that must never change the answer *set*.  It
+  ;; kept that promise and the clash reading diverged anyway: `matches-visible` is
+  ;; type-aware, so `(animal CI2)` comes back beside the `(dog CI2)` that implies it, the
+  ;; two paths enumerate that set in two orders, and `checks/membership-handle` named
+  ;; whichever came first — so the side a clash was *reported as*, and through
+  ;; arbitration what the KB believed, turned on a cost flag.
+  ;;
+  ;; A **default-suite** test on purpose, for the reason `backend_parity_test` gives for
+  ;; being one: the thorough gate is the whole suite under `VAELII_NOHIER`, and no
+  ;; workflow sets it — nothing in CI runs the fan-out at all.  This fails in an ordinary
+  ;; `lein test` the day the two paths disagree again.
+  (doseq [seed (range 4)]
+    (is (= (binding [res/*hierarchical-retrieval* true]  (stream-reading seed 24))
+           (binding [res/*hierarchical-retrieval* false] (stream-reading seed 24)))
+        (str "seed " seed ": the retrieval strategy changed the clash reading"))))
 
 (deftest randomized-streams-discover-the-same-clashes
   (doseq [seed (range 12)]

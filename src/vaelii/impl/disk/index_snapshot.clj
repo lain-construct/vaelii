@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.disk.index-snapshot
   "A **mapped snapshot** of the columnar index, which pages its cold tail to disk
   instead of holding all of it in heap.
@@ -31,9 +33,11 @@
   * `roots.csr` — the secondary roots / term / rule / exception postings as the same CSR
     shape over `dense-roots`' packed `long` keys: sorted keys, an offset column, one
     shared handle run.
-  * `roots-fallback.nippy` — the term roster and anything else the routed families do not
-    claim.  Vocabulary-scaled and irregularly shaped, so it is a blob rather than a
-    column.
+  * `roots-fallback.nippy` — everything the routed families do not claim: the term and
+    slot rosters (names, not handles) **and the predicate-scoped argument roots**, whose
+    four-part key the packed `long` cannot carry (`dense-roots`' `route`).  The rosters
+    are vocabulary-scaled; the argument roots are fact-scaled, so this blob carries
+    primary index truth at fact scale, not reconstructible metadata alone.
   * `tokens.log` — the durable token dictionary the `int` edges cite, in
     `vaelii.impl.disk.tokens`' format (append-only, id = append position, content-keyed,
     first-writer-wins, never reused).  That module is reused rather than a second
@@ -51,10 +55,14 @@
   than the round trip that pathology was made of.  So the load is deliberately asymmetric:
 
   * **resident** — the CSR skeleton (`fcounts` `foffsets` `fedge-tok` `fedge-tgt`), the
-    roots' key and offset columns, and the token dictionary.  Read into heap on open.
-  * **mapped** — `fleaf-off` / `fhandles` and the roots' handle run.  These are the
-    fact-scaled mass (the roots alone are 69 MB of a 186 MB compacted 300k-fact index) and
-    each posting is touched only when its own term is queried.  Cold by construction.
+    roots' key and offset columns, the token dictionary, and the fallback blob — which,
+    with the argument roots in it, is itself fact-scaled heap on open.
+  * **mapped** — `fleaf-off` / `fhandles` and the routed roots' handle run.  Each
+    posting is touched only when its own term is queried.  Cold by construction.
+
+  The argument-root family is the exception to the split: it rides the resident blob,
+  not the mapped run, because its four-part key does not pack (`dense-roots`' `route`).
+  A fact-scaled family resident on open is a real cost of the predicate scoping.
 
   With `mmap` the OS page cache is the residency policy, which is the point — but only
   because the skeleton stays hot.
@@ -383,7 +391,15 @@
   (with-open [raf (RandomAccessFile. path "r")]
     (let [ch  (.getChannel raf)
           ^ints hdr (read-header ch 6)]
-      (when-not (= trie-magic (aget hdr 0)) (throw (ex-info "trie snapshot magic" {})))
+      (when-not (= trie-magic (aget hdr 0))
+        ;; A sentence, because this message is spliced into the user-visible WARN at
+        ;; `mount-or-rebuild!` — "the index snapshot at /var/kb did not read (trie
+        ;; snapshot magic)" told a reader nothing about whether their data was gone.
+        (throw (ex-info (str "the trie file is not a vaelii trie snapshot — its magic number is "
+                             (aget hdr 0) ", expected " trie-magic
+                             "; the index will be rebuilt from the records, which are untouched")
+                        {:type :bad-snapshot :part :trie :path path
+                         :magic (aget hdr 0) :expected trie-magic})))
       (let [n   (long nodes) e (long edges) h (long leaves)
             o1  24
             o2  (+ o1 (* 4 n))
@@ -406,7 +422,12 @@
   (with-open [raf (RandomAccessFile. path "r")]
     (let [ch  (.getChannel raf)
           ^ints hdr (read-header ch 4)]
-      (when-not (= roots-magic (aget hdr 0)) (throw (ex-info "roots snapshot magic" {})))
+      (when-not (= roots-magic (aget hdr 0))
+        (throw (ex-info (str "the roots file is not a vaelii roots snapshot — its magic number is "
+                             (aget hdr 0) ", expected " roots-magic
+                             "; the index will be rebuilt from the records, which are untouched")
+                        {:type :bad-snapshot :part :roots :path path
+                         :magic (aget hdr 0) :expected roots-magic})))
       (let [k  (long kn) h (long hn)
             o1 16
             o2 (+ o1 (* 8 k))

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.asp.solve-context
   "Solving as a **persistent, inert** artifact: `assumptionRules` define choices, a
   solve grounds them (scoped to a base context), enumerates the optimal answer sets,

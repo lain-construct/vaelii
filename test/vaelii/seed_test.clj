@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.seed-test
   "Ontology KB files: declarative KB content held as plain text under resources/kb/,
   one file per context, the file name the context, the sub-directory the layer.

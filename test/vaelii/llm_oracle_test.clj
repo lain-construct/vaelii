@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-oracle-test
   "The outside judge (`vaelii.impl.llm.oracle`): the KB's own conclusions glossed into
   English, put to a model, and answered agree / disagree / unsure.

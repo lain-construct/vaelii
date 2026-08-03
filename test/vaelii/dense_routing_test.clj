@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.dense-routing-test
   "Which index family lands in which *representation*, in the two dense backends.
 
@@ -36,7 +38,8 @@
       :trie            [:trie (nth k 1)]
       :rule-index      [:rule-index (nth k 1)]
       :exception-index (if (= :rules (nth k 1)) [:exception-index :rules] [:exception-index :predicate])
-      (:context-root :functor-root :argument-root :term-index :term-roster) [(nth k 0)]
+      (:context-root :functor-root :argument-root :argument-slot :term-index :term-roster)
+      [(nth k 0)]
       [:unclassified k])))
 
 (def ^:private handle-families
@@ -51,8 +54,20 @@
   "Families whose value is deliberately *not* a handle set, so packing them would be
   wrong rather than merely unrealized: a subtree count (an integer), the trie's child
   labels (path tokens — numbers among them, which is the case a value-type dispatch
-  would misclassify), and the roster (term *names*)."
-  #{[:trie :count] [:trie :children] [:term-roster]})
+  would misclassify), the roster (term *names*), and the argument-slot roster
+  (*predicates* present at a slot — names, like the term roster's members)."
+  #{[:trie :count] [:trie :children] [:term-roster] [:argument-slot]})
+
+(def ^:private unpackable-handle-families
+  "Handle families the dense layout cannot int-route, and why.
+
+  `[:argument-root pred pos term]` is scoped by predicate as of index layout 2, and the
+  packed long is already full — family 8 bits | pos 24 | term id 32 — with no room for a
+  second interned id. So it takes the fallback: boxed vector keys and un-interned
+  postings on the dense backends, which is a real cost of the scoping and is recorded
+  here rather than left to be discovered. Packing it again needs a wider key (two longs,
+  or a (pred,pos) composite token), not a routing tweak."
+  #{[:argument-root]})
 
 ;;; ── the KB, and the backends under test ───────────────────────────────
 
@@ -157,12 +172,14 @@
             :when   (not= :trie (first fam))]      ; the columnar trie is native; no [:trie …] key reaches the roots
       (testing (pr-str fam)
         (is (seq (kv/kv-members roots k)) (str fam " is missing from the roots backend"))
-        (if (handle-families fam)
+        (if (and (handle-families fam) (not (unpackable-handle-families fam)))
           (is (nil? (kv/kv-get roots k))
               (str fam " is a handle family but " (pr-str k) " is readable through `kv-get`"
                    " — it sits in the fallback backend, un-interned and boxed"))
           (is (some? (kv/kv-get roots k))
-              (str fam " is not a handle family and must stay in the fallback")))))
+              (str fam " must stay in the fallback — it is either not a handle family"
+                   " or one the packed layout cannot carry (see"
+                   " `unpackable-handle-families`)")))))
     ;; and the trie families really are elsewhere — the roots hold no path keys at all
     (doseq [[fam k] present :when (= :trie (first fam))]
       (is (empty? (kv/kv-members roots k))

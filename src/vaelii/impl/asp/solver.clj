@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.asp.solver
   "Backend selector for vaelii's ASP solver. Callers (reason.clj) use
    `solver/solve`/`solver/available?` so the engine can run the in-process

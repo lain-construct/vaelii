@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.web-network-test
   "The /network page — the constraint network a qualitative calculus computes over one
   context, exercised as a pure request -> response with no live server.

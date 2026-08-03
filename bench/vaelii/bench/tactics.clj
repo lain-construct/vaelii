@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.tactics
   "Does a tactician earn its place?  Runs a query set through **every** ordering the node
   engine offers (`vaelii.impl.tactics`), checks each returns the same answer set as the

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.export-test
   "Writing a KB out as a portable export dump (`vaelii.impl.io.export`).
 

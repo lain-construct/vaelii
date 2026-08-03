@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.examples
   "Worked examples of the reasoning the shipped ontology actually does — the data, and
   the one function that runs one.

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.canon-edge-test
   "Canonicalization at its edges: the places where the canonical form could quietly
   stop being **a function of the rule's content alone**.

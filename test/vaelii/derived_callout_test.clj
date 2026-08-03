@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.derived-callout-test
   "What a write turned out to mean — `vaelii.core/edit-with-consequences` — and the
   callout the browser renders from it.

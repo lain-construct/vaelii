@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.io.import
   "Import a vaelii **export dump** — a directory of record streams — into a pure KB,
   landing in exactly the state pure's own restart path (`reindex` / `recover`) already
@@ -530,8 +532,15 @@
   [dir]
   (let [^java.io.File f (io/file dir index-dir index-meta-file)]
     (when (.exists f)
+      ;; The `.exists` guard already ruled out absence, so this catch fires only on a
+      ;; CORRUPT index.edn — a different fact from "there wasn't one", and the caller
+      ;; turns both into the same silent full rebuild. Say which happened.
       (try (edn/read-string (slurp f))
-           (catch Exception _ nil)))))
+           (catch Exception e
+             (trove/log! {:level :warn :id ::index-meta-corrupt :error e
+                          :msg "index.edn present but unreadable; rebuilding the index"
+                          :data {:file (str f)}})
+             nil)))))
 
 (defn- index-decision
   "Whether the dumped index may be replayed, as `[:replay]` or `[:rebuild reason]`.

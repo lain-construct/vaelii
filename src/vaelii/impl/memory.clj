@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.memory
   "The default in-memory backends for the two storage protocols, selected at KB
   construction.  The engine above the protocols never touches a concrete store, so a

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.spec
   "Opt-in `clojure.spec` contracts for the public `vaelii.core` API.
 
@@ -37,6 +39,14 @@
                     (s/coll-of seq? :kind vector?)))
 (s/def ::handle nat-int?)                  ; the integer id a stored sentex is referenced by
 (s/def ::id ::handle)                      ; the sentex record's own handle field
+
+;; Everywhere a caller *passes* a handle, nil is a legal argument with a graceful
+;; answer — `handle-of` answers nil for a sentence the KB does not hold, and the
+;; handle-taking fns answer that nil rather than refuse it (`in?` false, `why`
+;; `{:stored? false}`, `retract!` zero counts; `vaelii.handle-test` pins the
+;; contract).  So the arg specs below take `::handle-arg`, while `::handle` /
+;; `::id` stay the real thing for returns and record fields.
+(s/def ::handle-arg (s/nilable ::handle))
 (s/def ::term some?)                       ; any indexable term (symbol, number, compound)
 (s/def ::truth #{:true :false})            ; a literal's polarity
 (s/def ::prover some?)                     ; a vaelii.impl.provers/Prover
@@ -125,10 +135,10 @@
   :args (s/cat :kb ::kb :opts (s/? (s/nilable map?))))
 
 (s/fdef vaelii.core/retract!
-  :args (s/cat :kb ::kb :handle ::handle))
+  :args (s/cat :kb ::kb :handle ::handle-arg))
 
 (s/fdef vaelii.core/add-provenance
-  :args (s/cat :kb ::kb :handle ::handle :m map?))
+  :args (s/cat :kb ::kb :handle ::handle-arg :m map?))
 
 (s/fdef vaelii.core/add-prover
   :args (s/cat :kb ::kb :prover ::prover))
@@ -276,23 +286,28 @@
 
 ;; ---- introspection ------------------------------------------------------
 
-(s/fdef vaelii.core/in?          :args (s/cat :kb ::kb :handle ::handle) :ret boolean?)
-(s/fdef vaelii.core/sentex       :args (s/cat :kb ::kb :handle ::handle) :ret (s/nilable ::sentex-map))
-(s/fdef vaelii.core/justification    :args (s/cat :kb ::kb :jid ::handle))
-(s/fdef vaelii.core/premise?     :args (s/cat :kb ::kb :handle ::handle))
-(s/fdef vaelii.core/defeat-class :args (s/cat :kb ::kb :handle ::handle) :ret (s/nilable ::strength))
-(s/fdef vaelii.core/supporting-justifications :args (s/cat :kb ::kb :handle ::handle))
-(s/fdef vaelii.core/dependent-justifications  :args (s/cat :kb ::kb :handle ::handle))
-(s/fdef vaelii.core/provenance   :args (s/cat :kb ::kb :handle ::handle) :ret (s/nilable map?))
-(s/fdef vaelii.core/premise?     :args (s/cat :kb ::kb :handle ::handle))
+(s/fdef vaelii.core/in?          :args (s/cat :kb ::kb :handle ::handle-arg) :ret boolean?)
+(s/fdef vaelii.core/sentex       :args (s/cat :kb ::kb :handle ::handle-arg) :ret (s/nilable ::sentex-map))
+(s/fdef vaelii.core/justification    :args (s/cat :kb ::kb :jid ::handle-arg))
+(s/fdef vaelii.core/premise?     :args (s/cat :kb ::kb :handle ::handle-arg))
+(s/fdef vaelii.core/defeat-class :args (s/cat :kb ::kb :handle ::handle-arg) :ret (s/nilable ::strength))
+(s/fdef vaelii.core/supporting-justifications :args (s/cat :kb ::kb :handle ::handle-arg))
+(s/fdef vaelii.core/dependent-justifications  :args (s/cat :kb ::kb :handle ::handle-arg))
+(s/fdef vaelii.core/provenance   :args (s/cat :kb ::kb :handle ::handle-arg) :ret (s/nilable map?))
+
+;; `why` reads one option, `:max-depth`.  `s/keys` is open, so an unknown key is the
+;; fn's own roster to reject (`:unknown-option`), as with the assert opts above; the
+;; spec says what the key it does read may hold.
+(s/def ::why-opts (s/keys :opt-un [::max-depth]))
 
 (s/fdef vaelii.core/why
-  :args (s/cat :kb ::kb :handle ::handle) :ret map?)
+  :args (s/cat :kb ::kb :handle ::handle-arg :opts (s/? (s/nilable ::why-opts)))
+  :ret map?)
 
 (s/fdef vaelii.core/why-not
   ;; two shapes: a stored handle, or a proposition (for a blocked/excepted answer
   ;; that no handle carries — see docs/exceptions.md)
-  :args (s/alt :by-handle   (s/cat :kb ::kb :handle ::handle)
+  :args (s/alt :by-handle   (s/cat :kb ::kb :handle ::handle-arg)
                :by-sentence (s/cat :kb ::kb :sentence ::sentence :context ::context))
   :ret  map?)
 

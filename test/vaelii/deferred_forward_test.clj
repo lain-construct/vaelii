@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.deferred-forward-test
   "Deferred (evaluable) antecedents in a **forward** rule.
 

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.densetrie
   "Measure how much of the index's
   **keys+counters+nodes** (69–72% of the index, per the postings bake-off) a dense-KEY
@@ -137,8 +139,11 @@
 
 ;; ---- main ---------------------------------------------------------------
 
-(defn- real-pairs [n]
-  (survey/uniform-pairs (str (System/getProperty "user.home") "/null/vaelii-kb/pure-store") n))
+(defn- real-pairs
+  ([n] (real-pairs n survey/default-dir))
+  ([n dir]
+   (survey/ensure-store! dir n)
+   (survey/uniform-pairs dir n)))
 
 (defn- load-into [pairs backend rdb idb]
   (let [kb (kb/open-kb {:backend backend :record-space rdb :index-space idb :recover? false}

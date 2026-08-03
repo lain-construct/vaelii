@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.columnar
   "The dense **columnar trie** index — the `:memory-columnar` backend, off by default.
 
@@ -667,20 +669,23 @@
   (index-sentex [_ sentex handle]
     (t-insert! trie (sx/path sentex) handle)
     (let [terms  (kv/sentex-terms sentex)
-          roster (kv/roster-adds roots terms)]           ; reads the pre-write postings
+          roster (kv/roster-adds roots terms)           ; reads the pre-write postings
+          slots  (kv/slot-adds roots sentex)]           ; likewise — keeps the coarse
+                                                        ; argument reads answerable
       (kv/kv-batch roots
                    (concat (map (fn [t] [:add-to-set (kv/term-key t) handle]) terms)
                            (map (fn [k] [:add-to-set k handle]) (kv/root-keys sentex))
-                           roster)))
+                           roster slots)))
     handle)
   (unindex-sentex! [_ sentex handle]
     (t-remove! trie (sx/path sentex) handle)
     (let [terms  (kv/sentex-terms sentex)
-          roster (kv/roster-retires roots terms handle)] ; reads the pre-write postings
+          roster (kv/roster-retires roots terms handle) ; reads the pre-write postings
+          slots  (kv/slot-retires roots sentex handle)] ; likewise
       (kv/kv-batch roots
                    (concat (map (fn [t] [:remove-from-set (kv/term-key t) handle]) terms)
                            (map (fn [k] [:remove-from-set k handle]) (kv/root-keys sentex))
-                           roster)))
+                           roster slots)))
     handle)
   (count-at [_ prefix]  (t-count-at trie prefix))
   (children [_ prefix]  (t-children trie prefix))

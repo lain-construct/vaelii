@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.integrate
   "Store mutation is the seam: the two choke points everything that stores or
   removes a sentex must pass through.

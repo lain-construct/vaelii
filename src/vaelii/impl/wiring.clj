@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.wiring
   "The write path and the prover registry as the layers *beneath* them see it — the whole
   inventory of calls the require graph cannot express, in one file.
@@ -18,11 +20,22 @@
     argument, so negation-as-failure is mutually recursive with the chainer that asked
     for it (docs/naf.md).
 
-  Both are genuine mutual recursion: the cycle is in the **behaviour**, neither is a
-  misplaced function, and no arrangement of the code removes either.  Why they are
-  gathered here rather than left at their call sites, what `lein lint`'s **E8** enforces,
-  and why each is a `delay` rather than a dynamic var — docs/namespaces.md, \"The
-  layering\"."
+  A third call runs the other way for a different reason:
+
+    `import-dump` — `vaelii.impl.io.import` sits *above* `vaelii.core` and requires it,
+    because reading a dump is asserting: it re-canonicalizes records, reindexes and
+    recovers through the public write path.  `vaelii.core/import!` is the inverse of
+    `export!`, which is public, and a round trip whose two halves are not both public is
+    not a round trip — so the delegation points up, and this is where a call that points
+    up is written down.
+
+  The first two are genuine mutual recursion: the cycle is in the **behaviour**, neither
+  is a misplaced function, and no arrangement of the code removes either.  The third is a
+  layering inversion rather than a recursion, and is kept here for the same reason — a
+  call the require graph cannot express belongs in the one file that inventories them.
+  Why they are gathered here rather than left at their call sites, what `lein lint`'s
+  **E8** enforces, and why each is a `delay` rather than a dynamic var —
+  docs/namespaces.md, \"The layering\"."
   (:refer-clojure :exclude [assert]))
 
 ;; ---- the write-path mode flag --------------------------------------------
@@ -57,6 +70,9 @@
 (def ^:private provers-solve-goal
   (delay (requiring-resolve 'vaelii.impl.provers/solve-goal)))
 
+(def ^:private io-import-dump
+  (delay (requiring-resolve 'vaelii.impl.io.import/import-dump)))
+
 (defn assert-sentence
   "`vaelii.core/assert` — store `sentence` in `context` under `opts`, returning its handle.
   See the namespace docstring for why this is not a require."
@@ -68,3 +84,9 @@
   `context`.  See the namespace docstring for why this is not a require."
   [kb goal context]
   (@provers-solve-goal kb goal context))
+
+(defn import-dump
+  "`vaelii.impl.io.import/import-dump` — read the export dump at `dir` into `kb`.
+  See the namespace docstring for why this is not a require."
+  [kb dir opts]
+  (@io-import-dump kb dir opts))

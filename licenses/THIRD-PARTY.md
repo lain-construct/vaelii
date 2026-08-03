@@ -5,6 +5,11 @@ Vaelii itself is licensed under the [SSPL-1.0](https://www.mongodb.com/licensing
 checked in under `resources/public/` and served verbatim by the browser
 (`vaelii.impl.web`), each under its own upstream licence.
 
+Everything else under `resources/public/` is the project's own work and carries no
+third-party obligation: `vaelii.css`, `select.js`, and the marks below. The badge SVGs
+under `.github/badges/` are likewise rendered locally by `scripts/update-badges.sh` —
+no network, no vendored code — in the visual style of shields.io, which is CC0-1.0.
+
 Runtime Java/Clojure dependencies are *not* here: they are declared in `project.clj`,
 resolved by Leiningen, and never copied into this tree. They are inventoried
 separately, in [`DEPENDENCIES.md`](DEPENDENCIES.md) — a published coordinate is a
@@ -51,9 +56,9 @@ SOFTWARE.
 | | |
 |---|---|
 | File | `resources/public/font/AtkinsonHyperlegibleNext-Regular.woff2` |
-| Licence | SIL Open Font License 1.1 — full text in `resources/public/font/license/AtkinsonHyperlegibleNext-Regular-License.pdf` |
+| Licence | SIL Open Font License 1.1 — full text in `resources/public/font/license/AtkinsonHyperlegibleNext-Regular-License.pdf` (Braille Institute ships OFL 1.1 verbatim under an "End-User License Agreement" cover; it adds no clauses) |
 | Upstream | <https://www.brailleinstitute.org/freefont/> |
-| Copyright | © 2020 Braille Institute of America, Inc., with Reserved Font Names "ATKINSON" and "HYPERLEGIBLE" |
+| Copyright | © 2020, 2024 Braille Institute of America, Inc. (<https://www.brailleinstitute.org/freefont/>) |
 
 The proportional face, used for natural-language text only — headings, prose, section
 labels, the predicate comments. A typeface drawn for legibility at a glance, which is
@@ -65,7 +70,7 @@ what a page of unfamiliar vocabulary needs.
 |---|---|
 | File | `resources/public/font/Hasklig-Regular.woff2` |
 | Licence | SIL Open Font License 1.1 — full text in `resources/public/font/license/Hasklig-License.md` |
-| Upstream | <https://github.com/source-foundry/Hasklig> |
+| Upstream | <https://github.com/i-tu/Hasklig> (Ian Tuomi) |
 | Copyright | © 2010–2019 Adobe (<http://www.adobe.com/>), with Reserved Font Name 'Source' |
 
 The monospace face, used for every piece of formal content — sentences, terms,

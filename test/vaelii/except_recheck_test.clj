@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.except-recheck-test
   "The **cost** of the `exceptWhen` re-check, and the two correctness properties the
   cost fix is allowed to trade nothing for.

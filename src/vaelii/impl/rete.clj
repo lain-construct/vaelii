@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.rete
   "Incremental forward-chaining match — a TREAT-style alpha network.
 
@@ -6,16 +8,22 @@
   non-trigger antecedents are re-joined against the store on every assert.  That
   re-join goes through `res/match-pattern`, which walks the **count-aware trie** —
   and the trie narrows strictly left to right, so a non-trigger antecedent with a
-  *leading variable* (`(parentOf ?x Pi)`, the second half of a grandparent join)
-  can only be answered by scanning the whole `parentOf` extent.  That scan is O(N)
-  in the fact count, once per assert — the grandparent chain measured
-  6.4ms/assert at n=200 and 10.3ms/assert at n=400, a textbook quadratic load.
+  *leading variable* (`(parentOf ?x Pi)`, the second half of a grandparent join) has
+  no selective prefix.  The **secondary argument roots** answer that shape on the
+  reference path, in one predicate-scoped set read (`res/*arg-root-retrieval*`, on by
+  default, docs/indexing.md).
 
   This namespace keeps **alpha memories** in RAM — the stored facts grouped by
   functor and indexed by argument value — and answers a non-trigger antecedent with
-  a hash lookup on its most selective ground argument instead of a scan.  A leading
-  variable no longer forces a full extent walk: `(parentOf ?x Pi)` reads the bucket
-  of facts with `Pi` in position 2 directly.
+  a hash lookup on its most selective ground argument: `(parentOf ?x Pi)` reads the
+  bucket of facts with `Pi` in position 2 directly.
+
+  What that is worth depends on the rule shape.  On the grandparent load
+  (`lein bench-forward`) the two paths are level from n=2000 up, both flat at
+  ~500µs/fact — the argument roots already answer what the alpha memories would.  On
+  the OpenRuleBench join pyramid the alpha memories are ahead: 16.80s against 21.31s
+  at 1k, 434.7s against 551.1s at 10k, on the identical answer set.  Matching is 8-12%
+  of that run and placement is the rest, which bounds what any matcher moves there.
 
   ## Correctness by reuse, not by reimplementation
 

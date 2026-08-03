@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.serve-test
   "The operational surface: the EDN-over-HTTP daemon (`vaelii.impl.serve`) and its
   client (`vaelii.impl.client`).
@@ -22,14 +24,29 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- post-op
-  "Call `handler` (from `serve/app`) with a POST /op carrying `{:op :args}`, and return
-  the parsed EDN reply — no socket."
-  [handler op args]
+(defn- post-op*
+  "Call `handler` (from `serve/app`) with a POST /op carrying `{:op :args}` under
+  exactly `headers`, and return the parsed EDN reply — no socket.  What `post-op`
+  always sends, this lets a test withhold or misspell, which is how the guards'
+  refusal paths are driven."
+  [handler headers op args]
   (let [body (pr-str {:op op :args (vec args)})
         resp (handler {:request-method :post :uri "/op"
+                       :headers headers
                        :body (ByteArrayInputStream. (.getBytes ^String body "UTF-8"))})]
     (assoc (edn/read-string (:body resp)) :status (:status resp))))
+
+(defn- post-op
+  "`post-op*` with the headers a real client sends.
+
+  The `content-type` is not decoration: `guard/edn-body?` refuses the write route
+  without it, which is the CSRF guard rather than a parsing one (a cross-site `fetch`
+  cannot set this type without a preflight the daemon will not answer).  A real client
+  sends it, so the helper that stands in for one has to as well.  `Origin`/`Referer` are
+  deliberately absent — `guard/same-origin?` treats a request carrying neither as
+  same-origin, which is what a non-browser client is."
+  [handler op args]
+  (post-op* handler {"content-type" "application/edn"} op args))
 
 ;; ---- the handler, no socket ---------------------------------------------
 
@@ -82,6 +99,86 @@
         (let [r (post-op handler :assert [(list dog '?x) ServeContext])]
           (is (false? (:ok r)))
           (is (= :not-ground (:type r)) "the ex-data :type rides the wire"))))))
+
+;; ---- the guards' refusal paths -------------------------------------------
+
+(tu/deftest-kb post-op-refuses-a-cors-simple-content-type
+  ;; the CSRF gate: `application/edn` is not a CORS-*simple* type, so a browser must
+  ;; preflight it and this daemon answers no preflight — demanding it is what keeps a
+  ;; page the operator merely visits from driving the write route
+  (tu/with-terms [dog Fido ServeContext]
+    (let [handler (serve/app kb)
+          before  (tu/sentex-ids kb)
+          refused (fn [headers]
+                    (post-op* handler headers :assert [(list dog Fido) ServeContext]))]
+      (testing "no content-type at all is a 415 in the daemon's structured error shape"
+        (let [r (refused {})]
+          (is (= 415 (:status r)))
+          (is (false? (:ok r)))
+          (is (= ::serve/not-edn (:type r)) "the ex-data :type rides the wire")
+          (is (string? (:error r)))))
+      (testing "the three types a cross-site fetch may send without a preflight are refused"
+        (doseq [ct ["text/plain"
+                    "application/x-www-form-urlencoded"
+                    "multipart/form-data"]]
+          (let [r (refused {"content-type" ct})]
+            (is (= 415 (:status r)) ct)
+            (is (= ::serve/not-edn (:type r)) ct))))
+      (testing "and the refusal runs nothing — the op is never executed"
+        (is (= before (tu/sentex-ids kb)))
+        (is (nil? (v/handle-of kb (list dog Fido) ServeContext)))))))
+
+(tu/deftest-kb post-op-accepts-edn-however-legally-spelled
+  ;; `guard/edn-body?` trims, lower-cases and prefix-matches, so a parameterized or
+  ;; case-varied header is still the declaration the gate requires
+  (tu/with-terms [dog Fido ServeContext]
+    (let [handler (serve/app kb)]
+      (doseq [ct ["application/edn; charset=utf-8"
+                  "Application/EDN"
+                  "APPLICATION/EDN; CHARSET=UTF-8"
+                  "  application/edn  "]]
+        (let [r (post-op* handler {"content-type" ct} :assert
+                          [(list dog Fido) ServeContext])]
+          (is (= 200 (:status r)) ct)
+          (is (:ok r) ct)))
+      (is (some? (v/handle-of kb (list dog Fido) ServeContext))
+          "the accepted spelling reached the op — the fact is stored"))))
+
+(tu/deftest-kb the-daemon-refuses-a-rebound-host-on-every-route
+  ;; the DNS-rebinding gate: `same-origin?` folds when the attacker controls both
+  ;; `Origin` and `Host` (a domain re-resolving to 127.0.0.1), so `host-allowed?` is
+  ;; the check that has to hold — and it wraps the whole server, because a rebound
+  ;; page reads the KB as happily as it writes to it
+  (tu/with-terms [dog Fido ServeContext]
+    (let [handler (serve/app kb)
+          before  (tu/sentex-ids kb)]
+      (testing "a write op under a rebound Host is a 400 before anything runs"
+        (let [r (post-op* handler {"content-type" "application/edn"
+                                   "host"   "evil.example.com"
+                                   "origin" "http://evil.example.com"}
+                          :assert [(list dog Fido) ServeContext])]
+          (is (= 400 (:status r)))
+          (is (false? (:ok r)))
+          (is (= ::serve/bad-host (:type r)))
+          (is (= before (tu/sentex-ids kb)) "the refused op stored nothing")
+          (is (nil? (v/handle-of kb (list dog Fido) ServeContext)))))
+      (testing "a read route is refused too — the KB is what a rebound page came for"
+        (let [r (handler {:request-method :get :uri "/health"
+                          :headers {"host" "evil.example.com:4200"}})]
+          (is (= 400 (:status r)))
+          (is (= ::serve/bad-host (:type (edn/read-string (:body r)))))))
+      (testing "the daemon's own names still pass, with or without a port"
+        (doseq [h ["localhost:4200" "127.0.0.1:4200" "[::1]:4200" "localhost"]]
+          (let [r (handler {:request-method :get :uri "/health" :headers {"host" h}})]
+            (is (= 200 (:status r)) h))))
+      (testing "a write under the daemon's own Host still lands"
+        (let [r (post-op* handler {"content-type" "application/edn"
+                                   "host" "127.0.0.1:4200"}
+                          :assert [(list dog Fido) ServeContext])]
+          (is (:ok r))
+          (is (nat-int? (:result r)))))
+      (testing "and a Host-less request (curl, every other test here) passes by design"
+        (is (= 200 (:status (handler {:request-method :get :uri "/health"}))))))))
 
 (tu/deftest-kb export-over-the-wire-writes-on-the-daemons-own-host
   (tu/with-terms [dog Fido ServeContext]

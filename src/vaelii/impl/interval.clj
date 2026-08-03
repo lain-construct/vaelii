@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.interval
   "Allen's interval algebra — a relation algebra over the generic constraint network in
   `vaelii.impl.qcn`, and the third alongside the RCC-8 topology of `vaelii.impl.space`

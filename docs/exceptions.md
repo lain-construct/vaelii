@@ -531,7 +531,7 @@ before the taxonomy is touched, so a refusal leaves no sentex, no justification,
 closure that learned the edge.
 
 **Fast path, again:** no stored rule carries an exception, so the graph has no
-negative edge and nothing is walked. An ordinary `genl` assert pays one `SMEMBERS`
+negative edge and nothing is walked. An ordinary `genl` assert pays one set read
 and stops — which is every `genl` assert in the bundled starter.
 `stratification_edge_test` pins that by *counting* the walks rather than timing them.
 
@@ -616,7 +616,7 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
   keeps the check bounded. `exceptions-block?` ORs this over a rule's exceptions.
 - **Blocking, in every chainer.** Forward chaining checks before placing
   (`derive-conclusion`), and `res/prove` and the node engine each
-  carry a `:guard` on the parsed rule and drop the argument once it is complete. An
+  carry a `:guards` entry on the parsed rule and drop the argument once it is complete. An
   exception that blocked forward but not backward would make `sentexes-matching` and `ask`
   disagree about one rule, which is the one thing it must never do. `prove` reduces
   a rule by *pushing* its antecedents, so its guard rides the goal stack as a marker
@@ -664,7 +664,7 @@ actually **moved**.
 | Case | `:iterations` |
 |------|---------------|
 | starter + stories load (462 settles) | **0** — every settle |
-| every `except_test` scenario | **1** — max, in all ten |
+| every `except_test` scenario | **1** — max, in all of them |
 | cried-wolf shape, all 120 permutations | **0** in 60, **1** in 60; never 2 |
 | synthetic chain of N (each exception on the previous conclusion) | 0, 0, 0, **1**, **1**, **2**, **3** for N = 1,2,3,4,5,6,8 |
 

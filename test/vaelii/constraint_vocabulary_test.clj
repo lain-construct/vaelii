@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.constraint-vocabulary-test
   "Declared vocabulary that convicts something, and vocabulary that convicts nothing and
   says so.

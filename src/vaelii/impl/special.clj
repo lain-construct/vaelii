@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.special
   "The special-predicate dispatch table: what each functor the engine interprets
   *means* to the derived state around the store, stated once, with both halves of

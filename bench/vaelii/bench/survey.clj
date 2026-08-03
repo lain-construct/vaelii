@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.survey
   "Validate the Phase 1 posting-encoding bake-off (`vaelii.bench.postings`) against a
   **real** corpus instead of the synthetic Zipfian generator.
@@ -359,12 +361,39 @@
     (doseq [[in c] (take 5 (sort-by val > inds))]
       (println (format "    %-24s %,d" in c)))))
 
-(def ^:private default-dir
-  "The store this surveys, when the command line names none: `VAELII_SURVEY_STORE`,
-  else `~/.vaelii/kbs/store` — the KB location `vaelii.impl.catalog` already searches.
-  There is no store here by default; supply one, or pass a path as the last argument."
-  (or (System/getenv "VAELII_SURVEY_STORE")
+(def default-dir
+  "The store the real-corpus benchmarks read, when the command line names none:
+  `VAELII_BENCH_STORE`, else `VAELII_SURVEY_STORE`, else `~/.vaelii/kbs/store` — the
+  KB location `vaelii.impl.catalog` already searches.  There is no store here by
+  default; supply one, or pass a path as the last argument.
+
+  Public because `records`, `densetrie` and `forward` sample the same corpus and must
+  not each invent a path of their own."
+  (or (System/getenv "VAELII_BENCH_STORE")
+      (System/getenv "VAELII_SURVEY_STORE")
       (str (System/getProperty "user.home") "/.vaelii/kbs/store")))
+
+(defn ensure-store!
+  "Refuse `dir` unless it holds a record log to sample.
+
+  A benchmark that samples a missing store gets an empty sequence and reports a
+  complete, plausible table of numbers derived from nothing — which is worse than
+  failing, because it looks like a result.  `want` is what the caller asked for; a
+  store too small to answer it is refused for the same reason."
+  ([dir] (ensure-store! dir 1))
+  ([dir ^long want]
+   (let [idx (java.io.File. (str dir "/records/sentexes.idx"))]
+     (when-not (.isFile idx)
+       (throw (ex-info (str "no record store at " dir
+                            " — set VAELII_BENCH_STORE to an on-disk vaelii KB, or pass"
+                            " a path as the last argument. None ships with the repo.")
+                       {:type ::no-store :dir dir})))
+     (let [total (quot (.length idx) 24)]
+       (when (< total want)
+         (throw (ex-info (str "store at " dir " holds " total " records; " want
+                              " were asked for. A sample this size would not mean anything.")
+                         {:type ::store-too-small :dir dir :have total :want want})))
+       total))))
 
 (defn- density-survey [args uniform?]
   (let [n    (or (some-> (first args) Long/parseLong) 300000)

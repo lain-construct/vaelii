@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.dense-kv
   "A dense in-memory `KvBackend` (`vaelii.impl.kv`) — the `:dense` index axis, under either
   record store (`:memory-dense`, `:disk-dense`).

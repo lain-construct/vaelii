@@ -1,10 +1,13 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.arg-root-retrieval-test
   "Oracle for the argument-root retrieval in `res/match-one`.
 
   The trie narrows only left to right, so a pattern whose first argument is a
   variable but a later argument is ground — `(parentOf ?x Tom)` — forces a full
   fan-out.  `res/*arg-root-retrieval*` lets `match-one` answer that from the
-  `[:argument-root pos term]` argument root instead, with a single set read.  The claim is
+  predicate-scoped argument root (`[:argument-root pred pos term]`) instead, with a
+  single set read.  The claim is
   that this changes only *how* candidates are fetched, never *which* sentexes match:
   the root returns a superset of the trie's hits and the existing `unify` filters it
   to the same set.

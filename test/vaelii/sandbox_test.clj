@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.sandbox-test
   "Somewhere safe to be wrong — `vaelii.impl.sandbox`, and the browser wiring that puts a
   reader in one without asking them to choose a context.

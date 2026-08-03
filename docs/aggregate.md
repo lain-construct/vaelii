@@ -200,8 +200,8 @@ its newest 1000 entries with copies of one defect and evict the real drops.
 
 **The reduction is over sorted values**, because floating-point addition is not
 associative and the values arrive in *solution* order — a function of how the facts
-were stored rather than of what they say. Without it, six readings summing to `8.0`
-one way sum to `8.2` and `8.299999999999999` in two others, so asserting the same KB
+were stored rather than of what they say. Without it, six readings that sum to `8.0`
+sorted sum to `7.7`, `8.2` and `8.6` in three arrival orders, so asserting the same KB
 in another order would change what the aggregate reports, and order independence is
 the engine's first invariant ([nmtms.md](nmtms.md)). Exactness is not on offer and is
 not claimed; determinism is. The integer permutation test cannot see this — counting

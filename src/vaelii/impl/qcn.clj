@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.qcn
   "Generic qualitative-constraint-network path consistency — the shared substrate
   every relation algebra reasons through (`vaelii.impl.space` is RCC-8 topology,

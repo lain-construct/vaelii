@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.spec-test
   "Instrument the public API with `vaelii.impl.spec` and confirm the boundary bites:
   well-formed argument shapes pass, malformed option/budget maps and bad handles are

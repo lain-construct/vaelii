@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.tokens
   "A bidirectional **token dictionary** — `path-token ↔ int` — the first new durable
   ground truth the dense (`:memory-columnar`) index rests on.

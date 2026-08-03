@@ -198,7 +198,7 @@ reals, tiling `[0, ∞)` so that exactly one holds of any two things.
 | `:near`       | `(10, 100]`    | `nearTo` |
 | `:moderate`   | `(100, 1000]`  | `moderatelyFarFrom` |
 | `:far`        | `(1000, 10000]`| `farFrom` |
-| `:very-far`   | `(10000, ∞]`   | `veryFarFrom` |
+| `:very-far`   | `(10000, ∞)`   | `veryFarFrom` |
 
 The bounds are the **one** transcribed thing in the namespace, and they are a *scale*
 rather than a unit: multiplying every finite bound by one factor changes no entry of the

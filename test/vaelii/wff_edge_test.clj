@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.wff-edge-test
   "The well-formedness checkers that had no tests, and the error *contract*.
 

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.records
   "Measure the **record** side before building it, the way the index side was
   measured.
@@ -398,8 +400,9 @@
 
 (defn -main [& args]
   (let [n     (or (some-> (first args) Long/parseLong) 200000)
-        recs  (survey/uniform-records
-               (str (System/getProperty "user.home") "/null/vaelii-kb/pure-store") n)]
+        dir   (or (second args) survey/default-dir)
+        _     (survey/ensure-store! dir n)
+        recs  (survey/uniform-records dir n)]
     (println (format "vaelii Phase-4 record measurement — %,d real records (uniform sample)" (count recs)))
     (println "Density (jol retained heap) and frozen bytes are TRUSTED; wall-clock is indicative.")
     (let [frozen (measure-frozen recs)]

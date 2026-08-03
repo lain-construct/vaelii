@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.kv-backend-test
   "The `KvBackend` contract: one behavioral spec every adapter must satisfy, so a
   new backend (disk, SQL, overlay) is a drop-in the moment it passes this.

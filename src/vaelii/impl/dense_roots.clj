@@ -1,12 +1,15 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.dense-roots
   "A key-interning `KvBackend` (`vaelii.impl.kv`) for the columnar index's non-trie
   families — the secondary roots, the rule / exception indexes, and the inverted term
   index.
 
   Those families are flat `structured-vector-key → handle-set` maps, and the columnar
-  measurement (`bench/…/densetrie.clj`) found their **boxed vector keys** (`[:argument-root pos
-  term]`, `[:term-index term]`, …) to be ~150 MB — the majority of the columnar index once the
-  trie went native.  This backend keeps the *values* as `IntPostings` (Phase 1's tiered
+  measurement (`bench/…/densetrie.clj`) found their **boxed vector keys**
+  (`[:term-index term]`, `[:functor-root pred]`, …) to be ~150 MB — the majority of the
+  columnar index once the trie went native.  This backend keeps the *values* as
+  `IntPostings` (Phase 1's tiered
   `int[]`/Roaring set) but collapses the keys: the term is interned to an `int` through
   the **shared trie dictionary** (`vaelii.impl.tokens`) — so a predicate/individual gets
   the same id the trie edges use — and the whole key becomes one packed `long`
@@ -15,9 +18,10 @@
 
   It stays a full `KvBackend` so the existing composition (an embedded `KvIndexStore`
   over it) is unchanged: only the recognized index families are int-routed; any other key
-  — the term roster (term *names*, not handles), a scalar, a counter, the contract test's
-  synthetic keys — falls back to a plain in-memory backend (in the columnar store the trie
-  is native, so no `[:trie …]` key ever reaches here).  Single-writer, like every index;
+  — the argument roots and slot roster (see `route` for why neither packs), the term
+  roster (term *names*, not handles), a scalar, a counter, the contract test's synthetic
+  keys — falls back to a plain in-memory backend (in the columnar store the trie is
+  native, so no `[:trie …]` key ever reaches here).  Single-writer, like every index;
   `kv-members` / `kv-intersect` materialize a fresh Clojure set at the boundary — but
   `kv-intersect` builds it at the size of the *answer*, narrowing through
   `dense/intersect-postings` in whichever representation each posting is in, a mapped run
@@ -37,6 +41,11 @@
 ;; family tags (bits 56-63); pos in bits 32-55; term-id in bits 0-31 (≫ 100M)
 (def ^:private ^:const F-CTX     0)
 (def ^:private ^:const F-PRED    1)
+;; Reserved, never packed: the argument roots carry a predicate the packed long has no
+;; room for, so `route` sends them to the fallback. The number stays claimed so no new
+;; family can take a tag `unpack` already assigns a shape — a snapshot key must decode
+;; exactly one way.
+#_{:clj-kondo/ignore [:unused-private-var]}
 (def ^:private ^:const F-ARG     2)
 (def ^:private ^:const F-TERM    3)
 (def ^:private ^:const F-RULE-A  4)
@@ -65,7 +74,11 @@
     (case (nth k 0)
       :context-root (fam-key dict F-CTX  0 (nth k 1) intern?)
       :functor-root (fam-key dict F-PRED 0 (nth k 1) intern?)
-      :argument-root (fam-key dict F-ARG  (nth k 1) (nth k 2) intern?)
+      ;; `[:argument-root pred pos term]` carries a predicate the packed long has no
+      ;; room for (family 8 | pos 24 | term 32 is already full), so the argument roots
+      ;; take the generic map path rather than the int-routed one. Same for the
+      ;; `[:argument-slot pos term]` roster, whose members are predicates, not handles.
+      :argument-root :fallback
       :term-index (fam-key dict F-TERM 0 (nth k 1) intern?)
       :rule-index (case (nth k 1)
                     :antecedent (fam-key dict F-RULE-A 0 (nth k 2) intern?)
@@ -89,7 +102,9 @@
     (case (int family)
       0 [:context-root term]
       1 [:functor-root term]
-      2 [:argument-root pos term]
+      2 [:argument-root pos term]      ; nothing packs family 2 (F-ARG is reserved, see
+                                       ; `route`); the arm pins the tag's decode so the
+                                       ; number cannot be reused with another shape
       3 [:term-index term]
       4 [:rule-index :antecedent term]
       5 [:rule-index :consequent term]
@@ -360,9 +375,12 @@
                 nil nil nil 0))
 
 (defn fallback-entries
-  "The entries the routed families did **not** claim — the term roster and anything a
-  future family adds before this backend learns to route it.  Vocabulary-scaled and
-  irregularly shaped, so a snapshot writes them as one nippy blob rather than a column."
+  "The entries the routed families do **not** claim.  That is the term roster and the
+  slot roster (names, not handles) — but also the predicate-scoped argument roots,
+  which are **fact-scaled**: a posting per `[pred pos term]` triple the stored facts
+  exhibit.  A snapshot writes all of it as one nippy blob rather than a column, and
+  loads it resident, so the arg-root mass sits outside the mapped-run residency split
+  (`disk/index_snapshot.clj`, \"The residency split\")."
   [^DenseRoots b] (kv/kv-entries (.-fallback b)))
 
 (defn load-fallback! [^DenseRoots b entries] (kv/kv-load (.-fallback b) entries) nil)

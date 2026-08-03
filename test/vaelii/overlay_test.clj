@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.overlay-test
   "The `:overlay` backend — a private writable fork over a shared read-only base.
 
@@ -101,8 +103,13 @@
                                :record-space [::col] :index-space [::col :ix] :recover? false})
                (v/clear!))]
     (is (nil? (mount/kv-backend-of (:index base))))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not written over a KvBackend"
+    ;; Matched on what the caller can act on — the backend named and the ones that
+    ;; would work — rather than on the mechanism, which the message now states after
+    ;; the actionable clause instead of before it.
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot fork a :columnar index"
                           (v/fork base)))
+    (is (= :unforkable-index
+           (:type (try (v/fork base) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))))
     (v/clear! base)))
 
 ;; ---- fall-through, override, isolation ------------------------------------

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.web-kbs-test
   "The browser's knowledge-bases page: what it lists, what its controls do, and the one
   property the whole feature exists for — activating another entry re-points every other

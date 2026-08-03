@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.literal-cache-test
   "The cache key's canonicalizer (`literal-cache/canonicalize`) and the translation back
   (`rename-bindings`).  Two spellings of one question must converge to one key, and a

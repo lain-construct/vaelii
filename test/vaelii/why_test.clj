@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.why-test
   "`why` / `why-not`: the justification graph read back as a proof tree.
 
@@ -98,6 +100,53 @@
         (is (nil? (:support w)))))
     (testing "an unknown handle is reported as not stored"
       (is (false? (:stored? (v/why kb 99999999)))))))
+
+(defn- why-nodes
+  "Every node of a `why` tree, root included, depth-first."
+  [w]
+  (cons w (mapcat why-nodes (mapcat :because (:support w)))))
+
+(tu/deftest-kb why-bounds-its-depth-and-the-bound-is-an-option
+  ;; A derivation chain longer than the 256 default: rule + 300 `nextOf` links, so
+  ;; `(reached NodeN)` rests on `(reached NodeN-1)` rests on … — no repeated handle,
+  ;; so the cycle guard never fires and only the depth cap stands between the walk
+  ;; and the stack.
+  (tu/with-terms [nextOf reached ChainContext]
+    (let [n     300
+          nodes (vec (repeatedly (inc n) #(tu/tmp-ind "Node")))]
+      (v/assert-rule kb [(list nextOf '?x '?y) (list reached '?x)]
+                     (list reached '?y) ChainContext)
+      (v/assert kb (list reached (nodes 0)) ChainContext)
+      ;; the chainer's own derivation bound (`default-chain-opts` :max-depth 64) would
+      ;; stop the chain long before `why`'s cap is reached, so lift it past the chain
+      (v/assert-many kb (map #(list nextOf (nodes %) (nodes (inc %))) (range n))
+                     ChainContext {:max-depth 400})
+      (let [h  (v/handle-of kb (list reached (nodes n)) ChainContext)
+            h0 (v/handle-of kb (list reached (nodes 0)) ChainContext)]
+        (is (some? h) "the chain forward-derived to its end")
+        (testing "the default cap truncates the deep branch and says so"
+          (let [w (v/why kb h)]
+            (is (true? (:believed? w)))
+            (is (some :truncated? (why-nodes w)))
+            (is (not-any? #(= h0 (:handle %)) (why-nodes w))
+                "the chain's far end sits past the cap, so the default walk never reaches it")))
+        (testing "{:max-depth n} moves the cap, and a big enough one returns the whole tree"
+          (let [w (v/why kb h {:max-depth 400})]
+            (is (not-any? :truncated? (why-nodes w)))
+            (is (some #(and (= h0 (:handle %)) (:premise? %)) (why-nodes w))
+                "the walk now bottoms out at the premise the chain started from"))
+          (is (some :truncated? (why-nodes (v/why kb h {:max-depth 5})))
+              "and a small one truncates sooner"))
+        (testing "nil, absent and empty opts are all the default"
+          (is (= (v/why kb h) (v/why kb h nil) (v/why kb h {}) (v/why kb h {:max-depth nil}))))
+        (testing "opts are guarded the way assert's are"
+          (doseq [[what opts] {"a non-map"          :oops
+                               "an unknown key"     {:max-deth 5}
+                               "a non-natural depth" {:max-depth "soon"}}]
+            (is (= :unknown-option
+                   (:type (try (v/why kb h opts) nil
+                               (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+                (str what " is refused"))))))))
 
 ;; ---- why-not ------------------------------------------------------------
 

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.relative
   "Relative direction — where one thing lies from another **as seen from a point of
   view**: the mouse on the lion's left, the crow in front of the fox.  A relation algebra

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.disk.backend
   "The durable-store entry point: open (once per directory) a `DiskRecordStore` and/or a
   `KvIndexStore` over a `DiskKvBackend`, take the single-writer lock, and wire what was
@@ -147,19 +149,41 @@
 
 (def ^:private components [:records :index :overlay-meta])
 
+(defn- close-component!
+  "Attempt one component close, returning nil on success or the Throwable it threw.
+  A component close fsyncs and can compact, so it can fail (a full disk), and a
+  failure must not stop `close-dir!`: every component still gets its close attempt,
+  and the lock release + registry removal run regardless.  The failure is logged here
+  with its component named, and the first one is rethrown once the directory is
+  genuinely released."
+  [label thunk]
+  (try (thunk) nil
+       (catch Throwable t
+         (trove/log! {:level :error
+                      :msg (str "disk backend: close of " label " failed: "
+                                (.getMessage t))})
+         t)))
+
 (defn opened
   "What is currently open for `dir`: the subset of `#{:records :index :overlay-meta}` this
   JVM holds stores for.  Empty when the directory has never been opened (or has been
   closed)."
   [dir]
   (let [e (@stores (canonical-dir dir))]
-    (set (filter #(some? (e %)) components))))
+    (set (filter #(some? (get e %)) components))))
 
 (defn close-dir!
   "Close and forget the stores for `dir`: fsync + close whichever components are open,
   deregister them from the durability daemon, and release the lock.  For explicit
   shutdown and test teardown — ordinary operation leaves the stores open for the JVM's
-  life (the shutdown hook closes them)."
+  life (the shutdown hook closes them).
+
+  This is what `vaelii.core/close!` exists for — handing the directory to another
+  process without exiting the JVM — so an unclean close must not defeat it: every
+  component gets its close attempt, the lock release and the registry removal run even
+  when one throws, and the first component failure is rethrown *after* that cleanup.
+  The caller learns the close did not complete cleanly, and the directory is still
+  released either way."
   [dir]
   (let [cdir (canonical-dir dir)]
     (locking stores
@@ -174,11 +198,20 @@
                                         " was not written (" (.getMessage t)
                                         ") — the next open rebuilds from the records")}))))
         (doseq [id (vals dur-ids)] (dur/deregister! id))
-        (when records (drs/close! records))
-        (when index (dkv/close! (:backend index)))
-        (when overlay-meta (dkv/close! overlay-meta))
-        (lock/release! cdir)
-        (swap! stores dissoc cdir)))))
+        (let [failures (into []
+                             (keep identity)
+                             [(when records
+                                (close-component! (str "disk-records " cdir)
+                                                  #(drs/close! records)))
+                              (when index
+                                (close-component! (str "disk-index " cdir)
+                                                  #(dkv/close! (:backend index))))
+                              (when overlay-meta
+                                (close-component! (str "overlay-meta " cdir)
+                                                  #(dkv/close! overlay-meta)))])]
+          (lock/release! cdir)
+          (swap! stores dissoc cdir)
+          (when-first [t failures] (throw t)))))))
 
 (defn disk-dir
   "The directory a disk KB lives in.  `:dir` names it explicitly; otherwise it derives

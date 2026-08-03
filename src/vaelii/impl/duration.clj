@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.duration
   "Interval duration arithmetic — the quantitative half of `vaelii.impl.interval`, which
   is qualitative.  Allen's algebra says *that* two intervals overlap; this says *how

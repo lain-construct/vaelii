@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.disk-kv-test
   "The on-disk `KvBackend` adapter (`vaelii.impl.disk.kv`): a durable write-ahead log
   over an in-RAM key→value map.  Exercised directly for a close→reopen persistence
@@ -5,12 +7,14 @@
   contract is covered by `kv-backend-test`'s suite-backend arm under
   `VAELII_TEST_BACKEND=disk`; here the concern is durability."
   (:require [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.kv :as dkv]
             [vaelii.impl.kv :as kv])
   (:import [java.io RandomAccessFile]
            [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
+           [java.nio.file.attribute FileAttribute]
+           [java.util.concurrent Future]))
 
 (defn- tmpdir ^String []
   (str (Files/createTempDirectory "vaelii-dkv-" (into-array FileAttribute []))))
@@ -269,3 +273,63 @@
         (let [b (dkv/open-kv-backend dir)]
           (is (= #{'a 'b} (kv/kv-members b [:s 1])) "both complete sadd ops survive, no partial")
           (dkv/close! b))))))
+
+(deftest compact-on-a-closed-store-writes-nothing
+  ;; The store-level half of the closed-store guard, for the window the registry check
+  ;; cannot cover: that check runs outside the store lock, so a close can land between
+  ;; it and `compact!` acquiring the lock.  An unguarded compaction of a closed log
+  ;; fails late — temp and commit marker already on disk, the delete that clears them
+  ;; never reached — and the next open replays that residue as a crash-interrupted
+  ;; compaction.  The closed flag, consulted after the lock is acquired, makes the
+  ;; call a no-op instead: no temp, no marker, and the directory reopens to exactly
+  ;; the state the close made durable.
+  (with-tmp
+    (fn [dir]
+      (let [b (dkv/open-kv-backend dir)]
+        (dotimes [i 12] (kv/kv-put b [:v :k] i))
+        (kv/kv-put b [:v :other] :x)
+        (dkv/close! b)
+        (let [{:keys [tmp marker]} (f/log-compact-paths (:log-path b))]
+          (dkv/compact! b)                        ; must not throw, must not write
+          (is (not (.exists (java.io.File. ^String tmp)))
+              "no compaction temp for a closed store")
+          (is (not (.exists (java.io.File. ^String marker)))
+              "and no commit marker for the next open to replay")))
+      (let [b (dkv/open-kv-backend dir)]
+        (is (= 11 (kv/kv-get b [:v :k])) "the reopened state is what the close wrote")
+        (is (= :x (kv/kv-get b [:v :other])))
+        (dkv/close! b)))))
+
+(deftest a-compaction-queued-for-a-closed-store-is-dropped
+  ;; Auto-compaction runs on a **single-thread queue**, so a task submitted by one tick
+  ;; can reach the front arbitrarily later — after `close-dir!` has closed the store it
+  ;; was submitted for.  `close-dir!` deregisters before it closes, so deregistration
+  ;; is the signal a queued task reads; this is that it honours it and skips.
+  ;;
+  ;; The registry check is the early skip, not the airtight guard — it runs outside
+  ;; the store lock, and the window between it and `compact!` taking that lock is the
+  ;; store's own closed flag's to close (`compact-on-a-closed-store-writes-nothing`
+  ;; above).  The remaining ordering — a task already inside `compact!` — needs no
+  ;; guard, since it holds the store lock that `close!` blocks on.
+  (let [ran     (atom 0)
+        compact (fn [] (swap! ran inc))
+        submit  @#'dur/submit-compaction!
+        id      (dur/register! {:fsync      (fn [_] nil)
+                                :close      (fn [] nil)
+                                :label      "compaction-guard-test"
+                                :compact    compact
+                                :dead-ratio (fn [] 1.0)})]
+    ;; paused so the daemon's own tick cannot fire this entry underneath the test — the
+    ;; two submits below are then the only ones, and pausing gates the tick alone
+    (dur/pause-compaction!)
+    (try
+      (testing "registered, the queued task compacts"
+        (.get ^Future (submit id "registered" compact 1.0 0.5))
+        (is (= 1 @ran)))
+      (testing "deregistered, it is dropped rather than run against a closed store"
+        (dur/deregister! id)
+        (.get ^Future (submit id "closed" compact 1.0 0.5))
+        (is (= 1 @ran) "a compaction ran for a store that had already deregistered"))
+      (finally
+        (dur/deregister! id)
+        (dur/resume-compaction!)))))

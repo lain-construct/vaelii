@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.svg
   "The inline-SVG primitives the term page's concept graph is drawn with: a node, an
   edge, an arrowhead, and the arithmetic that lays out a row, a column or a ring.

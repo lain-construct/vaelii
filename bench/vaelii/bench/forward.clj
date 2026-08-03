@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.forward
   "Budgeting **forward** inference — the direction this KB should probably run, not the
   backward it happens to be loaded as.  Two costs decide the budget:
@@ -83,7 +85,8 @@
 ;; ---- Mode `real`: turn a sample of the real rules FORWARD -----------------
 
 (defn- real-forward [n-facts n-rules]
-  (let [dir  (str (System/getProperty "user.home") "/null/vaelii-kb/pure-store")
+  (let [dir  survey/default-dir
+        _    (survey/ensure-store! dir (max n-facts (* 40 n-rules)))
         recs (survey/uniform-records dir (* 40 n-rules))       ; oversample; rules are ~0.3%
         rules (take n-rules (filter :antecedent recs))
         facts (survey/uniform-pairs dir n-facts)

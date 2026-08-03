@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.inference-tactics-test
   "The node engine's ordering **policy** (`vaelii.impl.tactics`): the four-term estimate,
   the tactician sign table, the child bias, and the two opt-in modes.

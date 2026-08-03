@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.checks
   "The definitional checks — argIsa argument types, disjointness, functionality —
   plus ground-ness and the stratification glue over the rule index.
@@ -86,6 +88,20 @@
   (when (and (integer? position) (<= 1 position (count as)))
     (nth as (dec position))))
 
+(defn- in-content-order
+  "Declaration matches sorted by the stored declaration's own sentence — the order
+  every first-violation walk reads them in.
+
+  `res/matches-visible` promises the answer *set*: `res/*hierarchical-retrieval*` says
+  nothing about order, so a `(first (for …))` over the raw matches would let the
+  retrieval strategy pick *which* declaration a refusal names when several convict.
+  Sorting on content keys the choice on what the KB says rather than on enumeration —
+  the rule `handle-naming` states for the handle a clash is reported as.  Existence is
+  untouched: every declaration is still read, and a sentence no declaration convicts
+  still has no violation."
+  [ds]
+  (sort-by #(pr-str (:sentence (nth % 2))) ds))
+
 (defn- args-problem
   "First (argIsa pred n type) violation for a sentence, or nil.  Uses genl
   transitivity; only constraints and type memberships visible from `context`
@@ -101,7 +117,7 @@
         as   (vec (nm/args sentence))]
     (when (symbol? pred)
       (first
-       (for [[_ b] (decls 'argIsa)
+       (for [[_ b] (in-content-order (decls 'argIsa))
              :let  [n   (get b '?n)
                     t   (get b '?type)
                     arg (arg-at as n)]
@@ -151,7 +167,7 @@
     (when (and (symbol? pred)
                (pos? (p/count-with-functor (:index kb) 'interArgIsa)))
       (first
-       (for [[_ b] (decls 'interArgIsa)
+       (for [[_ b] (in-content-order (decls 'interArgIsa))
              :let  [n       (get b '?n)
                     t       (get b '?type)
                     m       (get b '?m)
@@ -206,7 +222,7 @@
         tax  (:taxonomy kb)]
     (when (symbol? pred)
       (first
-       (for [[_ b] (decls 'argGenl)
+       (for [[_ b] (in-content-order (decls 'argGenl))
              :let  [n   (get b '?n)
                     t   (get b '?type)
                     arg (arg-at as n)
@@ -271,6 +287,31 @@
                       :when (kb/isa-among? cs t)]
                   n))))))
 
+(defn- handle-naming
+  "The handle of the match that literally *says* `target`, else a content-ordered choice
+  among the matches that merely entail it.
+
+  `res/matches-visible` is **type-aware**, so a literal comes back alongside everything
+  the taxonomy proves implies it: ask for `(animal CI2)` and you also get `(dog CI2)`
+  where `dog` is under `animal`.  Every one of them is a true answer to *is this
+  believed*, which is all an existence check wants — but a caller naming the handle is
+  choosing the sentex a violation is **reported as**, and `ffirst` hands that choice to
+  whatever order the retrieval strategy happened to produce.
+
+  Order is not part of that contract, and should not be: `res/*hierarchical-retrieval*`
+  promises the answer *set*, and a caller reading whole answers cannot observe more.
+  Taking the first match is what turned it into something observable — a flag documented
+  as a pure cost decision changed which pair `contradictions` reported and, through
+  arbitration, what the KB believed (`clash_oracle_test` under `VAELII_NOHIER`).
+
+  Exact first, because the direct statement is the one the caller asked about.  Content
+  order for the rest rather than handle order, because two KBs given one op stream must
+  name the same side and a handle is allocation order."
+  [matches target]
+  (let [sen (fn [m] (:sentence (nth m 2)))]
+    (or (ffirst (filter #(= target (sen %)) matches))
+        (ffirst (sort-by (comp pr-str sen) matches)))))
+
 (defn- arity-declaration-handle
   "The handle of the believed declaration saying `pred` has arity `declared`, visible
   from `context` — the sentex a wrong-arity sentence convicts *against*.
@@ -280,10 +321,15 @@
   P)` that says the same thing.  Asked only once a clash has been found, so an
   admissible assert never pays for the retrieval."
   [kb pred declared context]
-  (or (ffirst (res/matches-visible kb (list 'arity pred declared) context))
+  ;; `handle-naming` for the same reason it exists: both reads are type-aware, so a
+  ;; subtype of the declaration's own predicate comes back beside it.  The preference
+  ;; between the two *spellings* is this `or`, and stays content-ordered by construction.
+  (or (let [target (list 'arity pred declared)]
+        (handle-naming (res/matches-visible kb target context) target))
       (first (for [[t n] predicate-type-arities
                    :when (= n declared)
-                   :let  [h (ffirst (res/matches-visible kb (list t pred) context))]
+                   :let  [target (list t pred)
+                          h (handle-naming (res/matches-visible kb target context) target)]
                    :when h]
                h))))
 
@@ -507,9 +553,27 @@
 (defn- membership-handle
   "The handle of a believed `(t x)` visible from `context` — the sentex a disjointness
   clash is *with*.  Asked only once a clash has been found, so an admissible assert
-  never pays for it."
+  never pays for it.
+
+  **The sentex saying `(t x)`, not merely one that entails it.**  `matches-visible` is
+  type-aware, so asking it for `(animal CI2)` returns the direct membership *and* every
+  subtype membership that implies it — `(dog CI2)` where `dog` is under `animal`.  Both
+  are true answers to \"is CI2 an animal\", and either would do if this were an
+  existence check; but the handle picked becomes the side a clash is *reported as*, so
+  taking `ffirst` let the report read `contradicts (dog CI2) (plant CI2)` or
+  `contradicts (animal CI2) (plant CI2)` depending on which the retrieval strategy
+  happened to enumerate first.  `res/*hierarchical-retrieval*` promises the answer set
+  and says nothing about order — correctly, since order is not a thing a caller reading
+  whole answers can observe — so that made a documented cost decision change what the
+  KB reported, and through arbitration what it believed.  `clash_oracle_test` catches it
+  under `VAELII_NOHIER`.
+
+  So: the exact membership when it is stored, and a content-ordered choice among the
+  entailing ones when it is not — a purely inherited membership has no direct sentex to
+  name.  `handle-naming` is that rule, and says the rest."
   [kb t x context]
-  (ffirst (res/matches-visible kb (list t x) context)))
+  (let [target (list t x)]
+    (handle-naming (res/matches-visible kb target context) target)))
 
 (defn- disjoint-problems
   "A type membership (T X) where X already holds a type the taxonomy proves

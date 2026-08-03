@@ -30,16 +30,15 @@
 #               (re)writes docs/dependencies.md, the report the deps badge
 #               LINKS to, so clicking "N outdated" shows exactly which deps are
 #               behind, each with a changelog link.
-#   - Sponsors: static count (SPONSORS_COUNT).
 #
 # Coverage and deps read `n/a` until their opt-in flag has been run once.
 #
 # A full scorecard prints to stderr; the README rewrite is the main act.
 #
-# The script also owns the docs/glossary.md category badges: five label-only
-# SVGs (cat-kb | cat-inference | cat-tms | cat-asp | cat-backend) that tag each
-# glossary entry's subsystem. Same OKLCH rainbow, 5 evenly-spaced hues, at
-# shields' native ~20px so they sit inline in body text.
+# The script also owns the docs/glossary.md category badges: six label-only
+# SVGs (cat-kb | cat-inference | cat-tms | cat-asp | cat-backend | cat-qr) that
+# tag each glossary entry's subsystem. Same OKLCH rainbow, 6 evenly-spaced hues,
+# at shields' native ~20px so they sit inline in body text.
 #
 # Usage:
 #   scripts/update-badges.sh            # measure + rewrite badges (coverage + deps preserved)
@@ -84,7 +83,6 @@ DEPS_FALLBACK=n/a
 # high/bright so dark text reads on every badge (>= ~0.78 keeps them all dark).
 OKLCH_L=0.82            # lightness 0..1 (higher = brighter; >= 0.78 => dark text)
 OKLCH_C=0.12            # chroma (higher = more vivid; auto-clamped to sRGB gamut)
-NUM_BADGES=8
 
 # Print N hexes (no #), evenly spaced around the OKLCH hue circle at OKLCH_L /
 # OKLCH_C: OKLCH -> OKLab -> linear sRGB -> gamma sRGB, clamped to gamut.
@@ -104,7 +102,6 @@ rainbow_palette() {
     }
   ' "$1" "$OKLCH_L" "$OKLCH_C"
 }
-read -r -a RAINBOW <<< "$(rainbow_palette "$NUM_BADGES")"
 
 # File links are RELATIVE repo paths (org-agnostic; render on GitHub wherever the
 # repo lives). GH is only used for the one link that can't be a file: the
@@ -122,12 +119,11 @@ COVERAGE_FILE="src/vaelii/impl/taxonomy.clj"
 DOCSTRINGS_FILE="src/vaelii/core.clj"
 DEPS_FILE="docs/dependencies.md"
 
-# Static badge values: license + version from project.clj, sponsor count.
+# Static badge values: license + version, read from project.clj.
 VERSION=$(grep -m1 -E '^\(defproject' project.clj | grep -oE '"[^"]+"' | head -1 | tr -d '"' || true)
 LICENSE_NAME=$(grep -m1 -A1 -E ':license' project.clj | grep -oE ':name[[:space:]]*"[^"]+"' | grep -oE '"[^"]+"' | tr -d '"' || true)
 [[ -z "$VERSION" ]] && VERSION="dev"
 [[ -z "$LICENSE_NAME" ]] && LICENSE_NAME="see LICENSE"
-SPONSORS_COUNT=0        # github/sponsors count (static; the live lookup needs a public repo)
 
 # Self-hosted badge SVGs, rendered by make_badge below.
 BADGES_DIR=".github/badges"
@@ -276,7 +272,11 @@ write_deps_report() {
 # ../.github/badges/cat-<name>.svg; the entries themselves are hand-tagged —
 # only these SVGs are script-owned. Regenerated on every non-dry run;
 # --glossary-only regenerates just these and exits.
-GLOSSARY_CATS=(kb inference tms asp backend)
+# Must match CATS in scripts/lint-glossary.sh, which fails the build on a category
+# whose SVG is missing: `qr` was in that list and not in this one, so cat-qr.svg was
+# committed once and could never be regenerated — its hue belongs to no palette this
+# script produces.
+GLOSSARY_CATS=(kb inference tms asp backend qr)
 glossary_badges() {
   local cat_colors i saved_scale
   read -r -a cat_colors <<< "$(rainbow_palette "${#GLOSSARY_CATS[@]}")"
@@ -303,7 +303,10 @@ snake=$(count g -rhE '^\(defn?-? [a-z]*_' "$MAIN" "${clj[@]}")
 commented=$(count g -rhE '^\s*;;+\s*\(' "$MAIN" "${clj[@]}")
 
 # dev-metric badge values (measured from the tree each run)
-tests=$(count g -rhoE '\(deftest' "$TEST" "${clj[@]}")
+# `(tu/deftest-kb` as well as `(deftest`: the KB-fixture macro defines the majority of
+# the suite, and counting only the bare form reported 868 of 2464 tests — undercounting
+# our own coverage by two thirds, on the badge that advertises it.
+tests=$(count g -rhoE '\((tu/)?deftest(-kb)?[[:space:]]' "$TEST" "${clj[@]}")
 loc_fmt=$(awk "BEGIN{ printf \"%.0fk\", $loc_src/1000 }")
 
 # ---- docstring coverage + scorecard (one awk pass); stdout = docstring % ----
@@ -378,9 +381,20 @@ else
 fi
 
 # ---- the badge row (script is source of truth) ----
+# `sponsors` reads **welcome**, not a count, and that is the whole difference between
+# this badge and the one that was removed. A hardcoded `0` was a number nobody
+# measured, went stale the moment anyone sponsored, and advertised an absence; an
+# invitation is true on both sides of the org's Sponsors application and needs no
+# maintenance when it lands.
+#
+# The link is the canonical page (`github.com/sponsors/<org>`), which 404s until that
+# application is approved. Deliberate: it is the URL `FUNDING.yml` in the org's
+# `.github` repo already names (`github: vaelii`), so the badge and the repo Sponsor
+# button point at one place and both start working together, with nothing to edit here.
+SPONSORS_MSG=welcome
 SPON="https://github.com/sponsors/vaelii"
 keys=(license release tests coverage loc docstrings deps sponsors)
-msgs=("$LICENSE_NAME" "v$VERSION" "$tests" "$cov_msg" "$loc_fmt" "${docstrings}%" "$deps_msg" "$SPONSORS_COUNT")
+msgs=("$LICENSE_NAME" "v$VERSION" "$tests" "$cov_msg" "$loc_fmt" "${docstrings}%" "$deps_msg" "$SPONSORS_MSG")
 links=(
   "LICENSE"                           # license    -> the license file
   "https://github.com/${GH}/releases" # release    -> releases page (only absolute repo link)
@@ -389,18 +403,27 @@ links=(
   "src"                               # loc        -> the source tree
   "$DOCSTRINGS_FILE"                  # docstrings -> docstring-rich public API
   "$DEPS_FILE"                        # deps       -> the generated report
-  "$SPON"                             # sponsors   -> patron page
+  "$SPON"                             # sponsors   -> the org patron page
 )
 
+# Sized from `keys` rather than a constant beside it, which is what the glossary
+# palette below already does. A hand-maintained count is a second place to edit when a
+# badge is added or dropped, and the failure is not a wrong colour: the palette comes
+# up short and `set -u` aborts mid-run, after some SVGs are rewritten and before the
+# README block is. One array decides both how many badges there are and how many hues
+# to space around the circle.
+read -r -a RAINBOW <<< "$(rainbow_palette "${#keys[@]}")"
+
 # ---- Stage-2 hosted badges (live; defer until the repo is PUBLIC) ----
-# Live shields/GitHub badges (not self-hosted SVGs): they update on their own
-# but render in shields' default style (white text, ~20px) and 404 while the
-# repo is private. Flip INCLUDE_HOSTED=1 at public release (and set the real CI
-# workflow filename).
+# Live shields/GitHub badges (not self-hosted SVGs): they update on their own but
+# render in shields' default style (white text, ~20px), which is why the README
+# uses the self-hosted set instead. Off by design, not pending — the repo is
+# public now and these would resolve; `hosted_md` below is kept as the recipe for
+# anyone who prefers live badges. Note the workflow filenames are lint/test/deep.
 INCLUDE_HOSTED=0
 PUB="$GH"
 hosted_md=(
-  "[![ci](https://img.shields.io/github/actions/workflow/status/${PUB}/ci.yml?label=ci)](https://github.com/${PUB}/actions)"
+  "[![ci](https://img.shields.io/github/actions/workflow/status/${PUB}/test.yml?label=ci)](https://github.com/${PUB}/actions)"
   "[![stars](https://img.shields.io/github/stars/${PUB})](https://github.com/${PUB}/stargazers)"
   "[![last commit](https://img.shields.io/github/last-commit/${PUB})](https://github.com/${PUB}/commits/main)"
   "[![clojars](https://img.shields.io/clojars/v/vaelii)](https://clojars.org/vaelii)"

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.stp
   "A **simple temporal problem** — the metric half of time, where the qualitative calculi
   say only which of two things came first.  A constraint is a bound on the *gap* between

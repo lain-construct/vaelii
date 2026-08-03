@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.jtms
   "A non-monotonic truth-maintenance system.
 
@@ -449,6 +451,19 @@
 
 ;; ---- retraction ---------------------------------------------------------
 
+(defn- dissoc-all
+  "`(apply dissoc m ks)` in one transient pass.  `apply dissoc` walks the map once per
+  key with a full HAMT path copy each time, and `dead` here is the whole swept region of
+  a retraction — which is a routine path rather than a rare one, since an `exceptWhen`
+  block runs the sweep on ordinary fact arrival."
+  [m ks]
+  (if (seq ks) (persistent! (reduce dissoc! (transient (or m {})) ks)) (or m {})))
+
+(defn- disj-all
+  "`(apply disj s ks)` in one transient pass, for the same reason as `dissoc-all`."
+  [st ks]
+  (if (seq ks) (persistent! (reduce disj! (transient (or st #{})) ks)) (or st #{})))
+
 (defn- sweep*
   "SWEEP: collect the datums in `suspects` that are no longer *structurally*
   derivable (not groundable) and are not premises, delete them and every
@@ -506,19 +521,19 @@
                                                            #(disj (or % #{}) jid)))
                                               s (concat antecedents out))))))
                       state dead-jids)
-        state (update state :nodes #(apply dissoc % dead))
-        state (update state :classes #(apply dissoc % dead))
+        state (update state :nodes dissoc-all dead)
+        state (update state :classes dissoc-all dead)
         ;; a block names a justification, so a swept justification must lose its
         ;; block too — an id left behind would be a stale block waiting to be
         ;; reapplied to whatever reuses it
-        state (update state :blocked #(apply disj (or % #{}) dead-jids))
+        state (update state :blocked disj-all dead-jids)
         ;; a supersession names a datum, so a swept datum must lose it too — an entry
         ;; left behind would hold a future handle OUT for a merge that is long gone
-        state (update state :superseded #(apply dissoc (or % {}) dead))
+        state (update state :superseded dissoc-all dead)
         ;; the swept nodes were OUT and ungroundable, so dropping them cannot move
         ;; any survivor's label — only these bookkeeping sets need the removal
-        state (update state :in         #(apply disj (or % #{}) dead))
-        state (update state :groundable #(apply disj (or % #{}) dead))]
+        state (update state :in         disj-all dead)
+        state (update state :groundable disj-all dead)]
     [state {:removed-sentexes removed-sentexes
             :removed-justifications removed-justifications}]))
 

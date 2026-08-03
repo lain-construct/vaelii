@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.interval-test
   "Allen's interval algebra (`vaelii.impl.interval`): the thirteen base relations and the
   seven derived ones, answered by entailment over the path-consistent constraint network

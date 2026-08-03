@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.sudoku-solve-test
   "A 4×4 sudoku solved by **progressive solve contexts** — the do/label → do/classify
   → promote loop over a chain of round contexts.

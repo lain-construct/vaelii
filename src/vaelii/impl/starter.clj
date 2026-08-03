@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.starter
   "A starter common-sense KB: a documented, **schema-only** upper + middle ontology.
   It loads the CoreContext vocabulary (vaelii.impl.core-context), then the starter's own

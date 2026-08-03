@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.disk.kv
   "The index store on disk — a `KvBackend` (`vaelii.impl.kv`) over a durable
   write-ahead log.
@@ -24,6 +26,7 @@
   (`files/recover-log-compaction!`).  All log writes hold the backend lock (the RAF file
   pointer is shared)."
   (:require [clojure.set :as set]
+            [taoensso.trove :as trove]
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.kv :as kv]))
@@ -60,7 +63,10 @@
     (reset! data m1)
     replies))
 
-(defrecord DiskKvBackend [dir data log log-path lock frames]
+;; `closed` (a volatile boolean, written and read under `lock`) is `compact!`'s guard:
+;; the durability daemon's queued-task check runs outside this store's lock, so a close
+;; can land between that check and `compact!` acquiring the lock — see `compact!`.
+(defrecord DiskKvBackend [dir data log log-path lock frames closed]
   kv/KvBackend
   (kv-get  [_ k]   (get @data k))
   (kv-put  [b k v] (apply-ops! b [[:put k v]]) nil)
@@ -114,7 +120,7 @@
         (f/scan-log log (fn [_ op]
                           (vswap! frames inc)
                           (vswap! m (fn [mm] (first (apply-op mm op))))))
-        (->DiskKvBackend root (atom @m) log log-path (Object.) frames)))))
+        (->DiskKvBackend root (atom @m) log log-path (Object.) frames (volatile! false))))))
 
 (defn fsync
   "fsync the WAL.  `fsync?` false drains to the page cache without the fsync."
@@ -136,19 +142,32 @@
   snapshot that collapses every accumulated delta chain.  Every frame in the log,
   post-compaction or ordinary, is thus a uniform op replayed by the same `apply-op`
   fold, so the reader needs no snapshot-vs-delta discrimination.  Holds the lock, so
-  writers wait; the RAM map is untouched, so reads never block."
-  [{:keys [data log log-path lock frames]}]
+  writers wait; the RAM map is untouched, so reads never block.
+
+  A closed store is skipped, and the flag is consulted **after the lock is acquired**:
+  the durability daemon's queued-task guard reads its registry outside this lock, so a
+  `close!` can land between that check and this lock — and compacting a closed log
+  fails *late*, the temp and its commit marker already on disk with the delete that
+  clears them never reached, which the next open would replay as a crash-interrupted
+  compaction.  Under the lock there is no window: `close!` sets the flag holding the
+  same lock, so a compaction that acquires it either runs against a store that stays
+  open until it finishes, or sees the flag and writes nothing."
+  [{:keys [data log log-path lock frames closed]}]
   (locking lock
-    (let [{:keys [tmp marker]} (f/log-compact-paths log-path)
-          snapshot @data
-          tlog     (f/open-log tmp)]
-      (doseq [[k v] snapshot] (f/append-record! tlog [:put k v]))
-      (f/force! tlog false)
-      (f/close! tlog)
-      (f/write-commit-marker! marker {:log log-path})
-      (f/replay-temp-onto-raf! log tmp)
-      (f/delete-log-compact-temps! marker tmp)
-      (vreset! frames (count snapshot)))))
+    (if @closed
+      (trove/log! {:level :debug
+                   :msg (str "disk kv: compact! of " log-path
+                             " skipped — the store is closed")})
+      (let [{:keys [tmp marker]} (f/log-compact-paths log-path)
+            snapshot @data
+            tlog     (f/open-log tmp)]
+        (doseq [[k v] snapshot] (f/append-record! tlog [:put k v]))
+        (f/force! tlog false)
+        (f/close! tlog)
+        (f/write-commit-marker! marker {:log log-path})
+        (f/replay-temp-onto-raf! log tmp)
+        (f/delete-log-compact-temps! marker tmp)
+        (vreset! frames (count snapshot))))))
 
 (defn close!
   "Compact if the deltas have earned it, flush durably, record the length the WAL closed
@@ -165,9 +184,13 @@
   Gated on the *same* switch and threshold the background tick uses
   (`vaelii.impl.disk.durability`), so a store closed just after a compaction does not
   rewrite its log for nothing, and one knob turns both off."
-  [{:keys [dir log lock] :as b}]
+  [{:keys [dir log lock closed] :as b}]
   (when (and (dur/auto-compact?) (>= (dead-ratio b) (dur/compact-dead-ratio)))
     (compact! b))
   (fsync b true)
   (f/write-clean-marker! dir {"kv" (locking lock (f/log-length log))})
-  (locking lock (f/close! log)))
+  (locking lock
+    ;; under the same lock `compact!` consults it, so no compaction can start against
+    ;; the closed log
+    (vreset! closed true)
+    (f/close! log)))

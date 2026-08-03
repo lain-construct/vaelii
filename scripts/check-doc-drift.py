@@ -425,6 +425,9 @@ for doc in md_files():
 # is the "X used to Y" family, which collides with "used to" meaning *employed
 # to* — a warning here, and the write-time hook is where it earns its keep.
 # This file names the phrases to look for them, so it excludes itself.
+# The banned repo name is assembled from halves: the checker must not itself
+# contain the name it bans, or it would be the tree's one occurrence.
+_BANNED_REPO = "vaelii-" + "shell"
 ARCHAEOLOGY = re.compile(
     r"\b(there|it|which|that|this) used to\b"
     r"|\bwe used to\b"
@@ -436,7 +439,7 @@ ARCHAEOLOGY = re.compile(
     r"|\bbefore (the|this|that) fix\b|\bprior to the fix\b"
     r"|\bthe point of the change\b"
     r"|\b(formerly|renamed from|was renamed|used to be called)\b"
-    r"|\bvaelii-shell\b",
+    r"|\b" + _BANNED_REPO + r"\b",
     re.I)
 # "<lowercase word> used to <verb>", excluding the auxiliary ("be used to") and
 # the appositive (", used to …") — both of which are the *employed to* sense.

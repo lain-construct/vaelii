@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.nmtms-test
   "The non-monotonic truth-maintenance system: a default conclusion is withdrawn
   when a stronger contradiction *arrives later* and revived when the contradiction

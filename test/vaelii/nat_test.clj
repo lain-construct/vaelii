@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.nat-test
   "Non-atomic terms (NATs) and reified non-atomic terms (NARTs) — docs/nat.md.
 

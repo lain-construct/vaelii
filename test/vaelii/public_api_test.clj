@@ -1,9 +1,12 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.public-api-test
-  "`vaelii.core` is the only public namespace, so the taxonomy read surface, the
+  "The public namespaces are `vaelii.core` and the five entry points beside it, so the
+  taxonomy read surface, the
   non-creating handle lookup, and the stored-vs-believed split of the extent/count
   fns all have to be reachable from it.  These tests pin the public spelling —
   they deliberately require nothing under `vaelii.impl.*` except the test scaffolding."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
@@ -274,3 +277,40 @@
       (is (= :bad-opt (:type d)))
       (is (= [:asp :stub] (:known d)))))
   (v/set-solver kb :stub))
+
+;; ---- the boundary itself ------------------------------------------------
+;;
+;; The claim `vaelii.core` makes about itself is checkable, so check it. Six public
+;; namespaces: the engine, and the five entry points a reader is told to run or
+;; require. Everything under `vaelii.impl.*` is free to change without notice, which
+;; is only true if nothing public is spelled that way.
+
+(deftest the-public-namespaces-are-loadable-and-named
+  (testing "each public namespace loads and carries the entry points it advertises"
+    (doseq [[ns-sym expected]
+            '{vaelii.core    #{open-kb assert retract! sentexes-matching query isa?}
+              vaelii.client  #{client call assert query retract! isa?}
+              vaelii.starter #{load-into}
+              vaelii.web     #{handler start -main}
+              vaelii.serve   #{app start port -main ops}
+              vaelii.cli     #{dispatch open-kb-from -main}}]
+      (require ns-sym)
+      (let [publics (set (keys (ns-publics ns-sym)))]
+        (is (every? publics expected)
+            (str ns-sym " is missing " (pr-str (remove publics expected))))))))
+
+(deftest no-public-namespace-is-spelled-impl
+  (testing "the six public namespaces are the whole public surface"
+    (is (= #{"vaelii.core" "vaelii.client" "vaelii.starter"
+             "vaelii.web" "vaelii.serve" "vaelii.cli"}
+           (->> (file-seq (java.io.File. "src/vaelii"))
+                (filter #(.isFile ^java.io.File %))
+                (filter #(.endsWith (.getName ^java.io.File %) ".clj"))
+                (remove #(.contains (.getPath ^java.io.File %) "/impl/"))
+                (map #(-> (.getPath ^java.io.File %)
+                          (subs (count "src/"))
+                          (subs 0 (- (count (subs (.getPath ^java.io.File %) (count "src/"))) 4))
+                          (.replace "/" ".")
+                          (.replace "_" "-")))
+                set))
+        "a new namespace outside impl/ is a new public promise — add it here on purpose")))

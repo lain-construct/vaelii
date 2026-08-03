@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.jtms-locality-test
   "Locality for the operations `jtms_blocked_test` does not cover, and `sweep!`'s
   semantics.

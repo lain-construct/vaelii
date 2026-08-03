@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.cli
   "A command-line driver for a KB — the shell dual of the in-process API, launched with
   `lein run -m vaelii.impl.cli <cmd> <args…>`.  It runs the engine in-process (no

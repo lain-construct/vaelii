@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.provers
   "Pluggable provers for the query engine.  A prover answers a goal and declares
   how it expects to perform, so the engine can choose among applicable provers:

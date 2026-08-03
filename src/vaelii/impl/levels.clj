@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.levels
   "The lookup-to-query stack: eight levels of escalating interpretive machinery over
   the same goal, from a raw index read to full backward chaining.

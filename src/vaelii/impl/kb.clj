@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.kb
   "The KB record, its constructor, and the ground floor of retrieval:
   find/create sentexes, the belief-filtered `sentexes-matching`, and the equality-closure
@@ -100,9 +102,13 @@
 ;; (`vaelii.impl.feed`).  A field rather than a bare key for the same reason as
 ;; `:naming`: every settle reads it to decide whether to accumulate anything, and a KB
 ;; nobody is listening to should pay a field read and not a hash lookup.
+;; `dir` is the record store's directory when the records are durable, else nil. It is
+;; here so `core/close!` can release the exclusive FileLock the disk backend takes:
+;; without it a long-running process could not hand a directory to another process, or
+;; reopen it elsewhere, until the JVM exited.
 (defrecord KB [records index tms taxonomy provers solver conflicts program violations
                contradictions recheck settle-stats chain-stats opposed negations clashes
-               reports qcn matches naming constraints feed])
+               reports qcn matches naming constraints feed dir])
 
 ;; ---- storage selection: two independent axes ------------------------------
 ;;
@@ -155,7 +161,7 @@
                  (throw (ex-info (str "unknown KB backend " (pr-str backend) " — want one of "
                                       (pr-str (vec (sort (keys backend-modes))))
                                       ", or the :records / :index opts")
-                                 {:backend backend})))
+                                 {:type :unknown-backend :backend backend})))
         axes {:records (or records (:records pair))
               :index   (or index   (:index pair))}]
     (when (= axes {:records :memory :index :disk})
@@ -163,7 +169,7 @@
                            "the records, so persisting it over a record store that empties "
                            "at JVM exit leaves it describing records that are gone.  Want "
                            "durability? :disk.  Want the RAM index? :memory.")
-                      axes)))
+                      (assoc axes :type :unknown-backend))))
     axes))
 
 (defn- record-store-for
@@ -183,7 +189,7 @@
     (throw (ex-info (str "unknown record backend " (pr-str kind) " — want :memory or :disk"
                          (when (= :overlay kind)
                            " (an :overlay half cannot itself be an overlay)"))
-                    {:records kind}))))
+                    {:type :unknown-backend :records kind}))))
 
 (defn- derived-index-space
   "What a **derived** (in-RAM) index's shared state is keyed by.  A derived index is a
@@ -221,7 +227,7 @@
                              " — want :memory, :dense, :columnar, or :disk"
                              (when (= :overlay kind)
                                " (an :overlay half cannot itself be an overlay)"))
-                        {:index kind}))))))
+                        {:type :unknown-backend :index kind}))))))
 
 ;; ---- forks: an overlay over a frozen base ---------------------------------
 ;; `:overlay` is not a store but a *decorator* over whatever each axis resolves to, so it
@@ -255,7 +261,7 @@
     :reference (jtms/create-tms)
     :dense     ((requiring-resolve 'vaelii.impl.dense-jtms/create-dense-tms))
     (throw (ex-info (str "unknown TMS " (pr-str kind) " — want :reference or :dense")
-                    {:tms kind}))))
+                    {:type :unknown-backend :tms kind}))))
 
 (def opt-keys
   "Every key `open-kb` reads.  Public because it is the answer to \"is this a real
@@ -375,8 +381,16 @@
   store needs: `recover` alone reads the index it is recovering from
   (`special/rebuild-taxonomy` reads the functor root), so over an empty one it would
   rebuild an empty taxonomy and report nothing wrong."
+  ;; `:recover? :auto` is the default, and the alternative was worse than it looked.
+  ;; Under `:warn` a reopened store handed back a fully functional KB whose `isa?`
+  ;; answered false and whose queries answered `[]` — a wrong answer, not an error,
+  ;; with nothing on the returned value for a caller to detect and a single `:warn`
+  ;; log as the only signal. The `:test` profile floors logging at `:error`, so even
+  ;; that was invisible where it mattered most. The mirror case below (a derived index
+  ;; describing records that are gone) has always repaired first and logged after;
+  ;; this branch now agrees with it. `:warn` and `false` remain, spelled explicitly.
   [{:keys [record-space recover? tms naming constraints]
-    :or   {record-space 0 recover? :warn tms :reference naming :strict}
+    :or   {record-space 0 recover? :auto tms :reference naming :strict}
     :as   opts}
    recover-fn reindex-fn]
   (check-opts! opts "open-kb")
@@ -415,6 +429,9 @@
         ;; even disagree until something reads one.
         kb (map->KB {:records rstore
                      :index   istore
+                     ;; the directory `close!` releases, when the records are durable
+                     :dir     (when (= :disk rkind)
+                                (disk/canonical-dir (disk/disk-dir opts)))
                      :tms     (create-tms tms)
                      :taxonomy (tax/create-taxonomy)
                      :provers  (atom provers/default-provers)
@@ -1002,8 +1019,8 @@
    ;; exceptWhen meta-sentexes.  `res/raw-match` is exactly that, so routing
    ;; through it (rather than a bare `p/lookup`) shares `match-one`'s argument-root
    ;; retrieval: a pattern pinning an argument *after* a variable — `(parentOf ?x
-   ;; Tom)` — is answered from the `[:argument-root 2 Tom]` root intersected with the functor
-   ;; root, not a full leading-variable trie fan-out.  `without-excepted` then drops
+   ;; Tom)` — is answered from the predicate-scoped argument root
+   ;; (`[:argument-root parentOf 2 Tom]`), not a full leading-variable trie fan-out.  `without-excepted` then drops
    ;; what a visible `except` hides here (docs/contexts.md).  Both halves are
    ;; belief-following; the stored record already fetched to unify against rides
    ;; along as the third element, so this costs no extra round trip.

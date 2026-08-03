@@ -199,7 +199,7 @@ An ordinary premise, and every part of that is load-bearing:
 |---|---|
 | strength | `:default`.  A `:monotonic` fact that contradicts it defeats it, and what it licensed goes OUT with it — through the ordinary path, with no abduction-specific rule anywhere.  Retract the fact and the assumption revives |
 | context | the scratch microtheory, so nothing that existed before the call can see it |
-| provenance | `{:abduced true :abduced-for <goal> :creator :vaelii.impl.abduce/hypothesis}` — a reader of the record can tell an assumption from something a person asserted, and can see what it was assumed *for* |
+| provenance | `{:abduced true :abduced-for <goal>}`, asserted with `:creator :vaelii.impl.abduce/hypothesis` beside it — a reader of the record can tell an assumption from something a person asserted, and can see what it was assumed *for* |
 | justification | none.  It is assumed, not derived; `premise?` is true and `why` reports it as one |
 
 The `genlContext` edge that makes the scratch context is `:monotonic`, and that is not an

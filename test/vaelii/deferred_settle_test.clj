@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.deferred-settle-test
   "`with-deferred-settle` / `assert-many`: assert a batch with belief settled once
   at the end instead of per assert.

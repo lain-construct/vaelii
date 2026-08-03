@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.tsp-solve-test
   "Traveling salesman as a constraint solve — the grounding-rule → integrity-constraint
   path (`set/hardConstraint` + `do/label`) on a *permutation* problem instead of a

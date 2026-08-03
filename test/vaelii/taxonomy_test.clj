@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.taxonomy-test
   "Pure unit tests for the genl / genlContext closures and context placement.
 

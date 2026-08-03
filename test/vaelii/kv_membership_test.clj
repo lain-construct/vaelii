@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.kv-membership-test
   "`kv-member?` against `kv-members`, on every `KvBackend` — the differential the set
   oracles structurally cannot run.
@@ -56,7 +58,7 @@
   (vec (concat (for [p '[p0 p1 p2]] [:functor-root p])
                (for [c '[C0 C1]]    [:context-root c])
                (for [t '[A0 A1]]    [:term-index t])
-               [[:argument-root 1 'A0]
+               [[:argument-root 'p0 1 'A0]
                 [:rule-index :antecedent 'p0]
                 [:rule-index :consequent 'p2]
                 [:exception-index 'flies]
@@ -203,8 +205,8 @@
   (kv/kv-remove-from-set f '[:trie :children [p0]] 'tok0))
 
 (def ^:private intersect-combos
-  "Key groups a fork narrows over — `sentexes-with-args` intersects a functor root with
-  every named argument root — picked to span what the fast path splits on.  The
+  "Key groups a fork narrows over — `sentexes-with-args` intersects the
+  predicate-scoped argument roots — picked to span what the fast path splits on.  The
   `shareda`/`sharedb` pair carries it: every key inherited before `edit-fork!`, both edited
   after, so the same combos take the base's own narrowing on one pass and the merged fold
   on the next.  Beside it, the shapes that must not take the fast path — a tombstoned side,

@@ -6,7 +6,7 @@
 # lein-cloverage into the root :plugins via `update-in` — see CLOVERAGE_VERSION
 # below for why the :dev-profile declaration alone isn't enough). Cloverage
 # instruments every namespace under
-# src/main/clojure, runs the test suite against the instrumented code, writes
+# src/, runs the test suite against the instrumented code, writes
 # an HTML report, and prints a console summary table. This script:
 #   - runs it under +test (so the :test env + cleanup injections apply, exactly
 #     like `lein test`; cloverage is NOT the `test` task, so :test is not
@@ -31,10 +31,16 @@
 #                     ./kb/<backend>-test paths) wins the merge — a backend
 #                     profile listed after +test overrides the path and the run
 #                     would hit the REAL ./kb/<backend> dir:
-#                       COVERAGE_PROFILE=+disk-local,+test ./scripts/coverage.sh
+#                       COVERAGE_PROFILE=+bench,+test ./scripts/coverage.sh
 #   COVERAGE_EXCLUDE  Space-separated -e regexes for namespaces cloverage can't
-#                     instrument (default: the two known "Method code too large!"
+#                     instrument (default: the two known un-instrumentable
 #                     namespaces). Set empty to disable exclusions.
+#   COVERAGE_TEST_SKIP  One test namespace to leave unrun (default
+#                     order-independence-test, whose n! permutation replays are
+#                     pathological under instrumentation). Skipping a test keeps
+#                     every source namespace in the measurement — unlike
+#                     COVERAGE_EXCLUDE, which changes what the percentage is over.
+#                     Set empty to run the whole suite.
 #
 # Output:
 #   target/coverage/index.html    HTML report (gitignored under /target/)
@@ -91,10 +97,43 @@ CLOVERAGE_ARGS=(--no-colorize --selector "$SELECTOR")
 # the run. Add more anchored regexes here if a new namespace trips either limit.
 # Override the whole set with COVERAGE_EXCLUDE (space-separated regexes); set it
 # empty to disable exclusions.
-DEFAULT_EXCLUDE='^vaelii\.impl\.kv$ ^vaelii\.impl\.asp\.clingo$ ^vaelii\.browser\.browser$ ^vaelii\.impl\.index-trie$ ^vaelii\.impl\.cache$ ^vaelii\.impl\.writer-lease$'
+# ONLY namespaces that exist. Four of these regexes named namespaces this project
+# has never had (vaelii.browser.browser, vaelii.impl.index-trie, vaelii.impl.cache,
+# vaelii.impl.writer-lease) — carried over from an earlier tree, matching nothing,
+# while whatever actually trips the limits today went uninstrumented-and-uncovered
+# or failed the run outright. Keep this list discovered, not remembered: when a run
+# dies on "Method code too large!", add the namespace it names and say so here.
+DEFAULT_EXCLUDE='^vaelii\.impl\.kv$ ^vaelii\.impl\.asp\.clingo$'
 for ns in ${COVERAGE_EXCLUDE-$DEFAULT_EXCLUDE}; do
   CLOVERAGE_ARGS+=(-e "$ns")
 done
+
+# Test namespaces to SKIP — a different thing from the exclusions above, and the
+# distinction is the whole point. `-e` drops a namespace out of the *measurement*
+# (its forms stop counting, so the percentage changes basis); this drops a *test*,
+# which leaves every source namespace measured and only removes whatever coverage
+# that one test contributed. Prefer this: the number stays comparable.
+#
+# `order-independence-test` replays each scenario under every permutation of its
+# operation list — n! runs of the placement path per deftest, twelve of them. It is
+# cheap enough uninstrumented to carry no `^:slow` mark, and it is the single most
+# instrumentation-amplified namespace in the suite: measured at 18+ minutes without
+# finishing, against ~3 minutes for the 105 namespaces before it.
+#
+# Cloverage has `-t/--test-ns-regex` (which tests to run) but no test-exclude, so
+# this is spelled as a negative lookahead. Set COVERAGE_TEST_SKIP empty to run
+# everything.
+#
+# The trailing `.*` is load-bearing: the regex is matched against the WHOLE
+# namespace name, so a lookahead with nothing after it matches only the literal
+# `vaelii.` prefix and therefore selects no test namespaces at all. That failure is
+# silent and looks like success — the run finishes fast and reports a number (8.70%
+# forms, from namespace loading alone). Whenever this regex changes, check the run
+# logs a plausible count of `Testing ` lines before trusting the percentage.
+COVERAGE_TEST_SKIP="${COVERAGE_TEST_SKIP-order-independence-test}"
+if [[ -n "$COVERAGE_TEST_SKIP" ]]; then
+  CLOVERAGE_ARGS+=(-t "^vaelii\\.(?!${COVERAGE_TEST_SKIP}\$).*")
+fi
 
 # bash 3.2 (macOS) errors on "${arr[@]}" when arr is empty under `set -u`,
 # so only splice the pass-through args when there are any.
@@ -103,7 +142,7 @@ done
 PLUGIN_INJECT=(update-in :plugins conj "[lein-cloverage \"$CLOVERAGE_VERSION\"]" --)
 
 echo "lein ${PLUGIN_INJECT[*]} with-profile $PROFILE cloverage ${CLOVERAGE_ARGS[*]}  #-> $LOG"
-echo "(instruments all of src/main/clojure + runs the suite — this takes a while)"
+echo "(instruments all of src/ + runs the suite — this takes a while)"
 echo
 
 # tee so the user sees live progress; PIPESTATUS keeps lein's real exit code.

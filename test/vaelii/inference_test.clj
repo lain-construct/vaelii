@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.inference-test
   "The node engine's own contract (`vaelii.impl.inference`): the residual transformation,
   per-literal depth, binding flow, guards, the claimed-key set, the frontier's order,

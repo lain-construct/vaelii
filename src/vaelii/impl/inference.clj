@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.inference
   "A **backward** chainer whose state is a set of nodes ordered by cost — not
   `vaelii.impl.chain`'s *forward* agenda, which is a queue of newly believed data

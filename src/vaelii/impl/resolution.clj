@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.resolution
   "Unification, pattern matching against the indexed store, and backward chaining.
 
@@ -141,12 +143,14 @@
   variable but a later argument is a ground term — `(parentOf ?x Tom)`, the second
   half of a grandparent join — cannot be answered by a prefix: the trie fans out over
   every first-argument value (one lookup per node) only to keep the few
-  that match the later token.  The argument root `[:argument-root pos term]` indexes exactly
-  that later position, so it answers the same pattern with a single set read.
+  that match the later token.  The argument root `[:argument-root pred pos term]`
+  indexes exactly that later position under the pattern's own predicate, so it answers
+  the same pattern with a single set read.
 
-  When several arguments are known, `candidate-handles` intersects the functor root
-  with *every* ground argument root (`sentexes-with-args`, one set intersection), so
-  knowing more of the sentence narrows on all of it at once instead of one column.
+  When several arguments are known, `candidate-handles` intersects the pattern's
+  scoped argument roots (`sentexes-with-args` — the scoping means a named functor
+  needs no functor-root intersection), so knowing more of the sentence narrows on all
+  of it at once instead of one column.
   The set it returns is a **superset** of the trie's hits — `match-one`'s existing
   `unify` filters it to the identical result (the trie's own hit set *is* the
   unifiable set, and the roots' intersection ⊇ that).  So this changes only *how* the
@@ -193,19 +197,21 @@
   `(rel A ?y C)`, which it can reach only by fanning out over the intervening
   variable (a round trip per value).  For exactly that case the secondary roots are a
   *different* index order that pins the stuck position directly, and — the point of
-  this refinement — intersecting the functor root with **every** ground argument root
-  narrows on all the known terms at once (`sentexes-with-args`, one set intersection) rather
-  than picking one column and deferring the rest to a per-record filter.  So knowing
-  more of the sentence buys a tighter candidate set, not just the same one.
+  this refinement — intersecting **every** ground argument's predicate-scoped root
+  narrows on all the known terms at once (`sentexes-with-args`: one hash lookup when a
+  single argument is bound, an intersection when several are) rather than picking one
+  column and deferring the rest to a per-record filter.  So knowing more of the
+  sentence buys a tighter candidate set, not just the same one.
 
   **The functor is a position too.**  `(?type Fido)` — what types does Fido hold —
   is the same shape at level 0: the variable is the *first* path token, so every
   ground argument sits behind it and the trie can only fan out over the whole root
   child set, i.e. every functor in the KB.  That fan is linear in the vocabulary,
-  which is the largest thing in a broad ontology.  The argument roots span every
-  functor by construction, so one read of `[:argument-root 1 Fido]` answers it flat;
-  with no functor to intersect, `sentexes-with-args` takes a `nil` `pred` and reads
-  the argument roots alone.
+  which is the largest thing in a broad ontology.  The predicate-agnostic read spans
+  every functor by construction — a union of the scoped roots over the slot roster —
+  so one `sentexes-with-arg` read of position 1, `Fido` answers it flat; with no
+  predicate to scope by, `sentexes-with-args` takes a `nil` `pred` and intersects
+  those predicate-agnostic reads.
 
   A positive pattern with a **nested compound argument** is the third source: its
   selective information sits *inside* the compound (`QuantityFn`, `Kilogram`), which
@@ -511,11 +517,12 @@
 ;; `|context-up(c)|` contexts × `|specs(p)|` sub-predicates, each its own trie walk.
 ;; But the answer is an **intersection over three hierarchies** — a fact matches iff
 ;; its predicate is in `specs(p)`, its context in `context-up(c)`, and its arguments
-;; unify — and the argument roots already index a bound argument across *every*
-;; functor and context at once.  So lead with the bound argument's posting list
-;; (`[:argument-root pos a]`, one set read) and make the predicate and context hierarchies
-;; **in-memory membership filters** over the cached closures.  The product collapses
-;; to a single lookup, independent of how deep the two hierarchies are.
+;; unify — and the argument roots index a bound argument across every context at
+;; once, scoped by predicate.  So lead with the bound argument's posting lists (one
+;; scoped set read per sub-predicate) and make the context hierarchy an **in-memory
+;; membership filter** over the cached closure, the predicate filter being satisfied
+;; by which buckets are read.  The product collapses to a hash lookup per
+;; sub-predicate, independent of how deep the context hierarchy is.
 ;;
 ;; Scoped to a plain positive literal with a concrete functor; everything else
 ;; (a negation, a variable or `not` functor, a dotted pattern) falls back to
@@ -526,10 +533,10 @@
   (lead with the argument root, filter the predicate/context hierarchies in memory)
   rather than the nested `|context-up| × |specs|` `matches-visible` fan-out.
 
-  On by default: the set-algebra path is now lazy (`lead-candidates`), so it
-  short-circuits an existence check like the fan-out does while collapsing the fan-out's
-  product to one argument-root lookup — strictly cheaper, and flat where the fan-out is
-  O(hierarchy depth).  Like `plan/*enabled*`, this is a pure cost decision that must
+  On by default: the set-algebra path is lazy (`lead-candidates`), so it
+  short-circuits an existence check like the fan-out does while collapsing the
+  fan-out's product to a scoped argument-root lookup per sub-predicate — strictly
+  cheaper, and flat where the fan-out is O(context-hierarchy depth).  Like `plan/*enabled*`, this is a pure cost decision that must
   never change the answer *set*; bind it **false** to run the reference fan-out, which
   is what `matches_hierarchical_test` compares against over patterns from the starter's
   own facts."
@@ -557,18 +564,22 @@
 (defn- mirror-pos [pos] (if (= pos 1) 2 1))
 
 (defn- lead-candidates
-  "A **lazy** superset of the matching handles, from the single most selective posting
-  list: the tightest bound-argument root (`[:argument-root pos term]`) — which spans every functor
-  and context, so the predicate and context hierarchies are filtered afterwards in
-  memory — or, with no bound argument, the union of the sub-predicates' functor extents.
-  A symmetric sub-predicate may store the term at the mirror position, so when any
-  sub-predicate is symmetric both positions are taken.
+  "A **lazy** superset of the matching handles, led by the tightest bound argument.
+  The argument roots are scoped by predicate (`[:argument-root pred pos term]`), so
+  with a spec closure in hand the read is each sub-predicate's own bucket at that
+  position — the context hierarchy is filtered afterwards in memory, and the predicate
+  filter is satisfied by construction.  A variable functor reads the predicate-agnostic
+  union instead (`sentexes-with-arg`, over the slot roster), which spans every functor;
+  with no bound argument at all, the sub-predicates' functor extents.  A symmetric
+  sub-predicate may store the term at the mirror position, so when any sub-predicate is
+  symmetric both positions are taken.
 
-  Lazy so an existence check short-circuits without realizing the whole posting list:
-  the posting sets are handed back by reference (`sentexes-with-arg` is one set read)
-  and only walked as `matches-hierarchical` consumes them.  The symmetric two-position
-  concat can repeat a handle stored at both positions; `matches-hierarchical`'s `seen`
-  set dedups the emitted matches, so the result stays the identical set."
+  Lazy so an existence check short-circuits without realizing the whole candidate set:
+  each posting set is handed back by reference and the per-spec fan is `lazy-mapcat`,
+  so buckets are read one sub-predicate at a time as `matches-hierarchical` consumes
+  them.  The symmetric two-position concat can repeat a handle stored at both
+  positions; `matches-hierarchical`'s `seen` set dedups the emitted matches, so the
+  result stays the identical set."
   [kb specs args sym?]
   (let [ix     (:index kb)
         ground (keep-indexed (fn [i a] (when (sx/indexable-term? a) [(inc i) a])) args)]
@@ -576,11 +587,27 @@
       (let [cnt (fn [[pos term]]
                   (cond-> (p/count-with-arg ix pos term)
                     sym? (+ (p/count-with-arg ix (mirror-pos pos) term))))
-            [pos term] (apply min-key cnt ground)]
-        (if sym?
-          (concat (p/sentexes-with-arg ix pos term)
-                  (p/sentexes-with-arg ix (mirror-pos pos) term))
-          (p/sentexes-with-arg ix pos term)))
+            [pos term] (apply min-key cnt ground)
+            ;; The argument roots are scoped by predicate, so read each sub-predicate's
+            ;; own bucket. That is the whole of the saving: the candidates arriving at
+            ;; the filter below are this literal's predicates only, where the
+            ;; predicate-agnostic read returns every fact holding `term` at `pos` —
+            ;; which, on a materialising join, is dominated by the derived facts no rule
+            ;; ever reads back.  `lazy-mapcat`, not `mapcat`: one scoped read per
+            ;; sub-predicate as the caller consumes, so an existence check still touches
+            ;; one bucket, not `|specs|` of them.
+            scoped (fn [pd pz] (p/sentexes-with-args ix pd {pz term}))]
+        (if (seq specs)
+          (if sym?
+            (lazy-mapcat (fn [pd] (concat (scoped pd pos) (scoped pd (mirror-pos pos)))) specs)
+            (lazy-mapcat (fn [pd] (scoped pd pos)) specs))
+          ;; A variable functor names no predicate, so there is no scope to read: the
+          ;; predicate-agnostic root (a union over the slot roster) is the whole
+          ;; candidate set, and `unify` binds the functor per candidate.
+          (if sym?
+            (concat (p/sentexes-with-arg ix pos term)
+                    (p/sentexes-with-arg ix (mirror-pos pos) term))
+            (p/sentexes-with-arg ix pos term))))
       (mapcat #(p/sentexes-with-functor ix %) specs))))
 
 (defn matches-hierarchical
@@ -595,8 +622,9 @@
     (let [tax   (:taxonomy kb)
           ;; a variable functor names no predicate, so there is no spec closure to fan
           ;; or filter by — every candidate's functor is admissible, and `unify` binds
-          ;; the variable to it.  `lead-candidates` never reads `specs` here: the shape
-          ;; is admitted only with an indexable argument, so it takes the root branch.
+          ;; the variable to it.  `lead-candidates` gets `specs` nil here and takes its
+          ;; predicate-agnostic branch: the shape is admitted only with an indexable
+          ;; argument, so the slot-roster union is its candidate source.
           var-fn? (sx/variable? (first sentence))
           specs (when-not var-fn? (sub-predicates kb (first sentence) view-context))
           pred-ok? (if var-fn? (constantly true) #(contains? specs %))

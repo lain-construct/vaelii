@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.generate-test
   "The synthetic KB generator: that a plan is a function of its parameters, that what it
   generates is well-formed by the naming invariants, and that loading it produces the

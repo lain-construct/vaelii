@@ -1,14 +1,14 @@
 # Web browser
 
 `vaelii.impl.web`. A small [reitit](https://github.com/metosin/reitit)-ring browser for
-inspecting a KB. Run it with `lein run -m vaelii.impl.web` (serves a starter-loaded KB
+inspecting a KB. Run it with `lein run -m vaelii.web` (serves a starter-loaded KB
 on `http://127.0.0.1:3000`).
 
 ```
-lein run -m vaelii.impl.web                            # loopback, a fresh starter KB
-lein run -m vaelii.impl.web --port 8080
-lein run -m vaelii.impl.web --listen 0.0.0.0           # reachable off-machine (opt-in)
-lein run -m vaelii.impl.web --attach HOST PORT [WEBPORT]
+lein run -m vaelii.web                            # loopback, a fresh starter KB
+lein run -m vaelii.web --port 8080
+lein run -m vaelii.web --listen 0.0.0.0           # reachable off-machine (opt-in)
+lein run -m vaelii.web --attach HOST PORT [WEBPORT]
 
 lein browser                                           # ...or a REPL with it running in it
 VAELII_WEB_PORT=3010 lein browser
@@ -63,7 +63,7 @@ no "No SLF4J providers were found" warning appears.
 | `/` | the **upper ontology**: what the KB is in four numbers, then the genlContext context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
 | `/stats` (`?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, and the contradiction / conflict / violation tallies), a contexts-by-size table ranked largest-first, and the actual dilemmas / conflicts / dropped-derivation violations when non-empty — each violation naming the run that dropped it. Every list on it is one screen and continues on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed |
 | `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (`re-find` semantics — a bare `dog` is a substring match, `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
-| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), its supertypes/subtypes/disjoint-with (if a type), then every sentex containing it grouped by the **index root** that reaches it — functor `[:functor-root]`, argument-position `[:argument-root pos]`, context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its O(1) SCARD |
+| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), its supertypes/subtypes/disjoint-with (if a type), then every sentex containing it grouped by the **index root** that reaches it — functor `[:functor-root]`, argument-position `[:argument-root pos]`, context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its O(1) count |
 | `/sentex/:id` | a **sentex** (atomic or rule): its **belief state** (IN, or the `why-not` reason — superseded / defeated / unsupported — with the restatement, contradictors, or missing antecedents that explain it), its supporting justifications (justifications concluding it), its dependents (justifications using it as an argument), and its terms |
 | `/why/:id` | the **proof tree**: `vaelii.core/why` rendered whole — every justification down to the premises it rests on, collapsible, cycle-guarded, with rule sentences in the author's variable names |
 | `/justification/:id` | a **justification**: its supports/arguments (antecedent sentexes) and its dependent sentex (the conclusion) |
@@ -317,7 +317,7 @@ Both commit paths — the assert form and the proposal panel — write through
 otherwise leaves unsaid:
 
 > **You didn't say this, but it follows**
-> `(mortal Fido)` — because `(dog Fido)` and the rule `(implies (living_thing ?x) (mortal ?x))` · [proof](#)
+> `(mortal Fido)` — because `(dog Fido)` and the rule `(implies (living_thing ?x) (mortal ?x))` · _proof_
 > `(mammal Fido)` — because `(dog Fido)`, and every `dog` is a `mammal`
 
 Those two lines come from **different mechanisms**, and the callout keeps them apart rather
@@ -502,7 +502,7 @@ pages), and the list it sits in is a single-column ARIA **grid**:
   contain. The selection count is a live region (`role="status"`), so a change announces
   without the page moving, and the focused row takes a visible ring.
 
-None of that is htmx-expressible, so it is the first of the three jobs
+None of that is htmx-expressible, so it is the first of the five jobs
 `resources/public/select.js` does (below).
 
 ## Editing sentexes
@@ -517,8 +517,9 @@ Clear.
 - **Edit** opens a textarea seeded with one `[sentence context]` line per selected
   handle — `[sentence context opts]` when the sentex is known-true, so its
   `:strength` survives. A rule is shown with its direction/defeasibility as `set/*Rule`
-  wrappers (its `exceptWhen`/`unknown` guard is a separate meta-sentex and is *not*
-  carried, so editing a guarded rule drops the guard).
+  wrappers (its `exceptWhen` guard is a separate meta-sentex and is *not* carried, so
+  editing a guarded rule drops the guard; an `(unknown S)` antecedent is an ordinary
+  literal in the rule body and round-trips).
 - **Save** POSTs the edited text. The server diffs the lines against the selection **by
   content**: a line you left alone touches nothing (its handle is untouched, no churn),
   a line you changed or deleted retracts its sentex, a new line is asserted. The batch
@@ -558,8 +559,20 @@ Clear.
   `access/forward-chain`), so they work both in-process and when the browser is
   **attached to a daemon** — the daemon is the single writer and serializes each one
   under its lock.
-- **Every write is a POST, and every POST checks who asked.** Nine routes go through the
-  `writing` guard above: `/edit`, `/assert`, `/retract`, `/chain`, `/demo`, `/reasoning`,
+- **Every route checks `Host`, and every write additionally checks who asked.** The
+  whole handler sits behind a `Host` allowlist derived from the interface it is bound
+  to (`guard/wrap-host-allowed`, the same guard the daemon serves behind): on the
+  loopback default only loopback names are answered, and anything else gets 400. That
+  is what closes **DNS rebinding**, the attack an origin check cannot see — a rebound
+  name is genuinely same-origin with the attacker's page — and it wraps the reads as
+  well as the writes, because a rebound page reads a KB as happily as it writes to
+  one, and reading it is what an attacker came for. `VAELII_ALLOWED_HOSTS`
+  (comma-separated) overrides the list for a setup that legitimately presents another
+  name — a reverse proxy preserving the original `Host`, a local alias. A request
+  with **no** `Host` header passes: every browser sends one, so its absence marks a
+  non-browser client with no ambient browser context to ride.
+  The second layer is the write guard. Nine routes go through
+  `writing` above: `/edit`, `/assert`, `/retract`, `/chain`, `/demo`, `/reasoning`,
   `/sandbox/reset`, `/propose/apply` and `/propose/preview` (a writer for the length of
   the rollback it does). Nothing authenticates them, so each compares the request's
   `Origin` (falling back to `Referer`) to its own `Host` and answers 403 on a mismatch.
@@ -567,7 +580,8 @@ Clear.
   POST and a page on another site cannot forge it, so another tab cannot drive the
   editor. `Origin: null` — a sandboxed frame — is a real origin claim that matches
   nothing, and is refused. A request carrying **neither** header is a non-browser
-  client with no ambient context to ride, and passes.
+  client with no ambient context to ride, and passes — the same carve-out for the
+  same reason.
   No destructive path is reachable by GET: `/retract`'s GET renders the *preview* and
   `/chain` has no GET at all, so a link, a prefetch, or a crawler cannot change the KB.
 
@@ -985,7 +999,8 @@ terms than it can sort: on the shipped schema every one of them is engine vocabu
 on an imported corpus there are 105,882 and calling those core predicates is a claim the
 page cannot make.
 
-Measured on an imported OpenCyc corpus (1,173,442 sentexes), `/` renders **36,045 B in
+Measured on an imported OpenCyc corpus (1,173,442 sentexes — exact counts move with the
+import profile), `/` renders **36,045 B in
 250 ms** and `/stats` **24,759 B in 86 ms**. What the ranking and the cap buy is visible
 in what they decline to do: sorting 27,196 separated pairs by name to show fifty of them
 is a second of front page, and 4,721 context rows beside fifty contradictions — each of
@@ -1096,7 +1111,7 @@ symbol's namespace.
   so inherited by every navigation, search, and continuation). It is `position: fixed`
   and takes no layout space, so nothing shifts when it appears, and it holds still under
   `prefers-reduced-motion`.
-- **Two typefaces, one weight each.** [Hasklig](https://github.com/source-foundry/Hasklig)
+- **Two typefaces, one weight each.** [Hasklig](https://github.com/i-tu/Hasklig)
   (monospace) sets the *formal* content — sentences, terms, handles, index keys, the
   query inputs — so a KB reads like the code it resembles.
   [Atkinson Hyperlegible Next](https://www.brailleinstitute.org/freefont/)
@@ -1271,6 +1286,7 @@ there is no `assert` that would produce the content.
 - **The retract preview walks the justification graph itself** rather than asking the
   JTMS for the set its sweep would take, so it is a second implementation of that walk
   rather than a reading of the first.
-- **Editing covers atomic facts and simple rules.** A rule's `exceptWhen` / `unknown`
-  guard is dropped on re-assert, and the assert form cannot write one, so a guarded
-  rule is not editable through the browser without losing its guard.
+- **Editing covers atomic facts and simple rules.** A rule's `exceptWhen` guard is
+  dropped on re-assert, and the assert form cannot write one, so a guarded rule is not
+  editable through the browser without losing its guard. (`unknown` is not affected —
+  it is a literal in the body, not a meta-sentex.)

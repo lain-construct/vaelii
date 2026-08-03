@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.gloss-test
   "The composed gloss: English out of the KB's own comments, and the places it refuses to
   write prose rather than guess."

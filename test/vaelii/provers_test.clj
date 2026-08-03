@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.provers-test
   "The pluggable prover query engine (v/ask): transitivity, disjointness, `different`
   (the unique-name assumption, ground only), facts, rules, and the query plan with

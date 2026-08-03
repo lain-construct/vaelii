@@ -19,7 +19,7 @@ OpenCyc reader is in this repo. This page is the **sequence**, and what each ste
 ## The shipped pair needs nothing
 
 ```sh
-lein run -m vaelii.impl.web        # starter-loaded, http://localhost:3000
+lein run -m vaelii.web        # starter-loaded, http://localhost:3000
 ```
 
 That is the whole route. `lein browser` gives you the same browser with a REPL and a
@@ -35,7 +35,7 @@ Both artifacts are published, so prefixing a command with `+with-foreign` resolv
 reader from Clojars and there is nothing to install:
 
 ```sh
-lein with-profile +with-foreign run -m vaelii.impl.web
+lein with-profile +with-foreign run -m vaelii.web
 ```
 
 Two other routes exist and are worth knowing apart.
@@ -59,8 +59,9 @@ checkout is on every command's classpath, so the build stops matching a shipped 
 ## cyc-tiny, which is the small honest example
 
 The plugin vendors 804 KB of real CFASL as a test fixture — 717 constants, 8,899
-assertions, under the knowledge base's own Apache-2.0 terms. It is a raw dump and not a
-KB: there is no `meta.edn`, so `classify` finds no marker, the catalog does not offer it,
+assertions, taken from Cycorp's OpenCyc 4.0 distribution; the terms it travels under are
+stated in [vaelii-foreign](https://github.com/vaelii/vaelii-foreign), which is where the
+fixture and its reader live. It is a raw dump and not a KB: there is no `meta.edn`, so `classify` finds no marker, the catalog does not offer it,
 and it has to be converted first.
 
 ```sh
@@ -122,7 +123,7 @@ looks like success.
 
 Heap is the other thing this corpus is sensitive to, and the numbers sit close together:
 6 GB is not enough for the checked `:ontology` load, and the JVM default on a large
-machine is. Neither `lein browser` nor `lein run -m vaelii.impl.web` sets `-Xmx`, so both
+machine is. Neither `lein browser` nor `lein run -m vaelii.web` sets `-Xmx`, so both
 get that default; a profile that pins a smaller heap wants the `:dir` instead.
 
 ## Where a KB has to sit to be found

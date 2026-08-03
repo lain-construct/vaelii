@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.mixed-backend-test
   "The mixed modes — durable records with a **derived** index in RAM (`:disk-memory`,
   `:disk-dense`, `:disk-columnar`) — and the record/index axis split they fall out of.

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.canonical-vars-test
   "Canonical variable namespaces, and the two ways a form moves between them.
 

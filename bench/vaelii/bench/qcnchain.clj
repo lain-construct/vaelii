@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.qcnchain
   "What a forward rule over a qualitative antecedent costs at **load** time — the other
   half of `vaelii.bench.qcn`, which sizes one path-consistency pass in isolation.

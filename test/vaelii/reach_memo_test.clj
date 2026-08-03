@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.reach-memo-test
   "The per-query memo for a transitive predicate's closure lookups
   (`observe/*reach-memo*`).  A rule with two transitive antecedents solves the second

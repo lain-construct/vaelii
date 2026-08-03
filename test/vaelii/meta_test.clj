@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.meta-test
   "The vocabulary microtheory and meta-level features over the starter schema (with
   the test-world beneath it):

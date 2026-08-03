@@ -6,7 +6,7 @@
 (watch kb f)                      ; every belief change      => token
 (watch kb goal context f)         ; a standing query         => token
 (unwatch kb token)                ; => bool
-(watchers kb)                     ; => [{:token t :goal S :context C} …]
+(watchers kb)                     ; => [{:token t} {:token t :goal S :context C} …]
 ```
 
 `f` is called with one argument, in [preview.md](preview.md)'s entry shapes, so an

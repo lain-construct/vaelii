@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.laziness-test
   "The retrieval stack's laziness contract: **per-result work is paid per result
   consumed**.

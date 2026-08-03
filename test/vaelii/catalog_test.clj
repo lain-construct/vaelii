@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.catalog-test
   "The KB catalog: what it offers, what a load does to the registry, and the two
   properties an operator's tool has to get right — unloading releases what it held, and
@@ -45,7 +47,7 @@
             dump   (io/file root "a-dump")
             store  (io/file root "a-store")
             plain  (io/file root "not-a-kb")]
-        (doseq [d [corpus dump store plain]] (.mkdirs d))
+        (doseq [^java.io.File d [corpus dump store plain]] (.mkdirs d))
         (spit (io/file corpus "meta.edn") (pr-str {:context-order '[OneContext]}))
         (spit (io/file dump "meta.edn")   (pr-str {:format-version 8 :sentex-count 42}))
         (.mkdirs (io/file store "records"))
@@ -212,10 +214,26 @@
         ;; its torn-tail walk).  And it legitimately *deletes* `dirty.marker` — that
         ;; removal is precisely how it records having closed cleanly, so the marker is
         ;; excluded rather than counted as a loss.
+        ;;
+        ;; The compaction scratch — `<log>.compact` and `<log>.compact-commit` — is
+        ;; excluded for a related reason, and this one is a *race* rather than a rule.
+        ;; Unload is not the only writer here: the durability daemon fsyncs every
+        ;; registrant on a 3 s tick and fires a background compaction on any that has
+        ;; passed the dead ratio, which a freshly loaded KB has (0.59 on `core`, against
+        ;; a 0.50 threshold).  So a compaction runs on its own thread while this test is
+        ;; merely holding the KB open, and those two files exist only between its start
+        ;; and its finish.  A `before` snapshot that lands inside that window records
+        ;; scratch that the compaction then deletes, and the diff reads it as an unload
+        ;; having destroyed a file — which is how this failed on one backend and no
+        ;; other, the backend deciding only how long the preceding namespaces took and
+        ;; hence where the snapshot fell against the tick.  Neither file is one a reopen
+        ;; needs: `compact!` deletes both on the way out, and `recover-log-compaction!`
+        ;; deletes any a crash left behind, before the log opens.
         (let [data   (fn [] (set (->> (file-seq (io/file dir))
                                       (filter #(.isFile ^java.io.File %))
                                       (map #(.getPath ^java.io.File %))
-                                      (remove #(re-find #"/dirty\.marker$" %)))))
+                                      (remove #(re-find #"/dirty\.marker$" %))
+                                      (remove #(re-find #"\.compact(-commit)?$" %)))))
               before (data)]
           (is (seq before))
           (cat/unload! (:key e))

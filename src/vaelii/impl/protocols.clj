@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.protocols
   "Storage protocols so the record store and index store each have swappable
   implementations (in-memory by default, on-disk for durability, or an alternate KV

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.rule-instance-test
   "A rule's variables are the rule's own, and every *instance* of it needs its own.
 

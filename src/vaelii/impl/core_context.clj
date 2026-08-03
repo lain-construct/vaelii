@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.core-context
   "The CoreContext ontology — Vaelii's vocabulary microtheory.  It defines and
   documents the core predicates the engine interprets, as sentexes in CoreContext:

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.equality-test
   "Equality — `rewriteOf` / `sameAs` / `equals`, and the `different` that survives
   them.  Every test here holds against the shipped feature: one belief-following

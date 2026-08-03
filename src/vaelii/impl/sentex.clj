@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.sentex
   "The sentex — Vaelii's unit of knowledge: a sentence paired with the context it
   holds in (sentence + context = sentex).

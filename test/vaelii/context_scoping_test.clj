@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.context-scoping-test
   "**No context is affected by sentexes in contexts it does not inherit.**
 

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.disk.durability
   "Durability management for the disk backend.  Each disk store/kv registers itself
   here on open; one daemon fsyncs every registrant on a tick (default 3 s), and one
@@ -92,10 +94,29 @@
            ^Runnable
            (fn []
              (try
-               (trove/log! {:level :info
-                            :msg (format "disk-durability auto-compacting %s — dead ratio %.2f ≥ %.2f"
-                                         label ratio threshold)})
-               (compact-fn)
+               ;; The store can close between the tick that queued this and the executor
+               ;; reaching it — the executor is single-threaded, so a task waits behind
+               ;; every task before it, and `close-dir!` deregisters BEFORE closing the
+               ;; log.  This check honours that signal and skips the task with a log
+               ;; line saying why.
+               ;;
+               ;; It is the *early* skip, not the airtight one: it runs outside the
+               ;; store's own lock, so a close can still land between here and
+               ;; `compact!` acquiring it.  What closes that window is the store — the
+               ;; disk KV consults its closed flag after taking its lock
+               ;; (`vaelii.impl.disk.kv/compact!`), and the record store's compaction
+               ;; throws on its closed idx before any temp or marker is written.  A
+               ;; task already INSIDE `compact!` needs neither: it holds the store
+               ;; lock, which is exactly what `close!` blocks on.
+               (if-not (contains? @registry id)
+                 (trove/log! {:level :debug
+                              :msg (str "disk-durability skipping the queued auto-compaction of "
+                                        label " — it closed before the queue reached it")})
+                 (do
+                   (trove/log! {:level :info
+                                :msg (format "disk-durability auto-compacting %s — dead ratio %.2f ≥ %.2f"
+                                             label ratio threshold)})
+                   (compact-fn)))
                (catch Throwable t
                  (trove/log! {:level :error :msg (str "disk-durability auto-compact of " label
                                                       " failed: " (.getMessage t))}))

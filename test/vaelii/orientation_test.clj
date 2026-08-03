@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.orientation-test
   "Cardinal-direction reasoning (`vaelii.impl.orientation`): the nine base compass
   relations and the four derived ones, answered by entailment over the path-consistent

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.observe
   "The leaf seam the engine's mutation choke points notify **without a require cycle**.
   Two things ride on it, and they are independent: named observers of the stored fact

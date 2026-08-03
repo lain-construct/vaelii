@@ -5,10 +5,11 @@
 `vaelii.impl.disk.*`.
 
 These exist because of a gap between the engine's *seams* and its data structures at
-corpus scale. The seams carry a large KB — the `Atomic`/`Rule` split, symbol interning,
+corpus scale. The seams carry a large KB — the `AtomicSentex`/`RuleSentex` split, symbol interning,
 an index derived from the records and rebuildable by `reindex` — while the default
 structures are persistent Clojure collections holding boxed values, which measure
-~1,549 B/fact of index. Each backend here is a dense replacement for one of them.
+~1,973 B/fact of index (591.9 MB over 300k real facts, measured below). Each backend
+here is a dense replacement for one of them.
 **Every one is off by default**, selected per KB, and each is gated by a differential
 oracle proving it answers the protocol identically to the structure it replaces.
 
@@ -72,7 +73,7 @@ A trie node is three map entries (`[:trie :count prefix]`, `[:trie :children pre
 **The finding that had to drive the build: the win is the *layout*, not the interning.**
 Interning tokens while keeping an object-per-node map (a fastutil
 `Int2ObjectOpenHashMap` per node) recovers **1.28×** — per-node map overhead swamps it.
-A columnar layout — parallel `int` arrays, zero per-node objects — gets **20×**. A
+A columnar layout — parallel `int` arrays, zero per-node objects — gets **15–20×**. A
 plausible design and a good one differ by an order of magnitude here, which is why the
 bake-off ran before the build.
 
@@ -122,11 +123,17 @@ across a run of intersections and compares.
 
 **Which families get packed is a decision, and it is checked.** A handle family is one
 whose value is a set of handles: the trie leaves `[:trie :handles …]`, the three roots
-`[:context-root …]` `[:functor-root …]` `[:argument-root pos …]`, the term index
+`[:context-root …]` `[:functor-root …]` `[:argument-root pred pos …]`, the term index
 `[:term-index …]`, both halves of the rule index `[:rule-index :antecedent|:consequent
 …]`, and both halves of the exception index `[:exception-index <pred>|:rules]`. The rest
 must *not* be packed: `[:trie :count …]` is an integer, `[:trie :children …]` holds path
-tokens (numbers among them), and `[:term-roster]` holds term *names*.
+tokens (numbers among them), and `[:term-roster]` and `[:argument-slot …]` hold term and
+predicate *names*. One handle family packs on one backend only: the argument roots'
+four-part key does not fit `dense-roots`' packed long (family | pos | term-id is already
+full), so the columnar roots route the family to their boxed fallback —
+`dense_routing_test` records that exception — while the tiered map backend, whose keys
+stay boxed vectors and whose *values* are the packed postings, tiers it like any other
+handle family.
 
 Both dense backends keep a fallback for keys they don't route, which makes a routing
 mistake behaviourally invisible — a misrouted family is stored as an ordinary boxed set,
@@ -276,8 +283,8 @@ in [storage.md](storage.md#the-on-disk-backend-disk):
 ## Phase 3 — the dense truth-maintenance network (`{:tms :dense}`)
 
 The index and the records are only two of the three resident structures. The **JTMS is
-always in RAM in every backend**, and Phase 0 measured it at ~467 B/node — ~43 GB at
-100M, on par with the whole record store. `vaelii.impl.dense-jtms` is the dense
+always in RAM in every backend**, and `lein bench-jtms` measures it at ~537 B/node —
+~54 GB at 100M, on par with the whole record store. `vaelii.impl.dense-jtms` is the dense
 representation, selected by `open-kb`'s `:tms` rather than `:backend` (it is orthogonal
 to storage — any backend may use either network):
 

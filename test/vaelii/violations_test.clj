@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.violations-test
   "The dropped-conclusion ledger and chain instrumentation: drops accumulate
   across runs instead of being erased by the next assert,

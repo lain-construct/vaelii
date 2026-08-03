@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.overlay.mount
   "Mounting a fork: freeze a base, compose a private writable overlay over it, and hand
   back the two stores a KB is built from.
@@ -45,9 +47,13 @@
 (defn- base-kv
   [base-index]
   (or (kv-backend-of base-index)
-      (throw (ex-info (str "cannot fork this index: it is not written over a KvBackend, so a "
-                           "KV decorator would fork its roots and leave its trie behind.  "
-                           "The forkable index axes are :memory, :dense and :disk.")
+      ;; Lead with what the caller can act on. The mechanism (KvBackend, decorator,
+      ;; roots, trie) is four internal names before the one usable clause, and a
+      ;; reader who has never opened this namespace cannot use any of them.
+      (throw (ex-info (str "cannot fork a :columnar index — the forkable index backends are "
+                           ":memory, :dense and :disk.  (A columnar index is not written over "
+                           "a KV backend, so forking it would fork its roots and leave its "
+                           "trie behind.)")
                       {:type :unforkable-index :index (class base-index)}))))
 
 (defn meta-kv

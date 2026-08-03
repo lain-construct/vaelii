@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.meta-sentex-test
   "Meta-sentexes: a sentex that names another sentex through a **handle**.
 

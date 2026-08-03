@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.client
   "A thin EDN-over-HTTP client for the vaelii daemon (`vaelii.impl.serve`).  Runs no
   engine: it POSTs `{:op :args}` and reads the result back, over JDK `java.net.http`

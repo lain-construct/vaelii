@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.common-sense-test
   "Common sense over the shipped schema and the test-world's cast: the everyday
   inferences a knowledge base is *for*, one per reasoning subsystem, each written the

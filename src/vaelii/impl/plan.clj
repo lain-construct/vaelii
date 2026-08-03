@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.plan
   "Conjunctive query planning: the order a conjunction's literals are solved in.
 
@@ -195,7 +197,8 @@
 (defn- arg-root-estimate
   "The tightest count from the secondary argument roots.  These reach what the trie
   cannot: a ground argument sitting *after* a variable is on no prefix, so the trie
-  can only count up to that variable, while `[:argument-root pos term]` indexes it directly.
+  can only count up to that variable, while the argument roots (`[:argument-root pred
+  pos term]`, summed over the slot roster's predicates) index it directly.
   Each is an upper bound on the literal's matches (it ignores the other positions),
   so the smallest is the tightest.
 

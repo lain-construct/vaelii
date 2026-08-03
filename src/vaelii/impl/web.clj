@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.web
   "A small reitit-ring web browser over a KB:
 
@@ -45,6 +47,8 @@
             ;; `llm` below it is an application over the engine rather than an internal —
             ;; and unlike it, it reaches no model at all.
             [vaelii.impl.gloss :as gloss]
+            ;; the origin/Host checks this page and the daemon both hold to
+            [vaelii.impl.guard :as guard]
             ;; the proposal panel on a term page.  `llm` is an application over the
             ;; engine exactly as this namespace is — a peer, not an internal — so
             ;; reaching it is not a hole in the ledger below; it never writes, and it
@@ -815,8 +819,8 @@
 
 (defn- direct-arg-positions
   "The 1-based argument positions at which `term` sits directly in some stored fact —
-  exactly the `[:argument-root pos term]` roots the index maintains for it.  Rules are
-  excluded (they are not in the argument roots)."
+  exactly the positions the predicate-scoped argument roots (`[:argument-root pred pos
+  term]`) maintain for it.  Rules are excluded (they are not in the argument roots)."
   [term sentexes]
   (into (sorted-set)
         (for [s sentexes
@@ -830,7 +834,8 @@
 (defn- term-index-groups
   "Every stored sentex containing `term`, grouped by the **index** that reaches it,
   each group carrying its O(1) count: the functor root `[:functor-root]`, the argument-position
-  roots `[:argument-root pos]`, the context root `[:context-root]` (when the term is a context), then the
+  groups `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped
+  roots over), the context root `[:context-root]` (when the term is a context), then the
   term-index remainder `[:term-index]` split into rules and deeper nestings.  The roots are a
   subset of the term index, so the remainder is `find-sentexes` minus what a root
   claimed.
@@ -851,7 +856,7 @@
                      ;; its ego edges off these groups rather than paying a second extent
                      ;; read — an arrow needs to know which end of the fact the term is
                      {:label (str "In argument position " p)
-                      :idx (str "[:argument-root " p " " text "]")
+                      :idx (str "[:argument-slot " p " " text "]")
                       :pos p :count (v/count-with-arg kb p term) :sentexes ss})
          ctx-ss    (when (= :context (v/term-role term)) (v/sentexes-in-context kb term))
          claimed   (set (map :id (concat functor (mapcat :sentexes arg-grps) ctx-ss)))
@@ -1013,6 +1018,7 @@
    :bad-opt              "opts"
    :unknown-option       "opts"
    :unknown-handle       "no handle"
+   :bad-handle           "bad handle"
    :not-watchable        "no feed"
    :context-escape       "wrong ctx"
    :error                "error"})
@@ -1828,9 +1834,9 @@
   (one edge asserted in two contexts is two sentexes and one child).
 
   One index read, not a walk: the pattern pins an argument *after* a variable, which
-  `query` answers by intersecting the functor root with `[:argument-root 2 node]`
-  (docs/indexing.md), so the cost is this node's own fan-out rather than the number of
-  edges in the KB."
+  `query` answers from the predicate-scoped argument root (`[:argument-root pred 2
+  node]`, docs/indexing.md), so the cost is this node's own fan-out rather than the
+  number of edges in the KB."
   [kb pred node]
   (->> (v/sentexes-matching kb (list pred '?sub node) '?ctx)
        (keep (fn [s] (let [[_ sub super] (:sentence s)]
@@ -1840,8 +1846,8 @@
 (defn- parent-terms
   "The direct super-nodes of `node` under transitivity relation `pred` — `child-terms`'
   mirror, and bounded the same way: the pattern pins `node` in argument position **1**,
-  which `query` answers by intersecting the functor root with `[:argument-root 1 node]`,
-  so the cost is this node's own fan-*in* rather than the number of edges in the KB.
+  which `query` answers from the predicate-scoped argument root (`[:argument-root pred 1
+  node]`), so the cost is this node's own fan-*in* rather than the number of edges in the KB.
   Deduped for the same reason — one edge asserted in two contexts is two sentexes and one
   parent."
   [kb pred node]
@@ -2595,9 +2601,9 @@
 
   Two reads, and the shape of the pattern is why two is enough.  `(?p T ?y)` leaves the
   functor open, so the trie can narrow on nothing and would fan over every functor in the
-  KB — but `T` is ground in argument position 1, and the argument roots span every
-  functor, so `query` answers it from `[:argument-root 1 T]` with no functor to intersect
-  (docs/indexing.md).  Believed, because that is what `query` means; binary, because the
+  KB — but `T` is ground in argument position 1, and the predicate-agnostic read spans
+  every functor — a union of the scoped roots over `[:argument-slot 1 T]` — so `query`
+  answers it with no functor to intersect (docs/indexing.md).  Believed, because that is what `query` means; binary, because the
   pattern has two argument slots and unification is arity-exact; positive, because a
   negative fact is stored as `(not …)` and does not unify with it either."
   [kb t cap]
@@ -4712,34 +4718,11 @@
 
 ;; ---- routing ------------------------------------------------------------
 
-(defn- url-origin
-  "The `scheme://authority` a URL names, or `::opaque` when it names none — a
-  sandboxed frame sends `Origin: null`, which is a real origin claim that matches
-  nothing and must not be read as \"no header\"."
-  [url]
-  (or (try (let [u (java.net.URI. (str url))]
-             (when (and (.getScheme u) (.getAuthority u))
-               (str (.getScheme u) "://" (.getAuthority u))))
-           (catch Exception _ nil))
-      ::opaque))
-
-(defn- same-origin?
-  "Does this request come from the browser's own copy of this site?  `POST /edit`
-  writes to the KB with no session to authenticate, so the check that matters is
-  **who asked**: a browser stamps `Origin` (falling back to `Referer`) on a form or
-  fetch POST and a page on another site cannot forge it, so comparing it to the
-  request's own `Host` rejects a cross-site write while leaving the browser's own
-  pages alone.
-
-  A request carrying **neither** header is same-origin by default: that is a
-  non-browser client (curl, the CLI, a test's request map), which has no ambient
-  browser context for another site to ride, so it is not the request CSRF is about."
-  [req]
-  (if-let [claimed (some #(get-in req [:headers %]) ["origin" "referer"])]
-    (= (url-origin claimed)
-       (when-let [host (get-in req [:headers "host"])]
-         (str (name (:scheme req :http)) "://" host)))
-    true))
+;; The origin check lives in `vaelii.impl.guard`, shared with the daemon: both servers
+;; are unauthenticated and face the same two attacks, and one of them (DNS rebinding)
+;; is invisible to this check alone — see that namespace.  `app` applies the `Host`
+;; allowlist that closes it.
+(def ^:private same-origin? guard/same-origin?)
 
 (defn- cross-origin-refusal
   "The 403 a cross-origin write gets: plain text, since the caller is not one of our
@@ -4812,6 +4795,15 @@
   [v]
   (cond (nil? v) [] (sequential? v) (vec v) :else [v]))
 
+(def ^:private loopback
+  "The interface the browser binds unless told otherwise.  It is an operator tool with
+  a write route (`POST /edit`) and no authentication, so it answers only the machine it
+  runs on; exposing it is an explicit choice (`--listen`), not the default.
+
+  Loopback says *which machine*, not which page: a page the operator visits runs on
+  that machine too, which is what the guards in `vaelii.impl.guard` are for."
+  "127.0.0.1")
+
 (defn app
   "The ring handler for a KB.  Pure `request -> response`.
 
@@ -4819,7 +4811,10 @@
   **holder** — anything deref-able, yielding whichever of those is current
   (`vaelii.impl.catalog/holder`).  A holder is what makes the KB switchable: every
   handler resolves it per request, so activating another entry re-points the whole
-  browser without rebuilding the handler."
+  browser without rebuilding the handler.
+
+  This is the routing half only.  What gets *served* is `handler`, which adds the
+  `Host` allowlist — a test drives `app` directly and supplies no `Host` at all."
   [target]
   (-> (ring/ring-handler
        (ring/router
@@ -5109,11 +5104,26 @@
       ;; only *names* a sandbox — nothing is created until something is written there.
       sandbox/wrap-session))
 
-(def ^:private loopback
-  "The interface the browser binds unless told otherwise.  It is an operator tool with
-  a write route (`POST /edit`) and no authentication, so it answers only the machine it
-  runs on; exposing it is an explicit choice (`--listen`), not the default."
-  "127.0.0.1")
+(defn- with-host
+  "Wrap a built handler in the `Host` allowlist for the interface it is bound to.
+
+  It wraps **every** route rather than only the writes.  `same-origin?` guards a
+  cross-site POST, but it folds under DNS rebinding — where the attacker's page is
+  genuinely same-origin with this one — and a rebound page reads the KB as happily as
+  it writes to it.  Reading it is what an attacker came for."
+  [h host]
+  (guard/wrap-host-allowed
+   h
+   (guard/allowed-hosts host)
+   (fn [_] {:status  400
+            :headers {"Content-Type" "text/plain; charset=utf-8"}
+            :body    "unrecognized Host header"})))
+
+(defn handler
+  "What the browser actually serves: `app` behind the `Host` allowlist."
+  ([target] (handler target {}))
+  ([target {:keys [host] :or {host loopback}}]
+   (with-host (app target) host)))
 
 (defn- reloading-handler
   "The handler a REPL session serves: what `app` answers, rebuilt whenever the **var**
@@ -5145,7 +5155,7 @@
   (`\"0.0.0.0\"`) to bind publicly.  `:reload?` serves through `reloading-handler`, so a
   namespace reload reaches the running server — what `lein browser` starts with."
   [target {:keys [port host reload?] :or {port 3000 host loopback}}]
-  (jetty/run-jetty (if reload? (reloading-handler target) (app target))
+  (jetty/run-jetty (with-host (if reload? (reloading-handler target) (app target)) host)
                    {:port port :host host :join? false}))
 
 (defn warm-model
@@ -5315,4 +5325,4 @@
                                              :index-store  (type (:index kb))))})
     ;; the proposal panel's model, loaded while the reader is still finding a term page
     (warm-model)
-    (jetty/run-jetty (app target) {:port port :host host :join? true})))
+    (jetty/run-jetty (with-host (app target) host) {:port port :host host :join? true})))

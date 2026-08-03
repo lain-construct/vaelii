@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.reindex-test
   "The index is derived state: `reindex` must rebuild all of it — trie, roots, term
   index, rule index — from the records alone, such that every read answers as it

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.asp-aspif-test
   "The ASP lower layer: the ASPIF emitter, the atom table, and the backend
   facade.  No KB, no store — these namespaces know nothing about sentexes.

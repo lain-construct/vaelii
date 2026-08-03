@@ -68,8 +68,10 @@ One of those options is worth naming here because its cost is easy to under-read
 `:belief?` (and a store's `:recover?`) governs **two** derived structures, not one: the
 JTMS *and* the cached `genl` / `genlContext` closures. Left off, the KB is findable by
 term and countable but has no type hierarchy at all — `types` and `contexts` come back
-empty and the ontology page has nothing to draw. On the 1.1M-sentex OpenCyc dump that is
-the difference between 0 and 125,385 types. Off is still the right default for a corpus
+empty and the ontology page has nothing to draw. On a 1.2M-sentex OpenCyc dump that is
+the difference between 0 and 125,385 types. (Exact counts move with the import profile
+and the plugin version — [kbs.md](kbs.md) reports 132,391 types for the `:ontology`
+profile it measures. The figure to read here is 0 versus six figures.) Off is still the right default for a corpus
 past what `recover` can do in reasonable time, which is why it is a switch rather than a
 decision the catalog makes.
 

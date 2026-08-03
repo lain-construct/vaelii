@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.demo-test
   "The non-monotonicity walkthrough — `/demo`, the page whose only claim is that this is
   the engine and not a story about one.

@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.1.0"
+(defproject com.vaelii/vaelii "0.2.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 flattened count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -21,8 +21,10 @@
                                     :username :env/clojars_username
                                     :password :env/clojars_password
                                     :sign-releases false}]]
-  ;; README states 2.9+; state it here too, so it is refused rather than claimed.
-  :min-lein-version "2.9.0"
+  ;; README states this too, so it is refused rather than claimed. 2.10 rather than
+  ;; 2.9 because `:preserve-eval-meta` below needs it: on 2.9 the key is silently
+  ;; ignored and every `lein run` prints the reflection warning it exists to suppress.
+  :min-lein-version "2.10.0"
   :dependencies [[org.clojure/clojure "1.12.5"]
                  [com.taoensso/nippy "3.8.1"]
                  [com.taoensso/trove "1.2.0"]
@@ -48,7 +50,11 @@
                  [org.tukaani/xz "1.12"]]
   :main ^:skip-aot vaelii.core
   :target-path "target/%s"
-  ;; an unhinted interop call fails the build instead of paying a runtime lookup
+  ;; an unhinted interop call names itself at compile time instead of paying a silent
+  ;; runtime lookup.  It WARNS and does not fail — nothing greps the output, here or in
+  ;; scripts/lint.sh — so a warning is a defect to fix at the call site rather than a gate
+  ;; that stops the build.  Say so, because a comment promising a gate is how four of them
+  ;; sat in the test tree printing on every run of every backend.
   :global-vars {*warn-on-reflection* true}
   ;; leiningen `pr-str`s the form it evaluates into a temp file, and that drops
   ;; metadata — including the `^Class` hint in leiningen's own `run` form, which the
@@ -63,18 +69,28 @@
                    :llm     :llm
                    :all     (complement :llm)}
   :profiles {:uberjar {:aot :all}
-             ;; point JNA at a Homebrew libclingo (docs/asp.md)
-             :with-clingo {:jvm-opts ["-Djna.library.path=/opt/homebrew/lib"]}
+             ;; point JNA at libclingo (docs/asp.md). `VAELII_CLINGO_LIB` names the
+             ;; directory holding it; the default is Homebrew's on Apple silicon, which
+             ;; is where a macOS `brew install clingo` puts it and nowhere a Linux
+             ;; package manager does — set the variable there (/usr/lib,
+             ;; /usr/local/lib, /usr/lib/x86_64-linux-gnu).
+             :with-clingo {:jvm-opts [~(str "-Djna.library.path="
+                                            (or (System/getenv "VAELII_CLINGO_LIB")
+                                                "/opt/homebrew/lib"))]}
              ;; a foreign-format reader on the classpath for the one command you
              ;; prefix; scripts/link-checkouts.sh is the other route (docs/foreign.md).
              ;;
              ;; GROUP-QUALIFIED, and it has to be. A bare `vaelii-foreign` means
              ;; groupId AND artifactId `vaelii-foreign`, which is not what is
-             ;; published and never will be — the release is
-             ;; `com.vaelii/vaelii-foreign`. The carve rewrites versions and not
-             ;; coordinates, so a bare id here ships as a bare id and the profile
-             ;; resolves nothing on a public checkout.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.1.0"]]}
+             ;; published — the release is `com.vaelii/vaelii-foreign`.
+             ;;
+             ;; `:exclusions` on vaelii itself: the plugin depends on the released
+             ;; vaelii, so without this the profile drags that jar onto the classpath
+             ;; of a *checkout of vaelii*, beside the `src/` being edited. Source paths
+             ;; win today, so it works and hides itself — until local source diverges
+             ;; from the release and a stale class answers instead.
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.2.0"
+                                            :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
              ;; the same plugin at the root level so `cloverage` registers under
@@ -143,8 +159,16 @@
            :insert-missing-whitespace?      true
            :remove-consecutive-blank-lines? true
            :sort-ns-references?             true
+           ;; `clojure.edn/read-string`, never `clojure.core`'s: this file is untracked,
+           ;; so a pull request can add it, and lein evaluates project.clj on *every*
+           ;; invocation.  `core/read-string` honours `#=(...)` reader-eval, which would
+           ;; make checking out a contributor's branch and typing `lein test` arbitrary
+           ;; code execution on the reviewer's machine.
            :extra-indents ~(let [f (java.io.File. "cljfmt-indents.edn")]
-                             (if (.exists f) (read-string (slurp f)) {}))}
+                             (if (.exists f)
+                               (do (require 'clojure.edn)
+                                   ((resolve 'clojure.edn/read-string) (slurp f)))
+                               {}))}
   ;; `lein lint` is the unified report; the lint-* aliases run one check each, and
   ;; `lein fix` reformats in place.
   :aliases {"lint"            ["shell" "bash" "scripts/lint.sh"]
@@ -153,7 +177,7 @@
             "lint-drift"      ["shell" "python3" "scripts/check-doc-drift.py"]
             "lint-kondo"      ["shell" "clj-kondo" "--lint" "src" "test" "bench"]
             "lint-cljfmt"     ["cljfmt" "check"]
-            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/gate.sh" "scripts/update-badges.sh"]
+            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/gate.sh" "scripts/update-badges.sh" "scripts/link-checkouts.sh"]
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
             "gate"            ["shell" "bash" "scripts/gate.sh"]
@@ -189,6 +213,6 @@
             "perf"            ["with-profile" "+bench" "run" "-m" "vaelii.bench.perf"]
             "browser"         ["with-profile" "+browser" "repl"]
             ;; the daemon and the CLI (docs/operations.md)
-            "serve"           ["run" "-m" "vaelii.impl.serve"]
-            "cli"             ["run" "-m" "vaelii.impl.cli"]}
+            "serve"           ["run" "-m" "vaelii.serve"]
+            "cli"             ["run" "-m" "vaelii.cli"]}
   :repl-options {:init-ns vaelii.core})

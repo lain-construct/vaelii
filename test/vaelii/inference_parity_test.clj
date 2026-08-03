@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.inference-parity-test
   "The criterion that decides whether the node engine is right: for every query here,
   `:inference` returns exactly what `:dfs` returns.

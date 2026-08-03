@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-selection-test
   "The selection-scoped editing path: `vaelii.impl.llm.selection`,
   `vaelii.impl.llm.ollama`, `vaelii.impl.llm.provider`, and

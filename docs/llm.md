@@ -231,7 +231,9 @@ Two things about where it comes from, both measured and both counter-intuitive:
 The card is bounded, not complete. A type page's inventory renders 196 terms — 120
 relations, 72 type names and the structural handful — and states the 8 relations
 `:max-relations` cut as a count rather than dropping them silently; with signatures and
-clipped documentation that is about 7,700 tokens. There is no retrieval path and no top-K:
+clipped documentation that is about 7,700 tokens — a **type** page, which carries the
+widest inventory there is; a term page's whole prompt is well under that (below). There
+is no retrieval path and no top-K:
 relevance ordering (the page term's neighbourhood first, then everything else declared)
 exists so that the **token cap cuts the least useful first**.
 
@@ -466,7 +468,8 @@ before anything is sent:
 The budget reserves output room too — one line back per line in, plus slack — because a
 prompt that fits with no room to answer does not fit. Token counts are estimated at 3.5
 characters each, deliberately low so the estimate runs **over**; measured against
-Ollama's own `prompt_eval_count` it over-estimates by 6–8%, which is the safe direction.
+Ollama's own `prompt_eval_count` it over-estimates by 6–14% (the table below), which is
+the safe direction.
 Every response carries the measured count back in `:usage`.
 
 The check runs again **before every repair turn**, because a repair carries the whole

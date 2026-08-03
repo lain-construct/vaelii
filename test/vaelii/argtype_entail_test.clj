@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.argtype-entail-test
   "Assertive argument types: `(argIsa parentOf 1 animal)` read as an entailment about
   the argument, not only as a constraint on it.

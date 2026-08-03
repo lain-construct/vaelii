@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.negation-test
   "Explicit negation with contradiction detection, and defeasible defaults
   (penguins don't fly).  Each test invents gensym'd terms; the fixture rebuilds

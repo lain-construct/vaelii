@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.qcn
   "Qualitative-constraint-network scaling — the one axis the QSR subsystem ships without a
   number for, and the one that decides whether it is a story-scale toy or a KB-scale

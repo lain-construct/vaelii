@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-correct-test
   "The type-level correction pass: a proposal that says the right thing in the wrong
   shape.  Every sentence here is verbatim model output from the eval sweep, so the

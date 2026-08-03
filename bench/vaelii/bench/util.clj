@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.util
   "Shared benchmark plumbing: Zipfian term generation.  Used by the `vaelii.bench.*`
   harnesses so the incantations live in one place.")

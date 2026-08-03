@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.inherit-test
   "Argument-position preservation: `(argPreserving P n R)` /
   `(argPreservingInverse P n R)`, the specificity that lets a stated claim override an

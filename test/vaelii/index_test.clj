@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.index-test
   "Integration tests for the trie index and query path.  They run on the suite's
   scratch stores (db 15 = records, 14 = index) and clear them around each test."

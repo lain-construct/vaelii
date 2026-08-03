@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.rewrite
   "Symbolic (schematic) equational rewriting — the oriented term-rewriting half of
   equality, the gap docs/equality.md leaves open.

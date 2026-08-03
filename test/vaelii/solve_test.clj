@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.solve-test
   "The soft-contradiction solver seam: `Program`, `content-key`, and the shipped
   `local-solver` stub (`vaelii.impl.solve`).

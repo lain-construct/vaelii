@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.io.export
   "Write a KB out as a portable **export dump** — a directory holding the record
   store's three streams, in a format that survives a backend change, an

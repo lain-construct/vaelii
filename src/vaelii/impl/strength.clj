@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.strength
   "Assumption strengths on beliefs, and the derived *defeat-class* that resolves
   soft contradictions.

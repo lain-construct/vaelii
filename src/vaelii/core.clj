@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.core
   "Vaelii — a contextualized common-sense knowledge base.
 
@@ -11,10 +13,16 @@
   signpost, not the roster — docs/api.md is that, and its \"Choosing a query
   function\" table is what separates the five ways to answer a goal.
 
-  This namespace is the **only** public one; the engine lives in layered
+  This namespace is the engine's whole API; the engine itself lives in layered
   `vaelii.impl.*` namespaces (kb <- checks <- special <- integrate <- chain <-
   settle) and everything here is either a delegation into that stack or the
-  `assert` / `retract!` / `recover` orchestration that spans it."
+  `assert` / `retract!` / `recover` orchestration that spans it.
+
+  Five entry points are public beside it, each a thin shim over the same stack:
+  `vaelii.client` (the network client), `vaelii.starter` (the bundled ontology),
+  and `vaelii.web` / `vaelii.serve` / `vaelii.cli` (the browser, the daemon, the
+  command line).  Those six namespaces are the compatibility boundary — everything
+  under `vaelii.impl.*` is free to change without notice."
   (:refer-clojure :exclude [assert isa?])
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
@@ -22,6 +30,7 @@
             [vaelii.impl.budget :as budget]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.feed :as feed]
             [vaelii.impl.imperative :as imperative]
             [vaelii.impl.inference :as inference]
@@ -61,101 +70,43 @@
 (declare recover reindex)
 
 (defn open-kb
-  "Construct a KB.
+  "Construct a KB.  Every option is optional; `(open-kb {})` is records and index in RAM.
 
-  **Storage is two independent choices**: the **records** (the ground truth, which must
-  survive) and the **index** (derived state — `reindex` rebuilds every entry of it from
-  the records, so it need never be persisted).  `:records` takes `:memory` or `:disk`;
-  `:index` takes `:memory`, `:dense` (int postings), `:columnar` (a native int-token
-  trie) or `:disk`.  `:backend` is sugar naming a pair, spelled `<records>-<index>`:
+  | opt | what it picks | default |
+  |---|---|---|
+  | `:backend` | a records×index pair, spelled `<records>-<index>` | `:memory` |
+  | `:records` / `:index` | one axis of that pair on its own | from `:backend` |
+  | `:record-space` / `:index-space` | which in-RAM stores this KB shares | `0` / `1` |
+  | `:dir` | the directory a `:disk` half lives in | derived from the spaces |
+  | `:base` / `:overlay` | the two halves of an `:overlay` fork | — |
+  | `:tms` | `:reference` or `:dense` truth-maintenance representation | `:reference` |
+  | `:naming` | `:strict` / `:warn` / `:off` — what the front door does with a name | `:strict` |
+  | `:constraints` | `:refuse` / `:arbitrate` — what a definitional clash does | the process default |
+  | `:recover?` | `:auto` / `:warn` / `false` — what a non-empty store gets | `:auto` |
 
-    :memory (default)  records and index in RAM, keyed by `:record-space` /
-                       `:index-space` (default 0/1) so a KB rebuilt over the same
-                       numbers sees the same durable-within-the-JVM records
-    :memory-dense      RAM records + the dense int-postings index
-    :memory-columnar   RAM records + the columnar trie index
-    :disk-memory       durable records, the flat map index in RAM — nothing but records
-                       is written
-    :disk-dense        durable records, the dense int-postings index in RAM
-    :disk-columnar     durable records, the columnar trie index in RAM
-    :disk              records and index persisted to on-disk log/idx stores in a
-                       directory (`:dir`, or derived from the space numbers) that
-                       survives a process restart
-    :overlay           a **fork**: a private writable overlay over a shared read-only
-                       base, which `:base` (the opts naming that base) and `:overlay`
-                       (the opts naming this fork's own writable stores) fill in.  See
-                       `fork`, which is the ergonomic spelling; this one is for a second
-                       process mounting the same frozen base.
-
-  `:memory` and `:disk` are the two pairs that are one store on both axes, named for the
-  store rather than doubled.  That is every legal combination: RAM records under the
-  durable index is refused, since an index outliving the records it was derived from
-  describes records that are gone.
+  The seven legal backends and why the eighth is refused: docs/storage.md.  The naming
+  policy and what no setting moves: docs/naming.md.  The constraint policies and when
+  each is the one to want: docs/exceptions.md.  `fork` is the ergonomic spelling of
+  `:overlay`; the raw form is for a second process mounting the same frozen base.
 
   **An option this fn does not read is refused** rather than ignored, and the space
   numbers are why: a misspelt `:record-space` is a key nothing looks at, so the KB would
-  quietly open on the default space and two KBs meant for separate stores would share one
-  — each one's flush emptying the other.  `vaelii.impl.kb/opt-keys` is the roster it is
-  held to, a fork's `:base` and `:overlay` maps included.
+  quietly open on the default space and two KBs meant for separate stores would share
+  one — each one's flush emptying the other.  `vaelii.impl.kb/opt-keys` is the roster.
 
-  A **derived index over durable records opens empty**, so such a KB is reindexed
-  before it is recovered (see `:recover?` below); the cost is one pass over every stored
-  record per open, which is what not persisting the index buys.
+  **A non-empty store needs `recover`, and gets it.**  A fresh KB over stores that
+  already hold sentexes has an empty TMS and taxonomy, so `sentexes-matching` answers
+  nothing, `isa?` answers false, and the definitional checks pass vacuously — every
+  answer quietly wrong for one forgotten call.  `:recover? :auto` repairs that on
+  construction (`reindex` first when the index is derived and therefore opened empty),
+  which costs one pass over the stored records.  It is the default because the failure
+  it prevents is a *wrong answer* rather than an error: `false` and `[]` are legitimate
+  results, so no caller can tell them apart, and a warning is a log line a configured
+  level can drop.  `:warn` only logs; `false` is silent, for a caller managing recovery
+  itself.
 
-  `:tms` selects the truth-maintenance representation: `:reference` (default) holds the
-  network as one persistent map, `:dense` holds it in bitmaps and primitive-keyed maps
-  (3.7x denser, measured — see docs/density.md).  Beliefs are identical either way;
-  the dense one trades a reader's consistent snapshot for the density, which the
-  one-writer contract already permits.
-  `:naming` is **this KB's** front-door policy, not the build's: `:strict` (default)
-  refuses a sentence breaking a naming invariant, `:warn` logs it and stores anyway,
-  `:off` stores in silence.  The conventions are how a symbol's role is read
-  (`docs/naming.md`), so a KB holding a corpus with spelling conventions of its own —
-  hyphens, a dialect's own case — is not malformed, it is a KB whose door is set
-  differently, and one process can hold both.  What no setting moves is the role
-  *reading*: under `:off` a name nothing can classify is stored and classified as
-  nothing, never as something else.  A **bulk** path never consults this at all — an
-  import builds records directly — so the two doors are reconciled by a report rather
-  than by a check (`vaelii.impl.io.import`).
-
-  `:constraints` is this KB's other front-door policy — what a **definitional clash**
-  does.  `:refuse` (the default) has `assert` refuse a disjointness or functionality
-  clash outright, and a declaration arriving *after* the content it convicts report
-  rather than decide.  `:arbitrate` refuses only against `:monotonic` content: against a
-  `:default` claim the sentence is admitted and `settle` arbitrates the pair, and a
-  declaration reaches back over what is already stored — so a violating set lands on the
-  same belief whether the schema or the facts arrived first.  A KB naming neither reads
-  the process default (`VAELII_ARBITRATE_CONSTRAINTS`), which is what lets a whole suite
-  run under one policy.  `:arbitrate` is the one to want for an **import**, where the
-  schema routinely arrives last; `:refuse` for a curated KB, where a writer would rather
-  be told no than have belief quietly rearranged.  Neither is persisted — the policy is
-  this handle's, not the store's — and under `:refuse` a `recover` decides a standing
-  clash that incremental settles left both sides of, since a rebuild's region is every
-  stored sentex (`kb/constraint-policies` has the full statement).
-
-  `:provers` is an atom of the query prover registry; `:solver` an atom of the
-  edge solver (see vaelii.impl.solve); `:conflicts` an atom of the reported
-  contradiction sentences; `:program` an atom of the last Program solved;
-  `:violations` an atom of the accumulating dropped-conclusion ledger (see
-  `violations` / `clear-violations!`); `:contradictions` an atom of the coexisting
-  P/¬P dilemmas; `:recheck` an atom of `{rule-handle -> triggers}` for the rules
-  whose exception needs re-evaluating and the sentences that moved (or `:all`);
-  `:settle-stats` an atom of the settle loop's iteration instrumentation;
-  `:chain-stats` an atom of `{:runs n :last result}` for the chaining runs;
-  `:opposed` an atom of the bodies stored in both polarities (the P/¬P coincidence
-  set `settle/negation-nogoods` iterates), maintained on every store/remove;
-  `:negations` an atom of the nogoods each of those bodies currently yields, so a
-  settle re-derives only the bodies it could have moved and carries the rest.
-
-  **A non-empty store needs `recover`.**  A fresh KB over databases that already
-  hold sentexes has an empty TMS and taxonomy: `sentexes-matching` silently answers nothing
-  (the belief filter), `isa?` answers false, and the definitional checks pass
-  vacuously — every answer quietly wrong for one forgotten call.  The `:recover?`
-  opt decides what construction does about a non-empty store: `:warn` (default)
-  logs the problem once, `:auto` repairs it — `recover` for a durable index, `reindex`
-  (rebuild the index from the records, *then* recover) for a derived one — and `false`
-  stays silent (for a caller that manages recovery or clearing itself — the web
-  `-main`, the tests)."
+  The KB value's slots — the prover registry, the solver, the ledgers, the caches — are
+  documented on the record in `vaelii.impl.kb`."
   ([] (open-kb {}))
   ([opts] (kb/open-kb opts recover reindex)))
 
@@ -882,7 +833,7 @@
         ;; sentex reaches the closure there and migrates what it displaces;
         ;; everything else returns nil.  The three slots it returns are the caller's
         ;; to apply: the twins are chaining seeds, the supersessions are belief, and
-        ;; the violations have to outlive `chain-all`, which clears the ledger.
+        ;; and the violations are reported after `chain-all` so they carry its run id.
         (let [eq (integrate/sentex-added kb s h)
               ;; a fact naming a term the closure has *already* displaced is restated
               ;; on arrival, exactly as a fact asserted before the merge is restated
@@ -939,10 +890,12 @@
                           ;; through the other closure
                           (into (special/visibility-seeds kb sentence)))]
             (when (:chain? opts true) (chain/chain-all kb seeds opts))
-            ;; **After** the chain, because `chain-all` clears the ledger: a violation a
-            ;; merge created — the twin that would have made one individual both a dog
-            ;; and a cat — is this assert's to report, and must survive to be read
-            ;; (docs/equality.md, "Interactions — Disjointness").
+            ;; **After** the chain, so the entry carries the run that just ran: a
+            ;; violation a merge created — the twin that would have made one individual
+            ;; both a dog and a cat — is this assert's to report, and
+            ;; `violations/report` stamps each entry with `(:runs @chain-stats)`
+            ;; (docs/equality.md, "Interactions — Disjointness").  The ledger itself
+            ;; accumulates and is emptied only by `clear-violations!`.
             (violations/report kb (:violations mig))))
         ;; `*defer-settle?*` is bound only while a rule firing mints a skolem NAT
         ;; mid-fixpoint (`skolemize-conclusion`): the nested `(termOfUnit K E)` assert
@@ -1052,6 +1005,13 @@
   (`vaelii.impl.strength`), so a caller reaching for a third has a design question
   rather than a spelling one, and a refusal is the answer that says so."
   [opts]
+  ;; A non-nil non-map `opts` is refused here rather than ignored, so that `check` and
+  ;; `assert` agree: `shape-problems` reports `:shape` for one, and a guard that only
+  ;; looked inside a map would let `(assert kb s ctx :oops)` sail through taking every
+  ;; default while `(check kb s ctx :oops)` said it would not.
+  (when (and (some? opts) (not (map? opts)))
+    (throw (ex-info (str "assert options must be a map, got " (pr-str opts))
+                    {:type :unknown-option :options (vec (sort assert-opt-keys))})))
   (when (map? opts)
     (when-let [unknown (seq (sort-by pr-str (remove assert-opt-keys (keys opts))))]
       (throw (ex-info (str "unknown assert option" (when (next unknown) "s") " "
@@ -1357,6 +1317,40 @@
              :else
              (fact-problems kb sentence context)))))))
 
+(defn- bad-handle-message
+  "The refusal text for a non-handle passed where one handle belongs — shared between
+  `the-handle` (which throws it) and `check-edit` (which reports it as a problem), so
+  check and do disagree on nothing but the delivery."
+  [handle fn-name]
+  (if (sequential? handle)
+    (str fn-name ": got " (count handle) " handles, not one — a rule with a"
+         " conjunctive consequent is stored as one rule per conjunct and"
+         " `assert` returns a handle for each.  Map over them.")
+    (str fn-name ": " (pr-str handle) " is not a sentex handle")))
+
+(defn- the-handle
+  "`handle` as a handle, `nil` as itself, or a refusal saying what it got instead.
+
+  The vector arm is the one that matters.  `assert` returns a **vector** of handles
+  for a rule with a conjunctive consequent — it is split into one rule per conjunct —
+  so `(retract! kb (assert kb rule ctx))`, the composition of the API's own two calls,
+  hands a vector to a fn expecting one handle.  Unrefused, the record lookup misses and
+  the caller gets `{:removed-sentexes 0}`, or `false`, or nil: a silent no-op that looks
+  exactly like \"there was nothing to do\".
+
+  **`nil` passes through**, and is not the same mistake.  `handle-of` answers nil for a
+  sentence the KB does not hold, so `(in? kb (handle-of kb s ctx))` is an ordinary
+  composition whose honest answer is `false` — there is no handle, so it is not
+  believed.  Refusing it would turn a question with a correct answer into an error.
+  What each caller does with nil is its own business; this only declines to invent one."
+  [handle fn-name]
+  (cond
+    (integer? handle) handle
+    (nil? handle)     nil
+    :else
+    (throw (ex-info (bad-handle-message handle fn-name)
+                    {:type :bad-handle :handle handle}))))
+
 (defn- entry-problems
   "`check` of one `[sentence context opts?]` entry, with the entry's own shape checked
   first."
@@ -1381,7 +1375,9 @@
   line rather than at the batch.  An `:add` is checked against the KB **as it stands**
   — an entry admissible only because an earlier entry in the same batch would have
   landed first is reported, since nothing here is stored.  A `:remove` is checked for
-  naming an actually stored handle (`:unknown-handle`)."
+  being a handle at all (`:bad-handle`, the same refusal `edit` throws — a vector of
+  handles included) and for naming an actually stored one (`:unknown-handle`); a nil
+  entry reports nothing, because `edit` treats nil as nothing to remove."
   ;; `batch` is destructured in the body rather than in the parameter vector: the
   ;; published `:arglists` is what a generated client reads to name the argument, and a
   ;; `{:keys [...]}` there names nothing.
@@ -1394,9 +1390,12 @@
           (keep-indexed
            (fn [i h]
              (cond
+               ;; nil is what `edit` treats as nothing to remove — `handle-of` of an
+               ;; absent sentence — so it is not a problem here either
+               (nil? h) nil
                (not (integer? h))
-               {:in :remove :index i :entry h :type :shape
-                :message (str ":remove takes integer handles, got " (pr-str h))}
+               {:in :remove :index i :entry h :type :bad-handle
+                :message (bad-handle-message h "edit")}
                (nil? (p/get-sentex (:records kb) h))
                {:in :remove :index i :entry h :type :unknown-handle
                 :message (str "no sentex is stored under handle " h)}))
@@ -1648,16 +1647,22 @@
   none.  `assert` stamps `:creator` / `:created` when a sentex is first created;
   `add-provenance` layers on application fields.  Removed when the record is retracted."
   [kb handle]
-  (p/get-provenance (:records kb) handle))
+  (p/get-provenance (:records kb) (the-handle handle "provenance")))
 
 (defn add-provenance
   "Merge `m` into `handle`'s provenance map (creating it if absent), returning the
   merged map.  For application-defined bookkeeping layered onto the creation record —
   source, confidence, review state — without touching `:creator` / `:created` unless
-  `m` names them.  Provenance is metadata, not belief, so this is additive with no `!`."
+  `m` names them.  Provenance is metadata, not belief, so this is additive with no `!`.
+
+  A nil `handle` records nothing and returns nil — there is no record to attach to,
+  and `provenance` of nil answers nil, so the write and the read stay in agreement.  A
+  non-handle (a vector of handles included) is refused (`:bad-handle`) rather than
+  written under a key `provenance` would refuse to read back."
   [kb handle m]
-  (p/put-provenance (:records kb) handle
-                    (merge (p/get-provenance (:records kb) handle) m)))
+  (when-some [h (the-handle handle "add-provenance")]
+    (p/put-provenance (:records kb) h
+                      (merge (p/get-provenance (:records kb) h) m))))
 
 (defn- candidate-rules
   "Rules that could conclude `goal`, restricted to the backward-capable ones (the
@@ -2410,71 +2415,29 @@
 (defn violations
   "The definitional constraints a *derived* conclusion would have broken during the
   last forward-chaining run.  Each is
-  `{:violation :arg-type|:disjoint|:functional|:not-stratified :sentence S
-    :context C :rule handle :detail {...}}`.
 
-  `:not-stratified` is the rule-set constraint rather than one of the three
-  definitional ones: a derived `genl` / `genlContext` edge that would give the rule
-  set a cycle through negation (docs/exceptions.md).  It is dropped for the same
-  reason and reported in the same place; its `:detail` carries the `:cycle`.
+    {:violation :arg-type|:disjoint|:functional|:not-stratified|:arity|:non-confluent
+     :sentence S :context C :rule handle :run n :detail {…}}
 
-  The same three checks guard `assert`, where they **throw** — asserting content the
-  KB has declared impossible is a caller error.  A rule that *derives* such content is
-  not: chaining is a fixpoint and cannot abort halfway through one without making
-  belief depend on firing order, and the engine's stance is that contradictions are
-  soft.  So on the derivation path the conclusion is dropped — no sentex, no
-  justification, nothing believed — and reported here instead of thrown.
+  Three of those are ordinary dropped conclusions.  The other three report something
+  that was *not* dropped, and the `:detail` is what distinguishes them:
 
-  `:no-placement` records a firing whose completed join had no context to land in —
-  no context sees the rule and all its antecedent facts (sibling microtheories).
+  | entry | means | detail |
+  |---|---|---|
+  | `:not-stratified` | a derived `genl` edge would put a negation cycle in the rule set | `:cycle` |
+  | `:arity` + `:declared-after` | a declaration arrived after facts it convicts; the facts stand | `:count` `:sample` `:truncated` |
+  | `:disjoint` + `:visible-from` | two memberships each admissible where stated, jointly visible as disjoint | `:exposure-truncated` |
+  | `:non-confluent` | two schematic equations disagree about a shared term; nothing dropped | `:rule` `:with` |
 
-  An `:arity` entry with a `:declared-after` detail is a **retroactive reach** rather than
-  a dropped conclusion: an `(arity P n)` declaration (or the predicate-type membership
-  saying the same thing) arriving after facts of `P` at the wrong arity, which the check
-  on the way in could not have seen because the declaration did not exist yet.  The facts
-  are still stored and believed — this reports and decides nothing, because the second
-  sentex `arity` names is the *vocabulary entry* the conviction is read through and a
-  nogood over the pair would defeat its own premise (docs/taxonomy.md, \"What each
-  constraint does in each arrival order\").
+  Why a retroactive `:arity` reach reports rather than decides, why an exposure is one
+  entry per settle rather than per trigger, and what the instance budget bounds:
+  docs/taxonomy.md and docs/exceptions.md.
 
-  **One entry per declaration**, not per fact: `:declared-after` is the declaration's
-  handle, `:count` how many stored facts disagree, `:sample` a few of them, and
-  `:truncated` whether the instance budget cut the sweep short.  Per fact would let one
-  predicate's extent evict the whole ledger, and nothing is lost — unlike an exposure,
-  which reports a visibility that took a change to create, the wrong-arity facts of `P`
-  are re-derivable from the store whenever somebody wants the list.  An event like the
-  exposures below it, so a rebuild files none and a declaration that leaves and revives
-  files it again.
-
-  A `:disjoint` entry with a `:visible-from` detail is a **cross-context exposure**
-  rather than a dropped conclusion: two believed memberships each admissible where
-  stated, whose types some context can jointly see as disjoint
-  (`settle`'s exposure pass — the definitional checks refuse a writer only on
-  grounds it can see, and the joint question is answered here).  The ledger is
-  **append-only about exposures too**: retracting the ingredient that exposed a
-  clash does not withdraw the entry, and an ingredient that leaves and revives
-  files it again — each exposure is an event, stamped with its run.
-  `:exposure-truncated` is that pass being honest about its bound: a separating
-  declaration or edge implicates every instance below its types, one settle
-  enumerates at most `settle/*exposure-instance-budget*` of them, and a pass cut short
-  says so here instead of reading as full coverage — **one entry per settle**, with
-  `:triggers` counting what went unswept and `:sample` naming a few of them.  Per
-  trigger would say the same thing once per trigger, since the budget belongs to the
-  pass: whichever triggers it reaches first spend it and the rest are cut short by
-  arithmetic.  A corpus load's closing settle holds tens of thousands of them, against
-  a ledger that keeps the newest 1000.
-
-  `:non-confluent` is a **warning**, not a drop: a newly asserted schematic equation
-  forms a non-joining critical pair with an existing one, so two rewrite rules
-  disagree about a shared term (docs/equational.md).  Nothing is dropped — the normal
-  form stays deterministic — but the conflict is surfaced with the two rules
-  (`:rule` / `:with`) and the two forms in `:message`.
-
-  The ledger **accumulates**: each entry carries the `:run` id of the chaining run
-  that dropped it (`chain-stats` counts runs), so a bulk load's drops are still
-  here at the end instead of erased by the next assert.  Capped at the newest
-  1000; every drop is also logged at :warn as it happens.  `clear-violations!`
-  empties it."
+  The ledger **accumulates** — each entry carries the `:run` id of the chaining run
+  that filed it, so a bulk load's drops are still here at the end — and is capped at
+  the newest 1000.  Every drop is also logged at `:warn` as it happens.  It is
+  append-only about exposures too: retracting the ingredient does not withdraw the
+  entry, and one that leaves and revives files again.  `clear-violations!` empties it."
   [kb]
   @(:violations kb))
 
@@ -2635,7 +2598,8 @@
   ;; an addition, when the retraction's net effect on it was nothing.  So the whole
   ;; operation is one event (`feed/with-one-event`).
   (feed/with-one-event kb
-    (let [{:keys [datum? seeds] :as result} (retract-storage! kb handle)]
+    (let [handle (the-handle handle "retract!")
+          {:keys [datum? seeds] :as result} (retract-storage! kb handle)]
       (when datum?
         (settle-after-teardown! kb (vec (keys @(:recheck kb))) seeds))
       (collect-orphaned-nats! kb)
@@ -2661,29 +2625,35 @@
   :removed-justifications n}}`.  To also learn what the batch turned out to *mean* — the
   belief it added and took away — use `edit-with-consequences`, which is this plus the
   diff."
-  [kb {:keys [add remove]}]
-  ;; one event for the batch, for `retract!`'s reason: the teardown settles twice and a
-  ;; feed reports what the batch changed, not what it did on the way
-  (feed/with-one-event kb
-    (let [[added removed]
-          (binding [*defer-settle?* true]
-            [(mapv (fn [[sentence context opts]] (assert kb sentence context (or opts {}))) add)
-             (reduce (fn [acc h]
-                       (let [r (retract-storage! kb h)]
-                         (-> acc
-                             (update :removed-sentexes   + (:removed-sentexes r))
-                             (update :removed-justifications + (:removed-justifications r))
-                             (update :seeds into (:seeds r)))))
-                     {:removed-sentexes 0 :removed-justifications 0 :seeds []}
-                     remove)])]
-      (settle-after-teardown! kb (vec (keys @(:recheck kb))) (distinct (:seeds removed)))
-      (collect-orphaned-nats! kb)
-      {:added added :removed (dissoc removed :seeds)})))
+  ;; `batch` is destructured in the body rather than in the parameter vector, for the
+  ;; reason `check-edit` states: the published `:arglists` is what a generated client
+  ;; reads to name the argument, and a `{:keys [...]}` there names nothing. Its three
+  ;; siblings (`check-edit`, `preview`, `edit-with-consequences`) already take it
+  ;; positionally; this is the one that did not.
+  [kb batch]
+  (let [{:keys [add remove]} batch]
+    ;; one event for the batch, for `retract!`'s reason: the teardown settles twice and
+    ;; a feed reports what the batch changed, not what it did on the way
+    (feed/with-one-event kb
+      (let [[added removed]
+            (binding [*defer-settle?* true]
+              [(mapv (fn [[sentence context opts]] (assert kb sentence context (or opts {}))) add)
+               (reduce (fn [acc h]
+                         (let [r (retract-storage! kb (the-handle h "edit"))]
+                           (-> acc
+                               (update :removed-sentexes   + (:removed-sentexes r))
+                               (update :removed-justifications + (:removed-justifications r))
+                               (update :seeds into (:seeds r)))))
+                       {:removed-sentexes 0 :removed-justifications 0 :seeds []}
+                       remove)])]
+        (settle-after-teardown! kb (vec (keys @(:recheck kb))) (distinct (:seeds removed)))
+        (collect-orphaned-nats! kb)
+        {:added added :removed (dissoc removed :seeds)}))))
 
 (defn in?
   "Is the sentex handle currently believed (JTMS IN)?"
   [kb handle]
-  (jtms/in? (:tms kb) handle))
+  (jtms/in? (:tms kb) (the-handle handle "in?")))
 
 (defn believed
   "The subset of `handles` currently believed, as a set — `in?` asked of many handles
@@ -2704,18 +2674,22 @@
   elements: `:id` (the handle), `:sentence`, `:context`, `:truth`, and for a rule
   `:antecedent` / `:consequent` / `:direction` / `:defeasible`.  Key into it; the
   concrete `vaelii.impl.sentex/AtomicSentex` / `RuleSentex` record class is internal and not
-  part of the contract."
+  part of the contract.  nil (`handle-of` of an absent sentence) answers nil; a
+  non-handle (a vector of handles included) is refused (`:bad-handle`)."
   [kb handle]
-  (p/get-sentex (:records kb) handle))
+  (when-some [h (the-handle handle "sentex")]
+    (p/get-sentex (:records kb) h)))
 
 (defn justification
-  "The justification for an id, or nil.
+  "The justification for an id, or nil — nil in, nil out; a non-id is refused
+  (`:bad-handle`).
 
   Read from the **record store**, not the network: a justification is a record, and
   the network keeps only the part belief is computed from (`jtms/graph-just` — the
   firing's variable bindings are not among it)."
   [kb jid]
-  (p/get-justification (:records kb) jid))
+  (when-some [j (the-handle jid "justification")]
+    (p/get-justification (:records kb) j)))
 
 (defn premise?
   "Is the sentex at `handle` a **premise** — asserted in its own right rather than
@@ -2723,22 +2697,31 @@
   and retracting its supports cannot take it OUT; a derived sentex is the other case,
   and `supporting-justifications` is what shows why.  False for a handle the TMS has
   no node for."
-  [kb handle] (jtms/premise? (:tms kb) handle))
+  [kb handle] (jtms/premise? (:tms kb) (the-handle handle "premise?")))
 
 (defn defeat-class
   "The current defeat-class of a believed handle (:monotonic / :default), or nil when
-  it is OUT — the effective strength of the belief after settling."
-  [kb handle] (jtms/defeat-class (:tms kb) handle))
+  it is OUT — the effective strength of the belief after settling.  nil for a nil
+  handle too; a non-handle is refused (`:bad-handle`)."
+  [kb handle]
+  (when-some [h (the-handle handle "defeat-class")]
+    (jtms/defeat-class (:tms kb) h)))
 
 (defn supporting-justifications
-  "Justifications that conclude `handle` (its supporting justifications)."
+  "Justifications that conclude `handle` (its supporting justifications).  Empty for a
+  nil handle; a non-handle is refused (`:bad-handle`)."
   [kb handle]
-  (keep #(justification kb %) (jtms/supports (:tms kb) handle)))
+  (if-some [h (the-handle handle "supporting-justifications")]
+    (keep #(justification kb %) (jtms/supports (:tms kb) h))
+    ()))
 
 (defn dependent-justifications
-  "Justifications that use `handle` as an antecedent."
+  "Justifications that use `handle` as an antecedent.  Empty for a nil handle; a
+  non-handle is refused (`:bad-handle`)."
   [kb handle]
-  (keep #(justification kb %) (jtms/dependents (:tms kb) handle)))
+  (if-some [h (the-handle handle "dependent-justifications")]
+    (keep #(justification kb %) (jtms/dependents (:tms kb) h))
+    ()))
 
 ;; ---- why: the justification graph as a proof tree ------------------------
 ;; `supporting-justifications` gives one hop.  `why` walks the whole way down to
@@ -2764,11 +2747,41 @@
     (second sentence)
     (list 'not sentence)))
 
-(defn- why* [kb handle seen]
+(def ^:private why-max-depth
+  "How deep `why` expands a proof tree before it stops and says so, absent a
+  `:max-depth` option.
+
+  `seen` guards a *cycle*, which is a different thing from depth: a derivation chain
+  down a long transitive closure has no repeated handle and is bounded only by the
+  KB.  `why*` is real stack recursion, so an introspection call — a pure read — could
+  overflow it on a KB that is merely large."
+  256)
+
+(defn- check-why-opts!
+  "Refuse a non-map `opts`, a key `why` does not read, and a `:max-depth` that is not
+  a natural number — the `check-assert-opts!` reasoning at this door: an option
+  nothing reads takes the default in silence."
+  [opts]
+  (when (and (some? opts) (not (map? opts)))
+    (throw (ex-info (str "why options must be a map, got " (pr-str opts))
+                    {:type :unknown-option :options [:max-depth]})))
+  (when-let [unknown (seq (sort-by pr-str (remove #{:max-depth} (keys opts))))]
+    (throw (ex-info (str "unknown why option" (when (next unknown) "s") " "
+                         (str/join ", " (map pr-str unknown))
+                         " — why reads :max-depth")
+                    {:type :unknown-option :unknown (vec unknown)
+                     :options [:max-depth]})))
+  (when-some [d (:max-depth opts)]
+    (when-not (nat-int? d)
+      (throw (ex-info (str "why's :max-depth must be a natural number, got " (pr-str d))
+                      {:type :unknown-option :max-depth d :options [:max-depth]})))))
+
+(defn- why* [kb handle seen depth max-depth]
   (let [sx   (sentex kb handle)
         base {:handle handle :sentence (readable-sentence sx) :context (:context sx)}]
     (cond
       (nil? sx)             (assoc base :stored? false)
+      (>= (long depth) (long max-depth)) (assoc base :truncated? true)
       ;; The justification graph can cycle (two rules deriving each other, a datum
       ;; re-derived through its own consequence).  A node already on the current path
       ;; is reported as a back-edge instead of being expanded again — the tree stays
@@ -2795,7 +2808,8 @@
                         (cond-> {:justification (:id j)
                                  :informant inf
                                  :strength  (:strength j :monotonic)
-                                 :because   (mapv #(why* kb % seen') antes)}
+                                 :because   (mapv #(why* kb % seen' (inc (long depth)) max-depth)
+                                                  antes)}
                           rule? (assoc :rule (readable-sentence (sentex kb inf))))))))))))
 
 (defn why
@@ -2821,9 +2835,22 @@
   expanded again.
 
   A handle that is stored but not believed yields `{:believed? false}` — ask
-  `why-not` for the reason.  An unknown handle yields `{:stored? false}`."
-  [kb handle]
-  (why* kb handle #{}))
+  `why-not` for the reason.  An unknown handle (nil included) yields
+  `{:stored? false}`.
+
+  **Depth is bounded** — at 256 by default, or at `opts`' `:max-depth` — and a branch
+  that reaches the bound is emitted as `{:truncated? true}` rather than expanded.
+  `:cycle?` guards a repeated handle, which is a different failure: a chain down a
+  long transitive closure repeats nothing and is bounded only by the size of the KB,
+  and this is real stack recursion — so without the cap a pure read could overflow on
+  a large KB.  A truncated tree is re-asked whole with a larger `:max-depth`; a nil
+  or absent `:max-depth` is the default.  An `opts` key `why` does not read is
+  refused (`:unknown-option`), as is a non-map `opts` — `check-assert-opts!`'s
+  reasoning at this door."
+  ([kb handle] (why kb handle nil))
+  ([kb handle opts]
+   (check-why-opts! opts)
+   (why* kb (the-handle handle "why") #{} 0 (or (:max-depth opts) why-max-depth))))
 
 (defn- why-not-handle
   "`why-not` of a stored handle — the original arity, factored out so the sentence
@@ -2890,56 +2917,34 @@
 (defn why-not
   "Why does the KB *not* believe `handle`?  The complement of `why`, as data:
 
-    {:handle h :sentence S :context C :believed? false :reason <keyword> ...}
+    {:handle h :sentence S :context C :believed? false :reason <keyword> …}
 
-  `:reason` is one of
+  | `:reason` | means | carries |
+  |---|---|---|
+  | `:not-stored` | no sentex has this handle | — |
+  | `:superseded` | an equality merge restated it under its class representative; it lost no argument and retracting the equality gives it straight back | `:superseded-by` `:rewrites` |
+  | `:defeated` | the JTMS is forcing it OUT — contradiction resolution ruled against it | `:contradicted-by` |
+  | `:unsupported` | not a premise, and every supporting justification has an antecedent that is OUT | `:support` with `:missing` |
+  | `:excepted` | *(sentence arity only)* a rule applied and its `exceptWhen` query held, so it concluded nothing | `:rule` `:exception` `:via` |
 
-    :not-stored    no sentex has this handle
-    :superseded    an equality merge restated it under its terms' class
-                   representative, so this spelling is stored but not believed.  It
-                   lost no argument and kept all of its support — retracting the
-                   equality gives it straight back.  `:superseded-by` names the
-                   restatement (`:sentence`, `:handle`) and the `:rewrites` that
-                   produced it, as `{old-term representative}`.  See docs/equality.md.
-    :defeated      the JTMS is forcing it OUT — contradiction resolution ruled
-                   against it (see `conflicts` / `last-program`)
-    :unsupported   nothing currently justifies it: it is not a premise, and every
-                   supporting justification has at least one antecedent that is itself
-                   OUT.  `:support` lists them with the `:missing` antecedents; an
-                   empty `:support` means it never had a justification at all.
+  A believed handle yields `{:believed? true}` and no `:reason`.  An empty `:support`
+  under `:unsupported` means it never had a justification at all.  A nil handle is
+  `:not-stored` — the answer for a sentence the KB does not hold — while a non-handle
+  (a vector of handles included) is refused (`:bad-handle`), as `why` refuses it.
 
-  On `:defeated`, `:contradicted-by` lists the believed sentexes that directly
-  contradict this one (its negation, or what it negates).  Be aware of what that is
-  and is not: the engine **does not record which decision defeated a datum** — the
-  defeated set is a set of handles with no provenance, and `settle` erases the
-  evidence it decided from (the loser stops matching, so the nogood is no longer
-  derivable).  So `:contradicted-by` is *recomputed now*, not read back from the
-  decision, and it is empty when the winner has since been retracted.  It is a
-  strong hint, not a recorded verdict.  `last-program` is the nearest thing to the
-  actual record, and only for a tie that reached the solver.
+  **`:contradicted-by` is recomputed, not recorded.**  The engine does not keep which
+  decision defeated a datum — `settle` erases the evidence it decided from, since the
+  loser stops matching and the nogood stops being derivable — so this is a strong hint
+  rather than a verdict, and it is empty once the winner is retracted.  `last-program`
+  is the nearest thing to the actual record, and only for a tie that reached the solver.
 
-  A believed handle yields `{:believed? true}` and no `:reason`.
-
-  ## The sentence arity
-
-  `(why-not kb sentence context)` asks the same question of a **proposition** rather
-  than a handle, and it exists because `exceptWhen` produces answers no handle can
-  carry: a blocked conclusion is never created (docs/exceptions.md, \"the exception is
-  never stored\"), so there is nothing to pass to the handle arity.  It adds one
-  reason:
-
-    :excepted      a rule applies, its antecedents are believed, but its `exceptWhen`
-                   query holds — so it concluded nothing.  Reported as
-                   `{:reason :excepted :rule <handle> :exception <ground sentence>
-                     :via <antecedent handles>}`: the argument that was built and then
-                   discarded, which is what makes an excepted conclusion explicable
-                   instead of merely absent.
-
-  A stored sentence delegates to the handle arity, except that a stored-but-disbelieved
-  one is checked for an exception first — being excepted is the more specific answer
-  than being unsupported.  A sentence that is neither stored nor excepted is
-  `:not-stored`."
-  ([kb handle] (why-not-handle kb handle))
+  **The sentence arity** `(why-not kb sentence context)` exists because `exceptWhen`
+  produces an answer no handle can carry: a blocked conclusion is never stored, so
+  there is nothing to pass to the handle arity.  A stored sentence delegates to that
+  arity, except that a stored-but-disbelieved one is checked for an exception first —
+  excepted is the more specific answer than unsupported.  Neither stored nor excepted
+  is `:not-stored`.  docs/exceptions.md, docs/equality.md."
+  ([kb handle] (why-not-handle kb (the-handle handle "why-not")))
   ([kb sentence context]
    (let [h (kb/find-sentex-handle kb sentence context)]
      (if (and h (in? kb h))
@@ -3076,46 +3081,29 @@
      :contradictions   [ …`contradictions` shape… ]
      :bounded?         bool}
 
-  `:believed-added` and `:believed-removed` are the two halves of the belief diff, in
-  handle order.  The removed half is the interesting one and the one a naive
-  implementation misses: it is where defeat, supersession and the dependency-directed
-  sweep show up, and its `:reason` is `why-not`'s (`:defeated`, `:superseded`,
-  `:unsupported`).  `:handle` is nil for content the batch **created** — after the
-  rollback there is no such sentex, and a number naming nothing is worse than nothing.
-  Content that was already stored keeps its handle either way, so a revived default and
-  a defeated one are both still addressable.
+  The **removed** half is the interesting one, and the one a naive implementation
+  misses: it is where defeat, supersession and the dependency-directed sweep show up,
+  and its `:reason` is `why-not`'s.  `:handle` is nil for content the batch *created* —
+  after the rollback no such sentex exists, and a number naming nothing is worse than
+  nothing.  `:contradictions` is here for a related reason: asserting the negation of a
+  believed default withdraws nothing (a defeasible tie is represented, not arbitrated),
+  so without it the most obvious thing a reviewer can do would report nothing at all.
+  Standing dilemmas are subtracted.  A `:refused` entry is skipped and the rest of the
+  batch is previewed without it.
 
-  `:refused` is `check-edit`'s verdict, plus any entry that threw anyway when applied
-  (`check` is a fair account of `assert`'s refusals, not a proof of one).  A refused
-  entry is **skipped**, and the rest of the batch is previewed without it — an
-  admissible batch minus its bad line is what a caller is about to ask for.
-  `:violations` is what the derivation path dropped during the run — the definitional
-  constraints a *derived* conclusion would have broken — and the KB's own ledger is
-  left as it was found.  `:contradictions` is the dilemmas the batch would **open**, and
-  it is here because otherwise the most obvious thing a reviewer can do would report
-  nothing at all: asserting the negation of a believed default withdraws nothing, since
-  a defeasible tie is represented rather than arbitrated (docs/nmtms.md), so both halves
-  of the diff would be silent about a clash the batch just created.  Standing dilemmas
-  are subtracted, so what is listed is what the batch is answerable for.
+  `opts` bounds the run — `:max-depth` / `:max-derivations` to chaining, `:max-results`
+  on each half of the diff — and `:bounded?` says one of them bit, so a partial answer
+  never reads as a complete one.
 
-  `opts` bounds the run: `:max-depth` / `:max-derivations` are passed to chaining and
-  `:max-results` caps each half of the diff.  `:bounded?` says one of them bit, so a
-  partial answer never reads as a complete one.
+  **The KB is left byte-identical**: same live sentexes, same justifications, same
+  handles.  What does move is the handle counter (a preview mints handles and they are
+  not reissued) and the `chain-stats` / `settle-stats` counters, which record work that
+  genuinely ran.
 
-  **The KB is left byte-identical** — same live sentexes, same justifications, at the
-  same handles — which is the property everything else here rests on.  What does move:
-  the handle counter (a preview mints handles and they are not reissued), and the
-  `chain-stats` / `settle-stats` counters, which record work that genuinely ran.
-
-  Cost is the batch's own cost — one settle over the affected region, as `edit` — plus
-  the rollback, which is a second one.  The diff is taken over the **relabelled region**
-  and never over the believed set, so nothing here scans the KB and a preview is
-  proportional to what the batch touches rather than to what is stored.  A batch whose
-  conclusions cascade is expensive because the cascade is, and that is exactly the
-  answer being asked for.  Bound it with `:max-derivations` when that matters.
-
-  Not concurrent: a preview is a write followed by its undo, so it holds the single
-  writer for its duration (docs/storage.md, \"The single-writer contract\")."
+  Cost is the batch's own cost plus the rollback, which is a second settle.  The diff is
+  taken over the **relabelled region**, never over the believed set, so nothing here
+  scans the KB.  Not concurrent: a preview is a write followed by its undo, so it holds
+  the single writer for its duration.  docs/preview.md."
   ([kb batch] (preview kb batch nil))
   ([kb batch opts]
    (let [tms        (:tms kb)
@@ -3429,53 +3417,38 @@
 
   `f` is called with one argument, `{:believed-added [...] :believed-removed [...]}` in
   `preview`'s entry shapes, so an application renders a preview and a feed with one
-  renderer.  A standing query's entries carry `:bindings` as well — which solution moved
-  — and `f` is not called at all when nothing its goal answers did.  `context` scopes the
-  goal up the `genlContext` cone like any other read, and a variable (`'?ctx`) watches
-  every context and binds to the one that answered.
+  renderer.  A standing query's entries carry `:bindings` too, and `f` is not called at
+  all when nothing its goal answers moved.  `context` scopes the goal up the
+  `genlContext` cone; a variable (`'?ctx`) watches every context and binds the one that
+  answered.
 
-  **The unit is the settle, and one settle is one call.** A batch under
-  `with-deferred-settle` / `assert-many` / `edit` settles once, so it is one event whose
-  halves are exactly what `edit-with-consequences` reports for the same batch — a
-  conclusion derived and then defeated within the batch appears in neither, because a
-  feed reports what changed and not what happened on the way. A `retract!` that
-  re-derives what it swept is held to the same net answer.
+  **The unit is the settle: one settle, one call.**  A batch under
+  `with-deferred-settle` / `assert-many` / `edit` settles once, so its event is exactly
+  what `edit-with-consequences` reports for the same batch — a conclusion derived and
+  then defeated inside the batch appears in neither.
 
-  **What does not arrive.** A mutation that moved no label (re-asserting a stored
-  sentex).  Anything during a `preview`, which stores, reads and takes it all back — an
-  application told belief changed and then that it changed back learned nothing and has
-  probably already acted.  Anything during `recover` / `reindex`, which relabel
-  everything, so a feed through one would hand a reconnecting application the whole KB
-  as newly believed.  A datum the dependency-directed sweep **deleted**, which has no
-  record left to describe (`edit-with-consequences` has the same gap, and `preview` is
-  what answers \"what would this removal take with it\").  And a spelling an equality
-  **merge** displaced: a merge supersedes on the assert path, where no relabel records
-  it, so the displaced sentex loses belief with nothing in the region saying so —
-  `edit-with-consequences` misses it identically, and `preview` is again what sees it.
+  **`f` runs on the writing thread**, synchronously, after the settle and never inside
+  it.  So it may read a settled KB and may write; a write produces its own event,
+  delivered once the current round finishes.  A listener that writes on *every* event is
+  an infinite loop, and delivery gives up after 64 rounds with a warning rather than
+  hanging the writer.  One that throws is logged and skipped.  A listener doing real work
+  should hand the event to a queue and return: this engine has one writer, and a slow
+  listener slows it.
 
-  **Listeners run after the settle, never inside it.** So `f` may read the KB freely,
-  and may write: an `assert` from a listener is an ordinary assert that settles and
-  produces its own event, delivered once the current round finishes.  Listeners never
-  nest, so a writing listener cannot see a half-relabelled KB — but one that writes on
-  *every* event it receives is an infinite loop, and the delivery loop gives up after
-  64 rounds with a warning rather than hanging the writer.  A listener that throws is
-  logged and skipped; the settle is already committed and its neighbours still run.
+  **Four things never arrive**, and `preview` is what answers each: a mutation that moved
+  no label; anything during a `preview`, `recover` or `reindex`; a datum the sweep
+  *deleted*, which has no record left to describe; and a spelling an equality merge
+  displaced.  `edit-with-consequences` has the last two gaps identically —
+  docs/feed.md.
 
-  **`f` runs on the writing thread**, synchronously, inside the write that caused it.
-  That is what lets it read a settled KB and write like any other caller — and it is
-  why a listener doing real work should hand the event to a queue and return: this
-  engine has one writer, and a slow listener slows it.
-
-  **Cost.** A KB with no listener pays one deref per settle and accumulates nothing.  A
-  KB with one pays per **relabelled region** — never per stored sentex, and never a
-  re-run of the goal — which is what `lein perf`'s `feed-listener-scaling` holds it to.
-  The entries are built once per event and shared, and a KB whose listeners are all
-  standing queries never builds the full set at all.
+  **Cost** is per relabelled region, never per stored sentex and never a re-run of the
+  goal (`lein perf`'s `feed-listener-scaling`).  A KB with no listener pays one deref per
+  settle.
 
   A goal whose answer is not a function of the region is **refused** (`:type
-  :not-watchable`) rather than watched for nothing: a conjunction, an aggregate,
-  `unknown`, `thereExists`, an evaluable, an `ist`.  Reach for those with `query` on a
-  plain listener — the event says belief moved, and the query says what it is now."
+  :not-watchable`): a conjunction, an aggregate, `unknown`, `thereExists`, an evaluable,
+  an `ist`.  Reach for those with `query` on a plain listener — the event says belief
+  moved, the query says what it is now."
   ([kb f] (watch kb nil nil f))
   ([kb goal context f]
    ;; `fn?` (or a var naming one) rather than `ifn?`, because a *symbol* is `ifn?` and the
@@ -3639,6 +3612,49 @@
   (some-> (:qcn kb) (reset! {}))
   kb)
 
+(defn close!
+  "Release a durable KB's directory: flush and close the record store, drop it from the
+  durability daemon, and **release the exclusive file lock**.  Returns the KB.
+
+  A `{:backend :disk :dir …}` KB takes an exclusive `FileLock` on its directory when it
+  opens, and without this the lock is held until the JVM exits — so a long-running
+  process could not hand the directory to another process, reopen it elsewhere, or
+  release it after a load it no longer needs.  `clear!` is the other half of the pair
+  and answers a different question: `clear!` destroys the *content* and leaves the
+  store open, this keeps the content and lets go of the store.
+
+  **The stores belong to the directory, not the KB value**: two KBs opened over one
+  directory share them, so closing either closes both, and neither may be used
+  afterwards.  And the promise is scoped to a KB whose *records* half is `:disk`
+  (`{:backend :disk}` and the `:disk-*` pairs) — those are the KBs that carry a `:dir`.
+  A `fork` whose writable half lives on disk carries none, so `close!` on the fork is
+  a no-op and the overlay's directory keeps its lock.
+
+  A no-op on a KB with no directory (every in-memory backend, and the forks above), so
+  it is safe to call unconditionally in a `finally`.  The KB must not be used
+  afterwards; open it again to read the same directory."
+  [kb]
+  (when-let [dir (:dir kb)]
+    (disk/close-dir! dir))
+  kb)
+
+(defn import!
+  "Read an export dump from `dir` into the (empty) `kb`, and return a summary — the
+  inverse of `export!`, which is the only reason this is here: a round trip whose two
+  halves are not both public is not a round trip.
+
+  `opts`: `{:belief? true|false :on-progress f}`.  With `:belief? true` (the default)
+  the dump lands in the state a restart produces — records, justifications and premise
+  marks stored, index rebuilt, belief recovered.  With `:belief? false` every sentex is
+  stored and indexed but nothing is recovered: browsable, findable and countable, but
+  not belief-queryable.  That is the path for a corpus past what an in-RAM JTMS
+  scales to.
+
+  A dump in a foreign dialect needs the reader plugin that declares it
+  (`vaelii.impl.foreign`); one this build cannot read is refused by name."
+  ([kb dir] (import! kb dir {}))
+  ([kb dir opts] (wiring/import-dump kb dir opts)))
+
 (defn export!
   "Write `kb` out as a portable **export dump** in `dir` and return a summary:
 
@@ -3650,7 +3666,7 @@
   none of which the `:disk` store's own directory survives.  What it holds is what the
   record store holds, because everything else is derived: the index is a cache
   (`reindex`), belief and the taxonomy are recomputed (`recover`).  Read back with
-  `vaelii.impl.io.import`.
+  `import!`.
 
   `opts`: `{:variant :records|:records+index :compression :gzip|:xz|:none :chunk-size n
   :provenance? bool :on-progress f}` (defaults `:records`, `:gzip`, 10000, true).

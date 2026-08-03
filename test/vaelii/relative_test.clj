@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.relative-test
   "Relative direction (`vaelii.impl.relative`): the nine base relations of a frame of
   reference and the four derived ones, answered by entailment over the path-consistent

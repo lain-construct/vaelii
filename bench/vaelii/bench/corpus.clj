@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.corpus
   "Generate a corpus shaped like the real KB and watch how forward inference **behaves** on
   it — the open question being how a rule set of this shape works at all, not just how fast.

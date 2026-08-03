@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.qcn-test
   "The generic qualitative-constraint-network engine (`vaelii.impl.qcn`), tested
   against a **hand-built** algebra and network — no KB, no context, no belief.  That

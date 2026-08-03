@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.jtms-atomicity-test
   "The TMS mutation contract: retracting an
   unknown datum no-ops instead of materializing a phantom node and fabricating a

@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.taxonomy-scoped-test
   "The scoped read arities: a closure read asked from context K uses exactly the
   edges K can see — some believed supporter asserts them from K's genlContext

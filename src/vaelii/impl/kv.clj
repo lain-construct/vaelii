@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.kv
   "The key-value substrate the index rests on, and the one `IndexStore`
   implementation written over it.
@@ -66,7 +68,8 @@
   where 1e5 gate calls against a roster of 1,000 cost 15,926 ms built-then-tested
   against 87 ms on the flat map — so the op exists to let each backend answer with the
   probe it already has (a hash lookup, a binary search, a bitmap test)."
-  (:require [vaelii.impl.protocols :as p]
+  (:require [clojure.set :as set]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]))
 
 (def index-layout-version
@@ -81,8 +84,12 @@
   quietly stopped answering.
 
   **Bump it whenever a key shape changes**: a new family, a renamed tag, a different
-  arity, or a different value type at an existing key."
-  1)
+  arity, or a different value type at an existing key.
+
+  2 scopes the argument roots by predicate (`[:argument-root pred pos term]`) and adds
+  the `[:argument-slot pos term]` roster that keeps the predicate-agnostic reads
+  answerable."
+  2)
 
 (defprotocol KvBackend
   "The key-value operations `KvIndexStore` bottoms out on.  Keys are structured
@@ -140,7 +147,14 @@
 (defn- pred-key [p]     [:functor-root p])
 ;; canonicalize the term so a compound query term (a reader-literal list) hits the
 ;; same key as the stored subterm (built by canon); see sentex/canon.
-(defn- arg-key  [pos t] [:argument-root pos (sx/canon t)])
+(defn- arg-key  [pred pos t] [:argument-root pred pos (sx/canon t)])
+;; The argument roots are scoped by predicate, so a probe of `(P ?x B)` reads exactly
+;; P's facts with B at that position instead of every functor's, which the caller then
+;; had to filter by instantiating each candidate.  The slot roster below is what keeps
+;; the predicate-AGNOSTIC public reads (`sentexes-with-arg` / `count-with-arg`) answerable
+;; without a second copy of the postings: it holds the predicates present at a slot, so
+;; the coarse read is a union over a handful of keys rather than one wide bucket.
+(defn- slot-key [pos t]      [:argument-slot pos (sx/canon t)])
 ;; public: the columnar index (vaelii.impl.columnar) emits the same term/root keys into
 ;; a shared backend for the non-trie families, so both stores key identically.
 (defn term-key [term]  [:term-index (sx/canon term)])
@@ -160,10 +174,11 @@
   (let [b (sx/body sentex)]
     (cond-> [(ctx-key (:context sentex))]
       (and (sequential? b) (seq b) (symbol? (first b)))
-      (into (cons (pred-key (first b))
-                  (keep-indexed (fn [i a]
-                                  (when (sx/indexable-term? a) (arg-key (inc i) a)))
-                                (rest b)))))))
+      (into (let [pred (first b)]
+              (cons (pred-key pred)
+                    (keep-indexed (fn [i a]
+                                    (when (sx/indexable-term? a) (arg-key pred (inc i) a)))
+                                  (rest b))))))))
 
 (defn sentex-terms
   "The distinct terms that make a sentex findable: its indexable content terms (see
@@ -203,7 +218,59 @@
                  (map (fn [t] [:remove-from-set roster-key t])))
         terms))
 
-(defn- ->count [reply] (if reply (Long/parseLong (str reply)) 0))
+;; ---- the argument-slot roster --------------------------------------------
+;; The predicate-scoped argument roots answer `(P ?x B)` directly, but they cannot
+;; answer the predicate-AGNOSTIC public reads (`sentexes-with-arg` / `count-with-arg`,
+;; which `settle` uses for functional-predicate clash detection and the planner for
+;; selectivity).  Rather than keep a second copy of every posting, this roster holds the
+;; *predicates* present at a slot, so the coarse read is a union over a handful of keys.
+;; Membership is reference-counted off the postings exactly as the term roster's is: a
+;; predicate enters when its first fact at that slot is indexed and leaves when the last
+;; one is unindexed.
+
+(defn arg-slots
+  "`[[pred pos term] ...]` - the predicate-scoped argument roots a fact contributes.
+  Empty for a rule and for a non-fact, matching `root-keys`."
+  [sentex]
+  (let [b (sx/body sentex)]
+    (if (and (sequential? b) (seq b) (symbol? (first b)))
+      (let [pred (first b)]
+        (into [] (keep-indexed (fn [i a] (when (sx/indexable-term? a) [pred (inc i) a])))
+              (rest b)))
+      [])))
+
+(defn slot-adds
+  "Write ops entering a sentex's predicates in their slots - read BEFORE the postings
+  are written, so a predicate is entered exactly by its first fact at that slot."
+  [backend sentex]
+  (into [] (comp (remove (fn [[pred pos t]]
+                           (pos? (long (kv-count backend (arg-key pred pos t))))))
+                 (map (fn [[pred pos t]] [:add-to-set (slot-key pos t) pred])))
+        (arg-slots sentex)))
+
+(defn slot-retires
+  "Write ops retiring the predicates `handle` is the last fact of at their slots - read
+  BEFORE the postings are removed, so a predicate dies exactly when its posting is
+  `#{handle}`."
+  [backend sentex handle]
+  (into [] (comp (filter (fn [[pred pos t]]
+                           (let [k (arg-key pred pos t)]
+                             (and (= 1 (long (kv-count backend k)))
+                                  (contains? (kv-members backend k) handle)))))
+                 (map (fn [[pred pos t]] [:remove-from-set (slot-key pos t) pred])))
+        (arg-slots sentex)))
+
+(defn- ->count
+  "A trie counter as a long.  The `Long/parseLong` arm is for a backend that replies
+  in bytes; both in-memory backends store a boxed `Long` (`memory.clj`, `dense_kv.clj`),
+  and routing those through `(str)` and back allocated a String per counter read on the
+  default index — once per ground pattern token per frontier node, so on the path of
+  every `find-sentex-handle` and every `prefix-estimate` step of the planner."
+  [reply]
+  (cond
+    (nil? reply)    0
+    (number? reply) (long reply)
+    :else           (Long/parseLong (str reply))))
 (defn- count-at* [backend prefix] (->count (kv-get backend (count-key prefix))))
 
 (defrecord KvIndexStore [backend]
@@ -217,7 +284,8 @@
     (let [pth    (sx/path sentex)
           n      (count pth)
           terms  (sentex-terms sentex)
-          roster (roster-adds backend terms)]         ; reads the pre-write postings
+          roster (roster-adds backend terms)          ; reads the pre-write postings
+          slots  (slot-adds backend sentex)]          ; likewise, before any posting lands
       (kv-batch backend
                 (concat
                  (mapcat (fn [i]
@@ -229,7 +297,7 @@
                          (range (inc n)))
                  (map (fn [t] [:add-to-set (term-key t) handle]) terms)
                  (map (fn [k] [:add-to-set k handle]) (root-keys sentex))
-                 roster))
+                 roster slots))
       handle))
 
   ;; Two batches instead of a round trip per trie level: one to drop the leaf handle
@@ -241,6 +309,7 @@
           n        (count pth)
           terms    (sentex-terms sentex)
           roster   (roster-retires backend terms handle)             ; reads the pre-write postings
+          slots    (slot-retires backend sentex handle)              ; likewise
           prefixes (mapv #(subvec pth 0 %) (range n -1 -1))          ; leaf .. root
           replies  (kv-batch backend
                              (cons [:remove-from-set (leaf-key pth) handle]
@@ -263,7 +332,7 @@
                          dead)
                  (map (fn [t] [:remove-from-set (term-key t) handle]) terms)
                  (map (fn [k] [:remove-from-set k handle]) (root-keys sentex))
-                 roster))
+                 roster slots))
       handle))
 
   (count-at [_ prefix] (count-at* backend prefix))
@@ -323,19 +392,44 @@
   (sentexes-with-functor [_ pred] (kv-members backend (pred-key pred)))
   (count-with-functor    [_ pred] (kv-count    backend (pred-key pred)))
 
-  (sentexes-with-arg [_ pos term] (kv-members backend (arg-key pos term)))
-  (count-with-arg    [_ pos term] (kv-count    backend (arg-key pos term)))
+  ;; Predicate-agnostic reads, answered as a union over the slot roster's predicates.
+  ;; One key in the overwhelmingly common case (a term occupies a given position under
+  ;; one predicate); a handful otherwise. The single-predicate case is allocation-free:
+  ;; the stored set is handed straight back, never copied into a union.
+  (sentexes-with-arg [_ pos term]
+    (let [preds (kv-members backend (slot-key pos term))]
+      (case (count preds)
+        0 #{}
+        1 (kv-members backend (arg-key (first preds) pos term))
+        (reduce (fn [acc pd] (into acc (kv-members backend (arg-key pd pos term))))
+                #{} preds))))
+  (count-with-arg    [_ pos term]
+    (reduce (fn [n pd] (+ (long n) (long (kv-count backend (arg-key pd pos term)))))
+            0 (kv-members backend (slot-key pos term))))
 
-  ;; Multi-column narrowing in one operation: intersect the functor root with every
-  ;; named argument root, so knowing `(rel ?x B C)` narrows on [:functor-root rel], [:argument-root 2 B]
-  ;; and [:argument-root 3 C] at once rather than fetching one column and filtering the rest per
-  ;; record.  The result is a superset of the positional-trie hits (it does not
-  ;; constrain numeric arguments or context — the roots do not index those), which the
-  ;; caller's `unify` filters to the exact set.
-  (sentexes-with-args [_ pred pos-terms]
-    (let [ks (cond-> (mapv (fn [[pos term]] (arg-key pos term)) pos-terms)
-               pred (conj (pred-key pred)))]
-      (if (empty? ks) #{} (kv-intersect backend ks))))
+  ;; Multi-column narrowing. With the argument roots scoped by predicate, a named
+  ;; functor needs NO functor-root intersection: `(rel ?x B C)` reads
+  ;; [:argument-root rel 2 B] and [:argument-root rel 3 C] and intersects only those,
+  ;; and a single bound argument is one hash lookup with nothing intersected at all.
+  ;; A `nil` pred (a variable functor) has no scope to read, so it falls back to the
+  ;; predicate-agnostic reads above and intersects those.
+  ;; The result stays a superset of the positional-trie hits — it still does not
+  ;; constrain numeric arguments or context — which the caller's `unify` filters exact.
+  (sentexes-with-args [this pred pos-terms]
+    (cond
+      (nil? pred)
+      (if (empty? pos-terms)
+        #{}
+        (reduce (fn [acc [pos term]]
+                  (let [s (p/sentexes-with-arg this pos term)]
+                    (if (nil? acc) s (set/intersection acc s))))
+                nil pos-terms))
+      (empty? pos-terms) (kv-members backend (pred-key pred))
+      :else
+      (let [ks (mapv (fn [[pos term]] (arg-key pred pos term)) pos-terms)]
+        (if (= 1 (count ks))
+          (kv-members backend (nth ks 0))
+          (kv-intersect backend ks)))))
 
   ;; Both predicate sets are complete — every rule is registered under all of its
   ;; antecedent predicates and its consequent predicate, whatever its direction — so

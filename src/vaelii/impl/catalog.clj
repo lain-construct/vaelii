@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.catalog
   "What knowledge bases this process can load, and the lifecycle of loading one.
 
@@ -275,7 +277,11 @@
                           :blurb (str "Nothing readable at " (:path e) ".")
                           :missing? true
                           :options []})
-               (select-keys e [:id :name :blurb :kind :options :load]))))))
+               ;; No `:load` key: nothing reads one, and carrying it forward made the
+               ;; catalog file look like it could name what to run rather than only
+               ;; what to read.  A source says where it is and what it is; how it
+               ;; loads is this namespace's business.
+               (select-keys e [:id :name :blurb :kind :options]))))))
 
 (defn sources
   "Every KB this process can load, built-ins first: the shipped ontologies and the
@@ -542,7 +548,7 @@
                              " — they thaw as " (pr-str (some-> r keys vec))
                              ", not as sentexes.  It was written by a build whose record"
                              " classes differ; re-import it from a dump.")
-                        {:type ::unreadable-store :path path}))))))
+                        {:type :unreadable-store :path path}))))))
 
 (defn- chain-asked
   "Forward-chain `kb` when the form asked for it, folding what it derived into `summary`.
@@ -643,13 +649,13 @@
   ([source-id] (load-source source-id {}))
   ([source-id params]
    (when (loading?)
-     (throw (ex-info "a load is already running" {:type ::busy :active (active)})))
+     (throw (ex-info "a load is already running" {:type :busy :active (active)})))
    (let [src (or (source source-id)
-                 (throw (ex-info (str "no KB source " (pr-str source-id)) {:type ::unknown-source})))
+                 (throw (ex-info (str "no KB source " (pr-str source-id)) {:type :unknown-source})))
          key (entry-key src)
          _   (when (entry key)
                (throw (ex-info (str (:name src) " is already loaded — unload it first")
-                               {:type ::already-loaded :key key})))
+                               {:type :already-loaded :key key})))
          cancel (atom false)
          started (now)]
      (swap! state (fn [s]
@@ -718,7 +724,7 @@
                                 :error "still stopping — its loader has not reached a
                                         point at which it can be interrupted"))
         (throw (ex-info (str (:name e) " is still stopping; unload it again in a moment")
-                        {:type ::still-stopping :key key}))))
+                        {:type :still-stopping :key key}))))
     (let [{:keys [backend dir]} (:where (entry key))]
       (try
         (case backend
@@ -873,22 +879,22 @@
   it is bytes on disk that nothing here will clean up."
   [key dir opts]
   (when (str/blank? (str dir))
-    (throw (ex-info "an export needs a destination directory" {:type ::no-destination})))
+    (throw (ex-info "an export needs a destination directory" {:type :no-destination})))
   (when (exporting?)
-    (throw (ex-info "an export is already running" {:type ::export-busy})))
+    (throw (ex-info "an export is already running" {:type :export-busy})))
   (let [e  (entry key)
         kb (:kb e)]
     (when-not e
       (throw (ex-info (if key (str "no loaded KB " (pr-str key)) "nothing is loaded to export")
-                      {:type ::unknown-entry :key key})))
+                      {:type :unknown-entry :key key})))
     (when-not (in-process? key)
       (throw (ex-info (str (:name e) " is served by a daemon, so its dump is written on"
                            " that daemon's own host — export it from there")
-                      {:type ::not-in-process :key key})))
+                      {:type :not-in-process :key key})))
     (when (write-blocked? kb)
       (throw (ex-info (str (:name e) " is still loading — a dump of a KB something is"
                            " still writing is a dump of no single state")
-                      {:type ::still-loading :key key})))
+                      {:type :still-loading :key key})))
     (let [cancel (atom false)]
       (swap! state assoc :export
              {:key key :name (:name e) :dir (str dir)

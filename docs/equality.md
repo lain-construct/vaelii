@@ -442,8 +442,8 @@ individual merging:
   which rewrites the query onto the representative so it keeps blocking the migrated
   facts.
 
-`sameAs` / `equals` stay **individuals-only** (OWL): `rewriteOf` is the spelling
-relation, so it is the one that carries alignment across predicates and types, and
+`rewriteOf` is the spelling relation, so it is the one that carries alignment across
+predicates and types, and
 `wff` enforces that a `rewriteOf`'s two sides are the **same role** —
 predicate-with-predicate, type-with-type, individual-with-individual — since a
 cross-role merge is meaningless and a likely import bug. A bare lowercase word is
@@ -491,13 +491,16 @@ refuse.
   functional first argument is a claim that they are the same value.
 - `wff` refuses a compound argument to all three relations, a `rewriteOf` cycle
   (multi-edge, by reachability over the preference graph) and self-edge, and a
-  non-individual argument to `rewriteOf`. `(sameAs A A)` is accepted.
+  **cross-role** `rewriteOf` — predicate-with-type, type-with-individual. A
+  `rewriteOf` between two predicates or two types is legal and is the point of the
+  relation. `(sameAs A A)` is accepted.
 - `different` in a rule antecedent is a negative dependency in the stratification
   graph, with its negative edge running to the three equality relations. A rule
   concluding an equality from a `different` antecedent is refused at assert time.
 - A merge that creates a disjointness violation is reported through `violations`, not
   thrown, and the impossible twin is dropped rather than stored. The report is
-  appended *after* `chain-all`, which clears the ledger.
+  appended *after* `chain-all`. The ledger accumulates across runs rather than
+  resetting per run (`chain/chain-all`, [nmtms.md](nmtms.md)).
 - `recover` rebuilds the partition from the stored `rewriteOf` / `sameAs` / `equals`
   sentexes and recomputes supersession from it.
 

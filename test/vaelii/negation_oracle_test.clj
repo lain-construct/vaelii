@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.negation-oracle-test
   "Incremental P/¬P pairing finds the same nogoods an exhaustive pass does.
 

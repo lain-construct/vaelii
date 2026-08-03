@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.disk-files-test
   "The disk substrate (`vaelii.impl.disk.files`) tested directly — the frame/slot
   primitives, torn-tail recovery, and the crash-safe compaction recovery branches the

@@ -27,7 +27,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 ## Start here
 
 - [kbs.md](kbs.md) — the four knowledge bases you can load and the route to each: what ships here, what the plugin ships, what you supply, and where a KB has to sit to be found.
-- [api.md](api.md) — the public API: every fn on `vaelii.core`, with what it takes and returns.
+- [api.md](api.md) — the public API: every fn on `vaelii.core`, with what it takes and returns, and the five thin entry-point namespaces beside it.
 - [glossary.md](glossary.md) — every term used across these docs and the code, tagged by subsystem.
 - [commonsense.md](commonsense.md) — the questions this KB is asked, one per reasoning subsystem, what the schema had to grow to answer them, and the outside judge that reads the answers back.
 

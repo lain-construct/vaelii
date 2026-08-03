@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.orientation
   "Cardinal-direction reasoning — a relation algebra over the generic constraint network
   in `vaelii.impl.qcn`, and the companion to the RCC-8 topology in `vaelii.impl.space`

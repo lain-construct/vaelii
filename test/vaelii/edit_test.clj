@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.edit-test
   "`edit` — a batched add-then-remove that settles once.  The point is efficiency and
   a stable belief state: adds land before removes, so a conclusion the removed premise

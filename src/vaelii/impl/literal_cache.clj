@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.literal-cache
   "Canonical variable names for a **solution** cache keyed by a literal, and the
   translation back into the caller's names.

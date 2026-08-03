@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-test
   "The pluggable LLM that proposes KB edits (`vaelii.impl.llm.*`).
 

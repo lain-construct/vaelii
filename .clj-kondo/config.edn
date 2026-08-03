@@ -80,4 +80,5 @@
   vaelii.impl.disk.kv           {:linters {:locking-suspicious-lock {:level :off}}}
   vaelii.impl.access            {:linters {:unused-excluded-var {:level :off}}}
   vaelii.impl.naming            {:linters {:unused-excluded-var {:level :off}}}
-  vaelii.impl.sentex            {:linters {:unused-excluded-var {:level :off}}}}}
+  vaelii.impl.sentex            {:linters {:unused-excluded-var {:level :off}}}
+  vaelii.impl.wiring            {:linters {:unused-excluded-var {:level :off}}}}}

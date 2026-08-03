@@ -1,3 +1,5 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.canon-test
   "Sentex canonicalization: the structural connectives (not / implies / and) are
   decomposed into the record and kept out of both indexes; numbers and strings are
