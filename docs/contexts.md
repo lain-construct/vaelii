@@ -30,7 +30,8 @@ The single point where the engine needs a unique answer is **placement**, since 
 member of a component is an equally maximal common descendant and the conclusion should
 land once rather than once per name. `taxonomy/placement-rep` picks the component's
 `term-min` — content-keyed, so it cannot depend on the order a firing's antecedents were
-listed in — and both of `maximal-common-descendant-contexts`' exits run through it.
+listed in — and every one of `maximal-common-descendant-contexts`' exits runs through it,
+the single-context fast path included.
 
 That answer is only as good as `:scc`, which makes the component map the one piece of
 derived state here that is **more than a pruning**. A dissolved-but-unrepaired component
@@ -353,6 +354,15 @@ that closure being context-independent.  A clash no single writer could see —
 admissible where each half was stated, jointly visible from some descendant — is
 reported by `settle`'s exposure pass in `(violations kb)`, never by refusing a
 writer on grounds it cannot see.
+
+Under a KB's `:arbitrate` constraint policy it is also **weighed**, and by the same
+scoped check: `settle` runs each candidate's definitional question from its own context
+*and* from the maximal common descendant of that context and each context holding a
+sentex it could pair with. That chooses the asker rather than widening what an asker
+sees — a vantage already sees both halves — and it is what stops the same three
+sentences from landing on a defeat or on two coexisting claims according to which half
+was written last ([nmtms.md](nmtms.md)). Under `:refuse` the pass files the report and
+belief is untouched.
 
 **The pass asks its question of the scoped read, not of an enumeration.** For a
 candidate pair of held memberships it must answer "does any context see both of these

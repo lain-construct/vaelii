@@ -151,13 +151,25 @@
   "A one-plan read cache over the index.  `order` estimates every remaining literal
   on every pick, so the same `count-at` prefix is asked for O(n) times per plan;
   each of those is an index lookup.  Counts cannot change mid-plan, so caching
-  them for the life of one call is free correctness-wise."
+  them for the life of one call is free correctness-wise.
+
+  **Fixed arities, and the cache is nested one level per argument.**  The reads it
+  wraps take two arguments or three, all of them known here; a variadic wrapper would
+  allocate a rest-seq per call *and* key the cache on it, and this is called O(n²)
+  times per plan for a hit that should cost a hash lookup and nothing else.  Nesting
+  keys on the arguments as they are, so a hit allocates nothing at all — a tuple key
+  would have moved the allocation rather than removed it."
   [f]
   (let [cache (volatile! {})]
-    (fn [& args]
-      (if-let [e (find @cache args)]
-        (val e)
-        (let [v (apply f args)] (vswap! cache assoc args v) v)))))
+    (fn
+      ([a b]
+       (if-let [e (find (get @cache a) b)]
+         (val e)
+         (let [v (f a b)] (vswap! cache update a assoc b v) v)))
+      ([a b c]
+       (if-let [e (find (get (get @cache a) b) c)]
+         (val e)
+         (let [v (f a b c)] (vswap! cache update-in [a b] assoc c v) v))))))
 
 (defn- prefix-estimate
   "Walk the literal left to right against the trie, extending a known path prefix.

@@ -32,7 +32,12 @@
   Recovery on open: finish any interrupted compaction, truncate a torn log tail, then
   tombstone any slot whose frame now extends past the log (`validate-idx-tail!`).
   Crash-safety rests on the write ordering (append the frame, then point the slot at it)
-  and on `files`' crash-safe compaction.  The tail is located from the frame *lengths*
+  and on `files`' crash-safe compaction.  Where it stops is the slot itself: 24 bytes do
+  not divide a page, so a crash can leave one spliced from two writes, and a splice still
+  pointing inside the log reads as a thaw failure on that handle rather than being caught
+  here (`f/validate-idx-tail!` says what it does and does not cover).
+
+  The tail is located from the frame *lengths*
   (`files/log-tail-offset`) and nothing is decoded to find it — and a clean `close!`
   records each log's length, so an open whose log is still that long skips even the walk.
   The marker is consumed here, so it never describes a store in use; every disagreement
@@ -107,16 +112,26 @@
         idx-path (str dir "/" name ".idx")]
     (f/recover-compaction! log-path idx-path)
     (let [log (f/open-log log-path)
-          idx (f/open-idx idx-path)]
-      (f/truncate-log! log (first (f/log-tail-offset-from log clean-length)))
-      (f/validate-idx-tail! idx log (f/slot-count idx))       ; tombstone slots past EOF
-      (let [live  (java.util.HashSet.)
-            {:keys [enc dec]} (codecs name)]
-        (f/scan-idx! idx (fn [id _ _ flags]
-                           (.add live id)
-                           (when slot-tap (slot-tap id flags))))
-        (->Kind log idx (Object.) (atom (set live)) log-path idx-path (atom nil)
-                (when (pos? cache-cap) (lru cache-cap)) enc dec)))))
+          ;; from here to the return every step can throw — a torn tail, a truncation on
+          ;; a full disk, an unreadable slot — and a `Kind` that never gets built is one
+          ;; nothing will ever close.  So the recovery runs under a guard that gives the
+          ;; two handles back before the failure travels.
+          idx (try (f/open-idx idx-path)
+                   (catch Throwable t (f/close! log) (throw t)))]
+      (try
+        (f/truncate-log! log (first (f/log-tail-offset-from log clean-length)))
+        (f/validate-idx-tail! idx log (f/slot-count idx))     ; tombstone slots past EOF
+        (let [live  (java.util.HashSet.)
+              {:keys [enc dec]} (codecs name)]
+          (f/scan-idx! idx (fn [id _ _ flags]
+                             (.add live id)
+                             (when slot-tap (slot-tap id flags))))
+          (->Kind log idx (Object.) (atom (set live)) log-path idx-path (atom nil)
+                  (when (pos? cache-cap) (lru cache-cap)) enc dec))
+        (catch Throwable t
+          (f/close! log)
+          (f/close! idx)
+          (throw t))))))
 
 (defn- counters-path [dir] (str dir "/counters.nippy"))
 
@@ -301,22 +316,46 @@
         (f/force! (:idx k) true))))
   (f/write-nippy-atomic! (counters-path dir) {:seq @counter}))
 
+(defn- close-quietly!
+  "Run one close step, logging rather than throwing.  A single file that will not close
+  must not leave the rest of the store's handles open: `backend/close-dir!` releases
+  the directory's OS lock whether this store closed cleanly or not, so a handle still
+  open here is open for the life of the JVM over a directory another process may
+  already have taken."
+  [what thunk]
+  (try (thunk)
+       (catch Throwable t
+         (trove/log! {:level :error
+                      :msg (str "disk record store: closing " what " failed: "
+                                (.getMessage t))}))))
+
 (defn close!
   "Flush durably, record the log lengths this session closed at, close every RAF, then
   remove the dirty marker (a clean shutdown).
 
   The lengths are read **after** the fsync and written before anything closes, so the
   marker names exactly what is durable; the next open skips a log's tail walk while its
-  length still agrees ([`f/log-tail-offset-from`](files.clj))."
+  length still agrees ([`f/log-tail-offset-from`](files.clj)).
+
+  **Every handle is released whatever the flush did.**  The flush can fail — a full disk
+  — and the caller above releases the directory's lock on a failed close as deliberately
+  as on a clean one, so a throw that skipped the closes would hand the directory over
+  with every `RandomAccessFile` still held.  The dirty marker is the one step that stays
+  conditional: it says the store closed cleanly, and an unclean close is what it exists
+  to record."
   [{:keys [dir kinds dict] :as store}]
-  (fsync store true)
-  (f/write-clean-marker! dir (into {} (map (fn [[kind k]]
-                                             [(clojure.core/name kind)
-                                              (locking (:lock k) (f/log-length (:log k)))]))
-                                   kinds))
-  (doseq [k (vals kinds)]
-    (locking (:lock k) (f/close! (:log k)) (f/close! (:idx k))))
-  (when dict (dtok/close! dict))
+  (try
+    (fsync store true)
+    (f/write-clean-marker! dir (into {} (map (fn [[kind k]]
+                                               [(clojure.core/name kind)
+                                                (locking (:lock k) (f/log-length (:log k)))]))
+                                     kinds))
+    (finally
+      (doseq [[kind k] kinds]
+        (locking (:lock k)
+          (close-quietly! (str (clojure.core/name kind) ".log") #(f/close! (:log k)))
+          (close-quietly! (str (clojure.core/name kind) ".idx") #(f/close! (:idx k)))))
+      (when dict (close-quietly! "the token dictionary" #(dtok/close! dict)))))
   (f/remove-dirty-marker! dir))
 
 (defn- recover-next-id
@@ -388,25 +427,43 @@
            ;; store nobody holds, so it can never survive into a session that grows a log
            clean   (when-not (f/dirty-marker-present? root) (f/read-clean-marker root))
            _       (f/remove-clean-marker! root)
-           dict    (when (or tokenize? (f/token-log-present? root)) (dtok/open-token-log root))
-           codecs  (codec/by-kind dict tokenize?)
-           ;; a premise is a sentex whose :strength is non-nil, and its slot says so —
-           ;; so the set rides the idx walk `open-kind` is already making, and only a
-           ;; slot that does not say costs a record read (`rebuild-premises!`)
-           marked  (java.util.HashSet.)
-           unsaid  (java.util.ArrayList.)
-           tap     (fn [id flags]
-                     (if-some [premise? (f/slot-premise flags)]
-                       (when premise? (.add marked id))
-                       (.add unsaid id)))
-           kinds   (into {} (map (fn [n] [(keyword n)
-                                          (open-kind root n cache-capacity codecs (get clean n)
-                                                     (when (= n "sentexes") tap))]))
-                         kind-names)
-           counter (atom (recover-next-id root kinds))
-           prem    (atom (rebuild-premises! (:sentexes kinds) root dict marked unsaid))]
-       (f/create-dirty-marker! root)
-       (->DiskRecordStore root kinds counter prem dict)))))
+           ;; Every open below takes file handles, and a throw part-way leaves the ones
+           ;; already taken with nothing to close them: the caller gets an exception
+           ;; rather than a store, so there is no value to close it *through*, and
+           ;; `backend/store-for` releases the directory's lock on its way out — which
+           ;; would hand the directory to another process with these logs still held.
+           ;; So each open registers its own undo, and a failure runs them.
+           closers (java.util.ArrayList.)]
+       (try
+         (let [dict   (when (or tokenize? (f/token-log-present? root))
+                        (let [d (dtok/open-token-log root)]
+                          (.add closers #(dtok/close! d))
+                          d))
+               codecs (codec/by-kind dict tokenize?)
+               ;; a premise is a sentex whose :strength is non-nil, and its slot says so —
+               ;; so the set rides the idx walk `open-kind` is already making, and only a
+               ;; slot that does not say costs a record read (`rebuild-premises!`)
+               marked (java.util.HashSet.)
+               unsaid (java.util.ArrayList.)
+               tap    (fn [id flags]
+                        (if-some [premise? (f/slot-premise flags)]
+                          (when premise? (.add marked id))
+                          (.add unsaid id)))
+               kinds  (into {} (map (fn [n]
+                                      (let [k (open-kind root n cache-capacity codecs
+                                                         (get clean n)
+                                                         (when (= n "sentexes") tap))]
+                                        (.add closers #(f/close! (:log k)))
+                                        (.add closers #(f/close! (:idx k)))
+                                        [(keyword n) k])))
+                            kind-names)
+               counter (atom (recover-next-id root kinds))
+               prem    (atom (rebuild-premises! (:sentexes kinds) root dict marked unsaid))]
+           (f/create-dirty-marker! root)
+           (->DiskRecordStore root kinds counter prem dict))
+         (catch Throwable t
+           (doseq [c closers] (close-quietly! "a half-opened record store" c))
+           (throw t)))))))
 
 ;; ---- compaction ---------------------------------------------------------
 
@@ -424,6 +481,19 @@
   "Max dead-byte ratio across the kinds — the durability daemon's compaction trigger."
   ^double [{:keys [kinds]}]
   (reduce max 0.0 (map kind-dead-ratio (vals kinds))))
+
+(defn- open-compaction-handles!
+  "The three handles a rewrite needs, or none of them.  Opened in a `let` the three
+  throws would escape, a failure from the second or third leaks the ones already taken
+  — a compaction that fails on a full disk is exactly when the process keeps running."
+  [log-path log-tmp idx-tmp]
+  (let [rlog (f/open-log-read log-path)]
+    (try
+      (let [tlog (f/open-log log-tmp)]
+        (try
+          [rlog tlog (f/open-idx idx-tmp)]
+          (catch Throwable t (f/close! tlog) (throw t))))
+      (catch Throwable t (f/close! rlog) (throw t)))))
 
 (defn- compact-kind!
   "Rewrite kind `k`'s log with only its live frames, preserving slot ids, crash-safely
@@ -455,9 +525,9 @@
                                   (fn [id off len flags] (.add live [id off len flags])))
                      (reset! (:compacting k) {:touched #{} :aborted false})
                      (vec live)))
-        rlog (f/open-log-read (:log-path k))
-        tlog (f/open-log log-tmp)
-        tidx (f/open-idx idx-tmp)]
+        [rlog tlog tidx] (open-compaction-handles! (:log-path k) log-tmp idx-tmp)
+        ;; the commit point, read by the failure path — see its comment
+        committed? (volatile! false)]
     (try
       ;; the expensive rewrite — no lock held; reads the immutable region via `rlog`.
       ;; The flags are carried across from the source slot rather than re-derived: a
@@ -497,13 +567,26 @@
               (f/force! tlog false) (f/force! tidx true)
               (f/close! tlog) (f/close! tidx)
               (f/write-commit-marker! marker {:log (:log-path k)})
+              (vreset! committed? true)
               (f/replay-temp-onto-raf! (:log k) log-tmp)
               (f/replay-temp-onto-raf! (:idx k) idx-tmp)
               (f/delete-compact-temps! marker log-tmp idx-tmp)))
           (reset! (:compacting k) nil)))
+      (catch Throwable t
+        ;; A failure **before the marker** takes the temps with it.  No marker was
+        ;; written, so the originals stay authoritative and a *later open* would drop
+        ;; them via `recover-log-compaction!` — but the next compaction **in this
+        ;; session** never goes through recovery, and `f/open-log` seeks to `.length`
+        ;; while `f/open-idx` does not truncate.  It would open these and append, and the
+        ;; reconcile would replay a temp holding this run's slots over the live index,
+        ;; resurrecting records deleted in between.  A failure **after** the marker must
+        ;; leave them: it is the commit point, `replay-temp-onto-raf!` truncates before
+        ;; copying, and the next open finishes the replay off the marker.
+        (f/close! tlog) (f/close! tidx)
+        (when-not @committed? (f/delete-compact-temps! marker log-tmp idx-tmp))
+        (throw t))
       (finally
-        ;; stop delta tracking even if the rewrite threw (no marker was written before
-        ;; a failure, so the originals stay authoritative and recovery drops the temps).
+        ;; stop delta tracking even if the rewrite threw
         (reset! (:compacting k) nil)
         (f/close! rlog) (f/close! tlog) (f/close! tidx)))))
 

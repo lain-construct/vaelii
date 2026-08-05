@@ -108,10 +108,22 @@ lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # reachable off-machine (opt-
   non-browser client with no ambient browser context to ride. Binding to an address
   with `--listen` drops the allowlist (the name you reach it by is then yours to
   know); set `VAELII_ALLOWED_HOSTS` to keep the check.
-- **A body over 16 MiB is refused** with 413 before it reaches the heap
-  (`VAELII_MAX_BODY_BYTES` adjusts the cap). An op body is a sentence and its context,
-  so the ceiling is nowhere near a legitimate call — it is there so an unauthenticated
-  caller cannot spend the daemon's heap by streaming one.
+- **A body over 16 MiB is refused** with 413 before it reaches the heap. An op body is a
+  sentence and its context, so the ceiling is nowhere near a legitimate call — it is
+  there so an unauthenticated caller cannot spend the daemon's heap by streaming one.
+  The cap and its `VAELII_MAX_BODY_BYTES` override are `vaelii.impl.guard`'s
+  (`max-body-bytes`, `wrap-body-limit`), not this namespace's, because the browser has
+  the same exposure through a form body and reads the same number — one ceiling, two
+  servers ([web.md](web.md)).
+- **A read is realized under the write monitor.** Projecting the answer for the wire is
+  what realizes a lazy result, so it runs *inside* the lock the daemon serializes ops
+  with; run after it, a `:query` could straddle a concurrent `:assert` and report a
+  KB that never existed.
+- **Four refusals are the daemon's own**, and each carries a plain `:type` keyword —
+  unqualified, like every other `:type` the tree throws (docs/api.md): `:not-edn` (415,
+  the content-type guard above), `:cross-origin` (403), `:bad-host` (400) and
+  `:body-too-large` (413). Every other `{:ok false}` carries whatever `:type` the engine
+  threw, so a client discriminates on one vocabulary rather than on the status code.
 - **Sentex records are projected to plain maps** before they hit the wire (the
   `sentex`-map contract, docs/api.md), so a client needs no `impl` record class.
 - **The vocabulary is served** (`:terms`, `:term-count`, `:find-terms`): a remote client
@@ -174,8 +186,10 @@ lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # reachable off-machine (opt-
 The browser (`vaelii.web`) reaches a KB through the `vaelii.core` surface alone. That
 surface is re-exported by `vaelii.impl.access` as a facade whose every op takes a
 *target* that is either an in-process KB or a remote daemon — the reads the browser
-renders with (`check` among them: it writes nothing, so it is a read), plus the two
-writes it performs, `edit` and `forward-chain`:
+renders with (`check` among them: it writes nothing, so it is a read), plus the four
+writes it performs: `edit`, `edit-with-consequences`, `forward-chain`, and `preview`
+(filed with the writes although it stores nothing, because it applies the batch and
+rolls it back and so holds the single writer for its duration):
 
 ```sh
 lein serve 4200 /var/lib/vaelii              # a daemon owns the KB
@@ -191,9 +205,11 @@ lein run -m vaelii.web --attach localhost 4200   # browse it, over the API, on :
   can't drift, and a page renders byte-for-byte identically over either.
 - The default (no `--attach`) is still an in-process starter KB — fast, standalone, and
   the right choice for local exploration. Attach is for inspecting a running daemon.
-- **Writing over the wire:** the browser's Save, its new-sentex form, and its Retract all
-  dispatch to the daemon `:edit` op, and its forward-chain trigger to `:forward-chain`,
-  like any read — so modifying a KB works against an attached daemon too, with the daemon
+- **Writing over the wire:** the browser's Save and its Retract dispatch to the daemon
+  `:edit` op, its assert form and its accepted-proposal commit to
+  `:edit-with-consequences` (which answers with what the batch turned out to mean), its
+  forward-chain trigger to `:forward-chain`, and its proposal preview to `:preview` —
+  like any read, so modifying a KB works against an attached daemon too, with the daemon
   the single writer serializing each one under its lock. Each is preceded by a `:check`
   round-trip, so a refusal costs a message rather than a half-applied batch.
 

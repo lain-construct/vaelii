@@ -274,7 +274,7 @@
           ;; argument root keys the compound *whole*, so it pins in one read what the
           ;; linearized trie key still has to fan out to reach.
           (and *arg-root-retrieval* stuck?)
-          (p/sentexes-with-args ix pred ground)           ; intersect functor + all arg roots
+          (p/sentexes-with-args ix pred ground)           ; intersect the scoped arg roots
 
           ;; a positive pattern with a nested compound argument — the structural case.
           ;; The trie key linearizes the compound, so `p/lookup` narrows on its interior;
@@ -778,17 +778,18 @@
   reference fan-out.
 
   A sentex an `except` has hidden from `view-context` is filtered out — the read side
-  of visibility removal, and (since forward chaining joins through this) the derivation
-  side too.
+  of visibility removal.  Forward chaining reaches the same filter down its own road:
+  its join goes through `chain/*matcher*`, which is `match-pattern`, and `match-one`
+  applies the same hidden-handle test there.
 
   Answers are **cached per KB** by the literal they answer, α-renamed so two spellings
   of one question share an entry, and stamped with the change clock so any mutation
-  retires them (`vaelii.impl.literal-cache`).  The two retrieval-strategy vars are part
-  of the key rather than assumed away: the set-algebra and fan-out paths must agree on
-  the answer set, and that is a thing `retrieval_completeness_test` checks — a cache
-  that served one path's answers to the other would be checking a result against
-  itself.  With `literal-cache/*enabled*` false this is the bare call it has always
-  been."
+  retires them (`vaelii.impl.literal-cache`).  **All three** retrieval-strategy vars are
+  part of the key rather than assumed away: the set-algebra and fan-out paths must agree
+  on the answer set, and so must the structural-trie and functor-extent candidate
+  sources, which is what `retrieval_completeness_test` and `structural_index_test` check
+  — a cache that served one path's answers to the other would be checking a result
+  against itself.  With `literal-cache/*enabled*` false this is the bare call."
   [kb sentence view-context]
   (let [compute (fn [s]
                   (->> (if *hierarchical-retrieval*
@@ -802,7 +803,8 @@
         (lc/rename-matches
          rename
          (lc/lookup (:matches kb)
-                    [canonical view-context *hierarchical-retrieval* *arg-root-retrieval*]
+                    [canonical view-context
+                     *hierarchical-retrieval* *arg-root-retrieval* *structural-index*]
                     #(compute canonical)))))))
 
 ;; ---- backward chaining --------------------------------------------------

@@ -5,8 +5,14 @@
 
 A **fork** is a private, writable KB layered over a shared, read-only **base**. Reads
 resolve fork-first and fall through to the base; writes land only in the fork; **the base
-is never mutated**. So N JVMs can mount one frozen base and each keep its own divergent
+is never mutated**. So N forks can hang off one base and each keep its own divergent
 copy, and the sharing costs nothing — no copy, no protocol between them, no coordinator.
+
+The sharing is **within one process**. A `:disk` base is opened through the ordinary
+durable store registry, which takes the directory's exclusive single-writer lock
+(storage.md, "The single-writer contract"), so a second JVM mounting the same base
+directory is refused with `:type :disk-locked` — base immutability is a property of the
+decorator, not a licence to open the bytes twice.
 
 ```clojure
 (def base (v/open-kb {:backend :disk :dir "/kb/frozen" :recover? :auto}))
@@ -20,7 +26,8 @@ copy, and the sharing costs nothing — no copy, no protocol between them, no co
 spelled with the backends that already exist rather than with names of their own: an
 in-RAM overlay is the ephemeral hypothesis, a disk one is durable and remountable.
 
-A second process mounting the same frozen base spells it out instead:
+A fork assembled from opts alone spells it out instead — which is how a durable fork is
+remounted, in a later process, over the base it was taken against:
 
 ```clojure
 (v/open-kb {:backend :overlay
@@ -28,6 +35,11 @@ A second process mounting the same frozen base spells it out instead:
             :overlay {:backend :disk :dir "/kb/g"}
             :recover? :auto})
 ```
+
+A base opened this way is held to the index key-layout sentinel `open-kb` holds its own
+half to ([indexing.md](indexing.md), §7) — and refused (`:type :stale-index-layout`)
+rather than rebuilt, since rebuilding is a write and a base is mounted read-only. Open
+that directory as a KB once, which clears and rebuilds it, then mount the fork over it.
 
 ## Why one decorator forks the whole index
 
@@ -150,11 +162,23 @@ a handle nobody holds and touches no stored record, and it is what the fork's id
 is seeded from; the alternative is a `max` over the base's whole live-id set at every
 mount.
 
+**It is the one thing a mount changes about the base**, and over a durable base the change
+outlives the process. `next-id` advances the base store's monotonic counter, and the disk
+record store persists that counter to `counters.nippy` on its next flush — so mounting a
+fork over a `:disk` base bumps the base's stored sequence by one, permanently. The bump
+allocates: it can only skip a handle, never reuse one, and recovery takes
+`max(the counters blob, 1 + the highest slot id)`, so a skipped number costs nothing and
+loses nothing. There is no read-only way to seed a watermark, and no arrangement under
+which the counter both seeds a fork and stays where it was.
+
 ## Invariants
 
 1. **Base immutability.** No overlay operation writes the base. `overlay_test` compares
    the base's records, premise marks and whole index before and after a fork asserts,
-   derives, retracts and clears — byte-identical, including handles.
+   derives, retracts and clears — byte-identical, including handles. The **id counter**
+   is outside that comparison and is the one exception, above: mounting advances it by
+   one, and on a durable base that lands in `counters.nippy`. No record, key, mark or
+   handle assignment moves.
 2. **A fork of nothing is the thing it forked.** The overlay `KvBackend` passes
    `kv_backend_test`'s adapter contract over an empty base, and
    `VAELII_TEST_BACKEND=overlay` runs the *whole suite* that way
@@ -170,10 +194,13 @@ mount.
 
 This is the *storage substrate* for hypothetical reasoning, not the belief logic: an ATMS
 tracks several environments inside one network, and nothing here does. It is also not a
-distributed system. Each JVM mounts the same frozen base read-only, which needs no
-protocol — and equally offers no cache coherence: a base that changes under a mounted fork
-is outside the contract. Multi-level stacks (base → fork → fork) are refused rather than
-half-supported; an `:overlay` half that is itself an `:overlay` is an error naming itself.
+distributed system, and not a way around the single writer: a durable base is locked by
+the process that mounts it, and the forks that share it are the ones in that process's
+heap. There is no coherence protocol either — a base that changes under a mounted fork is
+outside the contract. Multi-level stacks (base → fork → fork) are refused rather than
+half-supported, on both roads in: an `:overlay` half declared `:overlay` is an error
+naming itself, and `core/fork`'s own `:base-stores` — which names no backend to catch —
+is asked directly (`mount/forked?`), so `(fork (fork base))` throws `:stacked-fork`.
 
 See also [storage.md](storage.md), [indexing.md](indexing.md),
 [density.md](density.md).

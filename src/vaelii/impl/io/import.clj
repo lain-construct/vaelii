@@ -10,7 +10,7 @@
 
       sentexes.nippy.stream        one field-map frame per sentex
       justifications.nippy.stream  one per justification
-      provenance.nippy.stream      [sentex-handle map] per frame — optional
+      provenance.nippy.stream      [handle map] per frame — optional
 
   A `:records+index` dump also carries the index, as a **cache** that is used only when
   it can be proved to describe the records that were just stored (see *the index* below);
@@ -147,7 +147,8 @@
     (:none nil) in
     :xz         (reflective-input "org.tukaani.xz.XZInputStream" in)
     :zstd       (reflective-input "io.airlift.compress.zstd.ZstdInputStream" in)
-    (throw (ex-info (str "unknown compression " compression) {:compression compression}))))
+    (throw (ex-info (str "unknown compression " compression)
+                    {:type :unknown-compression :compression compression}))))
 
 ;;; ── stream readers ────────────────────────────────────────────────────
 
@@ -465,12 +466,23 @@
   justifications are numbered from one counter, so preserving one kind and minting the
   other would leave the minted ones colliding with the handles the other kind is holding
   — and a justification handle is what `core/justification` and the web's justification
-  pages are addressed by.  Returns `{:stored n :dropped n}`."
+  pages are addressed by.
+
+  Antecedents land as a **vector**, which is the shape the engine's own write path
+  stores and `jtms/graph-just` normalizes to.  They are read as a set — order and
+  duplicates are immaterial to `has-justification?` — but storing one would leave an
+  imported record spelled differently from an asserted one, and a dump written from an
+  imported KB differing byte for byte from the dump it came from.
+
+  Returns `{:stored n :dropped n :ids {old-handle new-handle}}`; the id map is what
+  lets a *justification's* provenance be replayed, since `old->new` covers the sentexes
+  only."
   [kb frames old->new preserve? tick!]
   (let [records (:records kb)
         remap   (fn [id] (if (integer? id) (get old->new id) id))
         stored  (volatile! 0)
-        dropped (volatile! 0)]
+        dropped (volatile! 0)
+        ids     (volatile! {})]
     (doseq [frame frames]
       (tick!)
       (let [{:keys [informant antecedents consequence bindings strength out]} frame
@@ -481,12 +493,13 @@
         (if (or (nil? conseq) (nil? inf) (some nil? antes) (some nil? outs))
           (vswap! dropped inc)
           (let [jid  (or (when preserve? (:id frame)) (p/next-id records))
-                just (cond-> (jtms/->just jid inf (set antes) conseq (or bindings {})
+                just (cond-> (jtms/->just jid inf antes conseq (or bindings {})
                                           (strength-class strength))
                        (seq outs) (assoc :out (set outs)))]
             (p/put-justification records just)
+            (when-let [did (:id frame)] (vswap! ids assoc did jid))
             (vswap! stored inc)))))
-    {:stored @stored :dropped @dropped}))
+    {:stored @stored :dropped @dropped :ids @ids}))
 
 (defn- mark-premises-by-strength!
   "Mark the premises of a dump of ours: a premise **is** a sentex whose `:strength` is
@@ -505,10 +518,15 @@
     (count by-handle)))
 
 (defn- import-provenance-frames!
-  "Replay the `provenance.nippy.stream` — `[sentex-handle map]` frames, the
-  handle remapped.  Optional: a dump whose handles carry none writes no file.  Belief
-  never reads provenance, so this is annotation only.  Returns the count stored."
-  [kb dir compression read-fn old->new]
+  "Replay the `provenance.nippy.stream` — `[handle map]` frames, the handle remapped.
+  Optional: a dump whose handles carry none writes no file.  Belief never reads
+  provenance, so this is annotation only.  Returns the count stored.
+
+  `handles` is the whole old→new map, sentexes **and** justifications: `add-provenance`
+  writes under whatever handle it is given, so a frame can name either kind, and one
+  this map cannot resolve is dropped rather than written under a number now holding
+  something else."
+  [kb dir compression read-fn handles]
   (let [^java.io.File f (io/file dir provenance-file)]
     (if-not (.exists f)
       0
@@ -517,7 +535,7 @@
         (doseq [frame (read-fn f compression)]
           (when (and (sequential? frame) (= 2 (count frame)))
             (let [[did prov] frame
-                  h (get old->new did)]
+                  h (get handles did)]
               (when (and h (map? prov))
                 (p/put-provenance records h prov)
                 (vswap! n inc)))))
@@ -824,12 +842,15 @@
                   (if ours?
                     ;; ours says it directly: justifications are justifications, and a
                     ;; premise is a sentex carrying a strength
-                    (let [{:keys [dropped]}
+                    (let [{:keys [dropped ids]}
                           (import-justifications!
                            kb (read-fn (io/file dir justification-file) compression) old->new
                            kept? (tick :justifications (:justification-count meta)))]
                       {:premises   (mark-premises-by-strength! kb sx-meta)
-                       :provenance (import-provenance-frames! kb dir compression read-fn old->new)
+                       ;; both kinds' handles, since a provenance frame can name either
+                       ;; and the two draw from one counter, so nothing collides
+                       :provenance (import-provenance-frames!
+                                    kb dir compression read-fn (merge old->new ids))
                        :dropped    dropped})
                     ;; a foreign dialect's account, read by its own reader
                     ((:replay-belief! (foreign/reader! :engine-dump))

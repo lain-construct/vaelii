@@ -31,8 +31,8 @@ are the three sources always offered on the `/kbs` page, so you can load any of 
 
 ## Both OpenCyc routes start with the reader on the classpath
 
-Both artifacts are published, so prefixing a command with `+with-foreign` resolves the
-reader from Clojars and there is nothing to install:
+In a released tree, `+with-foreign` names the released reader, which Clojars carries,
+so prefixing a command with it resolves the reader and there is nothing to install:
 
 ```sh
 lein with-profile +with-foreign run -m vaelii.web
@@ -40,7 +40,7 @@ lein with-profile +with-foreign run -m vaelii.web
 
 Two other routes exist and are worth knowing apart.
 
-**Against an unreleased plugin**, `+with-foreign` names a snapshot version, which
+**In the development tree**, `+with-foreign` names a snapshot version, which
 Clojars does not carry, so it comes out of `~/.m2` and you put it there yourself:
 
 ```sh
@@ -88,8 +88,12 @@ the distribution's own binary unit files directly, needing no Cyc image and no e
 tool, so the input is a directory inside it (`5022` on the 4.0 release):
 
 ```sh
+cd vaelii-foreign
 lein convert convert <opencyc>/server/cyc/run/units/5022 ~/.vaelii/kbs/opencyc-4.0
 ```
+
+`convert` is vaelii-foreign's alias, not this repo's, so both commands on this page run
+from that checkout; the engine has no such task and answers "not a task".
 
 1,889,842 assertions read in 9 seconds and convert to 1,831,617 sentences over 5,338
 contexts. The `lein convert` alias carries a heap that can hold a corpus; a plain `lein
@@ -106,6 +110,7 @@ Name a `:dir` on the card for a durable KB when RAM is the constraint.
 **Or once, offline, into a store:**
 
 ```sh
+cd vaelii-foreign
 lein convert load ~/.vaelii/kbs/opencyc-4.0 /var/lib/vaelii/opencyc --profile ontology
 ```
 

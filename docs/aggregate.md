@@ -254,7 +254,7 @@ are one problem — both read what the KB believes rather than a fact the justif
 names, so both need an arriving fact on those predicates to bring the firing back for
 re-decision.
 
-**The withdrawal.** `chain/justification-excepted?` gains an arm that re-runs each
+**The withdrawal.** `chain/justification-excepted?` carries an arm that re-runs each
 aggregate in the conclusion's own context under the firing's **stored bindings**, where
 `?n` is already bound — so each runs in check mode, and a mismatch blocks the firing
 exactly as an exception does. The antecedents could not express this: they name the

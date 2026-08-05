@@ -13,11 +13,13 @@
   Two calls are deliberately *not* refusals.
 
   * `next-id` on the frozen record store.  It hands out a handle nobody holds and
-    touches no stored record, and it is what the overlay's id watermark is seeded from
+    stores no record, and it is what the overlay's id watermark is seeded from
     (`vaelii.impl.overlay.store`) — the alternative, a `max` over the base's whole live-id
-    set, is O(base) at every mount.  Two JVMs mounting one base each bump their own
-    in-RAM counter to the same value and then diverge into their own overlays, which is
-    exactly what independent forks are.
+    set, is O(base) at every mount.  It is not free of the base, though: it advances the
+    base's monotonic counter, which a disk store persists at its next flush, so a mount
+    skips one handle permanently.  Allocating-only is what keeps that safe — a skipped
+    handle is never reused, and recovery takes `max(blob, 1 + highest slot)`.  One JVM
+    holds the base's directory lock, so there is no second mounter to agree with.
   * `kv-entries` / `sentex-ids` and friends.  Enumeration is a read.
 
   This is a decorator, not a file mode: it says nothing about how the underlying store

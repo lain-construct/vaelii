@@ -355,7 +355,7 @@ and `exceptWhen` take.
 
 ## What every algebra does with it
 
-The three provers are line-for-line the same shape, so the pattern is worth stating once.
+The six provers are line-for-line the same shape, so the pattern is worth stating once.
 
 **Reading in.** One `res/matches-visible` per predicate of the calculus — belief- and
 context-filtered, so a defeated or invisible fact never reaches the network. Each

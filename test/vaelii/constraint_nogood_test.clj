@@ -491,6 +491,142 @@
         (is (= [:disjoint] (mapv :kind (v/contradictions kb)))
             "the visibility edge is what makes them a pair")))))
 
+;;; ── the pair only one context can see ─────────────────────────────────
+
+;; A separation, a functional slot and an asymmetric claim are all checked against what
+;; the *asking* context can see, which is right — a microtheory is convicted only on
+;; grounds it can see.  It leaves a pair whose halves sit either side of a `genlContext`
+;; edge answerable from exactly one of the two contexts they are written in, so the
+;; question has to be asked from there rather than from whichever half arrived last
+;; (`settle/clash-askers`).
+
+(defn- straddle-kb
+  "A general context, one that sees it, and the declaration in `UniverseContext` — the
+  lattice all three kinds are exercised over."
+  [kb gen spec]
+  (v/assert kb (list 'genlContext gen 'UniverseContext) 'UniverseContext)
+  (v/assert kb (list 'genlContext spec gen) 'UniverseContext))
+
+;; Each written **general-last**, which is the order the general side's own check cannot
+;; answer: it sees neither the specific membership nor the specific claim.  One test per
+;; kind, since a clash reported once is reported until its ingredients move and a second
+;; scenario in the same KB would read the first one's answer.
+
+(tu/deftest-kb a-separation-across-a-visibility-edge-is-arbitrated
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-terms [GenContext SpecContext dog_t cat_t Fido]
+      (straddle-kb kb GenContext SpecContext)
+      (v/assert kb (list 'disjoint dog_t cat_t) 'UniverseContext)
+      (v/assert kb (list cat_t Fido) SpecContext)
+      (v/assert kb (list dog_t Fido) GenContext)
+      (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))))
+
+(tu/deftest-kb a-functional-slot-filled-across-a-visibility-edge-is-arbitrated
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-terms [GenContext SpecContext ageOf Tom]
+      (straddle-kb kb GenContext SpecContext)
+      (v/assert kb (list 'functional ageOf) 'UniverseContext)
+      (v/assert kb (list ageOf Tom 6) SpecContext)
+      (v/assert kb (list ageOf Tom 5) GenContext)
+      (is (= [:functional] (mapv :kind (v/contradictions kb)))))))
+
+(tu/deftest-kb an-asymmetric-converse-across-a-visibility-edge-is-arbitrated
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-terms [GenContext SpecContext biggerThan Ann Bob]
+      (straddle-kb kb GenContext SpecContext)
+      (v/assert kb (list 'asymmetric biggerThan) 'UniverseContext)
+      (v/assert kb (list biggerThan Bob Ann) SpecContext)
+      (v/assert kb (list biggerThan Ann Bob) GenContext)
+      (is (= [:asymmetric] (mapv :kind (v/contradictions kb)))))))
+
+(tu/deftest-kb known-true-content-does-not-coexist-with-a-default-that-denies-it
+  ;; What the reporting gap costs: the general claim is admitted because its own context
+  ;; cannot see the specific one, and without a vantage that can, a `:monotonic` claim
+  ;; sits beside a `:default` the KB knows to be wrong.
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb (tu/fresh)]
+      (tu/with-terms [GenContext SpecContext animal_t plant_t Ox]
+        (straddle-kb kb GenContext SpecContext)
+        (v/assert kb (list 'disjoint animal_t plant_t) 'UniverseContext)
+        (v/assert kb (list plant_t Ox) SpecContext)
+        (v/assert kb (list animal_t Ox) GenContext {:strength :monotonic})
+        (is (v/ask? kb (list animal_t Ox) GenContext))
+        (is (not (v/ask? kb (list plant_t Ox) SpecContext))
+            "the default loses to known-true content it could not see when it was written")
+        (is (empty? (v/contradictions kb)) "decided, so there is no dilemma left to report")))))
+
+(tu/deftest-kb a-membership-stated-in-two-visible-contexts-forms-two-pairs
+  ;; One sentence stated in a general microtheory and again in one that sees it is *two*
+  ;; sentexes, of possibly different strength, and a third membership that denies the
+  ;; type denies both.  Naming only the content-first of them left the other believed
+  ;; beside content that contradicts it.
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb (tu/fresh)]
+      (tu/with-terms [GenContext SpecContext dog_t cat_t Fido]
+        (straddle-kb kb GenContext SpecContext)
+        (v/assert kb (list 'disjoint dog_t cat_t) 'UniverseContext)
+        (v/assert kb (list dog_t Fido) GenContext)
+        (v/assert kb (list dog_t Fido) SpecContext)
+        (v/assert kb (list cat_t Fido) SpecContext)
+        (is (= 2 (count (v/contradictions kb)))
+            "one pair per opposing sentex, not one per opposing type")
+        (is (= #{#{(v/handle-of kb (list cat_t Fido) SpecContext)
+                   (v/handle-of kb (list dog_t Fido) GenContext)}
+                 #{(v/handle-of kb (list cat_t Fido) SpecContext)
+                   (v/handle-of kb (list dog_t Fido) SpecContext)}}
+               (into #{} (map :nogood) (v/contradictions kb))))))))
+
+(tu/deftest-kb a-pair-reachable-from-several-viewers-is-one-entry
+  ;; Two incomparable siblings, and *two* contexts below both — so the pair has two
+  ;; maximal common descendants and the check runs from each.  A nogood is keyed on the
+  ;; handle pair and its sentence is content-ordered, so which viewer found it decides
+  ;; nothing; an entry per viewer would report one clash twice and make the count a
+  ;; property of the context lattice.
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-terms [AContext BContext KContext LContext t1 t2 Pip]
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (doseq [k [KContext LContext]]
+        (v/assert kb (list 'genlContext k AContext) 'UniverseContext)
+        (v/assert kb (list 'genlContext k BContext) 'UniverseContext))
+      (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
+      (v/assert kb (list t1 Pip) AContext)
+      (is (not (v/sees? kb BContext AContext)))
+      (v/assert kb (list t2 Pip) BContext)
+      (let [cs (v/contradictions kb)]
+        (is (= 1 (count cs)) "one clash, however many contexts can see it")
+        (is (= #{(v/handle-of kb (list t1 Pip) AContext)
+                 (v/handle-of kb (list t2 Pip) BContext)}
+               (:nogood (first cs))))
+        (is (= :disjoint (:kind (first cs))))))))
+
+(tu/deftest-kb a-retraction-that-splits-the-visibility-releases-the-pair
+  ;; The other direction, and the one a maintained candidate set can get wrong: `:clashes`
+  ;; is keyed on storage and recomputed from belief, so a pair whose *joint view* goes
+  ;; away has to stop being reported and stop being remembered — not sit there costing an
+  ;; `arbitrable-violations` call per settle for the rest of the KB's life.
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb (tu/fresh)]
+      (tu/with-terms [GenContext SpecContext dog_t cat_t Fido]
+        (straddle-kb kb GenContext SpecContext)
+        (v/assert kb (list 'disjoint dog_t cat_t) 'UniverseContext)
+        (v/assert kb (list cat_t Fido) SpecContext)
+        (v/assert kb (list dog_t Fido) GenContext)
+        (is (= 1 (count (v/contradictions kb))))
+        (is (= 1 (count (:pairs @(:clashes kb)))) "the pair is remembered")
+        (testing "the edge leaving takes the joint view with it"
+          (v/retract! kb (v/handle-of kb (list 'genlContext SpecContext GenContext)
+                                      'UniverseContext))
+          (is (not (v/sees? kb SpecContext GenContext)))
+          (is (empty? (v/contradictions kb)))
+          (is (empty? (:pairs @(:clashes kb)))
+              "both members still believed, and no context sees them together")
+          (is (v/ask? kb (list dog_t Fido) GenContext))
+          (is (v/ask? kb (list cat_t Fido) SpecContext)))
+        (testing "and the edge returning brings the pair back"
+          (v/assert kb (list 'genlContext SpecContext GenContext) 'UniverseContext)
+          (is (= 1 (count (v/contradictions kb)))))))))
+
 ;;; ── more than two ─────────────────────────────────────────────────────
 
 (deftest ^:slow three-mutually-disjoint-memberships-report-all-three-pairs
@@ -569,6 +705,43 @@
                (pr-str os)))
       (testing "and the one outcome represents the clash rather than hiding it"
         (is (= {:dog true :fish true :dilemmas 1 :conflicts 0} (first os))))
+      (tu/clear-kb! (tu/test-kb)))))
+
+(deftest a-clash-across-a-visibility-edge-settles-the-same-way-in-every-arrival-order
+  ;; The clash only one side can see.  `ZGenContext` is general and `ZSpecContext` sees
+  ;; it, so the two memberships are jointly visible from exactly one of the two contexts
+  ;; they are written in — and the definitional checks are scoped to the asserting
+  ;; context, correctly, because a microtheory is only convicted on grounds it can see.
+  ;; Asking the pair's question from the arriving sentex's *own* context therefore
+  ;; answers it from the general side, which cannot see the specific membership at all.
+  ;;
+  ;; Belief is what has to agree, not storage: the general-claim-last order admits the
+  ;; default and defeats it, while the specific-claim-last order is refused at the door
+  ;; (admitting what the KB can never believe is still what `:arbitrate` will not do).
+  ;; That is `belief-agrees-whichever-arrived-first-under-arbitrate`'s split, one
+  ;; visibility edge out.  120 orderings.
+  (binding [checks/*arbitrate-constraints?* true]
+    (let [ops [#(v/assert % '(genlContext ZGenContext UniverseContext) 'UniverseContext)
+               #(v/assert % '(genlContext ZSpecContext ZGenContext) 'UniverseContext)
+               #(v/assert % '(disjoint zoanimal zoplant) 'UniverseContext)
+               #(v/assert % '(zoanimal OX) 'ZGenContext {:strength :monotonic})
+               #(v/assert % '(zoplant OX) 'ZSpecContext)]
+          observe (fn [kb]
+                    {:known-true (v/ask? kb '(zoanimal OX) 'ZGenContext)
+                     :default    (v/ask? kb '(zoplant OX) 'ZSpecContext)
+                     :dilemmas   (count (v/contradictions kb))
+                     :conflicts  (count (v/conflicts kb))})
+          os (into #{} (map (fn [ordering]
+                              (let [kb (tu/fresh)]
+                                (doseq [op ordering]
+                                  (try (op kb) (catch clojure.lang.ExceptionInfo _ nil)))
+                                (observe kb))))
+                   (permutations ops))]
+      (is (= 1 (count os))
+          (str "clash across a visibility edge: " (count os)
+               " distinct outcomes across 120 orderings — " (pr-str os)))
+      (testing "and the one outcome defeats the default rather than leaving it beside content that denies it"
+        (is (= {:known-true true :default false :dilemmas 0 :conflicts 0} (first os))))
       (tu/clear-kb! (tu/test-kb)))))
 
 (deftest an-asymmetric-violating-set-settles-the-same-way-in-every-arrival-order

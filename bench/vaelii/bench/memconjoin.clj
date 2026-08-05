@@ -57,7 +57,7 @@
 ;; ---- build the in-memory index structures -------------------------------
 
 (defn- build-trie
-  "The flattened count trie for arity-2 `[a x]` paths — root child set (the `a`s),
+  "The count trie for arity-2 `[a x]` paths — root child set (the `a`s),
   the `[a x]` counts, and the leaves — the same node shape `index.clj` writes, in maps."
   [tuples]
   (reduce (fn [t [h [a x]]]

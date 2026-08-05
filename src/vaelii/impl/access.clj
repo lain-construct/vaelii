@@ -21,9 +21,10 @@
   reach the whole surface it needs.
 
   Reads — including `check` / `check-edit`, which answer what `assert` would refuse
-  and write nothing — plus the three writes the browser performs: `edit` (an
-  assert/retract batch in one settle), `forward-chain`, and `preview` (which stores
-  nothing but applies a batch and rolls it back, so it holds the single writer).  A remote result is already
+  and write nothing — plus the four writes the browser performs: `edit` (an
+  assert/retract batch in one settle), `edit-with-consequences` (the same batch, plus
+  the belief it moved), `forward-chain`, and `preview` (which stores nothing but applies
+  a batch and rolls it back, so it holds the single writer).  A remote result is already
   EDN-clean (the daemon projects sentex records to maps); a local result is the raw
   record, and both answer to the same keys, so a caller handles them identically."
   (:refer-clojure :exclude [isa?])

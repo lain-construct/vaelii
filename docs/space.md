@@ -222,7 +222,7 @@ table, which is what a transcribed table could never promise.
 
 **Distance is symmetric**, so the converse of every class set is itself and `converse` is
 the identity function. That is the one place this algebra differs structurally from the
-other four, whose converse permutes their relations. The symmetry lives in the algebra and
+other five, whose converse permutes their relations. The symmetry lives in the algebra and
 deliberately *not* in a `(symmetric P)` declaration: that metadata would hand these
 predicates to the generic symmetric-relation prover as well, where the entailment prover
 means to claim them alone.

@@ -237,6 +237,9 @@
                 :max-depth   depth
                 :strategy    strat
                 :leaf-solver (:leaf-solver opts)
+                ;; the cost model the leaf is planned by, and only ever supplied with
+                ;; one — the index model is right for a stored-facts leaf (`solve-inline`)
+                :est-override (:est-override opts)
                 :proof?      (boolean (:proof? opts))
                 :queue      (atom (queue-push (empty-queue) (*estimate* kb strat root) 0))
                 :nodes      (atom {0 root})
@@ -276,9 +279,15 @@
   `leaf-solver` is what a literal the search will not rewrite is answered *by*.  nil is
   the stored facts, which is what a query means by a leaf.  A caller that wants a
   literal answerable by any prover — transitivity, an evaluable, an inferred argument
-  type — passes the registry, and gets this engine's rewriting over those leaves."
-  [kb literals context leaf-solver]
-  (let [planned (plan/order kb literals context)]
+  type — passes the registry, and gets this engine's rewriting over those leaves.
+
+  `est-override` is the cost model that leaf is planned by, and travels with it: the
+  index counts stored edges, so over a registry leaf it prices a `genl` conjunct
+  answered from the cached closure as the *cheapest* literal in the conjunction and
+  orders the join around a literal that fans out over a whole type hierarchy.  The DFS
+  chainer takes the same pair (`res/prove-from`), so the two executors plan alike."
+  [kb literals context leaf-solver est-override]
+  (let [planned (plan/order kb literals context {:est-override est-override})]
     (reduce (fn [sols literal]
               (mapcat (fn [b]
                         (let [g (res/substitute literal b)]
@@ -470,7 +479,8 @@
   (`tactics/child-bias`): a parent that is paying can recommend its children either way,
   and the bias is how it says so.  Under `:first-result?` a productive node builds no
   children at all — the one strategy that stops the search rather than steering it."
-  [{:keys [kb context queue nodes counter stats seen strategy leaf-solver proof?]
+  [{:keys [kb context queue nodes counter stats seen strategy leaf-solver est-override
+           proof?]
     :as sess}]
   (when-let [[[_ id] q'] (queue-pop @queue)]
     (reset! queue q')
@@ -480,7 +490,8 @@
     ;; collapses.  `sols` is reduced to a vector inside, so nothing lazy escapes.
     (observe/with-search-scope
       (let [node (get @nodes id)
-            sols (->> (solve-inline kb (mapv :sentence (:literals node)) context leaf-solver)
+            sols (->> (solve-inline kb (mapv :sentence (:literals node)) context
+                                    leaf-solver est-override)
                       (filter (fn [s] (every? #(ask-guard % s) (:guards node))))
                       ;; the node solves in its own namespace; `:answer-terms` says what
                       ;; each of the asker's variables now stands for here, so reading the
@@ -555,7 +566,13 @@
   never be raced under the single-writer contract, and is not reachable from here.
 
   Incomplete strategies are refused rather than raced: `:first-result?` would make the
-  union larger than a racer's own answer set and turn the paragraph above into a lie."
+  union larger than a racer's own answer set and turn the paragraph above into a lie.
+
+  **The union is deduped on the bindings**, which is what `step!` keys its own dedup on:
+  under `:proof? true` a racer returns `{:bindings … :proof …}`, and two racers that
+  reached one answer down different orderings differ in the proof and in nothing else.
+  Keying on the whole map would hand `core/query` the same answer once per racer, against
+  a contract that says the answers are deduped."
   ([kb goals context] (portfolio-solutions kb goals context {}))
   ([kb goals context opts]
    (let [base   (tactics/strategy (get opts :strategy *strategy*))
@@ -566,8 +583,18 @@
      (let [runs (mapv (fn [t]
                         (future (run-one kb goals context
                                          (assoc opts :strategy (assoc base :tactician t)))))
-                      racers)]
-       (into [] (distinct) (mapcat deref runs))))))
+                      racers)
+           ;; the bindings, whether the racer returned them bare or beside a proof.  A
+           ;; binding map's keys are the query's variables, so `:bindings` names a slot
+           ;; only the wrapped shape has
+           answer (fn [s] (if (and (map? s) (contains? s :bindings)) (:bindings s) s))]
+       (first (reduce (fn [[acc seen] s]
+                        (let [k (answer s)]
+                          (if (contains? seen k)
+                            [acc seen]
+                            [(conj acc s) (conj seen k)])))
+                      [[] #{}]
+                      (mapcat deref runs)))))))
 
 (defn solutions
   "Every solution of `goals` in `context`, as `prove` returns them — a vector of binding

@@ -236,6 +236,124 @@ a `genl` goal cost 2.8× what it costs in a KB with none (14.5 µs → 40.4 µs)
 every query paid for a feature almost none of them use. Gated, the two cases are 16 µs
 and 21 µs, and the difference is the declared predicate's own read.
 
+## Forward chaining on a claim nobody stored
+
+A forward rule's antecedents are matched against stored facts, and an inherited claim is
+not one. So the two doors into the same knowledge answered differently: `ask` reached
+`(largerThan chihuahua maine_coon)` through the prover above, while the fixpoint fired
+`(implies (largerThan ?x ?y) (outweighs ?x ?y))` on the claims that were written and on
+nothing else, and `sentexes-matching` read that back. The engine treats a
+forward/backward disagreement as a defect elsewhere — `provers/exception-holds?` is one
+shared function precisely so an exception cannot block a rule one way and not the other
+— and three further things followed from the conclusion never being derived: `why` could
+not explain an answer `ask` was confident about, retraction did not reach it, and it
+could not be an antecedent of anything.
+
+Support is what closes it, exactly as it does for a relation a constraint network
+entails ([qcn.md](qcn.md)). An inherited claim has no handle, but it was **read from**
+things that do:
+
+- the **claim that was stated** — `(largerThan dog cat)`;
+- the **declaration** licensing the move — `(argPreserving largerThan 1 genl)`, one per
+  position that actually moved;
+- the **relation edges** the reach travelled — `(genl chihuahua dog)`, `(genl maine_coon
+  cat)`, one shortest path per position;
+- and, for a fact-relation, the `(transitive R)` that `usable-relation?` reads at use,
+  since withdrawing it withdraws the reach with no fact having moved.
+
+`inherit/support-for` answers a ground goal with that list and
+`inherit/solve-with-support` hands it to `chain/join-antecedent`, which contributes the
+handles as antecedents of the firing. So the conclusion is withdrawn when any of them
+goes, `why` names the actual reasons, and the conclusion is placed only where all of
+them can be seen — the contract an ordinarily matched antecedent has.
+
+```clojure
+(argPreserving largerThan 1 genl)  (argPreserving largerThan 2 genl)
+(largerThan dog cat)
+(implies (largerThan ?x ?y) (outweighs ?x ?y))
+
+(v/ask? kb '(outweighs chihuahua maine_coon) C)              ; => true
+(v/sentexes-matching kb '(outweighs chihuahua maine_coon) C) ; => the derived sentex
+```
+
+**A closed antecedent asks one question; an open one enumerates.** A rule whose other
+antecedents bind the variables first reaches the preserved literal ground, and it is the
+same question `ask` asks. A literal still open — the example above, where the rule has
+one antecedent and nothing has bound it — runs the reach the other way: every believed
+claim of the predicate, the tuples that claim licenses, and then the full semantics
+asked per tuple. So a tuple is *found* by the reach and *admitted* by `surviving`, and a
+forward antecedent can no more join on an undercut or disputed claim than `ask` can
+answer one. That enumeration is the walk this file declines to make for an open *goal*
+(above), and the forward join is the caller for which it is the right one: a conclusion
+has to be drawn per tuple whether or not anybody asked.
+
+**Union, not replacement.** The ordinary matcher still runs, so nothing that fired
+before stops firing, and duplicate justifications from the two routes are set-deduped by
+the TMS. The **diagonal** is dropped from the inherited path: `witness-terms` is
+reflexive, so a claim stated at the very tuple it is asked about comes back through the
+reach too, and it already carries the ordinary matcher's justification — a second one
+naming the same claim plus a declaration and no edge would rest on nothing the first did
+not.
+
+Three more things follow, and each needed its own wiring.
+
+**The trigger index cannot connect any of it.** A rule is fired by a datum whose
+predicate keys it, and `(genl chihuahua dog)` licenses a `largerThan` antecedent with
+neither of its terms appearing anywhere near `largerThan`. Nor is a claim on the
+predicate itself enough on its own: `(largerThan dog cat)` unifies with the antecedent at
+the one tuple it is *stated* at, and the tuples it licenses are reached by joining rather
+than by matching. So such a datum **re-joins in full** every forward rule carrying an
+antecedent on a preserved predicate whose licensed set it moved, and those rules leave
+the trigger set so the work is done once (`inherit/rejoin-rules`,
+`chain/rejoin-preserving`). The sentences that move one are the declaration itself, a
+claim on the predicate, a fact on the relation — a `genl` or `genlContext` edge included
+— `(transitive R)`, and `(asymmetric P)`.
+
+**A more specific contrary claim withdraws a conclusion with nothing retracted.**
+`(typicallyLargerThan maine_coon chihuahua)` undercuts the inherited
+`(typicallyLargerThan chihuahua maine_coon)`, and the general claim is not defeated: it
+simply does not fire for that pair. Every antecedent of the firing is still stored and
+believed, so the justification cannot express the withdrawal. The firing is **blocked**
+the way an `exceptWhen`-excepted one is (`chain/inheritance-withdrawn?`, queued by
+`special/recheck-preserving-firings`), which means the existing sweep collects the
+conclusion and the existing revival machinery brings it back when the specific claim
+goes. The check is asked only of an antecedent the KB does not state at the bound tuple:
+a stored claim is withdrawn by its own handle going, and asking `verdict` about one would
+block an ordinary firing over a pair the KB happens to hold in both polarities.
+
+**Placement follows the reasons.** The claim, the declarations and the edges are
+antecedents, so `maximal-common-descendant-contexts` sees their contexts alongside the
+rule's, and the conclusion descends to the microtheory that can see the reach rather than
+sitting where the claim alone lives. A firing whose edges are stated in incomparable
+microtheories has no common descendant and is recorded as `:no-placement`, like any other
+completed firing that lands nowhere ([contexts.md](contexts.md)).
+
+Two things are deliberately left, and both are shared with the qualitative side. Support
+names **a** witness rather than every witness — the path is a shortest one, and the
+declaration named is one of however many license the same move — so a claim reachable two
+ways carries one justification and the second route is re-derived after a retraction
+rather than recorded in advance. And a firing's **strength** is capped by its weakest
+antecedent as always, which now includes the declaration: a `:monotonic` claim declared
+preserved by a `:default` declaration draws a `:default` conclusion, where the backward
+prover answers `ask` without weighing either.
+
+**What it costs, and who pays.** Nothing here runs until a KB declares a preservation
+*and* a forward rule carries an antecedent on the declared predicate. The first gate is
+the O(1) cardinality read on the declaration functors' roots that the query path already
+uses, so a KB that declares none pays two set-count reads per datum and stops — the
+difference is not measurable against a 4,000-fact load. A KB that declares one but writes
+no rule over it reads the declarations themselves per datum and then probes the
+antecedent index for nothing: the starter, which declares `largerThan` and `partType` and
+carries no rule over either, loads **2.6%** slower for it (762 ms against 743 ms with the
+trigger stubbed out).
+
+Where both gates pass, the cost is the one the feature is: a conclusion per licensed
+tuple, so the product of the reaches at the preserved positions, per claim — and each
+candidate tuple is admitted by a full `surviving` read before it fires. That is paid on
+the assert path rather than per query, which is the trade a materialized conclusion
+always is: `ask` pays the reach per question and stores nothing, forward chaining pays it
+once and leaves a sentex a later rule can join on.
+
 ## What one question costs
 
 A claim bearing on `(P a b)` is a stored sentence whose argument tuple lies in the

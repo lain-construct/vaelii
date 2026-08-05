@@ -11,10 +11,12 @@
   end to end: sentences out as symbol s-expressions, sentex records back as plain
   maps."
   (:require [clojure.edn :as edn]
+            [clojure.set :as set]
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.catalog :as catalog]
             [vaelii.impl.client :as client]
+            [vaelii.impl.guard :as guard]
             [vaelii.impl.serve :as serve]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream File]
@@ -115,7 +117,7 @@
         (let [r (refused {})]
           (is (= 415 (:status r)))
           (is (false? (:ok r)))
-          (is (= ::serve/not-edn (:type r)) "the ex-data :type rides the wire")
+          (is (= :not-edn (:type r)) "the ex-data :type rides the wire")
           (is (string? (:error r)))))
       (testing "the three types a cross-site fetch may send without a preflight are refused"
         (doseq [ct ["text/plain"
@@ -123,10 +125,39 @@
                     "multipart/form-data"]]
           (let [r (refused {"content-type" ct})]
             (is (= 415 (:status r)) ct)
-            (is (= ::serve/not-edn (:type r)) ct))))
+            (is (= :not-edn (:type r)) ct))))
       (testing "and the refusal runs nothing — the op is never executed"
         (is (= before (tu/sentex-ids kb)))
         (is (nil? (v/handle-of kb (list dog Fido) ServeContext)))))))
+
+(tu/deftest-kb post-op-refuses-a-cross-origin-caller
+  ;; the other CSRF gate, and the one that bites when a browser *does* stamp an origin:
+  ;; `edn-body?` forces a preflight this daemon will not answer, and this refuses the
+  ;; page that got one anyway.  A `:type` on the wire because a client discriminating on
+  ;; the message string is discriminating on prose.
+  (tu/with-terms [dog Fido ServeContext]
+    (let [handler (serve/app kb)
+          before  (tu/sentex-ids kb)
+          from    (fn [hdrs]
+                    (post-op* handler (merge {"content-type" "application/edn"} hdrs)
+                              :assert [(list dog Fido) ServeContext]))]
+      (doseq [[label hdrs] [["another site" {"host" "localhost:4200"
+                                             "origin" "http://evil.example"}]
+                            ;; a sandboxed frame sends `Origin: null` — an origin claim
+                            ;; matching nothing, not an absent header
+                            ["an opaque origin" {"host" "localhost:4200" "origin" "null"}]
+                            ["a cross-site referer" {"host" "localhost:4200"
+                                                     "referer" "http://evil.example/x"}]]]
+        (let [r (from hdrs)]
+          (is (= 403 (:status r)) label)
+          (is (false? (:ok r)) label)
+          (is (= :cross-origin (:type r)) label)))
+      (testing "the daemon's own page still writes, so the refusal is the origin's doing"
+        (let [r (from {"host" "localhost:4200" "origin" "http://localhost:4200"})]
+          (is (= 200 (:status r)))
+          (is (:ok r))))
+      (testing "and the three refusals ran nothing — only the same-origin write landed"
+        (is (= 1 (count (set/difference (tu/sentex-ids kb) before))))))))
 
 (tu/deftest-kb post-op-accepts-edn-however-legally-spelled
   ;; `guard/edn-body?` trims, lower-cases and prefix-matches, so a parameterized or
@@ -159,14 +190,14 @@
                           :assert [(list dog Fido) ServeContext])]
           (is (= 400 (:status r)))
           (is (false? (:ok r)))
-          (is (= ::serve/bad-host (:type r)))
+          (is (= :bad-host (:type r)))
           (is (= before (tu/sentex-ids kb)) "the refused op stored nothing")
           (is (nil? (v/handle-of kb (list dog Fido) ServeContext)))))
       (testing "a read route is refused too — the KB is what a rebound page came for"
         (let [r (handler {:request-method :get :uri "/health"
                           :headers {"host" "evil.example.com:4200"}})]
           (is (= 400 (:status r)))
-          (is (= ::serve/bad-host (:type (edn/read-string (:body r)))))))
+          (is (= :bad-host (:type (edn/read-string (:body r)))))))
       (testing "the daemon's own names still pass, with or without a port"
         (doseq [h ["localhost:4200" "127.0.0.1:4200" "[::1]:4200" "localhost"]]
           (let [r (handler {:request-method :get :uri "/health" :headers {"host" h}})]
@@ -204,6 +235,42 @@
             (is (= :not-empty (:type r)))))
         (finally (doseq [^File f (reverse (file-seq root))] (.delete f)))))))
 
+;; ---- the body ceiling ----------------------------------------------------
+;;
+;; `POST /op` is unauthenticated, so the caller who can reach it is the caller who can
+;; spend the daemon's heap by streaming a body at it.  The reading half — that the
+;; refusal happens *while* reading rather than after — is `vaelii.guard-test`, where the
+;; ceiling lives; what belongs here is that the refusal reaches the wire as a 413 in the
+;; daemon's own error shape, and that no op ran behind it.
+
+(tu/deftest-kb an-oversized-post-is-a-413-that-runs-no-op
+  (tu/with-terms [dog Fido ServeContext]
+    (let [handler (serve/app kb)
+          before  (tu/sentex-ids kb)
+          body    (.getBytes ^String (pr-str {:op :assert
+                                              :args [(list dog Fido) ServeContext]})
+                             "UTF-8")
+          resp    (with-redefs [guard/max-body-bytes 8]
+                    (handler {:request-method :post :uri "/op"
+                              :headers {"content-type" "application/edn"}
+                              :body (ByteArrayInputStream. body)}))
+          r       (edn/read-string (:body resp))]
+      (is (= 413 (:status resp)))
+      (is (false? (:ok r)))
+      (is (= :body-too-large (:type r)) "the ex-data :type rides the wire")
+      (is (re-find #"exceeds" (:error r)))
+      (testing "and the op never ran — the refusal is before the dispatch, not after"
+        (is (= before (tu/sentex-ids kb)))
+        (is (nil? (v/handle-of kb (list dog Fido) ServeContext))))
+      (testing "the same call under the shipped ceiling lands, so the 413 above is the
+                ceiling's doing and not the request's"
+        (let [r2 (edn/read-string
+                  (:body (handler {:request-method :post :uri "/op"
+                                   :headers {"content-type" "application/edn"}
+                                   :body (ByteArrayInputStream. body)})))]
+          (is (:ok r2))
+          (is (nat-int? (:result r2))))))))
+
 ;; ---- what it binds -------------------------------------------------------
 
 (tu/deftest-kb the-daemon-binds-loopback-unless-told-otherwise
@@ -218,7 +285,8 @@
                          (.getHost ^ServerConnector (first (.getConnectors server)))
                          (finally (.stop server)))))]
     (is (= "127.0.0.1" (bound-host {:port 0}))
-        "the daemon is reachable off-machine by default")
+        "the daemon bound every interface — with no host given, jetty does, and POST /op
+         is then an unauthenticated write route reachable off-machine")
     (testing "and an explicit address is still honoured"
       (is (= "127.0.0.1" (bound-host {:port 0 :host "127.0.0.1"}))))))
 

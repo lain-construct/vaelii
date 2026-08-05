@@ -123,12 +123,16 @@ something you look up, compute, or search for?*
 ```
 
 - `:lookup` — a bounded single-step retrieval: an O(1) ground test (reflexive,
-  evaluate, `different`), a cached closure / metadata read (genl/genlContext
-  transitivity, disjointness, predicate-type), or one index hit (facts, symmetric,
-  argIsa-type). All three are one bounded step, lazy to the first result, and no
-  decision turns on which of the three it is, so they fold into one tier.
-- `:compute` — a fixpoint over stored facts before the first answer (a
-  declared-`transitive` predicate walking its closure).
+  `evaluate`, `different`, the evaluable and quantity comparisons), a cached closure /
+  metadata read (genl/genlContext transitivity, disjointness, predicate-type,
+  argIsa-type), or one index hit (facts, symmetric, inverse). All three are one bounded
+  step, lazy to the first result, and no decision turns on which of the three it is, so
+  they fold into one tier. Twelve of the shipped provers sit here.
+- `:compute` — work over stored facts before the first answer, and five provers claim
+  it: a declared-`transitive` predicate walking its closure, `argPreserving`, `unknown`,
+  `thereExists`, and the aggregates. Those last three are the ones `{:max-cost :lookup}`
+  is really about, since a `count` is a census of a whole extent and closed-world
+  negation is a query run to exhaustion.
 - `:search` — recursive backward chaining, open-ended proof search. **Unoccupied**, and
   by construction: no member of the registry expands a rule, so nothing `ask` dispatches
   opens a proof search. The tier stays because the ceiling is a claim about what a prover
@@ -139,10 +143,10 @@ something you look up, compute, or search for?*
 The union path already orders applicable provers by this tier (cheapest first, so a
 consumer taking one answer never pays for a closure when a lookup answers).
 `:max-cost` turns the tier into a **ceiling**: `ask-within` drops every prover above
-it *before* the stream is built. So `{:max-cost :lookup}` runs bounded retrieval only
-(no closure fixpoint), and — the tier above it being empty — `:compute` and `:search`
-both keep the whole registry. A goal answerable only by a dropped tier simply yields
-nothing (an honest empty, not a hang). Combined with `:max-ms` it is a genuine anytime
+it *before* the stream is built. So `{:max-cost :lookup}` runs bounded retrieval only —
+no closure fixpoint, no `unknown`, no `thereExists`, no aggregate — and, `:search` being
+empty, `:compute` and `:search` both keep the whole registry. A goal answerable only by
+a dropped tier simply yields nothing (an honest empty, not a hang). Combined with `:max-ms` it is a genuine anytime
 strategy: *cheap tiers only, and stop at N milliseconds*.
 
 A value that is not one of the three tiers is **refused** (`:type :bad-opt`), not read
@@ -182,18 +186,18 @@ depth rather than by `resume`. It is the analogue of Cyc's
 
 ## Where it plugs in
 
-Nothing in the engine changed shape. `ask-within` runs `ask` over a possibly
-cost-filtered registry and `collect`s the lazy result; `prove-within` runs the
-existing DFS through `res/prove-from` (the resumable core `prove` now delegates
-to) and wraps its batch in the same contract. Both normalize their goal through
+The budget layer adds no engine of its own. `ask-within` runs `ask` over a possibly
+cost-filtered registry and `collect`s the lazy result; `prove-within` runs the same DFS
+through `res/prove-from`, which is the resumable core `prove` itself delegates to, and
+wraps its batch in the same contract. Both normalize their goal through
 `prepare-goal-for-read`, the same step `ask` / `prove` / `sentexes-matching` take — a
 reifiable NAT reified to the constant it denotes, a merge-retired term rewritten to
 its representative. That is what "same answers as `ask`" rests on, and a read path
 that skipped it would not answer *wrongly*, it would answer **emptily**, which reads
 exactly like a KB that was never told.
 
-The budget is a thin, testable layer over machinery that was already lazy — which is
-why it is small.
+The budget is a thin, testable layer over machinery that is lazy underneath it — which
+is why it is small.
 
 What a budget bounds is the *search*: how long it runs, how many results it collects,
 how deep it goes. It does not allocate effort **between** proof branches — no estimate

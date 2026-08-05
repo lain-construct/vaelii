@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Check that doc claims about the code still match the code.
 
-Scans README.md and docs/**.md for the drift classes that actually bite:
+Scans README.md and docs/**.md for the drift classes that actually bite. Two
+checks reach wider than that, because the prose outside docs/ rots the same way
+and nothing else reads it: the LINK check (E4) and ARCHAEOLOGY (E7/W7) also read
+CHANGELOG.md, CONTRIBUTING.md, CLAUDE.md and .claude/rules/*.md — see
+`extra_md_files`. The rest stay on docs/: they check claims about the engine,
+and those files describe the project around it.
 
   E1  defrecord/defprotocol snippets whose name or field list no longer
       matches the definition under src/ (the Atomic/Rule/Deduction class).
@@ -9,8 +14,11 @@ Scans README.md and docs/**.md for the drift classes that actually bite:
       alias — whose definition is missing from the resolved namespace.
   E3  VAELII_* env vars that appear nowhere in src/, scripts/, resources/,
       or project.clj.
-  E4  Backticked repo paths (docs/x.md, scripts/x, src/.../y.clj,
-      resources/...) that do not exist.
+  E4  The link check: backticked repo paths (docs/x.md, scripts/x,
+      src/.../y.clj, resources/...) that do not exist, and — in the markdown
+      outside docs/ — relative `[text](path)` targets that resolve to nothing.
+      check-doc-links.py resolves markdown links across docs/ and the
+      contributor scaffolding; the files here are the ones it does not read.
   E5  A reference from inside the repo to an agent instruction file
       (`CLAUDE.md`, `.claude/...`).  Those are stow-linked from a separate
       dotfiles repo and gitignored here, so a reader who clones this repo
@@ -24,7 +32,10 @@ Scans README.md and docs/**.md for the drift classes that actually bite:
       got here.  Only the unambiguous phrasings are errors — plain "X used to
       Y" collides with "used to" meaning *employed to* ("the key used to diff
       against what is stored"), so it is W7 and the hook catches it at the
-      keystroke instead.  Scans source and scripts as well as docs.
+      keystroke instead.  Scans source and scripts as well as docs, plus the
+      markdown in `extra_md_files`.  Two of those files STATE this rule and so
+      quote its phrasings in order to ban them; they are exempt by name, the
+      same way this checker excludes itself.
   E8  `(requiring-resolve 'ns/var)` on a literal symbol anywhere under src/
       except vaelii.impl.wiring — a layering cut left at its call site, where
       nothing counts it and nothing stops the next one.  A computed symbol (a
@@ -34,7 +45,13 @@ Scans README.md and docs/**.md for the drift classes that actually bite:
       image and the same argument — the present is the only tense a doc has.
       Stating an ABSENCE is not futurology and is wanted ("there is no beta
       network", "## What is not built"): an absence is a fact about the engine.
-      What this bans is the promise attached to one.
+      What this bans is the promise attached to one.  Narrower than E7 by
+      design, and NOT extended to the files E7 gained: a changelog's whole job
+      is to say what a released version does, which reads as a commitment in
+      every tense the patterns match, and CONTRIBUTING.md carries a forward
+      statement about licensing that is a promise on purpose.  Scoping the
+      check to the docs that describe the engine keeps it a check about the
+      engine.
   E10 A `declare` with no comment above it saying which cycle forces it, or one
       whose every use is below its own definition (so it does nothing).  The
       preferred fix is a reordering; the comment is where "an ordering cannot
@@ -58,6 +75,7 @@ Errors exit 1; warnings exit 0. False positives go in
 scripts/check-doc-drift-allowlist.txt (one literal token per line, matched
 against the flagged token; # comments allowed).
 """
+import itertools
 import os
 import re
 import sys
@@ -135,6 +153,31 @@ def md_files():
         for n in sorted(names):
             if n.endswith(".md"):
                 yield os.path.join(dirpath, n)
+
+
+def extra_md_files():
+    """The markdown outside README/docs that the repo's own rules still bind.
+
+    Two checks read these and no others do: the link check (E4) and archaeology
+    (E7/W7). Both are rules about prose, and prose here rots exactly as it does
+    under docs/ — a link into a directory that is not there reads like a live
+    one either way.
+
+    CHANGELOG.md and CONTRIBUTING.md ship. CLAUDE.md and .claude/rules/ do not:
+    they are stow-linked from a dotfiles repo and gitignored here, so a clone has
+    neither and each is scanned only if it is present. That is also why they get
+    two checks rather than all of them — the var, env and record checks verify
+    claims about the engine, and these files describe the project around it.
+    """
+    for rel in ("CHANGELOG.md", "CONTRIBUTING.md", "CLAUDE.md"):
+        p = os.path.join(ROOT, rel)
+        if os.path.exists(p):
+            yield p
+    rules = os.path.join(ROOT, ".claude", "rules")
+    if os.path.isdir(rules):
+        for n in sorted(os.listdir(rules)):
+            if n.endswith(".md"):
+                yield os.path.join(rules, n)
 
 
 def clj_files():
@@ -399,8 +442,7 @@ for path in repo_text_files():
 # ── E6: every doc under docs/ is linked from another doc ───────────────────
 # index.md is the map, so it needs no inbound link; dependencies.md is
 # generated.
-UNLINKED_OK = {"docs/index.md", "docs/dependencies.md",
-               "docs/design/index.md", "docs/design/README.md"}
+UNLINKED_OK = {"docs/index.md", "docs/dependencies.md"}
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)#]+)")
 
 linked = set()
@@ -418,6 +460,39 @@ for doc in md_files():
         continue
     flag("E6", doc, rel, f"`{rel}` is linked from no other doc — add it to the "
                          f"map so a reader can find it")
+
+# ── E4 (extended): the link check over the markdown beside docs/ ────────────
+# The same two rots as inside docs/ — a backticked repo path that no longer
+# exists, and a relative markdown link that resolves to nothing — read over the
+# files in extra_md_files(). A pointer into a directory that was removed reads
+# exactly like a live one, and the reader who finds out is the one who followed
+# it.
+#
+# Fenced blocks are skipped: an example link is not a claim about the tree.
+for doc in extra_md_files():
+    rel_doc = os.path.relpath(doc, ROOT)
+    in_fence = False
+    for i, line in enumerate(open(doc, errors="replace"), 1):
+        if FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        for m in MD_LINK.finditer(line):
+            target = m.group(1).strip().split("?")[0]
+            if not target or target.startswith(("http:", "https:", "mailto:")):
+                continue
+            resolved = os.path.join(os.path.dirname(doc), target)
+            if not os.path.exists(resolved):
+                flag("E4", doc, target,
+                     f"{rel_doc}:{i} link `{target}` resolves to nothing")
+        for m in re.finditer(r"`((?:docs|scripts|src|resources)/[\w./-]+)`", line):
+            p = m.group(1)
+            if any(ch in p for ch in "*<>{") or p.endswith("/") \
+               or "..." in p or re.search(r"/[A-Z]($|/)", p):
+                continue
+            if not os.path.exists(os.path.join(ROOT, p)):
+                flag("E4", doc, p, f"{rel_doc}:{i} path `{p}` does not exist")
 
 # ── E7/W7: no archaeology — the present is the only tense ──────────────────
 # Split by how ambiguous the phrasing is.  ARCHAEOLOGY is unambiguous: nothing
@@ -448,12 +523,18 @@ AMBIGUOUS = re.compile(r"(?<!be )(?<!,)\b[a-z0-9`)\]*]+ used to [a-z]")
 # the change" there means "before you make it" — a verification step, not a
 # memoir.
 PROMPT_DIR = re.compile(r"docs/design/[a-z-]*prompts/")
+# Two files STATE this rule, so they quote its phrasings in order to ban them —
+# the same reason this checker excludes itself. Exempting the file is the only
+# honest option available: the allowlist matches a TOKEN, so excusing
+# "there used to" there would disarm the check in every other file too.
+E7_STATES_THE_RULE = {"CONTRIBUTING.md", ".claude/rules/conventions.md"}
 
-for path in repo_text_files():
+for path in itertools.chain(repo_text_files(), extra_md_files()):
     if os.path.abspath(path) == SELF or not os.path.exists(path):
         continue
     rel = os.path.relpath(path, ROOT)
-    if rel.startswith("docs/design/complete/") or rel.startswith("resources/"):
+    if rel.startswith("docs/design/complete/") or rel.startswith("resources/") \
+       or rel in E7_STATES_THE_RULE:
         continue          # dated reviews quote as-of; resources/ is third-party
     prompt = bool(PROMPT_DIR.search(rel))
     # W7 is prose-only: in a docstring "used to" is usually the *employed to*
@@ -485,6 +566,14 @@ for path in repo_text_files():
 # Deliberately narrow, for the reason E7 is: "a future handle", "a future
 # channel" and "a future change to this test" are all ordinary present-tense
 # prose, and a check that flags them is a check people learn to route around.
+#
+# Narrow in SCOPE as well, and this is the one place the two rules part company:
+# E7 reads extra_md_files() and E9 does not. A changelog exists to say what a
+# released version does, and it says it in the tense these patterns match, so
+# every entry would read as a commitment; CONTRIBUTING.md carries a licensing
+# statement about later versions that is a promise deliberately made. Both are
+# writing about the project rather than about the engine, and E9 is a rule about
+# what the ENGINE docs may claim.
 FUTUROLOGY = re.compile(
     r"^#{2,}\s*TODO\b"
     r"|\bon the roadmap\b|\bthe roadmap (files|names|calls|has)\b|\broadmap\.md\b"
@@ -653,6 +742,10 @@ if dead:
     for tok in dead:
         print(f"  - {tok}")
 
-print(f"\n{len(errors)} errors, {len(warnings)} warnings "
+# scripts/lint.sh greps the verdict for `N errors, M warnings across K docs`, so
+# that phrase stays whole and on one line; the extras get a line above it.
+print(f"\nThe link and archaeology checks also read "
+      f"{sum(1 for _ in extra_md_files())} files beside docs/.")
+print(f"{len(errors)} errors, {len(warnings)} warnings "
       f"across {sum(1 for _ in md_files())} docs.")
 sys.exit(1 if errors else 0)

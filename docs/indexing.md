@@ -20,7 +20,8 @@ logged, nippy-framed so ints and keywords keep their type. The whole layout:
 | `[:trie :handles prefix]` | set | the sentex handles ending exactly at this node |
 | `[:context-root ctx]` | set | the extent of a context (its size is the set's own) |
 | `[:functor-root pred]` | set | facts by functor, any arity, either polarity |
-| `[:argument-root pos term]` | set | facts with `term` at argument position `pos` |
+| `[:argument-root pred pos term]` | set | `pred`'s facts with `term` at argument position `pos` |
+| `[:argument-slot pos term]` | set | the predicates present at that slot (names, not handles) |
 | `[:rule-index :antecedent pred]` | set | rules with an antecedent on `pred` |
 | `[:rule-index :consequent pred]` | set | rules concluding `pred` |
 | `[:exception-index pred]` | set | rules whose exception query mentions `pred` |
@@ -36,7 +37,7 @@ Note what is deliberately **absent**: nothing here records a rule's direction or
 defeasibility as a queryable property (beyond the `:default` enumeration). Those are
 fields on the sentex record — see §3.
 
-## 1. The flattened count-aware trie
+## 1. The count-aware trie
 
 A sentex is indexed by its **path**: its key tokens followed by the context as the
 final level. The key drops the `implies` / `and` rule frame (canonicalized into the
@@ -158,8 +159,9 @@ structural: handles live under `[:trie :handles prefix]`, tokens under `[:trie :
 handle; `p/children` reads only the child set, so it is correct at such a node and
 `plan/prefix-estimate`'s fan-out carries no phantom branches.
 
-The node layout means an index written by another layout reads as **empty** (it fails
-safe); `(reindex kb)` rebuilds the index wholesale from the records and then recovers.
+The node layout means an index written by another layout answers nothing rather than
+answering wrongly (it fails safe), which is why the layout is stamped and gated at open —
+section 7 below.
 
 ## 2. The secondary roots
 
@@ -210,17 +212,19 @@ so `res/match-one` consults them for exactly that case, gated by
   candidates come from the argument roots instead of the trie. The set returned is a
   **superset** of the trie's hits — the roots don't constrain numeric arguments or
   context — and the existing `unify` filters it to the identical set, so *which*
-  sentexes match never changes. Measured: the leading-variable `match-pattern` (the
-  backward / `ask` / forward-join path) drops from O(N) per call to flat (139× at
-  n=400). `arg_root_retrieval_test`.
+  sentexes match never changes. The leading-variable `match-pattern` (the backward /
+  `ask` / forward-join path) is flat in the extent where the trie fan is O(N) per
+  call — `lein perf`'s `arg-root-retrieval` check gates the flatness, and
+  `arg_root_retrieval_test` pins the set-equality.
 - **Multi-column narrowing (`sentexes-with-args`).** Knowing more than one term should
   narrow on all of them, so *every* ground argument's predicate-scoped root is
   intersected: `(rel ?x B C)` →
   `[:argument-root rel 2 B] ∩ [:argument-root rel 3 C]`. The scoping means a named
   functor needs no functor-root intersection, and a single bound argument is one hash
   lookup with nothing intersected at all. An individual shared at one position
-  across K predicates then yields a candidate set at the true match count rather than
-  K× it (640 → 20 at K=32). What that intersection *costs* is the backend's business: a
+  across K predicates yields a candidate set at the true match count rather than K×
+  it **by construction** — the bucket read is the literal's own predicate's. What an
+  intersection *costs* is the backend's business: a
   flat-map index folds `clojure.set/intersection` over sets it already holds, and a dense
   one narrows in the postings' own representation so a rare argument pinned on a hot
   predicate costs the rare side ([density.md](density.md)).
@@ -231,28 +235,29 @@ so `res/match-one` consults them for exactly that case, gated by
   linear in the vocabulary, which in a broad ontology is the largest thing there is.
   The predicate-agnostic read spans every functor by construction — a union of the
   scoped roots over `[:argument-slot 1 Fido]` — so it answers in a read per predicate
-  present at that slot (one, almost always), with a `nil` functor to intersect.
-  Measured over a synthetic type
-  hierarchy: 0.100 ms → 0.010 ms at 341 types, and — the point — **flat** where it was
-  linear (0.037 ms at 85 types before, 0.011 ms after). A pattern with nothing
-  indexable to lead with (`(?type ?x)`, `(?p ?x 1970)`) keeps the trie, since there is
-  no root to read.
+  present at that slot (usually one, a handful when several predicates share it),
+  with a `nil` functor to intersect: **flat in the vocabulary** where the trie fan is
+  linear in it. A pattern with nothing indexable to lead with (`(?type ?x)`,
+  `(?p ?x 1970)`) keeps the trie, since there is no root to read.
 - **Hierarchical retrieval (`res/matches-hierarchical`).** A context-scoped
   `(p a ?x)@c` is an intersection over three hierarchies — predicate ∈ `specs(p)`,
   context ∈ `context-up(c)`, arguments unify — which `matches-visible` answered by a
-  *product* of `|specs| × |context-up|` trie walks. Leading with the argument root
-  (which spans every functor and context) and making the two hierarchies **in-memory
-  membership filters** over the cached closures collapses the product to one lookup:
-  flat vs O(depth), 57× from a context at depth 32. The argument-root posting is walked
-  **lazily** — handed back by reference and consumed only as far as the caller reads —
-  so an existence check short-circuits like the fan-out; this is the **default**
-  (`res/*hierarchical-retrieval*`), with the var bound false giving the reference
-  fan-out `matches_hierarchical_test` proves it equal to.
+  *product* of `|specs| × |context-up|` trie walks. Leading with the bound argument's
+  predicate-scoped roots — one bucket per sub-predicate, the predicate filter
+  satisfied by which buckets are read — and making the context hierarchy an
+  **in-memory membership filter** over the cached closure collapses the product to a
+  hash lookup per sub-predicate: **flat in the context hierarchy's depth** where the
+  fan-out is O(depth). The buckets are walked **lazily** — each handed back by
+  reference, the per-spec fan a `lazy-mapcat`, consumed only as far as the caller
+  reads — so an existence check touches one bucket and short-circuits like the
+  fan-out; this is the **default** (`res/*hierarchical-retrieval*`), with the var
+  bound false giving the reference fan-out `matches_hierarchical_test` proves it
+  equal to.
 
 `sentexes-matching` shares this argument-root retrieval — it routes through `res/raw-match` (the
 level-2 matcher), so a leading-variable-then-ground-arg `sentexes-matching` (`(parentOf ?x Tom)`)
-diverts to the `[:argument-root 2 Tom]` root intersected with the functor root instead of paying
-the full first-argument trie fan. The `lookup` levels reach it wherever they *match*
+diverts to the predicate-scoped argument root (`[:argument-root parentOf 2 Tom]`) instead of
+paying the full first-argument trie fan. The `lookup` levels reach it wherever they *match*
 (level 2 is `raw-match`, level 4 is `matches-visible`); level 0 (`:raw`) stays a bare
 `p/lookup` by contract — it reports the handles at an index location, not the believed
 matches, so the argument-root superset would be wrong there.
@@ -370,8 +375,9 @@ vocabulary-bound, measured at exactly 1.00× over a 3× corpus.
 
 Note the division of labour with the argument root: this index answers "*anywhere*,
 any nesting", which is what a term page or a general search wants. When the position
-is known — `types-of` looking for `(T x)`, i.e. `x` at argument 1 — `[:argument-root 1 x]` is
-the precise, and much smaller, answer.
+is known — `types-of` looking for `(T x)`, i.e. `x` at argument 1 — the position-1
+argument roots (`sentexes-with-arg`, a union of the scoped roots over the slot
+roster) are the precise, and much smaller, answer.
 
 Term keys are canonicalized (`term-key` runs `sentex/canon`) so a reader-literal
 compound query term matches the stored, canon-built subterm.
@@ -453,9 +459,25 @@ disagree with the trie it describes.
 
 `kv/index-layout-version` is the number that says which key shapes a build uses. It
 matters because an index in an unrecognized layout reads as **empty** rather than as
-wrong: every lookup finds no key and answers nothing. Bump it whenever a key shape
-changes. The dump format is where this is checked; `index-load` itself trusts its
-caller.
+wrong: the log replays cleanly and then every lookup whose key shape moved finds no key
+and answers nothing — populated-looking counts over queries that answer nothing. Bump it
+whenever a key shape changes.
+
+Three places check it, and none of them leaves the repair to a person. A **durable KV
+index** is gated at `open-kb` before anything reads it: `disk/files.clj`'s
+`index-layout-decision` compares `<dir>/index/layout.edn` against the current version —
+an absent stamp over a populated log counts as stale, since that is what an index written
+before the sentinel existed looks like — and a `:stale` verdict clears the index,
+rebuilds it from the records, then stamps. The stamp lands only *after* the rebuild, so a
+crash in between reads as still-stale on the next open rather than as clean, and the
+rebuild logs at `:warn` with the record count and how long it took. A **fork's base** is
+held to the same sentinel and gets the other answer: a stale base is refused
+(`:type :stale-index-layout`) rather than rebuilt, because the repair is a write and a
+base is mounted read-only — the message names the one place the rebuild can happen, which
+is opening that directory as a KB. The **mapped snapshot** and the **dump format** answer
+the same question in their own vocabulary: a snapshot whose stamp does not match is
+`{:index :rebuild :reason :layout-changed}` and is rebuilt rather than mapped.
+`index-load` itself trusts its caller.
 
 ## 8. The index as bytes: the mapped snapshot
 

@@ -302,6 +302,36 @@
                        (str "handle " h " was overwritten by the assert")))))))))
       (finally (backend/close-dir! (.getPath store)) (rm-rf! store)))))
 
+(deftest the-public-pair-is-a-round-trip-too
+  ;; Every trip above calls `export/export!` and `imp/import-dump` — the implementations,
+  ;; reached through this namespace's own `:require`.  `v/import!` is the *public* half
+  ;; and it does not require its reader: it goes through `vaelii.impl.wiring`'s delayed
+  ;; `requiring-resolve`, which is the seam a load-order break lands on and the one a
+  ;; direct call to `imp/import-dump` steps over.  So the public pair gets a trip of its
+  ;; own, calling nothing else.
+  ;;
+  ;; It is a round trip and not a smoke test because the claim `import!`'s docstring
+  ;; makes is exactly the claim `compare-kbs!` checks: a dump whose two halves are not
+  ;; both public is not a round trip.
+  (let [dump  (temp-dir "public-dump")
+        store (temp-dir "public-store")]
+    (rm-rf! dump)                                   ; export! makes its own directory
+    (try
+      (tu/with-cleared-kb [_ memory-kb]
+        (let [t      (terms)
+              source (memory-kb)
+              target (disk-kb store)]
+          (build! source t)
+          (let [written (v/export! source dump {:compression :none})
+                summary (v/import! target dump)]
+            (is (= (v/sentex-count source) (:sentexes written))
+                "the writer reports what it wrote")
+            (is (= :pure (:dialect summary)))
+            (is (= :preserved (:handle-policy summary)))
+            (compare-kbs! source target))))
+      (finally (backend/close-dir! (.getPath store))
+               (rm-rf! store) (rm-rf! dump)))))
+
 (deftest records-only-reads-our-dialect-too
   ;; The `{:belief? false}` path exists for a corpus past what the JTMS scales to.  It
   ;; shares one seam with the belief path — `field-map->sentence` — so the dialect

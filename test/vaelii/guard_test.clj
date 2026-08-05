@@ -130,3 +130,86 @@
     (testing "no declaration at all is refused too"
       (is (not (guard/edn-body? {})))
       (is (not (guard/edn-body? {:headers {}}))))))
+
+;; ---- the request-body ceiling --------------------------------------------
+;;
+;; Neither server authenticates, so the caller who can reach a write route is the caller
+;; who can spend the process's heap by streaming a body at it.  What has to hold is not
+;; only that an oversized body is refused but that it is refused **while being read** —
+;; a ceiling checked after the read is the read it was meant to prevent.  The two
+;; servers' 413s are `vaelii.serve-test` and `vaelii.web-test`; this is the reading
+;; itself.
+
+(defn- bytes-in
+  "A request whose body is `n` bytes, on a stream that reports what is left of it."
+  [n]
+  {:body (java.io.ByteArrayInputStream. (byte-array n))})
+
+(deftest a-body-past-the-ceiling-is-refused-instead-of-slurped
+  (let [size  (* 512 1024)
+        limit (* 64 1024)
+        req   (bytes-in size)
+        ^java.io.ByteArrayInputStream in (:body req)
+        e     (with-redefs [guard/max-body-bytes limit]
+                (try (guard/read-capped-body-bytes req) nil
+                     (catch clojure.lang.ExceptionInfo ex ex)))]
+    (is (some? e) "an oversized body was read to the end and handed back")
+    (is (= :body-too-large (:type (ex-data e))) "one refusal type for both servers")
+    (is (= limit (:limit (ex-data e))) "and it says which ceiling it hit")
+    (testing "it stopped reading, which is the whole difference from slurp"
+      (is (pos? (.available in))
+          "the body was drained: a ceiling checked after the read is not a ceiling")
+      ;; the ceiling is checked before the chunk is written, so the reader stops with at
+      ;; most one chunk past it in hand — exactly one when the limit is a whole number of
+      ;; chunks, as it is here
+      (is (<= (- size (.available in)) (+ limit 8192))
+          "more than one chunk past the ceiling was read before it gave up"))
+    (testing "a body under the ceiling comes back whole, and as UTF-8 on the string arm"
+      (with-redefs [guard/max-body-bytes limit]
+        (let [body (.getBytes "(dog Fido) — é" "UTF-8")]
+          (is (= (seq body)
+                 (seq (guard/read-capped-body-bytes
+                       {:body (java.io.ByteArrayInputStream. body)}))))
+          (is (= "(dog Fido) — é"
+                 (guard/read-capped-body
+                  {:body (java.io.ByteArrayInputStream. body)}))))))
+    (testing "and a request carrying no body at all is empty, not a crash"
+      (is (zero? (alength (guard/read-capped-body-bytes {}))))
+      (is (= "" (guard/read-capped-body {}))))))
+
+(deftest wrap-body-limit-refuses-before-the-handler-runs
+  (let [ran     (atom 0)
+        seen    (atom nil)
+        handler (fn [req]
+                  (swap! ran inc)
+                  (reset! seen (slurp (:body req)))
+                  {:status 200 :body "ok"})
+        refusal (fn [_] {:status 413 :body "too large"})
+        wrapped (guard/wrap-body-limit handler refusal)]
+    (testing "past the ceiling the wrapped handler never runs"
+      (let [r (with-redefs [guard/max-body-bytes 8]
+                (wrapped {:body (java.io.ByteArrayInputStream. (.getBytes "0123456789" "UTF-8"))}))]
+        (is (= 413 (:status r)))
+        (is (zero? @ran))))
+    (testing "under it the handler runs and its body is still readable — the buffered
+              copy is what a params middleware downstream then reads, and a consumed
+              stream would leave it with an empty form"
+      (let [r (wrapped {:body (java.io.ByteArrayInputStream. (.getBytes "a=1&b=2" "UTF-8"))})]
+        (is (= 200 (:status r)))
+        (is (= 1 @ran))
+        (is (= "a=1&b=2" @seen))))
+    (testing "and a request with no body at all passes through"
+      (is (= 200 (:status (wrapped {}))))
+      (is (= 2 @ran)))))
+
+(deftest the-ceiling-is-sixteen-mebibytes-unless-the-environment-moves-it
+  ;; A daemon op body is a sentence and its context and a browser body is a form, so
+  ;; 16 MiB is nowhere near a legitimate call and the number is a contract rather than a
+  ;; tuning knob.  `VAELII_MAX_BODY_BYTES` is the operator's override and is read once,
+  ;; at load, so what is answerable in-process is that the value agrees with the
+  ;; environment this JVM was started in — either way round.
+  (if-let [env (System/getenv "VAELII_MAX_BODY_BYTES")]
+    (is (= (Long/parseLong env) guard/max-body-bytes)
+        "VAELII_MAX_BODY_BYTES names the ceiling")
+    (is (= (* 16 1024 1024) guard/max-body-bytes)
+        "16 MiB is the ceiling when nothing names another")))

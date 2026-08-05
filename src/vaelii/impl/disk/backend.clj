@@ -42,36 +42,57 @@
   [dir]
   (.getCanonicalPath (io/file dir)))
 
+(defn- register-or-close!
+  "Register `entry` with the durability daemon and return `[store id]` — closing the
+  store through `entry`'s own `:close` if the registration throws.
+
+  A component opened and not registered is one nothing will fsync and nothing will
+  close: `store-for` puts no store in the registry when this throws, and releases the
+  directory's lock on its way out, so the handles would outlive the lock that made them
+  safe to hold."
+  [store entry]
+  (try [store (dur/register! entry)]
+       (catch Throwable t
+         (try ((:close entry))
+              (catch Throwable c
+                (trove/log! {:level :error
+                             :msg (str "disk backend: closing " (:label entry)
+                                       " after a failed registration failed: "
+                                       (.getMessage c))})))
+         (throw t))))
+
 (defn- open-component!
   "Open one durable component of `dir` and register it with the durability daemon.
   Returns `[store dur-id]`."
   [dir kind]
   (case kind
     :records (let [rec (drs/open-record-store dir)]
-               [rec (dur/register! {:fsync      (fn [{:keys [fsync?]}] (drs/fsync rec fsync?))
-                                    :close      (fn [] (drs/close! rec))
-                                    :compact    (fn [] (drs/compact! rec))
-                                    :dead-ratio (fn [] (drs/dead-ratio rec))
-                                    :label      (str "disk-records " dir)})])
+               (register-or-close!
+                rec {:fsync      (fn [{:keys [fsync?]}] (drs/fsync rec fsync?))
+                     :close      (fn [] (drs/close! rec))
+                     :compact    (fn [] (drs/compact! rec))
+                     :dead-ratio (fn [] (drs/dead-ratio rec))
+                     :label      (str "disk-records " dir)}))
     :index   (let [kvb (dkv/open-kv-backend dir)]
-               [(kv/->KvIndexStore kvb)
-                (dur/register! {:fsync      (fn [{:keys [fsync?]}] (dkv/fsync kvb fsync?))
-                                :close      (fn [] (dkv/close! kvb))
-                                :compact    (fn [] (dkv/compact! kvb))
-                                :dead-ratio (fn [] (dkv/dead-ratio kvb))
-                                :label      (str "disk-index " dir)})])
+               (register-or-close!
+                (kv/->KvIndexStore kvb)
+                {:fsync      (fn [{:keys [fsync?]}] (dkv/fsync kvb fsync?))
+                 :close      (fn [] (dkv/close! kvb))
+                 :compact    (fn [] (dkv/compact! kvb))
+                 :dead-ratio (fn [] (dkv/dead-ratio kvb))
+                 :label      (str "disk-index " dir)}))
     ;; A fork's record-level bookkeeping (`vaelii.impl.overlay.store`): tombstones and
     ;; released premise marks, which are the overlay's own state and so must be exactly as
     ;; durable as its records.  Its own WAL in a subdirectory, so a directory holding a
     ;; fork is still an ordinary disk KB plus one extra log — and a directory that has
     ;; never been forked never grows one.
     :overlay-meta (let [kvb (dkv/open-kv-backend (str dir "/overlay-meta"))]
-                    [kvb
-                     (dur/register! {:fsync      (fn [{:keys [fsync?]}] (dkv/fsync kvb fsync?))
-                                     :close      (fn [] (dkv/close! kvb))
-                                     :compact    (fn [] (dkv/compact! kvb))
-                                     :dead-ratio (fn [] (dkv/dead-ratio kvb))
-                                     :label      (str "overlay-meta " dir)})])))
+                    (register-or-close!
+                     kvb {:fsync      (fn [{:keys [fsync?]}] (dkv/fsync kvb fsync?))
+                          :close      (fn [] (dkv/close! kvb))
+                          :compact    (fn [] (dkv/compact! kvb))
+                          :dead-ratio (fn [] (dkv/dead-ratio kvb))
+                          :label      (str "overlay-meta " dir)}))))
 
 (defn- store-for
   "The `kind` (`:records` / `:index`) store for `dir`, opened once per canonical
@@ -141,6 +162,10 @@
       (when-not (get-in @stores [cdir :snapshot])
         (let [id (dur/register! {:fsync (fn [_] nil)      ; an image is not a WAL — no tick
                                  :close save-fn
+                                 ;; the image is stamped against this directory's
+                                 ;; records, so on the JVM-shutdown path it has to be
+                                 ;; written before they close (`dur/close-phases`)
+                                 :phase :image
                                  :label (str "index-snapshot " cdir)})]
           (swap! stores update cdir
                  #(-> (or % {:dir cdir :dur-ids {}})

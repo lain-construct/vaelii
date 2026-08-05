@@ -61,9 +61,9 @@
 (def ^:private unpackable-handle-families
   "Handle families the dense layout cannot int-route, and why.
 
-  `[:argument-root pred pos term]` is scoped by predicate as of index layout 2, and the
-  packed long is already full — family 8 bits | pos 24 | term id 32 — with no room for a
-  second interned id. So it takes the fallback: boxed vector keys and un-interned
+  `[:argument-root pred pos term]` carries a predicate (index layout 2, `kv.clj`), and
+  the packed long is already full — family 8 bits | pos 24 | term id 32 — with no room
+  for a second interned id. So it takes the fallback: boxed vector keys and un-interned
   postings on the dense backends, which is a real cost of the scoping and is recorded
   here rather than left to be discovered. Packing it again needs a wider key (two longs,
   or a (pred,pos) composite token), not a routing tweak."

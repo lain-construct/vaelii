@@ -14,7 +14,7 @@ name: deep
 # contributor should not wait an hour for a verdict. That leaves three real gaps,
 # and this workflow is all three of them:
 #
-#   - **The `^:slow` half of the suite.** Eighteen tests carry 118k of the
+#   - **The `^:slow` half of the suite.** Twenty tests carry 118k of the
 #     suite's 238k assertions — the exhaustive cross-products and the randomized
 #     oracles. `lein gate` skips them, test.yml skips them, and a mark that
 #     defers a test is only honest if something eventually runs it. This is that
@@ -33,6 +33,9 @@ name: deep
 # jobs are long, the perf one is a timing measurement on a shared runner, and a
 # gate a maintainer routinely overrides is not a gate. A failure here is a bug
 # report addressed to the maintainer, which is why the artifacts are uploaded.
+#
+# Every `uses:` below is a commit SHA with the version in a trailing comment;
+# lint.yml's header says why a tag is not good enough here.
 on:
   schedule:
     # Sundays 04:00 UTC. A whole day clear of the Mon 08:00 canary on lint and
@@ -77,23 +80,23 @@ jobs:
     steps:
       # No credentials left in .git/config: nothing here pushes, and a token
       # sitting in the workspace is reachable by anything the build runs.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Leiningen
-        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d  # 13.6.1
         with:
-          lein: 2.12.0
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
 
       - name: Cache Maven deps
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.m2
           # runner OS and JDK in the key: the same project.clj resolves different
@@ -114,7 +117,7 @@ jobs:
 
       - name: Upload run log
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: deep-${{ matrix.backend }}
           path: target/test-backends/
@@ -164,23 +167,23 @@ jobs:
           - name: nohier
             env: VAELII_NOHIER=1
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Leiningen
-        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d  # 13.6.1
         with:
-          lein: 2.12.0
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
 
       - name: Cache Maven deps
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.m2
           key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
@@ -204,23 +207,23 @@ jobs:
     steps:
       # No credentials left in .git/config: nothing here pushes, and a token
       # sitting in the workspace is reachable by anything the build runs.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Leiningen
-        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d  # 13.6.1
         with:
-          lein: 2.12.0
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
 
       - name: Cache Maven deps
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.m2
           # runner OS and JDK in the key: the same project.clj resolves different

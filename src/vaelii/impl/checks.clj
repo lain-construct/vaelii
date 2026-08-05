@@ -287,9 +287,9 @@
                       :when (kb/isa-among? cs t)]
                   n))))))
 
-(defn- handle-naming
-  "The handle of the match that literally *says* `target`, else a content-ordered choice
-  among the matches that merely entail it.
+(defn- handle-namings
+  "The handles of the matches that literally *say* `target`, in content order, else a
+  content-ordered choice among the matches that merely entail it.
 
   `res/matches-visible` is **type-aware**, so a literal comes back alongside everything
   the taxonomy proves implies it: ask for `(animal CI2)` and you also get `(dog CI2)`
@@ -300,17 +300,39 @@
 
   Order is not part of that contract, and should not be: `res/*hierarchical-retrieval*`
   promises the answer *set*, and a caller reading whole answers cannot observe more.
-  Taking the first match is what turned it into something observable — a flag documented
-  as a pure cost decision changed which pair `contradictions` reported and, through
-  arbitration, what the KB believed (`clash_oracle_test` under `VAELII_NOHIER`).
+  Taking the first match would make it observable — a flag documented as a pure cost
+  decision would decide which pair `contradictions` reports and, through arbitration,
+  what the KB believes (`clash_oracle_test` under `VAELII_NOHIER`).
 
-  Exact first, because the direct statement is the one the caller asked about.  Content
-  order for the rest rather than handle order, because two KBs given one op stream must
-  name the same side and a handle is allocation order."
+  So **both** arms are content-ordered, exact matches first because the direct statement
+  is the one the caller asked about.  The order key is the sentence *and its context*:
+  `res/matches-visible` fans over the whole `genlContext` cone, so one sentence stated in
+  two visible contexts comes back as two exact matches, and a key on the sentence alone
+  ties them — leaving the pick to enumeration order in precisely the arm that exists to
+  take it away.  Never the handle, which is allocation order: two KBs given one op stream
+  must name the same side.
+
+  **Every exact match, not one**, because they are not one sentex.  A term stated to hold
+  the same type in a general microtheory and again in one that sees it is two stored
+  claims of different provenance and possibly different strength, and each forms its own
+  pair with whatever contradicts it — naming only the content-first of them leaves the
+  other coexisting with content that denies it.  The entailing arm stays singular: those
+  matches are *different* sentences reaching the target through the hierarchy, and each
+  already convicts under the type it actually states."
   [matches target]
-  (let [sen (fn [m] (:sentence (nth m 2)))]
-    (or (ffirst (filter #(= target (sen %)) matches))
-        (ffirst (sort-by (comp pr-str sen) matches)))))
+  (let [sen   (fn [m] (:sentence (nth m 2)))
+        order (fn [m] (pr-str [(sen m) (:context (nth m 2))]))]
+    (if-let [exact (seq (filter #(= target (sen %)) matches))]
+      (map first (sort-by order exact))
+      (take 1 (map first (sort-by order matches))))))
+
+(defn- handle-naming
+  "The one handle a *refusal* names — the first of `handle-namings`, which is the
+  content-first exact match where one is stored.  A refusal needs one reason, and the
+  arity arm convicts against a declaration rather than against a pair, so there is
+  nothing plural for it to say."
+  [matches target]
+  (first (handle-namings matches target)))
 
 (defn- arity-declaration-handle
   "The handle of the believed declaration saying `pred` has arity `declared`, visible
@@ -550,10 +572,10 @@
       (:disjoint :functional) (or (not (arbitrating? kb)) (against-known-true? v))
       true)))
 
-(defn- membership-handle
-  "The handle of a believed `(t x)` visible from `context` — the sentex a disjointness
-  clash is *with*.  Asked only once a clash has been found, so an admissible assert
-  never pays for it.
+(defn- membership-handles
+  "The handles of the believed `(t x)` sentexes visible from `context` — the sentexes a
+  disjointness clash is *with*.  Asked only once a clash has been found, so an
+  admissible assert never pays for it.
 
   **The sentex saying `(t x)`, not merely one that entails it.**  `matches-visible` is
   type-aware, so asking it for `(animal CI2)` returns the direct membership *and* every
@@ -568,12 +590,14 @@
   KB reported, and through arbitration what it believed.  `clash_oracle_test` catches it
   under `VAELII_NOHIER`.
 
-  So: the exact membership when it is stored, and a content-ordered choice among the
-  entailing ones when it is not — a purely inherited membership has no direct sentex to
-  name.  `handle-naming` is that rule, and says the rest."
+  So: every exact membership when one is stored, and a content-ordered choice among the
+  entailing ones when none is — a purely inherited membership has no direct sentex to
+  name.  `handle-namings` is that rule, and says the rest, including why the exact arm
+  is plural: one sentence stated in two contexts a reader sees is two sentexes, and each
+  forms its own pair."
   [kb t x context]
   (let [target (list t x)]
-    (handle-naming (res/matches-visible kb target context) target)))
+    (handle-namings (res/matches-visible kb target context) target)))
 
 (defn- disjoint-problems
   "A type membership (T X) where X already holds a type the taxonomy proves
@@ -594,7 +618,12 @@
   though, it is a fact about two sentexes, and a term holding three mutually disjoint
   types forms three pairs.  Stopping at the first would make which of them `settle`
   reports depend on the order the argument root hands the memberships back, which is
-  handle order, which is arrival order."
+  handle order, which is arrival order.
+
+  A pair per opposing **sentex**, not per opposing type, for the same reason one level
+  down: the same membership stated in a general microtheory and in one that sees it is
+  two claims, of possibly different strength, and a reader below both is contradicted by
+  each.  `functional-problems` counts its clashes that way already."
   [kb sentence context types]
   (when (= 1 (nm/arity sentence))
     (let [t (nm/functor sentence)
@@ -607,9 +636,10 @@
             ;; is a function of
             (let [disjoint? (tax/disjointness-test (:taxonomy kb) t context)]
               (for [t' ts
-                    :when (disjoint? t')]
+                    :when (disjoint? t')
+                    h    (membership-handles kb t' x context)]
                 {:type :disjoint :sentence sentence :types [t t']
-                 :opposing-handle (membership-handle kb t' x context)
+                 :opposing-handle h
                  :message (str "disjointness violated: " x " cannot be both "
                                t " and " t')}))))))))
 
@@ -675,8 +705,8 @@
   [kb sentence context]
   (first (functional-problems kb sentence context)))
 
-(defn- asymmetry-problem
-  "First `(asymmetric P)` violation for a sentence, or nil.
+(defn- asymmetry-problems
+  "Every `(asymmetric P)` violation a sentence commits in `context`.
 
   `(asymmetric largerThan)` says `(P a b)` and `(P b a)` cannot both hold, so a claim
   whose **converse** is known-true is a contradiction rather than an addition.  The
@@ -696,10 +726,28 @@
   not a refusal (`refuses-assert?` reads the class), it is the pair `settle` arbitrates
   — at equal class, a represented dilemma in `(contradictions kb)`.
 
-  The **strongest** surviving opposing claim is the one reported, ties broken on the
-  context name, for the reason `inherit/strongest-per-tuple` gives: taking the first
-  found would key an admission decision on handle iteration order, and handles are
-  allocated in assertion order.
+  The **strongest** surviving opposing claim is reported first, ties broken on the
+  context name and then on the sentence, for the reason `inherit/strongest-per-tuple`
+  gives: taking the first found would key an admission decision on handle iteration
+  order, and handles are allocated in assertion order.  The sentence is what settles a
+  tie the context name cannot — argument preservation reaches the converse from a
+  sub-predicate, so two claims of equal class in one context are ordinary, and a key
+  that stops at the context leaves that pair to iteration order.
+
+  **One violation per opposing sentex**, in that order, for the reason
+  `disjoint-problems` gives: the converse stated in a general microtheory and again in
+  one that sees it is two claims, and each is its own pair with the sentence here.  The
+  refusal path takes the first and is therefore deciding against the strongest, which is
+  the claim it always decided against; the discovery weighs all of them.  Deduped on the
+  handle, since preservation can reach one stored claim by several routes.
+
+  That is why the converse is read **twice**.  `inherit/surviving` answers what is
+  *inherited* — one claim per tuple, the strongest — which is the right answer to whether
+  the converse is licensed, and drops the duplicates on purpose
+  (`inherit/strongest-per-tuple`).  The duplicates are exactly what a pair needs, so the
+  sentexes literally stating the converse are read beside it and merged on the handle.
+  Nothing is resurrected by that: a claim at the goal's own tuple is the most specific
+  there is, so `undercut?` never displaced one.
 
   Ground binary sentences only; an open or n-ary one has no converse to speak of."
   [kb sentence context]
@@ -709,20 +757,37 @@
                (every? sx/ground-term? args)
                (tax/has-prop? (:taxonomy kb) :asymmetric pred context))
       (let [converse (list pred (second args) (first args))
-            opposing (->> (inherit/surviving kb converse context)
-                          (filter #(= :for (:polarity %)))
+            stated   (for [m   (res/matches-visible kb converse context)
+                           :let [sxr (nth m 2) h (first m)]
+                           :when (= converse (:sentence sxr))]
+                       {:polarity :for :handle h :sentence (:sentence sxr)
+                        :context (:context sxr)
+                        :class (or (jtms/defeat-class (:tms kb) h) :default)})
+            opposing (->> (concat (filter #(= :for (:polarity %))
+                                          (inherit/surviving kb converse context))
+                                  stated)
                           (sort-by (juxt #(- (strength/rank-of (:class %)))
-                                         #(str (:context %))))
-                          first)]
-        (when opposing
+                                         #(str (:context %))
+                                         #(pr-str (:sentence %))))
+                          (reduce (fn [acc o]
+                                    (if (some #(= (:handle %) (:handle o)) acc)
+                                      acc
+                                      (conj acc o)))
+                                  []))]
+        (for [o opposing]
           {:type :asymmetric :sentence sentence :pred pred
-           :opposing (:sentence opposing) :opposing-handle (:handle opposing)
+           :opposing (:sentence o) :opposing-handle (:handle o)
            :message (str "asymmetric: " pred " cannot hold both ways, and "
-                         (pr-str (:sentence opposing))
-                         (if (= :monotonic (:class opposing)) " is known true" " is believed")
-                         (when (not= (:sentence opposing) converse)
+                         (pr-str (:sentence o))
+                         (if (= :monotonic (:class o)) " is known true" " is believed")
+                         (when (not= (:sentence o) converse)
                            (str " (which reaches " (pr-str converse)
                                 " by argument preservation)")))})))))
+
+(defn- asymmetry-problem
+  "The strongest `(asymmetric P)` violation, for the refusal paths."
+  [kb sentence context]
+  (first (asymmetry-problems kb sentence context)))
 
 (defn- checked-sentence
   "The body the definitional checks see: the double-negation-eliminated positive body,
@@ -1050,7 +1115,7 @@
         types (kb/membership-reader kb context)]
     (->> (concat (disjoint-problems kb chk context types)
                  (functional-problems kb chk context)
-                 (when-let [a (asymmetry-problem kb chk context)] [a]))
+                 (asymmetry-problems kb chk context))
          (map #(with-opposing-class kb %))
          (filter arbitrable?))))
 

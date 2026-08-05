@@ -52,15 +52,23 @@
         log  (f/open-log path)
         fwd  (HashMap.)
         rev  (volatile! (transient []))]
-    (f/truncate-log! log (f/log-tail-offset log))
-    ;; a reloaded token is pooled, so every record decoded through the dictionary shares
-    ;; the one vocabulary object per name with the in-memory store — as it did before the
-    ;; restart, when the token came from a canonicalized sentence
-    (f/scan-log log (fn [_ tok]
-                      (let [tok (sx/intern-sym tok)]
-                        (.put fwd tok (Integer/valueOf (count @rev)))
-                        (vswap! rev conj! tok))))
-    (->TokenLog log path fwd (atom (persistent! @rev)) (Object.))))
+    ;; the handle is this replay's until the record takes it: a decode that throws
+    ;; here propagates to a caller that answers a failed open by releasing the
+    ;; directory lock, and a released lock over a handle this JVM still holds is the
+    ;; one state `close-dir!` exists to prevent
+    (try
+      (f/truncate-log! log (f/log-tail-offset log))
+      ;; a reloaded token is pooled, so every record decoded through the dictionary shares
+      ;; the one vocabulary object per name with the in-memory store — as it did before the
+      ;; restart, when the token came from a canonicalized sentence
+      (f/scan-log log (fn [_ tok]
+                        (let [tok (sx/intern-sym tok)]
+                          (.put fwd tok (Integer/valueOf (count @rev)))
+                          (vswap! rev conj! tok))))
+      (->TokenLog log path fwd (atom (persistent! @rev)) (Object.))
+      (catch Throwable t
+        (try (f/close! log) (catch Throwable _ nil))
+        (throw t)))))
 
 (defn intern!
   "The id for `tok`, allocating (and durably recording) a fresh one if it is new."
@@ -83,7 +91,7 @@
     (if (< -1 id (count v))
       (nth v id)
       (throw (ex-info "token id is not in the dictionary — the frame or the dictionary is damaged"
-                      {:id id :dictionary-size (count v)})))))
+                      {:type :damaged-dictionary :id id :dictionary-size (count v)})))))
 
 (defn token-count ^long [{:keys [rev]}] (count @rev))
 

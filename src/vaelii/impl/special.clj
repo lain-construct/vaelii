@@ -281,6 +281,31 @@
                     (into #{} (mapcat #(p/rules-by-antecedent idx %)) (:predicates calc))
                     :all))))
 
+(defn- recheck-preserving-firings
+  "A sentence moved what a preserved predicate licenses: queue every forward rule
+  carrying an antecedent on one, so the firings that joined on an **inherited** claim
+  are put in front of `chain/inheritance-withdrawn?` at the next settle.
+
+  The argument-side twin of `recheck-on-qualitative`, and needed for the same reason.
+  A firing that joined on an inherited claim names the claim, the declaration and the
+  reach edges as its antecedents, so the JTMS withdraws it when one of those goes.
+  What the antecedents cannot express is a **more specific contrary claim arriving**:
+  every one of them is still stored and believed, and some other sentence has undercut
+  what they licensed — a general default does not fire for a pair a specific claim
+  speaks about (docs/inherit.md), and nothing about that is stored either.
+
+  Queued as `:all` rather than with the sentence as a narrowing trigger, for
+  `recheck-preserving-along`'s reason: the sentence that moved is on the relation, or
+  on a tuple below the one the firing joined at, so it agrees with the firing's
+  literals on nothing a shape comparison could use.
+
+  `inherit/rejoin-rules` is the same read the chainer's own re-join makes, and behind
+  the same O(1) gate — a KB that declares no preservation pays two cardinality reads
+  per sentence."
+  [kb sentence]
+  (when-let [rs (inherit/rejoin-rules kb sentence)]
+    (mark-recheck kb rs :all)))
+
 (defn recheck-on-sentence
   "The re-check trigger for a whole sentence: its functor, and — for a negation — the
   functor of the positive body underneath, since `(not (penguin X))` is content about
@@ -295,17 +320,18 @@
   `(penguin X)`, and a re-check condition reading belief — an `unknown`, an aggregate's
   census — moves on the defeat with no fact having been stored or removed.
 
-  The body is read once and serves all three consumers: the predicate-keyed posting
-  above, the declaration posting, and the qualitative trigger — each for the same
-  reason, that a calculus, a declaration's subject and a predicate are named by what is
-  under the `not`, never by the `not`."
+  The body is read once and serves all four consumers: the predicate-keyed posting
+  above, the declaration posting, the qualitative trigger and the preservation trigger
+  — each for the same reason, that a calculus, a declaration's subject and a predicate
+  are named by what is under the `not`, never by the `not`."
   [kb sentence]
   (let [b (sx/underlying-body sentence)]
     (recheck-on-predicate kb (nm/functor sentence) sentence)
     (when (and b (not= b sentence))
       (recheck-on-predicate kb (nm/functor b) sentence))
     (recheck-declaration kb (or b sentence))
-    (recheck-on-qualitative kb (or b sentence))))
+    (recheck-on-qualitative kb (or b sentence))
+    (recheck-preserving-firings kb (or b sentence))))
 
 (defn recheck-every-exception
   "Re-check **every** rule carrying an exception — the blanket trigger.  Two channels
@@ -393,6 +419,22 @@
   (when-let [rsx (p/get-sentex (:records kb) rh)]
     (and (rules/rule? rsx) (rules/has-aggregate? rsx))))
 
+(defn- refusals-reach?
+  "Does rule `rh` have a refused firing `hit?` accepts — or a refusal record too full to
+  hold entries at all, which is waved through?
+
+  Both edge triggers below narrow on what a rule's **firings** look like, and a refused
+  firing is a firing with no justification to read (`chain`'s \"a refused firing is
+  remembered as bindings\"): without this they see a rule blocked on every firing as a
+  rule that never fired, and skip it.  An `:overflow` record keeps no entries, so there
+  is nothing to test and the only sound answer is yes.
+
+  The record is read as a bare KB field rather than through `chain`, which writes it and
+  sits three layers above here."
+  [kb rh hit?]
+  (let [r (get @(:refused kb) rh)]
+    (if (set? r) (boolean (some hit? r)) (= :overflow r))))
+
 (defn- recheck-genlContext-edge
   "A `genlContext` edge `(genlContext sub super)` was added or removed: queue only the
   excepted rules the visibility change can actually reach, instead of *every* excepted
@@ -411,10 +453,11 @@
   all of them.  Guarded on the global exception-rule set, so a KB with no `exceptWhen`
   pays one set read and stops.
 
-  Keyed on where a firing was **placed**, so a rule with no placed firing is not
-  reached — `chain/derive-conclusion` refuses a firing whose exception already holds,
-  and a rule blocked every time it fired has no context to read here.  A refused
-  firing leaves no record, so nothing here revives it.
+  Keyed on where a firing was **placed**, and a firing refused at derive time was never
+  placed — so the same cone test is asked of the rule's **recorded refusals**, whose
+  entries name the placement context the refused conclusion would have had.  Without
+  that half, a rule blocked every time it fired has no context to read here and a
+  widened cone that releases it reaches nothing.
 
   **An aggregate rule is exempt from that narrowing**, because for it the reasoning
   above is false in one direction.  Every other re-check condition is a block, so the
@@ -435,7 +478,9 @@
                          (when-let [csx (p/get-sentex (:records kb) (:consequence j))]
                            (contains? affected (:context csx)))))]
         (doseq [rh excepted]
-          (when (or (aggregate-rule? kb rh) (some in-cone? (jtms/dependents tms rh)))
+          (when (or (aggregate-rule? kb rh)
+                    (some in-cone? (jtms/dependents tms rh))
+                    (refusals-reach? kb rh #(contains? affected (:pctx %))))
             (mark-recheck kb [rh] :all)))
         ;; A predicate preserved along `genlContext` reads that closure across its
         ;; arguments, so the cone test above — which is about where a firing was
@@ -509,7 +554,13 @@
        (doseq [rh rules]
          (when (or (nil? terms)
                    (aggregate-rule? kb rh)
-                   (some #(binds-any? kb terms %) (jtms/dependents tms rh)))
+                   (some #(binds-any? kb terms %) (jtms/dependents tms rh))
+                   ;; ...and the same question of a firing that was refused before it
+                   ;; could hold a justification: its bindings are recorded, so the
+                   ;; class-membership test reaches it exactly as it reaches a placed one
+                   (refusals-reach? kb rh
+                                    (fn [e] (some (fn [v] (some terms (tree-seq sequential? seq v)))
+                                                  (vals (:bindings e))))))
            (mark-recheck kb [rh] :all)))))))
 
 (defn- bump-roster!
@@ -1767,12 +1818,13 @@
                              (str/join ", " (map name present)) " but not "
                              (str/join ", " (map name (remove (set present) cache-arms)))
                              " — an add arm without its removal and rebuild halves leaks")
-                        {:functor f
+                        {:type    :bad-table-entry
+                         :functor f
                          :present (set present)
                          :missing (vec (remove (set present) cache-arms))})))
       (when-not (or (:wff spec) (seq present))
         (throw (ex-info (str "special-predicate table entry for " f " has no arm at all")
-                        {:functor f})))))
+                        {:type :bad-table-entry :functor f})))))
   entries)
 
 (def entries
@@ -2100,7 +2152,12 @@
           ;; exception's are withdrawn by its own meta-sentex leaving (above).
           (when (rules/rechecked? sentex)
             (p/unindex-exception! (:index kb) (:id sentex)
-                                  (rules/recheck-predicates sentex))))
+                                  (rules/recheck-predicates sentex)))
+          ;; ...and the firings it refused before they could become justifications.  A
+          ;; refusal is dead when its rule goes, and this is the event that says so —
+          ;; entries are otherwise dropped lazily, when a queued rule's record is
+          ;; walked, and a departed rule is never queued again.
+          (swap! (:refused kb) dissoc (:id sentex)))
       ;; a member leaving a disjoint metatype: it stops being disjoint from the rest.
       ;; With the clique materialized this was unreachable — the `(disjoint t o)`
       ;; sentexes were premises in their own right and outlived the membership.

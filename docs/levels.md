@@ -64,8 +64,8 @@ storage one, which is why levels 2–5 match the goal as written.
 `res/raw-match`: one literal context, no subtype fan-out, unification, the symmetric
 mirror, belief-filtered. So a `sentexes-matching` pinning an argument *after* a variable
 (`(parentOf ?x Tom)`) shares `match-one`'s argument-root divert — it reads the
-`[:argument-root 2 Tom]` root intersected with the functor root instead of fanning the
-whole first-argument column — while a fully-ground or left-prefixed query keeps the trie,
+predicate-scoped argument root (`[:argument-root parentOf 2 Tom]`) instead of fanning
+the whole first-argument column — while a fully-ground or left-prefixed query keeps the trie,
 none of which `sentexes-matching` has to know about.
 
 It adds exactly three things level 2 does not, all **questions about truth** rather than

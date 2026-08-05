@@ -564,10 +564,10 @@
 (defn- retract*
   "Return [new-state {:removed-sentexes [datum...] :removed-justifications [jid...]}].
 
-  An unknown datum is a no-op: retraction is idempotent, and the alternative was a
-  real bug — `assoc-in` *created* the node it was asked to retract, the sweep then
-  collected the phantom (not a premise, not groundable), and the result claimed a
-  removal that never happened."
+  An unknown datum is a no-op: retraction is idempotent, and the test is what keeps it
+  so.  Reaching `retract-known*` regardless would have `assoc-in` *create* the node it
+  was asked to retract; the sweep then collects the phantom (not a premise, not
+  groundable) and the result claims a removal that never happened."
   [state datum]
   (if-not (get-in state [:nodes datum])
     [state {:removed-sentexes [] :removed-justifications []}]
@@ -691,7 +691,16 @@
   (-dependents [_ datum] (get-in @state [:nodes datum :consequences] #{}))
   (-justification [_ jid] (get-in @state [:justs jid]))
   (-justifications [_] (vals (:justs @state)))
-  (-ensure-node [_ datum depth] (swap! state ensure* datum depth) nil)
+  (-ensure-node [_ datum depth]
+    ;; skip the swap when it would write back a value-identical map — a node already
+    ;; present at a depth no higher than `depth` is exactly what `ensure*` leaves
+    ;; (`min` keeps the stored depth); this runs once per placement, so most calls
+    ;; are that no-op.  Sound under the single-writer contract: nothing moves the
+    ;; node between the read and the skipped write.
+    (let [n (when observe/*chain-fast-paths* (get (:nodes @state) datum))]
+      (when (or (nil? n) (< (long depth) (long (:depth n 0))))
+        (swap! state ensure* datum depth)))
+    nil)
   (-add-premise [_ datum strength] (swap! state premise* datum strength) nil)
   (-suspend-premise [_ datum] (swap! state suspend-premise* datum) nil)
   (-add-justification [_ just] (swap! state add-just* just) nil)
@@ -869,16 +878,95 @@
     (and (covered? av na bv nb)
          (covered? bv nb av na))))
 
+(def ^:dynamic *dedup-cache*
+  "`{:tms tms :m mutable-HashMap-of-consequence→HashSet-of-just-keys}`, or nil — the
+  default, and `has-justification?` scans `-supports` as always.
+
+  A **run-scoped index over the dedup question**.  A conclusion re-derived by k
+  witnesses is asked about once per witness, and each ask scans every justification it
+  already holds — Θ(k²) `same-antecedents?` comparisons per conclusion across a forward
+  run, with a `-justification` fetch apiece (the W4 join pyramid at 1k: ~430k firings
+  over ~66k conclusions, and the scan is the largest line in the profile).  Bound by
+  `chain/chain` for the length of a run, the first ask per conclusion builds its key
+  set from `-supports` once and every later ask is one hash probe.
+
+  The binding carries the TMS it was built beside, and `dedup-cache-for` hands the
+  map out only to that TMS: a nested run over a *second* KB (legal from a
+  `:on-progress` callback) reaches these fns with the first KB's binding still in
+  force, and handle spaces overlap, so an unscoped reuse would answer one KB's dedup
+  question from the other's supports.  Anything but the owning TMS bypasses to the
+  reference scan.
+
+  Justification *existence* is structural, not belief: a label flip adds and removes
+  nothing here, so no entry goes stale by belief moving — only by a justification
+  being **removed**, which reaches the graph on exactly two paths (`retract!`,
+  `sweep!`), and both clear the cache wholesale.  `add-justification` extends the
+  entry it passes through, so a bound cache never disagrees with the graph it mirrors.
+  The keys are handle-content — no canonicalization — so there is no canon stamp to
+  carry (`observe/*handle-cache*`, which has one, says what that kind of stamp is
+  for; the `:tms` slot here is identity, not currency)."
+  nil)
+
+(defn- dedup-cache-for
+  "The bound dedup index's map when it mirrors `tms`, else nil (see `*dedup-cache*`)."
+  ^java.util.HashMap [tms]
+  (let [c *dedup-cache*]
+    (when (and c (identical? (:tms c) tms)) (:m c))))
+
+(defmacro with-dedup-cache
+  "Run `body` with the justification dedup index engaged for `tms`; an outer cache
+  over the *same* TMS is reused rather than shadowed — the composition
+  `observe/with-handle-cache` makes — and one over another TMS is shadowed by a
+  fresh map.  A no-op when `observe/*chain-fast-paths*` is bound false — the
+  reference lever `chain_fast_paths_test` pulls."
+  [tms & body]
+  `(let [tms# ~tms]
+     (binding [*dedup-cache* (or (let [c# *dedup-cache*]
+                                   (when (and c# (identical? (:tms c#) tms#)) c#))
+                                 (when observe/*chain-fast-paths*
+                                   {:tms tms# :m (java.util.HashMap.)}))]
+       ~@body)))
+
+;; Both key shapes normalize fixnum boxing to Long: the HashMap/HashSet compare with
+;; Java equals, where Integer 7 ≠ Long 7, and the reference scan compares with `=`,
+;; where they are equal — every handle producer allocates Longs today, but the cache
+;; is where a future Integer would silently split a key, so the coercion lives here
+;; rather than as a convention.
+(defn- unbox ^Object [x] (if (int? x) (long x) x))
+
+(defn- just-key
+  "The content `has-justification?` deduplicates on — the informant plus the
+  antecedents **as a set**, `same-antecedents?`'s judgement (order and duplicates
+  immaterial) frozen into one hashable value."
+  [informant antecedents]
+  [(unbox informant) (set antecedents)])
+
+(defn- dedup-keys
+  "The cached key set for `consequence`, built from its supports on the first ask."
+  ^java.util.HashSet [tms ^java.util.Map cache consequence]
+  (let [ck (unbox consequence)]
+    (or (.get cache ck)
+        (let [s (java.util.HashSet.)]
+          (doseq [jid (-supports tms consequence)]
+            (when-let [j (-justification tms jid)]
+              (.add s (just-key (:informant j) (:antecedents j)))))
+          (.put cache ck s)
+          s))))
+
 (defn has-justification?
   "Is there already a support for `consequence` from `informant` over exactly these
-  antecedents (as a set)?  Guards against duplicate justifications."
+  antecedents (as a set)?  Guards against duplicate justifications.  Answered from
+  the dedup index when one is bound for this TMS — the same judgement, one hash
+  probe — and by the supports scan otherwise."
   [tms informant antecedents consequence]
-  (boolean
-   (some (fn [jid]
-           (let [j (-justification tms jid)]
-             (and (= informant (:informant j))
-                  (same-antecedents? antecedents (:antecedents j)))))
-         (-supports tms consequence))))
+  (if-let [^java.util.Map cache (dedup-cache-for tms)]
+    (.contains (dedup-keys tms cache consequence) (just-key informant antecedents))
+    (boolean
+     (some (fn [jid]
+             (let [j (-justification tms jid)]
+               (and (= informant (:informant j))
+                    (same-antecedents? antecedents (:antecedents j)))))
+           (-supports tms consequence)))))
 
 ;; Every mutating entry point below bumps `observe/note-change` — the coarse clock a
 ;; cache derived from *belief* stamps itself with (the qualitative constraint networks
@@ -913,7 +1001,16 @@
   all stay exactly where they were."
   [tms datum] (observe/note-change) (-suspend-premise tms datum) datum)
 
-(defn add-justification [tms just] (observe/note-change) (-add-justification tms just) just)
+(defn add-justification [tms just]
+  (observe/note-change)
+  (-add-justification tms just)
+  ;; keep a bound dedup index in step: extend the one entry this justification lands
+  ;; in, when that entry has been built (an absent entry rebuilds from `-supports`,
+  ;; which now includes this justification, so absence needs nothing)
+  (when-let [^java.util.Map cache (dedup-cache-for tms)]
+    (when-let [^java.util.HashSet ks (.get cache (unbox (:consequence just)))]
+      (.add ks (just-key (:informant just) (:antecedents just)))))
+  just)
 
 (defn relabel
   "Recompute *every* node's label and defeat-class.  This is the one whole-graph
@@ -975,7 +1072,12 @@
   "Dependency-directed retraction (drop premise / relabel / sweep).  Returns
   {:removed-sentexes [datum...] :removed-justifications [jid...]}.
   Unknown datums no-op (empty result): retraction is idempotent."
-  [tms datum] (observe/note-change) (-retract tms datum))
+  [tms datum]
+  (observe/note-change)
+  ;; the one path besides `sweep!` that removes justifications — a bound dedup index
+  ;; over this TMS is cleared wholesale rather than edited (see `*dedup-cache*`)
+  (when-let [^java.util.Map c (dedup-cache-for tms)] (.clear c))
+  (-retract tms datum))
 
 (defn sweep!
   "Garbage-collect the consequence closure of `seeds`: every datum in it that is not
@@ -991,7 +1093,12 @@
 
   Labels must already be current — `set-blocked` relabels the same region — so this
   only reads `:groundable`."
-  [tms seeds] (observe/note-change) (-sweep tms seeds))
+  [tms seeds]
+  (observe/note-change)
+  ;; removes justifications, so a bound dedup index over this TMS is cleared (see
+  ;; `*dedup-cache*`)
+  (when-let [^java.util.Map c (dedup-cache-for tms)] (.clear c))
+  (-sweep tms seeds))
 
 (defn snapshot
   "The network as one canonical persistent map (see `-snapshot`).  A testing and

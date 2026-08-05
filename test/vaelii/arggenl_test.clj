@@ -16,6 +16,18 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
+(defn- ex-type
+  "The `:type` on the ex-info a thunk throws, or nil if it does not throw.
+
+  The paths below throw five distinguishable types — `:arg-genl` for the subtype
+  constraint, `:arg-type` for the instance one, `:arity` and `:arg-position` for the
+  declarations, `:functional` for a second arity value — and a bare
+  `(thrown? ExceptionInfo …)` passes for every one of them alike.  An `argGenl` check
+  collapsing into a naming refusal is exactly the regression a file full of those would
+  stay green through, so each refusal here names the one it expects."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+
 (defn- type-relation
   "A type-level relation over kinds of `root`, plus the kinds themselves.
   Returns `[rel sub other root]`."
@@ -34,8 +46,7 @@
     (testing "the constraint type itself satisfies it — genl is reflexive"
       (is (v/assert kb (list rel root (tu/tmp-type)) 'UniverseContext)))
     (testing "a type outside the constraint's down-closure does not"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list rel other (tu/tmp-type)) 'UniverseContext))))))
+      (is (= :arg-genl (ex-type #(v/assert kb (list rel other (tu/tmp-type)) 'UniverseContext)))))))
 
 (tu/deftest-kb argGenl-wants-a-subtype-where-argIsa-wants-an-instance
   ;; the whole point of having both: the same type symbol passes one and fails the other
@@ -54,8 +65,7 @@
     (testing "the kind satisfies argGenl"
       (is (v/assert kb (list rel sub (tu/tmp-type)) 'UniverseContext)))
     (testing "and fails argIsa, which wants one of its instances"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list instRel sub (tu/tmp-ind)) 'UniverseContext))))
+      (is (= :arg-type (ex-type #(v/assert kb (list instRel sub (tu/tmp-ind)) 'UniverseContext)))))
     (testing "an instance of the kind is what argIsa wanted"
       (let [x (tu/tmp-ind)]
         (v/assert kb (list sub x) 'UniverseContext)
@@ -66,17 +76,14 @@
     (testing "open-world: a term with no place in the hierarchy yet cannot violate"
       (is (v/assert kb (list rel (tu/tmp-type) (tu/tmp-type)) 'UniverseContext)))
     (testing "an individual can never acquire genl edges, so it is convicted not excused"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list rel (tu/tmp-ind) (tu/tmp-type)) 'UniverseContext))))))
+      (is (= :arg-genl (ex-type #(v/assert kb (list rel (tu/tmp-ind) (tu/tmp-type)) 'UniverseContext)))))))
 
 (tu/deftest-kb argGenl-is-well-formedness-checked-like-argIsa
   (let [rel (tu/tmp-pred)]
     (testing "the type slot is a type, not an individual"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'argGenl rel 1 (tu/tmp-ind)) 'UniverseContext))))
+      (is (= :not-well-formed (ex-type #(v/assert kb (list 'argGenl rel 1 (tu/tmp-ind)) 'UniverseContext)))))
     (testing "the position is a positive integer"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'argGenl rel 0 'thing) 'UniverseContext))))
+      (is (= :not-well-formed (ex-type #(v/assert kb (list 'argGenl rel 0 'thing) 'UniverseContext)))))
     (testing "the message names argGenl, not argIsa"
       (is (re-find #"argGenl"
                    (:message (first (v/check kb (list 'argGenl rel 0 'thing)
@@ -102,10 +109,8 @@
     (testing "a declared position is fine"
       (is (v/assert kb (list 'argIsa rel 2 'thing) 'UniverseContext)))
     (testing "one past the declared arity would never fire, so it is refused"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'argIsa rel 5 'thing) 'UniverseContext)))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'argGenl rel 5 'thing) 'UniverseContext))))
+      (is (= :arg-position (ex-type #(v/assert kb (list 'argIsa rel 5 'thing) 'UniverseContext))))
+      (is (= :arg-position (ex-type #(v/assert kb (list 'argGenl rel 5 'thing) 'UniverseContext)))))
     (testing "open-world: an undeclared predicate takes any position"
       (is (v/assert kb (list 'argIsa (tu/tmp-pred) 9 'thing) 'UniverseContext)))))
 
@@ -132,11 +137,9 @@
       (tu/with-terms [a_plant]
         (v/assert kb (list 'genl a_plant 'thing) 'UniverseContext)
         (v/assert kb (list a_collection a_plant) 'UniverseContext)
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list rel a_plant (tu/tmp-ind)) 'UniverseContext))
+        (is (= :arg-genl (ex-type #(v/assert kb (list rel a_plant (tu/tmp-ind)) 'UniverseContext)))
             "a collection, but not a kind of animal — argGenl convicts"))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list rel Rex (tu/tmp-ind)) 'UniverseContext))
+      (is (= :arg-genl (ex-type #(v/assert kb (list rel Rex (tu/tmp-ind)) 'UniverseContext)))
           "an individual can never be a subtype, so it is convicted rather than excused"))))
 
 (tu/deftest-kb the-constraint-must-agree-with-the-declared-relation-kind
@@ -145,12 +148,10 @@
     (v/assert kb (list 'typeRelationPredicate typeRel) 'UniverseContext)
     (testing "an instance-level relation takes argIsa"
       (is (v/assert kb (list 'argIsa instRel 1 'thing) 'UniverseContext))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'argGenl instRel 2 'thing) 'UniverseContext))))
+      (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'argGenl instRel 2 'thing) 'UniverseContext)))))
     (testing "a type-level relation takes argGenl"
       (is (v/assert kb (list 'argGenl typeRel 1 'thing) 'UniverseContext))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'argIsa typeRel 2 'thing) 'UniverseContext))))
+      (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'argIsa typeRel 2 'thing) 'UniverseContext)))))
     (testing "an unclassified relation takes either"
       (let [rel (tu/tmp-pred)]
         (is (v/assert kb (list 'argIsa rel 1 'thing) 'UniverseContext))
@@ -165,8 +166,7 @@
     (testing "restating the same arity is a no-op, not a clash"
       (is (v/assert kb (list 'arity rel 2) 'UniverseContext)))
     (testing "a different arity for the same predicate is a functional violation"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'arity rel 7) 'UniverseContext))))))
+      (is (= :functional (ex-type #(v/assert kb (list 'arity rel 7) 'UniverseContext)))))))
 
 (tu/deftest-kb a-sentence-must-match-its-predicates-declared-arity
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
@@ -174,10 +174,8 @@
     (testing "the declared arity stores"
       (is (v/assert kb (list rel a b) 'UniverseContext)))
     (testing "too many arguments, and too few, are both refused"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list rel a b (tu/tmp-ind)) 'UniverseContext)))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list rel a) 'UniverseContext))))
+      (is (= :arity (ex-type #(v/assert kb (list rel a b (tu/tmp-ind)) 'UniverseContext))))
+      (is (= :arity (ex-type #(v/assert kb (list rel a) 'UniverseContext)))))
     (testing "open-world: an undeclared predicate takes any arity"
       (let [undeclared (tu/tmp-pred)]
         (is (v/assert kb (list undeclared a) 'UniverseContext))
@@ -190,10 +188,8 @@
     (v/assert kb (list 'unaryPredicate byType) 'UniverseContext)
     (is (v/assert kb (list byArity a) 'UniverseContext))
     (is (v/assert kb (list byType a) 'UniverseContext))
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list byArity a (tu/tmp-ind)) 'UniverseContext)))
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list byType a (tu/tmp-ind)) 'UniverseContext)))))
+    (is (= :arity (ex-type #(v/assert kb (list byArity a (tu/tmp-ind)) 'UniverseContext))))
+    (is (= :arity (ex-type #(v/assert kb (list byType a (tu/tmp-ind)) 'UniverseContext))))))
 
 (tu/deftest-kb the-arity-declaration-is-cached-and-follows-its-sentex
   ;; `(arity P n)` is read on every assertion, so it is cached in the taxonomy beside
@@ -202,19 +198,21 @@
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
     (let [h (v/assert kb (list 'arity rel 2) 'UniverseContext)]
       (is (= 2 (tax/declared-arity (:taxonomy kb) rel)) "cached on assert")
-      (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list rel a) 'UniverseContext)))
+      (is (= :arity (ex-type #(v/assert kb (list rel a) 'UniverseContext))))
       (testing "and retracting the declaration takes the constraint with it"
         (v/retract! kb h)
         (is (nil? (tax/declared-arity (:taxonomy kb) rel)))
-        (is (v/assert kb (list rel a) 'UniverseContext))))
+        (is (v/assert kb (list rel a) 'UniverseContext))
+        (is (v/assert kb (list rel a b) 'UniverseContext)
+            "the arity the declaration named is admitted too — with nothing declared
+             the check is released, not inverted")))
     (testing "and a rebuild from the records agrees with the live cache"
       (let [h2 (v/assert kb (list 'arity (tu/tmp-pred) 3) 'UniverseContext)
             sx (v/sentex kb h2)
             p2 (second (:sentence sx))]
         (v/recover kb)
         (is (= 3 (tax/declared-arity (:taxonomy kb) p2))
-            "recover replays the declaration into the cache")))
-    (is b)))
+            "recover replays the declaration into the cache")))))
 
 (tu/deftest-kb a-rebuild-clears-the-arity-cache-before-replaying-it
   ;; `recover` merges into what it clears, so a cache it forgets to clear can only ever
@@ -254,7 +252,7 @@
             "sees both, so has no settled answer")
         (is (nil? (tax/declared-arity tax rel)) "and unscoped is the same"))
       (testing "and each reader is bound by what it sees"
-        (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list rel a) LeftContext)))
+        (is (= :arity (ex-type #(v/assert kb (list rel a) LeftContext))))
         (is (v/assert kb (list rel a b) LeftContext))
         (is (v/assert kb (list rel a b) BothContext) "unsettled constrains nothing")))))
 
@@ -274,15 +272,13 @@
     (testing "and dropping one of them settles it again"
       (v/retract! kb (v/handle-of kb (list 'arity rel 3) 'UniverseContext))
       (is (= 2 (tax/declared-arity (:taxonomy kb) rel)))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list rel a) 'UniverseContext))))))
+      (is (= :arity (ex-type #(v/assert kb (list rel a) 'UniverseContext)))))))
 
 (tu/deftest-kb a-variableArity-predicate-is-exempt
   ;; lessThan is declared binary and reads a chain of any length; the declaration says so
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
     (v/assert kb (list 'binaryPredicate rel) 'UniverseContext)
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list rel a b (tu/tmp-ind)) 'UniverseContext)))
+    (is (= :arity (ex-type #(v/assert kb (list rel a b (tu/tmp-ind)) 'UniverseContext))))
     (v/assert kb (list 'variableArity rel) 'UniverseContext)
     (testing "declaring it variable arity releases the check"
       (is (v/assert kb (list rel a b (tu/tmp-ind)) 'UniverseContext)))))
@@ -308,10 +304,8 @@
     (testing "globally in the hierarchy, invisibly from ctx: open world excuses"
       (is (v/assert kb (list rel nart (tu/tmp-type)) ctx)))
     (testing "a plain individual with no edges anywhere is still convicted"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list rel plain (tu/tmp-type)) ctx))))
+      (is (= :arg-genl (ex-type #(v/assert kb (list rel plain (tu/tmp-type)) ctx)))))
     (testing "visible evidence reaching the wrong place still convicts"
       (v/assert kb (list 'genl kind 'thing) ctx)     ; visible, but not under root
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list rel kind (tu/tmp-type)) ctx))))
+      (is (= :arg-genl (ex-type #(v/assert kb (list rel kind (tu/tmp-type)) ctx)))))
     (tax/del-genl! (:taxonomy kb) nart root 999901)))

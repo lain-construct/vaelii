@@ -41,9 +41,26 @@
 #   lein gate --skip test      # drop a stage; repeatable
 #   lein gate --only perf      # run one; repeatable
 #   lein gate --all            # test stage at `:all` — the ^:slow tests too
+#   lein gate --jobs 4         # test shards (default: cores - 2; 1 = one JVM)
+#   lein gate --sequential     # the old shape: one test JVM, one stage at a time
+#
+# SHAPE.  `lint` and `test` run **concurrently**, then `perf` alone.  Two reasons it
+# is that split and not all three at once:
+#
+#   - lint is static analysis and test is a JVM suite; neither can perturb the
+#     other's answer, so lint is a free minute inside the suite's wall clock.
+#   - **perf runs alone on purpose.**  It judges growth ratios rather than
+#     milliseconds, which is what makes it machine-independent — but a reading taken
+#     while eight test JVMs saturate the box is noise, and a perf gate that goes
+#     amber under its own harness is one nobody trusts.  It is ~40s; that is a cheap
+#     price for a number that means something.
+#
+# The test stage itself is sharded across JVMs (`scripts/test-parallel.sh`), which is
+# safe because the in-memory registry isolates separate JVMs — see that script.
 #
 # Env:
 #   GATE_OUT        log directory (default target/gate)
+#   GATE_JOBS       default shard count for the test stage
 #   PERF_TOLERANCE  passed to `lein perf --tolerance` — raise it on a loaded box
 #
 # Each stage streams to its own log, printed as it starts, so the run is
@@ -59,12 +76,15 @@ cd "$ROOT" || exit 1
 OUT="${GATE_OUT:-target/gate}"
 TAIL_LINES=40
 
-fail_fast=0; quick=0; all=0; skip=(); only=()
+fail_fast=0; quick=0; all=0; sequential=0; jobs="${GATE_JOBS:-}"; skip=(); only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fail-fast) fail_fast=1; shift ;;
     --quick)     quick=1; shift ;;
     --all)       all=1; shift ;;
+    --sequential) sequential=1; shift ;;
+    --jobs)      [[ $# -ge 2 ]] || { echo "gate: --jobs needs a value" >&2; exit 2; }
+                 jobs="$2"; shift 2 ;;
     # A value is REQUIRED. `shift 2` on a one-element stack shifts nothing and
     # returns 1, so `while [[ $# -gt 0 ]]` never advances and `gate --skip` spins
     # forever instead of complaining.
@@ -113,20 +133,13 @@ wanted () {                    # is stage $1 in this run?
 mkdir -p "$OUT" || exit 1
 pass=0; fail=0; failed=(); skipped=()
 
-run_stage () {                 # run_stage <name> <blurb> <cmd...>
-  local name="$1" blurb="$2"; shift 2
-  if ! wanted "$name"; then skipped+=("$name"); return 0; fi
-
-  local log="$OUT/$name.log" t0 t1 code
+announce () {                  # announce <name> <blurb>
   printf '%s==>%s %s%-5s%s %s%s  # %s%s\n' \
-    "$BOLD" "$RST" "$BOLD" "$name" "$RST" "$DIM" "$blurb" "$log" "$RST"
-  t0=$SECONDS
-  # Captured, never piped: a pipeline reports the *last* command's status, which
-  # is how a green gate over a red suite happens.
-  "$@" >"$log" 2>&1
-  code=$?
-  t1=$((SECONDS - t0))
+    "$BOLD" "$RST" "$BOLD" "$1" "$RST" "$DIM" "$2" "$OUT/$1.log" "$RST"
+}
 
+report_stage () {              # report_stage <name> <exit-code> <seconds>
+  local name="$1" code="$2" t1="$3" log="$OUT/$1.log"
   if [[ $code -eq 0 ]]; then
     printf '    %s✓%s %-5s %s[%ds]%s\n' "$GREEN" "$RST" "$name" "$DIM" "$t1" "$RST"
     pass=$((pass + 1))
@@ -138,22 +151,71 @@ run_stage () {                 # run_stage <name> <blurb> <cmd...>
       < <(tail -n "$TAIL_LINES" "$log")
     printf '%s' "$RST"
     fail=$((fail + 1)); failed+=("$name")
-    [[ $fail_fast -eq 1 ]] && return 1
   fi
+}
+
+run_stage () {                 # run_stage <name> <blurb> <cmd...>
+  local name="$1" blurb="$2"; shift 2
+  if ! wanted "$name"; then skipped+=("$name"); return 0; fi
+
+  local t0 code
+  announce "$name" "$blurb"
+  t0=$SECONDS
+  # Captured, never piped: a pipeline reports the *last* command's status, which
+  # is how a green gate over a red suite happens.
+  "$@" >"$OUT/$name.log" 2>&1
+  code=$?
+  report_stage "$name" "$code" "$((SECONDS - t0))"
+  [[ $code -ne 0 && $fail_fast -eq 1 ]] && return 1
   return 0
 }
 
-test_args=(test)
-[[ $all -eq 1 ]] && test_args+=(:all)
+# One test JVM under `--sequential`, and under `--fail-fast` too: stopping at the
+# first failure is a claim about *order*, and there is no order among stages that
+# started together.
+[[ $fail_fast -eq 1 ]] && sequential=1
+
+if [[ $sequential -eq 1 ]]; then
+  test_cmd=(lein test); [[ $all -eq 1 ]] && test_cmd+=(:all)
+else
+  test_cmd=(scripts/test-parallel.sh); [[ $all -eq 1 ]] && test_cmd+=(:all)
+  [[ -n "$jobs" ]] && test_cmd+=(--jobs "$jobs")
+fi
+test_blurb="the suite$([[ $all -eq 1 ]] && echo " (:all)")$([[ $sequential -eq 0 ]] && echo ", sharded")"
 
 perf_args=(perf)
 [[ $quick -eq 1 ]] && perf_args+=(--quick)
 [[ -n "${PERF_TOLERANCE:-}" ]] && perf_args+=(--tolerance "$PERF_TOLERANCE")
 
-# Cheapest first, so `--fail-fast` gets you the fast answer first.
-run_stage lint "static analysis"    lein lint || true
-[[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage test "the suite$([[ $all -eq 1 ]] && echo " (:all)")" lein "${test_args[@]}" || true
-[[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage perf "the scaling claims" lein "${perf_args[@]}" || true
+if [[ $sequential -eq 1 ]]; then
+  # Cheapest first, so `--fail-fast` gets you the fast answer first.
+  run_stage lint "static analysis" lein lint || true
+  [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage test "$test_blurb" "${test_cmd[@]}" || true
+  [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage perf "the scaling claims" lein "${perf_args[@]}" || true
+else
+  # lint ‖ test, then perf alone — see SHAPE at the top.
+  lint_pid=""; test_pid=""; lint_t0=0; test_t0=0
+  if wanted lint; then
+    announce lint "static analysis"
+    lint_t0=$SECONDS
+    ( lein lint >"$OUT/lint.log" 2>&1 ) & lint_pid=$!
+  else skipped+=(lint); fi
+  if wanted test; then
+    announce test "$test_blurb"
+    test_t0=$SECONDS
+    ( "${test_cmd[@]}" >"$OUT/test.log" 2>&1 ) & test_pid=$!
+  else skipped+=(test); fi
+
+  # Joined in the order they were announced, so the report reads top to bottom.
+  if [[ -n "$lint_pid" ]]; then
+    wait "$lint_pid"; report_stage lint "$?" "$((SECONDS - lint_t0))"
+  fi
+  if [[ -n "$test_pid" ]]; then
+    wait "$test_pid"; report_stage test "$?" "$((SECONDS - test_t0))"
+  fi
+
+  run_stage perf "the scaling claims" lein "${perf_args[@]}" || true
+fi
 
 echo
 if [[ ${#skipped[@]} -gt 0 ]]; then

@@ -446,6 +446,14 @@ negations, and computing a maximal-common-descendant set per pair would turn tha
 a real cost. Contexts are few and repeat constantly, so the memo collapses it to one
 computation per distinct pair.
 
+A **definitional** clash reads the same rule from the other end. `X` against `(not X)`
+needs no vocabulary to be a contradiction, so the pairing is the whole question; a
+disjointness needs the separation and the genl edges it closes under to be visible too,
+which is a scoped check rather than a set test. So the common descendant is where that
+check is *asked from* (`settle/clash-askers`) rather than a predicate over an already
+formed pair — the same answer to the same question, reached by running the check where
+both halves can be seen.
+
 ### There is no second axis
 
 Defeat-class alone cannot separate "birds fly" from "penguins do not" — both are
@@ -591,30 +599,71 @@ costs a re-derivation and never an answer.
 the whole standing set, so publishing them costs what they are. What the memo buys is
 that the per-pair term stays bookkeeping rather than a re-derivation of the checks.
 
+### Who asks the pair's question
+
+Discovery re-checks the sentexes the settle **moved**, and the checks are scoped to the
+context they are asked in — a microtheory is convicted only on grounds it can see
+([contexts.md](contexts.md)). Where each side of a pair convicts the other that is
+enough: whichever side arrives second finds the pair, so the answer does not depend on
+which arrived first.
+
+A pair whose halves sit either side of a `genlContext` edge convicts one way only.
+`(animal X)` in a general microtheory and `(plant X)` in one that sees it are each
+admissible where they are written, and only the seeing side has both in view. Asked from
+the arriving sentex's own context alone, the general side's check finds nothing at all,
+so the same three sentences would land on a defeat or on two coexisting claims according
+to the order they were written in — with unequal strengths, a difference in belief and
+not only in reporting.
+
+So each candidate's question is asked from **every context that can see a pair it could
+form**: its own, and the maximal common descendant of its own and each context holding a
+sentex it could pair with (`settle/clash-askers`). Nothing is widened by that — each
+vantage already sees both halves, and it convicts on what it can see. The maximal common
+descendant is the *least specific* context with the whole clash in view, so a narrow
+microtheory's separation never reaches back over a general claim it was never about.
+Which sentexes a candidate could pair with is read off the argument-1 roots, one posting
+per term: its term's other memberships for a separation, the other fillers of the slot
+for a `functional` predicate, the converse of an `asymmetric` claim.
+
+The vantages run under the KB's constraint policy, like the retroactive sweeps. A pair
+split across a visibility edge is exactly the clash neither writer could see, so under
+`:refuse` it stays the exposure pass's business — a `:disjoint` entry in `violations`
+naming the contexts it is visible from, with belief untouched. Under `:arbitrate` every
+route agrees. The exposure pass covers **disjointness only**, so under `:refuse` a
+functional slot filled either side of the edge, or an asymmetric claim written across
+one, is neither refused nor reported: the door sees one half and the ledger has no entry
+kind for it.
+
+**One sentence stated in two visible contexts is two sentexes**, and a claim that denies
+it denies both. The same membership in a general microtheory and in one that sees it can
+carry different strengths and different support, so `checks/disjoint-problems` names one
+pair per opposing *sentex* rather than per opposing type, and the asymmetric arm does the
+same for the converse. `functional-problems` counted its clashes that way from the start.
+The asymmetric arm therefore reads its converse twice: `inherit/surviving` answers what is
+inherited — one claim per tuple, the strongest — and the sentexes literally stating the
+converse are read beside it and merged on the handle.
+
 ### Where conviction is one-sided
 
-Discovery re-checks the sentexes the settle **moved**. Where each side of a pair
-convicts the other that is enough — whichever side arrives second finds the pair, so
-the answer does not depend on which arrived first. Two shapes convict one way only,
-and there the arrival order decides what the KB believes:
+One shape convicts one way only, **through argument preservation**. `(outranks animal
+cat)` denies the more specific `(outranks cat reptile)`, because preservation reads a
+goal's arguments upwards: the specific claim asks whether the general one denies it, and
+the general one never asks about the specific. Written specific-first, both stand and
+nothing is reported; written general-first, the second write is refused outright.
 
-* **Across a visibility edge.** `(animal X)` in a general microtheory and `(plant X)`
-  in one that sees it. Only the seeing side's check has both in view. Assert the
-  general claim first and the pair is arbitrated; assert the specific one first and it
-  is merely *exposed*, as a `:disjoint` entry in `violations`. With unequal strengths
-  that is a difference in belief, not only in reporting.
-* **Through argument preservation.** `(outranks animal cat)` denies the more specific
-  `(outranks cat reptile)`, because preservation reads a goal's arguments upwards: the
-  specific claim asks whether the general one denies it, and the general one never asks
-  about the specific. Written specific-first, both stand and nothing is reported;
-  written general-first, the second write is refused outright.
+That is not a narrowing to remove — the exhaustive pass in
+`settle/*incremental-clashes*` does not share it, since upward reading is what
+preservation *is*. What a candidate rule for it reads is the **spec-side product**: the
+tuples strictly below the arriving claim, which is `specs(a) × specs(b)` per moved fact
+of a preserved predicate. Measured on a 4-way, 3-deep hierarchy under each of two roots
+— 85 types below each — that is 7,225 candidate tuples for one claim, against the 2
+postings the visibility question above reads off an argument root, and it grows as the
+square of the hierarchy below the claim where the root read does not grow at all. So the
+two shapes look alike and cost nothing alike, and this one is the limit the engine stops
+at rather than a question nobody asked.
 
-Neither shape is narrowed, and neither is a narrowing to remove — the exhaustive pass in
-`settle/*incremental-clashes*` shares neither. What either would take is a question about
-which *other* sentexes an arriving one puts back in question: the partners it could be
-convicted by, read off the argument roots for disjointness and functionality, and off the
-spec-side product for a preserved asymmetric claim. `clash_oracle_test` excludes both
-shapes and says so, so the oracle measures the narrowings rather than this.
+`clash_oracle_test` excludes this shape and says so — no `argPreserving` declaration is
+made there — and covers the visibility one.
 
 ## The solver seam (`vaelii.impl.solve`)
 
@@ -688,19 +737,31 @@ behaving as a universal nobody licensed. Universals are written as rules, where
 canonicalized record's `:antecedent`, so `implies`, a `set/*Rule` wrapper, and a
 nesting of the two are classified alike. Every rejection carries an `ex-info` `:type`,
 so a caller discriminates on that rather than guessing from which keys are present:
-`:naming` `:not-well-formed` `:not-ground` `:not-range-restricted` `:arity`
-`:arg-type` `:arg-genl` `:arg-position` `:inter-arg-type` `:arg-constraint-kind`
-`:disjoint` `:functional` `:asymmetric` `:not-stratified`.
+`:naming` `:not-well-formed` `:not-ground` `:not-range-restricted` `:not-assertible`
+`:arity` `:arg-type` `:arg-genl` `:arg-position` `:inter-arg-type`
+`:arg-constraint-kind` `:disjoint` `:functional` `:asymmetric` `:not-stratified`
+`:exception-not-closed`, plus the two about the *request* rather than the knowledge —
+`:shape` (the context is not a symbol, the sentence is not an s-expression, `opts` is
+not a map) and `:unknown-option` (an `opts` key `assert` does not read, or a
+`:strength` that is not an assertable class).
 
 ## Where the layer stops
 
-- Nogoods cover explicit negation only; disjoint/functional stay hard — thrown on the
-  assert path, dropped and reported on the derivation path, arbitrated on neither. NAF
-  in rule antecedents is implemented as `unknown` / `thereExists`, re-evaluated on the
-  `exceptWhen` triggers and storing nothing ([naf.md](naf.md)); the JTMS `out` slot
-  stays **reserved** — an existential NAF is negation over a pattern, with no single
-  handle for the out-list to hold, so re-evaluation is the mechanism and nothing
-  reads the slot.
+- A nogood is not explicit negation only. A disjointness, functionality or asymmetry
+  clash convicts by naming a *second believed sentex*, which is a nogood in exactly the
+  same sense: `settle/constraint-nogoods` files it and ranks it **above** a rebuttal —
+  priority 3–4 against 1–2. Whether the assert path admits such a sentence at all is
+  the KB's `:constraints` policy (`open-kb`): `:refuse` throws, `:arbitrate` refuses
+  only against `:monotonic` content and leaves a `:default` claim to settle. What is
+  dropped and reported rather than arbitrated is a violation with **no opposing
+  sentex** — an argument constraint, an arity, a malformed special predicate, an
+  unstratified derived edge.
+- NAF is the thing that is not a nogood. In rule antecedents it is `unknown` /
+  `thereExists`, re-evaluated on the `exceptWhen` triggers and storing nothing
+  ([naf.md](naf.md)); the JTMS `out` slot stays **reserved** — an existential NAF is
+  negation over a pattern, with no single handle for the out-list to hold, so
+  re-evaluation is the mechanism and nothing ever populates the slot. `valid?` reads it
+  on every relabel and finds it empty.
 - A default/default clash is never arbitrated: it is reported as a dilemma and the
   ranking is the application's. That is deliberate (see "There is no second axis"), but
   it does mean the engine offers no ordering at all among equally-strong rebuttals.

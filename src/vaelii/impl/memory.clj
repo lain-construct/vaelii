@@ -17,12 +17,12 @@
   same `:space` number must share state, or the persistence/recovery tests (a second KB
   restarted over the same databases) would find an empty store.  A process-global
   registry keyed by space number provides that: `(memory-record-store {:space 15})` twice
-  returns records backed by *one* state atom.  `clear-records!` / `clear-index!`
-  empty a space.  (State lives only for the life of the JVM; the on-disk backend is what
-  survives a process restart.)
+  returns records backed by *one* state atom, and by one handle counter beside it.
+  `clear-records!` / `clear-index!` empty a space.  (State lives only for the life of
+  the JVM; the on-disk backend is what survives a process restart.)
 
   **Single-writer.**  Pure runs one writer (docs/storage.md, \"The single-writer
-  contract\"), so each store is one atom mutated by `swap!`; reads deref a snapshot
+  contract\"), so a store's state is one atom mutated by `swap!`; reads deref a snapshot
   and are lock-free.  Interleaved *writers* would not be serializable."
   (:require [clojure.set :as set]
             [vaelii.impl.kv :as kv]
@@ -32,8 +32,9 @@
 ;; defonce so the registry survives REPL reloads and is shared across a JVM's test
 ;; namespaces — one shared store per space number, for the life of the JVM.
 
-(defonce ^:private record-spaces (atom {}))
-(defonce ^:private index-spaces  (atom {}))
+(defonce ^:private record-spaces   (atom {}))
+(defonce ^:private record-counters (atom {}))
+(defonce ^:private index-spaces    (atom {}))
 
 (defn- space-atom
   "The state atom for `space` in `registry`, created once on first use so two stores
@@ -46,27 +47,33 @@
 ;; ---- record store --------------------------------------------------------
 
 (def ^:private empty-record-state
-  {:seq 0 :sentexes {} :justifications {} :provenance {} :premises #{}})
+  {:sentexes {} :justifications {} :provenance {} :premises #{}})
 
 (defn- store-record
-  "Write `rec` at handle `id` under `kind`, keeping `:seq` — the highest handle issued —
-  at or above it.  That second half is what makes the handle an identity: `put-sentex`
-  and `put-justification` both honour an explicit `:id` (an import lands records at the
-  handles its dump gave them), and a counter left behind one would hand the same number
-  out again on the very next write, overwriting a record with no error and no warning.
-  O(1), and a no-op when the id came from `next-id`, which is already ahead of it."
-  [state kind id rec]
-  (swap! state (fn [st] (-> st
-                            (assoc-in [kind id] rec)
-                            (update :seq (fnil max 0) id))))
+  "Write `rec` at handle `id` under `kind`, keeping `counter` — the highest handle
+  issued — at or above it.  That second half is what makes the handle an identity:
+  `put-sentex` and `put-justification` both honour an explicit `:id` (an import lands
+  records at the handles its dump gave them), and a counter left behind one would hand
+  the same number out again on the very next write, overwriting a record with no error
+  and no warning.  O(1), and a no-op when the id came from `next-id`, which is already
+  ahead of it.
+
+  The counter is its **own** atom rather than a key in the state map, so allocating a
+  handle is a compare-and-set on a `Long` and not on the whole store — one is minted per
+  stored sentex and per justification, and forward chaining takes one per firing
+  (docs/inference.md).  The disk store holds its counter the same way, so both backends
+  allocate alike."
+  [state counter kind id rec]
+  (swap! state assoc-in [kind id] rec)
+  (when (> (long id) (long @counter)) (swap! counter max (long id)))
   id)
 
-(defrecord MemoryRecordStore [state]
+(defrecord MemoryRecordStore [state counter]
   p/RecordStore
-  (next-id [_] (long (:seq (swap! state update :seq (fnil inc 0)))))
+  (next-id [_] (long (swap! counter inc)))
   (put-sentex [this sentex]
     (let [id (or (:id sentex) (p/next-id this))]
-      (store-record state :sentexes id (assoc sentex :id id))))
+      (store-record state counter :sentexes id (assoc sentex :id id))))
   (get-sentex [_ id] (get-in @state [:sentexes id]))
   (delete-sentex! [_ id]
     (swap! state (fn [st] (-> st
@@ -76,7 +83,7 @@
     nil)
   (put-justification [this justification]
     (let [id (or (:id justification) (p/next-id this))]
-      (store-record state :justifications id (assoc justification :id id))))
+      (store-record state counter :justifications id (assoc justification :id id))))
   (get-justification [_ id] (get-in @state [:justifications id]))
   (delete-justification! [_ id]
     (swap! state (fn [st] (-> st
@@ -105,13 +112,16 @@
     nil)
   (premise-ids [_] (set (:premises @state)))
   (premise-strength [_ id] (or (:strength (get-in @state [:sentexes id])) :default))
-  (clear-records! [_] (reset! state empty-record-state) nil))
+  (clear-records! [_] (reset! state empty-record-state) (reset! counter 0) nil))
 
 (defn memory-record-store
-  "An in-memory `RecordStore`.  Only `:space` in `opts` matters (it selects the shared
-  state atom)."
+  "An in-memory `RecordStore`.  Only `:space` in `opts` matters: it selects the shared
+  state atom **and** the shared handle counter, which have to be the same pair for two
+  stores over one space or the second would re-issue handles the first had already
+  written."
   [{:keys [space] :or {space 0}}]
-  (->MemoryRecordStore (space-atom record-spaces space empty-record-state)))
+  (->MemoryRecordStore (space-atom record-spaces space empty-record-state)
+                       (space-atom record-counters space 0)))
 
 ;; ---- index KV backend ----------------------------------------------------
 ;; One map keyed by the structured key vectors, holding a Long at each counter key

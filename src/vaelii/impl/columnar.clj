@@ -54,7 +54,18 @@
 
   Single-writer, like every index: the arrays are mutated in place; `lookup`/`children`
   /`leaves` materialize fresh Clojure collections at the boundary.  Proven set-equal to
-  `KvIndexStore` by `columnar_index_oracle_test`."
+  `KvIndexStore` by `columnar_index_oracle_test`.
+
+  **Single-*threaded*, which is narrower than single-writer.**  The `Trie` fields are
+  `^:unsynchronized-mutable`, so a write publishes through no barrier: a second thread
+  reading this index may see an array reference, a capacity or the CSR-mode flag from
+  before a growth or a compaction, and there is no happens-before edge that would stop
+  it.  The atom- and lock-based backends give an incidental reader beside the writer a
+  consistent view; this one does not, and it is the caller's job to keep its reads on
+  the writer's thread or behind a synchronizer of its own.  The fields are unsynchronized
+  because the walk reads them at every frontier node, which is the index's hottest loop
+  — a volatile read there is paid per node per lookup, to buy a guarantee the engine's
+  own single writer never needs."
   (:require [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.dense-roots :as dense-roots]
             [vaelii.impl.kv :as kv]

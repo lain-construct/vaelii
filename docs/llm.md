@@ -141,7 +141,7 @@ nothing is indexed, the taxonomy is not touched:
 | groundness | `vaelii.impl.checks/check-ground` | `:not-ground` |
 | structural well-formedness | `vaelii.impl.special/wff-problems` | `:not-well-formed` |
 | edge stratification | `vaelii.impl.checks/check-edge-stratified` | `:not-stratified` |
-| argIsa / disjointness / functionality | `vaelii.impl.checks/constraint-violation` | `:arg-type` `:disjoint` `:functional` |
+| argIsa / disjointness / functionality | `vaelii.impl.checks/constraint-checks` | `:arg-type` `:disjoint` `:functional` |
 | **the entry lands where it says it does** | `session/placement-problem` | `:context-escape` |
 
 Batch shape and unknown removal handles add `:shape` and `:unknown-handle`. Calling
@@ -214,16 +214,16 @@ carries it: `inventory/inventory` builds it and `render` writes it as **three bl
 Two things about where it comes from, both measured and both counter-intuitive:
 
 - **Sourced from declarations, not facts.** Enumerating functors that actually appear in
-  fact position on the shipped schema yields 39 names, nearly every one an engine
-  meta-predicate (`genl`, `argIsa`, `comment`, `disjoint`, …) rather than a domain relation.
+  fact position on the shipped schema yields 20 names, every one an engine
+  meta-predicate (`genl`, `argIsa`, `comment`, `disjoint`, …) and not one a domain relation.
   The schema is schema-only: `bird`, `parentOf` and `flies` appear only as *arguments* of
   declarations and inside rules. So types come from `types` and relations from the
   `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships, which covers 128
-  relations where `argIsa` constrains 36 of them.
+  relations where `argIsa` constrains 42 of them.
 - **Arity is never inferred from `argIsa`.** `argIsa` constrains an argument to a *type* and
   is deliberately partial — you may `likes` anything, and a `birthYearOf` value is a number,
-  not a type. Its highest declared position disagrees with the declared arity for 4 of those
-  36 (`likes`, `birthYearOf`, `heightOf` and `weightOf` all read as unary against a declared
+  not a type. Its highest declared position disagrees with the declared arity for 8 of those
+  42 (`likes`, `birthYearOf` and `arity` among those reading unary against a declared
   2), so an inventory built that way would print `likes/1` and *cause* the arity errors it
   exists to prevent. Arity comes from the declarations, else from a stored fact, else it is
   not printed.
@@ -356,7 +356,7 @@ keeps the prompt bounded as the KB grows.
 ### Why the whole-KB path does not fit a small local model
 
 Measured against the **schema-only starter** (no individuals, no facts): the generated
-system prompt is 25,597 characters and the 55 tool schemas another 30,401 — about
+system prompt is 25,597 characters and the 55 tool schemas another 31,192 — about
 **16,000 tokens before the user has said anything**. On a 16,384-token model that is
 the whole window, spent on a KB with nothing in it but its schema, and the real target
 is millions of sentexes.
@@ -461,7 +461,7 @@ before anything is sent:
 ```
 :status :too-large
 :text   "the selection does not fit the model's context window: 60 sentexes need about
-         7423 tokens (3327 of prompt plus 4096 reserved for the answer) against a
+         6463 tokens (3327 of prompt plus 3136 reserved for the answer) against a
          window of 1024. Select fewer sentexes, or raise :num-ctx."
 ```
 
@@ -536,7 +536,7 @@ reliability at 20.2 s. Both are per-call `:model` overrides.
 ;;     :coined     []                     ; vocabulary the proposal invents
 ;;     :vocabulary {:literals 4 :reused 4 :coined 0 :coined-types 0 :coined-relations 0}
 ;;     :notes   "replaced parentOf with fatherOf for Tom, who is male"
-;;     :budget  {:prompt 656 :reserved 448 :total 1104 :num-ctx 8192 :headroom 7088}
+;;     :budget  {:prompt 656 :reserved 400 :total 1056 :num-ctx 8192 :headroom 7136}
 ;;     :usage   {:input-tokens 580 :output-tokens 132 :eval-ms 1548 …}
 ;;     :elapsed-ms 1676 :rejections [] :attempts 1 :turns 1
 ;;     :selection [{:handle 4211 :line "[(parentOf Tom Ann) WellContext]"} …]}

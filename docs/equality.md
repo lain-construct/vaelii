@@ -45,7 +45,8 @@ implement `sameAs` anyway, so one mechanism serves all three.
 
 Order independence is non-negotiable ([nmtms.md](nmtms.md)), so the choice can
 never depend on handle ids or arrival order — handles are allocated in assertion
-order, and that was a real bug in the Nixon diamond.
+order, and keying on one is how the Nixon diamond starts answering differently
+depending on which side was asserted first.
 
 1. If a `rewriteOf` edge in the class names a preferred term, it wins. Chains
    compose: `rewriteOf A B` and `rewriteOf B C` make `A` the representative of all
@@ -107,9 +108,11 @@ canonicalize *for*: canonical form exists to make logically identical knowledge
 store once, and this stores never.
 
 Because it consumes bindings rather than producing them, `different` is a
-**deferred literal**, the same class as `lessThan` / `greaterThan` / `evaluate`,
-which `sentex/cmp-term` already holds back in the author's order because their
-position is operational rather than logical.
+**deferred literal**, the same class as `lessThan` / `greaterThan` / `evaluate`.
+`sentex/canonical-conjunction` holds that whole class back in the author's order —
+`held?` there asks the public `sentex/deferred-literal?` — because their position is
+operational rather than logical. (`sentex/cmp-term` is the total order the *generators*
+are sorted by, and never sees them.)
 
 ## What a merge does
 
@@ -360,7 +363,11 @@ displaced it.
   `lessThan`, or `evaluate`) antecedent up as a fact nobody stores, find nothing, and
   kill the join; `chain/join-antecedent` instead sends a deferred antecedent to
   `provers/solve-goal`, the same registry the backward chainers discharge it through.
-  See [inference.md](inference.md) for what the justification records.
+  The two ask at **different contexts**, though, and `different` is one of the two
+  deferred literals that notices: the forward join asks at the wildcard `'?ctx`, so it
+  reads the whole equality partition, where a backward search reads the partition its
+  goal's context sees. See [inference.md](inference.md) for the pair and for what the
+  justification records.
 
 ## What is not built
 

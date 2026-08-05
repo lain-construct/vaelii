@@ -59,10 +59,11 @@ in RAM, and everything on disk. Both run with a read-only token and read no secr
 a pull request from a fork runs them in full.
 
 What the pull-request path leaves out, the `deep` workflow picks up: the `^:slow`
-tests, which carry more than half the suite's assertions; the six record×index pairs
-the two-backend gate skips; and the five **sweeps** — the whole suite re-run through
-the dense TMS, the incremental matcher, the node query engine, one of its tacticians,
-and the reference retrieval fan-out. Each of those replaces something the engine
+tests, which carry more than half the suite's assertions; the five record×index pairs
+the two-backend gate skips, plus `overlay` (the fork decorator, not a seventh pair); and
+the five **sweeps** — the whole suite re-run through the dense TMS, the incremental
+matcher, the node query engine, one of its tacticians, and the reference retrieval
+fan-out. Each of those replaces something the engine
 otherwise picks for itself, and each must be failing-set-identical with the default it
 replaces, since every one is a cost decision rather than a semantic one.
 
@@ -97,9 +98,10 @@ beside it: `vaelii.client`, `vaelii.starter`, `vaelii.web`, `vaelii.serve` and
 notice — the engine internals, the ontology content, and the browser alike. Tests reach
 into `impl` freely, which is what unit tests are for; nothing outside this repo should.
 
-The five exist because the alternative was a lie: the README told a first-time reader
-to require `vaelii.impl.client` and run `vaelii.impl.web` on the same page that called
-`impl` free to change. A shim is cheap; a boundary nobody keeps is not a boundary.
+The five exist so that the entry points a first-time reader is pointed at are ones the
+boundary covers: a page cannot send somebody to `vaelii.impl.client` and call `impl`
+free to change on the same breath. A shim is cheap; a boundary nobody keeps is not a
+boundary.
 
 This is not a convention, it is the compatibility boundary: it is what lets the
 internals move at the pace they move at. `test/vaelii/public_api_test.clj` pins it
@@ -292,7 +294,7 @@ mocks — the in-memory stores by default, with no external dependency.
   before it lands. A durable-store bug is invisible to the one backend the gate
   exercises, which is the whole reason there are eight.
 - **`^:slow` marks a test costing about a second or more on its own**, and `lein test`
-  skips those by default. Seventeen of them carry just under half the suite's assertions,
+  skips those by default. Twenty of them carry just under half the suite's assertions,
   so `:all` is a habit rather than a hook: run it when a change touches inference,
   indexing or the TMS, and occasionally regardless. Mark a *new* test only when it is
   measurably over the line — a mark guessed at is a fast test nobody runs. Not one of

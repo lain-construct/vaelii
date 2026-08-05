@@ -63,7 +63,7 @@ no "No SLF4J providers were found" warning appears.
 | `/` | the **upper ontology**: what the KB is in four numbers, then the genlContext context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
 | `/stats` (`?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, and the contradiction / conflict / violation tallies), a contexts-by-size table ranked largest-first, and the actual dilemmas / conflicts / dropped-derivation violations when non-empty — each violation naming the run that dropped it. Every list on it is one screen and continues on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed |
 | `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (`re-find` semantics — a bare `dog` is a substring match, `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
-| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), its supertypes/subtypes/disjoint-with (if a type), then every sentex containing it grouped by the **index root** that reaches it — functor `[:functor-root]`, argument-position `[:argument-root pos]`, context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its O(1) count |
+| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), its supertypes/subtypes/disjoint-with (if a type), then every sentex containing it grouped by the **index root** that reaches it — functor `[:functor-root]`, argument-position `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
 | `/sentex/:id` | a **sentex** (atomic or rule): its **belief state** (IN, or the `why-not` reason — superseded / defeated / unsupported — with the restatement, contradictors, or missing antecedents that explain it), its supporting justifications (justifications concluding it), its dependents (justifications using it as an argument), and its terms |
 | `/why/:id` | the **proof tree**: `vaelii.core/why` rendered whole — every justification down to the premises it rests on, collapsible, cycle-guarded, with rule sentences in the author's variable names |
 | `/justification/:id` | a **justification**: its supports/arguments (antecedent sentexes) and its dependent sentex (the conclusion) |
@@ -169,7 +169,7 @@ is not context-scoped and does not label an edge with a context.
 **It says what it left out**, with the count, in a caption under the picture: *showing 8 of
 up to 5,000 direct subtypes*. A truncated picture that does not announce itself is worse
 than no picture and worse here than in a list, because a picture reads as complete. The
-count is **exact** where the row was small enough to be read whole, and the O(1)
+count is **exact** where the row was small enough to be read whole, and the
 argument-root bound otherwise — an over-count across every binary predicate at that
 position — which is why the wording differs. The centre term is never subject to a cap: a
 stated root that is not drawn reads as orphans.
@@ -555,10 +555,12 @@ Clear.
   handle, so a line rewritten in place retracts at that position and asserts at it. Only
   that exact coincidence pairs — a line you appended has no row to replace, so it is
   listed in the result panel instead of pretending to be one.
-- The writes go through the access facade (`vaelii.impl.access/edit`,
-  `access/forward-chain`), so they work both in-process and when the browser is
-  **attached to a daemon** — the daemon is the single writer and serializes each one
-  under its lock.
+- The writes go through the access facade — `access/edit` (Save, Retract),
+  `access/edit-with-consequences` (the assert form, an accepted proposal),
+  `access/forward-chain`, and `access/preview`, which stores nothing but holds the
+  single writer while it applies a batch and rolls it back. So they work both
+  in-process and when the browser is **attached to a daemon** — the daemon is the
+  single writer and serializes each one under its lock.
 - **Every route checks `Host`, and every write additionally checks who asked.** The
   whole handler sits behind a `Host` allowlist derived from the interface it is bound
   to (`guard/wrap-host-allowed`, the same guard the daemon serves behind): on the
@@ -582,6 +584,11 @@ Clear.
   nothing, and is refused. A request carrying **neither** header is a non-browser
   client with no ambient context to ride, and passes — the same carve-out for the
   same reason.
+  A third, smaller one sits outside both: **a request body past
+  `guard/max-body-bytes`** (`VAELII_MAX_BODY_BYTES`, 16 MiB by default) is refused with
+  413. It is `guard/wrap-body-limit`, the same ceiling from the same variable the daemon
+  holds ([operations.md](operations.md)), and it wraps *outside* `wrap-params`, which
+  slurps a form body with no ceiling of its own.
   No destructive path is reachable by GET: `/retract`'s GET renders the *preview* and
   `/chain` has no GET at all, so a link, a prefetch, or a crawler cannot change the KB.
 
@@ -941,11 +948,12 @@ it may be proportional to the KB.
 
 The **hierarchy trees** open one level at a time. A node with children is a `<details>`
 that fetches them on its first `toggle`; a level is read by pinning the parent
-(`(genl ?sub node)`), which the index answers by intersecting the functor root with
-`[:argument-root 2 node]`, so the cost is that node's own fan-out rather than the number
-of edges in the KB. Whether a node gets a disclosure at all is `count-with-arg 2 node`,
-an O(1) upper bound: it spans every binary predicate holding the node in second position,
-so it can offer a disclosure that opens to nothing, and can never hide a real child.
+(`(genl ?sub node)`), which the index answers from the predicate-scoped argument root
+(`[:argument-root genl 2 node]`), so the cost is that node's own fan-out rather than the
+number of edges in the KB. Whether a node gets a disclosure at all is
+`count-with-arg 2 node`, a cheap upper bound (one O(1) count per predicate at the slot):
+it spans every binary predicate holding the node in second position, so it can offer a
+disclosure that opens to nothing, and can never hide a real child.
 
 The **flat lists** read their functor root rather than a wholly-open pattern. `(comment
 ?term ?text)` pins nothing, so the trie fans over every child token at every level: a

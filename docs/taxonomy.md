@@ -331,12 +331,12 @@ existing types is a lookup on the argument root (`types-of`).
 ### What the question is asked of
 
 Declarations are held two ways, because the walk and the report want different
-shapes. `:disjoint` is the set of unordered `#{x y}` pairs — what `disjoint-pairs`
-and the witness search read, and the form in which a declaration is one thing. But
-answering `disjoint?` means walking `a`'s genl closure against `b`'s looking for a
-separated pair, and consulting a set of pairs means *building* a `#{x y}` per
-candidate: on a term holding a few types over chain-deep closures that is hundreds
-of two-element hash sets allocated to answer one assert. So the same relation is
+shapes. `:disjoint` is the set of unordered `#{x y}` pairs — what `disjoint-pairs`,
+`separating-pairs` and the witness search read, and the form in which a declaration
+is one thing. But answering `disjoint?` means walking `a`'s genl closure against `b`'s
+looking for a separated pair, and consulting a set of pairs means *building* a
+`#{x y}` per candidate: on a term holding a few types over chain-deep closures that is
+hundreds of two-element hash sets allocated to answer one assert. So the same relation is
 also kept as adjacency — `:disjoint-index`, `{type -> #{types declared disjoint from
 it}}` — and the walk reads that: one map lookup per supertype, short-circuiting on
 the `nil` that most types have. Both are maintained at `cache-install` /
@@ -348,10 +348,43 @@ supertypes, so it intersects the members against both closures rather than testi
 membership over their product.
 
 `tax/disjointness-test` is the whole question with `a` and the context fixed — the
-closure, the visibility cone, the adjacency and the metatype roster read once,
-returning a predicate over candidate types. `disjoint?` is that asked once;
-`checks/disjoint-problem` asks it of every type the term already holds, which is
-what it exists for.
+closure, the visibility cone, the adjacency and the metatype roster read once
+(`separation-frame`), returning a predicate over candidate types. `disjoint?` is that
+asked once; `checks/disjoint-problem` asks it of every type the term already holds,
+which is what it exists for.
+
+### Enumerating instead of testing
+
+A goal with an open argument — `(disjoint a ?t)` — asks the other question: not *is
+this candidate separated* but *which types are*. Answering it by testing every type
+in the KB makes the cost of an answer a function of the vocabulary, which on an
+imported ontology is six figures ([kbs.md](kbs.md)) where a term's own declarations
+are three or four.
+
+So it is read off the same frame, the other way round. `tax/separating-partners` is
+every `y` a visible declaration separates `a` from — the pairs `a`'s supertypes carry
+in `:disjoint-index`, plus the other members of any disjoint metatype one of them
+belongs to. Every type disjoint from `a` is a subtype of one of those partners and
+nothing else is, since inheritance through `genl` is how a separation reaches a
+candidate at all; so the answer is `specs` of the partner set, and its size is the
+answer's own. `tax/separating-pairs` is the same question with neither side given,
+which is what bounds a two-variable goal.
+
+The visibility filter belongs *here* rather than at the lookup: `:disjoint-index` is
+the adjacency of every declaration in the KB and carries no context, so an
+enumeration driven straight off it would report a microtheory's separations to a
+context that cannot see them. One prologue serves the test and the enumeration for
+that reason — a candidate the predicate convicts and the enumeration cannot reach is
+an answer that silently stops existing, and two copies of this is how that happens.
+
+**Which context it is asked from is a separate question from what it may see.** The
+answer is scoped and stays scoped, but a pair whose halves sit either side of a
+`genlContext` edge is visible from neither of the two contexts they are written in
+alone, so `settle` asks each candidate's question from the maximal common descendant of
+its context and each context holding a sentex it could pair with, beside its own
+(`settle/clash-askers`, and [nmtms.md](nmtms.md) for what the one-sided answer cost).
+Every one of those asks is the same scoped read from a context that already sees both
+halves.
 
 ### What a declaration reaches back over
 

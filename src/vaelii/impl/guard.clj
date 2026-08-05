@@ -123,3 +123,80 @@
     (if (host-allowed? allowed req)
       (handler req)
       (refusal req))))
+
+;; ---- the request-body ceiling -------------------------------------------
+
+(def max-body-bytes
+  "The cap on a request body, `VAELII_MAX_BODY_BYTES` or 16 MiB.
+
+  Neither server authenticates, so an unbounded body is heap an anonymous caller can
+  spend by streaming one — and the legitimate bodies are tiny either side: the daemon's
+  is a sentence and its context, the browser's is a form.  **One constant and one
+  variable for both**, because two servers with two ceilings is one of them wrong, and
+  an operator who lowers the limit means the machine rather than a route.
+
+  A value that is not a positive integer is **refused at load**, naming itself.  This
+  namespace is read by both servers, so a silent fallback would leave an operator who
+  meant `16m` believing a cap they never set — and a raw `NumberFormatException` out of
+  a `def` reports as a namespace that would not load rather than as the typo it is."
+  (if-let [raw (System/getenv "VAELII_MAX_BODY_BYTES")]
+    (let [n (try (Long/parseLong (str/trim raw))
+                 (catch NumberFormatException _
+                   (throw (ex-info (str "VAELII_MAX_BODY_BYTES is not a number: "
+                                        (pr-str raw) " — want a byte count")
+                                   {:type :unknown-option :value raw}))))]
+      (when-not (pos? n)
+        (throw (ex-info (str "VAELII_MAX_BODY_BYTES must be positive, got " n
+                             " — a zero or negative ceiling refuses every request")
+                        {:type :unknown-option :value raw})))
+      n)
+    (* 16 1024 1024)))
+
+(defn- too-large!
+  "The one refusal both servers' 413s are built from, so the wire `:type` is the same
+  whichever answered."
+  []
+  (throw (ex-info (str "request body exceeds " max-body-bytes " bytes")
+                  {:type :body-too-large :limit max-body-bytes})))
+
+(defn read-capped-body-bytes
+  "`req`'s body as a byte array, refusing past `max-body-bytes`.  `slurp` — and ring's
+  own params middleware — read an unbounded body into the heap before anything gets to
+  look at it, which is the whole of what this replaces."
+  ^bytes [req]
+  (if-let [^java.io.InputStream in (:body req)]
+    (let [out   (java.io.ByteArrayOutputStream.)
+          chunk (byte-array 8192)]
+      (loop []
+        (let [n (.read in chunk)]
+          (when (pos? n)
+            (when (> (+ (.size out) n) max-body-bytes) (too-large!))
+            (.write out chunk 0 n)
+            (recur))))
+      (.toByteArray out))
+    (byte-array 0)))
+
+(defn read-capped-body
+  "`req`'s body as a UTF-8 string, refusing past `max-body-bytes`."
+  ^String [req]
+  (String. (read-capped-body-bytes req) java.nio.charset.StandardCharsets/UTF_8))
+
+(defn wrap-body-limit
+  "Wrap `handler` so a request body past `max-body-bytes` gets `refusal` (a fn of the
+  request) instead — the 413.
+
+  For a server that does **not** read its own bodies.  The browser reads its forms
+  through ring's params middleware, which slurps the body itself and has no ceiling, so
+  the cap has to be applied outside it; the buffered copy this leaves on `:body` is what
+  that middleware then reads.  The daemon reads its own body and calls
+  `read-capped-body` directly."
+  [handler refusal]
+  (fn [req]
+    (let [body (try (read-capped-body-bytes req)
+                    (catch clojure.lang.ExceptionInfo e
+                      (if (= :body-too-large (:type (ex-data e)))
+                        ::over
+                        (throw e))))]
+      (if (= ::over body)
+        (refusal req)
+        (handler (assoc req :body (java.io.ByteArrayInputStream. ^bytes body)))))))

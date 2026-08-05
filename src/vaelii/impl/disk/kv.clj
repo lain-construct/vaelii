@@ -114,13 +114,23 @@
     (let [clean (f/read-clean-marker root)
           _     (f/remove-clean-marker! root)
           log   (f/open-log log-path)]
-      (f/truncate-log! log (first (f/log-tail-offset-from log (get clean "kv"))))
-      (let [m      (volatile! {})
-            frames (volatile! 0)]
-        (f/scan-log log (fn [_ op]
-                          (vswap! frames inc)
-                          (vswap! m (fn [mm] (first (apply-op mm op))))))
-        (->DiskKvBackend root (atom @m) log log-path (Object.) frames (volatile! false))))))
+      ;; The replay owns the handle until it hands it to the record it returns.  A frame
+      ;; `apply-op` does not recognize, or an `:increment` over a key holding a set,
+      ;; throws out of `scan-log` — and the caller (`backend/store-for`) answers a failed
+      ;; open by releasing the *directory lock*, so leaking this would give the lock back
+      ;; while this JVM still held an open handle on `kv.log`, the one state `close-dir!`
+      ;; is written to prevent.  `open-record-store` guards its opens the same way.
+      (try
+        (f/truncate-log! log (first (f/log-tail-offset-from log (get clean "kv"))))
+        (let [m      (volatile! {})
+              frames (volatile! 0)]
+          (f/scan-log log (fn [_ op]
+                            (vswap! frames inc)
+                            (vswap! m (fn [mm] (first (apply-op mm op))))))
+          (->DiskKvBackend root (atom @m) log log-path (Object.) frames (volatile! false)))
+        (catch Throwable t
+          (try (f/close! log) (catch Throwable _ nil))
+          (throw t))))))
 
 (defn fsync
   "fsync the WAL.  `fsync?` false drains to the page cache without the fsync."
@@ -161,13 +171,28 @@
       (let [{:keys [tmp marker]} (f/log-compact-paths log-path)
             snapshot @data
             tlog     (f/open-log tmp)]
-        (doseq [[k v] snapshot] (f/append-record! tlog [:put k v]))
-        (f/force! tlog false)
-        (f/close! tlog)
-        (f/write-commit-marker! marker {:log log-path})
-        (f/replay-temp-onto-raf! log tmp)
-        (f/delete-log-compact-temps! marker tmp)
-        (vreset! frames (count snapshot))))))
+        ;; A failure **before the marker** takes the temp with it: the original stays
+        ;; authoritative, and `f/open-log` seeks to `.length`, so a temp left behind is
+        ;; one the next compaction in this session opens and appends to — the replay
+        ;; would then put back keys deleted in between.  A failure **after** it must
+        ;; leave both alone: the marker is the commit point, `replay-temp-onto-raf!`
+        ;; truncates the live log before copying, and deleting the temp there would
+        ;; destroy the only complete copy.  The next open finds the marker and finishes
+        ;; the replay, which is what the marker is for.
+        (let [committed? (volatile! false)]
+          (try
+            (doseq [[k v] snapshot] (f/append-record! tlog [:put k v]))
+            (f/force! tlog false)
+            (f/close! tlog)
+            (f/write-commit-marker! marker {:log log-path})
+            (vreset! committed? true)
+            (f/replay-temp-onto-raf! log tmp)
+            (f/delete-log-compact-temps! marker tmp)
+            (vreset! frames (count snapshot))
+            (catch Throwable t
+              (f/close! tlog)
+              (when-not @committed? (f/delete-log-compact-temps! marker tmp))
+              (throw t))))))))
 
 (defn close!
   "Compact if the deltas have earned it, flush durably, record the length the WAL closed
@@ -183,14 +208,22 @@
 
   Gated on the *same* switch and threshold the background tick uses
   (`vaelii.impl.disk.durability`), so a store closed just after a compaction does not
-  rewrite its log for nothing, and one knob turns both off."
+  rewrite its log for nothing, and one knob turns both off.
+
+  **The WAL is released and the flag is set whatever the compaction or the flush did.**
+  Both can fail — a full disk — and `backend/close-dir!` releases the directory's OS
+  lock on a failed close as deliberately as on a clean one; a store left with `closed`
+  false and its RAF still open is then one a queued auto-compaction will still try to
+  rewrite, over a directory another process may already hold."
   [{:keys [dir log lock closed] :as b}]
-  (when (and (dur/auto-compact?) (>= (dead-ratio b) (dur/compact-dead-ratio)))
-    (compact! b))
-  (fsync b true)
-  (f/write-clean-marker! dir {"kv" (locking lock (f/log-length log))})
-  (locking lock
-    ;; under the same lock `compact!` consults it, so no compaction can start against
-    ;; the closed log
-    (vreset! closed true)
-    (f/close! log)))
+  (try
+    (when (and (dur/auto-compact?) (>= (dead-ratio b) (dur/compact-dead-ratio)))
+      (compact! b))
+    (fsync b true)
+    (f/write-clean-marker! dir {"kv" (locking lock (f/log-length log))})
+    (finally
+      (locking lock
+        ;; under the same lock `compact!` consults it, so no compaction can start against
+        ;; the closed log
+        (vreset! closed true)
+        (f/close! log)))))

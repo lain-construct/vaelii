@@ -17,13 +17,20 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                               ; half of one (docs/storage.md)
                                               ; :naming and :constraints are this KB's two
                                               ; front-door policies (docs/naming.md, nmtms.md)
+                                              ; :recover? is :auto (or true) / :warn / false —
+                                              ; :auto is the default and anything else is
+                                              ; refused (:unknown-option), since a value read
+                                              ; as :warn hands back an empty TMS over a store
+                                              ; that is not empty (docs/storage.md)
 (fork kb opts?)                                ; a private writable KB over this one's stores,
                                                ; frozen: reads fall through, writes stay in the
                                                ; fork, the base is never written (docs/overlay.md)
 (assert kb sentence context opts)              ; premise: check + store + index + chain + settle -> handle
                                                ; opts: {:strength :monotonic|:default :chain? bool :max-depth n}
                                                ; `assert-opt-keys` is the roster; a key off it is refused
-(assert-rule kb antecedents consequent context)
+(assert-rule kb antecedents consequent context opts)  ; opts as `assert`, plus :direction
+                                               ; (:forward | :backward | :inert | :both, default :both) —
+                                               ; the programmatic spelling of a set/*Rule wrapper
 (assert-inert kb sentence context)              ; stored, indexed and durable, but NOT a premise:
                                                 ; never believed, never chained, never scanned for
                                                 ; contradictions — a recorded truth value
@@ -105,13 +112,17 @@ default-chain-opts                              ; the bounds a chain run takes w
 (clear! kb)                                    ; empty both durable stores — `recover`'s counterpart,
                                                ; and irreversible, which is what the `!` says
 (close! kb)                                    ; release a durable KB's directory: flush + close the
-                                               ; stores, drop the file lock.  A no-op on a KB with no
-                                               ; :dir (every in-memory backend, and forks), so it is
-                                               ; safe in a `finally`; the KB must not be used after —
-                                               ; open-kb the same directory to read it again
+                                               ; stores, drop the file lock.  A durable fork releases
+                                               ; its own writable directory, never the base's — that
+                                               ; is mounted read-only and shared.  A no-op on a KB
+                                               ; with no :dir (every in-memory backend, an ephemeral
+                                               ; fork), so it is safe in a `finally`; the KB must not
+                                               ; be used after — open-kb the directory to read again
 (export! kb dir opts?)                         ; write it out as a portable dump — field-map frames,
                                                ; no class names; opts {:variant :records|:records+index
-                                               ; :compression :gzip|:xz|:none :on-progress f}
+                                               ; :compression :gzip|:xz|:none :chunk-size n
+                                               ; :provenance? bool :on-progress f} — 10000 records a
+                                               ; frame, provenance written by default
 (import! kb dir opts?)                         ; read a dump back into the (empty) kb — export!'s
                                                ; inverse.  opts {:belief? bool :on-progress f}:
                                                ; :belief? true (the default) recovers belief too;
@@ -134,7 +145,8 @@ default-chain-opts                              ; the bounds a chain run takes w
 (context-up kb c) / (context-down kb c) / (sees? kb k y); genlContext closures + visibility test
 (has-prop? kb kind pred [context]) / (props kb kind)              ; :transitive :symmetric :asymmetric :reflexive
                                                         ; :functional :decontextualized
-                                                        ; :forced-decontextualized
+                                                        ; :forced-decontextualized :abducible
+                                                        ; :reifiable :unreifiable
 (inverse-of kb pred [context])                                    ; the declared inverse, or nil
 ;; what the engine does with its own grammar — declared *and enforced* against declared
 ;; and ignored, which no naming or wff check can tell apart
@@ -190,7 +202,30 @@ default-chain-opts                              ; the bounds a chain run takes w
 (why-not kb handle)                             ; stored but OUT: :defeated (+ what contradicts it)
                                                 ; / :superseded (+ the restatement that displaced it)
                                                 ; / :unsupported (+ the missing antecedents) / :not-stored
+(why-not kb sentence context)                   ; the same four, plus the fifth only this arity
+                                                ; can reach: :excepted (+ the exceptWhen that blocks
+                                                ; it) — an excepted conclusion is never stored, so
+                                                ; there is no handle to pass.  A stored sentence
+                                                ; delegates to the handle arity, except that a
+                                                ; stored-but-disbelieved one is checked for an
+                                                ; exception first
 ;; introspection: sentex, justification, supporting-justifications, dependent-justifications, premise?, defeat-class
+
+;; the five public dynamic vars — process- or thread-scoped settings, `binding`-shaped
+;; because they are about a whole batch rather than one call
+*bulk-load?*                                    ; false: `assert` in bulk-load mode — the per-fact
+                                                ; validation and dedup off for a caller-guaranteed
+                                                ; well-formed, pairwise-distinct premise load
+*creator*                                       ; nil: the creator stamped into provenance when opts
+                                                ; names none.  Bind per session / import / user
+*clock*                                         ; a 0-arg fn giving the `:created` stamp (epoch ms).
+                                                ; Belief never reads provenance, so a wall clock here
+                                                ; cannot touch order independence
+*query-engine*                                  ; :dfs (default) | :inference | :hybrid — which backward
+                                                ; executor `prove` / `prove-within` run
+*query-options*                                 ; how the node engine searches: {:strategy …}
+                                                ; {:portfolio? true} {:auto? true}.  Ignored by the DFS,
+                                                ; which has one order and no choice to make
 ```
 
 ## Choosing a query function
@@ -264,7 +299,8 @@ spelling — `functor lives_in in rule consequent (lives_in ?x cold_place) is sn
 It returns a **vector of problems**, empty when the sentence is admissible.  Each is a
 map with the `:type` keyword `assert` would have thrown — `:naming`, `:not-ground`,
 `:not-well-formed`, `:not-range-restricted`, `:not-stratified`, `:not-assertible`,
-`:arg-type`, `:inter-arg-type`, `:arity`, `:disjoint`, `:functional` — a readable
+`:exception-not-closed`, `:arg-type`, `:arg-genl`, `:arg-position`, `:inter-arg-type`,
+`:arg-constraint-kind`, `:arity`, `:disjoint`, `:functional`, `:asymmetric` — a readable
 `:message`, and whatever else that check knows (`:arg` / `:expected` / `:position` for an
 argIsa breach, plus `:trigger` and `:trigger-position` for the `interArgIsa` form, which
 names the argument whose type made the constraint fire; `:cycle` for a stratification

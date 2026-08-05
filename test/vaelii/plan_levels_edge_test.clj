@@ -57,8 +57,9 @@
 
 (tu/deftest-kb a-ground-argument-after-a-variable-is-costed-by-the-argument-root
   ;; The trie narrows left to right, so `(parentOf ?x Cid)` can only be counted up to
-  ;; `?x` — every `parentOf` fact.  `[:argument-root 2 Cid]` indexes the ground argument
-  ;; directly, and is the whole reason the secondary roots exist.
+  ;; `?x` — every `parentOf` fact.  The argument roots (`[:argument-root parentOf 2 Cid]`)
+  ;; index the ground argument directly, and are the whole reason the secondary roots
+  ;; exist.
   (tu/with-terms [parentOf Ann Bob Cid Dee Eve]
     (doseq [[p c] [[Ann Bob] [Ann Cid] [Dee Eve] [Bob Eve] [Cid Eve]]]
       (v/assert kb (list parentOf p c) 'NaturalWorldContext {:chain? false}))

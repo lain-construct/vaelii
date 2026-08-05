@@ -115,7 +115,8 @@
                                (cond-> {}
                                  (:variant opts)     (assoc :variant (keyword (:variant opts)))
                                  (:compression opts) (assoc :compression (keyword (:compression opts)))))
-      (throw (ex-info (str "unknown command: " cmd) {:cmd cmd :commands commands})))))
+      (throw (ex-info (str "unknown command: " cmd)
+                      {:type :unknown-command :cmd cmd :commands commands})))))
 
 ;; ---- KB construction -----------------------------------------------------
 

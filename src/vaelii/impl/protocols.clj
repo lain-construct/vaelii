@@ -36,7 +36,7 @@
   (clear-records!   [store]           "Remove every stored record (wipe the whole store)."))
 
 (defprotocol IndexStore
-  "The index store — the flattened count-aware trie, the secondary root indexes, the
+  "The index store — the count-aware trie, the secondary root indexes, the
   rule predicate index, the exception re-check index, and the inverted term index.
   Every entry is derived from the records, so it can be thrown away and rebuilt
   (`vaelii.impl.reindex`); it needs no durability of its own."

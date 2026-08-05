@@ -192,6 +192,11 @@
   Several declarations may name one position; they are not collapsed here, because
   their reaches **union** (`reach`) rather than compete.
 
+  Each carries the `:handle` of the declaration it was read off, which is what
+  `support-for` names when a firing rests on the move it licenses: the declaration is
+  as much a reason for an inherited claim as the claim itself, and retracting it has to
+  withdraw whatever was concluded.
+
   Realized rather than lazy, and memoized on `[pred context]`: four layers of one
   question ask for this, and each computation is two `matches-visible` calls.
 
@@ -204,11 +209,23 @@
   (when (and (symbol? pred) (declared-about? kb pred))
     (memoized [:positions pred context]
               #(vec (for [[f inverse?] declarations
-                          [_ b] (res/matches-visible kb (list f pred '?n '?rel) context)
+                          [h b] (res/matches-visible kb (list f pred '?n '?rel) context)
                           :let  [n (get b '?n) rel (get b '?rel)]
                           :when (and (integer? n) (pos? n) (symbol? rel)
                                      (usable-relation? (:taxonomy kb) rel context))]
-                      {:n n :rel rel :inverse? inverse?})))))
+                      {:n n :rel rel :inverse? inverse? :handle h})))))
+
+(defn declarations-exist?
+  "Does this KB declare any preservation at all?  One set-cardinality read per
+  declaration functor, false for nearly every KB there is, and the gate in front of
+  every read the forward path makes: `moved-predicates` runs per datum of a chaining
+  run, where a KB that declares nothing must pay O(1) and stop.
+
+  Neither belief-filtered nor context-scoped, for `declared`'s reason — a false is
+  exact whatever anyone believes, since a declaration would be in the root."
+  [kb]
+  (let [idx (:index kb)]
+    (boolean (some #(pos? (p/count-with-functor idx %)) declaration-functors))))
 
 (defn declared
   "Every declaration's `[P R]` pair — the predicate that inherits, and the relation it
@@ -588,3 +605,310 @@
        (not= 'not (nm/functor goal))
        (seq (nm/args goal))
        (every? sx/ground-term? (nm/args goal))))
+
+;; ---- what an inherited claim rests on ------------------------------------
+;;
+;; An inherited claim is not stored, so it has no handle for a justification to name.
+;; What it does have is the sentexes it was **read from**: the claim actually stated,
+;; the declaration licensing the move, and the relation edges the reach travelled —
+;; every one of them an ordinary sentex with a handle and a context.  Naming them is
+;; what gives an inherited antecedent the contract a matched one has: retraction
+;; reaches whatever was concluded from it, `why` explains it, and placement can see
+;; where its reasons live.  `docs/inherit.md` and `docs/qcn.md` (the same shape, for a
+;; relation a constraint network entails).
+;;
+;; It is *a* witness rather than every witness, the simplification the qualitative
+;; support makes for the same reason: a claim reachable two ways carries one
+;; justification, and the second route is re-derived after a retraction rather than
+;; recorded in advance.
+
+(defn- one-supporter
+  "One handle for a believed `sentence` visible from `context`, chosen on the
+  supporting sentex's **context name** — never on its handle, which is allocated in
+  assertion order.  Which supporter a firing names decides where its conclusion can be
+  placed, so picking the first the index yielded would make placement depend on the
+  order the KB was built in."
+  [kb sentence context]
+  (->> (res/matches-visible kb sentence context)
+       (keep (fn [[h _]]
+               (when-let [sxr (p/get-sentex (:records kb) h)]
+                 (when (jtms/in? (:tms kb) h) [(str (:context sxr)) h]))))
+       (sort-by first)
+       first
+       second))
+
+(defn- licensed-terms
+  "The terms a claim stated at `w` reaches at this position — `witness-terms` read the
+  other way round, which is the same walk with the declaration's direction flipped.
+  `witness-terms` asks what a *goal* may be stated of; the forward join asks what a
+  *claim* licenses, and `(rel a w)` is one relation read from either end."
+  [kb {:keys [rel inverse?]} w context]
+  (witness-terms kb {:rel rel :inverse? (not inverse?)} w context))
+
+(defn- fact-path
+  "The handles of the stored facts along one path from `a` to `w` over the
+  declared-transitive `rel`, or nil when `context` sees none; empty when `a` is `w`.
+
+  What `taxonomy/reach-support` is for the two virtual relations, over the very
+  adjacency `fact-reach` walks — so a path is found for exactly the pairs the reach
+  answers and the two cannot disagree about what a context reaches.  Breadth-first, so
+  the witness is a shortest path; neighbours are expanded in term order and a tie
+  between two facts stating one step is broken on the **context name**, so the witness
+  is a function of the content rather than of the order the facts arrived in."
+  [kb rel inverse? a w context]
+  (if (= a w)
+    []
+    (let [step (fn [n]
+                 (->> (res/matches-visible
+                       kb (if inverse? (list rel '?rv n) (list rel n '?rv)) context)
+                      (keep (fn [[h b]]
+                              (let [v (get b '?rv)]
+                                (when (and v (not= v n))
+                                  (when-let [sxr (p/get-sentex (:records kb) h)]
+                                    [v h (str (:context sxr))])))))
+                      (sort-by (juxt #(str (nth % 0)) #(nth % 2)))
+                      (partition-by first)
+                      (map first)))]
+      (loop [q (conj clojure.lang.PersistentQueue/EMPTY a), parent {a nil}]
+        (when-let [n (peek q)]
+          (if (= n w)
+            (loop [x n, acc []]
+              (if (= x a)
+                acc
+                (let [[p h] (get parent x)] (recur p (conj acc h)))))
+            (let [fresh (remove #(contains? parent (first %)) (step n))]
+              (recur (into (pop q) (map first) fresh)
+                     (reduce (fn [m [v h]] (assoc m v [n h])) parent fresh)))))))))
+
+(defn- move-support
+  "The handles licensing the step from the claim's term `w` to the goal's `a` at one
+  preserved position: the declaration that permits the move, the relation edges the
+  reach travelled, and — for a fact-relation — the `(transitive R)` the reach is
+  closed under, which `usable-relation?` reads at *use* and so may be withdrawn with
+  nothing else moving.  nil when no declaration at this position reaches from one to
+  the other through edges `context` can see.
+
+  **Empty when the position did not move**, and that is the whole of the reflexive
+  case: a claim stated at the goal's own term rests on no edge and needs no licence, so
+  it contributes nothing and the justification stays the one the ordinary matcher
+  already records.
+
+  One declaration is named, not all of them — the union of their reaches is what
+  licenses the claim, and any member of it that reaches is a complete reason."
+  [kb poss a w context]
+  (if (= a w)
+    []
+    (first
+     (keep (fn [{:keys [rel inverse? handle]}]
+             (let [[sub super] (if inverse? [w a] [a w])]
+               (when-let [es (if (contains? virtual-relations rel)
+                               (some->> (tax/reach-support (:taxonomy kb) (keyword rel) sub super
+                                                           (when (= 'genl rel) context))
+                                        (mapv first))
+                               (when-let [p (fact-path kb rel inverse? a w context)]
+                                 (if-let [t (one-supporter kb (list 'transitive rel) context)]
+                                   (conj (vec p) t)
+                                   (vec p))))]
+                 (into [handle] es))))
+           (sort-by (juxt #(str (:rel %)) #(str (:inverse? %))) poss)))))
+
+(defn support-for
+  "What licenses the ground goal `(P a1 … an)` by preservation — `{:claim handle
+  :handles [handle …]}`, the claim it was read off and every sentex the reading rests
+  on — or nil.
+
+  `verdict` answers *whether*; this answers *from what*, which is what a justification
+  needs.  The semantics are `verdict`'s exactly: the surviving claims must agree, so a
+  goal the KB also denies, or one two claims disagree about at incomparable
+  specificity, licenses nothing here either.
+
+  **A goal the KB states directly licenses nothing**, and that is deliberate.
+  `witness-terms` is reflexive, so a stored `(P a b)` is among the claims bearing on
+  `(P a b)` — it is the diagonal, it rests on no edge, and the ordinary matcher already
+  finds it with a justification of its own.  Answering it here too would hand the same
+  conclusion a second justification resting on nothing the first did not already name.
+
+  One claim is named where several survive, chosen on defeat class first and then on
+  content — the tuple and the context, both spellings rather than handles."
+  [kb goal context]
+  (with-memo
+    (let [pred (nm/functor goal)
+          args (vec (nm/args goal))
+          poss (positions kb pred context)]
+      (when (seq poss)
+        (let [sv (surviving kb goal context)]
+          (when (and (seq sv)
+                     (= #{:for} (into #{} (map :polarity) sv))
+                     (not-any? #(= (:tuple %) args) sv))
+            (let [by-n (by-position poss (count args))]
+              (first
+               (keep (fn [c]
+                       (when-let [hs (reduce (fn [acc i]
+                                               (if-let [ps (by-n (inc i))]
+                                                 (if-let [s (move-support kb ps (nth args i)
+                                                                          (nth (:tuple c) i) context)]
+                                                   (into acc s)
+                                                   (reduced nil))
+                                                 acc))
+                                             [(:handle c)]
+                                             (range (count args)))]
+                         {:claim (:handle c) :handles (vec (distinct hs))}))
+                     (sort-by (juxt #(- (st/rank-of (:class %)))
+                                    #(str (:tuple %))
+                                    #(str (:context %)))
+                              sv))))))))))
+
+;; ---- enumerating what a claim licenses -----------------------------------
+;; A backward goal is closed and asks one question.  A **forward** antecedent is a
+;; pattern, so the question runs the other way: which tuples does a stored claim
+;; license, and which of them does this literal admit?  That is the walk `docs/inherit.md`
+;; declines to make for an open *goal* — it is the larger question — and the forward
+;; join is exactly the caller for whom it is the right one, because a conclusion has to
+;; be drawn per tuple whether or not anybody asked.
+
+(defn- goal-bindings
+  "The bindings making the literal's argument list `args` the tuple `t`, or nil where
+  they cannot: a ground argument must be the tuple's term, and a variable written twice
+  must take one value."
+  [args t]
+  (reduce (fn [b i]
+            (let [a (nth args i) v (nth t i)]
+              (if (and (symbol? a) (sx/variable? a))
+                (if-let [prev (get b a)]
+                  (if (= prev v) b (reduced nil))
+                  (assoc b a v))
+                (if (= a v) b (reduced nil)))))
+          {}
+          (range (count args))))
+
+(defn- stated-claims
+  "`[tuple handle]` for every believed claim of `pred` this literal could inherit from
+  — the predicate's extent, with the literal's own ground arguments pinned at the
+  positions that preserve nothing, since there the claim's term *is* the conclusion's.
+
+  A preserved position is left open even where the literal pins it: the claim licensing
+  that term is stated *above* it, and narrowing to the term itself would find only the
+  diagonal."
+  [kb pred args poss context]
+  (let [by-n (by-position poss (count args))
+        pat  (mapv (fn [i]
+                     (let [a (nth args i)]
+                       (if (or (by-n (inc i)) (and (symbol? a) (sx/variable? a)))
+                         (probe-var i)
+                         a)))
+                   (range (count args)))]
+    (for [[h b] (res/matches-visible kb (cons pred pat) context)
+          :when (jtms/in? (:tms kb) h)
+          :let  [t (mapv (fn [i]
+                           (let [p (nth pat i)]
+                             (if (= p (probe-var i)) (get b p) p)))
+                         (range (count args)))]
+          :when (every? some? t)]
+      [t h])))
+
+(defn- licensed-product
+  "Every tuple a claim stated at `w` licenses that the literal's arguments admit — the
+  product of the licensed terms at the preserved positions, the claim's own term
+  elsewhere, and a ground argument of the literal pinned wherever it has one."
+  [kb by-n args w context]
+  (reduce (fn [tuples i]
+            (let [terms (if-let [ps (by-n (inc i))]
+                          (let [r (if (= 1 (count ps))
+                                    (licensed-terms kb (first ps) (nth w i) context)
+                                    (into #{} (mapcat #(licensed-terms kb % (nth w i) context)) ps))
+                                a (nth args i)]
+                            (if (and (symbol? a) (sx/variable? a))
+                              r
+                              (when (contains? r a) #{a})))
+                          #{(nth w i)})]
+              (for [tp tuples, x terms] (conj tp x))))
+          [[]]
+          (range (count args))))
+
+(defn solve-with-support
+  "Solve the antecedent literal `literal` by **preservation**: a seq of `{:bindings
+  :claim :handles}`, one per inherited claim it matches, each carrying the claim it was
+  read off and the handles the reading rests on.
+
+  A closed literal asks `support-for` once.  An open one enumerates: every believed
+  claim of the predicate, the tuples it licenses, and then the same `support-for` per
+  tuple — so the tuples are *found* by the reach and *admitted* by the full semantics,
+  and an antecedent can no more join on an undercut or disputed claim than `ask` can
+  answer one.
+
+  The diagonal is dropped (`support-for`), so a claim stated at the tuple it is asked
+  about stays the ordinary matcher's to find.  Nothing here replaces that matcher; the
+  caller unions the two."
+  [kb literal context]
+  (with-memo
+    (when (and (sequential? literal) (seq literal) (symbol? (nm/functor literal))
+               (not= 'not (nm/functor literal)) (seq (nm/args literal)))
+      (let [pred (nm/functor literal)
+            args (vec (nm/args literal))
+            poss (positions kb pred context)]
+        (when (seq poss)
+          (if (every? sx/ground-term? args)
+            (when-let [s (support-for kb literal context)]
+              [(assoc s :bindings {})])
+            (let [by-n (by-position poss (count args))]
+              (distinct
+               (for [[w _] (stated-claims kb pred args poss context)
+                     t     (licensed-product kb by-n args w context)
+                     :when (not= t w)
+                     :let  [b (goal-bindings args t)]
+                     :when b
+                     :let  [s (support-for kb (cons pred t) context)]
+                     :when s]
+                 (assoc s :bindings b))))))))))
+
+;; ---- which rules an arriving sentence moves ------------------------------
+
+(defn moved-predicates
+  "The preserved predicates whose licensed claims `sen` may have moved.
+
+  Four channels, and none of them is the predicate-keyed trigger a forward rule is
+  ordinarily fired from:
+
+  * a **claim** on `P` (or on a sub-predicate of it) licenses a tuple nobody stated,
+    and undercuts one somebody did;
+  * a fact on the **relation** `R` — a `genl` / `genlContext` edge included — moves
+    every reach walked along it, with neither of its terms appearing anywhere near `P`;
+  * the **declaration** itself, which names `P` at argument 1;
+  * `(transitive R)`, the licence `usable-relation?` reads at use, which names no `P`
+    at all, and `(asymmetric P)`, which is what gives a converse the standing to deny
+    an inherited claim.
+
+  The reads are **global** and not belief-filtered, exactly as `declared`'s are and for
+  the same reason: over-selecting costs a join that derives what is already there,
+  under-selecting is a conclusion that depends on when a sentence arrived.  Behind
+  `declarations-exist?`, so a KB that declares nothing pays two cardinality reads."
+  [kb sen]
+  (when (and (sequential? sen) (seq sen) (declarations-exist? kb))
+    (let [body  (or (sx/underlying-body sen) sen)
+          f     (nm/functor body)
+          arg1  (nth body 1 nil)
+          decls (declared kb)]
+      (when (symbol? f)
+        (cond
+          (contains? declarations f) (when (symbol? arg1) #{arg1})
+          (= 'transitive f)          (into #{} (comp (filter #(= arg1 (second %))) (map first)) decls)
+          (= 'asymmetric f)          (when (some #(= arg1 (first %)) decls) #{arg1})
+          :else (let [preds (tax/genls (:taxonomy kb) f)]
+                  (into #{}
+                        (comp (filter (fn [[p r]] (or (preds p) (preds r)))) (map first))
+                        decls)))))))
+
+(defn rejoin-rules
+  "The forward rules to re-join in full because `sen` moved what a preserved predicate
+  licenses — every rule carrying an antecedent on one — or nil.
+
+  Keyed on the antecedent index rather than on the arriving sentence's predicate,
+  because the two are unrelated: `(genl chihuahua dog)` licenses a `largerThan`
+  antecedent and no walk from `genl` reaches `largerThan`.  That is the same shape the
+  qualitative re-join has, for the same reason, and `special/recheck-preserving-along`
+  reads the same declarations to close the exception side of the identical channel."
+  [kb sen]
+  (when-let [ps (seq (moved-predicates kb sen))]
+    (let [idx (:index kb)
+          rs  (into #{} (mapcat #(p/rules-by-antecedent idx %)) ps)]
+      (when (seq rs) rs))))

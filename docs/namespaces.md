@@ -50,7 +50,7 @@ src/vaelii/impl/
   overlay/mount.clj   composing the two into a fork; which index has a KvBackend seam to fork at all, and where the bookkeeping lives
   jtms.clj          the Tms protocol + the reference network (one atom, one persistent map): Justification (+strength/out); non-monotonic relabel; defeat; block; supersede; retract; sweep
   resolution.clj    unify / type-aware match / matches-visible (belief-filtered) / prove (+ prove-from: bounded, resumable, and the *dead-end* sink abduction listens on)
-  inference.clj     the second backward chainer: a frontier of whole conjunctions ordered by cost, rewritten one literal at a time into a rule's residual; every node a *canonicalized* conjunction with a namespace of its own (a rule is numbered past it, so the two are disjoint by construction and nothing needs renaming apart), the maps back to the parent and to the asker, per-literal depth (which is also the termination condition), globally claimed keys, guards lifted into the node that asks them, the search tree left behind as a value.  `core/*query-engine*` routes to it; the default is :dfs
+  inference.clj     the second backward chainer: a frontier of whole conjunctions ordered by cost, rewritten one literal at a time into a rule's residual; every node a *canonicalized* conjunction with a namespace of its own (a rule is numbered past it, so the two are disjoint by construction and nothing needs renaming apart), `:answer-terms` pushed forward per rewrite so an answer reads out in the asker's names, the rewrite each node records in its parent's namespace so a walk up `:parent-id` replays the derivation, per-literal depth (which is also the termination condition), globally claimed keys, guards lifted into the node that asks them, the search tree left behind as a value.  `core/*query-engine*` routes to it; the default is :dfs
   tactics.clj       the node engine's search policy: one additive estimate (the plan's own per-literal cost, a size penalty, the rewriting allowance, the tree level) whose signs name a tactician; the child bias a productive node's children carry; the opt-in backchain estimate and the shape probe that picks a tactician without a caller.  Every tactician returns the same answer set — ordering is a cost decision
   abduce.clj        abduction: the scratch-microtheory lifecycle, the gate on what may be assumed, and the mint/re-prove loop over the dead ends `prove` reports
   wff.clj           well-formedness of genl / genlContext / disjoint / argIsa / the equality relations (symbols only, no rewriteOf cycle, `different` not assertible); stratification (no rule-graph cycle through negation)
@@ -60,7 +60,7 @@ src/vaelii/impl/
   literal_cache.clj per-KB cache of matches-visible answers, keyed by the α-renamed (repetition-preserving) literal + context + retrieval strategy, stamped with the change clock; stores only what ran dry, so a bounded run leaves no prefix behind
   observe.clj       leaf seam (no require cycle): store add/remove hooks an incremental matcher installs into, and the coarse change clock a resident derived structure stamps itself with — plus the pin that holds one fixpoint step's reads still
   feed.clj          the same seam one altitude up, for **belief** rather than storage: the KB's listener registry, the region a settle accumulates for them, the reentrancy claim that keeps listeners from nesting, and the two dynamics a preview and a teardown suppress it with.  `core` installs the renderer; a KB nobody watches pays one deref (docs/feed.md)
-  wiring.clj        the other leaf seam, and the whole inventory of it: the two calls that run *up* the layering — the assert path (for `nat` and `skolem`) and the prover registry (for `resolution`) — plus the `*defer-settle?*` flag both sides read.  Each entry, and why the set is collected here instead of left at the call sites, is "The layering" at the foot of this file
+  wiring.clj        the other leaf seam, and the whole inventory of it: the two calls that run *up* the layering — the assert path (for `nat` and `skolem`) and the prover registry (for `resolution`) — plus `import-dump`, a layering inversion rather than a recursion, and the `*defer-settle?*` flag both sides read.  Each entry, and why the set is collected here instead of left at the call sites, is "The layering" at the foot of this file
   violations.clj    the dropped-conclusion ledger, below its two writers: the chainer files a conclusion it refused, the prover registry an aggregate's numeric error, and the chainer is built *on* the registry — so the ledger reads neither and both reach down to it.  A report, not a throw: it is written from inside a fixpoint that must not abort
   skolem.clj        head existentials: the deterministic `(SkolemFn <rule-handle> <i> <frontier…>)` witness a rule head `(exists ?y C)` fires to, reified through `nat` so re-firing on one binding resolves to one constant.  Its own namespace because two layers call it — the assert path declares the reifiable function when such a rule is stored, the forward chainer mints at each firing ([skolem.md](skolem.md))
   rete.clj          opt-in TREAT alpha network: RAM alpha memories indexed by arg value; the `chain/*matcher*` swap
@@ -149,7 +149,7 @@ kb <- checks <- special <- integrate <- chain <- settle <- vaelii.core
 
 Exactly two calls run the other way. Both live in `impl/wiring.clj` rather than at the
 call site that needs them, and neither is a misplaced function that could be moved
-somewhere better.
+somewhere better. A third entry sits in the same file for a related reason, below them.
 
 - **`assert-sentence`** — the full assertion path, called from `impl/nat.clj` (a reified
   NAT stores its `(termOfUnit K E)` map and its materialized types) and from
@@ -163,11 +163,18 @@ somewhere better.
   the registry dispatches to, and `unknown` runs the registry back over its own argument,
   so negation-as-failure is mutually recursive with the chainer that asked for it
   ([naf.md](naf.md)).
+- **`import-dump`** — a layering *inversion* rather than a recursion, which is why it is
+  the third entry and not a third cut. `impl/io/import.clj` sits **above** `vaelii.core`
+  and requires it, because reading a dump is asserting: it re-canonicalizes records,
+  reindexes and recovers through the public write path. `core/import!` is `export!`'s
+  inverse and `export!` is public, and a round trip whose two halves are not both public
+  is not a round trip — so the delegation points up, and this is the file a call that
+  points up is written down in.
 
 They are collected because a `requiring-resolve` in whichever file happens to need it is
 invisible: nothing counts them, nothing stops the next one, and the set of places the
 layering is broken can only be recovered by grepping for it. Gathered, they are an
-inventory — two entries, each owing the reason it cannot be an ordinary require — and
+inventory — three entries, each owing the reason it cannot be an ordinary require — and
 `lein lint`'s **E8** fails a literal `requiring-resolve` anywhere else under `src/`,
 excepting the keyword-dispatch registries it names. A cut with a real fix is expected to
 take the fix; one that lands in the inventory argues for itself in writing first.

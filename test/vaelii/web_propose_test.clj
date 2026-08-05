@@ -13,6 +13,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.llm.protocol :as proto]
+            [vaelii.impl.llm.provider :as llm-provider]
             [vaelii.impl.llm.stub :as stub]
             [vaelii.impl.starter :as starter]
             [vaelii.impl.web :as web]
@@ -531,16 +532,24 @@
 
 (tu/deftest-kb with-no-provider-configured-the-stub-answers-and-nothing-errors
   ;; no *proposer* binding at all: the route resolves its own, which with nothing
-  ;; configured is the offline stub — the state a machine with no model is in
-  (let [{:keys [term ctx]} (a-page kb)
-        r (POST {"q" (pr-str term) "ctx" (pr-str ctx) "message" "flesh this out"})]
-    (is (= 200 (:status r)))
-    (is (re-find #"0 proposed" (:body r)))
-    (testing "and it says *why* it proposed nothing — a machine with no model configured
-              is not a parse failure, and sending a reader after one would waste their day"
-      (is (re-find #"No model is configured" (:body r)))
-      (is (re-find #"VAELII_LLM_PROVIDER" (:body r))))
-    (is (empty? (v/find-sentexes kb 'herbivore)) "and it wrote nothing")))
+  ;; configured is the offline stub — the state a machine with no model is in.
+  ;;
+  ;; `configured` is redefined rather than left to the machine, and that is what keeps
+  ;; this test in `:default`.  The route resolves through `llm-provider/active-kind`,
+  ;; which reads `VAELII_LLM_PROVIDER` / `-Dvaelii.llm.provider` — so on a machine that
+  ;; names a backend this would probe the host and run a real generation turn, with no
+  ;; `^:llm` mark and no `tu/live-llm?` gate to stop it.  Nothing else in this namespace
+  ;; leaves `*proposer*` unbound; this one must, since the resolution *is* the subject.
+  (with-redefs [llm-provider/configured (constantly nil)]
+    (let [{:keys [term ctx]} (a-page kb)
+          r (POST {"q" (pr-str term) "ctx" (pr-str ctx) "message" "flesh this out"})]
+      (is (= 200 (:status r)))
+      (is (re-find #"0 proposed" (:body r)))
+      (testing "and it says *why* it proposed nothing — a machine with no model configured
+                is not a parse failure, and sending a reader after one would waste their day"
+        (is (re-find #"No model is configured" (:body r)))
+        (is (re-find #"VAELII_LLM_PROVIDER" (:body r))))
+      (is (empty? (v/find-sentexes kb 'herbivore)) "and it wrote nothing"))))
 
 (tu/deftest-kb a-backend-that-throws-renders-a-message-not-a-stack-trace
   (let [{:keys [term ctx]} (a-page kb)

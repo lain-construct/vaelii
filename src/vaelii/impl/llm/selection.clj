@@ -6,8 +6,9 @@
   `vaelii.impl.llm.prompt` renders the whole vocabulary — every context, type and
   predicate — and `vaelii.impl.llm.tools` renders every read as a tool schema.  Both
   are fixed costs that grow with the KB, and against the schema-only starter (no
-  individuals, no facts) they already come to ~8,800 tokens before the user has said
-  anything.  A KB heading for 100M sentexes cannot pay that per request, and a model
+  individuals, no facts) they already come to ~16,000 tokens before the user has said
+  anything — 25,597 characters of system prompt and 31,192 of tool schema, at
+  `chars-per-token`.  A KB heading for 100M sentexes cannot pay that per request, and a model
   with no `tools` capability cannot spend half of it at all.
 
   So this namespace prompts about **what the reader selected**:

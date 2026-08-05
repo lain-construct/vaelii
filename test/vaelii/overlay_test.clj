@@ -6,8 +6,8 @@
   Two claims carry the whole thing, and everything below is one of them:
 
   * **The base is never written.**  A fork asserts, derives, retracts and clears, and the
-    base's records, premises and index come back byte-identical.  That is what lets N
-    JVMs mount one frozen base with no protocol between them.
+    base's records, premises and index come back byte-identical.  That is what lets any
+    number of forks in one JVM share one frozen base with no protocol between them.
   * **The merged view is the KB.**  A fork over an *empty* base behaves exactly like a
     plain backend (the `KvBackend` contract, and the suite-parity gate — see
     `scripts/test-backends.sh`), and over a populated one the engine reasons across the
@@ -25,7 +25,8 @@
             [vaelii.impl.protocols :as p]
             [vaelii.kv-backend-test :as kvt]
             [vaelii.test-util :as tu])
-  (:import [java.nio.file Files]
+  (:import [java.io File]
+           [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
 ;; Own space numbers, outside the suite's block, so a fork never shares a store with
@@ -110,6 +111,22 @@
                           (v/fork base)))
     (is (= :unforkable-index
            (:type (try (v/fork base) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+    (v/clear! base)))
+
+(deftest a-fork-of-a-fork-is-refused
+  ;; `docs/overlay.md` states one overlay over one base.  `core/fork` passes
+  ;; `:base-stores` and names no backend, so the opts check has nothing to match on and
+  ;; the stores are asked directly (`mount/forked?`) — which is the only place a second
+  ;; layer is visible.
+  (let [base (doto (v/open-kb {:backend :memory
+                               :record-space [::stk] :index-space [::stk :ix] :recover? false})
+               (v/clear!))
+        one  (v/fork base)]
+    (is (true? (mount/forked? one)) "the first fork is a fork — `forked?` reads the pair")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fork" (v/fork one)))
+    (is (= :stacked-fork
+           (:type (try (v/fork one) nil (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+        "and it says which refusal it is, rather than failing somewhere downstream")
     (v/clear! base)))
 
 ;; ---- fall-through, override, isolation ------------------------------------
@@ -311,6 +328,34 @@
           (is (= '#{(mammal Rex)} (sentences (v/sentexes-matching f2 '(mammal ?x) 'OverlayContext)))
               "the base's rule still fires over the fork's own fact")))
       (testing "while the base never learned any of it"
+        (is (= '#{(dog Fido)} (sentences (v/sentexes-matching base '(dog ?x) 'OverlayContext)))))
+      (finally
+        (disk/close-dir! dir)
+        (rm-rf! dir)
+        (v/clear! base)))))
+
+(deftest close-releases-a-durable-forks-own-directory-and-never-the-bases
+  ;; `v/close!` on the fork, not `disk/close-dir!` on the path — the fork's writable half
+  ;; takes the same exclusive lock and holds the same handles as any durable KB, so
+  ;; without a `:dir` of its own the directory could not be handed on short of exiting
+  ;; the JVM.  A second open of the same directory is the proof the lock came back.
+  (let [base (fresh-base 9)
+        dir  (tmpdir)]
+    (try
+      (let [f (v/fork base {:backend :disk :dir dir})]
+        (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+        ;; canonical both sides — the store canonicalizes, so `/var` arrives as `/private/var`
+        (is (= (.getCanonicalPath (File. (str dir)))
+               (.getCanonicalPath (File. (str (:dir f)))))
+            "a durable fork carries its own directory")
+        (v/close! f))
+      (testing "the directory is free, so it mounts again"
+        (let [f2 (v/fork base {:backend :disk :dir dir})]
+          (is (= '#{(dog Fido) (dog Rex)}
+                 (sentences (v/sentexes-matching f2 '(dog ?x) 'OverlayContext)))
+              "with both halves of the merged view intact")
+          (v/close! f2)))
+      (testing "and the base is untouched — it is mounted read-only and shared"
         (is (= '#{(dog Fido)} (sentences (v/sentexes-matching base '(dog ?x) 'OverlayContext)))))
       (finally
         (disk/close-dir! dir)

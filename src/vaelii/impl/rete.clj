@@ -21,9 +21,13 @@
   What that is worth depends on the rule shape.  On the grandparent load
   (`lein bench-forward`) the two paths are level from n=2000 up, both flat at
   ~500µs/fact — the argument roots already answer what the alpha memories would.  On
-  the OpenRuleBench join pyramid the alpha memories are ahead: 16.80s against 21.31s
-  at 1k, 434.7s against 551.1s at 10k, on the identical answer set.  Matching is 8-12%
-  of that run and placement is the rest, which bounds what any matcher moves there.
+  the OpenRuleBench join pyramid (`vaelii.bench.pyramid` at join.1k, C2, six
+  interleaved runs a side) the alpha memories hold a thin lead on the identical
+  answer set: 11.8s against 12.5s.  The predicate-scoped argument roots answer the
+  same leading-variable shape with one bucket read of the literal's own predicate
+  (docs/indexing.md), which is why the two candidate sources sit close; matching is
+  ~12% of the run (`vaelii.bench.pyramid`'s `profile` mode measures it) and placement
+  is the rest, which bounds what any matcher moves there.
 
   ## Correctness by reuse, not by reimplementation
 
@@ -35,8 +39,8 @@
   `chain/chain-all` unchanged.  So the network cannot diverge in *any* of those; it
   can only diverge in the match, and `rete-match-pattern` is written to return the
   **identical set** `res/match-pattern` returns — same belief filter, same
-  polarity check, same symmetric mirror, same subtype fan-out, same `?ctx` binding —
-  differing only in the candidate source (a RAM bucket, a superset of the trie hits,
+  polarity check, same symmetric mirror, same sub-predicate fan-out, same `?ctx`
+  binding — differing only in the candidate source (a RAM bucket, a superset of the trie hits,
   filtered by the identical `unify`).  `rete_oracle_test` pins that equality directly
   (per pattern) and end to end (the derived sentex + justification sets over randomized
   assert/retract sequences must match the reference `chain`).
@@ -68,10 +72,16 @@
 ;; ---- the per-KB alpha registry ------------------------------------------
 ;; Keyed by KB **object identity**, not value: two KBs over the same space numbers
 ;; can be `=` (their record stores wrap the same shared state) but must not share an
-;; alpha.  A `java.util.IdentityHashMap` keys on `==`.  Single-writer, like the rest
-;; of the engine, so no synchronization is needed on the map itself.
-
-(defonce ^:private ^java.util.IdentityHashMap registry (java.util.IdentityHashMap.))
+;; alpha.  A `java.util.IdentityHashMap` keys on `==`.
+;;
+;; Synchronized, unlike the alphas it holds.  The engine is single-writer and each alpha
+;; is an atom, but this map is JVM-lifetime shared state reached from the store observer
+;; hooks — which fire on whichever thread is writing — and a `HashMap` racing its own
+;; rehash does not merely lose an entry: a reader can spin on a probe loop that never
+;; terminates.  The cost is one uncontended monitor per lookup against a map with as many
+;; entries as the process has live KBs.
+(defonce ^:private ^java.util.Map registry
+  (java.util.Collections/synchronizedMap (java.util.IdentityHashMap.)))
 
 (defn- index-functor
   "The functor a fact is bucketed under: the functor of its positive atomic body, so
@@ -126,10 +136,18 @@
   "This KB's alpha memories, built (and back-filled from the store) on first use."
   [kb]
   (or (.get registry kb)
-      (let [a (atom {:by-functor {}})]
-        (.put registry kb a)
-        (sync-from-store! kb a)
-        a)))
+      ;; Check, put and back-fill are one step: two callers racing here would each build
+      ;; an alpha, and the loser's would be handed to its caller and then never updated
+      ;; again — the observer hooks maintain whichever one the map holds.  The put stays
+      ;; *before* the back-fill so a hook firing during the scan finds the alpha it is
+      ;; meant to maintain, and the scan runs under the monitor so nobody is handed a
+      ;; half-filled one.  Paid once per KB.
+      (locking registry
+        (or (.get registry kb)
+            (let [a (atom {:by-functor {}})]
+              (.put registry kb a)
+              (sync-from-store! kb a)
+              a)))))
 
 ;; ---- the observer hooks (installed by `engage!`) ------------------------
 ;; `engage!` is here because `chain-all` / `chain` / `track!` below it all engage before
@@ -153,8 +171,6 @@
     (observe/install! observe-add observe-remove)))
 
 ;; ---- the matcher: identical result set to `res/match-pattern` ---------
-
-(defn- unary? [s] (and (sequential? s) (= 2 (count s))))
 
 (defn- candidates
   "The stored facts to unify against `pat` (a canonicalized pattern sentex), read from
@@ -211,17 +227,23 @@
       hits)))
 
 (defn- match-pattern-via-alpha
-  "The RAM twin of `res/match-pattern`: a unary type literal fans out over its
-  subtype closure, everything else is a single raw match."
+  "The RAM twin of `res/match-pattern`: the functor fans out over its sub-predicate
+  (genl spec) closure at **every arity** — a unary type literal over its subtypes, an
+  n-ary literal over its predicate-genl specs — and a functor with a singleton closure
+  is one raw match, which is the common case.  A variable or absent functor pins
+  nothing and fans not at all, as the reference's does."
   [kb by-functor sentence context]
-  (if (unary? sentence)
-    (let [[t a] sentence]
+  (let [f (when (sequential? sentence) (first sentence))]
+    (if (and (symbol? f) (not (sx/variable? f)))
       ;; the same fan definition as the reference matcher — `chain` only ever joins
       ;; at `'?ctx`, so this is the global closure there, but sharing the helper is
       ;; what keeps the two matchers incapable of drifting
-      (mapcat (fn [t'] (raw-match-via-alpha kb by-functor (list t' a) context))
-              (res/sub-predicates kb t context)))
-    (raw-match-via-alpha kb by-functor sentence context)))
+      (let [subs (res/sub-predicates kb f context)]
+        (if (= subs #{f})
+          (raw-match-via-alpha kb by-functor sentence context)
+          (mapcat (fn [f'] (raw-match-via-alpha kb by-functor (cons f' (rest sentence)) context))
+                  subs)))
+      (raw-match-via-alpha kb by-functor sentence context))))
 
 (defn rete-match-pattern
   "The matcher `chain/*matcher*` is bound to when the network is engaged.  Signature

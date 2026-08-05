@@ -75,6 +75,33 @@
       (is (< many 32)
           (str "6 triggers that can block nothing cost " many " level-6 queries")))))
 
+(deftest re-checking-a-rule-does-not-visit-every-firing-it-refused
+  (testing "a fact on the exception's predicate re-checks the refusals it could reach,
+            not every firing the queued rule declined to make"
+    ;; The twin of the test above, one level earlier.  A firing refused at derive time is
+    ;; recorded (docs/exceptions.md, \"A refused firing is remembered as bindings\") and
+    ;; re-evaluated when its rule is queued, so the record is a second population the
+    ;; same quadratic can hide in — and the same narrowing has to reach it.  Each trigger
+    ;; is about an individual no refusal names, so none of them can release anything.
+    (let [cost (fn [refusals triggers]
+                 (tu/with-cleared-kb [kb tu/isolated-fresh]
+                   (excepted-rule! kb)
+                   ;; the exception fact first, so the firing is refused rather than
+                   ;; placed and swept
+                   (dotimes [i refusals]
+                     (v/assert kb (list 'skipX (symbol (str "PX" i))) ctx)
+                     (probe! kb i))
+                   (counting-evaluations
+                    #(dotimes [i triggers]
+                       (v/assert kb (list 'skipX (symbol (str "Unrelated" i))) ctx)))))
+          few  (cost 8 6)
+          many (cost 32 6)]
+      (is (<= many (+ 4 (* 2 (max 1 few))))
+          (str "re-check cost grew with the rule's refusal count: " few " -> " many
+               " evaluations for the same 6 triggers"))
+      (is (< many 32)
+          (str "6 triggers that can release nothing cost " many " level-6 queries")))))
+
 (deftest a-blocked-rule-is-not-re-joined-over-the-whole-fact-extent
   (testing "settling a pass that blocks re-derives what it released, not the rule's
             whole extent"
@@ -493,9 +520,10 @@
     ;; declared asymmetric — only then does it count as evidence *against* the pair the
     ;; general claim inherits, and undercut it.
     ;;
-    ;; What is asserted here is the exception's answer and a firing made after it.  The
-    ;; firing that predates the declaration was refused at derive time, so it is in no
-    ;; blocked set for a release to be read off, and it does not come back.
+    ;; Both firings are asserted: the one made after the declaration, and the one that
+    ;; predates it — refused at derive time, so in no blocked set for a release to be
+    ;; read off, and re-derived from its recorded refusal instead
+    ;; (refused_firing_test, and docs/exceptions.md).
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(genl nchi ndog) ctx)
       (v/assert kb '(genl nmc ncat) ctx)
@@ -514,6 +542,8 @@
       (v/assert kb '(asymmetric nbigger) ctx)
       (is (not (v/ask? kb '(nbigger nchi nmc) ctx))
           "the specific converse now undercuts the general claim")
+      (is (seq (v/sentexes-matching kb '(nseen NM1) '?ctx))
+          "so the refused firing is re-derived from what it recorded")
       (v/assert kb '(nmark NM2) ctx)
       (is (seq (v/sentexes-matching kb '(nseen NM2) '?ctx))
           "and a firing made after the declaration is not blocked"))))

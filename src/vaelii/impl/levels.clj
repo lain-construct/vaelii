@@ -343,7 +343,7 @@
   seq of uniform result maps: {:level :handle :sentence :context :bindings}."
   [kb level goal context]
   (when-not (and (integer? level) (<= 0 level max-level))
-    (throw (ex-info (str "level must be 0-" max-level) {:level level})))
+    (throw (ex-info (str "level must be 0-" max-level) {:type :bad-level :level level})))
   ((nth level-fns level) kb goal context))
 
 (defn escalate

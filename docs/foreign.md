@@ -63,7 +63,7 @@ otherwise reads exactly like a format nobody shipped.
 
 | kind | reader | what it reads |
 |------|--------|---------------|
-| `:engine-dump` | `vaelii.foreign.engine` | frozen records of a class this build does not have, whose sentences are reconstructed from `:antecedent` / `:consequent` / `:variables`, and deductions that have to be classified into justifications and premise marks |
+| `:engine-dump` | none on this classpath | frozen records of a class this build does not have, whose sentences are reconstructed from `:antecedent` / `:consequent` / `:variables`, and deductions that have to be classified into justifications and premise marks. the dump importer asks for the kind by name and falls back to its own dialect when nothing answers, so this is the kind a private bridge supplies rather than one `vaelii-foreign` ships |
 | `:cyc-corpus` | `vaelii.foreign.cyc` (+ `cycl`) | a CycL assertion dump, translated to vaelii sentences |
 
 ## Exercising one from here

@@ -184,12 +184,20 @@
 
 (tu/deftest-kb the-callout-never-repeats-what-the-batch-itself-said
   (testing "a supertype the same commit stated outright is not news"
-    (tu/with-terms [pup_ hound_ Rex StatedContext]
+    ;; Two levels, not one, and that is what makes the claim checkable: the batch states
+    ;; the near supertype and leaves the far one unsaid, so a callout is genuinely
+    ;; rendered and the suppression is a *missing line* in a panel that exists.  With one
+    ;; level there is nothing else to say, the page shows no callout at all, and "no
+    ;; callout" satisfies the assertion whether the suppression works or not.
+    (tu/with-terms [pup_ hound_ mammal_ Rex StatedContext]
       (v/assert kb (list 'genlContext StatedContext 'WellContext) 'UniverseContext)
       (v/assert kb (list 'genl pup_ hound_) StatedContext)
+      (v/assert kb (list 'genl hound_ mammal_) StatedContext)
       (let [out (assert-through-the-form
                  kb (str (pr-str (list pup_ Rex)) "\n" (pr-str (list hound_ Rex)))
                  StatedContext)]
-        (is (or (nil? out)
-                (not (str/includes? out (str "(" hound_ " " Rex ") because"))))
+        (is (some? out) "the callout appeared")
+        (is (str/includes? out (str "(" mammal_ " " Rex ")"))
+            "the supertype nobody stated is exactly what a callout is for")
+        (is (not (str/includes? out (str "(" hound_ " " Rex ") because")))
             "the reader wrote it; telling them it follows is noise")))))

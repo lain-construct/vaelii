@@ -320,6 +320,11 @@
 
 (defonce ^:private state (atom {:active nil :entries {} :order [] :next-space first-space}))
 
+;; `load-source`'s claim is a read-test-write across three touches of `state`, which one
+;; `swap!` cannot express (it throws two different refusals, and a `swap!` fn must be
+;; retryable).  This makes the three one step.
+(defonce ^:private load-monitor (Object.))
+
 (defn- now [] (System/currentTimeMillis))
 
 (defn- claim-spaces!
@@ -628,7 +633,7 @@
                     (progress! {:phase :recover :done 0 :note "rebuilding belief"})
                     (v/recover kb))
                   {})
-      (throw (ex-info (str "unknown KB source kind " (pr-str kind)) {:kind kind})))))
+      (throw (ex-info (str "unknown KB source kind " (pr-str kind)) {:type :unknown-source :kind kind})))))
 
 (defn- entry-key
   "The key an entry is filed under: the source id, suffixed when that source can be
@@ -648,24 +653,30 @@
   is queryable, and activated when nothing else is) or `:failed` / `:cancelled`."
   ([source-id] (load-source source-id {}))
   ([source-id params]
-   (when (loading?)
-     (throw (ex-info "a load is already running" {:type :busy :active (active)})))
    (let [src (or (source source-id)
                  (throw (ex-info (str "no KB source " (pr-str source-id)) {:type :unknown-source})))
          key (entry-key src)
-         _   (when (entry key)
-               (throw (ex-info (str (:name src) " is already loaded — unload it first")
-                               {:type :already-loaded :key key})))
          cancel (atom false)
          started (now)]
-     (swap! state (fn [s]
-                    (-> s
-                        (assoc-in [:entries key]
-                                  {:key key :source (dissoc src :options) :name (:name src)
-                                   :params params :status :loading :started started
-                                   :progress {:phase :starting :done 0 :total (:total src)}
-                                   :cancel cancel})
-                        (update :order #(vec (distinct (conj % key)))))))
+     ;; Check and claim under one monitor.  The busy test, the already-loaded test and
+     ;; the `swap!` that registers the entry are three separate touches of `@state`, and
+     ;; two requests arriving together on Jetty's pool each passed all three — both
+     ;; spawned a loader, and two background loaders then wrote the same stores.  That is
+     ;; the exact case this guard exists to refuse, and it is the one it missed.
+     (locking load-monitor
+       (when (loading?)
+         (throw (ex-info "a load is already running" {:type :busy :active (active)})))
+       (when (entry key)
+         (throw (ex-info (str (:name src) " is already loaded — unload it first")
+                         {:type :already-loaded :key key})))
+       (swap! state (fn [s]
+                      (-> s
+                          (assoc-in [:entries key]
+                                    {:key key :source (dissoc src :options) :name (:name src)
+                                     :params params :status :loading :started started
+                                     :progress {:phase :starting :done 0 :total (:total src)}
+                                     :cancel cancel})
+                          (update :order #(vec (distinct (conj % key))))))))
      (let [progress! (progress-fn key cancel)
            note-kb!  (fn [kb where] (put-entry! key #(assoc % :kb kb :where where)))
            f (future

@@ -29,7 +29,16 @@
   `dense_roots_oracle_test` —
   which, like every behavioural check, cannot see a family that falls back when it should
   route, since the fallback answers identically; `dense_routing_test` reads the
-  representation and covers that."
+  representation and covers that.
+
+  **Single-*threaded*, which is narrower than single-writer.**  The mapped-section fields
+  on `DenseRoots` are `^:unsynchronized-mutable`, so installing or thawing a snapshot
+  publishes through no barrier and a second thread may read this backend mid-install —
+  `mapped?` true against a `mkeys` it has not seen, say.  The atom- and lock-based
+  backends give an incidental reader beside the writer a consistent view; this one does
+  not.  Same trade as `vaelii.impl.columnar`, whose docstring states it: these fields are
+  read on the hot lookup path, and a volatile read there buys a guarantee the engine's own
+  single writer never needs."
   (:require [clojure.set :as set]
             [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.kv :as kv]

@@ -1797,6 +1797,23 @@
             (context-down tax (first cs)) (rest cs))
     #{}))
 
+(defn- maximal-common-descendants*
+  "The general path of `maximal-common-descendant-contexts`, below — every case its
+  one-context fast exit does not answer."
+  [tax ctxs]
+  (let [cs (vec (distinct ctxs))]
+    (if-let [k (seeing-member tax cs)]
+      #{(placement-rep tax k)}
+      (let [common (common-descendant-set tax cs)]
+        (into #{}
+              (comp (remove (fn [k]
+                              (some (fn [anc] (and (not= anc k)
+                                                   (contains? common anc)
+                                                   (not (sees? tax anc k))))
+                                    (context-up tax k))))
+                    (map (fn [k] (placement-rep tax k))))
+              common)))))
+
 (defn maximal-common-descendant-contexts
   "The *maximal* elements of the **common descendants** of `ctxs`: the contexts K
   that see every ctx (each ctx in up(K)) — i.e. the intersection of the down
@@ -1817,18 +1834,19 @@
   conclusion in every member of a cycle would store one claim several times over in
   microtheories that already see each other."
   [tax ctxs]
-  (let [cs (vec (distinct ctxs))]
-    (if-let [k (seeing-member tax cs)]
-      #{(placement-rep tax k)}
-      (let [common (common-descendant-set tax cs)]
-        (into #{}
-              (comp (remove (fn [k]
-                              (some (fn [anc] (and (not= anc k)
-                                                   (contains? common anc)
-                                                   (not (sees? tax anc k))))
-                                    (context-up tax k))))
-                    (map (fn [k] (placement-rep tax k))))
-              common)))))
+  (let [c0 (first ctxs)]
+    (if (and observe/*chain-fast-paths*
+             (some? c0)
+             (every? #(= c0 %) (next ctxs)))
+      ;; every member is the one context — the general path's `seeing-member` answer
+      ;; (its `sees?` probe is reflexive, so a single distinct member always passes
+      ;; it), reached without building the distinct vector or filtering it.  This is
+      ;; nearly every forward firing (rule and facts in one context).  `placement-rep`
+      ;; still runs: a member of a `genlContext` cycle places at the group's one name
+      ;; here as everywhere, and a context the taxonomy has never heard of comes back
+      ;; as itself on both paths.
+      #{(placement-rep tax c0)}
+      (maximal-common-descendants* tax ctxs))))
 
 (defn common-descendants
   "Every context that sees all of `ctxs` — the intersection of their down closures.
@@ -1968,23 +1986,27 @@
   tax)
 (defn metatype-members [tax m] (get-in @tax [:metatype-members m] #{}))
 
-(defn disjointness-test
-  "A predicate `type -> boolean` answering `(disjoint? tax a <type> context)` — the
-  question with everything that depends on `a` and `context` alone read once.
-  `disjoint?` is this asked once; `checks/disjoint-problem` asks it of every type the
-  term already holds, which is the shape it exists for.
+(defn- separation-frame
+  "Everything a disjointness question about `a` settles before any candidate is named:
+  `a`'s supertype closure, the declarations that reach it, and the visibility
+  predicates its context imposes.
 
   What survives the build is only what `a` can possibly be separated *by*: the
-  supertypes of `a` that are declared disjoint from something, and the metatypes some
-  supertype of `a` belongs to.  Both are usually empty — most types are declared
-  disjoint from nothing and belong to no metatype — and when they are, no candidate is
-  looked at at all, not even to read its closure.  A type that *is* separable pays a
-  set lookup per declaration rather than a walk over the closure product.
+  supertypes of `a` that are declared disjoint from something (`:seps`, each with the
+  set it is declared disjoint from), and the metatypes some supertype of `a` belongs
+  to (`:metas`, each as `[m members members-above-a]`).  Both are usually empty — most
+  types are declared disjoint from nothing and belong to no metatype — and when they
+  are, no candidate is looked at at all, not even to read its closure.
 
-  One body for both readings.  A nil, variable, or otherwise unscoped `context` gives
-  visibility predicates that are constantly true *and take no key*, so the unscoped
-  path never builds the `#{x y}` a visibility lookup would need — the whole reason the
-  pair set is not what disjointness is asked of."
+  Two readers ask it in opposite directions: `disjointness-test` closes over it and
+  tests a candidate, `separating-partners` reads the same two rosters to *enumerate*
+  the other side.  One prologue, because the failure two copies of it would have is a
+  candidate the predicate convicts and the enumeration never reaches.
+
+  A nil, variable, or otherwise unscoped `context` gives visibility predicates that are
+  constantly true *and take no key*, so the unscoped path never builds the `#{x y}` a
+  visibility lookup would need — the whole reason the pair set is not what disjointness
+  is asked of."
   [tax a context]
   (let [scoped? (scoped-context? context)
         as      (if scoped? (genls tax a context) (genls tax a))
@@ -2014,6 +2036,20 @@
                                 (let [in-a (filterv #(and (contains? as %) (member-vis? m %)) ms)]
                                   (when (seq in-a) [m ms in-a]))))))
                     (:disjoint-metatypes t))]
+    {:scoped? scoped? :seps seps :metas metas
+     :pair-vis? pair-vis? :member-vis? member-vis?}))
+
+(defn disjointness-test
+  "A predicate `type -> boolean` answering `(disjoint? tax a <type> context)` — the
+  question with everything that depends on `a` and `context` alone read once
+  (`separation-frame`).  `disjoint?` is this asked once; `checks/disjoint-problem`
+  asks it of every type the term already holds, which is the shape it exists for.
+
+  A type `a` no declaration reaches answers false without looking at the candidate at
+  all; one that *is* separable pays a set lookup per declaration rather than a walk
+  over the closure product."
+  [tax a context]
+  (let [{:keys [scoped? seps metas pair-vis? member-vis?]} (separation-frame tax a context)]
     (if (and (empty? seps) (empty? metas))
       (constantly false)
       (fn [b]
@@ -2030,6 +2066,70 @@
                        (let [in-b (filterv #(and (contains? bs %) (member-vis? m %)) ms)]
                          (some (fn [x] (some #(not= x %) in-b)) in-a)))
                      metas))))))))
+
+(defn separating-partners
+  "The types a **visible declaration** separates `a` from: every `y` such that some
+  supertype of `a` is declared `(disjoint x y)` with `x` ≠ `y`, or shares a disjoint
+  metatype with `y`.
+
+  This is the enumeration `disjointness-test` is the membership test of, and the two
+  read one frame so they cannot disagree.  Every type disjoint from `a` is a **subtype
+  of one of these and nothing else is** — disjointness is inherited downward through
+  `genl` and reaches a candidate no other way — so `(disjoint a ?t)` is answered by
+  `specs` of this set.  What that buys is the bound: the answer is a function of the
+  declarations, which are few, rather than of the vocabulary, which is not.
+
+  Belief and context are the frame's, so a retracted declaration has already left
+  `:disjoint-index` / `:metatype-members`, and a declaration the reader's context
+  cannot see is dropped by the same visibility predicate that decides the pair for
+  `disjoint?`.  The index is *not* itself context-scoped, which is why the filter is
+  applied here rather than trusted to the lookup."
+  [tax a context]
+  (let [{:keys [seps metas pair-vis? member-vis?]} (separation-frame tax a context)]
+    (persistent!
+     (as-> (transient #{}) acc
+       (reduce (fn [acc [x ys]]
+                 (reduce (fn [acc y]
+                           (if (and (not= x y) (pair-vis? x y)) (conj! acc y) acc))
+                         acc ys))
+               acc seps)
+       (reduce (fn [acc [m ms in-a]]
+                 (reduce (fn [acc y]
+                           (if (and (member-vis? m y) (some #(not= % y) in-a))
+                             (conj! acc y)
+                             acc))
+                         acc ms))
+               acc metas)))))
+
+(defn separating-pairs
+  "Every **ordered** pair `[x y]`, `x` ≠ `y`, that a visible declaration separates —
+  the declared pairs in both directions, plus each disjoint metatype's members against
+  each other.
+
+  `separating-partners` with neither side given, and it answers the same question for
+  the goal that gives nothing away: `(disjoint ?x ?y)` is `specs(x) × specs(y)` over
+  these.  Bounded by the declaration set by construction, which is what keeps a
+  two-variable goal — a shape a user types by accident — from being a walk over the
+  vocabulary squared."
+  [tax context]
+  (let [scoped? (scoped-context? context)
+        t       @tax
+        cctxs   (:cache-ctxs t)
+        up      (when scoped? (closure-of tax :genlContext :fwd context))
+        vis?    (if scoped? (fn [k] (ctxs-visible? (get cctxs k) up)) (fn [_] true))]
+    (concat
+     (for [s (:disjoint t)
+           :let  [[x y] (disjoint-pair s)]
+           :when (and (not= x y) (vis? [:disjoint s]))
+           pair  [[x y] [y x]]]
+       pair)
+     (for [m  (:disjoint-metatypes t)
+           :when (vis? [:metatype m])
+           :let  [ms (filterv #(vis? [:member m %]) (get (:metatype-members t) m))]
+           x  ms
+           y  ms
+           :when (not= x y)]
+       [x y]))))
 
 (defn disjoint?
   "Are types a and b provably disjoint?  True when some supertype of a and some

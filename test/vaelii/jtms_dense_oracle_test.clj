@@ -171,7 +171,7 @@
               (assoc {:diffs d} :at i :op op)))))
       ops))))
 
-(deftest streams-are-not-vacuous
+(deftest ^:slow streams-are-not-vacuous
   ;; Agreement between two networks that both did nothing is worth nothing.  Before
   ;; trusting the comparison, pin that the generated streams actually reach every
   ;; state the comparison is supposed to cover — a generator tweak that stopped
@@ -200,7 +200,7 @@
     (doseq [[k n] tally]
       (is (pos? n) (str "the streams never produced any " (name k))))))
 
-(deftest randomized-streams-agree
+(deftest ^:slow randomized-streams-agree
   (testing "200 random operation streams, compared after every single step"
     (doseq [seed (range 200)]
       (let [rng (java.util.Random. seed)

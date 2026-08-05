@@ -193,7 +193,7 @@
                             (persistent! acc)
                             (let [k (form-from bb dict lits n)]
                               (recur (assoc! acc k (form-from bb dict lits (read-varint! bb))))))))
-    :else             (throw (ex-info "malformed tokenized record body" {:code v}))))
+    :else             (throw (ex-info "malformed tokenized record body" {:type :malformed-record :code v}))))
 
 (defn- body-reader
   "A thunk yielding the encoded fields back in order."

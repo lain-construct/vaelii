@@ -30,14 +30,17 @@
   * `trie.csr` — the trie's six CSR sections (`fcounts` `foffsets` `fedge-tok`
     `fedge-tgt` `fleaf-off` `fhandles`), each a raw little-endian `int` run behind a
     header naming the counts.
-  * `roots.csr` — the secondary roots / term / rule / exception postings as the same CSR
-    shape over `dense-roots`' packed `long` keys: sorted keys, an offset column, one
-    shared handle run.
+  * `roots.csr` — the *routed* root families (context/functor roots, the term, rule and
+    exception indexes) as the same CSR shape over `dense-roots`' packed `long` keys:
+    sorted keys, an offset column, one shared handle run.  The argument roots are not
+    among them — their four-part key does not pack, so they ride the fallback blob.
   * `roots-fallback.nippy` — everything the routed families do not claim: the term and
     slot rosters (names, not handles) **and the predicate-scoped argument roots**, whose
     four-part key the packed `long` cannot carry (`dense-roots`' `route`).  The rosters
     are vocabulary-scaled; the argument roots are fact-scaled, so this blob carries
-    primary index truth at fact scale, not reconstructible metadata alone.
+    primary index truth at fact scale, not reconstructible metadata alone — which is
+    why its entry count and byte length ride the meta and are checked on open like
+    the CSR sections' lengths, and why its load is strict (`read-fallback`).
   * `tokens.log` — the durable token dictionary the `int` edges cite, in
     `vaelii.impl.disk.tokens`' format (append-only, id = append position, content-keyed,
     first-writer-wins, never reused).  That module is reused rather than a second
@@ -299,7 +302,14 @@
   Compacts the trie first — the CSR arrays `compact!` produces *are* the on-disk layout,
   so there is no serialization step, only a write.  An empty index saves nothing and
   drops any meta that survives, since a stale one describing a wiped KB is the one thing
-  worse than none."
+  worse than none.
+
+  **A failed save costs the new image, never the one already there.**  Every section is
+  written to a `.tmp` beside its target and the meta — the commit mark — is dropped only
+  once all of them are complete, so a throw anywhere before that leaves the previous
+  image whole and readable.  The stamp is taken *first*, before a byte moves, because it
+  is the one input that lives in another component: on the shutdown path that component
+  can already be closed, and taking it late would trade a working image for none."
   [dir store stamp-fn]
   (let [root (snapshot-root dir)]
     (f/ensure-dir! root)
@@ -320,44 +330,59 @@
 
       :else
       (let [t0    (System/nanoTime)
+            stamp (stamp-fn)
             _     (col/compact! store)
             csr   (col/csr store)
             dict  (:dict store)
             rts   (:roots store)
-            tl    (dtok/open-token-log root)
-            remap (durable-remap dict tl)
-            etok  (remap-edges (:edge-tok csr) remap)
-            etgt  (let [s (:edge-tgt csr)]                    ; a copy: the sort permutes it
-                    (if (instance? IntBuffer s)
-                      (let [n (.limit ^IntBuffer s) a (int-array n)]
-                        (.get (doto (.duplicate ^IntBuffer s) (.rewind)) a 0 n) a)
-                      (aclone ^ints s)))
-            _     (sort-edge-runs! (:offsets csr) etok etgt (:nodes csr))
-            cols  (roots/snapshot-columns rts remap)
-            tmp   #(str % ".tmp")
-            tstat (write-trie!  (tmp (trie-path root))  (assoc csr :edge-tok etok :edge-tgt etgt))
-            rstat (write-roots! (tmp (roots-path root)) cols)]
-        (f/write-nippy-atomic! (fallback-path root) (vec (roots/fallback-entries rts)))
-        (dtok/fsync tl true)
-        (dtok/close! tl)
-        ;; the meta is the commit point: drop it, swap the sections in, write it last
-        (.delete (File. (meta-path root)))
-        (rename! (tmp (trie-path root))  (trie-path root))
-        (rename! (tmp (roots-path root)) (roots-path root))
-        (f/write-nippy-atomic!
-         (meta-path root)
-         {:format       format-version
-          :index-layout kv/index-layout-version
-          :byte-order   byte-order-tag
-          :records      (stamp-fn)
-          :trie         tstat
-          :roots        rstat
-          :tokens       (dtok/token-count tl)})
-        (let [ms (/ (- (System/nanoTime) t0) 1e6)]
-          (trove/log! {:level :info :id ::saved
-                       :msg (format "wrote the mapped index snapshot at %s in %.0f ms (%d nodes, %d leaf handles, %d root postings)"
-                                    root ms (long (:nodes tstat)) (long (:leaves tstat)) (long (:keys rstat)))})
-          {:index :saved :ms ms :trie tstat :roots rstat})))))
+            ;; this fn's own handle on the durable dictionary, and every step below it
+            ;; can throw — a full disk mid-write, a mapped section that will not read.
+            ;; It closes in a `finally`, or a failed save would leak a file handle on
+            ;; exactly the directory a `close-dir!` is trying to let go of.
+            tl    (dtok/open-token-log root)]
+        (try
+          (let [remap (durable-remap dict tl)
+                etok  (remap-edges (:edge-tok csr) remap)
+                etgt  (let [s (:edge-tgt csr)]                ; a copy: the sort permutes it
+                        (if (instance? IntBuffer s)
+                          (let [n (.limit ^IntBuffer s) a (int-array n)]
+                            (.get (doto (.duplicate ^IntBuffer s) (.rewind)) a 0 n) a)
+                          (aclone ^ints s)))
+                _     (sort-edge-runs! (:offsets csr) etok etgt (:nodes csr))
+                cols  (roots/snapshot-columns rts remap)
+                tmp   #(str % ".tmp")
+                tstat (write-trie!  (tmp (trie-path root))
+                                    (assoc csr :edge-tok etok :edge-tgt etgt))
+                rstat (write-roots! (tmp (roots-path root)) cols)
+                fents (vec (roots/fallback-entries rts))]
+            ;; beside its target rather than over it, so the blob the previous meta
+            ;; describes stays intact until the swap below
+            (f/write-nippy-atomic! (tmp (fallback-path root)) fents)
+            (dtok/fsync tl true)
+            ;; the meta is the commit point: drop it, swap the sections in, write it last
+            (.delete (File. (meta-path root)))
+            (rename! (tmp (trie-path root))     (trie-path root))
+            (rename! (tmp (roots-path root))    (roots-path root))
+            (rename! (tmp (fallback-path root)) (fallback-path root))
+            (f/write-nippy-atomic!
+             (meta-path root)
+             {:format       format-version
+              :index-layout kv/index-layout-version
+              :byte-order   byte-order-tag
+              :records      stamp
+              :trie         tstat
+              :roots        rstat
+              ;; the blob carries the argument-root postings — primary index truth — so
+              ;; its size is recorded and checked like the CSR sections'
+              :fallback     {:entries (count fents)
+                             :bytes   (.length (File. (fallback-path root)))}
+              :tokens       (dtok/token-count tl)})
+            (let [ms (/ (- (System/nanoTime) t0) 1e6)]
+              (trove/log! {:level :info :id ::saved
+                           :msg (format "wrote the mapped index snapshot at %s in %.0f ms (%d nodes, %d leaf handles, %d root postings)"
+                                        root ms (long (:nodes tstat)) (long (:leaves tstat)) (long (:keys rstat)))})
+              {:index :saved :ms ms :trie tstat :roots rstat}))
+          (finally (dtok/close! tl)))))))
 
 ;; ---- reading ------------------------------------------------------------
 
@@ -384,6 +409,11 @@
       :entries-truncated
       (< (file-len (roots-path root))
          (+ 16 (* 8 (long kn)) (* 4 (inc (long kn))) (* 4 (long hn))))
+      :entries-truncated
+      ;; the fallback blob is read whole, so its length is checked exactly — a
+      ;; missing file (-1) and a meta with no record of it both land here
+      (not= (file-len (fallback-path root))
+            (long (or (:bytes (:fallback m)) -2)))
       :entries-truncated
       :else nil)))
 
@@ -441,7 +471,16 @@
 (defn- load-dictionary!
   "Rebuild the in-RAM dictionary from the durable log, **in id order**, so an in-RAM id is
   the durable id the mapped edges cite.  O(vocabulary) and the one per-entry cost a load
-  pays — which is the design's own claim about what a snapshot's open scales with."
+  pays — which is the design's own claim about what a snapshot's open scales with.
+
+  The two dictionaries do not agree on equality, and this is where that would show.  The
+  durable log keys a bare `HashMap` on the token, so two entries are one when
+  `.equals` says so; the in-RAM one keys `tokens/Key`, which defers to `hasheq`/`equiv`
+  and therefore reads `2` and `(int 2)` as one token where the log reads two.  The log
+  only ever holds symbols and keywords, which the two agree about — so the counts match,
+  and the **check is what makes that a fact rather than an assumption**.  A mismatch means
+  the id order has shifted and every mapped edge cites the wrong entry, silently, so it
+  throws into `load!`'s catch and the index is rebuilt from the records instead."
   [dict ^String root]
   (let [tl (dtok/open-token-log root)]
     (try
@@ -452,10 +491,35 @@
       ;; the opposite of what interning the vocabulary is for.  `intern-deep` rather than
       ;; `canon`, since a `[::subterm k]` marker and a rule's antecedent are vectors and
       ;; canonicalizing would flatten both to lists.
-      (dotimes [i (dtok/token-count tl)]
-        (tok/intern-token! dict (sx/intern-deep (dtok/token tl i))))
-      (dtok/token-count tl)
+      (let [durable (dtok/token-count tl)]
+        (dotimes [i durable]
+          (tok/intern-token! dict (sx/intern-deep (dtok/token tl i))))
+        (let [loaded (long (tok/token-count dict))]
+          (when (not= loaded durable)
+            (throw (ex-info (str "the durable token dictionary at " root " reloaded as "
+                                 loaded " entries where it holds " durable
+                                 " — the ids the mapped edges cite have shifted")
+                            {:type :torn-snapshot :path root
+                             :durable durable :loaded loaded}))))
+        durable)
       (finally (dtok/close! tl)))))
+
+(defn- read-fallback
+  "The fallback blob, read strictly: it carries the argument-root postings — primary
+  index truth — so a torn thaw or an entry count that disagrees with the meta throws
+  (into `load!`'s catch, which rebuilds) rather than defaulting to an empty value the
+  index would then serve as `#{}` on every argument-root read."
+  [root m]
+  (let [v    (f/read-nippy-file (fallback-path root) ::torn)
+        want (long (get-in m [:fallback :entries] -1))]
+    (when (or (= ::torn v) (not= (count v) want))
+      (throw (ex-info (str "the roots fallback blob did not thaw whole — "
+                           (if (= ::torn v)
+                             "unreadable"
+                             (str (count v) " entries where the meta records " want))
+                           " — and it holds the argument roots")
+                      {:type :torn-snapshot :path (fallback-path root)})))
+    v))
 
 (defn load!
   "Map `dir/index` into `store`, or say why it cannot be.  Returns `{:index :mapped …}` or
@@ -479,7 +543,7 @@
             (load-dictionary! (:dict store) root)
             (load-trie!  store (trie-path root)  (:trie m))
             (load-roots! store (roots-path root) (:roots m))
-            (roots/load-fallback! (:roots store) (f/read-nippy-file (fallback-path root) []))
+            (roots/load-fallback! (:roots store) (read-fallback root m))
             (let [ms (/ (- (System/nanoTime) t0) 1e6)]
               (trove/log! {:level :info :id ::mapped
                            :msg (format "mapped the index snapshot at %s in %.0f ms (%d tokens, %d nodes)"

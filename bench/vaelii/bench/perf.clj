@@ -60,12 +60,12 @@
             [vaelii.impl.checks :as checks]
             [vaelii.impl.columnar :as columnar]
             [vaelii.impl.dense-kv :as dense]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.memory :as mem]
             [vaelii.impl.overlay.frozen :as frozen]
             [vaelii.impl.overlay.kv :as okv]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]))
 
@@ -194,6 +194,41 @@
     (let [goal (list 'pRelOf '?x (symbol (str "PT" (quot n 2))))]
       (doall (for [_ (range 40)]
                (nanos (dotimes [_ 100] (doall (res/match-pattern kb goal 'PerfContext)))))))))
+
+(def ^:private separated-types
+  "Types under each side of the one declaration in `disjoint-enumeration` — the part of
+  that KB the goal is actually about, held fixed while the vocabulary around it grows."
+  20)
+
+(defn- disjoint-enumeration
+  "An open `(disjoint T ?t)` goal over a KB of n types in which **one** declaration
+  separates two twenty-type subtrees.  The answer is twenty-one types at every n; what
+  n moves is the vocabulary the goal is not about.
+
+  A `(disjoint x y)` separates two subtrees and convicts `specs(x) × specs(y)`, and
+  nothing reaches a candidate any other way — so an answer costs the answer's own size,
+  and the type count is not in it.  The shape this holds flat is the other enumeration:
+  one `disjoint?` per type in the KB, which on an imported ontology (docs/kbs.md) is a
+  scan of 132,391 types to produce twenty-one.
+
+  Ten asks per reading, since one is a fraction of a millisecond at any n — which is
+  the result being gated, and a ratio between two readings that small is jitter."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(genl pdj_left thing)  'PerfContext {:strength :monotonic})
+    (v/assert kb '(genl pdj_right thing) 'PerfContext {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (doseq [i (range separated-types)]
+        (v/assert kb (list 'genl (symbol (str "pdj_l" i)) 'pdj_left)
+                  'PerfContext {:strength :monotonic})
+        (v/assert kb (list 'genl (symbol (str "pdj_r" i)) 'pdj_right)
+                  'PerfContext {:strength :monotonic}))
+      (doseq [i (range n)]
+        (v/assert kb (list 'genl (symbol (str "pdj_o" i "_t")) 'thing)
+                  'PerfContext {:strength :monotonic})))
+    (v/assert kb '(disjoint pdj_left pdj_right) 'PerfContext {:strength :monotonic})
+    (doall (for [_ (range 60)]
+             (nanos (dotimes [_ 10] (count (v/ask kb '(disjoint pdj_l0 ?t) 'PerfContext))))))))
 
 (defn- membership-check
   "A type membership arriving into a KB that already holds n of them, each about a
@@ -376,9 +411,12 @@
          (nanos (dotimes [_ reads-per-reading] (p/count-with-functor st 'povl))))))))
 
 (defn- intersect-selectivity
-  "`sentexes-with-args` for a pattern pinning a **rare** argument on a **hot** predicate —
-  `(pint ?x PIA)`, four handles against a functor root of n — which is one `kv-intersect`
-  over the two roots.
+  "`sentexes-with-args` for a pattern pinning a **rare** argument beside a **hot** one
+  on the same predicate — `(pint ?x PIA PIB)` with four handles at position 1 against n
+  at position 2 — which is one `kv-intersect` over the two scoped argument roots,
+  `[:argument-root pint 1 PIA]` ∩ `[:argument-root pint 2 PIB]`.  A single bound
+  argument intersects nothing (the scoped root is one hash lookup), so two bound
+  positions are the shape that exercises `kv-intersect`.
 
   The answer is a property of the rare side: four entries, each tested against the hot
   posting.  A backend that materializes both roots into Clojure sets before intersecting
@@ -393,13 +431,13 @@
   [n]
   (let [b (dense/dense-kv-backend {:space [::inter]})]
     (kv/kv-clear! b)
-    (doseq [i (range n)] (kv/kv-add-to-set b [:functor-root 'pint] i))
-    (doseq [i (range 4)] (kv/kv-add-to-set b [:argument-root 1 'PIA] (* 7 i)))
+    (doseq [i (range n)] (kv/kv-add-to-set b [:argument-root 'pint 2 'PIB] i))
+    (doseq [i (range 4)] (kv/kv-add-to-set b [:argument-root 'pint 1 'PIA] (* 7 i)))
     (let [st (kv/->KvIndexStore b)]
       (doall
        (for [_ (range 200)]
          (nanos (dotimes [_ reads-per-reading]
-                  (p/sentexes-with-args st 'pint [[1 'PIA]]))))))))
+                  (p/sentexes-with-args st 'pint [[1 'PIA] [2 'PIB]]))))))))
 
 (defn- arity-reach-trigger
   "n **conforming** facts of a predicate whose arity was declared before any of them.
@@ -488,6 +526,12 @@
     :max-ratio 2.0
     :run       membership-check}
 
+   {:name      :disjoint-enumeration
+    :claim     "an open disjointness goal is flat in the vocabulary it is not about"
+    :sizes     [500 4000]
+    :max-ratio 2.0
+    :run       disjoint-enumeration}
+
    {:name      :compound-probe
     :claim     "100 find-sentexes on a compound are flat in the extent of the hot atom it names"
     :sizes     [1000 32000]
@@ -540,7 +584,7 @@
     :run       overlay-selectivity}
 
    {:name      :intersect-selectivity
-    :claim     "narrowing a rare argument against a hot functor root is flat in that root's extent"
+    :claim     "narrowing a rare argument root against a hot one is flat in the hot posting's extent"
     :sizes     [1000 32000]
     :max-ratio 2.0
     :run       intersect-selectivity}

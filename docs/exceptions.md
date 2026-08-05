@@ -240,22 +240,147 @@ to say whether the move blocked or released), and whatever the sweep itself queu
 deleting a fact can release some other rule's exception at derive time, where no block
 ever existed to lift.
 
-A pass is **productive** when the blocked set moved, and an **aggregate** antecedent is
-the one thing that forces one that did not: it binds a *value*, so a count going 1 ⇒ 2
-licenses a firing no block ever suppressed.
-
-That pivot on the blocked set is also where the re-chain stops. `derive-conclusion` does
-not place a firing whose exception already holds, so a rule blocked every time it fired
-owns no justification, sits in no blocked set, and cannot leave one — reading a released
-*block* is blind to exactly the firings that were never allowed to become one, and such a
-firing is not re-derived when its exception releases. Forcing the pass for them would be
-correct and costs edges × firings on a taxonomy load under an excepted predicate — 13.7 ms
-against 1677 ms, measured — so the narrowing is what runs, and the gap is the price of it.
+A pass is **productive** when the blocked set moved. Two things force one that did not.
+An **aggregate** antecedent binds a *value*, so a count going 1 ⇒ 2 licenses a firing no
+block ever suppressed. And a released **refusal** — the next section — is a firing that
+never held a justification for the blocked set to have said anything about.
 
 **Nothing caches the exception's truth**, so nothing can drift from belief. The
 index is a hint about what to re-check and never an answer — which is what
 distinguishes it from the cached closures, which are answers and are therefore
 belief-following ([taxonomy.md](taxonomy.md)).
+
+### A refused firing is remembered as bindings
+
+`place-conseq` does not place a firing whose block condition already holds. That is the
+right call for the placement — the conclusion would be swept on the same pass — but such
+a firing otherwise leaves **no trace at all**: no justification, no node, nothing in
+`jtms/blocked`. A pivot on the blocked set is therefore blind to it, and the conclusion
+stays suppressed after the condition releases, while the same knowledge in the other
+order concludes. Belief would depend on whether the block arrived before or after the
+facts, which is the invariant [nmtms.md](nmtms.md) opens with.
+
+So the refusal is recorded, one level earlier and in the same shape. Where the blocked
+set holds justification ids, `(:refused kb)` holds `{rule-handle -> #{refusal}}`, and a
+refusal is the firing's conclusion, its placement context, its antecedent handles and
+the bindings the condition was asked under — enough to re-ask the same level-6 question,
+and enough to place the conclusion from when the answer moves. A release is then found
+by **re-evaluating the record**: one query per recorded refusal, in place of a join over
+the fact extent.
+
+**Two of the four refusal reasons are recorded**, and the other two are covered
+elsewhere rather than forgotten:
+
+| reason | recorded | why |
+|---|---|---|
+| the rule's exception holds | yes | re-askable from the bindings alone |
+| an `(unknown S)` antecedent blocks | yes | likewise, and the same evaluator |
+| a post-join literal had no answer | no | an aggregate is a *value* that moved, and a queued aggregate rule is re-joined whatever the blocked set did (`settle/aggregate-recheck-rules`) |
+| a visibility `except` hides an antecedent | no | an `except` arriving or leaving queues every rule that could fire on the hidden fact (`special/recheck-except`), and queues it with **`:all`** — so it takes the coarse re-join and the refusal is re-derived there. An entry would be one nothing reads |
+
+Both unrecorded reasons are covered by a **coarse re-join** rather than by nothing, and
+that is what makes the record an efficiency structure rather than a completeness one.
+The same holds past the cap below. A reader tempted to narrow `recheck-except`'s
+fire-on-H rule set should note that it is what covers the fourth row: narrowing it to a
+sentence-specific trigger would turn this table's last line into a real gap.
+
+Four properties hold of the record, and each is the shape a work list has rather than
+the shape an answer has:
+
+- **It never decides belief.** It says which firings to re-ask, never what the answer
+  is. Every entry is re-decided from scratch when it is read (`chain/refusal-state`),
+  by the same judgement a blocked justification is re-decided by
+  (`chain/rule-firing-blocked?`), so blocking cannot drift from belief and the two
+  paths cannot drift from each other.
+- **Nothing in it is a nogood**, and nothing in it reaches `contradictions`. Nothing was
+  believed and nothing conflicts; the rule simply did not fire.
+- **It is keyed on content.** Two refusals of the same rule at the same bindings from
+  different passes are one entry, so arrival order cannot be read back out of it.
+- **A refusal that fires is re-derived from what it recorded** — `place-conclusion` with
+  the recorded conclusion, placement and antecedents, and the depth recomputed from the
+  antecedent facts. Never a fresh join: re-joining is the cost the record exists to
+  avoid.
+
+An entry is retired when it fires, when its rule goes, or when an antecedent handle
+behind its bindings is no longer stored and believed. The bindings are a snapshot, so
+that last one is what stops a refusal resurrecting a firing whose support left; it is
+checked whenever the record is walked, which is also when dead entries are dropped.
+
+The record is **derived state**, and no store holds it — a refused firing left no
+justification for `recover` to replay. So `recover` rebuilds it the way it rebuilds
+blocking, by re-deciding rather than by reading: `chain/rerecord-refusals!` re-fires
+every rule that can refuse, after the settle that establishes belief, and the refusals
+re-record. A firing that is placeable is placed and deduped by `has-justification?`.
+
+**The record is capped at `chain/max-refusals-per-rule` = 4096 entries per rule**, and
+the cap is real rather than defensive. Blocking is bounded by what a rule *derived*;
+this is bounded by what it did **not**, and a rule excepted on a common condition can
+refuse far more than it places. On either side of the line:
+
+- **under the cap**, a queued rule's refusals are re-evaluated individually and a
+  released one is re-derived from its bindings;
+- **at the cap**, the rule's record collapses to `:overflow`, it keeps no entries, and a
+  queued overflowed rule forces a productive pass and is **re-joined over its extent**
+  instead. That finds the same releases at the cost the record exists to avoid, and it
+  is what the whole record buys its way out of for the rules under the line.
+
+Neither side is silent: an overflowed rule is still reached by every trigger, and the
+two edge triggers that narrow on a rule's firings wave it through for exactly the reason
+they wave an aggregate through — a rule with no entries to test is one no test can
+clear.
+
+#### How big it gets
+
+Measured on a join shape — `(pseen ?x ?y) ← (pb1 ?x ?z) (pb2 ?z ?y)` excepted on a
+condition that holds for every binding, so all n² firings are refused — the record holds
+**one entry per refused firing** and retains **≈766 bytes** apiece, flat across sizes:
+
+| n | firings | entries | record |
+|---|---|---|---|
+| 20 | 400 | 400 | 0.3 MB |
+| 40 | 1 600 | 1 600 | 1.2 MB |
+| 80 | 6 400 | 6 400 | 4.5 MB |
+| 160 | 25 600 | 25 600 | 18.7 MB |
+
+That is the growth the cap is for: the entry count follows the *join*, not the store, so
+one rule can outgrow the KB it is reasoning over. 4096 entries is about 3 MB per rule,
+which is where the record stops being cheaper than the re-join it replaces.
+
+#### What it costs
+
+The workload is a taxonomy load under an excepted predicate: 800 firings of one excepted
+rule, then 50 `genl` edges whose supertype is at or below the exception's own predicate,
+so the rule is queued on every edge. Both halves matter and they pull in opposite
+directions, so both are here:
+
+| 800 firings, then 50 edges | building the firings | the 50 edges | total |
+|---|---|---|---|
+| the rule fires, nothing blocks | 334 ms | 2361 ms | **2695 ms** |
+| every firing refused, no record | 300 ms | 19 ms | **319 ms** |
+| every firing refused, recorded | 982 ms | 1381 ms | **2363 ms** |
+| every firing refused, coarse re-join | 10 082 ms | 1598 ms | **11 680 ms** |
+
+Read the second row first: it is cheap because it does **nothing**, which is the defect.
+The first row is the price of a correct answer, and the engine has always paid it — a
+rule whose firings *were* placed pays edges × firings through `exception-candidates` over
+`jtms/dependents`. So the derive-time case is not a new asymptotic; it is the same one,
+and it was free only while it was wrong.
+
+Against that, the record costs **less than the engine already pays for the placed case**
+(2363 against 2695: a refusal carries its bindings inline where a justification is a
+record fetch away), and **4.9× less than the coarse re-join** it replaces. The re-join's
+damage is concentrated where a record cannot be: in the *build*, where every arriving
+fact forces a productive pass and joins the rule over everything asserted so far.
+
+The record is not free either, and the third row says where it is paid: building those
+800 refused firings goes from 300 ms to 982 ms, because a fact on the exception's own
+predicate now narrows against the record as well as against the placed firings. That is
+the shape `exception-candidates` has had all along — memory-only work per firing per
+trigger, no query — and it is what a firing costs once it is remembered.
+
+The edge half is linear in the firing count, on both sides of the fix: 104 / 341 /
+1381 ms at 50 / 200 / 800 firings recorded, against 223 / 623 / 2384 ms for the same
+firings placed.
 
 ### Taxonomy changes are keyed on what the closure moved
 
@@ -275,8 +400,10 @@ an answer differently.
   evaluated in its conclusion's placement context — so an exception is affected iff one
   of its rule's firings is placed in `context-down(sub)`. Each excepted rule's firings
   are checked for one, a context lookup apiece and no query. Keyed on where a firing
-  was *placed*, so a rule whose every firing was refused at derive time is not reached
-  here either — the same absence the section above ends on.
+  was *placed*, so the same cone test is asked of the rule's **recorded refusals**,
+  whose entries name the placement context the refused conclusion would have had — a
+  rule blocked every time it fired has no placed firing to read a context off, and a
+  widened cone that releases it would otherwise reach nothing.
 
   **A rule carrying an aggregate is waved through that narrowing**, because for it the
   absence is not a gap but a wrong answer. Every other re-check condition is a block, so
@@ -347,15 +474,16 @@ another, so the sentence could not narrow the right firings anyway.
 
   It keys on the **merged class**, and on the firings rather than the rules: a firing is
   reached when it *binds* a term of the class, which is a set membership apiece and no
-  query — the twin of the `genlContext` trigger's placement test. Three things take the
-  blanket instead. An **aggregate** rule, because a census can move with no term the
-  firing names appearing in the merge at all — `(childOf Ann C3)` counted, `Ann` bound,
-  `{C2 C3}` merged — and a census that rises licenses a firing there is no
-  justification for yet. A **schematic rewrite**, which normalizes terms rather than
-  merging symbols, so there is no class to test against. And the whole **removal**
-  side, where the narrowing is not imprecise but blind: what a released condition owes
-  a re-derivation to is exactly the firings the block already swept, and a swept firing
-  holds no bindings to test.
+  query — the twin of the `genlContext` trigger's placement test, and asked of the
+  rule's recorded refusals as well as of its justifications, since a refused firing's
+  bindings are recorded too. Three things take the blanket instead. An **aggregate**
+  rule, because a census can move with no term the firing names appearing in the merge
+  at all — `(childOf Ann C3)` counted, `Ann` bound, `{C2 C3}` merged — and a census that
+  rises licenses a firing there is no justification for yet. A **schematic rewrite**,
+  which normalizes terms rather than merging symbols, so there is no class to test
+  against. And the whole **removal** side, where the narrowing is not imprecise but
+  blind: what a released condition owes a re-derivation to includes the firings the
+  block already swept, and a swept firing holds no bindings to test.
 
 All four are free for a KB not using the feature: the declarations are read off the
 functor roots behind an O(1) cardinality gate, the declaration roster is a map lookup on
@@ -414,11 +542,12 @@ The trade is deliberate. Reviving costs a re-derivation rather than flipping a b
 retract the exception and the conclusion is chained again, not restored. Recompute
 is cheaper than an unbounded store.
 
-That has a consequence for `retract!`, which today only relabels and sweeps. When a
-retraction causes an exception to stop holding, the conclusions it was blocking
-must be **re-derived**, which is forward chaining, not relabelling. So `retract!`
-re-chains from the rules whose exceptions were released, and the revival is visible
-by the time it returns rather than on the next unrelated assert.
+That has a consequence for `retract!`. A relabel and a sweep cannot revive what a
+retraction released: when a retraction causes an exception to stop holding, the
+conclusions it was blocking must be **re-derived**, which is forward chaining. So
+`settle-after-teardown!` settles, re-chains from the rules whose exceptions were
+released, and settles again — the revival is visible by the time `retract!` returns
+rather than on the next unrelated assert.
 
 ## What surfaces where
 
@@ -634,11 +763,17 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
   query runs; the re-chain after a productive pass is seeded from what the pass
   *released*, plus the rules queued with no sentence to read, rather than from every
   rule it touched. Both quadratics above, gone.
+- **The refusal record.** A firing refused before it could become a justification is
+  remembered as `[rule handle, bindings]` in `(:refused kb)`, so a release reaches it
+  too; `settle/released-refusals` re-evaluates the queued rules' entries under the same
+  narrowing, and `chain/release-refusal!` re-derives the ones that no longer block from
+  the bindings they recorded. Capped per rule, `recover` rebuilds it by re-firing.
 - **Sweeping.** `jtms/sweep!` is `retract!`'s sweep without the retraction, and
   `settle` runs it over the newly-blocked justifications' conclusions.
 - **Revival.** `retract!` captures the released rules before settling and re-chains
   them, so the re-derivation is visible by the time it returns.
-- **`why-not`** grew the `(kb sentence context)` arity and the `:excepted` reason.
+- **`why-not`** carries a `(kb sentence context)` arity and the `:excepted` reason, which
+  is the only route to a blocked conclusion: it is never stored, so there is no handle.
 - **Stratification.** `wff/negation-cycle` walks the rule dependency graph on every
   rule assert and refuses one that closes a cycle through negation, before anything
   is stored. Per the measurement below it is a *correctness* guard, not an

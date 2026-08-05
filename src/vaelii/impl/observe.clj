@@ -59,6 +59,17 @@
   [kb sentex]
   (when-let [f @on-remove] (f kb sentex)))
 
+(def ^:dynamic *chain-fast-paths*
+  "One switch over the placement-path fast paths forward chaining leans on — the
+  justification dedup index (`jtms/*dedup-cache*`), the `ensure-node` no-op skip, and
+  the single-context placement answer (`taxonomy/maximal-common-descendant-contexts`).
+  Each computes exactly what its reference path computes, so — like
+  `res/*arg-root-retrieval*` — this is a pure cost decision that must never change
+  the answer set.  Bind it **false** to run the reference paths, which is what
+  `chain_fast_paths_test` compares against, and what `vaelii.bench.pyramid`'s `-ref`
+  modes measure.  On by default."
+  true)
+
 ;; ---- the change clock ----------------------------------------------------
 
 (def ^:private ^AtomicLong clock

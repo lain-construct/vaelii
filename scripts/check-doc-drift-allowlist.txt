@@ -8,3 +8,7 @@ h/raw
 
 # Unit, not a namespaced var (`m/s` in docs/quantity.md).
 m/s
+
+# The Maven layout, named in CONTRIBUTING.md and .claude/rules/workflow.md as
+# the one this repo does NOT use — a path that exists nowhere on purpose.
+src/main/clojure

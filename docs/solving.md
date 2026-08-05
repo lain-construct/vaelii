@@ -24,7 +24,7 @@ persists and is inspectable; the base KB is untouched either way.
 
 A choice rule (`{head} :- body` in ASP): when `body` is derivable, `head` is an atom a
 solve may set true or false. It is a virtual wrapper like `set/defaultRule` / `exceptWhen`,
-canonicalized into the `Rule` record's **`:assumption`** field and, being part of the
+canonicalized into the `RuleSentex` record's **`:assumption`** field and, being part of the
 rule's identity, into the **trie key** — a choice rule and its bare twin are different
 sentexes.
 
@@ -42,7 +42,7 @@ derive `(color Item red)`. A solve is the only thing that consults it.
 
 A constraint rule's head is a **contradiction marker**, not a truth, and its body is a
 conjunctive nogood mixing background facts with choice-head patterns. Like
-`assumptionRule` it is a virtual wrapper canonicalized into the `Rule` record — into
+`assumptionRule` it is a virtual wrapper canonicalized into the `RuleSentex` record — into
 **`:constraint`**, as `:hard` or `:soft` — and, being part of the rule's identity, into
 the trie key: `sentex/key-tokens` gives every rule a constant `:constraint` slot, so a
 hard constraint, its soft twin and its bare twin are three sentexes. `rules/constraint-of`

@@ -42,7 +42,8 @@
   (try (when-let [p (cp "clingo_error_message")] (.getString p 0)) (catch Throwable _ nil)))
 
 (defn- chk! [what r]
-  (when (zero? r) (throw (ex-info (str "clingo " what " failed: " (clingo-error)) {:op what})))
+  (when (zero? r) (throw (ex-info (str "clingo " what " failed: " (clingo-error))
+                                  {:type :solver-failed :op what})))
   r)
 
 (defn- cstr ^Memory [s]
@@ -150,7 +151,8 @@
 
 (defn- mode-args-or-throw [mode]
   (or (mode-args mode)
-      (throw (ex-info (str "unknown clingo mode: " mode) {:mode mode :valid (keys mode-args)}))))
+      (throw (ex-info (str "unknown clingo mode: " mode)
+                      {:type :unknown-option :mode mode :valid (keys mode-args)}))))
 
 (defn- finalize
   "Shared post-processing for the raw `{:result :models}` of either solve path —

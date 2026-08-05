@@ -38,6 +38,14 @@ absence of a login on a tool that never offered one.
   editor and a sandboxed frame's `Origin: null` is refused. That is a cross-origin
   defence, **not** an access control: a request carrying neither header is a
   non-browser client with no ambient context to ride, and it passes.
+- **Write routes are serialized** on one process-wide monitor, as the daemon's ops are.
+  Jetty serves them on a thread pool, and the storage layer beneath is single-writer.
+- **Bodies are capped** at the same `VAELII_MAX_BODY_BYTES` (16 MiB) the daemon reads,
+  and the check sits outside form parsing, so an oversized body is refused with 413
+  before it is decoded.
+- **Loopback is not an access control either.** Every local account can reach it, and
+  `POST /kbs/export` writes a directory of dump files wherever the process can write.
+  On a shared host, treat reaching the port as equivalent to holding the KB.
 - **Every route, read or write, requires a recognised `Host`.** On a loopback bind the
   header must name loopback (`vaelii.impl.guard`), which is what refuses a DNS-rebound
   page — against which the origin check above is useless, since the attacker controls

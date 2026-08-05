@@ -198,8 +198,11 @@ and exception indexes, and the inverted term index route into one
 `Long2ObjectOpenHashMap` keyed by a packed `family | pos | term-id`, with the term
 interned through the *same* dictionary the trie uses. Unrecognized keys fall back to a
 plain backend, so it stays a full `KvBackend` and the composition above it is unchanged —
-which here leaves only `[:term-roster]`, whose members are term names rather than
-handles. The columnar trie is native, so no `[:trie …]` key reaches this backend at all.
+which here is three families: `[:term-roster]` and `[:argument-slot pos term]`, whose
+members are term and predicate names rather than handles, and `[:argument-root pred pos
+term]`, whose fourth key part the packed long has no room for (family | pos | term-id is
+already full) and which `route` therefore sends to the fallback by name. The columnar
+trie is native, so no `[:trie …]` key reaches this backend at all.
 
 `vaelii.impl.tokens` is the `path-token ↔ int` dictionary. It interns a path level
 **as-is** — a symbol, a number, `:false`/`:rule`, `nil`, a `[::subterm k]` arity marker,
@@ -283,8 +286,8 @@ in [storage.md](storage.md#the-on-disk-backend-disk):
 ## Phase 3 — the dense truth-maintenance network (`{:tms :dense}`)
 
 The index and the records are only two of the three resident structures. The **JTMS is
-always in RAM in every backend**, and `lein bench-jtms` measures it at ~537 B/node —
-~54 GB at 100M, on par with the whole record store. `vaelii.impl.dense-jtms` is the dense
+always in RAM in every backend**, and `lein bench-jtms` measures it at ~467 B/node —
+~43 GB at 100M, on par with the whole record store. `vaelii.impl.dense-jtms` is the dense
 representation, selected by `open-kb`'s `:tms` rather than `:backend` (it is orthogonal
 to storage — any backend may use either network):
 
@@ -301,12 +304,12 @@ to storage — any backend may use either network):
 The decomposition (`lein bench-jtms`) refuted the plan the same way the index's did.
 **The per-node scalars are already free** — stripping `:depth`, `:premise?` or `:datum`
 releases *nothing*, because they are shared cached objects (small `Long`s, keywords,
-booleans). 310 of the 537 B/node was the per-node **map object and its HAMT slot**, so
+booleans). 310 of the 467 B/node is the per-node **map object and its HAMT slot**, so
 the lever is not "shrink the fields" but "stop having a map per node".
 
 **Belief sets are the opposite regime from the index's postings.** `bench-postings` found
 RoaringBitmap a *loss* (1.07–1.45×) on millions of tiny postings; `:in` holds nearly every
-node and compresses **714×**. Both measurements are right — density is the variable, and
+node and compresses **384×**. Both measurements are right — density is the variable, and
 a single blanket answer would have been wrong in one direction or the other. Two more
 consequences fall out of the same reading: with exactly two defeat-classes and only the
 non-bottom stored, **the class map is one bitmap**; and adjacency reuses Phase 1's

@@ -113,7 +113,14 @@ what is listed is what the batch is answerable for.
 ## What moves anyway
 
 The KB is left byte-identical — same live sentexes, same justifications, at the same
-handles. Two things are not restored, and neither can be:
+handles. The derived state a batch can *write* is restored with them: the violations
+ledger, the program, and the **refusal record**, which a firing the batch's own content
+refused would otherwise leave holding handles the rollback took away
+([exceptions.md](exceptions.md), "A refused firing is remembered as bindings"). The
+entries a batch *consumes* need no snapshot — the rollback's own re-chain re-records
+whatever the baseline refuses.
+
+Two things are not restored, and neither can be:
 
 - **the handle counter**. A preview mints handles and they are not reissued. Handles are
   longs and this is one per created sentex; the alternative is reissuing a number a
@@ -200,7 +207,7 @@ is not a premise, so `(remove :premise? …)` is exactly "what the writer did no
 
 **Where the diff comes from.** Not the rollback trick above — there is no rollback to read
 belief-before off. Instead the labels are captured on the way through: alongside the
-relabelled region (`jtms/touched`), every relabel now records which of that region was
+relabelled region (`jtms/touched`), every relabel records which of that region was
 **already believed** when it first touched it (`jtms/touched-in`), first-reading-wins so a
 datum relabelled twice keeps the earlier answer. The window runs from the end of the last
 settle, which for a batch covers the whole deferred phase *and* its one settle. Region,

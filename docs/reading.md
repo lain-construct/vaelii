@@ -82,8 +82,9 @@ is asked in one place rather than in two.
 ```
 
 `:lines` is textarea content, `:batch` is what `apply-proposal!` applies, and the result
-map is `propose-edit`'s shape plus the five fields only a document has — so the existing
-browser panel handles it and no second write path exists. Applying stays the separate,
+map is `propose-edit`'s shape plus the seven fields only a document has — `:repairs`,
+`:corrections`, `:coverage`, `:queue`, `:candidates`, `:segments`, `:resolved` — so the
+existing browser panel handles it and no second write path exists. Applying stays the separate,
 explicit `session/apply-proposal!`.
 
 ## Resolution is the problem; parsing is not
@@ -172,7 +173,7 @@ than a plausible one.
 ## Coverage: what it could not translate
 
 ```clojure
-:coverage {:segments 4 :covered 1
+:coverage {:segments 4 :covered 2
            :uncovered [{:index 1 :span [83 150] :text "Not long afterwards…"
                         :reason "no vocabulary for a hunter's net"}
                        {:index 2 :span [151 237] :text "The mouse heard him…"}]}

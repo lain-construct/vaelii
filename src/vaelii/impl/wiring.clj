@@ -62,7 +62,7 @@
   assert batch."
   false)
 
-;; ---- the two cuts ---------------------------------------------------------
+;; ---- the two cuts, and the one inversion ----------------------------------
 
 (def ^:private core-assert
   (delay (requiring-resolve 'vaelii.core/assert)))

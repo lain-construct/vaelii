@@ -10,7 +10,8 @@
   blocked justification was supporting (integrate's removal choke point tears it
   down), and re-derives what a released exception was suppressing (chain fires it
   again)."
-  (:require [taoensso.trove :as trove]
+  (:require [clojure.set :as set]
+            [taoensso.trove :as trove]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.feed :as feed]
@@ -217,7 +218,18 @@
   costs only two empty queries, never a missed clash.
 
   Each nogood carries a priority (the stronger class involved) and a readable
-  sentence."
+  sentence.
+
+  The memo is written back with a **CAS**, not a `reset!`.  `kb/note-opposed!` posts to
+  the same atom from the store and removal choke points, and a post landing between the
+  read and the write would be overwritten — the body it dropped from `:by-body` restored,
+  and the body it added to `:dirty` lost, so the next settle would never re-derive a
+  pairing that had moved.  The write therefore carries every post it finds, and the
+  entries for those bodies go with them.  `drain-recheck!` is the same shape.
+
+  The one arm that still resets outright is the empty-`:opposed` one, and it is not the
+  same case: it leaves no `:vocab`, so the next settle reads the memo as stale and
+  re-derives the whole of `:opposed` regardless of what `:dirty` said."
   [kb]
   (let [opposed @(:opposed kb)]
     (if (empty? opposed)
@@ -239,8 +251,18 @@
                                 (if (seq ngs) (assoc m b ngs) (dissoc m b))))
                             (if stale? {} (:by-body prev {}))
                             moved)]
-        (reset! (:negations kb) {:vocab vocab :by-body by-body :dirty #{}})
-        (into #{} cat (vals by-body))))))
+        (loop []
+          (let [cur    @(:negations kb)
+                ;; `:dirty` only grows between the read of `prev` and this write, and
+                ;; only this fn clears it — so the difference is exactly the posts that
+                ;; landed while the bodies above were being re-derived
+                posted (set/difference (set (:dirty cur)) (set (:dirty prev)))
+                next   {:vocab   vocab
+                        :by-body (apply dissoc by-body posted)
+                        :dirty   posted}]
+            (if (compare-and-set! (:negations kb) cur next)
+              (into #{} cat (vals (:by-body next)))
+              (recur))))))))
 
 (defn- decide-nogood
   "Decide a nogood from its members' defeat-classes alone: defeat the strictly-weaker
@@ -296,7 +318,8 @@
   (let [tms (:tms kb)]
     (when-let [bad (seq (remove #(strength/defeasible? (jtms/defeat-class tms %)) contested))]
       (throw (ex-info "known-true content reached the edge solver"
-                      {:handles  (vec bad)
+                      {:type     :not-defeasible
+                       :handles  (vec bad)
                        :classes  (mapv #(jtms/defeat-class tms %) bad)
                        :expected :default})))))
 
@@ -771,6 +794,61 @@
                     (when (integer? inf) inf))))
           (remove new was))))
 
+(defn- released-refusals
+  "What the queued triggers may have **released** among the firings that were refused
+  before they could become justifications: `{:free [[rule-handle entry] …] :overflow
+  [rule-handle …]}`.
+
+  `released-rules` above reads a release off the blocked set, which only ever names
+  firings that were placed.  A firing `chain/place-conseq` refused left no justification
+  to be blocked, so its release has to be found by re-asking the question it was refused
+  on — one level-6 query per recorded refusal, in place of a join over the whole extent
+  (docs/exceptions.md, \"A refused firing is remembered as bindings\").
+
+  Narrowed exactly as `exception-candidates` narrows a rule's justifications, with the
+  same filter and the same memo: substituting a refusal's bindings into the rule's block
+  literals is the same structure manipulation, and a trigger that could not reach the
+  substituted literal could not have released the firing either.
+
+  Dead entries are **pruned as they are read** — retiring one is not a belief decision,
+  so it may happen whenever the record is walked, and leaving them would let a rule's
+  record overflow on firings whose support is long gone.
+
+  A rule whose record overflowed keeps no entries to re-ask, so it is named instead: the
+  caller re-joins it, which is the coarse fallback the cap buys its way out of."
+  [kb queued]
+  (let [refused @(:refused kb)]
+    (if (empty? refused)
+      {:free [] :overflow []}
+      (let [cross? (memoize #(cross-argument-predicate? kb %))]
+        (reduce
+         (fn [acc [rh triggers]]
+           (let [recs (get refused rh)]
+             (cond
+               (nil? recs)        acc
+               (= :overflow recs) (update acc :overflow conj rh)
+               :else
+               (let [shapes (trigger-shapes triggers)
+                     rsx    (when-not (= :all shapes) (p/get-sentex (:records kb) rh))
+                     ;; the same two block conditions the refusal record covers, and the
+                     ;; same flattening `exception-candidates` uses: any literal reaching
+                     ;; keeps the entry, which is the safe direction
+                     lits   (when rsx
+                              (concat (apply concat (provers/rule-exceptions kb rh))
+                                      (rules/naf-queries rsx)))]
+                 (reduce (fn [acc e]
+                           (case (chain/refusal-state kb rh e)
+                             :free (update acc :free conj [rh e])
+                             :dead (do (chain/drop-refusal! kb rh e) acc)
+                             acc))
+                         acc
+                         (if (seq lits)
+                           (filter #(firing-reachable? kb lits (:bindings %) shapes cross?)
+                                   recs)
+                           recs))))))
+         {:free [] :overflow []}
+         queued)))))
+
 (defn- blanket-recheck-rules
   "The queued rules with no triggering sentence (`:all` — a taxonomy edge moved, or the
   rule was just indexed).  Those keep the coarse re-chain: with no sentence to read,
@@ -861,6 +939,25 @@
 ;; exposed a clash does not withdraw the entry, and an ingredient that leaves and
 ;; revives files it again — each exposure is an event, stamped with its run.
 
+(defn- believed-at-arg1
+  "The believed, positive sentexes posted on `term`'s **argument-1 root** — one posting
+  read per term, and the read every partner rule in this namespace goes through.
+
+  A partner is what a sentex could clash *with*, and all three arbitrable kinds name
+  theirs by an argument in position 1: a second membership of the same term, a second
+  filler of the same functional slot, the converse of an asymmetric claim.  So one read
+  serves the exposure pass, the retroactive sweeps and the arbitration vantages alike,
+  and a narrowing applied to one of them is applied to all.
+
+  A non-symbol has no root to read — a number or a compound is not an indexable term —
+  and comes back empty rather than as a scan."
+  [kb term]
+  (when (symbol? term)
+    (into [] (comp (keep #(p/get-sentex (:records kb) %))
+                   (filter #(jtms/in? (:tms kb) (:id %)))
+                   (filter #(= :true (:truth %))))
+          (p/sentexes-with-arg (:index kb) 1 term))))
+
 (defn- believed-memberships
   "The believed positive unary memberships of `x`, as `[type context handle]` triples,
   in content order.  The handle is what lets a caller tell an *arbitrated* pair from an
@@ -873,16 +970,13 @@
   (sort (fn [[t1 c1] [t2 c2]]
           (let [r (compare t1 t2)] (if (zero? r) (compare c1 c2) r)))
         (into []
-              (comp (keep #(p/get-sentex (:records kb) %))
-                    (filter #(jtms/in? (:tms kb) (:id %)))
-                    (keep (fn [s]
-                            (let [sen (:sentence s)]
-                              (when (and (= :true (:truth s))
-                                         (sequential? sen) (= 2 (count sen))
-                                         (symbol? (first sen))
-                                         (= x (second sen)))
-                                [(first sen) (:context s) (:id s)])))))
-              (p/sentexes-with-arg (:index kb) 1 x))))
+              (keep (fn [s]
+                      (let [sen (:sentence s)]
+                        (when (and (sequential? sen) (= 2 (count sen))
+                                   (symbol? (first sen))
+                                   (= x (second sen)))
+                          [(first sen) (:context s) (:id s)]))))
+              (believed-at-arg1 kb x))))
 
 (defn- exposure-probes
   "The two questions the sweep asks about a *pair* of held memberships, memoized for
@@ -1302,13 +1396,7 @@
   "The believed unary-membership sentexes of `term` — its candidate side of a
   disjointness pair.  Read off the argument root, so it is one posting per term."
   [kb term]
-  (when (symbol? term)
-    (for [s     (keep #(p/get-sentex (:records kb) %)
-                      (p/sentexes-with-arg (:index kb) 1 term))
-          :when (and (jtms/in? (:tms kb) (:id s))
-                     (= :true (:truth s))
-                     (= 2 (count (:sentence s))))]
-      s)))
+  (filter #(= 2 (count (:sentence %))) (believed-at-arg1 kb term)))
 
 (defn- predicate-sentexes
   "The believed facts of predicate `p` — the candidates a `functional` or `asymmetric`
@@ -1362,6 +1450,19 @@
       ;; otherwise subtract nil rather than sweep nothing
       :else {:enumerated 0 :sentexes nil})))
 
+(defn- content-order
+  "Sentexes in **content** order — the sentence, then the context.
+
+  Every budgeted sweep over a moved region walks in this order, `report-arity-reach!`'s
+  `sorted-set` of predicates included.  A region arrives as a handle *set*, and a handle
+  is allocation order, so a sweep that walked it as it came would spend one
+  `*exposure-instance-budget*` on different members depending on which order the same
+  knowledge arrived in — and past the budget the nogoods minted, and therefore what the
+  KB believes, would differ with it.  Order independence is a property, not a tendency
+  (docs/nmtms.md)."
+  [sentexes]
+  (sort-by (juxt #(pr-str (:sentence %)) #(str (:context %))) sentexes))
+
 (defn- clash-candidates
   "The believed sentexes whose definitional checks this settle re-runs.
 
@@ -1396,15 +1497,14 @@
   The sweep half is budgeted exactly as the exposure pass's is — over-sweeping costs
   re-checks, under-sweeping would miss a clash."
   [kb touched revisit]
-  (let [moved (into (into []
-                          (comp (keep #(p/get-sentex (:records kb) %))
-                                (filter #(jtms/in? (:tms kb) (:id %)))
-                                (filter #(= :true (:truth %))))
-                          revisit)
-                    (comp (keep #(p/get-sentex (:records kb) %))
-                          (filter #(jtms/in? (:tms kb) (:id %)))
-                          (filter #(= :true (:truth %))))
-                    touched)
+  (let [believed (comp (keep #(p/get-sentex (:records kb) %))
+                       (filter #(jtms/in? (:tms kb) (:id %)))
+                       (filter #(= :true (:truth %))))
+        ;; `revisit` ahead of `touched` and each half in content order: the sweep below
+        ;; is budgeted, so which members it reaches must not depend on the handle order
+        ;; either set came back in (`content-order`)
+        moved (into (vec (content-order (into [] believed revisit)))
+                    (content-order (into [] believed touched)))
         left  (volatile! (long *exposure-instance-budget*))
         swept (when (checks/arbitrating? kb)
                 (mapcat (fn [s]
@@ -1493,12 +1593,99 @@
                      (tax/has-prop? tax :asymmetric f)))
              false)))))
 
+(defn- partner-contexts
+  "The contexts holding a believed sentex that could be the **far half** of a pair with
+  `s` — its term's other memberships for a separation, the other fillers of the slot for
+  a `functional` predicate, the converse for an `asymmetric` one.
+
+  Read off the argument-1 roots (`believed-at-arg1`), which is one posting per term and
+  the same rule `exposed-clashes-for-term` selects the pairs it probes with.  For a
+  binary fact both arguments are read and the postings narrowed to the sentence's own
+  functor: a functional partner shares argument 1, an asymmetric one holds it in
+  argument 2, and neither can be a fact of some other predicate.
+
+  Over-approximating on purpose, exactly as `could-clash?` is: a context named here that
+  turns out to convict nothing costs one check that finds nothing, where a context left
+  out is a pair nobody weighs.
+
+  **Exact and unbudgeted**, for the reason `*exposure-instance-budget*` gives about the
+  membership route it bounds nothing of: this is O(1) postings per candidate rather than
+  an extent sweep, and the candidate set is the settle's region, which the budget already
+  bounds where it came from a declaration reaching back.  There is no enumeration here
+  for a budget to cut short, and cutting one short would drop a pair rather than defer
+  it."
+  [kb s]
+  (let [sen (:sentence s)
+        as  (vec (nm/args sen))
+        own (:id s)]
+    (case (count as)
+      1 (into #{} (comp (remove #(= own (:id %))) (map :context))
+              (membership-sentexes kb (first as)))
+      2 (let [f (nm/functor sen)]
+          (into #{} (comp (remove #(= own (:id %)))
+                          (filter #(= f (nm/functor (:sentence %))))
+                          (map :context))
+                (concat (believed-at-arg1 kb (first as))
+                        (believed-at-arg1 kb (second as)))))
+      #{})))
+
+(defn- clash-vantages
+  "The contexts `s`'s definitional question is asked **from**, beyond its own.
+
+  The checks are scoped to the context they are asked in, and rightly — a microtheory is
+  convicted only on grounds it can see (`checks/disjoint-problems`).  But a pair whose
+  halves sit in two contexts is visible from neither of them alone: `GenContext` is
+  general, `SpecContext` sees it, and only `SpecContext` has both memberships in view.
+  Asking each arriving sentex from its own context therefore answers the pair's question
+  from whichever side happened to arrive last, and one of the two sides cannot answer it
+  at all — so the same knowledge lands on a defeat or on two coexisting claims according
+  to the order it was written in.
+
+  This chooses the **asker**, and widens nothing: each vantage is a context that already
+  sees both halves, and what it convicts on is what it can see.  The vantage is the
+  *maximal* common descendant rather than any of them, which is the conservative end —
+  the least specific context that has the whole clash in view is the one whose grounds
+  the arbitration rests on, so a narrow microtheory's separation never reaches back over
+  a general claim it was never about.  Where one context sees the other the maximum is
+  that context, which is the ordinary case and one `sees?` probe."
+  [kb s]
+  (let [tax (:taxonomy kb)
+        c   (:context s)]
+    (into #{}
+          (comp (remove #(= c %))
+                (mapcat #(tax/maximal-common-descendant-contexts tax [c %]))
+                (remove #(= c %)))
+          (partner-contexts kb s))))
+
+(defn- clash-askers
+  "`s`'s own context, then the vantages that see a pair it could form, in content order.
+
+  Ordered rather than a set, because the checks run in it and the entries are collected
+  in that order; each is keyed on the handle pair and collapses whichever vantage found
+  it, so the order decides nothing — but it may not be the order a posting came back in
+  either, which is arrival order.
+
+  **The vantages run under the KB's constraint policy** (`checks/arbitrating?`), like the
+  retroactive sweeps and for the same reason.  A pair split across a visibility edge was
+  admissible to both writers — neither could see the other half — so under `:refuse` it
+  is exactly the clash nobody could see when they wrote it, and that is the exposure
+  pass's business: a ledger entry naming the contexts it is visible from, with belief
+  untouched (`disjoint_test/a-general-context-may-be-given-what-a-specific-one-forbids`
+  is the acceptance criterion).  Under `:arbitrate` every route agrees instead, and the
+  pair is weighed wherever it can be seen whole.  A KB under `:refuse` therefore pays
+  nothing here: the gate is read before the argument roots are."
+  [kb s]
+  (cons (:context s)
+        (when (checks/arbitrating? kb) (sort-by str (clash-vantages kb s)))))
+
 (defn- clash-nogoods
   "The definitional clashes the settle's moved region holds, as nogoods.
 
   Each is re-derived by asking the very checks the assert path asks
   (`checks/arbitrable-violation`), so the two can never drift about what constitutes a
-  clash — the discovery here and the refusal there read one implementation.
+  clash — the discovery here and the refusal there read one implementation.  It is asked
+  from every context that can see the pair (`clash-askers`), never only from the
+  arriving sentex's own.
 
   **A pair is found once, however many of its members the region holds.**  Both sides
   convict each other, so a region holding both mints the entry twice; and which sides
@@ -1548,19 +1735,22 @@
         entries
         (mapcat (fn [s]
                   (when (or (not *incremental-clashes*) (could-clash? kb s))
-                    (keep (fn [v]
-                            (let [opp (:opposing-handle v)]
-                              (when (and (not= opp (:id s)) (jtms/in? tms opp))
-                                (let [other (:sentence (p/get-sentex (:records kb) opp))
-                                      [a b] (sort-by pr-str [(:sentence s) other])]
-                                  {:nogood   #{(:id s) opp}
-                                   :kind     (:type v)
-                                   :priority (+ 2 (max (strength/rank-of
-                                                        (jtms/defeat-class tms (:id s)))
-                                                       (strength/rank-of
-                                                        (jtms/defeat-class tms opp))))
-                                   :sentence (list 'contradicts a b)}))))
-                          (checks/arbitrable-violations kb (:sentence s) (:context s)))))
+                    (mapcat
+                     (fn [asker]
+                       (keep (fn [v]
+                               (let [opp (:opposing-handle v)]
+                                 (when (and (not= opp (:id s)) (jtms/in? tms opp))
+                                   (let [other (:sentence (p/get-sentex (:records kb) opp))
+                                         [a b] (sort-by pr-str [(:sentence s) other])]
+                                     {:nogood   #{(:id s) opp}
+                                      :kind     (:type v)
+                                      :priority (+ 2 (max (strength/rank-of
+                                                           (jtms/defeat-class tms (:id s)))
+                                                          (strength/rank-of
+                                                           (jtms/defeat-class tms opp))))
+                                      :sentence (list 'contradicts a b)}))))
+                             (checks/arbitrable-violations kb (:sentence s) asker)))
+                     (clash-askers kb s))))
                 cands)]
     ;; one entry per handle pair, chosen by content — two sides can convict on
     ;; different `:kind`s in principle, and which of them wins may not depend on
@@ -1690,11 +1880,14 @@
 
             :else m)))
       {}
-      (into []
-            (comp (keep #(p/get-sentex (:records kb) %))
-                  (filter #(jtms/in? (:tms kb) (:id %)))
-                  (filter #(= :true (:truth %))))
-            touched))
+      ;; content order, so a budgeted sweep reaches the same triggers however the region
+      ;; came back — the same reason `report-arity-reach!` sorts its predicates
+      (content-order
+       (into []
+             (comp (keep #(p/get-sentex (:records kb) %))
+                   (filter #(jtms/in? (:tms kb) (:id %)))
+                   (filter #(= :true (:truth %))))
+             touched)))
      :truncated @trunc}))
 
 (defn exposed-clashes
@@ -2085,22 +2278,37 @@
                 new  (exception-blocked-set kb queued)
                 ;; an aggregate rule is owed a re-join whether or not anything blocked
                 ;; — a count that rose licenses a firing no block ever suppressed
-                aggs (aggregate-recheck-rules kb queued)]
-            (if (and (= new was) (empty? aggs))
+                aggs (aggregate-recheck-rules kb queued)
+                ;; ...and so is a firing that was refused before it could be blocked:
+                ;; nothing about it is in `was` for `new` to differ from, so the blocked
+                ;; set is the wrong instrument for it and its own record is asked
+                ;; instead.  Decided before the sweep and re-decided after it.
+                {free :free over :overflow} (released-refusals kb queued)]
+            (if (and (= new was) (empty? aggs) (empty? free) (empty? over))
               (settle-finish kb pass moved violated dilemmas (moved? moved) arbitrated)   ; unproductive pass: converged
               ;; read before the sweep, which deletes justifications
               (let [released (released-rules kb was new)]
                 (jtms/set-blocked (:tms kb) new)
                 (sweep-excepted! kb (into #{} (remove was) new))
+                ;; A released refusal is re-derived from the bindings it recorded, not
+                ;; re-joined: `place-conclusion` with the firing's own conclusion,
+                ;; placement and antecedents.  The conclusions it places are new datums,
+                ;; so they go back on the agenda like any other.
+                (let [seeds (into [] (mapcat (fn [[rh e]] (chain/release-refusal! kb rh e)))
+                                  free)]
+                  (when (seq seeds) (rechain-seeds kb seeds)))
                 ;; What has to be chained again is what this pass *released* — plus the
-                ;; rules with no triggering sentence to read, and whatever the sweep
-                ;; queued, since deleting a fact can release some other rule's exception
-                ;; at derive time where no block ever existed to lift.  Not every rule
-                ;; the pass touched: seeding `chain` with a rule joins it over the whole
-                ;; extent, so a blanket re-chain is quadratic in the firing count.
+                ;; rules with no triggering sentence to read, the rules whose refusal
+                ;; record overflowed (no entries to re-ask, so the coarse re-join is what
+                ;; is left), and whatever the sweep queued, since deleting a fact can
+                ;; release some other rule's exception at derive time where no block ever
+                ;; existed to lift.  Not every rule the pass touched: seeding `chain`
+                ;; with a rule joins it over the whole extent, so a blanket re-chain is
+                ;; quadratic in the firing count.
                 (rechain-exception-rules kb (into released
                                                   (concat (blanket-recheck-rules queued)
                                                           aggs
+                                                          over
                                                           (keys @(:recheck kb)))))
                 (if (< pass max-settle-passes)
                   (recur (inc pass) (inc moved) arbitrated)

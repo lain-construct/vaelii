@@ -284,16 +284,44 @@
         "a rule above is inherited into a context wired under it, whenever that happened"))
   (tu/clear-kb! (tu/test-kb)))
 
+;; The ops are shared by the sampled test and the exhaustive one, so the two cannot
+;; drift into checking different things — the only difference between them is how many
+;; of the 120 orderings they walk.
+(def ^:private derived-edge-ops
+  [#(v/assert % '(genlContext WMidContext UniverseContext) 'UniverseContext)
+   #(v/assert % '(wFactP WA) 'WMidContext)
+   #(v/assert % '(implies (wFactP ?x) (wSeenP ?x)) 'WLowContext)
+   #(v/assert % '(wWireP WLowContext WMidContext) 'UniverseContext)
+   #(v/assert % '(implies (wWireP ?a ?b) (genlContext ?a ?b)) 'UniverseContext)])
+
+(defn- derived-edge-observe [kb]
+  {:derived (boolean (seq (v/sentexes-matching kb '(wSeenP WA) 'WLowContext)))})
+
 (deftest a-derived-context-edge-seeds-like-an-asserted-one
   ;; and a rule concluding the edge reaches the same belief an assert does, or the
-  ;; fixpoint would depend on whether the spindle was written or inferred
-  (let [ops [#(v/assert % '(genlContext WMidContext UniverseContext) 'UniverseContext)
-             #(v/assert % '(wFactP WA) 'WMidContext)
-             #(v/assert % '(implies (wFactP ?x) (wSeenP ?x)) 'WLowContext)
-             #(v/assert % '(wWireP WLowContext WMidContext) 'UniverseContext)
-             #(v/assert % '(implies (wWireP ?a ?b) (genlContext ?a ?b)) 'UniverseContext)]
-        observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(wSeenP WA) 'WLowContext)))})]
-    (is (= {:derived true} (one-outcome! "derived visibility firing" ops observe))
-        "a derived edge has to seed what an asserted one seeds"))
+  ;; fixpoint would depend on whether the spindle was written or inferred.
+  ;;
+  ;; Four orderings, not all 120, for the reason `two-independent-exceptions` above
+  ;; takes a handful: an ordering here costs ~2s — deriving the edge recomputes the
+  ;; genlContext closure and re-places what it reaches, where every other test in this
+  ;; file runs an ordering in about a millisecond — so the exhaustive walk is four
+  ;; minutes, which is more than the whole rest of the suite.  The handful pins the
+  ;; positions that matter: the edge rule first and last, and the fact arriving before
+  ;; and after the wiring that has to reach it.  The exhaustive 120 is the `^:slow`
+  ;; test below, and `lein gate --all` runs it.
+  (doseq [order [[0 1 2 3 4] [4 3 2 1 0] [2 4 3 1 0] [1 3 0 4 2]]]
+    (let [ops (mapv derived-edge-ops order)
+          kb  (tu/fresh)]
+      (doseq [op ops] (op kb))
+      (is (= {:derived true} (derived-edge-observe kb))
+          (str order ": a derived edge has to seed what an asserted one seeds"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest ^:slow every-ordering-of-a-derived-context-edge-agrees
+  ;; The exhaustive form of the test above — all 120 orderings, ~2s apiece.  An
+  ;; exhaustive cross-product is what the mark is for, and this is the only test in
+  ;; this file that earns it.
+  (is (= {:derived true}
+         (one-outcome! "derived visibility firing" derived-edge-ops derived-edge-observe))
+      "a derived edge has to seed what an asserted one seeds, in any order")
   (tu/clear-kb! (tu/test-kb)))

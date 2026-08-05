@@ -48,8 +48,10 @@ the tail. The result is identical to the exhaustive search; only the cost change
 Two kinds of literal are **held back** in the author's order, because their
 position is operational rather than logical:
 
-- **Deferred (evaluable)** literals — `evaluate`, `lessThan`, `greaterThan` — which
-  consume bindings rather than produce them.
+- **Deferred (evaluable)** literals — which consume bindings rather than produce them.
+  `sentex/deferred-predicates` names fifteen: `evaluate`, `lessThan`, `greaterThan`,
+  `different`, `unknown`, the five quantity comparisons, and the five aggregation
+  operators.
 - The **recursive** literal of a recursive rule. Reordering it could turn a
   right-recursive rule left-recursive, which the backward chainers cannot execute.
 
@@ -98,4 +100,4 @@ order, and comparison direction** all dedup to one handle.
 ## See also
 
 - [docs/indexing.md](indexing.md) — how the canonical form reaches the trie key.
-- [docs/storage.md](storage.md) — the `Atomic` / `Rule` record shapes.
+- [docs/storage.md](storage.md) — the `AtomicSentex` / `RuleSentex` record shapes.

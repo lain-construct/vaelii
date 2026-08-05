@@ -186,8 +186,9 @@ plus one that is decisive:
 
 So: **we do not track things that are known-false-but-not-in-the-KB as negated
 facts.** Nothing about a NAF condition is stored; it is re-evaluated on the same
-triggers an exception uses, and nothing reads the `:out` slot: the existential case
-has no single handle to put in it. This keeps NAF
+triggers an exception uses, and nothing ever *populates* the `:out` slot: the existential
+case has no single handle to put in it, so `jtms/valid?` reads the slot on every relabel
+and finds it empty. This keeps NAF
 consistent with the codebase's existing closed-world mechanism (`exceptWhen`) and the
 store free of negative space.
 
@@ -211,7 +212,7 @@ The last two discharge an antecedent by fact matching and rule expansion, which 
 own proves nothing for a *deferred* antecedent — `unknown`, `different`, `evaluate`.
 `res/solve-deferred` closes that: `resolution` sits below the prover registry (`provers`
 requires `resolution`), so it cannot name `solve-goal` at compile time and reaches it
-through `wiring/solve-goal` — one of the two calls [`vaelii.impl.wiring`](namespaces.md)
+through `wiring/solve-goal` — one of the three calls [`vaelii.impl.wiring`](namespaces.md)
 collects, because `unknown` runs the registry back over its own argument and so is mutually
 recursive with the chainer asking for it. Resolved once into a `delay` rather than carried
 on a thread binding, because `query` is lazy and a deferred literal reached mid-stream
@@ -239,7 +240,11 @@ implementations.
 - **Belief maintenance**: `justification-excepted?` blocks on a NAF antecedent too;
   `index-rule-sentex` / `disintegrate-sentex!` post the NAF predicates in the re-check
   index (`rules/recheck-predicates`); `settle` narrows NAF firings the same way it
-  narrows exception firings. Sweep and revival are the ordinary paths.
+  narrows exception firings. Sweep and revival are the ordinary paths — including the
+  refusal record ([exceptions.md](exceptions.md), "A refused firing is remembered as
+  bindings"), which covers a firing an `unknown` blocked at derive time exactly as it
+  covers one an exception blocked: both are re-askable from the bindings alone, and
+  both are entries in the same record.
 - **Stratification**: `checks/negative-predicates` and `check-stratified` treat an
   `unknown` antecedent's predicate as a negative edge, so a cycle through it — by rule
   or by `genl` edge — is refused.

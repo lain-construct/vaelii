@@ -12,6 +12,13 @@
   `clojure.edn/read-string` (never `clojure.core/read-string`), so an untrusted body
   cannot evaluate code — EDN has no reader-eval.
 
+  **A refusal's `:type` is a plain keyword** — `:body-too-large`, `:not-edn`,
+  `:cross-origin`, `:bad-host` — and so is the `:type` an engine `ex-info` carries
+  through.  The protocol is what a client written against another build discriminates
+  on, so it cannot be qualified by the namespace that happens to serve it: a
+  `::`-qualified keyword names *this* namespace, and a client matching on it would be
+  matching on where the daemon's code lives.
+
   **The daemon is the single writer** (docs/storage.md, the single-writer contract): it
   owns the one process allowed to mutate the store, so it serializes every op through
   one monitor.  Concurrent client writes therefore apply one at a time and cannot
@@ -156,31 +163,6 @@
   [x]
   (walk/postwalk (fn [y] (if (record? y) (into {} y) y)) x))
 
-(def ^:private max-body-bytes
-  "The cap on a request body, `VAELII_MAX_BODY_BYTES` or 16 MiB.  An op body is a
-  sentence and its context, so the ceiling is nowhere near a legitimate call; it is
-  here so an unauthenticated caller cannot spend the daemon's heap by streaming one."
-  (or (some-> (System/getenv "VAELII_MAX_BODY_BYTES") Long/parseLong)
-      (* 16 1024 1024)))
-
-(defn- read-body
-  "The request body as a string, refusing past `max-body-bytes`.  `slurp` would read
-  an unbounded body into the heap before anything got to look at it."
-  ^String [req]
-  (if-let [^java.io.InputStream in (:body req)]
-    (let [out   (java.io.ByteArrayOutputStream.)
-          chunk (byte-array 8192)]
-      (loop []
-        (let [n (.read in chunk)]
-          (when (pos? n)
-            (when (> (+ (.size out) n) max-body-bytes)
-              (throw (ex-info (str "request body exceeds " max-body-bytes " bytes")
-                              {:type ::body-too-large :limit max-body-bytes})))
-            (.write out chunk 0 n)
-            (recur))))
-      (String. (.toByteArray out) java.nio.charset.StandardCharsets/UTF_8))
-    ""))
-
 (defn- handle-op
   "Run one `{:op :args}` request under the write lock and answer with EDN.
 
@@ -197,24 +179,29 @@
     (try
       (cond
         (not (guard/edn-body? req))
-        (edn-reply 415 {:ok false :type ::not-edn
+        (edn-reply 415 {:ok false :type :not-edn
                         :error "POST /op requires Content-Type: application/edn"})
 
         (not (guard/same-origin? req))
-        (edn-reply 403 {:ok false :type ::cross-origin
+        (edn-reply 403 {:ok false :type :cross-origin
                         :error "cross-origin request refused"})
 
         :else
-        (let [{:keys [op args]} (edn/read-string (read-body req))
+        (let [{:keys [op args]} (edn/read-string (guard/read-capped-body req))
               f (ops op)]
           (if f
-            (let [result (locking monitor (f kb (vec args)))]
-              (edn-reply 200 {:ok true :result (wire-safe result)}))
+            ;; `wire-safe` inside the monitor, not after it: the walk is what *realizes*
+            ;; a lazy answer stream, so releasing the lock around the call alone would
+            ;; let a `:query` read its matches while a concurrent `:assert` is settling
+            ;; — one reply straddling two states of the KB.  The daemon promises reads
+            ;; pay the same lock, and the read is not over until its seq is.
+            (let [result (locking monitor (wire-safe (f kb (vec args))))]
+              (edn-reply 200 {:ok true :result result}))
             (edn-reply 400 {:ok false :error (str "unknown op: " (pr-str op))
                             :ops (vec (sort (keys ops)))}))))
       (catch clojure.lang.ExceptionInfo e
-        (if (= ::body-too-large (:type (ex-data e)))
-          (edn-reply 413 {:ok false :error (.getMessage e) :type ::body-too-large})
+        (if (= :body-too-large (:type (ex-data e)))
+          (edn-reply 413 {:ok false :error (.getMessage e) :type :body-too-large})
           (do (trove/log! {:level :warn :id ::op-error :error e})
               (edn-reply 500 {:ok false :error (.getMessage e)
                               :type (:type (ex-data e))}))))
@@ -261,7 +248,7 @@
       allowed
       (fn [_] {:status 400
                :headers {"content-type" "application/edn"}
-               :body (pr-str {:ok false :type ::bad-host
+               :body (pr-str {:ok false :type :bad-host
                               :error "unrecognized Host header"})})))))
 
 (defn start

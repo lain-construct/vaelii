@@ -12,26 +12,23 @@
 <!-- badges:end -->
 
 A contextualized common-sense knowledge base: an in-memory or on-disk store of
-**sentexes** (sentence + context), indexed by a **flattened count-aware trie**,
+**sentexes** (sentence + context), indexed by a **count-aware trie**,
 with forward/backward inference and JTMS truth maintenance.
 
 ## Requirements
 
 - JDK 21+, Leiningen 2.10+ — no external services
-- **macOS and Linux.** Windows is not supported. The suite runs there and
-  fails: the columnar index swaps its on-disk image by renaming a new file over
-  the live one, and Windows will not replace a file while it is mapped.
+- macOS and Linux; Windows is not supported ([why](docs/storage.md#the-image-vaeliiindexsnapshot-off-by-default))
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.2.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.2.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.3.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.3.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
 lein deps
-lein test          # integration tests; they own space numbers 12-15 and clear them,
-                   # so one run at a time (VAELII_TEST_SPACE=11 moves the block)
+lein test          # integration tests
 lein repl          # loads namespace vaelii.core
 ```
 
@@ -63,9 +60,8 @@ Conventions: predicates are `camelCase`, individuals `CapitalCamelCase`, types
 (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'NaturalWorldContext)))]
   (v/retract! kb bob))                             ;=> tears down what it solely supported
 
-;; or, in a fresh process instead of all of the above, load the bundled starter KB —
-;; a second open-kb over a space that already holds records recovers it (:recover? :auto)
-(starter/load-into (v/open-kb {}))
+;; or skip all of the above: the bundled starter ontology, on its own stores
+(starter/load-into (v/open-kb {:record-space 2 :index-space 3}))
 ```
 
 ## Web browser
@@ -109,7 +105,7 @@ lein serve 4200 /var/lib/vaelii
 ;; a thin client (zero-dependency java.net.http), conn threaded explicitly
 (require '[vaelii.client :as c])
 (def conn (c/client "localhost" 4200))
-(c/assert! conn '(dog Fido) 'NaturalWorldContext)
+(c/assert  conn '(dog Fido) 'NaturalWorldContext)
 (c/query   conn '(dog ?x)   'NaturalWorldContext)
 ```
 

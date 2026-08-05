@@ -33,7 +33,12 @@ Two ordinary stored facts drive normalization, both read through
 ```
 
 Put them in a context every querent sees (e.g. `UniverseContext`) so the prover finds
-them from any asking context.
+them from any asking context. That is not only convenience: a quantity comparison in a
+**rule antecedent** is a deferred literal, and the forward join asks the registry at the
+wildcard `'?ctx` where a backward search asks at its goal's context
+([inference.md](inference.md)). So a unit table split across microtheories reads whole
+forward and per-cone backward, and one stated where every reader sees it is the one
+arrangement under which the two agree.
 
 **Three dimensions ship filled in.** `resources/kb/upper/MeasureContext.txt` states Length in
 `Meter`, Mass in `Kilogram` and Duration in `Second`, with the ordinary units of each,

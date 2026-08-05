@@ -66,8 +66,9 @@
 (tu/deftest-kb an-open-functor-is-costed-by-the-argument-root
   ;; `(?type Fido)` names no predicate, so neither functor-keyed model applies: there
   ;; is no subtype closure to fan and no functor root to count.  The matcher answers it
-  ;; from `[:argument-root 1 Fido]`, so the estimate has to be that same count — costing
-  ;; it by the trie (which stops dead at the open first token) charges the whole KB.
+  ;; from the position-1 argument roots (a slot-roster union), so the estimate has to be
+  ;; that same count — costing it by the trie (which stops dead at the open first token)
+  ;; charges the whole KB.
   (tu/with-terms [animal dog Fido Other PlanContext]
     (v/assert kb (list 'genl dog animal) PlanContext)
     (v/assert kb (list dog Fido) PlanContext)
@@ -524,6 +525,73 @@
       (testing "and the planned run agrees with the unplanned one"
         (is (= (unplanned #(v/prove kb goal PlanContext))
                (v/prove kb goal PlanContext)))))))
+
+;; ---- the read cache: a cost decision, and nothing else -------------------
+
+(deftest the-read-cache-computes-each-distinct-read-once-at-either-arity
+  ;; `plan/memoizing` wraps the index reads for the life of one `order` call.  The two
+  ;; arities are the two shapes it wraps — `count-at`/`children`/`count-with-functor`
+  ;; take an index and one argument, `count-with-arg` takes a position as well — and a
+  ;; wrapper that handled only the first would throw on the third.
+  (let [calls (volatile! 0)
+        f     (fn ([a b]   (vswap! calls inc) [:two a b])
+                ([a b c] (vswap! calls inc) [:three a b c]))
+        m     (#'plan/memoizing f)]
+    (testing "the wrapped answer is returned unchanged, at both arities"
+      (is (= [:two :ix [1 2]] (m :ix [1 2])))
+      (is (= [:three :ix 1 :Term] (m :ix 1 :Term))))
+    (testing "and a repeat is answered from the cache"
+      (is (= [:two :ix [1 2]] (m :ix [1 2])))
+      (is (= [:three :ix 1 :Term] (m :ix 1 :Term)))
+      (is (= 2 @calls) "each distinct read computed exactly once"))
+    (testing "a distinct argument at any position is a distinct read"
+      (m :ix [1 3])
+      (m :ix 2 :Term)
+      (m :ix 1 :Other)
+      (is (= 5 @calls))))
+  (testing "a nil answer is cached as an answer rather than re-asked"
+    (let [calls (volatile! 0)
+          m     (#'plan/memoizing (fn ([_ _] (vswap! calls inc) nil)
+                                    ([_ _ _] (vswap! calls inc) nil)))]
+      (is (nil? (m :ix [])))
+      (is (nil? (m :ix [])))
+      (is (nil? (m :ix 1 :T)))
+      (is (nil? (m :ix 1 :T)))
+      (is (= 2 @calls)))))
+
+(tu/deftest-kb the-read-cache-changes-no-plan-and-no-estimate
+  ;; Caching the index reads is a cost decision, so bypassing it must change nothing:
+  ;; the same counts, the same estimates, the same order.  Equality, not closeness —
+  ;; `est-matches` bounds a literal from above and `cartesian-factors` reads a bound of
+  ;; 1 as a *proof* that the literal matches once, so a number that moved at all would
+  ;; be a different plan rather than a slightly worse one.
+  (tu/with-terms [linkOne linkTwo tagOf loose Node PlanContext]
+    (fan-kb! kb PlanContext linkOne linkTwo Node)
+    (v/assert-many kb (concat (for [i (range 6)]
+                                (list tagOf (symbol (str Node "C" (mod i 4)))
+                                      (symbol (str Node "T" (mod i 2)))))
+                              (for [i (range 4)]
+                                (list loose (symbol (str Node "L" i))
+                                      (symbol (str Node "M" i)))))
+                   PlanContext {:chain? false})
+    (let [t0    (symbol (str Node "T0"))
+          conjs [;; a ground argument in second position, which is what reaches the
+                 ;; three-argument read (`count-with-arg`) through `arg-root-estimate`
+                 [(list linkOne '?a '?b) (list linkTwo '?b '?c) (list tagOf '?c t0)]
+                 [(list tagOf '?c t0) (list linkTwo '?b '?c) (list linkOne '?a '?b)]
+                 [(list linkOne '?a '?b) (list loose '?u '?v) (list linkTwo '?b '?c)]
+                 [(list tagOf '?c t0) (list loose '?u '?v)]]]
+      (doseq [goals conjs]
+        (let [planned   (plan/order kb goals PlanContext)
+              explained (plan/explain kb goals PlanContext)
+              ;; the wrapper replaced by the raw read: same numbers, asked every time
+              [raw-plan raw-explain] (with-redefs [plan/memoizing identity]
+                                       [(plan/order kb goals PlanContext)
+                                        (plan/explain kb goals PlanContext)])]
+          (is (= raw-plan planned) (str "order " (pr-str goals)))
+          (is (= raw-explain explained) (str "explain " (pr-str goals)))))
+      (testing "and the conjunctions were ones the planner actually reordered"
+        (is (some (fn [goals] (not= goals (plan/order kb goals PlanContext))) conjs))))))
 
 ;; ---- introspection ------------------------------------------------------
 

@@ -11,7 +11,7 @@
       bytes  0..7  offset (i64, -1 = empty, -2 = tombstone)
       bytes  8..15 length (i64)
       bytes 16..19 flags  (u32; bit 0 = the premise bit is meaningful, bit 1 = premise)
-      bytes 20..23 gen    (u32, per-write increment)
+      bytes 20..23 gen    (u32, reserved — written as 0)
     Reads rely on the OS page cache; writes overwrite the slot in place.
     A slot is read in **one positional channel read**, not a seek plus four primitive
     `readLong`/`readInt` calls — a `RandomAccessFile` is unbuffered, so each of those is
@@ -74,8 +74,52 @@
         (when-not (contains? supported-format-versions v)
           (throw (ex-info (str "Unsupported :disk KB format version " v " at " root
                                " — this engine supports " (sort supported-format-versions) ".")
-                          {:found v :supported supported-format-versions :root (str root)}))))
+                          {:type :unsupported-format :found v
+                           :supported supported-format-versions :root (str root)}))))
       (spit file (pr-str {:format-version format-version})))))
+
+(def ^:private index-layout-file "layout.edn")
+
+(defn index-layout-decision
+  "Gate an index directory `root` on its `layout.edn` sentinel against `current`
+  (`kv/index-layout-version`), as one of three answers: `:current` when the stamp
+  matches, `:stale` when it does not — an absent stamp over a `populated?` log
+  included, which is what an index written before the sentinel existed looks like —
+  and `:unstamped` for a fresh, empty directory, which needs the stamp but no
+  rebuild.  A stale log replays cleanly and then misses every read whose key shape
+  moved, so `:stale` is the caller's cue to clear the index, rebuild it from the
+  records, and then `stamp-index-layout!`.
+
+  **This reads and never writes.** A base mounted under `:base` opts is gated by the
+  same call and may not be written to, so the stamp `:unstamped` calls for is the
+  caller's to make — `stamp-index-layout!` for a KB that owns the directory, nothing
+  at all for a read-only mount."
+  [root current populated?]
+  (let [file (File. ^String (str root) ^String index-layout-file)]
+    (if (.exists file)
+      (if (= current (:index-layout (edn/read-string (slurp file)))) :current :stale)
+      (if populated? :stale :unstamped))))
+
+;; A rebuild's *first* write, not its last: `index-layout-decision` reads an absent
+;; stamp over an empty index as `:unstamped`, so a crash between the clear and the
+;; rebuild's first frame would otherwise leave a directory that opens clean — an empty
+;; index over full records, answering nothing.  Marking the directory before the clear
+;; makes that window read as `:stale` instead, and `stamp-index-layout!` is what clears
+;; the mark.  Any value that is not `current` would do; naming the state says why it is
+;; there when somebody reads the file after a crash.
+(defn mark-index-rebuilding!
+  "Stamp `root`'s `layout.edn` as mid-rebuild, so an open that lands before
+  `stamp-index-layout!` reads `:stale` and rebuilds again."
+  [root]
+  (spit (str root "/" index-layout-file) (pr-str {:index-layout ::rebuilding}))
+  nil)
+
+(defn stamp-index-layout!
+  "Write `root`'s `layout.edn` naming `current` — the commit mark of a layout
+  rebuild (`index-layout-decision`)."
+  [root current]
+  (spit (str root "/" index-layout-file) (pr-str {:index-layout current}))
+  nil)
 
 (defn- dsync? []
   (boolean (#{"dsync" "DSYNC" "Dsync"} (System/getProperty "vaelii.disk.fsync"))))
@@ -308,16 +352,35 @@
            default))
        default))))
 
+(defonce ^:private ^java.util.concurrent.atomic.AtomicBoolean dir-fsync-warned
+  (java.util.concurrent.atomic.AtomicBoolean. false))
+
 (defn- fsync-dir!
   "Best-effort fsync of the directory holding `path`, so a file's creation/deletion
-  is durable.  Swallowed on filesystems that reject directory fsync."
+  is durable.  Swallowed on filesystems that reject directory fsync — `FileChannel/open`
+  on a directory is not portable.
+
+  **Warned once**, because the swallow is not free: a commit marker's *existence* is
+  the atomic commit point of a compaction, and `replay-temp-onto-raf!` truncates the
+  live log before copying the temp over it.  Where the marker's directory entry never
+  reaches the platter, a power loss mid-replay leaves no marker to replay from and no
+  original to fall back on.  Silence makes that exposure indistinguishable from a
+  filesystem where the fsync worked."
   [^String path]
   (try
     (when-let [dir (.getParentFile (File. path))]
       (with-open [ch (FileChannel/open (.toPath dir)
                                        (into-array OpenOption [StandardOpenOption/READ]))]
         (.force ch true)))
-    (catch Throwable _ nil)))
+    (catch Throwable t
+      (when (.compareAndSet dir-fsync-warned false true)
+        (trove/log! {:level :warn :id ::dir-fsync-unsupported
+                     :msg (str "this filesystem rejects directory fsync (" (.getMessage t)
+                               ") — a file's creation or deletion is durable only when "
+                               "the filesystem makes it so, which weakens the compaction "
+                               "commit marker.  Reported once.")
+                     :data {:path path}}))
+      nil)))
 
 (defn write-nippy-atomic!
   "Write a value to `path` by writing a unique temp file, fsyncing it, atomic-renaming
@@ -439,7 +502,16 @@
 (defn validate-idx-tail!
   "Tombstone any of the last `window` idx slots whose frame (offset + 4 + length)
   extends past the log's current length — a torn trailing write where the idx page
-  was persisted but the log pages were not.  Returns the count repaired."
+  was persisted but the log pages were not.  Returns the count repaired.
+
+  **This catches a slot that outruns the log, and only that.**  A slot is 24 bytes and a
+  page is 4096, which 24 does not divide, so about 0.6% of slots straddle a page boundary
+  — and a crash can persist one of those pages and not the other, leaving a slot spliced
+  from two different writes.  A splice whose offset and length still land inside the log
+  passes this check and surfaces later as a thaw failure on that one handle
+  (`:type :malformed-record`, `vaelii.impl.disk.codec`), which is a read that refuses
+  rather than a wrong record.  Detecting the splice itself would take a per-slot checksum,
+  which the 24-byte slot has no room for; the `gen` word is reserved and written as 0."
   ^long [^RandomAccessFile idx-raf ^RandomAccessFile log-raf ^long window]
   (let [count-slots (quot (.length idx-raf) slot-bytes)
         start       (max 0 (- count-slots window))

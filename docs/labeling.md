@@ -39,8 +39,11 @@ Why the assert channel at all, when this could be a plain function call:
   labels, and replayed by the same loader.
 * It is *about* the KB in the KB's own language, which is the same argument that put
   the vocabulary's documentation in `comment` sentexes.
-* The return value stays a handle (or a vector of them), because what labeling
-  actually does is assert — a `genlContext` edge and a set of `ist` copies.
+* What labeling actually does is assert — a `genlContext` edge and a set of
+  strengthened copies — so the handles it made come back in the answer. `imperative/run`
+  returns the imperative's **result map**, though, not a handle: an imperative stores
+  nothing of its own, and `assert` returning one is the third shape it can answer with.
+  `do/labeling`'s is `{:context :program :classification :handles}`.
 
 ### The one hard constraint: never inside a fixpoint
 
@@ -61,7 +64,8 @@ Four steps, in an order the imperative fixes so a caller cannot get it wrong:
 
 1. **Build a `Program` from the current dilemmas.** Not from `last-program` — see
    above, that is nil here. `contradictions` supplies the nogoods, their members are
-   the contested assumptions, and `contested-content` supplies what each asserts.
+   the contested assumptions, and `label/sides-content` supplies what each side asserts
+   (the settle path has a private helper of its own for the same job).
    Known-true content is never contested, so it enters as `:fixed` background exactly
    as it would have from `settle`.
 2. **Classify** brave/cautious over the optimal answer sets.

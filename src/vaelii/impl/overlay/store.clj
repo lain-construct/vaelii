@@ -57,6 +57,16 @@
 ;; reads the atoms back out of the backend.  The atoms are what the read path touches, so
 ;; a durable bookkeeping backend costs the reads nothing.
 
+(defn- handle
+  "`id` as a long, or nil when it is not a handle at all.  Both concrete record stores
+  read a nil or non-integer key as a **miss** rather than throwing
+  (`vaelii.impl.memory`, `vaelii.impl.disk.record-store`), and the merge must not be the
+  one layer that turns a documented nil answer into an NPE: `retract!`, `provenance` and
+  `edit {:remove [nil]}` all reach here with whatever the caller passed, and `handle-of`
+  answers nil for a sentence the KB does not hold."
+  [id]
+  (when (integer? id) (long id)))
+
 (defn- note! [a meta-kv k id]
   (swap! a conj id)
   (kv/kv-add-to-set meta-kv k id))
@@ -84,18 +94,23 @@
 
   (get-sentex [_ id]
     (or (p/get-sentex overlay id)
-        (when-not (or @hidden? (contains? @sx-tombstoned (long id)))
+        (when-not (or @hidden? (contains? @sx-tombstoned (handle id)))
           (p/get-sentex base id))))
 
   (delete-sentex! [_ id]
-    (let [id (long id)]
+    (let [id (handle id)]
       (when (p/get-sentex overlay id) (p/delete-sentex! overlay id))
+      ;; Provenance dies with its record on both concrete stores, and the overlay may
+      ;; hold a stamp for a handle whose *record* it never overrode — `put-provenance`
+      ;; writes to the overlay whatever side the record is on.  So the drop is stated
+      ;; here rather than left to be a consequence of deleting the record.
+      (p/delete-provenance! overlay id)
       (when-not @hidden?
         (when (p/get-sentex base id)
           (note! sx-tombstoned meta-kv sx-tombstone-key id)
           ;; the premise mark needs no separate release: `premise-ids` subtracts the
           ;; tombstoned handles, so a deleted base premise is already gone from it
-          (when (p/get-provenance base id)      ; provenance dies with its record
+          (when (p/get-provenance base id)
             (note! pv-tombstoned meta-kv pv-tombstone-key id)))))
     nil)
 
@@ -107,28 +122,30 @@
 
   (get-justification [_ id]
     (or (p/get-justification overlay id)
-        (when-not (or @hidden? (contains? @jd-tombstoned (long id)))
+        (when-not (or @hidden? (contains? @jd-tombstoned (handle id)))
           (p/get-justification base id))))
 
   (delete-justification! [_ id]
-    (let [id (long id)]
+    (let [id (handle id)]
       (when (p/get-justification overlay id) (p/delete-justification! overlay id))
+      (p/delete-provenance! overlay id)         ; as in `delete-sentex!`
       (when-not @hidden?
         (when (p/get-justification base id) (note! jd-tombstoned meta-kv jd-tombstone-key id))
         (when (p/get-provenance base id) (note! pv-tombstoned meta-kv pv-tombstone-key id))))
     nil)
 
   (put-provenance [_ id prov]
-    (when (contains? @pv-tombstoned (long id)) (unnote! pv-tombstoned meta-kv pv-tombstone-key id))
+    (when (contains? @pv-tombstoned (handle id))
+      (unnote! pv-tombstoned meta-kv pv-tombstone-key id))
     (p/put-provenance overlay id prov))
 
   (get-provenance [_ id]
     (or (p/get-provenance overlay id)
-        (when-not (or @hidden? (contains? @pv-tombstoned (long id)))
+        (when-not (or @hidden? (contains? @pv-tombstoned (handle id)))
           (p/get-provenance base id))))
 
   (delete-provenance! [_ id]
-    (let [id (long id)]
+    (let [id (handle id)]
       (p/delete-provenance! overlay id)
       (when (and (not @hidden?) (p/get-provenance base id))
         (note! pv-tombstoned meta-kv pv-tombstone-key id)))
@@ -186,7 +203,7 @@
     (cond
       (p/get-sentex overlay id) (p/premise-strength overlay id)
       (and (not @hidden?)
-           (not (contains? @sx-tombstoned (long id)))
+           (not (contains? @sx-tombstoned (handle id)))
            (p/get-sentex base id)) (p/premise-strength base id)
       :else :default))
 
@@ -233,3 +250,9 @@
       :jd-tombstoned  (atom (set (kv/kv-members meta-kv jd-tombstone-key)))
       :pv-tombstoned  (atom (set (kv/kv-members meta-kv pv-tombstone-key)))
       :released       (atom (set (kv/kv-members meta-kv released-key)))})))
+
+(defn overlay-record-store?
+  "Is `store` one of these — i.e. is it already a fork's record half?  Asked by
+  `vaelii.impl.overlay.mount`, which refuses a base that is itself a fork."
+  [store]
+  (instance? OverlayRecordStore store))

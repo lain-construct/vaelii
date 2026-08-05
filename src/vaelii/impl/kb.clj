@@ -17,10 +17,12 @@
             [vaelii.impl.columnar :as columnar]
             [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.disk.index-snapshot :as snapshot]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.impl.feed :as feed]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.kv :as kv]
             [vaelii.impl.memory :as mem]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
@@ -107,8 +109,8 @@
 ;; without it a long-running process could not hand a directory to another process, or
 ;; reopen it elsewhere, until the JVM exited.
 (defrecord KB [records index tms taxonomy provers solver conflicts program violations
-               contradictions recheck settle-stats chain-stats opposed negations clashes
-               reports qcn matches naming constraints feed dir])
+               contradictions recheck refused settle-stats chain-stats opposed negations
+               clashes reports qcn matches naming constraints feed dir])
 
 ;; ---- storage selection: two independent axes ------------------------------
 ;;
@@ -234,16 +236,59 @@
 ;; is the one selection `open-kb` has to resolve itself: it needs the base's stores, which
 ;; the axis functions above are not given.  A base arrives either already open
 ;; (`:base-stores`, what `core/fork` passes from a live KB) or as the opts naming it
-;; (`:base`, what a second JVM mounting the same frozen directory passes).
+;; (`:base`, which opens the base's stores here — a directory this process is not
+;; already holding a KB over, since a durable directory takes the exclusive
+;; single-writer lock).
+
+(defn- check-not-forked!
+  "Refuse a base that is itself a fork, returning it.  `open-kb`'s axis functions catch
+  the opts spelling — an `:overlay` half declared `:overlay` reaches `record-store-for`
+  and throws — but `:base-stores` names no backend at all, so a live fork's stores handed
+  in that way arrive as an ordinary pair.  That is the road `core/fork` takes, so
+  `(fork (fork base))` is the shape this refuses (docs/overlay.md)."
+  [stores]
+  (if (mount/forked? stores)
+    (throw (ex-info (str "a fork's base cannot itself be a fork — multi-level stacks "
+                         "(base -> fork -> fork) are refused rather than half-supported.  "
+                         "Fork the base this one was taken over, or keep working in the "
+                         "fork you have.")
+                    {:type :stacked-fork}))
+    stores))
+
+(defn- gate-base-index-layout!
+  "Hold a durable base index to the same key-layout sentinel `open-kb` holds its own to.
+
+  `open-kb`'s gate reads the *fork's* directory, so a base opened by `:base` opts slips
+  past it and the fork mounts an index whose keys moved — a populated-looking count over
+  queries that answer nothing.  The repair the gate performs elsewhere (clear, rebuild
+  from the records, restamp) is a **write to the base**, which a read-only mount may not
+  make, so this refuses instead and names the one place the rebuild can happen."
+  [index-kind base index-store]
+  (when (= :disk index-kind)
+    (let [root (str (disk/disk-dir base) "/index")]
+      (when (and (.isDirectory (java.io.File. ^String root))
+                 (= :stale (dfiles/index-layout-decision
+                            root kv/index-layout-version
+                            (pos? (long (p/count-at index-store []))))))
+        (throw (ex-info (str "the durable index at " root " was written under another key "
+                             "layout — every read whose key shape moved would miss.  A fork "
+                             "mounts its base read-only and cannot rebuild it: open that "
+                             "directory as a KB first, which clears and rebuilds the index, "
+                             "then mount the fork over it.")
+                        {:type :stale-index-layout :dir root})))))
+  index-store)
 
 (defn- resolve-base
   "The `{:records :index}` pair a fork mounts over, frozen by the mount itself."
   [{:keys [base base-stores]}]
   (cond
-    base-stores base-stores
+    ;; only this arm needs the fork check: an `:overlay` half in the `:base` opts below
+    ;; never reaches a store, since `record-store-for` refuses the name outright
+    base-stores (check-not-forked! base-stores)
     base        (let [{rk :records ik :index} (backend-axes base)]
                   {:records (record-store-for rk base)
-                   :index   (first (index-store-for ik rk base))})
+                   :index   (gate-base-index-layout!
+                             ik base (first (index-store-for ik rk base)))})
     :else (throw (ex-info (str "an :overlay backend needs a base — pass :base (the opts "
                                "naming it) or :base-stores (already-open stores)")
                           {:type :no-base}))))
@@ -344,6 +389,41 @@
                     {:type :unknown-option :constraints policy
                      :options (vec (sort constraint-policies))}))))
 
+(def recover-modes
+  "What `:recover?` may say, and the setting each one means.
+
+    :auto / true   rebuild the TMS and taxonomy at construction — and, over a derived
+                   index, rebuild the index first.  The default
+    :warn          leave them empty and log that the store holds records nothing can
+                   answer out of
+    false          leave them empty, in silence
+
+  `true` is an **alias**, not a fifth behaviour: a `?`-suffixed option reads as a
+  boolean, and a caller who writes one is asking for the recovery rather than for the
+  warning."
+  {:auto :auto, true :auto, :warn :warn, false false})
+
+(defn- check-recover!
+  "`:recover?` as one of `recover-modes`, or a refusal.  Beside `check-naming!` for the
+  same reason and against a sharper failure: the dispatch tests for `:auto` and reads
+  everything else as the warn branch, so an unrecognized truthy value — `:yes`,
+  `:recover`, `\"auto\"` — hands back a KB whose TMS and taxonomy are empty over a store
+  that is not.  Every query then answers nothing, which is the opposite of what the
+  caller asked for and is a wrong answer rather than an error."
+  [recover?]
+  (if (contains? recover-modes recover?)
+    (get recover-modes recover?)
+    (throw (ex-info (str "unknown :recover? setting " (pr-str recover?)
+                         " — open-kb reads :auto (or true), :warn, and false"
+                         ;; `:or` does not fire on a key that is present holding nil, so
+                         ;; a caller threading an optional through lands here rather than
+                         ;; on the default, and the bare roster reads as if it should not
+                         (when (nil? recover?)
+                           (str ".  An explicit nil is not the default: omit the key"
+                                " for :auto, or pass false to open in silence")))
+                    {:type :unknown-option :recover? recover?
+                     :options [:auto true :warn false]}))))
+
 (defn- snapshot-mode?
   "Is this KB the one configuration a mapped index snapshot is for — durable records
   under the derived columnar index, with the snapshot switched on?  Every other pairing
@@ -381,14 +461,14 @@
   store needs: `recover` alone reads the index it is recovering from
   (`special/rebuild-taxonomy` reads the functor root), so over an empty one it would
   rebuild an empty taxonomy and report nothing wrong."
-  ;; `:recover? :auto` is the default, and the alternative was worse than it looked.
-  ;; Under `:warn` a reopened store handed back a fully functional KB whose `isa?`
-  ;; answered false and whose queries answered `[]` — a wrong answer, not an error,
-  ;; with nothing on the returned value for a caller to detect and a single `:warn`
-  ;; log as the only signal. The `:test` profile floors logging at `:error`, so even
-  ;; that was invisible where it mattered most. The mirror case below (a derived index
-  ;; describing records that are gone) has always repaired first and logged after;
-  ;; this branch now agrees with it. `:warn` and `false` remain, spelled explicitly.
+  ;; `:recover? :auto` is the default because the alternative is a wrong answer rather
+  ;; than an error: under `:warn` a reopened store hands back a fully functional KB whose
+  ;; `isa?` answers false and whose queries answer `[]`, with nothing on the returned
+  ;; value for a caller to detect and a single `:warn` log as the only signal — and the
+  ;; `:test` profile floors logging at `:error`, so that signal is invisible exactly
+  ;; where it matters most.  The mirror case below (a derived index describing records
+  ;; that are gone) repairs first and logs after, and this branch agrees with it.
+  ;; `:warn` and `false` are there for a caller that wants one of them, spelled out.
   [{:keys [record-space recover? tms naming constraints]
     :or   {record-space 0 recover? :auto tms :reference naming :strict}
     :as   opts}
@@ -403,7 +483,8 @@
   (when (some? constraints) (check-constraints! constraints))
   (doseq [half [:base :overlay]]
     (when-let [sub (get opts half)] (check-opts! sub (str half))))
-  (let [{rkind :records ikind :index} (backend-axes opts)
+  (let [recover?                      (check-recover! recover?)
+        {rkind :records ikind :index} (backend-axes opts)
         overlay?                      (or (= :overlay rkind) (= :overlay ikind))
         base                          (when overlay? (resolve-base opts))
         ov-opts                       (:overlay opts {})
@@ -429,9 +510,19 @@
         ;; even disagree until something reads one.
         kb (map->KB {:records rstore
                      :index   istore
-                     ;; the directory `close!` releases, when the records are durable
-                     :dir     (when (= :disk rkind)
-                                (disk/canonical-dir (disk/disk-dir opts)))
+                     ;; The directory `close!` releases, when the records are durable.
+                     ;; A fork's is its **own** writable half's: that directory takes the
+                     ;; same exclusive lock and holds the same file handles, so without
+                     ;; this a durable fork could never be handed to another process
+                     ;; short of exiting the JVM.  The base's directory is not this KB's
+                     ;; to release — it is mounted read-only and shared by every fork
+                     ;; over it, which is exactly why nothing here names it.
+                     :dir     (cond
+                                (= :disk rkind)
+                                (disk/canonical-dir (disk/disk-dir opts))
+
+                                (and (= :overlay rkind) (= :disk ovr))
+                                (disk/canonical-dir (disk/disk-dir ov-opts)))
                      :tms     (create-tms tms)
                      :taxonomy (tax/create-taxonomy)
                      :provers  (atom provers/default-provers)
@@ -441,6 +532,16 @@
                      :violations (atom [])
                      :contradictions (atom [])
                      :recheck   (atom {})
+                     ;; `{rule-handle -> #{refusal} | :overflow}` — the firings
+                     ;; `chain/place-conseq` declined to place because a re-checkable
+                     ;; block condition already held.  A blocked justification is how
+                     ;; the engine remembers a suppressed firing, and a *refused* one
+                     ;; never becomes a justification at all, so it needs the same
+                     ;; memory one level earlier (docs/exceptions.md, "A refused firing
+                     ;; is remembered as bindings").  Derived state, in memory beside
+                     ;; `jtms/blocked` rather than in it: these are not justifications
+                     ;; and must never be labelled.
+                     :refused   (atom {})
                      :settle-stats (atom {:iterations 0 :passes 0 :histogram {}})
                      :chain-stats  (atom {:runs 0 :last nil})
                      :opposed   (atom #{})
@@ -473,12 +574,47 @@
                      :constraints constraints})
         snapshot? (snapshot-mode? rkind ikind)]
     (when snapshot? (register-index-snapshot! (disk/disk-dir opts) istore rstore))
-    (when recover?
-      (cond
-        ;; A **derived** index opens empty over records that are not, so the repair is
-        ;; one step longer than `recover`: rebuild the index from the records first, then
-        ;; recover the TMS and taxonomy from both.  That ordering *is* `core/reindex`.
-        (seq (p/sentex-ids (:records kb)))
+    ;; The durable index is gated on its key-layout sentinel before anything reads
+    ;; it: a log written under another `kv/index-layout-version` replays cleanly and
+    ;; then misses every read whose key shape moved — populated-looking counts over
+    ;; queries that answer nothing.  A stale stamp clears the index and rebuilds it
+    ;; from the records, `recover?` notwithstanding: an index this open just cleared
+    ;; is one this open must repopulate.  The stamp lands only after the rebuild
+    ;; (`dfiles/index-layout-decision` for the crash story).
+    (when (and (= :disk ikind)
+               ;; The index kind, not `index-durable?`: on the `:overlay` axis that
+               ;; flag says the *merged view holds something*, and a fork inherits no
+               ;; `:dir`, so `disk/disk-dir` synthesizes the same default directory a
+               ;; bare `{:backend :disk}` uses.  Gating on it clears the fork's merged
+               ;; index and stamps a directory this open never read.  A base mounted
+               ;; under `:base` is held to the sentinel by `gate-base-index-layout!`,
+               ;; which is the one place a fork's inherited half is checked.
+               (.isDirectory (java.io.File. (str (disk/disk-dir opts) "/index"))))
+      (let [root     (str (disk/disk-dir opts) "/index")
+            decision (dfiles/index-layout-decision
+                      root kv/index-layout-version
+                      (pos? (long (p/count-at istore []))))]
+        (case decision
+          ;; a fresh directory needs the stamp and no rebuild; this KB owns it, so
+          ;; this is where the write `index-layout-decision` refuses to make happens
+          :unstamped (dfiles/stamp-index-layout! root kv/index-layout-version)
+          :stale (do
+                   (dfiles/mark-index-rebuilding! root)
+                   (p/clear-index! istore)
+                   (let [t0 (System/nanoTime)
+                         {:keys [sentexes rules]} (reindex-fn kb)
+                         ms (/ (- (System/nanoTime) t0) 1e6)]
+                     (dfiles/stamp-index-layout! root kv/index-layout-version)
+                     (trove/log! {:level :warn :id ::index-layout-rebuilt
+                                  :msg (format "the durable index at %s was written under another key layout — rebuilt from %d records (%d rules) in %.0f ms"
+                                               (disk/disk-dir opts) (long sentexes) (long rules) ms)})))
+          nil)))
+    (cond
+      ;; A **derived** index opens empty over records that are not, so the repair is
+      ;; one step longer than `recover`: rebuild the index from the records first, then
+      ;; recover the TMS and taxonomy from both.  That ordering *is* `core/reindex`.
+      (seq (p/sentex-ids (:records kb)))
+      (when recover?
         (if (= :auto recover?)
           (if index-durable?
             (recover-fn kb)
@@ -511,20 +647,23 @@
                                  " — queries will silently answer nothing.  Call "
                                  (if index-durable? "(recover kb)" "(reindex kb)")
                                  ", or construct with {:recover? :auto}; {:recover? false} "
-                                 "silences this.")}))
+                                 "silences this.")})))
 
-        ;; The mirror case, and the more dangerous one: a derived index holding entries
-        ;; for records that are *gone*.  Such an index is shared for the life of the JVM
-        ;; under the identity of the records it is derived from, so a store emptied out
-        ;; from under it (a directory closed, deleted and reopened) leaves it describing
-        ;; nothing — resolving handles to no record and answering `find-or-create` with a
-        ;; dead one.  It is derived state and the records are the ground truth, so it is
-        ;; simply dropped.
-        (and (not index-durable?) (pos? (p/count-at (:index kb) [])))
-        (do (p/clear-index! (:index kb))
-            (trove/log! {:level :warn :id ::stale-derived-index
-                         :msg (str "dropped a derived index left over from an earlier life of "
-                                   "this record store — the records it describes are gone")}))))
+      ;; The mirror case, and the more dangerous one: a derived index holding entries
+      ;; for records that are *gone*.  Such an index is shared for the life of the JVM
+      ;; under the identity of the records it is derived from, so a store emptied out
+      ;; from under it (a directory closed, deleted and reopened) leaves it describing
+      ;; nothing — resolving handles to no record and answering `find-or-create` with a
+      ;; dead one.  It is derived state and the records are the ground truth, so it is
+      ;; simply dropped — **whatever `recover?` says**.  `{:recover? false}` asks for
+      ;; silence about an unrecovered store, not for an index that answers out of
+      ;; records nobody holds, and the drop is what docs/storage.md promises happens on
+      ;; the next open.
+      (and (not index-durable?) (pos? (p/count-at (:index kb) [])))
+      (do (p/clear-index! (:index kb))
+          (trove/log! {:level :warn :id ::stale-derived-index
+                       :msg (str "dropped a derived index left over from an earlier life of "
+                                 "this record store — the records it describes are gone")})))
     kb))
 
 (def equality-predicates

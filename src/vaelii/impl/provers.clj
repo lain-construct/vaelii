@@ -175,13 +175,18 @@
   exemption, because for them no channel ever bears.
 
   The channels are read **once per goal** — they are a property of the goal and the KB,
-  not of the prover asking."
+  not of the prover asking.  So is each claimant's estimate: `sort-by` re-evaluates its
+  keyfn on **every comparison**, and an estimate is a real count over the taxonomy
+  rather than a constant, so it is taken once per prover and carried.  The sort is
+  stable and the estimate is a function of the goal and the KB, so a tie still breaks
+  on registry order and not on when the comparison happened."
   [kb applicable goal context]
   (when (empty? (shadowing-channels kb goal context))
     (->> applicable
          (filter #(>= (completeness % kb goal context) 100))
-         (sort-by #(est-bindings % kb goal context))
-         first)))
+         (map (juxt identity #(est-bindings % kb goal context)))
+         (sort-by second)
+         ffirst)))
 
 ;; ---- facts (the index) --------------------------------------------------
 
@@ -240,22 +245,73 @@
         (and (ground? a) (ground? b)) (if (contains? (up a) b) [{}] [])
         (ground? a) (map (fn [s] {b s}) (up a))      ; a's supertypes/ancestors
         (ground? b) (map (fn [s] {a s}) (down b))    ; b's subtypes/descendants
+        ;; One variable in **both** places — `(genl ?x ?x)` — asks which members the
+        ;; closure holds of themselves, and binds one variable rather than two.  Stated
+        ;; rather than left to fall through: `{a x b y}` with two equal keys throws
+        ;; `IllegalArgumentException: Duplicate key` out of a prover and past `ask`
+        ;; untyped, where the goal has a perfectly good (usually empty) answer.
+        (= a b) (for [x all :when (contains? (up x) x)] {a x})
         :else (for [x all, y (up x)] {a x b y})))))
 
 ;; ---- disjointness -------------------------------------------------------
 
-(defn- collections
-  "Every type the taxonomy knows — genl nodes plus any mentioned in a disjoint
-  declaration (a disjoint type need not participate in genl)."
-  [tx]
-  (into (set (tax/types tx)) cat (tax/disjoint-pairs tx)))
+;; An open disjointness goal is answered from the **declarations**, not from the
+;; vocabulary.  A `(disjoint x y)` declaration separates two subtrees, so the pairs it
+;; convicts are `specs(x) × specs(y)` and every answer is a subtype of something a
+;; declaration names (`tax/separating-partners`, `tax/separating-pairs`).  The answer set
+;; is therefore what `tax/disjoint?` says it is — that predicate is unchanged and still
+;; decides the ground goal — while what is *fed* to it is bounded by the declaration set
+;; rather than by the type count.  An imported ontology carries 132,391 types over 27,195
+;; declared pairs (docs/kbs.md, docs/taxonomy.md), and a term's own share of the second
+;; number is one or two.
+;;
+;; `distinct` because two declarations can convict one type and the vocabulary scan this
+;; replaces could not repeat an answer.
+
+(defn- disjoint-with
+  "The types disjoint from `a` in `context`: every subtype of a type a visible
+  declaration separates `a` from.  Lazy past the partner set, which is bounded by the
+  declarations that name a supertype of `a`."
+  [tx a context]
+  (distinct (mapcat #(tax/specs tx % context) (tax/separating-partners tx a context))))
+
+(defn- disjoint-cross
+  "`[x y]` for every pair of types a visible declaration separates — the two-variable
+  goal, as the union of `specs × specs` over the separating pairs."
+  [tx context]
+  (distinct (mapcat (fn [[x y]]
+                      (for [u (tax/specs tx x context), v (tax/specs tx y context)] [u v]))
+                    (tax/separating-pairs tx context))))
+
+(defn- self-disjoint
+  "The types disjoint from **themselves** — a type below both sides of one separation,
+  so it can have no instances.  The `(disjoint ?x ?x)` answer."
+  [tx context]
+  (distinct (mapcat (fn [[x y]]
+                      (let [below (tax/specs tx y context)]
+                        (filter below (tax/specs tx x context))))
+                    (tax/separating-pairs tx context))))
 
 (defrecord DisjointnessProver []
   Prover
   (applicable? [_ _ goal _] (binary-pred? goal 'disjoint))
-  (est-bindings [_ kb goal _]
-    (let [[_ a b] goal, n (count (collections (:taxonomy kb)))]
-      (if (and (ground? a) (ground? b)) 1 n)))
+  ;; Sized off the declarations, like the enumeration it estimates: the sum of the
+  ;; convicted subtrees, an upper bound on the answer (two partners may share a
+  ;; subtype) that costs a cached closure read per partner and no walk over the types.
+  (est-bindings [_ kb goal context]
+    (let [[_ a b] goal, tx (:taxonomy kb)
+          spec-count (fn [t] (count (tax/specs tx t context)))
+          sum        (fn [f xs] (transduce (map f) + 0 xs))]
+      (cond
+        (and (ground? a) (ground? b)) 1
+        (ground? a) (sum spec-count (tax/separating-partners tx a context))
+        (ground? b) (sum spec-count (tax/separating-partners tx b context))
+        ;; both open: the cross product per separation, or — for one variable in both
+        ;; places — the intersection, which the smaller side bounds
+        (= a b) (sum (fn [[x y]] (min (spec-count x) (spec-count y)))
+                     (tax/separating-pairs tx context))
+        :else (sum (fn [[x y]] (* (spec-count x) (spec-count y)))
+                   (tax/separating-pairs tx context)))))
   (cost         [_ _ _ _] :lookup)
   ;; The cache is built from the stored declarations and refreshed from belief, so it
   ;; contains what a fact or a forward rule could say.
@@ -264,12 +320,15 @@
   ;; closes under) are visible, so the query's own context is the vantage — a
   ;; `?ctx` context is the unscoped read, as everywhere
   (solve [_ kb goal context]
-    (let [[_ a b] goal tx (:taxonomy kb) ts (collections tx)]
+    (let [[_ a b] goal tx (:taxonomy kb)]
       (cond
         (and (ground? a) (ground? b)) (if (tax/disjoint? tx a b context) [{}] [])
-        (ground? a) (for [t ts :when (tax/disjoint? tx a t context)] {b t})
-        (ground? b) (for [t ts :when (tax/disjoint? tx b t context)] {a t})
-        :else (for [x ts, y ts :when (tax/disjoint? tx x y context)] {a x b y})))))
+        (ground? a) (map (fn [t] {b t}) (disjoint-with tx a context))
+        (ground? b) (map (fn [t] {a t}) (disjoint-with tx b context))
+        ;; `(disjoint ?x ?x)` — one variable in both places, so one binding; the same
+        ;; `Duplicate key` the transitivity prover above states its way past
+        (= a b) (map (fn [x] {a x}) (self-disjoint tx context))
+        :else (map (fn [[x y]] {a x b y}) (disjoint-cross tx context))))))
 
 ;; ---- generic relation reasoners (predicate metadata) --------------------
 

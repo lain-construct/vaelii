@@ -349,13 +349,32 @@
 ;; ---- the provider seam --------------------------------------------------
 
 (tu/deftest-kb the-stub-is-the-default-and-the-fallback
+  ;; **This opens no socket, on any machine.**  `(provider/provider)` with no kind reads
+  ;; `configured` — `VAELII_LLM_PROVIDER` / `-Dvaelii.llm.provider` — so on a machine that
+  ;; names a real backend there, an unmarked test in `:default` would probe it; and
+  ;; naming `:ollama` outright probes the host whatever the environment says.  A
+  ;; reachable Ollama is not consent (`docs/llm.md`), so the selection is pinned instead
+  ;; of read.  What is under test here is the *fallback*, not a model, which is why this
+  ;; belongs in `:default` rather than behind `^:llm`.
   (is (true? (provider/available? :stub)))
-  (is (satisfies? proto/Provider (provider/provider)))
-  (testing "an unreachable backend degrades to the stub rather than throwing"
-    (is (satisfies? proto/Provider
-                    (provider/provider :ollama {:host "http://127.0.0.1:1" :timeout-ms 200}))))
-  (testing "and a kind nobody implements is simply not available"
-    (is (false? (provider/available? :nonesuch)))))
+  (testing "nothing configured is the stub — that is what makes the pipeline testable"
+    (with-redefs [provider/configured (constantly nil)]
+      (is (satisfies? proto/Provider (provider/provider)))
+      (is (= :stub (provider/active-kind)))))
+  (testing "a configured backend this build cannot reach degrades to the stub rather
+            than throwing"
+    (with-redefs [provider/configured (constantly :nonesuch)]
+      (is (satisfies? proto/Provider (provider/provider)))
+      (is (= :stub (provider/active-kind)))))
+  (testing "and one that probes available but will not build degrades the same way —
+            the caller gets a Provider, never nil and never an exception"
+    (with-redefs [provider/available? (constantly true)
+                  provider/build      (constantly nil)]
+      (is (satisfies? proto/Provider (provider/provider :ollama)))))
+  (testing "a kind nobody implements is simply not available, and asking for it anyway
+            still answers with a Provider"
+    (is (false? (provider/available? :nonesuch)))
+    (is (satisfies? proto/Provider (provider/provider :nonesuch)))))
 
 ;; ---- the Ollama backend, offline ----------------------------------------
 

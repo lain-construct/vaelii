@@ -42,18 +42,18 @@
     (cond
       (= exit 127)
       (throw (ex-info (str "clasp binary not found: " *clasp-binary*)
-                      {:exit exit :err err}))
+                      {:type :solver-unavailable :exit exit :err err}))
 
       (str/blank? out)
       (throw (ex-info (str "clasp produced no output (exit " exit ")")
-                      {:exit exit :err err :argv argv}))
+                      {:type :solver-failed :exit exit :err err :argv argv}))
 
       :else
       (try
         (json/parse-string out true)
         (catch Exception e
           (throw (ex-info "failed to parse clasp JSON output"
-                          {:exit exit :out out :err err} e)))))))
+                          {:type :solver-failed :exit exit :out out :err err} e)))))))
 
 (defn- status-of [parsed]
   (case (:Result parsed)
@@ -115,7 +115,7 @@
   [aspif-text mode]
   (let [argv (or (mode-args mode)
                  (throw (ex-info (str "unknown clasp mode: " mode)
-                                 {:mode mode :valid (keys mode-args)})))
+                                 {:type :unknown-option :mode mode :valid (keys mode-args)})))
         parsed (invoke-clasp argv aspif-text)
         status (status-of parsed)]
     (case mode

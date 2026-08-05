@@ -215,13 +215,39 @@
           (is (= [] (v/check-edit kb {:add [] :remove []}))))))))
 
 (deftest check-edit-judges-each-add-against-the-kb-as-it-stands
-  ;; nothing is stored, so an entry that would only be admissible *after* an earlier
-  ;; entry landed is still reported — the honest answer for a dry run
+  ;; Nothing is stored, so each add is judged against the KB *before the batch*, not
+  ;; against the KB the entries before it would have made.  That is the honest answer
+  ;; for a dry run, and it differs from the sequential reading in **both** directions —
+  ;; so both are pinned, because an assertion true under either reading says nothing
+  ;; about which one `check-edit` implements.
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [newPred Thing TheContext]
-      (let [ps (v/check-edit kb {:add [[(list 'argIsa newPred 1 'animal) TheContext]
-                                       [(list newPred Thing) TheContext]]})]
-        (is (empty? ps) "an untyped argument cannot violate an open-world constraint")))))
+    (testing "an add admissible only *after* an earlier one landed is still reported"
+      ;; sequentially the genl edge lands first and puts the kind under the constraint
+      ;; type; as it stands the kind reaches `thing` and not the constraint, which is
+      ;; the visible-evidence-in-the-wrong-place case argGenl convicts
+      (tu/with-terms [relOf a_kind an_animal Rex TheContext]
+        (v/assert kb (list 'genlContext TheContext 'CoreContext) 'CoreContext)
+        (v/assert kb (list 'genl an_animal 'thing) 'CoreContext)
+        (v/assert kb (list 'genl a_kind 'thing) 'CoreContext)
+        (v/assert kb (list 'argGenl relOf 1 an_animal) 'CoreContext)
+        (let [ps (v/check-edit kb {:add [[(list 'genl a_kind an_animal) TheContext]
+                                         [(list relOf a_kind Rex) TheContext]]})]
+          (is (= [{:in :add :index 1 :type :arg-genl}]
+                 (mapv #(select-keys % [:in :index :type]) ps))
+              "the second add was judged against a KB the first had already changed"))))
+    (testing "and an add the KB as it stands admits is *not* reported for what an
+              earlier one would have forbidden"
+      ;; the mirror: sequentially the declaration binds the fact after it and the arity
+      ;; check refuses; as it stands nothing is declared and open world admits it
+      (tu/with-terms [pOf Thing TheContext]
+        (let [ps (v/check-edit kb {:add [[(list 'binaryPredicate pOf) TheContext]
+                                         [(list pOf Thing) TheContext]]})]
+          (is (= [] ps)
+              "the declaration in the same batch was read as though it had landed"))))
+    (testing "and the open-world floor still holds: an untyped argument violates nothing"
+      (tu/with-terms [newPred Thing TheContext]
+        (is (= [] (v/check-edit kb {:add [[(list 'argIsa newPred 1 'animal) TheContext]
+                                          [(list newPred Thing) TheContext]]})))))))
 
 ;; ---- which declaration a violation names: content, not arrival ----------
 
@@ -263,3 +289,24 @@
                (types-of-check kb (list 'set/forwardRule
                                         (list 'implies (list 'dog '?x) (list 'animal '?y)))
                                IstContext)))))))
+
+(deftest an-ist-form-holds-exactly-three-elements
+  ;; `(ist Ctx S)` is the form, and both `assert` and `check` read it by position — so a
+  ;; wrong length has to be refused rather than indexed into.  Two elements reached
+  ;; `(nth sentence 2)`; four asserted with the extra silently dropped, which is the
+  ;; worse of the two because it stores something the caller did not write.
+  (tu/with-neutral-kb [kb kb-with-starter]
+    (tu/with-terms [dog Fido IstContext]
+      (let [short-form (list 'ist IstContext)
+            long-form  (list 'ist IstContext (list dog Fido) 'junk)]
+        (testing "check reports the shape rather than raising out of nth"
+          (is (= #{:shape} (types-of-check kb short-form 'UniverseContext)))
+          (is (= #{:shape} (types-of-check kb long-form 'UniverseContext))))
+        (testing "and assert refuses both with the same :type"
+          (doseq [form [short-form long-form]]
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (v/assert kb form 'UniverseContext))
+                        (str (pr-str form) " is refused"))]
+              (is (= :shape (:type (ex-data e)))))))
+        (testing "and the over-long one stored nothing"
+          (is (empty? (v/sentexes-matching kb (list dog '?x) IstContext))))))))

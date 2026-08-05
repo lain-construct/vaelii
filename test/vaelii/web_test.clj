@@ -8,6 +8,7 @@
             [vaelii.core :as v]
             [vaelii.impl.access :as acc]
             [vaelii.impl.catalog :as cat]
+            [vaelii.impl.guard :as guard]
             [vaelii.impl.starter :as starter]
             [vaelii.impl.svg :as svg]
             [vaelii.impl.web :as web]
@@ -1381,6 +1382,40 @@
           r (POST "/edit" {"handles" (str h) "text" (pr-str [(list likesOf Alice Bob) EditContext])}
               {"host" "localhost:3000" "referer" "http://localhost:3000/term?q=x"})]
       (is (= 200 (:status r))))))
+
+;; ---- the write route refuses an oversized body -------------------------
+;; Nothing authenticates this server either, so an anonymous caller streaming a body is
+;; heap it would otherwise spend — and `wrap-params`, which is what reads a form here,
+;; slurps whatever arrives with no ceiling of its own.  `guard/wrap-body-limit` sits
+;; outside it (`vaelii.guard-test` pins the reading; this is the browser's 413).  Driven
+;; with a **real encoded body** rather than a `:params` map, since a limit on the body is
+;; invisible to a request that has none.
+
+(tu/deftest-kb an-oversized-post-is-a-413-that-writes-nothing
+  (tu/with-terms [likesOf Alice Bob Carol EditContext]
+    (let [h    (v/assert kb (list likesOf Alice Bob) EditContext)
+          form (str "handles=" h "&text="
+                    (java.net.URLEncoder/encode
+                     (pr-str [(list likesOf Alice Carol) EditContext]) "UTF-8"))
+          post (fn []
+                 (*app* {:request-method :post :uri "/edit" :scheme :http
+                         :headers {"host"         "localhost:3000"
+                                   "origin"       "http://localhost:3000"
+                                   "content-type" "application/x-www-form-urlencoded"}
+                         :body (java.io.ByteArrayInputStream. (.getBytes form "UTF-8"))}))]
+      (testing "past the ceiling: a plain-text 413, and the KB is untouched"
+        (let [n (v/sentex-count kb)
+              r (with-redefs [guard/max-body-bytes 8] (post))]
+          (is (= 413 (:status r)))
+          (is (str/includes? (:body r) "exceeds"))
+          (is (= n (v/sentex-count kb)) "the write never ran")
+          (is (v/in? kb h) "and the handle the edit named is untouched")))
+      (testing "under it the same body edits as usual — which is also what says the
+                buffered copy the limit leaves behind is what wrap-params reads"
+        (let [r (post)]
+          (is (= 200 (:status r)))
+          (is (seq (v/sentexes-matching kb (list likesOf Alice Carol) EditContext))
+              "the form really was parsed out of the body"))))))
 
 ;; ---- selection: the rows carry what the keyboard and a screen reader need ----
 ;; Selection is client-side (select.js), so what the server owes it is the markup it

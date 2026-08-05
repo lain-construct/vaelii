@@ -84,8 +84,8 @@ fallback. See [asp.md](asp.md).
 `Program` is emitted to before a clingo/clasp solve. Contested assumptions
 become choice atoms and nogoods become weak constraints. See [asp.md](asp.md).
 
-**Atomic** ![kb](../.github/badges/cat-kb.svg): The sentex record for an atomic
-sentence — a fact, a metadata declaration, or a query pattern — holding only
+**AtomicSentex** ![kb](../.github/badges/cat-kb.svg): The sentex record for an
+atomic sentence — a fact, a metadata declaration, or a query pattern — holding only
 `[sentence context id truth strength]`. Split from `RuleSentex` so a fact does not
 carry the rule-only slots. See [canonicalization.md](canonicalization.md).
 
@@ -205,8 +205,9 @@ defeating the strictly weaker side. See [nmtms.md](nmtms.md).
 
 **Deferred literal** ![inference](../.github/badges/cat-inference.svg): A literal
 whose position is operational, not logical, so canonicalization holds it in the
-author's order: the evaluables (`evaluate`, `lessThan`, `greaterThan`,
-`different`) and a recursive rule's recursive literal. See
+author's order: the fifteen `sentex/deferred-predicates` (`evaluate`, `lessThan`,
+`greaterThan`, `different`, `unknown`, the five quantity comparisons and the five
+aggregation operators) and a recursive rule's recursive literal. See
 [canonicalization.md](canonicalization.md).
 
 **`different`** ![kb](../.github/badges/cat-kb.svg): Provable exactly when no two
@@ -308,7 +309,7 @@ tie-breaks never key on it, or arrival order would leak in. See
 ## I
 
 **Index (count-aware trie)** ![backend](../.github/badges/cat-backend.svg): The
-flattened trie a sentex is indexed by: its key tokens then context as the final
+trie a sentex is indexed by: its key tokens then context as the final
 level, connective-free and α-renamed. Each node carries a count, a child-label
 set, and the handles at that node. See [indexing.md](indexing.md).
 
@@ -465,7 +466,9 @@ different question and returns sentexes. See [api.md](api.md),
 **Range restriction** ![kb](../.github/badges/cat-kb.svg): The rule
 well-formedness rule (`rules/check-range-restricted`) that every consequent
 variable must also appear in the antecedent, so a conclusion binds nothing free.
-See [inference.md](inference.md).
+A head existential `(exists ?y C)` exempts the variables it marks and nothing
+else, so a deliberate `∃` is allowed where a typo is still caught. See
+[inference.md](inference.md), [skolem.md](skolem.md).
 
 **RCC-8** ![qr](../.github/badges/cat-qr.svg): The region-connection calculus
 of 8 base topological relations between two regions — disconnected, externally
@@ -506,15 +509,15 @@ default behind `chain/*matcher*`. See [inference.md](inference.md).
 representative and, being about spelling, may relate any terms. See
 [equality.md](equality.md).
 
-**Rule** ![kb](../.github/badges/cat-kb.svg): A sentex whose sentence is an
-implication, adding the rule-only slots `[antecedent consequent varmap direction
-defeasible assumption constraint]`. Indexed additionally by antecedent/consequent
-predicates. See [inference.md](inference.md).
-
 **Rule index** ![backend](../.github/badges/cat-backend.svg): The predicate index
 keying rules by their antecedent *and* consequent predicates — both sets
 complete whatever the direction — so "what could conclude P?" is answerable
 without a scan. See [indexing.md](indexing.md).
+
+**RuleSentex** ![kb](../.github/badges/cat-kb.svg): The sentex record for a sentence
+that is an implication, adding the rule-only slots `[antecedent consequent varmap
+direction defeasible assumption constraint]`. Indexed additionally by
+antecedent/consequent predicates. See [inference.md](inference.md).
 
 ## S
 

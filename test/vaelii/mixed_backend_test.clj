@@ -180,6 +180,30 @@
              :naming :constraints :base :base-stores :overlay}
            kb/opt-keys))))
 
+(deftest recover-takes-one-of-four-settings-and-refuses-the-rest
+  ;; The key is in the roster, so `check-opts!` passes it — the *value* is the check,
+  ;; and it has to be a refusal.  Reading an unnamed setting as the warn branch hands
+  ;; back an empty TMS over a store that is not empty, which answers [] to everything:
+  ;; a wrong answer where a refusal is owed.
+  (testing "the four the roster names all open"
+    (doseq [mode [:auto true :warn false]]
+      (let [kb (v/open-kb {:record-space 88 :index-space 89 :recover? mode})]
+        (is (some? kb) (str (pr-str mode) " opens"))
+        (v/clear! kb))))
+  (testing "and anything else is refused, naming what it does read"
+    (doseq [bad [:yes :recover "auto" 1]]
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (v/open-kb {:record-space 88 :index-space 89 :recover? bad}))
+                  (str (pr-str bad) " is refused"))]
+        (is (= :unknown-option (:type (ex-data e))))
+        (is (re-find #":warn" (ex-message e)) "the message carries the roster"))))
+  (testing "an explicit nil is refused too, and says it is not the default"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (v/open-kb {:record-space 88 :index-space 89 :recover? nil})))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (re-find #"omit the key" (ex-message e))
+          "since :or does not fire on a present nil, the message has to say so"))))
+
 (deftest ram-records-cannot-take-the-durable-index
   ;; The one pairing of the eight the axes admit that is refused rather than named: the
   ;; index is derived from the records, so persisting it over a store that empties at JVM

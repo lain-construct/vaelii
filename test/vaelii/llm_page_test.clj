@@ -184,8 +184,24 @@
       (is (empty? (:coined (session/coined kb {:add [[(list eats 'Tom food) ctx]] :remove []})))))))
 
 (tu/deftest-kb a-removal-cannot-coin-anything
-  (let [{:keys [rule]} (world kb)]
-    (is (empty? (:coined (session/coined kb {:add [] :remove [rule]}))))))
+  ;; "nothing was coined" is true of a batch that could not coin in the first place —
+  ;; a `:remove` entry is a *handle*, and the test above already says a declared
+  ;; predicate is never reported.  So the claim is checked as a difference: an `:add`
+  ;; that genuinely coins, and the same report with removals beside it.
+  (let [{:keys [rule ctx]} (world kb)]
+    (tu/with-terms [novelOf Subject]
+      (let [add   [[(list novelOf Subject) ctx]]
+            alone (session/coined kb {:add add :remove []})
+            with  (session/coined kb {:add add :remove [rule]})]
+        (is (= [novelOf] (mapv :predicate (:coined alone)))
+            "the add coins — without that the comparison below is two empties")
+        (is (= alone with)
+            "a removal changed the report: neither the coined list nor the counts may move")
+        (testing "and a removal-only batch has nothing to say at all"
+          (is (= {:coined []
+                  :vocabulary {:literals 0 :reused 0 :coined 0
+                               :coined-types 0 :coined-relations 0}}
+                 (session/coined kb {:add [] :remove [rule]}))))))))
 
 ;; ---- what the page shows the model -------------------------------------
 

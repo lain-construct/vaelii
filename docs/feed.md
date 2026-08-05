@@ -261,7 +261,7 @@ is what bounds it. An event is built once per settle and shared by every listene
   consequences** — the sinks are closed for the duration, or an
   `edit-with-consequences` would attribute them to the caller.
 - **Honesty**: a standing query fires only on what answers it, through a subtype and a
-  sub-predicate, up the `genlContext` cone and no further; ten unanswerable goal shapes
+  sub-predicate, up the `genlContext` cone and no further; eight unanswerable goal shapes
   are refused and register nothing, as are a goal with no context and a listener that is
   `ifn?` but not a function; two live KBs never hear each other and a fork inherits no
   listeners.

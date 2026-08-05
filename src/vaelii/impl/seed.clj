@@ -67,7 +67,7 @@
                  acc
                  (recur (conj acc form)))))))
        (throw (ex-info (str "ontology KB file not found on the classpath: " path)
-                       {:context context :dir dir :resource path}))))))
+                       {:type :missing-resource :context context :dir dir :resource path}))))))
 
 (defn load-sentences
   "Assert `sentences` into `context`, **order-insensitively**: a sentence refused

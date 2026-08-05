@@ -20,6 +20,13 @@
       they can be stepped in lock-step and compared after *every* operation, which
       localizes any divergence to the op that caused it.
 
+  The same stream, the same two KBs and the same comparison serve a **second** claim,
+  because it is the same kind of claim: `chain/*suppress-duplicate-firings*` skips the
+  firings a run would otherwise make twice (`witness_order_test`), and that too has to
+  leave the derived sentexes and the justification sets alone.  It is bound false on
+  one side rather than compared against remembered numbers, so the reference moves
+  with the engine.
+
   The random ontology exercises every invariant the network must preserve: multi-
   antecedent joins with a leading-variable non-trigger antecedent (the case the
   network exists to speed up), recursion + the depth guard, unary subtype fan-out, a
@@ -28,7 +35,7 @@
   derives an equality twin, sibling-context firings with no common placement, and
   retraction with re-derivation."
   (:require [clojure.set :as set]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.core-context :as core-context]
@@ -55,6 +62,16 @@
   (doseq [e '[(genl animal thing) (genl dog animal) (genl poodle dog)
               (genl cat animal) (genl bird animal) (genl penguin bird)]]
     (v/assert kb e 'BaseContext {:strength :monotonic}))
+  ;; predicate lattice — the sub-predicate fan-out is not a unary-only rule.  `fatherOf`
+  ;; and `motherOf` sit under a **binary** `parentOf`, `leasesFrom` under a binary
+  ;; `owns`, `strictlyBetweenIn` under a **ternary** `betweenIn`; a matcher that fanned
+  ;; the functor only at arity 1 agrees with the reference on every unary probe and
+  ;; diverges the moment a fact of one of these arrives, so the comparison has to reach
+  ;; them (`streams-are-not-vacuous` is what says it does).
+  (doseq [e '[(genl fatherOf parentOf) (genl motherOf parentOf)
+              (genl leasesFrom owns)
+              (genl strictlyBetweenIn betweenIn)]]
+    (v/assert kb e 'BaseContext {:strength :monotonic}))
   (v/assert kb '(disjoint dog cat) 'BaseContext {:strength :monotonic})
   ;; metadata
   (v/assert kb '(symmetric siblingOf) 'BaseContext {:strength :monotonic})
@@ -76,7 +93,10 @@
     ;; inside the matcher (triggered by parentOf, siblingOf joined second)
     (R '(and (parentOf ?x ?y) (siblingOf ?y ?z)) '(uncleAuntOf ?x ?z))
     ;; a deferred antecedent in a forward join (computed, not matched)
-    (R '(and (ageOf ?x ?a) (ageOf ?y ?b) (lessThan ?a ?b)) '(youngerThan ?x ?y)))
+    (R '(and (ageOf ?x ?a) (ageOf ?y ?b) (lessThan ?a ?b)) '(youngerThan ?x ?y))
+    ;; a **ternary** antecedent, so the sub-predicate fan is driven end to end at an
+    ;; arity above one rather than only probed
+    (R '(and (betweenIn ?x ?y ?z) (dog ?y)) '(guardedBy ?x ?z)))
   ;; exceptWhen default: birds fly unless penguins
   (v/assert kb '(exceptWhen (penguin ?b) (set/defaultRule (implies (bird ?b) (flies ?b))))
             'BaseContext)
@@ -124,25 +144,48 @@
 (defmacro with-rete [_rete-kb & body]
   `(binding [chain/*matcher* rete/rete-match-pattern] ~@body))
 
-(defn apply-op!
-  "Apply `op` to both KBs — the reference one plainly, the incremental one under the
-  rete matcher — and return their post-op snapshots.  `op` is `[:assert sentence ctx opts]`
-  or `[:retract sentence ctx]`."
-  [ref-kb rete-kb op]
+(def ^:private plainly
+  "The identity wrapper — the engine's own defaults."
+  (fn [thunk] (thunk)))
+
+(def ^:private through-rete
+  "Everything the thunk does, matched through the alpha memories."
+  (fn [thunk] (binding [chain/*matcher* rete/rete-match-pattern] (thunk))))
+
+(def ^:private without-suppression
+  "Everything the thunk does, with every trigger of a firing enumerated."
+  (fn [thunk] (binding [chain/*suppress-duplicate-firings* false] (thunk))))
+
+(defn run-op!
+  "Apply `op` to `a-kb` inside `a-wrap` and to `b-kb` inside `b-wrap` — each a
+  `(fn [thunk])` establishing whatever binding that side is being held to — and return
+  their post-op snapshots.  `op` is `[:assert sentence ctx opts]` or
+  `[:retract sentence ctx]`.
+
+  An assert is caught on both sides, so a generated sentence a naming check refuses is
+  refused symmetrically; a retract runs only when both KBs hold the sentence as-is.
+  Both keep the two in lock-step, which is what lets the comparison localize a
+  divergence to the op that caused it."
+  [a-kb a-wrap b-kb b-wrap op]
   (case (first op)
     :assert
     (let [[_ sentence ctx opts] op]
-      (try (v/assert ref-kb sentence ctx opts) (catch Throwable _))
-      (with-rete rete-kb (try (v/assert rete-kb sentence ctx opts) (catch Throwable _))))
+      (a-wrap #(try (v/assert a-kb sentence ctx opts) (catch Throwable _)))
+      (b-wrap #(try (v/assert b-kb sentence ctx opts) (catch Throwable _))))
     :retract
     (let [[_ sentence ctx] op
-          hr (v/handle-of ref-kb sentence ctx)
-          he (v/handle-of rete-kb sentence ctx)]
-      ;; only retract when both hold it as-is, so the two stay in lock-step
-      (when (and hr he)
-        (v/retract! ref-kb hr)
-        (with-rete rete-kb (v/retract! rete-kb he)))))
-  [(snapshot ref-kb) (snapshot rete-kb)])
+          ha (v/handle-of a-kb sentence ctx)
+          hb (v/handle-of b-kb sentence ctx)]
+      (when (and ha hb)
+        (a-wrap #(v/retract! a-kb ha))
+        (b-wrap #(v/retract! b-kb hb)))))
+  [(snapshot a-kb) (snapshot b-kb)])
+
+(defn apply-op!
+  "Apply `op` to both KBs — the reference one plainly, the incremental one under the
+  rete matcher — and return their post-op snapshots."
+  [ref-kb rete-kb op]
+  (run-op! ref-kb plainly rete-kb through-rete op))
 
 ;; ---- the random op stream -----------------------------------------------
 
@@ -152,7 +195,7 @@
 (defn- rand-fact [^java.util.Random rng]
   (let [ind #(nth inds (.nextInt rng (count inds)))
         ctx #(nth ctxs (.nextInt rng (count ctxs)))]
-    (case (.nextInt rng 9)
+    (case (.nextInt rng 14)
       0 [:assert (list 'parentOf (ind) (ind)) (ctx) {:strength :monotonic}]
       1 [:assert (list 'siblingOf (ind) (ind)) (ctx) {:strength :monotonic}]
       2 [:assert (list 'owns (ind) (ind)) (ctx) {:strength :monotonic}]
@@ -162,7 +205,67 @@
       5 [:assert (list 'bestFriendOf (ind) (ind)) (ctx) {:strength :monotonic}]
       6 [:assert (list 'parentOf (ind) (ind)) (ctx) {}]        ; a :default premise
       7 [:assert (list 'bird (ind)) (ctx) {:strength :monotonic}]
-      8 [:retract (list 'parentOf (ind) (ind)) (ctx)])))
+      8 [:retract (list 'parentOf (ind) (ind)) (ctx)]
+      ;; sub-predicate facts: a binary and a ternary literal whose functor the fan has
+      ;; to walk down to, which no unary shape above reaches
+      9  [:assert (list 'fatherOf (ind) (ind)) (ctx) {:strength :monotonic}]
+      10 [:assert (list 'motherOf (ind) (ind)) (ctx) {}]       ; a :default sub-predicate
+      11 [:assert (list 'leasesFrom (ind) (ind)) (ctx) {:strength :monotonic}]
+      12 [:assert (list 'strictlyBetweenIn (ind) (ind) (ind)) (ctx) {:strength :monotonic}]
+      13 [:retract (list 'fatherOf (ind) (ind)) (ctx)])))
+
+;; ---- oracle 0: the stream reaches what the oracles compare --------------
+
+(defn- functors-answering
+  "The **functors of the sentexes** `res/match-pattern` answers `pattern` with — so a
+  functor other than the pattern's own is the sub-predicate fan's footprint, and an
+  empty difference means the fan never ran on this pattern."
+  [kb pattern]
+  (into #{}
+        (comp (map first) (keep #(p/get-sentex (:records kb) %)) (map #(first (:sentence %))))
+        (res/match-pattern kb pattern '?ctx)))
+
+(deftest streams-are-not-vacuous
+  ;; Agreement between two matchers that both saw nothing is worth nothing, and this
+  ;; oracle can reach that state without saying so: `apply-op!` wraps each `v/assert` in
+  ;; a symmetric `(catch Throwable _)`, which is what keeps the two KBs in lock-step when
+  ;; a generated sentence is refused — and equally what would let a change making *every*
+  ;; assert throw compare two empty KBs and pass every assertion in this file.
+  ;;
+  ;; So the stream is measured before it is trusted.  The last three tallies are what the
+  ;; ontology's predicate lattice is there for: the fan-out has to be exercised at arity
+  ;; 1, 2 **and** 3, since a matcher that fans only unary functors agrees with the
+  ;; reference on every unary probe.
+  (let [kb  (doto (tu/isolated-fresh) build-ontology!)
+        rng (java.util.Random. 4242)]
+    (try
+      ;; every tally is a **difference** against the ontology's own content: the rules and
+      ;; metadata derive a few things on their own, so "there are derived sentexes" is
+      ;; true of a KB the stream never touched
+      (let [derived-ids #(into #{} (remove (partial v/premise? kb)) (p/sentex-ids (:records kb)))
+            base-sx     (stored-content kb)
+            base-dv     (derived-ids)
+            base-dd     (set (p/justification-ids (:records kb)))]
+        (dotimes [_ 120]
+          (let [op (rand-fact rng)]
+            (case (first op)
+              :assert  (let [[_ s c o] op] (try (v/assert kb s c o) (catch Throwable _)))
+              :retract (let [[_ s c] op]
+                         (when-let [h (v/handle-of kb s c)] (v/retract! kb h))))))
+        (let [stored (stored-content kb)]
+          (is (seq (set/difference stored base-sx)) "the stream stored nothing at all")
+          (is (seq (set/difference (derived-ids) base-dv))
+              "the stream derived nothing — every rule stayed inert")
+          (is (seq (set/difference (set (p/justification-ids (:records kb))) base-dd))
+              "the stream produced no justification, so belief rests on nothing")
+          (testing "and the sub-predicate fan ran at each arity the lattice covers"
+            (is (seq (disj (functors-answering kb '(animal ?x)) 'animal))
+                "no unary subtype ever answered a supertype pattern")
+            (is (seq (disj (functors-answering kb '(parentOf ?x ?y)) 'parentOf))
+                "no binary sub-predicate ever answered its super's pattern")
+            (is (seq (disj (functors-answering kb '(betweenIn ?x ?y ?z)) 'betweenIn))
+                "no ternary sub-predicate ever answered its super's pattern"))))
+      (finally (tu/clear-kb! kb)))))
 
 ;; ---- oracle 1: the matcher returns the reference set --------------------
 
@@ -177,7 +280,11 @@
         (doseq [f '[(parentOf I0 I1) (parentOf I1 I2) (parentOf I2 I3)
                     (siblingOf I1 I4) (siblingOf I5 I1)
                     (owns I0 I1) (dog I1) (poodle I2) (cat I3) (bird I4) (penguin I5)
-                    (ageOf I0 3) (ageOf I1 4) (bestFriendOf I6 I7)]]
+                    (ageOf I0 3) (ageOf I1 4) (bestFriendOf I6 I7)
+                    ;; sub-predicate facts, so a super's pattern has something to fan to
+                    ;; at arity 2 and arity 3
+                    (fatherOf I0 I2) (motherOf I3 I4) (leasesFrom I5 I6)
+                    (strictlyBetweenIn I0 I1 I2) (betweenIn I3 I4 I5)]]
           (v/assert rete-kb f 'BaseContext {:strength :monotonic}))
         ;; every probe pattern must give the same [handle bindings] set both ways
         (doseq [pat '[(parentOf ?x ?y)      ; fully open
@@ -190,7 +297,11 @@
                       (animal ?a)            ; unary subtype fan-out
                       (dog ?a)               ; subtype (poodle satisfies)
                       (bird ?b)
-                      (owns ?p ?a)
+                      (owns ?p ?a)           ; binary fan-out (leasesFrom satisfies)
+                      (owns I5 ?a)           ; …with the leading value pinned
+                      (fatherOf ?x ?y)       ; the sub-predicate on its own
+                      (betweenIn ?x ?y ?z)   ; ternary fan-out (strictlyBetweenIn satisfies)
+                      (betweenIn I0 ?y ?z)   ; …with the leading value pinned
                       (ageOf ?x ?a)
                       (grandparentOf ?x ?z)]]
           (is (= (proj (res/match-pattern rete-kb pat '?ctx))
@@ -221,6 +332,29 @@
           (tu/clear-kb! ref-kb)
           (tu/clear-kb! rete-kb)
           (rete/disengage!))))))
+
+;; ---- oracle 3: suppressing duplicate firings derives the same thing -----
+
+(deftest ^:slow suppressed-firings-agree-with-every-trigger-enumerated
+  (dotimes [trial 6]
+    (let [sup-kb (tu/fresh)
+          ref-kb (tu/isolated-fresh)]
+      (try
+        (build-ontology! sup-kb)
+        (without-suppression #(build-ontology! ref-kb))
+        (is (= (snapshot sup-kb) (snapshot ref-kb))
+            (str "trial " trial ": ontologies diverged before any fact\n"
+                 (pr-str (diff-report (snapshot ref-kb) (snapshot sup-kb)))))
+        (let [rng (java.util.Random. (+ 2000 trial))]
+          (dotimes [step 60]
+            (let [op (rand-fact rng)
+                  [ss rs] (run-op! sup-kb plainly ref-kb without-suppression op)]
+              (is (= rs ss)
+                  (str "trial " trial " step " step " diverged after " (pr-str op) "\n"
+                       (pr-str (diff-report rs ss)))))))
+        (finally
+          (tu/clear-kb! sup-kb)
+          (tu/clear-kb! ref-kb))))))
 
 ;; ---- targeted scenarios (deterministic, for localization) ---------------
 

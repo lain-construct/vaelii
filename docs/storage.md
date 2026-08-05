@@ -13,7 +13,12 @@ Two protocols keep the reasoning code independent of any backend:
   `clear-records!` (the whole-db wipe). Both puts honour an `:id` on the record they are
   given — that is how an import lands records at the handles a dump gave them — and
   `next-id` is required to stay above every handle the store holds however it arrived.
-  A handle is an identity, so no store may issue one twice.
+  A handle is an identity, so no store may issue one twice. Both backends allocate from
+  a counter of their own rather than from a field of the record map, and both lift it
+  clear of an explicit `:id` as the record lands: one handle is minted per stored sentex
+  and per justification, and forward chaining takes one per firing
+  ([inference.md](inference.md)), so the allocation is a compare-and-set on a `Long`
+  and not on the store.
 - `IndexStore` — the trie, the secondary roots, the rule index, the exception index,
   and the term index (see [indexing.md](indexing.md)), plus `clear-index!` (the
   whole-db wipe `reindex` rebuilds from) and `index-entries` / `index-load`, the
@@ -154,6 +159,10 @@ moved, a short section, a missing commit marker) discards it and runs the same `
 above. A write thaws whatever it lands on, mapped or frozen alike. The image is written
 when the directory closes, so it never outlives what it describes by more than a crash,
 and a crash leaves no image at all.
+
+The swap is an atomic rename of the new file over the live one, and that is what puts
+the engine on **macOS and Linux only**: Windows will not replace a file while it is
+mapped, so the suite runs there and fails.
 
 One part of it does not work: the token dictionary is **not** vocabulary-scaled, so it
 is read into heap whole and its cost grows with the number of distinct terms rather
@@ -307,7 +316,11 @@ disk unchanged.
 
 **Single-writer.**  `disk.lock` takes an exclusive OS `FileLock` on `.vaelii.lock`
 when a directory opens and fails fast if another JVM holds it — enforcing the
-single-writer contract.  `vaelii.core/close!` releases it without the JVM exiting —
+single-writer contract.  `-Dvaelii.disk.lock=false` turns the lock off, for a filesystem whose `FileLock` is
+unreliable (some network mounts).  It removes the *enforcement* and not the contract:
+a second writer under it corrupts exactly as the contract says one does, with nothing
+left to fail fast.
+`vaelii.core/close!` releases it without the JVM exiting —
 flush and close each component, deregister from the durability daemon, drop the lock —
 so a long-running process can hand the directory to another process.  An unclean close
 still releases: every component gets its close attempt, the lock release and the
@@ -466,8 +479,14 @@ read.
 
 The record store, trie, term index, and rule index all persist — durably across a
 restart on the `:disk` backend, and within the JVM on `:memory` (the space-number
-registry). The **taxonomy** and **JTMS graph** are in-memory, so after constructing a
-KB against an existing store, call `core/recover`:
+registry). The **taxonomy** and **JTMS graph** are in-memory, so a KB constructed
+against an existing store has to rebuild them. `open-kb`'s `:recover? :auto` default
+does it at construction (`true` is an alias for it); `:warn` leaves them empty and says
+so, `false` leaves them empty in silence, and both leave the repair to a `core/recover`
+call of the caller's own. Nothing else is a setting — a value `recover-modes` does not
+name is refused (`:unknown-option`) rather than read as the warn branch, since a KB that
+silently took `:warn` answers `[]` to everything and reads like an empty store. Either
+way recovery is these two steps:
 
 - **taxonomy** — re-integrate the special-predicate sentexes (`rebuild-taxonomy`
   queries `genl`/`genlContext`/`disjoint`/`disjointMetatype`/predicate-props/`inverse`).
@@ -536,11 +555,25 @@ writes:
   not serializable (find-or-create and the settle pipeline are check-then-act), so
   concurrent *writing* still needs a single writer. A reader thread beside a writer
   thread (the web browser over a REPL's KB) is the supported shape.
+
+  **Two selectable index backends are narrower than that**, and it is the one place the
+  floor does not reach. `:columnar` (`vaelii.impl.columnar`, and the `vaelii.impl.dense-roots`
+  it builds on) and `:dense` (`vaelii.impl.dense-kv`, whose `IntPostings` is mutated in
+  place) hold `^:unsynchronized-mutable` fields, so a write
+  publishes through no barrier: a second thread may read an array reference, a
+  capacity, the CSR-mode flag or a half-installed mapped section from before a growth,
+  a compaction or a snapshot install, with no happens-before edge to stop it. The atom-
+  and lock-based backends give the incidental reader a consistent view; these two do
+  not, and keeping such a read on the writer's thread or behind a synchronizer is the
+  caller's. The fields are unsynchronized because the walk reads them at every frontier
+  node — the index's hottest loop — where a volatile read buys a guarantee the engine's
+  own single writer never needs.
 - *Two processes, one store:* not supported, and worse than stale — process B's
   belief filter hides A's facts, and B's retraction sweeps **delete records A
   still believes**. The `:disk` backend enforces this with an exclusive file lock
-  that fails a second opener fast; a second process may open the store read-only
-  after `recover`, and must never assert or retract.
+  that fails a second opener fast (`:type :disk-locked`), and there is no read-only
+  open: `lock/acquire!` takes the whole file exclusively or throws, so the second
+  process never reaches the records at all.
 
 The contract is a property of the engine rather than of any backend: a shared record
 store is not a shared KB, because belief lives in the writing process's RAM. So it holds

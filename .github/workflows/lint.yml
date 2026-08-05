@@ -11,6 +11,14 @@ name: lint
 # Keep it the required check that a doc-only change still has to pass: test.yml
 # skips doc-only changes and this workflow does not, so the doc gates are exactly
 # the thing a README edit is still gated on.
+#
+# EVERY `uses:` IN THIS REPO'S WORKFLOWS IS A COMMIT SHA, with the version in a
+# trailing comment — here, in test.yml and in deep.yml. A tag is a mutable ref
+# that the action's owner (or anyone who takes that account) can repoint, and
+# `v6` moves by design; these workflows run fork pull requests with actions
+# unrestricted, so a tag is a supply-chain promise made by somebody else's
+# account. A SHA is the artifact itself. The trailing comment is not decoration:
+# Dependabot reads it, and its bump PRs carry the version the new SHA is.
 on:
   push:
     branches: [main, develop]
@@ -38,31 +46,31 @@ jobs:
     steps:
       # No credentials left in .git/config: nothing here pushes, and a token
       # sitting in the workspace is reachable by anything the build runs.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
 
       # kondo runs as a standalone binary, not through lein — `lein lint-kondo`
-      # shells out to it — so this action installs both. It is PINNED, and both
-      # halves of that matter: the previous form curled
-      # clj-kondo/clj-kondo@master/script/install-clj-kondo into `sudo` on every
-      # push and every fork pull request, so an upstream compromise ran as root
-      # here; and with no version it installed *latest*, so a kondo release could
-      # turn this workflow red with no change in this repository.
+      # shells out to it — so this action installs both. Two pins, and both
+      # matter: the action is a SHA (the header says why), and `clj-kondo:`
+      # names a version rather than taking the default, which is *latest* — so
+      # a kondo release cannot turn this workflow red with no change in this
+      # repository. Installing a linter is also the step with the widest reach
+      # in this job: it puts a binary on the PATH that then reads the tree.
       - name: Set up Leiningen and clj-kondo
-        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d  # 13.6.1
         with:
-          lein: 2.12.0
-          clj-kondo: 2026.04.15
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
+          clj-kondo: 2026.08.04
 
       - name: Cache Maven deps
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.m2
           # runner OS and JDK in the key: the same project.clj resolves different

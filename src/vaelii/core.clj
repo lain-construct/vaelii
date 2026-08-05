@@ -82,12 +82,13 @@
   | `:tms` | `:reference` or `:dense` truth-maintenance representation | `:reference` |
   | `:naming` | `:strict` / `:warn` / `:off` — what the front door does with a name | `:strict` |
   | `:constraints` | `:refuse` / `:arbitrate` — what a definitional clash does | the process default |
-  | `:recover?` | `:auto` / `:warn` / `false` — what a non-empty store gets | `:auto` |
+  | `:recover?` | `:auto` (or `true`) / `:warn` / `false` — what a non-empty store gets | `:auto` |
 
   The seven legal backends and why the eighth is refused: docs/storage.md.  The naming
   policy and what no setting moves: docs/naming.md.  The constraint policies and when
   each is the one to want: docs/exceptions.md.  `fork` is the ergonomic spelling of
-  `:overlay`; the raw form is for a second process mounting the same frozen base.
+  `:overlay` and takes its base from a live KB; the raw form takes `:base` opts instead,
+  which is what mounts a base this process has no KB open over.
 
   **An option this fn does not read is refused** rather than ignored, and the space
   numbers are why: a misspelt `:record-space` is a key nothing looks at, so the KB would
@@ -103,7 +104,10 @@
   it prevents is a *wrong answer* rather than an error: `false` and `[]` are legitimate
   results, so no caller can tell them apart, and a warning is a log line a configured
   level can drop.  `:warn` only logs; `false` is silent, for a caller managing recovery
-  itself.
+  itself.  `true` is an alias for `:auto`, since a `?`-suffixed option reads as a
+  boolean; anything else is refused (`:type :unknown-option`), because the dispatch
+  cannot tell an unrecognized setting from `:warn` and would hand back the empty TMS
+  the caller asked to avoid.
 
   The KB value's slots — the prover registry, the solver, the ledgers, the caches — are
   documented on the record in `vaelii.impl.kb`."
@@ -332,8 +336,8 @@
    (believed-filter kb opts (records-of kb (p/sentexes-with-arg (:index kb) pos term)))))
 
 (defn count-with-arg
-  "How many fact sentexes hold `term` at argument position `pos`, as **stored** — one
-  set-size read, O(1).
+  "How many fact sentexes hold `term` at argument position `pos`, as **stored** — cheap,
+  one O(1) set-size read per predicate declaring an argument at that slot.
 
   Counts stored-not-believed sentexes too.  The believed count is
   `(count (sentexes-with-arg kb pos term {:believed? true}))` and is O(n)."
@@ -748,6 +752,28 @@
             (when-not *defer-settle?* (settle/settle kb)))  ; sweep what the new exception now blocks
           h)))))
 
+(defn- ist-parts
+  "The `[context sentence]` an `(ist Ctx S)` names, or nil when the form is not one — a
+  bare `(ist Ctx)` included.
+
+  `assert` and `check` both read the form here, so a malformed `ist` is one refusal on
+  both paths.  Reaching into it positionally is what made them disagree: `check` took a
+  default and reported `:shape`, while `assert` took none and threw a bare
+  `IndexOutOfBoundsException`, which carries no `:type` for a caller to discriminate on
+  and names nothing a writer can act on."
+  [sentence]
+  (when (and (sequential? sentence)
+             (= sx/ist-functor (first sentence))
+             (= 3 (count sentence)))
+    [(second sentence) (nth sentence 2)]))
+
+(defn- ist-shape-problem
+  "The `:shape` problem a malformed `ist` is refused with — a value for `check`, and the
+  `ex-info` `assert` throws."
+  [sentence]
+  {:type :shape :sentence sentence
+   :message (str "an (ist Ctx S) names a context and a sentence, got " (pr-str sentence))})
+
 ;; `(ist Ctx S)` handed to `assert` recurses into `assert` with the inner sentence
 ;; (`assert-one` below), and `assert` is defined after it — a genuine forward
 ;; reference, and the only one here: query and settle live below this namespace, in
@@ -767,7 +793,10 @@
 
     ;; (ist Ctx S) is not stored — it finds or creates S in Ctx (ist semantics)
     (and (sequential? sentence) (= sx/ist-functor (first sentence)))
-    (assert kb (nth sentence 2) (second sentence) opts)
+    (if-let [[ctx s] (ist-parts sentence)]
+      (assert kb s ctx opts)
+      (let [p (ist-shape-problem sentence)]
+        (throw (ex-info (:message p) (dissoc p :message)))))
 
     ;; Every rule flavour takes one path: a bare `(implies ..)` (a :both rule) and
     ;; any `set/*Rule` wrapping of one.  The wrapper is not stripped here — it is
@@ -1295,7 +1324,9 @@
          ;; `(ist Ctx S)` is not stored — it finds or creates S in Ctx, so that is
          ;; what there is to check
          (= sx/ist-functor (first sentence))
-         (check kb (nth sentence 2 nil) (second sentence) opts)
+         (if-let [[ctx s] (ist-parts sentence)]
+           (check kb s ctx opts)
+           [(ist-shape-problem sentence)])
 
          :else
          (let [[exc inner] (rules/split-exceptWhen sentence)]
@@ -1889,7 +1920,13 @@
        (and d (pos? (long d)))
        (inference/solutions kb goals context
                             (merge (query-options nil) opts
-                                   {:max-depth d :leaf-solver provers/solve-goal}))
+                                   {:max-depth    d
+                                    :leaf-solver  provers/solve-goal
+                                    ;; the cost model that leaf is answered by, so the
+                                    ;; node engine's inline join plans on what a conjunct
+                                    ;; will actually cost rather than on what the index
+                                    ;; counts — the pair `prove-seq` is handed below
+                                    :est-override (provers/registry-est-override kb context)}))
 
        ;; No depth and one literal: the registry answers it directly, and lazily to the
        ;; first result.  The goal is already prepared, which is the whole of what `ask`
@@ -2264,7 +2301,7 @@
   ignored here.)"
   ([kb goal budget] (prove-within kb goal '?ctx budget))
   ([kb goal context budget]
-   (let [goals (goal-conjunction goal)]
+   (let [goals (goal-conjunction (prepare-goal-for-read kb goal context))]
      (if (inference-engine? (:max-depth budget))
        ;; the node engine's continuation *is* the unrealized tail of its result
        ;; stream, and the frontier behind it is a value the session holds — so a
@@ -3029,7 +3066,7 @@
   The change feed stays off here (`feed/*enabled?*`), as it was for the batch: this is
   the half that would send the *reverse* of every change that one sent, and a listener
   told belief moved and then that it moved back learned nothing."
-  [kb {:keys [audit suspended violations program]}]
+  [kb {:keys [audit suspended violations program refused]}]
   (let [tms     (:tms kb)
         records (:records kb)
         held    (set (map first suspended))]
@@ -3054,7 +3091,16 @@
       (settle-after-teardown! kb (vec (keys @(:recheck kb))) nil)
       (collect-orphaned-nats! kb))
     (reset! (:violations kb) violations)
-    (reset! (:program kb) program)))
+    (reset! (:program kb) program)
+    ;; ...and the refusal record, which the batch writes to as well as reads.  A firing
+    ;; the batch's own content refused recorded the handles it rested on, and the
+    ;; rollback has just taken those handles away — so left alone the record carries
+    ;; entries naming nothing, dropped only whenever their rule is next queued.  The
+    ;; re-chain above re-records what the *baseline* refuses, so this is the entries the
+    ;; preview invented rather than the ones it consumed; restored wholesale like the two
+    ;; ledgers, and free, since the record is a persistent map and the snapshot is a
+    ;; reference.
+    (reset! (:refused kb) refused)))
 
 (defn- preview-forget-dead-handles
   "Blank the `:handle` of any entry whose sentex the rollback took away.  Content the
@@ -3113,6 +3159,9 @@
          ledger     @(:violations kb)
          standing   @(:contradictions kb)
          program    @(:program kb)
+         ;; the refusal record is derived state the batch writes to, so the rollback
+         ;; needs the value it started from — `preview-rollback!` says why
+         refusals   @(:refused kb)
          audit      (atom {})
          touched    (atom #{})
          suspended  (atom [])
@@ -3181,7 +3230,8 @@
                     :bounded?         @truncated?})))
        (finally
          (preview-rollback! kb {:audit audit :suspended @suspended
-                                :violations ledger :program program})))
+                                :violations ledger :program program
+                                :refused refusals})))
      ;; Belief **before** is read here, on a KB the rollback has put back at baseline —
      ;; so the two readings need no snapshot between them, and a candidate that is
      ;; believed now was believed all along and is no news either way.  A handle the
@@ -3575,7 +3625,17 @@
   ;; ...and the settle that finishes the rebuild is told it *is* one, so the exposure
   ;; pass stays out of it: what it reports is what a change newly made jointly visible,
   ;; and a restore changes nothing (`settle/*rebuilding?*`).
-  (binding [settle/*rebuilding?* true] (settle/settle kb))
+  (binding [settle/*rebuilding?* true]
+    (settle/settle kb)
+    ;; The **refusal** record is the other in-memory state no store holds: a firing
+    ;; refused at derive time left no justification, so replaying the stored ones cannot
+    ;; put it back, and a KB restarted with refusals standing would answer a later
+    ;; release differently from one that never restarted.  Re-firing the rules that can
+    ;; refuse re-records what they refuse, and it runs after the settle above because a
+    ;; refusal is a claim about what the KB *believes*.  A re-fire that placed something
+    ;; the narrowed re-chain had not owes a second settle.
+    (let [{:keys [derived]} (chain/rerecord-refusals! kb)]
+      (when (pos? (long (or derived 0))) (settle/settle kb))))
   kb)
 
 (defn reindex
@@ -3610,6 +3670,10 @@
   ;; recorded are gone and a missing handle is what makes the next delta `:all` — but a
   ;; wipe is exactly the moment to stop carrying it.
   (some-> (:qcn kb) (reset! {}))
+  ;; ...and the refusal record, for the same reason and a stronger one: it is keyed by
+  ;; rule handle and retired at the rule's own departure, which a wholesale wipe of the
+  ;; stores never reaches.  Every entry names handles this call just deleted.
+  (some-> (:refused kb) (reset! {}))
   kb)
 
 (defn close!
@@ -3625,12 +3689,14 @@
 
   **The stores belong to the directory, not the KB value**: two KBs opened over one
   directory share them, so closing either closes both, and neither may be used
-  afterwards.  And the promise is scoped to a KB whose *records* half is `:disk`
-  (`{:backend :disk}` and the `:disk-*` pairs) — those are the KBs that carry a `:dir`.
-  A `fork` whose writable half lives on disk carries none, so `close!` on the fork is
-  a no-op and the overlay's directory keeps its lock.
+  afterwards.
 
-  A no-op on a KB with no directory (every in-memory backend, and the forks above), so
+  On a `fork` this releases the fork's **own** writable directory — the one `{:backend
+  :disk :dir …}` in its opts named — and never the base's.  A base is mounted read-only
+  and shared by every fork taken over it, so it is nobody's fork to close; release it by
+  closing the KB it was opened as.
+
+  A no-op on a KB with no directory (every in-memory backend, and an ephemeral fork), so
   it is safe to call unconditionally in a `finally`.  The KB must not be used
   afterwards; open it again to read the same directory."
   [kb]

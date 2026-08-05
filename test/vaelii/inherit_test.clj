@@ -414,7 +414,15 @@
   (doseq [[where strength] order]
     (v/assert kb (list pred a b) (if (= where :super) super sub) {:strength strength}))
   (try (v/assert kb (list pred b a) sub) true
-       (catch clojure.lang.ExceptionInfo _ false)))
+       (catch clojure.lang.ExceptionInfo e
+         ;; **Only the asymmetry check's refusal counts as one.**  Every assertion below
+         ;; is `(is (false? …))`, so mapping any ex-info to false would let a `:naming`
+         ;; or `:arg-type` regression read as the intended refusal — the converse would
+         ;; be "refused" for a reason that has nothing to do with `(asymmetric P)`.
+         ;; Anything else is rethrown, which is an error rather than a silent pass.
+         (if (= :asymmetric (:type (ex-data e)))
+           false
+           (throw e)))))
 
 (tu/deftest-kb the-strongest-visible-claim-decides-not-the-first-one-stored
   ;; One sentence, two visible contexts, two strengths.  `:class` decides whether the

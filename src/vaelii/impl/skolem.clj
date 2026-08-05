@@ -60,12 +60,20 @@
 (defn- frontier-vars
   "A rule's consequent variables that its antecedents bind — the universal parameters an
   existential witness depends on, in a deterministic (sorted) order so the skolem's
-  argument list is stable across firings and across the conjuncts of one head."
+  argument list is stable across firings and across the conjuncts of one head.
+
+  **A post-join literal's output is not one of them.**  An aggregate is an antecedent and
+  its `?n` may well appear in the consequent, but `?n` is computed per *placement*, after
+  the witness is minted — so the bindings here do not hold it, and it would substitute to
+  itself and put a variable in the skolem NAT's argument list.  `chain`'s
+  `free-consequent-vars` subtracts the same set at the same moment, for the same reason;
+  an ordinary rule carries no post-join literals and this is a no-op for it."
   [rule]
   (let [vars  #(filter sx/variable? (tree-seq sequential? seq %))
+        post  (into #{} (mapcat sx/deferred-output-vars) (:post-join rule))
         avars (into #{} (mapcat vars) (:antecedents rule))
         cvars (distinct (vars (:consequent rule)))]
-    (vec (sort (filter avars cvars)))))
+    (vec (sort (remove post (filter avars cvars))))))
 
 (defn skolemize-conclusion
   "Replace each still-unbound (existential) variable `free` in a rule's substituted

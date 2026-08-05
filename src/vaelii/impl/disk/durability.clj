@@ -14,7 +14,8 @@
   daemon), `vaelii.disk.auto-compact` (off with `false`/`0`/`off`),
   `vaelii.disk.compact-dead-ratio` (default 0.5),
   `vaelii.disk.compact-min-interval-ms` (default 300000)."
-  (:require [taoensso.trove :as trove])
+  (:require [clojure.string :as str]
+            [taoensso.trove :as trove])
   (:import [java.util.concurrent Executors ExecutorService ScheduledExecutorService TimeUnit]))
 
 (defn- prop-long [k default]
@@ -147,7 +148,26 @@
       (trove/log! {:level :error :msg (str "disk-durability fsync tick failed: "
                                            (.getName (class t)))}))))
 
-(defn- close-all! [] (doseq [entry (vals @registry)] (close-one-safely! entry)))
+(def ^:private close-phases
+  "The order `close-all!` closes registrants in, lowest first.
+
+    :image   a derived structure written out *whole* on close and stamped against
+             another component's live state — the mapped index snapshot.  It has to be
+             written while that component is still open, so it goes first
+    :store   a component owning a WAL and file handles, closed after
+
+  Registration order says nothing about this dependency: the registry holds every
+  directory at once, a record store registers when its KB's `:records` axis resolves and
+  the snapshot writer only after the whole KB value exists.  Closing in insertion order
+  therefore closes the records out from under the image's own stamp, which throws — and
+  the throw is caught and logged, so the image is simply never written.  `close-dir!`
+  runs the same two phases explicitly for one directory; this is the JVM-shutdown path."
+  {:image 0 :store 1})
+
+(defn- close-all! []
+  ;; `sort-by` is stable, so registrants within a phase keep their registration order
+  (doseq [entry (sort-by #(close-phases (:phase % :store) 1) (vals @registry))]
+    (close-one-safely! entry)))
 
 (defn- start-scheduler! [interval-ms]
   (when (and (pos? interval-ms) (nil? @scheduler))
@@ -166,13 +186,28 @@
 (defn register!
   "Register a disk backend with the durability manager.  Entry keys: `:fsync` (fn
   `[{:keys [fsync?]}]`, required), `:close` (fn `[]`, required), `:label` (string,
-  required), and optionally `:compact` (fn `[]`) + `:dead-ratio` (fn `[]` → double)
-  for background compaction.  Returns an id for `deregister!`; starts the scheduler
-  and installs the shutdown hook on first registration."
-  [{:keys [fsync close label] :as entry}]
-  (assert (fn? fsync) ":fsync must be a fn")
-  (assert (fn? close) ":close must be a fn")
-  (assert (string? label) ":label must be a string")
+  required), optionally `:compact` (fn `[]`) + `:dead-ratio` (fn `[]` → double) for
+  background compaction, and optionally `:phase` (`close-phases`, `:store` by default)
+  for shutdown ordering.  Returns an id for `deregister!`; starts the scheduler and
+  installs the shutdown hook on first registration.
+
+  The shape check is an `ex-info` rather than an `assert` because `clojure.core/assert`
+  is **elidable**: with `*assert*` false a registrant with no `:close` would register
+  cleanly and then be silently skipped on shutdown, which is the whole of what this
+  namespace does for it."
+  [{:keys [fsync close label phase] :as entry}]
+  (doseq [[k v pred what] [[:fsync fsync fn?     "a fn"]
+                           [:close close fn?     "a fn"]
+                           [:label label string? "a string"]]]
+    (when-not (pred v)
+      (throw (ex-info (str "a durability registrant's " k " must be " what ", got "
+                           (pr-str v))
+                      {:type :bad-registrant :key k :value v :label label}))))
+  (when-not (or (nil? phase) (contains? close-phases phase))
+    (throw (ex-info (str "unknown durability :phase " (pr-str phase) " — want "
+                         (str/join " or " (map pr-str (sort-by close-phases
+                                                               (keys close-phases)))))
+                    {:type :bad-registrant :key :phase :value phase :label label})))
   (let [id (swap! next-id inc)]
     (swap! registry assoc id entry)
     (install-shutdown-hook!)

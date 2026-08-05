@@ -84,6 +84,19 @@ ownership to a whole's parts (its placement is context-sensitive — see
 [contexts.md](contexts.md)). The `vaelii.world-fables` stories derive their morals the
 same way — a 2- or 3-antecedent join over the tale's facts.
 
+**Antecedents nothing stored.** Two kinds of antecedent are satisfied by content that
+has no handle to be an antecedent *of*: a relation a constraint network entails
+([qcn.md](qcn.md)) and a claim argument-position preservation licenses
+([inherit.md](inherit.md)). Both are answered the same way, in `chain/join-antecedent`
+and beside the ordinary matcher rather than in place of it: the join contributes the
+handles the answer was **read from**, so the firing's justification names them, the
+conclusion is withdrawn when any of them goes, and placement sees where they live.
+Both also need a trigger the predicate-keyed index cannot give — the arriving sentence
+need not unify with the antecedent it enabled — so both re-join their rules in full and
+drop them from the trigger set. The deferred (evaluable) path does neither and correctly
+does not try: `(lessThan 1 2)` is a function of the bindings, where an entailed or
+inherited claim is a function of what is stored.
+
 **Recursion guard:** a derived datum carries a depth (`1 + max` antecedent
 depth); a derivation past `:max-depth` (default 64) is skipped and the run flagged
 `:truncated?`, with `:max-derivations` as a hard backstop. Re-deriving an existing
@@ -109,16 +122,17 @@ two measurements bracket it. On the grandparent load (`lein bench-forward`, a 2-
 and a 3-join over a sparse random parent graph) the two paths are level from n=2000
 up, both flat at ~500µs/fact with identical derived counts and RAM — the argument
 roots already answer what the alpha memories would. On the OpenRuleBench join pyramid
-the alpha memories are ahead: 16.80s against 21.31s at 1k, and 434.7s against 551.1s
-at 10k on the field bench, both on the identical answer set. Matching is 8–12% of that
-run (the rest is placement), which is the ceiling on what any matcher can move there.
+(`vaelii.bench.pyramid` at join.1k, C2, six interleaved runs a side) the alpha memories
+hold a thin lead on the identical answer set: 11.8s against 12.5s. Matching is ~12% of
+that run (the rest is placement), which is the ceiling on what any matcher moves there.
 
 **One seam, one novelty.** The only thing the network changes is *which stored facts a
 non-trigger antecedent finds*. Forward chaining looks them up through a dynamic
 `chain/*matcher*`, whose default is `res/match-pattern` (the reference path,
 unchanged). `rete` binds it to a matcher that returns the **identical set** —
 `rete-match-pattern` mirrors `match-pattern`/`raw-match`/`match-one` line for line
-(belief filter via `jtms/in?`, polarity, the symmetric mirror, unary subtype fan-out,
+(belief filter via `jtms/in?`, polarity, the symmetric mirror, sub-predicate fan-out at
+every arity,
 the `?ctx` context binding), differing only in the candidate *source*: a RAM bucket (a
 superset of the trie hits) filtered by the identical `unify`. So the agenda, the trigger
 match (`match1`), context placement, `exceptWhen` blocking, the definitional checks,
@@ -146,18 +160,61 @@ path. It is **off by default** (the reference matcher is the root of `chain/*mat
 There is no **beta network**: TREAT re-joins from the alpha memories on every firing,
 so a repeated multi-way join is recomputed rather than cached.
 
-## What a run pays per witness (`observe/*handle-cache*`)
+## What a run pays per witness (`chain/*agenda-arrivals*`)
 
 A conclusion reached k ways costs k **firings**, and the cost of a firing is not the
-join — it is what happens after one. Measured on the OpenRuleBench join pyramid at 1k
-(the field bench's W4 cell: five base relations of 1,000 pairs, four rules, 65,236
-derived facts), one run made **884,379** placement attempts and stored **428,900**
-justifications — 6.6 per derived fact, and 13.6 attempts per fact, because a
-two-antecedent rule is triggered from *both* sides and the second arrival re-derives
-what the first already did. Of those attempts 51.5% were exact duplicates, rejected by
-`jtms/has-justification?`.
+join — it is what happens after one: placement, the definitional checks, the JTMS node,
+the justification. So a firing is worth generating once. Measured on the OpenRuleBench
+join pyramid at 1k (the field bench's W4 cell: five base relations of 1,000 pairs, four
+rules, 65,236 derived facts), one run stores **428,900** justifications, 6.6 per derived
+fact — one per distinct witness, which is what a JTMS is for: a conclusion with k
+justifications survives the retraction of any one of them.
 
-Two of those per-witness costs are now paid once.
+**One firing per combination** (`chain/*agenda-arrivals*`). A rule
+`a(x,y) ← b1(x,z), b2(z,y)` is triggered by its `b1` datum at position 0 and by its `b2`
+datum at position 1, and both enumerate the same pair — the second runs the whole join,
+rebuilds the same conclusion, resolves the same placement contexts, and is thrown away
+by `jtms/has-justification?`. `chain/chain` therefore stamps each datum with the
+position at which it joined the agenda, and `complete-antecedents` admits at the other
+antecedents only facts that arrived **no later than the trigger**, so every satisfying
+combination is enumerated by the trigger holding the latest arrival among its facts and
+by no other. Attempts fall from 884,379 to 462,150 at 1k (duplicates 51.5% → 7.2%), for
+the identical 428,900 justifications: 13.4s against 10.2s on the W4 cell, six
+interleaved runs a side.
+
+This **decides work, not belief.** The firing that survives is the firing the other
+trigger would have made — same bindings, same antecedent set, same justification — so
+the derived set and its supports are the same either way, and nothing here is read when
+belief is computed. `chain/*suppress-duplicate-firings*` bound **false** enumerates
+every trigger, which is the reference `witness_order_test` and `rete_oracle_test`'s
+third oracle compare against, and `vaelii.bench.pyramid`'s `-nosup` modes measure.
+
+The order is the run's **arrival** order and not the creation order the handles carry,
+because a datum can be put *back* on the agenda with an old handle: a fact revived from
+OUT, a fact newly matchable under a `genl` edge the run itself derived
+(`special/subsumption-seeds`), a seed list in whatever order `jtms/in-datums` produced.
+Stamped on arrival, such a datum sorts after the partner already processed and so is the
+one that enumerates the pair. Four things then decline the filter outright, each because
+a firing there is enumerable at one trigger and not at the other:
+
+- **A handle the run never enqueued** has no arrival — the equality twins
+  `special/derive-functional-equalities` places, and every join outside a run.
+- **A disbelieved trigger.** A datum triggers on `res/match1`, a plain unify; the join
+  finds facts through `*matcher*`, which follows belief. So a spelling superseded by an
+  equality merge still fires its rules while no other trigger's join can find it.
+- **A mirrored antecedent** — a binary literal whose predicate is `symmetric`. The join
+  probes both argument orders (`res/raw-match`) where the trigger unify does not, so a
+  mirrored hit is a firing the join can make and the arriving datum cannot.
+- **A qualitative antecedent**, whose handles are the support of a network entailment
+  rather than the fact that satisfied the position, and `rejoin-qualitative`, which
+  re-joins over the pairs that moved rather than at a trigger position at all.
+
+A `<=` at every position rather than a `<` after the trigger admits one combination
+twice, the **self-join** where one fact satisfies two positions of the same rule and
+ties with itself; both of its triggers build the identical justification and the dedup
+rejects the second.
+
+Two further per-witness costs are paid once a run rather than once a witness.
 
 **The stored-handle cache.** `place-conclusion` opens by asking whether its conclusion
 is already stored (`kb/find-sentex-handle`), which canonicalizes the sentence and walks
@@ -179,19 +236,25 @@ is a positive memo over that lookup, bound for the length of a run by `chain/cha
   and a stamp mismatch empties the map. Nothing else in a sentex's key is a function of
   the KB, so nothing else can go stale.
 
-**Justification dedup without allocation.** `has-justification?` asks whether a
-conclusion already rests on exactly these antecedents, and it asks once per witness
-against every justification held so far — Θ(k²) comparisons per conclusion. It tests
-mutual containment by index rather than building two hash sets, which is the same
-question over the two-to-five handles an antecedent list actually holds, and allocates
-nothing to answer it.
+**Justification dedup, indexed for the length of a run.** `has-justification?` asks
+whether a conclusion already rests on exactly these antecedents, and a conclusion
+re-derived by k witnesses is asked once per witness. The reference answer scans every
+justification the conclusion already holds — Θ(k²) `same-antecedents?` comparisons
+apiece, testing mutual containment by index rather than building two hash sets, which
+allocates nothing and is a large line in the W4 profile (~430k firings over ~66k
+conclusions at 1k). `jtms/*dedup-cache*`, which `chain/chain` binds for the length of a
+run, builds each conclusion's key set from `-supports` on the first ask and answers
+every later one in a single hash probe.
 
-Together these are worth **1.51×** on W4 at 1k (27.4s against 18.2s, 420µs against 279µs
-per derived fact) with the derived set unchanged. What remains is structural rather than
-incidental: the dedup scan is ~25% of a run, and it is there because the engine
-keeps one justification per witness. `handle_cache_test` is the gate on both — the
-cache's transparency, its three invalidation cases, and a join pyramid checked for
-exactly one justification per distinct witness.
+That cache is one of three fast paths on the placement path, with the `ensure-node`
+no-op skip and the single-context placement answer; `observe/*chain-fast-paths*` is the
+one switch over all three, and binding it **false** runs the reference paths instead.
+Each is a pure cost decision that computes exactly what its reference computes, which is
+what `chain_fast_paths_test` compares and what `vaelii.bench.pyramid`'s `-ref` modes
+measure. `handle_cache_test` is the gate on the handle cache — its transparency, its
+three invalidation cases, and a join pyramid checked for exactly one justification per
+distinct witness. The two switches are independent, and the W4 fixpoint is
+content-identical under all four settings of the pair.
 
 ## Predicate subsumption in matching
 
@@ -429,8 +492,8 @@ awkward anywhere lazy — a thread binding does not survive a lazily realized se
 
 ## The node engine (`vaelii.impl.inference`)
 
-The other two chainers are **path**-structured — one recurses down a tree, the other
-walks a goal stack. This one's state is a set of **nodes** ordered by cost, where a node
+The other chainer is **path**-structured: `res/prove` / `prove-from` walks an explicit
+goal stack. This one's state is a set of **nodes** ordered by cost, where a node
 is an entire conjunction plus everything accumulated to reach it, and expanding one is a
 single rewrite:
 
@@ -455,8 +518,8 @@ Three things it does differently, each because a node has no rule frame to hide 
   across the whole conjunction. A rule is numbered **past** the node's variables before
   anything is unified, which makes the two namespaces disjoint by construction — a stored
   rule is spelled the same way, so without that step every rule would collide with every
-  node and with every other rule. The path-structured chainers thread one namespace down
-  a whole derivation and so need `res/freshen-rule` to rename instances apart; this one
+  node and with every other rule. The path-structured chainer threads one namespace down
+  a whole derivation and so needs `res/freshen-rule` to rename instances apart; this one
   does not, and does not use it.
 - **A guard is asked at the node's own solve**, which is the moment the argument is
   complete. `prove` reaches that moment by pushing a marker behind the antecedents; a
@@ -481,17 +544,25 @@ because one conjunction can be asked **on behalf of different answers** — one 
 set.
 
 The price of a namespace per node is that nothing crosses between two of them for free.
-Each node carries `:to-parent`, one rewrite's worth of renaming, and `:to-query`, the
-same chain composed back to the root. A solution is renamed through `:to-query` before it
-is reported; an inherited guard is lifted through `:to-parent` before it is asked. Both
-are `sentex/rename-vars`, applied in **one pass** — these maps are permutations, and
-canonicalizing a query that already uses the canonical names, crossed over, yields
-`{?var0 ?var1, ?var1 ?var0}`, which the chasing `res/substitute` would follow forever
-(it raises `StackOverflowError`, which `canonical_vars_test` pins). A renaming and a
-substitution look alike and cannot share a function.
+Each node carries `:answer-terms` — the asker's variable to the term it stands for in
+*this* node's numbering — and every rewrite **pushes** that map forward (`push-terms`):
+each term is substituted through the head unifier, then renamed into the child's
+canonical numbering. A **term** map rather than a variable map, because a rewrite can
+*ground* what the asker asked about — unifying `(flies ?var0)` against a rule head for
+the goal `(flies Robin)` leaves a child conjunction with no variable in it — and a map
+carrying only the surviving variables would drop the answer at exactly the rewrite that
+produced it. A solution is read out by resolving those terms against it
+(`resolve-terms`); each pending guard carries a map of its own rule's names, pushed by
+the same call and resolved the same way when the guard is asked.
+
+The renaming half is `sentex/rename-vars`, applied in **one pass** — these maps are
+permutations, and canonicalizing a query that already uses the canonical names, crossed
+over, yields `{?var0 ?var1, ?var1 ?var0}`, which the chasing `res/substitute` would
+follow forever (it raises `StackOverflowError`, which `canonical_vars_test` pins). A
+renaming and a substitution look alike and cannot share a function.
 
 Answer projection falls out of this rather than being enforced: a rule's own variables
-are named by nothing above the rewrite that made them, so `:to-query` has no word for
+are named by nothing above the rewrite that made them, so `:answer-terms` has no key for
 them and they are dropped on the way up. There is no basis to carry and nothing to
 exclude by name. The unifier binds *our* variable to the rule's (`subsuming-unify` tests
 the goal side first), which leaves the rule's variable carrying our identity — so each
@@ -684,16 +755,17 @@ both need `(parentOf Tom ?y)` each answer it in full, and a diamond-shaped rule 
 for the shared literal once per path through the diamond. So `matches-visible` answers
 are cached per KB, keyed by the literal itself.
 
-**The key** is `[canonical-literal context hierarchical? arg-root?]`. Canonical means
+**The key** is `[canonical-literal context hierarchical? arg-root? structural?]`. Canonical means
 α-renamed to `?0 ?1 …` in first-occurrence order, **repetition-preserving**, with a map
 back to the caller's names — so `(P ?x)` and `(P ?y)` share an entry while `(P ?x ?x)`
 and `(P ?x ?y)` do not. Neither existing renaming would do: `res/goal-key` collapses
 every variable to `?`, which is conservative enough for a loop guard and unsound here
 (the second goal's answers include pairs the first excludes), and `sentex/alpha-rename`
 builds an *index* key, where each `_` is a fresh wildcard — but `unify` binds `_` and
-chases it, so `(P _ _)` fails against `(P A B)` exactly as `(P ?x ?x)` does. The two
+chases it, so `(P _ _)` fails against `(P A B)` exactly as `(P ?x ?x)` does. All three
 retrieval-strategy vars are in the key rather than assumed away, so a cache cannot make
-`retrieval_completeness_test` compare one path's answers against themselves.
+`retrieval_completeness_test` or `structural_index_test`'s differential oracle compare
+one path's answers against themselves.
 
 Answers are stored in canonical space and renamed on the way out — **values as well as
 keys**, since a literal whose two variables unify carries a canonical name in the value
@@ -935,6 +1007,18 @@ registry rather than growing a second evaluator that could drift from it:
   as arithmetic rather than as knowledge asserted somewhere, so it constrains
   `maximal-common-descendant-contexts` not at all, and the conclusion is placed by the
   real facts and the rule.
+- **The two sides ask at different contexts, and for two provers that is a different
+  answer.** `chain/solve-deferred` asks the registry at the wildcard `'?ctx` — nothing
+  arithmetic could fail to be visible — while `res/solve-deferred` passes the caller's
+  own context. For `evaluate` and the comparisons that is the same answer either way,
+  since neither reads anything stored. It is not the same answer for the two deferred
+  provers that *do* read the KB: `DifferentProver` reads the equality partition, so a
+  forward join sees every merge rather than the ones the conclusion's placement context
+  sees, and `QuantityProver` reads `dimensionOf` / `conversionFactor`, so it sees every
+  microtheory's unit table rather than one cone's. There is no context-scoped forward
+  path for either. A KB that needs the two to agree states its equality and its unit
+  declarations in a context every reader sees ([quantity.md](quantity.md),
+  [equality.md](equality.md)).
 - **Its inputs must be bound when the join reaches it.** `sentex/canonicalize-rule`
   holds deferred literals to the end of the canonical antecedent order, which
   guarantees it for any rule whose deferred variables some generator binds. A literal
@@ -989,11 +1073,14 @@ prover whose sources I read* — which is a claim it is competent to make about 
 engine then asks the question no single prover can: is there a source that **none** of
 them reads (`provers/shadowing-channels`)? If the channel set is non-empty, nobody runs
 alone whatever they claimed, and the cheapest claimant is chosen by `est-bindings` only
-once it is empty. Putting the guard in the engine rather than in each prover is what makes
-it hold — a new channel is one edit instead of one per claimant, and a prover registered
-through `add-prover` is guarded without its author knowing the mechanism exists. It is
-safe in one direction only, and that is the safe one: it can move a goal from one prover
-to the union and never the reverse, and the union includes the claimant.
+once it is empty — each claimant's estimate taken **once** and carried, since a `sort-by`
+keyfn is re-evaluated on every comparison and an estimate here is a real count over the
+taxonomy rather than a constant. Putting the guard in the engine rather than in each
+prover is what makes it hold — a new channel is one edit instead of one per claimant, and
+a prover registered through `add-prover` is guarded without its author knowing the
+mechanism exists. It is safe in one direction only, and that is the safe one: it can move
+a goal from one prover to the union and never the reverse, and the union includes the
+claimant.
 
 `cost` is a tier keyword, not a millisecond count — one question, is the answer
 something you **look up**, **compute**, or **search for**: `:lookup` < `:compute` <
@@ -1009,7 +1096,18 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   cached closures (`genls`/`specs`, `context-up`/`context-down`). **Complete (100)** — the
   closure is authoritative, so `(genl dog ?y)` returns the full transitive set,
   and the engine skips facts/rules for it.
-- **DisjointnessProver** — `disjoint` goals via `taxonomy/disjoint?`. Complete.
+- **DisjointnessProver** — `disjoint` goals. `taxonomy/disjoint?` decides a ground one.
+  An **open** one is enumerated from the declarations rather than from the vocabulary:
+  a `(disjoint x y)` separates two subtrees and convicts `specs(x)` against `specs(y)`,
+  and inheritance through `genl` is the only way a candidate is reached at all — so
+  every answer is a subtype of a type some *visible* declaration names.
+  `taxonomy/separating-partners` is that set for one ground argument and
+  `taxonomy/separating-pairs` is it for none, which bounds the two-variable goal
+  (a shape a user types by accident) by the declaration count instead of by the square
+  of the type count. `est-bindings` is sized the same way — the convicted closures
+  summed, an upper bound on the answer that costs a cached closure read per partner.
+  **Complete (100)**: the caches are built from the stored declarations and follow
+  belief, so they hold what a fact or a forward rule could say.
 - **Generic relation provers** — from predicate metadata: `TransitivePredicateProver`
   (transitive closure over facts for a declared-`transitive` predicate; `:compute`, **70**
   — it reads the stored facts and the rule conclusions already among them, but not a rule
@@ -1171,7 +1269,8 @@ reasoning. Raw introspection still sees everything.
 
 ## Where the machinery stops
 
-- **The `out` slot on a justification is modelled and carried, and nothing reads it.**
+- **The `out` slot on a justification is modelled and carried, and nothing populates it**
+  — `jtms/valid?` reads it on every relabel and finds it empty, so the check is vacuous.
   Negation as failure reaches a rule antecedent by a different road — `chain/naf-blocks?`
   evaluates an `unknown` antecedent at firing time in `derive-conclusion`, and the
   re-check index brings the rule back when a later fact would change the answer. So a

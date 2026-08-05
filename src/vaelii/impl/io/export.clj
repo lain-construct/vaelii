@@ -202,9 +202,14 @@
   (p/index-entries index))
 
 (defn- provenance-frames
-  "The `[handle provenance-map]` frames for the sentex handles that have one.
-  Provenance is optional per handle and belief never reads it, so this is a filter
-  over the same walk rather than a stream the store could enumerate."
+  "The `[handle provenance-map]` frames for the handles that have one.  Provenance is
+  optional per handle and belief never reads it, so this is a filter over the same walk
+  rather than a stream the store could enumerate.
+
+  **Justification handles as well as sentex ones.**  `core/add-provenance` writes under
+  whatever handle it is given, the provenance store is keyed by handle rather than by
+  kind, and the two kinds draw from one counter — so a walk over the sentexes alone
+  drops every stamp a caller put on a firing."
   [store ids]
   (keep (fn [id] (when-let [prov (p/get-provenance store id)] [id prov])) ids))
 
@@ -348,9 +353,10 @@
                              (assoc frame-opts :on-chunk (chunk :justifications (count j-set))))
          ;; `seq` realizes only as far as the first handle carrying provenance, so a KB
          ;; with none writes no file rather than an empty one.  The total is unknown
-         ;; until the walk ends — a filter over the sentex handles, not a stream with a
+         ;; until the walk ends — a filter over the record handles, not a stream with a
          ;; count of its own — so the phase reports progress against nil.
-         prov (when provenance? (seq (provenance-frames records sx-ids)))
+         prov (when provenance?
+                (seq (provenance-frames records (concat sx-ids j-ids))))
          p-n  (if prov
                 (write-frames! (io/file d provenance-file) prov
                                (assoc frame-opts :on-chunk (chunk :provenance nil)))

@@ -46,9 +46,11 @@ on the same binding resolves to that one. The arguments are what key determinism
 - **rule-handle** distinguishes one rule's existentials from another's.
 - **existential-index** distinguishes `?y` from `?z` in `(exists [?y ?z] …)`.
 - **frontier-values** — the bound values of the consequent variables the antecedents
-  supply — distinguish `(person Tom)` from `(person Sue)`. The frontier is the same for
-  every conjunct of one head, so `(exists ?y (and (Q ?x ?y) (R ?y)))` gives `(Q Tom K)`
-  and `(R K)` the **same** `K`.
+  supply, less any a post-join literal *outputs* (an aggregate's `?n` is computed from
+  the frontier rather than one of its values, so keying on it would mint a fresh
+  individual per count) — distinguish `(person Tom)` from `(person Sue)`. The frontier is
+  the same for every conjunct of one head, so `(exists ?y (and (Q ?x ?y) (R ?y)))` gives
+  `(Q Tom K)` and `(R K)` the **same** `K`.
 
 A single reifiable function `SkolemFn` carries all this in its arguments, so one lazy
 `(reifiableFunction SkolemFn)` declaration — asserted when the first existential-head

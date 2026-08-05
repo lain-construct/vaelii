@@ -9,7 +9,7 @@ name: test
 # same eight runs locally, and anything touching storage, the index, records or
 # recovery owes it one before it lands.
 #
-# The `:default` selector, matching `lein gate`. The eighteen `^:slow` tests
+# The `:default` selector, matching `lein gate`. The twenty `^:slow` tests
 # carry 118k of the suite's 238k assertions and take a memory run from 219s to
 # 317s; deferring them here is only honest because deep.yml runs `:all`. If
 # that job is ever removed, this one has to become `:all`.
@@ -23,6 +23,9 @@ name: test
 # Hermetic: no external service, no network call, and no LLM. `^:llm` is the one
 # mark `:all` does not select, and reaching a provider additionally needs
 # VAELII_LLM_LIVE=1, which is not set here and must never be.
+#
+# Every `uses:` below is a commit SHA with the version in a trailing comment;
+# lint.yml's header says why a tag is not good enough here.
 on:
   push:
     branches: [main, develop]
@@ -45,14 +48,17 @@ concurrency:
 jobs:
   suite:
     # The check name is derived from this `name:`, so renaming either value
-    # silently drops it from any branch protection that names it.
+    # silently drops it from any branch protection that names it. Branch
+    # protection stores the JOB name, so the contexts are the bare `memory` and
+    # `disk` — the `test / memory` spelling is the pull-request UI's, and typing
+    # that into a required-checks list names a check that never reports.
     #
-    # DO NOT make `test / memory` or `test / disk` a required check while the
-    # released copy of this workflow carries a `paths-ignore` for docs/ and
-    # **.md. A workflow skipped by a path filter never reports at all — not as
-    # passed, not as skipped — so a required check that names it leaves every
-    # doc-only pull request unmergeable forever. Require `lint` instead: it runs
-    # on every change by design, and it holds the doc gates. If the suite must be
+    # DO NOT make `memory` or `disk` a required check while the released copy of
+    # this workflow carries a `paths-ignore` for docs/ and **.md. A workflow
+    # skipped by a path filter never reports at all — not as passed, not as
+    # skipped — so a required check that names it leaves every doc-only pull
+    # request unmergeable forever. Require `lint` instead: it runs on every
+    # change by design, and it holds the doc gates. If the suite must be
     # required too, drop the paths-ignore first and let it run and pass cheaply.
     name: ${{ matrix.backend }}
     runs-on: ubuntu-latest
@@ -67,23 +73,23 @@ jobs:
     steps:
       # No credentials left in .git/config: nothing here pushes, and a token
       # sitting in the workspace is reachable by anything the build runs.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Leiningen
-        uses: DeLaGuardo/setup-clojure@13.6.1   # bump if this tag 404s
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d  # 13.6.1
         with:
-          lein: 2.12.0
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
 
       - name: Cache Maven deps
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.m2
           # runner OS and JDK in the key: the same project.clj resolves different
@@ -103,23 +109,142 @@ jobs:
       # scratch directory of its own; a RAM-only run reads no directory and is
       # given no `-D` at all. Same shape as scripts/test-backends.sh, which is
       # the local spelling of this job.
+      #
+      # `tee` so the run streams into the job log AND leaves a file for the
+      # upload below — `lein test` writes no log of its own (`lein gate` is what
+      # fills target/gate/, and this job does not run it). `set -o pipefail` is
+      # what keeps the pipe honest: without it the step's status is `tee`'s,
+      # which is always 0, so a red suite would report green.
       - name: Run the suite (${{ matrix.backend }})
+        id: suite
         env:
           VAELII_TEST_BACKEND: ${{ matrix.backend }}
         run: |
+          set -o pipefail
           if [ "${{ matrix.backend }}" = "disk" ]; then
             export JVM_OPTS="-Dvaelii.disk.dir=$RUNNER_TEMP/vaelii-disk"
           fi
-          lein test
+          mkdir -p target/ci
+          lein test 2>&1 | tee "target/ci/test-${{ matrix.backend }}.log"
 
-      # The logs are the answer to "why did it fail", and a red run is exactly
-      # when nobody can reproduce it locally. `if: failure()` so a green run
-      # uploads nothing.
+      # The log is the answer to "why did it fail", and a red run is exactly when
+      # nobody can reproduce it locally. `if: failure()` so a green run uploads
+      # nothing; `if-no-files-found: error` because an empty artifact answers
+      # nothing and reads as if it had — the step above writes the file, so its
+      # absence is a defect in this job rather than a normal outcome.
+      #
+      # Conditioned on the SUITE step rather than on the job, so a failure in
+      # checkout or setup — which never reaches the log — skips the upload
+      # instead of failing it a second time for a file that was never written.
       - name: Upload failure logs
-        if: failure()
-        uses: actions/upload-artifact@v5
+        if: failure() && steps.suite.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: test-${{ matrix.backend }}-logs
-          path: target/gate/
-          if-no-files-found: ignore
+          path: target/ci/
+          if-no-files-found: error
+          retention-days: 7
+
+  # The suite again, with an ANSWER SET SOLVER on the box. Without one, eight
+  # test namespaces skip their bodies and still report as passing — every solver
+  # test is wrapped in `(when asp? …)`, so a run with no solver is green and
+  # asserts nothing about the subsystem. The two legs above are exactly that run.
+  # Measured: 120,261 assertions locally against 119,963 on a runner, same test
+  # count, 298 assertions short, and the difference is entirely this.
+  #
+  # `clasp` and not `clingo`, and the reason is a supply problem rather than a
+  # preference — both backends deserve a leg, and only one of them can have a
+  # cheap one. clasp is a subprocess taking ASPIF on stdin
+  # (`vaelii.impl.asp.clasp`), found by name on PATH, so `apt-get install clasp`
+  # is the whole story: it is in Ubuntu universe at 3.3.5. clingo is loaded
+  # in-process through raw JNA and needs `libclingo.so` on `jna.library.path`
+  # (the `+with-clingo` profile, `VAELII_CLINGO_LIB`), and as of 2026-08-04 there
+  # is **no Ubuntu package for it at any suite** — neither `clingo` nor
+  # `libclingo` — and the `clingo` pip wheel ships `_clingo.cpython-*.so`, a
+  # CPython extension module rather than the C library JNA would load. So the
+  # routes left are building from source or conda-forge, both of which are more
+  # than a step in this file. Checked, not assumed; do not retry `apt-get install
+  # clingo` on the strength of it sounding plausible.
+  #
+  # The consequence for this job: it covers the ASPIF path, the subprocess
+  # protocol and every solver-gated test, and it does **not** cover the JNA
+  # binding. That gap is real and is named in BEFORE_RELEASE_TODO §D.
+  #
+  # `VAELII_ASP_SOLVER=clasp` pins the routing. In AUTO mode the engine picks
+  # clingo for small programs and clasp for large ones, so an unpinned leg would
+  # silently change what it tests the day a runner image ships libclingo.
+  #
+  # The whole `:default` selector, not a namespace list. Eight namespaces gate on
+  # the solver today — the three `asp_*`, plus labeling, solve-context, and the
+  # constraint / sudoku / tsp solve tests — and a ninth added later would silently
+  # go uncovered by a list. Running everything costs a second JVM boot and is
+  # robust to that.
+  asp:
+    name: asp
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d  # 13.6.1
+        with:
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
+
+      - name: Cache Maven deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.m2
+          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            m2-${{ runner.os }}-jdk21-
+
+      # universe, enabled by default on ubuntu-latest.
+      - name: Install clasp
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clasp
+
+      # THE STEP THIS JOB EXISTS FOR. Installing a solver and running the suite
+      # proves nothing on its own: if the install half-fails, or the binary is not
+      # on the PATH the JVM sees, `clasp/available?` is false, every solver test
+      # skips exactly as it does on the other two legs, and this job goes green
+      # having tested less than the job it was added to supplement.
+      #
+      # Asked of `clasp/available?` and not `solver/available?`, which is the
+      # difference between checking that A solver is present and checking that
+      # THIS one is: `solver/available?` is satisfied by whichever backend
+      # answered, so it would pass on a runner that grew a libclingo and lost its
+      # clasp. `clasp --version` runs first, to tell a missing package apart from
+      # a package the JVM cannot see.
+      - name: Assert clasp is reachable
+        run: |
+          clasp --version
+          lein run -m clojure.main -e "(require '[vaelii.impl.asp.clasp :as clasp]) (when-not (clasp/available?) (System/exit 1))"
+          echo "clasp/available? is true"
+
+      - name: Run the suite (with clasp)
+        id: suite
+        env:
+          VAELII_ASP_SOLVER: clasp
+        run: |
+          set -o pipefail
+          mkdir -p target/ci
+          lein test 2>&1 | tee target/ci/test-asp.log
+
+      - name: Upload failure logs
+        if: failure() && steps.suite.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-asp-logs
+          path: target/ci/
+          if-no-files-found: error
           retention-days: 7

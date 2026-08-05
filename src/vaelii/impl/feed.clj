@@ -103,11 +103,13 @@
   is the order `deliver!` calls in."
   [kb entry]
   (when-let [a (:feed kb)]
-    (let [token (:next @a)]
-      (swap! a (fn [s] (-> s
-                           (assoc :next (inc token))
-                           (update :listeners conj (assoc entry :token token)))))
-      token)))
+    ;; the token is read *inside* the swap, so two registrations cannot be handed the
+    ;; same one — which would make one `unregister!` drop both listeners
+    (let [[old] (swap-vals! a (fn [s] (-> s
+                                          (update :next inc)
+                                          (update :listeners conj
+                                                  (assoc entry :token (:next s))))))]
+      (:next old))))
 
 (defn unregister!
   "Drop the listener `token` names; true if there was one.  Idempotent — a token
@@ -171,20 +173,27 @@
   nest, which is what makes a throwing or writing listener a bounded problem."
   [kb]
   (when-let [a (:feed kb)]
-    (let [{:keys [delivering? region was-in]} @a]
-      (when (and (not delivering?) (seq region))
-        (swap! a assoc :region #{} :was-in #{} :delivering? true)
-        {:region region :was-in was-in}))))
+    ;; `swap-vals!`, not read-then-`swap!`: the test and the clear are one CAS, and the
+    ;; old value it hands back is exactly what that CAS took.  Read separately, a
+    ;; `note-region!` landing between the deref and the swap is cleared without ever
+    ;; being delivered — a change notification lost rather than deferred.
+    (let [[old] (swap-vals! a (fn [{:keys [delivering? region] :as s}]
+                                (if (and (not delivering?) (seq region))
+                                  (assoc s :region #{} :was-in #{} :delivering? true)
+                                  s)))]
+      (when (and (not (:delivering? old)) (seq (:region old)))
+        {:region (:region old) :was-in (:was-in old)}))))
 
 (defn- take-accumulated!
   "Take whatever accumulated since the last take — the delivery loop's later rounds,
   where the claim is already held.  Nil when nothing did, which is what ends the loop."
   [kb]
+  ;; one CAS, for `claim!`'s reason
   (let [a (:feed kb)
-        {:keys [region was-in]} @a]
-    (when (seq region)
-      (swap! a assoc :region #{} :was-in #{})
-      {:region region :was-in was-in})))
+        [old] (swap-vals! a (fn [s] (cond-> s (seq (:region s))
+                                            (assoc :region #{} :was-in #{}))))]
+    (when (seq (:region old))
+      {:region (:region old) :was-in (:was-in old)})))
 
 (defn- release! [kb] (swap! (:feed kb) assoc :delivering? false) nil)
 

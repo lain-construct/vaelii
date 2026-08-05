@@ -37,24 +37,29 @@
   content stored long before it is deliberately left to the exposure pass — so the two
   discoveries answer different questions and comparing them would prove nothing.
 
-  **Conviction has to be symmetric for the claim to hold**, and the streams here are
-  built so it is.  The discovery checks the sentexes the settle *moved*; where each side
-  of a pair convicts the other that is enough, because whichever side arrives second
-  finds the pair.  Two shapes convict one-way only, and both are excluded here because
-  the incremental path is order-dependent on them for reasons that have nothing to do
-  with the three narrowings above — see docs/nmtms.md, \"Where conviction is one-sided\":
+  **Conviction has to be symmetric for the claim to hold.**  The discovery checks the
+  sentexes the settle *moved*; where each side of a pair convicts the other that is
+  enough, because whichever side arrives second finds the pair.  One shape convicts
+  one-way only and is excluded here, because the incremental path is order-dependent on
+  it for a reason that has nothing to do with the three narrowings above — see
+  docs/nmtms.md, \"Where conviction is one-sided\":
 
-  * **across a visibility edge** — `(animal X)` in a general microtheory and `(plant X)`
-    in one that sees it.  Only the seeing side's check can see both.  So each term's
-    content is written in exactly one context here.
   * **through argument preservation** — `(outranks animal cat)` denies the more specific
     `(outranks cat reptile)`, and preservation reads a goal's arguments upwards, so the
     specific claim asks about the general one and never the reverse.  So no
     `argPreserving` declaration is made here.
 
-  Both are open questions about *which* sentexes a settle owes a re-check, not about
-  whether the narrowings are sound, and the exhaustive reference does not share either —
-  a stream generating them would measure the open question instead of the three claims.
+  That is an open question about *which* sentexes a settle owes a re-check, not about
+  whether the narrowings are sound, and the exhaustive reference does not share it — a
+  stream generating it would measure the open question instead of the three claims.
+
+  The other one-sided shape, a pair **across a visibility edge**, is covered rather than
+  excluded: a term's content is written in either context here, so `(animal X)` in the
+  general microtheory beside `(plant X)` in the one that sees it is an ordinary draw.
+  Both paths ask each candidate's question from every context that can see a pair it
+  could form (`settle/clash-askers`), so the two agree on it and the stream is what says
+  so — the exhaustive reference reaches the pair from the specific side on every settle,
+  and the incremental one has to reach it from whichever side moved.
 
   **What this reaches, checked by breaking it.**  Disabling either arm of `could-clash?`,
   forgetting the remembered pairs, or skipping the retroactive sweep each turns these
@@ -86,10 +91,10 @@
   '[animal mammal reptile dog cat snake plant])
 
 (def ^:private inds
-  "One block of individuals per context.  A term is only ever written where its block
-  says, so no pair straddles the `genlContext` edge (see the namespace docstring)."
-  {'ClashBaseContext '[CI0 CI1 CI2]
-   'ClashSubContext  '[CI3 CI4 CI5]})
+  "One pool of individuals for both contexts, so a term routinely holds one membership
+  either side of the `genlContext` edge — the pair only `ClashSubContext` can see whole
+  (see the namespace docstring)."
+  '[CI0 CI1 CI2 CI3 CI4 CI5])
 
 (defn- build-ontology!
   "A hierarchy deep enough that a separation closes over several levels, two contexts so
@@ -130,8 +135,7 @@
   the content it convicts."
   [^java.util.Random rng]
   (let [ctx  (nth ctxs (.nextInt rng (count ctxs)))
-        pool (inds ctx)
-        ind  #(nth pool  (.nextInt rng (count pool)))
+        ind  #(nth inds  (.nextInt rng (count inds)))
         typ  #(nth types (.nextInt rng (count types)))
         str8 #(if (zero? (.nextInt rng 3)) {:strength :monotonic} {})]
     (case (.nextInt rng 13)
@@ -264,7 +268,7 @@
             (binding [checks/*arbitrate-constraints?* true]
               (binding [settle/*incremental-clashes* true]  (build-ontology! inc-kb))
               (binding [settle/*incremental-clashes* false] (build-ontology! exh-kb))
-              (let [pool (inds (first ctxs))
+              (let [pool inds
                     ops  (concat
                           ;; a dozen settles' worth of unrelated traffic, so the two
                           ;; memberships are long out of the region by the time the

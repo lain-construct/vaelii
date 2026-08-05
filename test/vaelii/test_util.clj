@@ -182,9 +182,15 @@
   []
   (v/open-kb isolated-space))
 
-(defn clear-kb! [kb]
+(defn clear-kb!
+  "Wipe the stores under a KB the fixtures hand back over and over.  `v/clear!` without
+  the durability daemon's flush, plus the one piece of in-memory state a wipe must take
+  with it: the refusal record is keyed by rule handle and retired when the rule departs,
+  so nothing else drops the entries of rules this call just deleted."
+  [kb]
   (p/clear-records! (:records kb))
-  (p/clear-index!   (:index kb)))
+  (p/clear-index!   (:index kb))
+  (some-> (:refused kb) (reset! {})))
 
 (defn fresh
   "An empty, cleared KB on the shared scratch pair."
@@ -306,15 +312,28 @@
 
 (defn assert-neutral!
   "Retract the test's additions and assert the KB is restored to its baseline
-  sentex/justification sets.  A failure means retraction left residue."
+  sentex/justification sets — **set equality, so both directions are checked**.
+
+  A leak is the obvious failure and the one retraction causes.  A *removal* is the one
+  that hides: a test that retracts a sentex the baseline held leaves the shared `:once`
+  KB short for every test after it in the namespace, and a difference computed only as
+  `now - before` is empty in exactly that case.  So the message names which direction
+  broke, since the two are repaired at opposite ends."
   [kb before-sx before-dd]
   (retract-added! kb before-sx)
-  (let [leak-sx (set/difference (sentex-ids kb) before-sx)
-        leak-dd (set/difference (justification-ids kb) before-dd)]
-    (is (and (empty? leak-sx) (empty? leak-dd))
+  (let [now-sx  (sentex-ids kb)
+        now-dd  (justification-ids kb)
+        leak-sx (set/difference now-sx before-sx)
+        leak-dd (set/difference now-dd before-dd)
+        lost-sx (set/difference before-sx now-sx)
+        lost-dd (set/difference before-dd now-dd)]
+    (is (and (= before-sx now-sx) (= before-dd now-dd))
         (str "KB not restored after teardown — leaked "
-             (count leak-sx) " sentex(es), " (count leak-dd) " justification(s): "
-             (pr-str (mapv #(:sentence (v/sentex kb %)) (take 8 leak-sx))))))
+             (count leak-sx) " sentex(es), " (count leak-dd) " justification(s) "
+             (pr-str (mapv #(:sentence (v/sentex kb %)) (take 8 leak-sx)))
+             "; lost " (count lost-sx) " sentex(es), " (count lost-dd) " justification(s) "
+             ;; a lost sentex has no record left to print, so the handles are the report
+             (pr-str (vec (take 8 lost-sx))))))
   ;; the index's term roster is an absolute invariant, not a delta: it must equal the
   ;; names the surviving records mention.  A term left behind by an incomplete unindex
   ;; shows up here even when the record sets balance.

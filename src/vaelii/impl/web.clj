@@ -833,7 +833,8 @@
 
 (defn- term-index-groups
   "Every stored sentex containing `term`, grouped by the **index** that reaches it,
-  each group carrying its O(1) count: the functor root `[:functor-root]`, the argument-position
+  each group carrying its cheap count (O(1) for the roots, one O(1) read per predicate
+  at the slot for the argument groups): the functor root `[:functor-root]`, the argument-position
   groups `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped
   roots over), the context root `[:context-root]` (when the term is a context), then the
   term-index remainder `[:term-index]` split into rules and deeper nestings.  The roots are a
@@ -1857,10 +1858,10 @@
        (distinct)))
 
 (defn- expandable?
-  "Whether a tree node gets a disclosure control.  `[:argument-root 2 t]` counts the
-  facts holding `t` in second argument position — every `(pred sub t)` among them, and
-  anything else binary that mentions it there — so it is an O(1) *upper* bound on having
-  children.  Wrong only in the safe direction: a node whose second-position facts are
+  "Whether a tree node gets a disclosure control.  `count-with-arg` at position 2
+  counts the facts holding `t` there — summed over the slot roster's predicates, every
+  `(pred sub t)` among them and anything else binary that mentions it there — so it is
+  a cheap *upper* bound on having children.  Wrong only in the safe direction: a node whose second-position facts are
   all something else opens to \"none\", and no real child is ever hidden."
   [kb t]
   (pos? (v/count-with-arg kb 2 t)))
@@ -2423,7 +2424,7 @@
   `query` is lazy and the pattern pins an argument, so this costs the node's own fan-out
   and no more.  A node that fits under the cap is realized whole, and is therefore sorted
   (a stable picture) and counted **exactly**; one that does not is left in index order and
-  the caption's count is the O(1) `[:argument-root]` bound, which spans every binary
+  the caption's count is the cheap `count-with-arg` bound, which spans every binary
   predicate holding the term at that position and is therefore an over-count — so
   `:exact?` travels with it and the caption words it as the bound it is.  The second read
   is paid only where something was actually elided."
@@ -2714,7 +2715,7 @@
 (defn- elision-note
   "How a row says what it left out.  A truncated picture that does not announce itself is
   worse than no picture, and worse here than in a list — a picture reads as complete.  The
-  count is exact where the row was small enough to be read whole, and the O(1) argument-root
+  count is exact where the row was small enough to be read whole, and the argument-root
   bound otherwise, worded as the bound it is rather than passed off as an edge count."
   [what {:keys [shown total exact?]}]
   (when (and total (> total shown))
@@ -4082,9 +4083,14 @@
   "Read a `?q=` / `?ctx=` query param as EDN, or nil when it is not readable.  Every
   route that takes a term or a goal parses through this: the value is whatever a URL
   carried, so `(` is as likely as `(dog Fido)` and an unguarded read throws a 500
-  rather than rendering a page."
+  rather than rendering a page.
+
+  `Throwable`, not `Exception`, for the reason the daemon's reader carries: a deeply
+  nested form overflows the reader's stack with a `StackOverflowError`, which is an
+  `Error` — and one that escapes here is a 500 from Jetty rather than the nil this
+  exists to return.  A URL is long enough to carry the nesting."
   [s]
-  (try (edn/read-string (str s)) (catch Exception _ nil)))
+  (try (edn/read-string (str s)) (catch Throwable _ nil)))
 
 (defn- wrapped-sentence
   "A sentex's editable sentence: the readable sentence (the author's variable names),
@@ -4144,7 +4150,9 @@
   "Parse one edited line to `{:key [sentence context] :entry [sentence context opts?]}`,
   or `{:error <msg>}` — the `:key` is the content used to diff against what is stored."
   [line]
-  (let [v (try (edn/read-string line) (catch Exception e {::bad (.getMessage e)}))]
+  ;; `Throwable` for `->form`'s reason: a nested-enough line is a `StackOverflowError`,
+  ;; and an unreadable line is this function's ordinary answer rather than a 500
+  (let [v (try (edn/read-string line) (catch Throwable e {::bad (.getMessage e)}))]
     (cond
       (and (map? v) (::bad v)) {:error (str "unparseable: " (::bad v) " — " line)}
       (and (vector? v) (<= 2 (count v) 3) (some? (first v)) (some? (second v)))
@@ -4260,8 +4268,10 @@
   [text ctx opts]
   (let [lines (->> (str/split-lines (str text)) (map str/trim) (remove str/blank?))]
     (reduce (fn [acc [i line]]
+              ;; `Throwable` for `->form`'s reason: a nested-enough line overflows the
+              ;; reader's stack, and that line is a problem to report, not a 500
               (let [form (try {:ok (edn/read-string line)}
-                              (catch Exception e {:bad (.getMessage e)}))]
+                              (catch Throwable e {:bad (.getMessage e)}))]
                 (if (:bad form)
                   (update acc :problems conj
                           {:line i :type :unreadable
@@ -4732,9 +4742,32 @@
    :headers {"Content-Type" "text/plain; charset=utf-8"}
    :body    "cross-origin write refused"})
 
+(defn- body-too-large-refusal
+  "The 413 an oversized request body gets.  Plain text for `cross-origin-refusal`'s
+  reason and one more: nothing on the page can send a body this big, so whatever did
+  is not reading our chrome."
+  [_req]
+  {:status  413
+   :headers {"Content-Type" "text/plain; charset=utf-8"}
+   :body    (str "request body exceeds " guard/max-body-bytes " bytes")})
+
+(defonce ^:private ^Object write-monitor
+  ;; Jetty serves the write routes on a thread pool, so two POSTs are two writers, and
+  ;; the storage layer is written on the promise that they are not: `disk/kv.clj`'s
+  ;; `apply-ops!` folds the ops against a `@data` read outside its lock and publishes
+  ;; with a `reset!` outside it too, saying in its own docstring that single-writer is
+  ;; what makes the read-compute-publish race-free.  Interleave two and the WAL holds
+  ;; both frames while the RAM map holds one, so the running index and the one replayed
+  ;; on the next open disagree.  `write-blocked?` does not close this: it asks whether a
+  ;; *loader* is filling the KB, which is a different question from whether another
+  ;; request is writing.  Process-wide rather than per-KB — the operator is one person
+  ;; and the contention is nil, where sharing a store between two catalog entries is not
+  ;; something the monitor could see.  The daemon holds its own (`serve.clj`).
+  (Object.))
+
 (defn- writing
-  "The guard every write to a KB's *content* goes through: the origin check, and then
-  whether this process's one writer is free.
+  "The guard every write to a KB's *content* goes through: the origin check, whether
+  this process's one writer is free, and the monitor that makes it one.
 
   A KB can be read while a loader fills it, which is what makes an arriving corpus
   browsable — but it cannot be *written* while one does.  A store mutation lands
@@ -4769,7 +4802,7 @@
              [:a {:href "/kbs"} "knowledge bases"] " page."])
 
     :else
-    (f)))
+    (locking write-monitor (f))))
 
 (defn- cached
   "Stamp a static asset's answer with the cache policy `dev?` chose.  A miss (nil) is
@@ -5100,6 +5133,11 @@
         (cached (ring/create-resource-handler {:path "/" :root "public"}))
         (ring/create-default-handler)))
       wrap-params
+      ;; Outside `wrap-params`, so it runs first: that middleware slurps a form body
+      ;; itself and has no ceiling, and this server authenticates nobody — an anonymous
+      ;; caller streaming a body is heap it would otherwise spend.  The daemon holds the
+      ;; same limit from the same variable (`guard/max-body-bytes`).
+      (guard/wrap-body-limit body-too-large-refusal)
       ;; every request carries a session token, minted into a cookie the first time.  It
       ;; only *names* a sandbox — nothing is created until something is written there.
       sandbox/wrap-session))
@@ -5323,6 +5361,15 @@
                                 :kb-search-path (catalog/search-path)}
                          (not attach) (assoc :record-store (type (:records kb))
                                              :index-store  (type (:index kb))))})
+    ;; said out loud, as the daemon says it: the browser has write routes and no
+    ;; authentication either, and `--listen` also drops the Host allowlist to `::any`,
+    ;; so the one line naming what a public bind costs belongs on both servers
+    (when-not (= host loopback)
+      (trove/log! {:level :warn :id ::public-bind
+                   :msg (str "browser bound to " host " — its write routes are "
+                             "unauthenticated and the Host allowlist is off; put an "
+                             "authenticating proxy in front")
+                   :data {:host host}}))
     ;; the proposal panel's model, loaded while the reader is still finding a term page
     (warm-model)
     (jetty/run-jetty (with-host (app target) host) {:port port :host host :join? true})))

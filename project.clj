@@ -1,6 +1,6 @@
-(defproject com.vaelii/vaelii "0.2.0"
+(defproject com.vaelii/vaelii "0.3.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
-                flattened count-aware trie index, forward/backward inference,
+                count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
   :url "https://github.com/vaelii/vaelii"
   :license {:name "SSPL-1.0"
@@ -42,7 +42,7 @@
                  [net.java.dev.jna/jna "5.19.1"]
                  ;; the dense and columnar index backends, both off by default
                  ;; (docs/density.md)
-                 [org.roaringbitmap/RoaringBitmap "1.6.18"]
+                 [org.roaringbitmap/RoaringBitmap "1.6.19"]
                  [it.unimi.dsi/fastutil-core "8.5.19"]
                  ;; XZ (LZMA2) for the exporter's `:xz`. nippy brings it transitively;
                  ;; naming it is what makes the codec a promise rather than an accident
@@ -89,7 +89,13 @@
              ;; of a *checkout of vaelii*, beside the `src/` being edited. Source paths
              ;; win today, so it works and hides itself — until local source diverges
              ;; from the release and a stale class answers instead.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.2.0"
+             ;; The snapshot of the version being cut, in step with `defproject`
+             ;; above: the release carve strips the snapshot suffix tree-wide, so
+             ;; this pin ships naming the sibling release that goes out beside it.
+             ;; Naming a *released* coordinate here would resolve from Clojars today
+             ;; and then ship a release pinning the previous one. The sibling is
+             ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.3.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -138,7 +144,7 @@
              ;; field layout rather than estimate it.
              :bench {:source-paths ["bench"]
                      :dependencies [[org.openjdk.jol/jol-core "0.17"]
-                                    [org.roaringbitmap/RoaringBitmap "1.6.18"]
+                                    [org.roaringbitmap/RoaringBitmap "1.6.19"]
                                     [it.unimi.dsi/fastutil-core "8.5.19"]]
                      :jvm-opts ["-Xmx6g" "--add-opens=java.base/java.lang=ALL-UNNAMED"
                                 "-Djdk.attach.allowAttachSelf=true"]}
@@ -181,6 +187,10 @@
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
             "gate"            ["shell" "bash" "scripts/gate.sh"]
+            ;; the suite across JVMs — what the gate's test stage runs.  Memory stores
+            ;; only: a durable half is one lock and three usable space blocks, so the
+            ;; script refuses one rather than sharding into it.
+            "test-parallel"   ["shell" "bash" "scripts/test-parallel.sh"]
             ;; feeds the README deps badge, via scripts/update-badges.sh --deps
             "antq"            ["with-profile" "+antq" "run" "-m" "antq.core" "--skip=pom"]
             ;; the whole suite once per backend — seven record×index pairs plus the

@@ -39,10 +39,10 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 - [storage.md](storage.md) — record + index stores, the protocols, nippy serialization, the single-writer contract.
 - [indexing.md](indexing.md) — the count-aware trie, the secondary roots and retrieval from them, the rule index, the inverted term index.
 - [density.md](density.md) — the dense backends behind those protocols: tiered int postings, the columnar int-token trie, int-keyed roots, and the record-side codec — what each is measured to buy, and what the measurements refuted.
-- [overlay.md](overlay.md) — forks: a private writable overlay over a shared read-only base, so N JVMs share one frozen KB while each keeps its own divergent copy.
+- [overlay.md](overlay.md) — forks: a private writable overlay over a shared read-only base, so any number of forks in one JVM share one frozen KB while each keeps its own divergent copy.
 - [contexts.md](contexts.md) — contexts, the `genlContext` spindle (head / mantle / collector), `ist` reification, justification placement.
 - [taxonomy.md](taxonomy.md) — the `genl` type hierarchy, `isa?`, `disjoint` / `disjointMetatype`.
-- [inherit.md](inherit.md) — argument-position preservation: `(argPreserving P n R)` / `(argPreservingInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, and the `(asymmetric P)` that lets a strict one conflict instead.
+- [inherit.md](inherit.md) — argument-position preservation: `(argPreserving P n R)` / `(argPreservingInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, the `(asymmetric P)` that lets a strict one conflict instead, and how a forward rule fires on an inherited claim by naming what the claim was read from.
 - [argtypes.md](argtypes.md) — `argIsa` / `argGenl` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. Off by default.
 
 ## Inference & belief

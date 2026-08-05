@@ -3,8 +3,9 @@
 (ns vaelii.impl.overlay.kv
   "`OverlayKv` — a composite `KvBackend` layering a private **writable** overlay over a
   shared **read-only** base.  Reads resolve overlay-first and fall through to the base;
-  writes land only in the overlay; the base is never mutated, so N JVMs can share one
-  frozen base index while each keeps its own fork.
+  writes land only in the overlay; the base is never mutated, so several forks share one
+  frozen base index while each keeps its own.  Within one JVM — a durable base's
+  directory holds the exclusive single-writer lock, see `vaelii.impl.overlay.mount`.
 
   This is the index half of the `:overlay` backend (the record half is
   `vaelii.impl.overlay.store`), and it is the whole of it.  `KvIndexStore`
@@ -46,8 +47,8 @@
   trie is a selectivity structure — `plan/order` costs every conjunct off `count-at`, and
   `provers/est-bindings` off the functor root — so a base-blind count would not be a
   wrong answer, it would be a silently wrong *plan* for every query touching inherited
-  content.  `kv-intersect` merges for the same reason: `sentexes-with-args` is one set
-  intersection over the functor and argument roots, and it must see the base's postings
+  content.  `kv-intersect` merges for the same reason: `sentexes-with-args` intersects
+  the predicate-scoped argument roots, and it must see the base's postings
   or a fork would stop finding its own inherited facts.
 
   Merging is not the same as *building* the merged set, and the difference is the cost of
@@ -239,8 +240,9 @@
   (kv-member? [_ k m] (locking lock (merged-member? overlay base k m)))
   (kv-count   [_ k]   (locking lock (merged-count overlay base k)))
 
-  ;; the merged intersection: `sentexes-with-args` narrows on the functor root and every
-  ;; named argument root at once, and each of those roots may be part base and part fork.
+  ;; the merged intersection: `sentexes-with-args` narrows on every named
+  ;; predicate-scoped argument root at once, and each of those roots may be part base
+  ;; and part fork.
   ;;
   ;; When *every* key is inherited the merged view is the base's view key for key, so the
   ;; whole narrowing goes to the base and is done in whatever representation it holds —
@@ -268,7 +270,7 @@
                 :add-to-set      (kv/kv-add-to-set this k a)
                 :remove-from-set (kv/kv-remove-from-set this k a)
                 (throw (ex-info (str "unknown overlay batch op " (pr-str op))
-                                {:op op :key k}))))
+                                {:type :unknown-op :op op :key k}))))
             ops)))
 
   ;; The portable projection of the *merged* view — what an export of a fork writes.  Set
@@ -279,17 +281,23 @@
   (kv-entries [_]
     (locking lock
       (let [own (into {} (remove (comp reserved-key? key)) (kv/kv-entries overlay))
-            own-merged (map (fn [[k v]]
-                              [k (if (set? v) (merged-members overlay base k) v)])
-                            own)
+            own-merged (mapv (fn [[k v]]
+                               [k (if (set? v) (merged-members overlay base k) v)])
+                             own)
             inherited (when-not (cleared? overlay)
-                        (keep (fn [[k v]]
-                                (when-not (or (contains? own k) (shadowed? overlay k))
-                                  (if (set? v)
-                                    (let [ms (merged-members overlay base k)]
-                                      (when (seq ms) [k ms]))
-                                    [k v])))
+                        (into [] (keep (fn [[k v]]
+                                         (when-not (or (contains? own k) (shadowed? overlay k))
+                                           (if (set? v)
+                                             (let [ms (merged-members overlay base k)]
+                                               (when (seq ms) [k ms]))
+                                             [k v]))))
                               (kv/kv-entries base)))]
+        ;; Realized **inside** the monitor, both halves.  A lazy `concat` handed back
+        ;; from here realizes after the lock is released, and each element it then
+        ;; produces calls `merged-members` / `shadowed?` / `cleared?` — the reads this
+        ;; monitor exists to serialize, so a fork dumped while anything writes it
+        ;; projected two states at once.  The base half costs a walk of the base, which
+        ;; is what a portable projection of the merged view is worth.
         (concat own-merged inherited))))
 
   ;; an install lands in the overlay in *its* representation (that is the whole point of
@@ -316,3 +324,9 @@
   "Compose a writable `overlay` `KvBackend` over a read-only `base` one."
   [overlay base]
   (->OverlayKv overlay base (Object.)))
+
+(defn overlay-kv?
+  "Is `backend` one of these — i.e. is it already a fork's index half?  Asked by
+  `vaelii.impl.overlay.mount`, which refuses a base that is itself a fork."
+  [backend]
+  (instance? OverlayKv backend))

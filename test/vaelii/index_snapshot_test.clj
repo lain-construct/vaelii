@@ -230,7 +230,30 @@
       (with-open [raf (RandomAccessFile. (str (snap/snapshot-root dir) "/trie.csr") "rw")]
         (.setLength raf (max 0 (- (.length raf) 64))))
       m)
-    :entries-truncated]])
+    :entries-truncated]
+   ;; the fallback blob holds the argument roots — primary index truth — so losing
+   ;; it must discard the image, never open with every argument-root read empty
+   ["a missing roots fallback blob"
+    (fn [dir m]
+      (.delete (File. (str (snap/snapshot-root dir) "/roots-fallback.nippy")))
+      m)
+    :entries-truncated]
+   ["a truncated roots fallback blob"
+    (fn [dir m]
+      (with-open [raf (RandomAccessFile. (str (snap/snapshot-root dir) "/roots-fallback.nippy") "rw")]
+        (.setLength raf (max 0 (dec (.length raf)))))
+      m)
+    :entries-truncated]
+   ;; same length, garbage content: past the length check, so it is the strict thaw
+   ;; (`read-fallback`) that has to catch it
+   ["a corrupt roots fallback blob of the recorded length"
+    (fn [dir m]
+      (with-open [raf (RandomAccessFile. (str (snap/snapshot-root dir) "/roots-fallback.nippy") "rw")]
+        (dotimes [i (min 16 (.length raf))]
+          (.seek raf i)
+          (.writeByte raf 0xFF)))
+      m)
+    :unreadable]])
 
 (deftest each-mismatch-class-names-itself-and-falls-back
   (doseq [[label mutate expected] mismatches]

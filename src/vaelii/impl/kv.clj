@@ -12,10 +12,10 @@
   (`vaelii.impl.memory`) and an on-disk WAL (`vaelii.impl.disk.kv`) are two such
   adapters; a SQL or overlay backend is another.
 
-  ## The flattened count-aware trie
+  ## The count-aware trie
 
-  A sentex is indexed by its trie path.  The trie is flattened — every node,
-  identified by its path prefix, is exactly three keys:
+  A sentex is indexed by its trie path.  Every node, identified by its path
+  prefix, is exactly three keys:
 
     count-key  [:trie :count prefix]  ->  integer: how many sentexes live at the leaves
                                      under this prefix (selectivity without walking).
@@ -276,10 +276,13 @@
 (defrecord KvIndexStore [backend]
   p/IndexStore
   ;; One batch, not three round trips: the trie levels, the inverted term index, and
-  ;; the secondary roots land together, so a crash cannot leave the index partially
-  ;; written for one sentex — e.g. a (genl a b) visible to the trie (query) but absent
-  ;; from the [:functor-root] root rebuild-taxonomy reads, which would silently drop the edge
-  ;; across a restart.  The record/index seam remains; `vaelii.impl.reindex` is the repair.
+  ;; the secondary roots land together.  On the in-memory backends the batch applies
+  ;; in one swap, so a reader never sees a sentex half-indexed.  Durability is
+  ;; another matter: the disk WAL logs one frame per op (`disk/kv.clj`, `apply-ops!`),
+  ;; so a crash mid-batch persists a *prefix* — e.g. an argument-root posting whose
+  ;; predicate never entered the slot roster, which under-answers the
+  ;; predicate-agnostic reads while the trie and the scoped reads see the fact.  The
+  ;; record/index seam remains; `vaelii.impl.reindex` is the repair for both.
   (index-sentex [_ sentex handle]
     (let [pth    (sx/path sentex)
           n      (count pth)

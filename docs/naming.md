@@ -23,9 +23,11 @@
 
 `assert` calls `nm/check!` and `check` (docs/api.md, "Validating without writing") calls
 `nm/blocking-problems`; both read the KB's policy, and both are `nm/problems` underneath.
-It reports, in order: the context's own name, then **every literal's** functor, then any
-`ist` context slot, then a dotted rest marker where one cannot appear. Argument-level type
-checks are `argIsa`'s job, not a lexical rule's.
+It reports, in order: the context's own name, then **every literal's** functor, then
+every literal's atomic symbol **arguments**, then any `ist` context slot, then a dotted
+rest marker where one cannot appear. That argument step is lexical — is this spelling an
+individual, a type or a predicate at all — and not a type check; whether the argument is
+of the *right* type is `argIsa`'s job.
 
 ### Literals, frames, and arguments
 

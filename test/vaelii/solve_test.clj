@@ -294,10 +294,25 @@
 
 (deftest a-solve-is-a-pure-function-of-its-program
   ;; Determinism is the contract `last-program` and `asp.label/classify` are written
-  ;; against: the recorded Program has to be enough to reconstruct the decision.
-  (let [p (solve/program #{1 2 3} [(ng 1 1 2) (ng 0 2 3)] (content 1 '(a) 2 '(b) 3 '(c)))]
-    (is (= (decide p) (decide p)))
-    (is (= #{:defeat :violated} (set (keys (decide p)))) "and the result shape is closed")))
+  ;; against: the recorded Program has to be enough to reconstruct the decision, and
+  ;; the *only* thing that carries.  So the comparison is against two other Programs —
+  ;; one rebuilt field for field from what a recorder hands back, one carrying the same
+  ;; claims written down in another order.  `(= (decide p) (decide p))` on one object
+  ;; says only that `decide` is not a random number generator.
+  (let [c        (content 1 '(a) 2 '(b) 3 '(c))
+        p        (solve/program #{1 2 3} [(ng 1 1 2) (ng 0 2 3)] c)
+        recorded (solve/map->Program (into {} p))
+        other    (solve/program #{3 2 1} [(ng 0 3 2) (ng 1 2 1)]
+                                (content 3 '(c) 2 '(b) 1 '(a)))
+        r        (decide p)]
+    (is (not (identical? p recorded)))
+    (is (= p recorded) "a Program is a value, so it reconstructs field for field")
+    (is (= r (decide recorded)) "the recorded Program decides what the original did")
+    (is (= r (decide other))
+        "and so does the same program written down in another order — nothing may key on
+         the order the nogoods or the content arrived in")
+    (is (= #{'(b)} (claims c (:defeat r))) "the content-sort loser, in every ordering")
+    (is (= #{:defeat :violated} (set (keys r))) "and the result shape is closed")))
 
 ;; ---- 6. the seam on a live KB --------------------------------------------
 
