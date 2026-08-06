@@ -1,14 +1,14 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.meta-test
-  "The vocabulary microtheory and meta-level features over the starter schema (with
+  "The vocabulary context and meta-level features over the starter schema (with
   the test-world beneath it):
 
     * the context *spindle* — CoreContext ⊏ upper ⊏ UniverseContext ⊏ middle ⊏ WellContext;
     * the predicate meta-ontology — predicates classified by arity and by the
       algebraic properties their metadata declares (derived into CoreContext by rules
       whose consequent is an ist form);
-    * decontextualizedPredicate — a fact stated in one microtheory deduced into
+    * decontextualizedPredicate — a fact stated in one context deduced into
       UniverseContext and thereby visible everywhere."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -120,7 +120,7 @@
     (is (v/isa? kb 'siblingOf 'binaryPredicate))
     (is (v/isa? kb 'ancestorOf 'predicate)))
   (testing "the derived membership lands where the metadata was declared, not in the
-            vocabulary head — so a microtheory's own (symmetric P) stays its own"
+            vocabulary head — so a context's own (symmetric P) stays its own"
     (is (seq (v/sentexes-matching kb '(symmetricPredicate siblingOf) 'LifeContext)))
     (is (empty? (v/sentexes-matching kb '(symmetricPredicate siblingOf) 'CoreContext)))
     (is (empty? (v/sentexes-matching kb '(symmetricPredicate siblingOf) 'SocialWorldContext)))))
@@ -155,7 +155,7 @@
 ;; ---- decontextualizedPredicate: a fact that belongs to the KB, not to one theory --
 ;;
 ;; `(decontextualizedPredicate P)` deduces every `(P ...)` into UniverseContext, which
-;; every microtheory sees.  UniverseContext and not a named target: the definitional
+;; every context sees.  UniverseContext and not a named target: the definitional
 ;; checks are context-scoped and run where the fact is stated, so a target the stating
 ;; context cannot see is a place those checks never look — two facts, each admissible
 ;; where it was stated, could meet there as a disjointness violation nothing reports.
@@ -170,7 +170,7 @@
   ;; UniverseContext (not SocialWorldContext).
   (testing "the fact is copied into UniverseContext"
     (is (seq (v/sentexes-matching kb '(marriedTo Bob Nancy) 'UniverseContext))))
-  (testing "visible from a sibling microtheory (via UniverseContext), unlike a plain social fact"
+  (testing "visible from a sibling context (via UniverseContext), unlike a plain social fact"
     (is (v/ask? kb '(marriedTo Bob Nancy) 'NaturalWorldContext))
     (is (not (v/ask? kb '(owns Tom Car1) 'NaturalWorldContext))))   ; owns is not lifted
   (testing "the copy is justified by the placement sentex and the declaration"
@@ -299,7 +299,7 @@
     (v/assert kb (list bird Opus) 'UniverseContext)
     (is (v/ask? kb (list flies Opus) 'UniverseContext) "nothing excepts it yet")
 
-    ;; the penguin fact is stated in a microtheory the rule cannot see; only the lift
+    ;; the penguin fact is stated in a context the rule cannot see; only the lift
     ;; brings it into range
     (v/assert kb (list penguin Opus) AlphaContext)
     (is (seq (v/sentexes-matching kb (list penguin Opus) 'UniverseContext)) "lifted into the rule's context")
@@ -330,7 +330,7 @@
   ;; The copy is a chaining seed, and what that buys is **placement**: forward chaining
   ;; already matches antecedents across contexts, so firing on the copy does not find
   ;; anything new — it places the conclusion in UniverseContext rather than only in the
-  ;; microtheory the fact came from.  A consequence of a fact true everywhere is true
+  ;; context the fact came from.  A consequence of a fact true everywhere is true
   ;; everywhere too.
   (tu/with-terms [edgeTo reachesFrom A B AlphaContext SiblingContext]
     (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)
@@ -341,12 +341,12 @@
     (testing "the conclusion is placed both where the fact was stated and in the universe"
       (is (= #{AlphaContext 'UniverseContext}
              (set (map :context (v/sentexes-matching kb (list reachesFrom B A) '?ctx))))))
-    (testing "so a sibling microtheory sees it, which it would not without the lift"
+    (testing "so a sibling context sees it, which it would not without the lift"
       (is (v/ask? kb (list reachesFrom B A) SiblingContext)))))
 
 (tu/deftest-kb a-negative-fact-is-not-lifted
   ;; `(not (P a))` has functor `not`, so a declaration about `P` does not reach it: the
-  ;; positive extent becomes universal and the negative one stays in its microtheory.
+  ;; positive extent becomes universal and the negative one stays in its context.
   ;; Deliberate, and pinned here so changing it has to be a decision.
   (tu/with-terms [flies Tweety Opus AlphaContext]
     (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)

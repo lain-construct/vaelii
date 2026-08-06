@@ -1,15 +1,15 @@
-# Non-atomic terms (NATs) and reified non-atomic terms (NARTs)
+# Non-atomic terms (NATs)
 
 A **NAT** is a function-application term `(F arg…)` that *denotes an entity* —
 `(FruitFn AppleTree)`, `(CapitalOf France)`, `(QuantityFn 5 Meter)`. Pure has no
 first-class function terms in a stored sentence; every stored token is atomic. NATs
 are supported by **reification**, and functions split by declaration into two kinds.
 
-- `(reifiableFunction F)` — **object-denoting**. A ground `(F a…)` is a **NART**: it
+- `(reifiableFunction F)` — **object-denoting**. A ground `(F a…)` is a **reified NAT**: it
   reifies to an opaque `nat/`-namespaced constant `K` *before it reaches the index*,
-  so the NART autoindexes exactly like a hand-minted symbol.
-- `(unreifiableFunction F)` — **evaluated / interpreted**. The application is a
-  **NAUT** and stays *structural* — `(QuantityFn 5 Meter)` keeps its magnitude and
+  so the reified NAT autoindexes exactly like a hand-minted symbol.
+- `(unreifiableFunction F)` — **evaluated / interpreted**. The application stays a
+  **structural NAT** — `(QuantityFn 5 Meter)` keeps its magnitude and
   unit readable for a downstream prover; it is never minted.
 
 `QuantityFn` must **not** be reifiable — reifying it would collapse `5` and `Meter`
@@ -25,7 +25,7 @@ the write path, so:
 
 - the trie key is unchanged — `(color K Red)` keys `[color K Red]`, K one token;
 - `sentex/index-terms` is unchanged — K is an ordinary symbol subterm;
-- the NART autoindexes, is retrieved, and is retracted exactly like any symbol.
+- the reified NAT autoindexes, is retrieved, and is retracted exactly like any symbol.
 
 There is **no structural indexing of unreified or open NATs**: the reifiable path needs
 none, because a reified NAT is a symbol by the time the index sees it.
@@ -90,7 +90,7 @@ it (`sentex/index-terms` descends into ground compounds).
 
 `mint-nat!` allocates a fresh opaque `K`, asserts `(termOfUnit K E)`, materializes the
 result types (`(T K)` per `resultIsa`, `(genl K T)` per `resultGenl`), and returns
-`K`, all at `:monotonic` strength — a NART's identity and result types are structural,
+`K`, all at `:monotonic` strength — a reified NAT's identity and result types are structural,
 not defeasible. `assert` stores synchronously, so a second occurrence of `E` in the
 same sentence dedups against the first; a `(rewriteOf T E)` declaration short-circuits
 the mint to the real term `T`.
@@ -157,7 +157,7 @@ declaration — and each of the three landing last has an arm:
 a name somebody wrote and `K` is a stand-in for not knowing it, so the class needs a
 term that wins the election rather than whichever one sorts first. A minted constant is
 `:opaque` to `wff`'s same-role check — the naming invariants are conventions over names
-a person *chose*, and what a NART denotes is settled by its materialized result types —
+a person *chose*, and what a reified NAT denotes is settled by its materialized result types —
 so merging one into an individual is the intended move, not the import bug that check
 catches.
 
@@ -179,8 +179,8 @@ function's application is a raw compound the reify pass never visits.
 
 `nat/expand-expression` reverses the map, recursively rebuilding a reified constant
 back to its functional expression — `(color (FruitFn AppleTree) Red)`, never a raw
-`nat/` symbol. Non-NART content is returned unchanged (same identity); only
-NART-bearing forms are rebuilt.
+`nat/` symbol. Non-reified NAT content is returned unchanged (same identity); only
+reified NAT-bearing forms are rebuilt.
 
 **A constant is never what a reader sees.** It is an implementation of term *identity*
 — a `nat/`-namespaced gensym is not a name anybody wrote — so a display layer resolves
@@ -206,11 +206,11 @@ lexicographically-smallest survivor via a further equality, which migrates their
 The retired spelling stays a usable *question*: a goal naming the old term
 goal-rewrites to the new expression and still resolves to `K`.
 
-**Remove** is retraction. When the last live use of a NART goes, its `termOfUnit` map
+**Remove** is retraction. When the last live use of a reified NAT goes, its `termOfUnit` map
 and materialized types would dangle a raw `nat/` symbol — so `remove-orphaned-nats!`
 (run after `retract!`, gated, suppressed while already removing orphans) collects
 every constant whose only remaining believed sentexes are its own bookkeeping, looping
-to a fixpoint since removing a nested NART can orphan another. A **correspondence
+to a fixpoint since removing a nested reified NAT can orphan another. A **correspondence
 projection** is bookkeeping for this: like a result type it states what the constant
 *is*, and counting it as a use would make every placeholder immortal.
 
@@ -241,6 +241,6 @@ projection** is bookkeeping for this: like a result type it states what the cons
   keys ([indexing.md](indexing.md)).
 - **An existential rule head is not skolemized here** ([skolem.md](skolem.md)).
 
-The **NAUT-evaluating quantity prover** — measure comparison over a `dimensionOf` /
+The **measure-evaluating quantity prover** — measure comparison over a `dimensionOf` /
 `conversionFactor` table — reads the structural measures this gate preserves. It lives
 in [quantity.md](quantity.md).

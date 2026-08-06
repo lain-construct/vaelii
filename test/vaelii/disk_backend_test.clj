@@ -201,3 +201,45 @@
     (is (not= (backend/disk-dir {:record-space 15 :index-space 14})
               (backend/disk-dir {:record-space 13 :index-space 12}))
         "different space pairs derive different directories")))
+
+(deftest a-short-index-log-is-detected-and-rebuilt
+  ;; The two instruments beside the layout gate, each driven through the loss that
+  ;; defeats the other.  A tail lost *with the clean marker in place* is a file that
+  ;; is not the one that was closed — arbitrary keys of a compacted log, where the
+  ;; root count and even the batch seal may survive — and the length disagreement is
+  ;; what says so.  A tail lost *with no marker* (the crash shape) keeps each torn
+  ;; batch's prefix, the root count included; the batch-seal counter is the last op
+  ;; of every batch, so it is what the tear loses first.
+  (letfn [(build! [dir]
+            (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+              (dotimes [i 20]
+                (v/assert kb (list 'tmpShortP (symbol (str "TmpShort" i))) 'UniverseContext))
+              (v/close! kb)))
+          (lop! [dir n]
+            (let [f (RandomAccessFile. (str dir "/index/kv.log") "rw")]
+              (.setLength f (- (.length f) (long n)))
+              (.close f)))
+          (reopened-finds-all? [dir]
+            (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? :auto})]
+              (try
+                (and (= 20 (count (v/sentexes-matching kb2 '(tmpShortP ?x) 'UniverseContext)))
+                     (every? #(v/handle-of kb2 (list 'tmpShortP (symbol (str "TmpShort" %)))
+                                           'UniverseContext)
+                             (range 20)))
+                (finally (v/close! kb2)))))]
+    (testing "a log shorter than its clean marker recorded is rebuilt, whatever survives"
+      (with-tmp (fn [dir]
+                  (build! dir)
+                  (lop! dir 64)
+                  (is (reopened-finds-all? dir)))))
+    (testing "a torn tail with no marker loses a batch seal, and the gate sees it"
+      (with-tmp (fn [dir]
+                  ;; the crash shape is an *append-mode* log — compaction runs on
+                  ;; close, and a crashed process never closed — so build one:
+                  ;; compaction off for the write, marker deleted for the crash
+                  (System/setProperty "vaelii.disk.auto-compact" "off")
+                  (try (build! dir)
+                       (finally (System/clearProperty "vaelii.disk.auto-compact")))
+                  (.delete (java.io.File. (str dir "/index/clean.nippy")))
+                  (lop! dir 64)
+                  (is (reopened-finds-all? dir)))))))

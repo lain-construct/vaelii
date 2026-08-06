@@ -96,7 +96,8 @@
 ;;                                          this node's OWN namespace: ?var0 ?var1 …
 ;;  :from       the leftmost literal this node may rewrite (see `children`)
 ;;  :answer-terms {the asker's var -> a term here}  the whole chain of rewrites, folded
-;;  :guards     [{:test <closure over a rule's own names> :terms {rule-var -> term here}}]
+;;  :guards     [{:test <closure over a rule's own names> :rule <carrying rule's handle>
+;;                :terms {rule-var -> term here}}]
 ;;  :nvars      how many variables this node names, so a rule can be numbered past them
 ;;  :supports   the handles of the rules expanded above
 ;;  :tree-depth rewrites taken
@@ -153,7 +154,7 @@
 
 (defn node-key
   "The key a node is claimed under: its literals, the depths they carry, the map back to
-  the asker's variables, how many guards are pending, and the rewrite window.
+  the asker's variables, the set of pending guard identities, and the rewrite window.
 
   The literals need no renaming here — they are **already** canonical, which is the point
   of canonicalizing them, and two alpha-variant conjunctions are one key without anything
@@ -162,14 +163,17 @@
   `:answer-terms` is what keeps apart two paths that ask the same question *on behalf of
   different answers*: the same conjunction, but one path's `?var0` is the asker's `?x` and
   the other's is `?y` — or one path has already fixed `?x` to `Tom` and the other has
-  not.  Collapsing those loses an answer set.  The **guard count** keeps apart two paths
-  where one carries an `exceptWhen` the other does not: same conjunction, different
-  answers again."
+  not.  Collapsing those loses an answer set.  The **guard identities** keep apart two
+  paths where one carries an `exceptWhen` the other does not — or each carries a
+  *different* rule's: identity is the guard's rule and its term map, never a count.
+  Two distinct guarded rules rewriting one goal to the same canonical residual each
+  carry one guard, so a count reads them as one node and drops the second child before
+  it is enqueued — with it, every answer only its exception admits."
   [{:keys [literals answer-terms guards from] :as _node}]
   [(mapv :sentence literals)
    (mapv :depth literals)
    answer-terms
-   (count guards)
+   (into #{} (map (fn [g] [(:rule g) (:terms g)])) guards)
    from])
 
 ;; ---- the frontier order --------------------------------------------------
@@ -364,6 +368,9 @@
        :nvars        (count vm)
        :guards       (cond-> (mapv (fn [g] (update g :terms push-terms b vm-inv)) guards)
                        guard (conj {:test  guard
+                                    ;; the carrying rule — the guard's identity in
+                                    ;; `node-key`, since the closure itself has none
+                                    :rule  handle
                                     ;; the rule's own names, each pointing at the term it
                                     ;; stands for once the head has been unified
                                     :terms (push-terms (set/map-invert shift-back)

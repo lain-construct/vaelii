@@ -338,7 +338,7 @@
           (let [card (first (filter #(= "a-written-dump" (:name %)) (cat/sources)))]
             (is (some? card))
             (is (= :dump (:kind card)))
-            (is (= :pure (:dialect card)))))
+            (is (= :vaelii (:dialect card)))))
         (testing "a directory holding no meta.edn is not a dump, however much else is in
                   it — which is what makes a cancelled export unloadable rather than
                   loadable and short"

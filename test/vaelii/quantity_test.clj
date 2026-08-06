@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.quantity-test
-  "The NAUT-evaluating quantity prover (`vaelii.impl.provers/QuantityProver`): measure
+  "The measure-evaluating quantity prover (`vaelii.impl.provers/QuantityProver`): measure
   comparisons — `sameQuantity`, `quantityLessThan`, `quantityGreaterThan`,
   `quantityLessThanOrEqual`, `quantityGreaterThanOrEqual` — that normalize a measure
   `(QuantityFn N Unit)` / `(QuantityIntervalFn Lo Hi Unit)` against the KB's
@@ -111,7 +111,7 @@
   (tu/with-terms [Obj]
     (let [m '(QuantityFn 5 Kilogram)
           h (v/assert kb (list 'mass Obj m) C)]
-      (testing "the NAUT is stored structurally, not reified to a constant"
+      (testing "the structural NAT is stored structurally, not reified to a constant"
         (is (= (list 'mass Obj m) (:sentence (v/sentex kb h))))
         (is (nil? (nat/dedup-constant kb m)) "no constant was minted for it"))
       (testing "it round-trips through query unchanged"

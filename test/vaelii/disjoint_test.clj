@@ -90,13 +90,13 @@
 ;;; ── the reach of a disjointness: exactly its declaration's visibility ──
 
 (tu/deftest-kb a-disjointness-counts-only-where-its-declaration-is-visible
-  ;; The OpenCyc shape, now answered the way Cyc answers it: the microtheory cone is
-  ;; applied at lookup, so a `(disjoint …)` stated in one microtheory separates the
+  ;; The OpenCyc shape, now answered the way Cyc answers it: the context cone is
+  ;; applied at lookup, so a `(disjoint …)` stated in one context separates the
   ;; pair exactly where that statement is visible.  Cyc states `(disjointWith
   ;; #$Place #$Agent-Generic)` in PhysicalGeographyMt alone, and separately makes a
   ;; city both a place and (via GeopoliticalEntity, an Organization) an agent — and
   ;; stays consistent, because the disjointness and the full subsumption path never
-  ;; coexist in any one Mt's cone.  A sibling microtheory that cannot see the
+  ;; coexist in any one context's cone.  A sibling context that cannot see the
   ;; declaration is not constrained by it; the unscoped read still reports every
   ;; declaration in the KB, which is what a global auditor wants.
   (tu/with-terms [a_place an_agent a_city PhysicalGeographyContext GeographyContext
@@ -105,7 +105,7 @@
     (v/assert kb (list 'genl an_agent 'thing) 'UniverseContext)
     (v/assert kb (list 'genl a_city a_place) 'UniverseContext)
 
-    ;; two microtheories that cannot see each other
+    ;; two contexts that cannot see each other
     (v/assert kb (list 'genlContext PhysicalGeographyContext 'UniverseContext) 'UniverseContext)
     (v/assert kb (list 'genlContext GeographyContext 'UniverseContext) 'UniverseContext)
     (is (not (v/sees? kb GeographyContext PhysicalGeographyContext)))

@@ -212,7 +212,7 @@
 
   `context` is one **reader**, and a variable is not one: it reads every context's facts
   into a single network, which is a diagnostic view of everything stored rather than
-  anything anybody can see — two incomparable microtheories compose in it and for no
+  anything anybody can see — two incomparable contexts compose in it and for no
   reader.  A goal is therefore never answered off that network; the prover fans over
   `reader-contexts` instead, so \"in some context\" is the union of what the readers
   answer."
@@ -234,7 +234,7 @@
 ;; ---- which readers there are ---------------------------------------------
 ;; There is one network per **reader**, not one per context that holds a fact.  A
 ;; reader sees the whole `genlContext` cone above it, so a context inheriting two
-;; microtheories holds both their facts in one network and composes what neither
+;; contexts holds both their facts in one network and composes what neither
 ;; composes alone.  Both consumers of "the networks of this calculus" need that set:
 ;; forward chaining, which re-joins against each, and the prover answering a goal whose
 ;; context is a *variable* — which means "in some context", and so has to be the union
@@ -689,7 +689,7 @@
   (completeness [_ _ _ _] 100)
   ;; A **variable** context means "in some context", and the honest answer to that is the
   ;; union of what the readers answer — not one read taken over the union of what they
-  ;; see.  Those differ, and in the unsound direction: `(ntpp A B)` in one microtheory and
+  ;; see.  Those differ, and in the unsound direction: `(ntpp A B)` in one context and
   ;; `(ntpp B D)` in an incomparable one compose for nobody, since no context inherits
   ;; both, yet a single wildcard read holds them in one network and reports `A ⊏ D` as
   ;; entailed.  Every other prover reads a variable context as "any", and the fan is what

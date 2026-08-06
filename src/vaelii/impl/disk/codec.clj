@@ -68,11 +68,20 @@
   [v]
   (if-not (vector? v)
     v
-    (let [f (fn [i] (sx/intern-deep (nth v i)))]
-      (if (= rule-tag (nth v 0))
+    (let [f (fn [i] (sx/intern-deep (nth v i)))
+          tag (nth v 0)]
+      (cond
+        (= rule-tag tag)
         (sx/->RuleSentex (f 1) (f 2) (nth v 3) (nth v 4) (f 5) (f 6) (nth v 7) (f 8)
                          (nth v 9) (nth v 10) (nth v 11) (nth v 12))
-        (sx/->AtomicSentex (f 1) (f 2) (nth v 3) (nth v 4) (nth v 5))))))
+        (= atomic-tag tag)
+        (sx/->AtomicSentex (f 1) (f 2) (nth v 3) (nth v 4) (nth v 5))
+        ;; a tag this build does not read is a frame from some other build — refused
+        ;; by name, never misread as an atomic record whose fields land in the wrong
+        ;; slots (the tokenized tags decode on their own path, dictionary in hand)
+        :else
+        (throw (ex-info (str "unknown sentex frame tag " (pr-str tag))
+                        {:type :unknown-frame :tag tag}))))))
 
 ;; ---- justifications ---------------------------------------------------------
 ;; One shape, so the frame needs no tag.

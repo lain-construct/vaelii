@@ -52,7 +52,8 @@
 
     --only       run one check by name (the `:name` below, without the colon)
     --tolerance  multiply every bound by this — 1.5 on a noisy box, 1.0 in anger
-    --quick      the small size pair, for a fast pre-commit read rather than a gate
+    --quick      one attempt over the real pair at a 1.5x-widened bound — a coarse
+                 verdict for a pre-commit read, still a verdict
 
   Exit status is 0 when every check passes, 1 when any fails, which is what makes it
   usable from a hook or a workflow."
@@ -597,14 +598,24 @@
 
 ;; ---- the runner ---------------------------------------------------------
 
+(def ^:private quick-slack
+  "How much `--quick` widens each bound.  One attempt over the real pair is noisier
+  than the gate's re-measured best-of-two, so the bound gives that noise room — a
+  borderline reading passes where the full gate would look twice, and a genuine
+  regression still fails."
+  1.5)
+
 (defn- run-check
   "Measure one check at both sizes and judge the growth.  A check over its bound is
   measured again from scratch and the *better* ratio stands: a GC pause or a scheduler
   hiccup landing in one window is not a regression, and an algorithmic one survives being
   looked at twice."
   [{:keys [sizes max-ratio run]} tolerance quick?]
-  (let [[small large] (if quick? [(first sizes) (first sizes)] sizes)
-        bound   (* (double max-ratio) (double tolerance))
+  (let [[small large] sizes
+        ;; quick widens the bound instead of shrinking the pair: one attempt over the
+        ;; real sizes is a coarse verdict, where measuring one size twice is six runs
+        ;; and no possible failure — a gate that cannot fail is decoration
+        bound   (* (double max-ratio) (double tolerance) (if quick? quick-slack 1.0))
         ;; the *large* size is what both warm to: it is the one whose reading the bound
         ;; is a claim about, so it is the one that must not be measured warmer than its
         ;; baseline was
@@ -618,8 +629,7 @@
     (assoc best
            :bound  bound
            :sizes  [small large]
-           :status (cond quick?                          :quick
-                         (< (:small best) noise-floor-ns) :noise
+           :status (cond (< (:small best) noise-floor-ns) :noise
                          (<= (:ratio best) bound)         :pass
                          :else                            :fail))))
 
@@ -629,23 +639,39 @@
                      (case status
                        :pass  "PASS"
                        :fail  "FAIL"
-                       :noise "noise — below the gating floor, not judged"
-                       :quick "measured")))
+                       :noise "noise — below the gating floor, not judged")))
     (println (format "    %s" claim))
     (println (format "    n=%-6d %8.3f ms/op        n=%-6d %8.3f ms/op"
                      s (/ small 1e6) l (/ large 1e6)))
-    (when-not (= :quick status)
+    (when-not (= :noise status)
       (println (format "    growth %.2fx  (bound %.2fx)" ratio bound)))
     (println)))
 
+(defn- usage-exit [msg]
+  (binding [*out* *err*]
+    (println msg)
+    (println "usage: lein perf [--only <name>] [--tolerance <x>] [--quick]"))
+  (System/exit 2))
+
 (defn- parse-args [args]
+  ;; refused, not guessed: `--only` with no value would run the WHOLE gate while
+  ;; reading as a single-check run, a dropped unknown flag gates at the default
+  ;; tolerance (`--tolerence 1.5` at 1.0), and a bare `--tolerance` NPEs — which
+  ;; gate.sh reports exactly like a regression
   (loop [m {:tolerance 1.0 :quick? false :only nil} [a & more] args]
     (case a
       nil          m
       "--quick"    (recur (assoc m :quick? true) more)
-      "--only"     (recur (assoc m :only (keyword (first more))) (rest more))
-      "--tolerance" (recur (assoc m :tolerance (Double/parseDouble (first more))) (rest more))
-      (recur m more))))
+      "--only"     (if-some [v (first more)]
+                     (recur (assoc m :only (keyword v)) (rest more))
+                     (usage-exit "--only needs a check name"))
+      "--tolerance" (if-some [v (first more)]
+                      (let [x (try (Double/parseDouble v)
+                                   (catch NumberFormatException _
+                                     (usage-exit (str "--tolerance: not a number: " v))))]
+                        (recur (assoc m :tolerance x) (rest more)))
+                      (usage-exit "--tolerance needs a number"))
+      (usage-exit (str "unknown flag: " a)))))
 
 (defn -main [& args]
   (let [{:keys [tolerance quick? only]} (parse-args args)
@@ -664,6 +690,14 @@
                                (mapv (comp :name first) failed)))
               (shutdown-agents)
               (System/exit 1))
-          (do (println (format "%d check(s) ok" (count results)))
-              (shutdown-agents)
-              (System/exit 0)))))))
+          (let [noisy (filterv (fn [[_ r]] (= :noise (:status r))) results)]
+            ;; the floor's whole point: a check too fast to gate says so instead of
+            ;; turning into a green light nobody notices has stopped meaning anything
+            (println (format "%d check(s) ok%s"
+                             (- (count results) (count noisy))
+                             (if (seq noisy)
+                               (format ", %d below the gating floor — not judged: %s"
+                                       (count noisy) (mapv (comp :name first) noisy))
+                               "")))
+            (shutdown-agents)
+            (System/exit 0)))))))

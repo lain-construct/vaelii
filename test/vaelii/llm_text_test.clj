@@ -134,7 +134,7 @@
     (testing "a resolved type is on the type block instead, since a type is where it belongs"
       (is (contains? (set (map :type (:types inv))) 'lion))
       (is (not (contains? pset 'lion))))
-    (testing "the microtheory's own vocabulary follows, so a name the text does not spell is still offered"
+    (testing "the context's own vocabulary follows, so a name the text does not spell is still offered"
       ;; *repay the kindness* does not resolve `repaidKindness`; a reader who cannot see
       ;; the name coins a synonym for it, which is the whole reason for the third tier.
       (is (contains? pset 'repaidKindness)))
@@ -142,7 +142,7 @@
       (is (not (contains? pset 'genl)))
       (is (contains? (set (map :predicate (:structural inv))) 'genl)))))
 
-(tu/deftest-kb the-nearer-microtheorys-vocabulary-comes-first
+(tu/deftest-kb the-nearer-contexts-vocabulary-comes-first
   ;; Where a token cap cuts, it should cut the vocabulary of the shipped upper ontology
   ;; before the vocabulary of the story being read.
   (let [^clojure.lang.APersistentVector order (mapv first (text/declared-in kb 'LionMouseContext))
@@ -168,7 +168,7 @@
 (deftest nothing-in-the-reading-path-writes
   (testing "the namespace holds no call that could store or retract"
     (let [src (slurp (io/resource "vaelii/impl/llm/text.clj"))]
-      (doseq [call ["(v/assert" "(v/edit" "(v/retract" "(v/ist" "(v/add-provenance"]]
+      (doseq [call ["(v/assert" "(v/edit!" "(v/retract" "(v/ist" "(v/add-provenance"]]
         (is (not (str/includes? src call))
             (str "vaelii.impl.llm.text reaches a write: " call))))))
 

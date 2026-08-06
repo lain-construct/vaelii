@@ -453,7 +453,7 @@
   are the networks an entailed antecedent is solved against.
 
   Collecting them walks the calculus's own extent, the same order as reading one
-  network, and where its facts span microtheories a `genlContext` closure besides, so it
+  network, and where its facts span contexts a `genlContext` closure besides, so it
   is cached for the length of a chaining run rather than recomputed per antecedent per
   binding.  Bound by `chain`; nil outside one, where it simply recomputes."
   nil)
@@ -464,7 +464,7 @@
 
   A network is what a **reader** sees, and a reader sees the whole `genlContext` cone
   above it, so the contexts that merely *hold* a fact are not the networks a forward
-  rule may join on: a context inheriting two microtheories composes what neither
+  rule may join on: a context inheriting two contexts composes what neither
   composes alone, and that entailment exists for no other reader.  `ask` has always
   answered it there.  Left at the fact contexts, such a firing would wait for some
   unrelated fact to be stated in the meeting context and then survive its retraction —
@@ -966,7 +966,7 @@
 
   A fact that satisfied an antecedent of a different functor did so over a `genl` path,
   and a conclusion that rests on that path may only live where the path is visible —
-  otherwise a microtheory believes `(ancestorOf Tom Bob)` on the strength of a
+  otherwise a context believes `(ancestorOf Tom Bob)` on the strength of a
   `(genl fatherOf parentOf)` edge some sibling theory asserted and it cannot see.
   Feeding the supporters' contexts to `maximal-common-descendant-contexts` beside the
   rule's and the facts' makes that structural: every placement it returns sees every
@@ -1140,12 +1140,12 @@
     (if (empty? placements)
       ;; The join completed — every antecedent matched — and then the conclusion
       ;; evaporated: no context sees everything the firing rests on (sibling
-      ;; microtheories with no common descendant, the taxonomy it climbed included), or
+      ;; contexts with no common descendant, the taxonomy it climbed included), or
       ;; an ist consequent named something that is not a context or an edge it cannot
       ;; see.  "Possibly none" is a legitimate outcome of
       ;; maximal-common-descendant-contexts, but a silent one reads as "the rule fired",
       ;; so it is recorded like any other dropped conclusion — naming the subsumption
-      ;; when there was one, since "your microtheory cannot see that genl edge" is a
+      ;; when there was one, since "your context cannot see that genl edge" is a
       ;; different thing to go and fix from "your facts are in sibling contexts".  The
       ;; contexts that *would* have taken it but for the edges are recomputed here, on
       ;; the drop path only, because that difference is the whole diagnosis.

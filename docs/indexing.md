@@ -499,7 +499,8 @@ is a read-phase structure.
 
 It is a cache of derived state, so validity is the whole design: stamped with the record
 store's slot fingerprint, checked on **every** open, discarded to `reindex` on any doubt.
-Off by default (`vaelii.index.snapshot`).
+Off by default (`vaelii.index.snapshot`), and refused outright on a platform that cannot
+replace a mapped file — the publish is an atomic rename over one (`docs/storage.md`).
 
 ## What the structural index does not reach
 
@@ -513,4 +514,11 @@ than failing:
 - **A `:false` body and a rule literal** are not structurally indexed, including the
   dotted-rest `(?pred . ?args)` shape.
 - **The rule index is keyed by predicate**, not by full antecedent shape, so two rules
-  whose antecedents differ below the predicate share a bucket.
+  whose antecedents differ below the predicate share a bucket.  A predicate is what the
+  key *is*, so a rule literal with a variable in functor position — `(?p ?x ?y)` — is
+  **refused** at `assert` with `:not-indexable`: canonicalization numbers the functor to
+  `?var0`, no arriving fact and no goal can spell that, and the rule would answer
+  nothing while reporting as accepted.  An `:inert` rule is exempt, since it runs in
+  neither engine; `CoreContext`'s `(implies (?pred . ?args) (ist UniverseContext (?pred
+  . ?args)))` is one, stating for a reader what the decontextualized-predicate lift does
+  in code.

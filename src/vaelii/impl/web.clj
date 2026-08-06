@@ -42,6 +42,8 @@
             ;; of those is active.  The browser is the thing that drives it (`/kbs`), and
             ;; reads the active KB through a holder rather than holding one itself.
             [vaelii.impl.catalog :as catalog]
+            ;; the build's switches, read against their domains — `VAELII_DEV` here
+            [vaelii.impl.config :as config]
             [vaelii.impl.examples :as ex]
             ;; English composed from the KB's own comments, for the guided level.  Like
             ;; `llm` below it is an application over the engine rather than an internal —
@@ -99,7 +101,7 @@
   editing it shows on a refresh, no restart) and nothing is cached by the browser;
   otherwise each is read once and served with a cache header, so a pageview is not a
   file read and a repeat visit is not a download."
-  (some? (System/getenv "VAELII_DEV")))
+  (config/web-dev?))
 
 (def ^:private static-cache-control
   (if dev? "no-cache" "public, max-age=3600"))
@@ -304,7 +306,7 @@
    ;; — the map is `(termOfUnit K ?e)`, one probe per constant — so the cache is what
    ;; bounds it at one read per *distinct* constant rendered, however many times the
    ;; page renders it.  Empty and untouched on a KB that has minted none.
-   :narts     (atom {})})
+   :nat-exprs     (atom {})})
 
 (defn- prime-belief!
   "Learn the belief state of `handles` in **one** batched read (`v/believed`), so the
@@ -508,22 +510,22 @@
 ;; to a reader, so **no page ever shows one**: every place a term is rendered goes
 ;; through `term-link`, and a reified one renders as the expression it was minted from.
 ;;
-;; The parens are **bold**, which is the whole of the notation.  A NART is a *term* that
+;; The parens are **bold**, which is the whole of the notation.  A reified NAT is a *term* that
 ;; happens to have structure, and it appears in sentences beside ordinary compounds —
 ;; on the constant's own page `(termOfUnit K E)` renders K and E identically otherwise,
 ;; the constant and the literal expression it is mapped to reading as the same thing.
 ;; Weight is what separates them, and the opening paren links to the constant's page, so
 ;; the reified term stays reachable without being spelled out.
 
-(defn- nart-expression
+(defn- nat-expression
   "What reified term `k` denotes, from the per-request cache — one `v/term-expression`
   read per distinct constant on the page, however many times it is rendered.  nil when
   the KB holds no believed `termOfUnit` map for it."
-  [{:keys [kb narts]} k]
-  (if-let [e (find @narts k)]
+  [{:keys [kb nat-exprs]} k]
+  (if-let [e (find @nat-exprs k)]
     (val e)
     (let [e (v/term-expression kb k)]
-      (swap! narts assoc k e)
+      (swap! nat-exprs assoc k e)
       e)))
 
 ;; Expansion recurses, so it carries the constants already on the path.  The write path
@@ -537,13 +539,13 @@
   "The text of a term, for the places that take a string rather than an element — a
   page `<title>`, a tooltip, a graph node's label, a link's own text.  A reified term
   reads as the expression it denotes, recursively, so it says the same thing there as in
-  the prose; a term that is itself a compound (an unreified NAUT, a function term an
+  the prose; a term that is itself a compound (an unreified structural NAT, a function term an
   imported ontology names a collection by) is walked for the same reason."
   ([view t] (term-text view t #{}))
   ([view t seen]
    (cond
      (v/reified-term? t)
-     (if-let [e (and (not (seen t)) (nart-expression view t))]
+     (if-let [e (and (not (seen t)) (nat-expression view t))]
        (str "(" (str/join " " (map #(term-text view % (conj seen t)) e)) ")")
        "(…)")
 
@@ -551,10 +553,10 @@
      :else           (pr-str t))))
 
 ;; The cycle: a reified term renders as its expression, whose arguments are terms — an
-;; unreified NAUT compound, or another reified term, which renders as *its* expression.
+;; unreified structural NAT compound, or another reified term, which renders as *its* expression.
 (declare render-form)
 
-(defn- nart-ref
+(defn- nat-ref
   "A reified term, rendered as the expression it was minted from with **bold parens**.
   The opening paren links to the constant's own page — the one place its `termOfUnit`
   map, its materialized result types and its uses are listed — so the reified term is
@@ -564,23 +566,23 @@
   the raw symbol: the map can be defeated or gone while a use of the constant survives,
   and the honest answer there is that the page cannot say what it denotes."
   [view k seen]
-  (let [e (and (not (seen k)) (nart-expression view k))]
-    [:span.nart
-     [:a.nart-paren {:href  (str "/term?q=" (url-enc (pr-str k)))
-                     :title "the reified term itself"} "("]
+  (let [e (and (not (seen k)) (nat-expression view k))]
+    [:span.nat
+     [:a.nat-paren {:href  (str "/term?q=" (url-enc (pr-str k)))
+                    :title "the reified term itself"} "("]
      (if e
        (interpose " " (map #(render-form view % (conj seen k)) e))
        [:span.muted {:title "no believed expression for this reified term"} "…"])
-     [:span.nart-paren ")"]]))
+     [:span.nat-paren ")"]]))
 
 (defn- term-link
   "A role-colored link to a term's page (variables are not links; a reified term is its
-  expression — `nart-ref`)."
+  expression — `nat-ref`)."
   ([view t] (term-link view t #{}))
   ([view t seen]
    (cond
      (= :variable (v/term-role t)) [:span.t-var (pr-str t)]
-     (v/reified-term? t)           (nart-ref view t seen)
+     (v/reified-term? t)           (nat-ref view t seen)
      ;; the href is the term as stored — what the page is *about* — and the text is how
      ;; the page writes it.  The two differ for a compound term holding a reified one
      :else [:a {:class (str "sx " (term-class view t))
@@ -1000,6 +1002,7 @@
    :not-ground           "open"
    :not-well-formed      "malformed"
    :not-range-restricted "unbound"
+   :not-indexable        "var predicate"
    :not-stratified       "cycle"
    :not-assertible       "imperative"
    :not-checkable        "imperative"
@@ -1016,7 +1019,6 @@
    :asymmetric           "both ways"
    :functional           "functional"
    :shape                "shape"
-   :bad-opt              "opts"
    :unknown-option       "opts"
    :unknown-handle       "no handle"
    :bad-handle           "bad handle"
@@ -1599,7 +1601,12 @@
   with a problem rather than guessed at."
   [lines]
   (reduce (fn [acc s]
-            (let [form (try {:ok (edn/read-string s)} (catch Exception e {:bad (.getMessage e)}))]
+            ;; `Throwable`, as every other untrusted-EDN read in this namespace: a deeply
+            ;; nested form overflows the reader's stack with a `StackOverflowError`, which
+            ;; an `Exception` catch lets escape — and the browser has no exception
+            ;; middleware, so it leaves the handler entirely where an unreadable line is
+            ;; the ordinary answer this exists to give.
+            (let [form (try {:ok (edn/read-string s)} (catch Throwable e {:bad (.getMessage e)}))]
               (cond
                 (:bad form)
                 (update acc :problems conj {:type :unreadable
@@ -1632,7 +1639,7 @@
   "What the accepted lines would do, without doing it.
 
   The same payload the commit button posts, read through `v/preview` instead of
-  `v/edit` — so the panel a reader decides from is computed from the very batch that
+  `v/edit!` — so the panel a reader decides from is computed from the very batch that
   would land, rather than from a reconstruction of it.  A read: `preview` hands the KB
   back at the same handles, which is why this can run on every change of the accepted
   set instead of once behind a confirmation.
@@ -1732,7 +1739,7 @@
 (defn- derived-callout
   "**You didn't say this, but it follows** — the consequences of a commit, capped.
 
-  `result` is `v/edit-with-consequences`'s answer and `stored` the sentexes the batch
+  `result` is `v/edit-with-consequences!`'s answer and `stored` the sentexes the batch
   wrote.  Renders nothing at all when nothing followed: a callout reading \"0 new
   conclusions\" is worse than silence, because it makes the empty case as loud as the
   interesting one."
@@ -1771,7 +1778,7 @@
   "Store the accepted lines — the panel's one write, and the only one on this path.
 
   Everything up to here proposes; this applies, and it applies the way the editor does:
-  `check-edit` over the whole batch first, and **`v/edit` once** so the adds land in one
+  `check-edit` over the whole batch first, and **`v/edit!` once** so the adds land in one
   settle rather than settling per line.  A batch with any problem stores nothing, since a
   partial commit of a reviewed set is the outcome nobody chose."
   [{:keys [kb] :as view} lines]
@@ -1796,7 +1803,7 @@
          "line yourself on the " [:a {:href "/assert"} "assert form"] "."]]
 
        :else
-       (applied-result view (v/edit-with-consequences kb batch))))))
+       (applied-result view (v/edit-with-consequences! kb batch))))))
 
 ;; ---- the hierarchy trees, one level at a time ---------------------------
 ;;
@@ -1995,7 +2002,7 @@
   "Every context that holds something, largest first — or **nil** past `context-rank-cap`.
 
   The one ranking on either page that answers *what is this KB about*: a corpus's mass is
-  not spread evenly over its microtheories, and the handful holding most of it name the
+  not spread evenly over its contexts, and the handful holding most of it name the
   subject far better than any fifty of them in alphabetical order.  Ties break on name, so
   the order is a function of the content and not of the roster's own."
   [kb]
@@ -2958,7 +2965,12 @@
       (try
         (v/find-terms kb q {:match (if regex? :regex :substring)
                             :case-sensitive? true :limit limit})
-        (catch Exception _ ::bad)))))
+        ;; `Throwable`, as the namespace's other untrusted-input reads: a
+        ;; catastrophic pattern can raise `StackOverflowError` out of the regex
+        ;; engine, this handler stack has no exception middleware to make a page of
+        ;; it, and an unusable pattern is this function's ordinary `::bad` answer
+        ;; rather than a 500
+        (catch Throwable _ ::bad)))))
 
 (defn- find-list
   "The result list for a search: one page of hits and the sentinel that fetches the
@@ -3716,21 +3728,21 @@
   [kb sandbox op first-h]
   (case op
     "start"   (do (sandbox/open kb sandbox)
-                  (v/edit kb {:add [[(demo-claim 'bird) sandbox]]})
+                  (v/edit! kb {:add [[(demo-claim 'bird) sandbox]]})
                   (v/handle-of kb (demo-claim 'flies) sandbox))
     "except"  (do (sandbox/open kb sandbox)
-                  (v/edit kb {:add [[(demo-claim 'penguin) sandbox]]})
+                  (v/edit! kb {:add [[(demo-claim 'penguin) sandbox]]})
                   first-h)
     "restore" (do (when-let [h (and (sandbox/live? kb sandbox)
                                     (v/handle-of kb (demo-claim 'penguin) sandbox))]
-                    (v/edit kb {:remove [h]}))
+                    (v/edit! kb {:remove [h]}))
                   first-h)
     "reset"   (do (sandbox/reset! kb sandbox) nil)
     first-h))
 
 ;; ---- asserting something new --------------------------------------------
 ;; The editor amends what is already stored; this is the way in for knowledge that is
-;; not.  It writes through `vaelii.core/edit` like the editor does — one settle for the
+;; not.  It writes through `vaelii.core/edit!` like the editor does — one settle for the
 ;; whole form — and validates through `vaelii.core/check` first, so a refusal is a
 ;; message beside the line rather than an exception out of `assert`.
 
@@ -3806,7 +3818,7 @@
   "Where this session's writing goes, and the one control that takes it back.
 
   It names the context rather than offering a choice of one: the reader is not picking a
-  microtheory, they are being told they have somewhere safe.  The reset is a **write**,
+  context, they are being told they have somewhere safe.  The reset is a **write**,
   so it is a POST and origin-checked like the rest, and it is the only irreversible
   control on the page — which is why it says what it would take with it before it does."
   [{:keys [kb sandbox] :as view}]
@@ -4073,7 +4085,7 @@
 
 ;; ---- multi-sentex editing (drag-select → textarea → one settle) ---------
 ;; Selection is client-side (select.js, the one bit of JS); the server renders the
-;; editable text for a set of handles and applies the save.  Save is `vaelii.core/edit`
+;; editable text for a set of handles and applies the save.  Save is `vaelii.core/edit!`
 ;; reached through the access facade, so it retracts the changed/removed sentexes and
 ;; asserts the new lines in **one settle**, in-process or against a live daemon alike.
 
@@ -4243,7 +4255,7 @@
             problems  (vec (batch-problems kb batch additions))]
         (if (seq problems)
           (frag (edit-panel view handles {:text text :problems problems}))
-          (let [{:keys [added]} (v/edit kb batch)
+          (let [{:keys [added]} (v/edit! kb batch)
                 ;; line index -> the handle the line became, for the positional pairing
                 by-line   (into {} (map-indexed (fn [k a] [(:line a) (nth added k nil)])) additions)
                 paired    (set (keep #(get by-line (:line %)) removals))
@@ -4257,7 +4269,7 @@
                         [:span#sx-count {:hx-swap-oob "innerHTML"} remaining " selected"]))))))))
 
 ;; ---- the assert / retract / chain writes --------------------------------
-;; Each goes through `vaelii.core/edit` (or `forward-chain`) via the access facade, so
+;; Each goes through `vaelii.core/edit!` (or `forward-chain`) via the access facade, so
 ;; a browser attached to a daemon writes through the daemon's single-writer lock, and
 ;; every one of them is one settle.
 
@@ -4314,17 +4326,13 @@
                    nil)
       (seq all) (assert-page view (assoc state :problems all) nil)
       :else     (assert-page view (assoc state :text nil)
-                             (v/edit-with-consequences kb batch)))))
+                             (v/edit-with-consequences! kb batch)))))
 
-(defn retract-post
-  "Retract the selected handles through `edit` — one settle for the whole selection,
-  the same write path the editor's save takes.  The answer deletes every row that is
-  actually gone out of band (the selection *and* whatever the dependency-directed sweep
-  took with it), so the page corrects itself instead of reloading."
-  [{:keys [kb] :as view} handles-csv]
-  (let [handles (parse-handles handles-csv)
-        doomed  (into (vec handles) (:handles (swept-by view handles)))
-        {:keys [removed]} (v/edit kb {:remove handles})
+(defn- retract-apply
+  "Apply a checked retraction batch and render what went."
+  [{:keys [kb] :as view} handles]
+  (let [doomed  (into (vec handles) (:handles (swept-by view handles)))
+        {:keys [removed]} (v/edit! kb {:remove handles})
         gone    (into [] (remove #(v/sentex kb %)) doomed)]
     (frag (list [:div.editor
                  [:h3 "Retracted"]
@@ -4336,6 +4344,28 @@
                  [:div.editor-actions [:button#sx-cancel.primary {:type "button"} "Close"]]]
                 (for [h gone] (oob "delete" h [:li {:data-h h}]))
                 [:span#sx-count {:hx-swap-oob "innerHTML"} "0 selected"]))))
+
+(defn retract-post
+  "Retract the selected handles through `edit` — one settle for the whole selection,
+  the same write path the editor's save takes.  The answer deletes every row that is
+  actually gone out of band (the selection *and* whatever the dependency-directed sweep
+  took with it), so the page corrects itself instead of reloading.
+
+  The write is preceded by the `check-edit` round-trip every other write post makes
+  (docs/operations.md): a stale handle — retracted out from under the page since it
+  rendered — comes back as the problem panel rather than reaching `edit`, which
+  refuses an unknown `:remove` handle outright."
+  [{:keys [kb] :as view} handles-csv]
+  (let [handles  (parse-handles handles-csv)
+        problems (seq (for [p (v/check-edit kb {:remove handles})]
+                        (select-keys p [:type :message])))]
+    (if problems
+      (frag [:div.editor
+             [:h3 "Not retracted"]
+             [:ul.edit-errors (map problem-line problems)]
+             [:p.muted "Nothing was written."]
+             [:div.editor-actions [:button#sx-cancel.primary {:type "button"} "Close"]]])
+      (retract-apply view handles))))
 
 ;; ---- knowledge bases: the catalog page ----------------------------------
 ;;
@@ -5257,20 +5287,38 @@
     --attach HOST PORT [WEBPORT]   read a running daemon instead of an in-process KB
 
   `--attach`'s third argument is optional and positional, so it is taken only when it
-  is a bare number — otherwise it is the next flag."
+  is a bare number — otherwise it is the next flag.
+
+  A flag missing its value, a non-numeric number, or a token this table does not know
+  is refused (`:unknown-option`).  The stakes are not symmetric with a mere typo: a
+  truncated `--listen` read as a nil host would bind **every** interface with the Host
+  allowlist off — Jetty treats a nil host as the wildcard address — on a server whose
+  write routes nothing authenticates, while logging the public-bind warning as though
+  the operator had asked for it."
   [args]
-  (loop [[a & more] (seq args)
-         opts       {:host loopback :port 3000}]
-    (case a
-      nil        opts
-      "--listen" (recur (rest more) (assoc opts :host (first more)))
-      "--port"   (recur (rest more) (assoc opts :port (Integer/parseInt (first more))))
-      "--attach" (let [[h p w & r] more
-                       wport? (and w (re-matches #"\d+" w))]
-                   (recur (if wport? r (cons w r))
-                          (cond-> (assoc opts :attach [h (Integer/parseInt p)])
-                            wport? (assoc :port (Integer/parseInt w)))))
-      (recur more opts))))
+  (let [need (fn [flag v]
+               (or v (throw (ex-info (str flag " needs a value")
+                                     {:type :unknown-option :flag flag}))))
+        num  (fn [flag v]
+               (let [v (need flag v)]
+                 (try (Integer/parseInt ^String v)
+                      (catch NumberFormatException _
+                        (throw (ex-info (str flag ": not a number: " v)
+                                        {:type :unknown-option :flag flag :value v}))))))]
+    (loop [[a & more] (seq args)
+           opts       {:host loopback :port 3000}]
+      (case a
+        nil        opts
+        "--listen" (recur (rest more) (assoc opts :host (need "--listen" (first more))))
+        "--port"   (recur (rest more) (assoc opts :port (num "--port" (first more))))
+        "--attach" (let [[h p w & r] more
+                         wport? (and w (re-matches #"\d+" w))]
+                     (need "--attach" h)
+                     (recur (if wport? r (when w (cons w r)))
+                            (cond-> (assoc opts :attach [h (num "--attach" p)])
+                              wport? (assoc :port (Integer/parseInt w)))))
+        (throw (ex-info (str "unknown argument: " a)
+                        {:type :unknown-option :flag a}))))))
 
 ;; ---- the browser, inside a REPL -----------------------------------------
 ;;
@@ -5351,7 +5399,10 @@
   appears in `/kbs` beside the ones that can be loaded — the starter it opens with is not
   a special case, it is entry number one."
   [& args]
-  (let [{:keys [host port attach]} (parse-args args)
+  (let [{:keys [host port attach]} (try (parse-args args)
+                                        (catch clojure.lang.ExceptionInfo e
+                                          (binding [*out* *err*] (println (ex-message e)))
+                                          (System/exit 1)))
         {:keys [kb entry target]} (opening-kb attach)]
     (trove/log! {:level :info :id ::start
                  :msg  (str "vaelii web browser on http://" host ":" port

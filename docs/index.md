@@ -20,7 +20,7 @@ What ships is schema: `vaelii.impl.starter` loads the upper and middle contexts 
 `resources/kb/`, and nothing contingent — no cast, no facts of a story — comes with it.
 Two worked KBs below that schema exercise all this (no doc of their own), and they are
 test-world data under `test/vaelii/`: `vaelii.world-fables` (children's stories as
-microtheories, each moral *derived* by a rule rather than stored as a string) and
+contexts, each moral *derived* by a rule rather than stored as a string) and
 `vaelii.world-narrative` (a story-understanding ontology layered over the fables —
 causal / temporal / goal reasoning via predicate metadata and a goal-achievement rule).
 
@@ -50,7 +50,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 - [inference.md](inference.md) — rules as sentexes, rule direction, forward/backward chaining, predicate subsumption, incremental matching, the prover engine.
 - [anytime.md](anytime.md) — resource-bounded / anytime inference: the budget, the resumable partial-result contract, the qualitative `cost` tier.
 - [levels.md](levels.md) — the lookup-to-query stack: eight named levels from a raw index read to full backchaining.
-- [abduction.md](abduction.md) — `abduce`: what would have to be true for a goal to be provable, minted as a defeasible hypothesis in a scratch microtheory — the dead-end observer, the grant that gates it, and the isolation that makes an ignored call free.
+- [abduction.md](abduction.md) — `abduce`: what would have to be true for a goal to be provable, minted as a defeasible hypothesis in a scratch context — the dead-end observer, the grant that gates it, and the isolation that makes an ignored call free.
 - [exceptions.md](exceptions.md) — `exceptWhen`: how a rule states its own exception, and why the exception is never stored.
 - [naf.md](naf.md) — negation as failure: `unknown` / `thereExists`, evaluated at level 6, storing nothing (and why the JTMS `out` slot stays reserved).
 - [aggregate.md](aggregate.md) — aggregation as a query operator: the five reductions over a query's solutions, where GROUP BY comes from, and how a firing that rests on a count is maintained.
@@ -58,8 +58,8 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 - [preview.md](preview.md) — `preview`: the belief a batch would add and take away, read off and then rolled back at the same handles.
 - [equality.md](equality.md) — `rewriteOf` / `sameAs` / `equals` over one belief-following partition, and the `different` that keeps the unique-name assumption.
 - [equational.md](equational.md) — symbolic (schematic) equational reasoning: oriented term rewriting by a Knuth-Bendix order, normalizing store and query to one belief-following normal form.
-- [nat.md](nat.md) — non-atomic terms: reifiable functions reified to opaque NART constants before the index, unreifiable NAUTs kept structural.
-- [quantity.md](quantity.md) — the NAUT-evaluating quantity prover: measure comparison over a `dimensionOf` / `conversionFactor` table, with an epsilon float policy.
+- [nat.md](nat.md) — non-atomic terms: reifiable functions reified to opaque constants before the index, unreifiable applications kept structural.
+- [quantity.md](quantity.md) — the measure-evaluating quantity prover: measure comparison over a `dimensionOf` / `conversionFactor` table, with an epsilon float policy.
 - [skolem.md](skolem.md) — head existentials `(exists ?y C)` skolemized to deterministic NAT constants on forward firing, and the occurs-check in `unify`.
 - [qcn.md](qcn.md) — the generic qualitative-constraint-network engine behind all six relation algebras: an algebra as a parameter, a network as a value, arc-queue path consistency, entailment *and* refutation, the support a derived relation carries, and the prover shape every calculus over it shares.
 - [space.md](space.md) — the four spatial algebras over it: RCC-8 topology, cardinal direction, relative direction (whose frame of reference is the context) and qualitative distance (whose composition is the triangle inequality over the class bounds).

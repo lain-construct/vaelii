@@ -10,7 +10,8 @@
   or throws — nothing here writes.  Both mutation paths consume these: `assert`
   (vaelii.core) throws the value, the derivation path (vaelii.impl.chain) records
   it in the violations ledger."
-  (:require [vaelii.impl.inherit :as inherit]
+  (:require [vaelii.impl.config :as config]
+            [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -44,8 +45,8 @@
   `disjointMetatype`, and constrains predicate-valued argument positions with
   `argIsa` — so restricting the checks to CapitalCamelCase individuals would leave
   the whole meta-level declared and unenforced.  Numbers, strings and compounds are
-  excluded because a type membership cannot be asserted of one (a NAT reifies to a
-  NART symbol first, so a reified term is checked under its constant)."
+  excluded because a type membership cannot be asserted of one (a NAT reifies to its
+  constant first, so a reified term is checked under that constant)."
   [x]
   (and (symbol? x) (not (sx/variable? x))))
 
@@ -151,7 +152,7 @@
   the target's absence and it never convicts anybody.
 
   Both sides are context-scoped by construction — `decls` reads only the declarations
-  visible from `context` and `types` only the memberships — so a microtheory is convicted
+  visible from `context` and `types` only the memberships — so a context is convicted
   on evidence it can see, which is the judgement `genls-problem` spells out at length.
 
   **Behind an O(1) gate, unlike its two unconditional neighbours.**  `args-problem` and
@@ -204,13 +205,13 @@
   but an **individual** can never acquire them (`wff/genl-problems` refuses `genl` of
   one), so a type-level position holding one is convicted rather than excused.  The
   test is \"outside the hierarchy *and* individual\", not \"individual\", because a
-  NART reads as an individual by spelling and is minted with real `genl` edges from
+  reified NAT reads as an individual by spelling and is minted with real `genl` edges from
   its `resultGenl` declarations — one that reaches `thing` is judged like any type.
 
   **A deliberate global/scoped split inside one `cond`.**  The first floor asks what
-  the argument *is* (could it ever be a type?) and stays **global**: a NART's
+  the argument *is* (could it ever be a type?) and stays **global**: a reified NAT's
   minting edges land in `UniverseContext`, which the upper band sits above and
-  cannot see, so a scoped floor would convict an imported NART used from
+  cannot see, so a scoped floor would convict an imported reified NAT used from
   `MeasureContext` as \"an individual, so never a subtype\" — false.  The second
   floor is the **scoped** open-world excuse: an argument with no *visible* path
   into the hierarchy may simply have its edges out of sight, and a NAF check that
@@ -313,7 +314,7 @@
   must name the same side.
 
   **Every exact match, not one**, because they are not one sentex.  A term stated to hold
-  the same type in a general microtheory and again in one that sees it is two stored
+  the same type in a general context and again in one that sees it is two stored
   claims of different provenance and possibly different strength, and each forms its own
   pair with whatever contradicts it — naming only the content-first of them leaves the
   other coexisting with content that denies it.  The entailing arm stays singular: those
@@ -542,7 +543,10 @@
   value, which is what lets the whole suite be run under it.  A KB that names a
   `:constraints` policy of its own overrides both — `kb/constraint-policies` names them
   and `arbitrating?` is the one read of either."
-  (= "1" (System/getenv "VAELII_ARBITRATE_CONSTRAINTS")))
+  ;; A var root, so it is read at namespace load and refuses there — `config`'s own
+  ;; docstring says why that is the right door for a `def` and the wrong one for a value
+  ;; a worker reads.
+  (config/arbitrate-constraints?))
 
 (defn arbitrating?
   "Does `kb` arbitrate a definitional clash against defeasible content rather than
@@ -604,7 +608,7 @@
   disjoint from T, as a violation map, or nil.  **Fully scoped to the asserting
   context**: the memberships read, the disjoint declaration, and the genl edges
   the disjointness closes under must all be visible from `context` — a
-  microtheory is only ever refused on grounds it can see.
+  context is only ever refused on grounds it can see.
 
   X is any term, not only an individual, so a `disjointMetatype` over predicate
   types separates the predicates it is declared of — one predicate cannot be both
@@ -621,7 +625,7 @@
   handle order, which is arrival order.
 
   A pair per opposing **sentex**, not per opposing type, for the same reason one level
-  down: the same membership stated in a general microtheory and in one that sees it is
+  down: the same membership stated in a general context and in one that sees it is
   two claims, of possibly different strength, and a reader below both is contradicted by
   each.  `functional-problems` counts its clashes that way already."
   [kb sentence context types]
@@ -735,7 +739,7 @@
   that stops at the context leaves that pair to iteration order.
 
   **One violation per opposing sentex**, in that order, for the reason
-  `disjoint-problems` gives: the converse stated in a general microtheory and again in
+  `disjoint-problems` gives: the converse stated in a general context and again in
   one that sees it is two claims, and each is its own pair with the sentence here.  The
   refusal path takes the first and is therefore deciding against the strongest, which is
   the claim it always decided against; the discovery weighs all of them.  Deduped on the
@@ -869,10 +873,10 @@
   `binding` it is the ordinary way in.  `VAELII_ASSERTIVE_ARG_TYPES=1` sets the root
   value instead, which is what lets the whole suite be run under it — the parity gate
   that says the entailment is additive rather than a different engine."
-  (= "1" (System/getenv "VAELII_ASSERTIVE_ARG_TYPES")))
+  (config/assertive-arg-types?))
 
 (def ^:private universal-context
-  "The one context every microtheory sees.  A declaration stated there speaks for every
+  "The one context every other sees.  A declaration stated there speaks for every
   context, so it entails locally wherever it is visible; `special/universal-context` is
   the same symbol, named there for the lift."
   'UniverseContext)
@@ -883,7 +887,7 @@
 
   A **global** read, like `genls-problem`'s individual floor and for the same reason:
   this asks what the name *is*, not what a context can see of it, and an entailment
-  drawn in a microtheory that cannot see `thing` would be an entailment about nothing.
+  drawn in a context that cannot see `thing` would be an entailment about nothing.
   A name the hierarchy does not hold is not a type we invent a membership in — which
   is where a structural constraint (an argument that must be a number, a string) lands
   without needing a list of exemptions to keep in step."
@@ -896,9 +900,9 @@
 
   A declaration is *inherited* by every descendant of the context it was written in,
   and there it constrains: an ancestor schema enforces its argument types in every
-  microtheory below it.  It does not *entail* there — an upper-band schema would
+  context below it.  It does not *entail* there — an upper-band schema would
   otherwise spray derived `(T x)` memberships across every context that inherits it,
-  claims no author of that microtheory made.  So only a declaration written in the
+  claims no author of that context made.  So only a declaration written in the
   context being checked, or in `UniverseContext` (which speaks for every context by
   construction), draws the entailment.
 

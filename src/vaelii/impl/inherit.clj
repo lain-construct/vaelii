@@ -138,7 +138,7 @@
   `(transitive R)` stops the inheritance it licensed the way retracting anything else
   here does — the declaration is stored, but a relation nobody currently says is
   transitive is one whose reach we have no right to close.  Read from `context`, like
-  the declaration itself: a transitivity claim some invisible microtheory makes is not
+  the declaration itself: a transitivity claim some invisible context makes is not
   a licence this one holds."
   [tax rel context]
   (boolean (or (contains? virtual-relations rel)
@@ -280,7 +280,7 @@
   declarations made at it — `reach`.
 
   The `genl` walk is **scoped to `context`**, exactly as `fact-reach` is: a claim
-  travels along the edges the asking context can see and no others, or a microtheory
+  travels along the edges the asking context can see and no others, or a context
   would inherit `(largerThan dog cat)` down to a subtype some invisible theory
   declared.  `genlContext` stays global — the context closure is (docs/taxonomy.md,
   the stated exception), and a preservation along it is a claim about the topology,

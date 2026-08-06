@@ -212,7 +212,7 @@
   ;; The source-level half of the same invariant: a namespace that never names a writer
   ;; cannot write, whatever a future edit does to its logic.
   (let [src (slurp (io/file "src/vaelii/impl/llm/oracle.clj"))]
-    (doseq [writer ["v/assert" "v/retract!" "v/edit" "v/apply-" "v/ist"]]
+    (doseq [writer ["v/assert" "v/retract!" "v/edit!" "v/apply-" "v/ist"]]
       (is (not (str/includes? src writer))
           (str "oracle.clj names " writer " — the judge is a read")))))
 
@@ -242,7 +242,7 @@
     (eats Kibble Fido)])
 
 (defn- controls!
-  "Assert the control claims into a scratch microtheory beneath the world and return their
+  "Assert the control claims into a scratch context beneath the world and return their
   handles.  A context of their own, so the judged set is one batch a judge cannot tell
   apart while nothing false is mixed into a theory anybody else reads."
   [kb]

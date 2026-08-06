@@ -225,7 +225,7 @@
       (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'UniverseContext)
       (v/assert kb (list dog_t Fido) 'UniverseContext)
       (is (seq (v/sentexes-matching kb (list breathes Fido) 'UniverseContext)))
-      (v/edit kb {:add [[(list dog_t Rex) 'UniverseContext]] :remove [via-mammal]})
+      (v/edit! kb {:add [[(list dog_t Rex) 'UniverseContext]] :remove [via-mammal]})
       (is (seq (v/sentexes-matching kb (list breathes Fido) 'UniverseContext))
           "the other route survived the batch, so the old conclusion is back")
       (is (seq (v/sentexes-matching kb (list breathes Rex) 'UniverseContext))
@@ -253,7 +253,7 @@
 ;; it does not kill the conclusion; it pulls it down to where it *can* be seen.
 
 (defn- lattice!
-  "Two incomparable microtheories under UniverseContext and two incomparable contexts
+  "Two incomparable contexts under UniverseContext and two incomparable contexts
   below both of them — the smallest shape in which an edge can be invisible from a
   placement and still visible from somewhere."
   [kb a b & belows]
@@ -299,7 +299,7 @@
           "and the report names the context the edges cost it"))))
 
 (tu/deftest-kb a-placement-that-already-sees-an-edge-does-not-descend
-  ;; the edge is asserted in *both* microtheories, so B — where the rule and fact are —
+  ;; the edge is asserted in *both* contexts, so B — where the rule and fact are —
   ;; can see a witness of its own.  The edges add no constraint there, and the
   ;; conclusion stays as general as it was: in B, not below it.  Choosing one witness
   ;; globally would pick A's half the time and drop B out of the placement entirely.
@@ -333,7 +333,7 @@
 
 (tu/deftest-kb the-named-edge-is-one-the-placement-can-see
   ;; the edge is asserted twice — once where the conclusion lands, once in a sibling
-  ;; microtheory the conclusion's context cannot see.  Naming the invisible one would
+  ;; context the conclusion's context cannot see.  Naming the invisible one would
   ;; make the conclusion rest on something its own context does not hold.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob AContext BContext]
     (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)

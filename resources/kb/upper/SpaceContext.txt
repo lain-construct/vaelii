@@ -4,7 +4,7 @@
 ;; (which way is one thing from another as seen from a point of view?) and qualitative
 ;; DISTANCE (how far apart, on a scale of classes rather than in numbers?). Sees
 ;; CoreContext; UniverseContext sees it, so a spatial relation is stateable from every
-;; microtheory.
+;; context.
 ;;
 ;; Topology. Eight BASE relations, jointly exhaustive and pairwise disjoint, so exactly
 ;; one holds of any two regions: spatiallyDisconnected (DC), externallyConnected (EC),
@@ -26,7 +26,7 @@
 ;; Four DERIVED relations again name one axis and leave the other open — leftwardOf,
 ;; rightwardOf, frontwardOf, rearwardOf. The FRAME OF REFERENCE IS THE CONTEXT: relative
 ;; direction is ternary in the literature (A is left of B from viewpoint C), and a
-;; constraint network is binary, so the viewpoint is the microtheory the facts are stated
+;; constraint network is binary, so the viewpoint is the context the facts are stated
 ;; in. (leftOf Mouse Lion) in LionMouseContext is a claim in that frame and in no other;
 ;; two contexts looking from opposite sides state opposite facts and neither contaminates
 ;; the other. Nothing declares a viewpoint, because the context is the viewpoint.

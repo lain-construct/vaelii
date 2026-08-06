@@ -270,7 +270,7 @@
     (is (v/genl? kb p_t s_t) "and everything the batch did land is still reachable")))
 
 (tu/deftest-kb a-revived-context-cycle-is-one-place-to-stand-again-in-its-own-settle
-  ;; Two microtheories that see each other are **one** place for a firing to put its
+  ;; Two contexts that see each other are **one** place for a firing to put its
   ;; conclusion, and which of their names stands for the group is read off `:scc`
   ;; (`placement-rep`).  Both a defeat and a revival surrender the potential, so a settle
   ;; repairing only *before* it reconciles belief would leave the cycle standing with

@@ -42,7 +42,8 @@ jobs=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     :*)       selector="$1"; shift ;;
-    --jobs)   jobs="${2:-}"; shift 2 ;;
+    --jobs)   [[ $# -ge 2 ]] || { echo "test-parallel: --jobs needs a value" >&2; exit 2; }
+              jobs="$2"; shift 2 ;;
     --jobs=*) jobs="${1#--jobs=}"; shift ;;
     *) echo "test-parallel: unknown argument $1" >&2; exit 2 ;;
   esac

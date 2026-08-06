@@ -42,6 +42,12 @@
                ["genl over an individual" (list 'genl Fido dog) TheContext   :not-well-formed]
                ["an unbound consequent variable"
                 (list 'implies (list dog '?x) (list 'animal '?y)) TheContext :not-range-restricted]
+               ;; the rule index is keyed by predicate, and a variable names none — so
+               ;; `check` has to predict the refusal `assert` makes, or an editor
+               ;; validating a metarule is told it will land when it will not
+               ["a rule literal with a variable predicate"
+                (list 'implies (list 'and (list dog '?x) (list 'transitive '?p))
+                      (list '?p '?x '?x)) TheContext                          :not-indexable]
                ["a disjoint type membership" (list cat Fido) TheContext      :disjoint]]]
         (testing label
           (is (= #{expected} (types-of-check kb sentence context)))
@@ -120,7 +126,10 @@
     (tu/with-terms [dog Fido TheContext]
       (is (= #{:shape} (types-of-check kb (list dog Fido) "TheContext")))
       (is (= #{:shape} (types-of-check kb 'dog TheContext)))
-      (is (= #{:shape} (into #{} (map :type) (v/check kb (list dog Fido) TheContext :nope)))))))
+      ;; a non-map opts is an opts problem, not a shape one — the same
+      ;; `:unknown-option` `assert` throws, since `shape-problems` runs its guard
+      (is (= #{:unknown-option}
+             (into #{} (map :type) (v/check kb (list dog Fido) TheContext :nope)))))))
 
 ;; ---- the opts roster: admissible knowledge, inadmissible request ---------
 ;; These two are the request rather than the sentence, and neither is visible after the
@@ -310,3 +319,32 @@
               (is (= :shape (:type (ex-data e)))))))
         (testing "and the over-long one stored nothing"
           (is (empty? (v/sentexes-matching kb (list dog '?x) IstContext))))))))
+
+;; ---- assert-inert runs the same shape guards ----------------------------
+
+(deftest assert-inert-refuses-the-shapes-assert-refuses
+  ;; `assert-inert` skips the constraint / wff / chaining machinery on purpose — a
+  ;; materialized head is already well-formed — but the shape guards are not machinery,
+  ;; they are what keeps a non-sentence out of the store.  `nm/literals` of a
+  ;; non-sequential sentence finds no literals, so a string or nil would pass the naming
+  ;; check vacuously and store as an object no query can match.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog Fido InertContext]
+      (let [before (v/sentex-count kb)]
+        (testing "a non-sequential sentence is :shape, as at assert"
+          (doseq [bad ["(dog Fido)" nil 42 {:a 1}]]
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (v/assert-inert kb bad InertContext))
+                        (str (pr-str bad) " is refused"))]
+              (is (= :shape (:type (ex-data e)))))))
+        (testing "a non-symbol context is :shape, not :naming"
+          (let [e (is (thrown? clojure.lang.ExceptionInfo
+                               (v/assert-inert kb (list dog Fido) (str InertContext))))]
+            (is (= :shape (:type (ex-data e))))))
+        (testing "and nothing was stored by any refusal"
+          (is (= before (v/sentex-count kb)))))
+      (testing "a well-formed inert sentex still stores, unbelieved"
+        (let [h (v/assert-inert kb (list dog Fido) InertContext)]
+          (is (nat-int? h))
+          (is (not (v/in? kb h)) "inert means never a premise")
+          (v/retract! kb h))))))

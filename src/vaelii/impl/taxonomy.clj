@@ -137,7 +137,7 @@
   walk is plain — the same answer, paid for by visiting `src`'s whole reach instead of
   a prefix of it.  Pruning with a potential that is no longer sound would answer
   *false* for a real path, which here means `genl?` silently losing a subtype and
-  `sees?` silently losing a microtheory.
+  `sees?` silently losing a context.
 
   Walking unpruned is **much** more expensive than it looks — on a deep hierarchy it
   is the difference between an O(1) rejection and a full ancestor walk, and `wff` pays
@@ -803,7 +803,7 @@
   Condensing is what makes the pass total.  Walking the raw graph, a node on a cycle
   is never ready and would keep a stale depth — sound only for a graph that has none,
   which `genlContext` no longer is (a `genlMt` cycle is a claim OpenCyc makes 49 times,
-  and it means the microtheories see each other)."
+  and it means the contexts see each other)."
   [rel]
   (let [nodes (:nodes rel)
         fwd   (:fwd rel)
@@ -1294,7 +1294,7 @@
   on exactly the case that needs the slow one.
 
   This is the common shape rather than an optimisation for a corner: a KB states its
-  merges in `CoreContext`, or in the microtheory doing the reading, and either way every
+  merges in `CoreContext`, or in the context doing the reading, and either way every
   supporter is visible.  A reader pays one memoized `visible?` per supporter of a class
   that is a handful of terms — against `scoped-class`'s reachability walk and preference
   election, which is the cost this exists to skip."
@@ -1663,8 +1663,8 @@
 ;;
 ;; Each step also reports the **context** its supporter was asserted from, because a
 ;; caller that depends on a reachability inherits its visibility: a conclusion resting
-;; on an edge stated in some microtheory belongs no higher than a context that can see
-;; that microtheory.  So the witness prefers, per edge, the **most general** supporter
+;; on an edge stated somewhere belongs no higher than a context that can see where it
+;; was stated.  So the witness prefers, per edge, the **most general** supporter
 ;; available — the one every other supporter of that edge sees — since a needlessly
 ;; specific choice would drag its dependant down with it.  Across *paths* the witness is
 ;; still the shortest one; a longer route through more general contexts might carry
@@ -1767,7 +1767,7 @@
   It is *the* maximum unless two members see each other, in which case both qualify
   and they are the same place to stand; the tie is broken by `term-min` rather than by
   position, so a firing does not place its conclusion in whichever mutually-visible
-  microtheory its antecedents happened to be listed in first."
+  context its antecedents happened to be listed in first."
   [tax ctxs]
   (let [seers (filter (fn [k] (every? #(sees? tax k %) ctxs)) ctxs)]
     (when (seq seers) (term-min seers))))
@@ -1832,7 +1832,7 @@
   out and the firing would have nowhere to land.  They are collapsed to one by
   `term-min` — the same content-keyed choice `seeing-member` makes — since placing the
   conclusion in every member of a cycle would store one claim several times over in
-  microtheories that already see each other."
+  contexts that already see each other."
   [tax ctxs]
   (let [c0 (first ctxs)]
     (if (and observe/*chain-fast-paths*
@@ -1887,7 +1887,7 @@
   agrees with a more general one or refines it.
 
   **Fewer than two contexts closes immediately**, which is every KB that has not
-  divided the knowledge in question between microtheories: there is nothing for a
+  divided the knowledge in question between contexts: there is nothing for a
   second to meet, so no closure is read at all."
   [tax ctxs]
   (let [start (set ctxs)]

@@ -1,11 +1,11 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.nat-test
-  "Non-atomic terms (NATs) and reified non-atomic terms (NARTs) — docs/nat.md.
+  "Non-atomic terms (NATs) — docs/nat.md.
 
   A ground reifiable NAT `(FruitFn AppleTree)` reifies to an opaque `nat/` constant
   before it reaches the index (Strategy A), so it autoindexes like an atomic symbol;
-  an unreifiable NAUT `(QuantityFn 5 Kilogram)` stays structural.  The constant↔
+  an unreifiable structural NAT `(QuantityFn 5 Kilogram)` stays structural.  The constant↔
   expression map is an ordinary `(termOfUnit K E)` fact, so rename rides the equality
   migration and remove rides the retraction sweep."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -110,7 +110,7 @@
 
 ;; ---- 5. remove -----------------------------------------------------------
 
-(tu/deftest-kb removing-the-last-use-collects-the-orphaned-nart
+(tu/deftest-kb removing-the-last-use-collects-the-orphaned-reified-nat
   (tu/with-terms [FruitFn AppleTree fruit]
     (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
     (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext)
@@ -118,14 +118,14 @@
           k (k-of kb h)]
       (is (some? (nat/nat-expression kb k)))
       (v/retract! kb h)
-      (testing "the NART constant and its bookkeeping are gone, no dangling nat/ symbol"
+      (testing "the reified NAT constant and its bookkeeping are gone, no dangling nat/ symbol"
         (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
         (is (empty? (kb/find-sentexes kb k)))
         (is (empty? (nat/orphaned-constants kb)))))))
 
 ;; ---- 6. unreifiable gate -------------------------------------------------
 
-(tu/deftest-kb an-unreifiable-naut-stays-structural
+(tu/deftest-kb an-unreifiable-nat-stays-structural
   (tu/with-terms [QuantityFn Obj]
     (v/assert kb (list 'unreifiableFunction QuantityFn) 'UniverseContext)
     (let [nut (list QuantityFn 5 'Kilogram)
@@ -224,7 +224,7 @@
         (is (= (list 'locatedIn Paris 'Europe) (:sentence (v/sentex kb h))))
         (is (seq (v/sentexes-matching kb (list 'locatedIn (list CapitalFn France) '?where) '?ctx)))))))
 
-;; ---- recover: the reifiable gate + NART data survive a rebuild -----------
+;; ---- recover: the reifiable gate + reified NAT data survive a rebuild -----------
 
 (tu/deftest-kb nat-data-survives-recover
   ;; the reifiable prop and the termOfUnit / result-type facts are all durable, so a

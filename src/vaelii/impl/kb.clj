@@ -15,6 +15,7 @@
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
             [vaelii.impl.columnar :as columnar]
+            [vaelii.impl.config :as config]
             [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.disk.files :as dfiles]
@@ -29,6 +30,7 @@
             [vaelii.impl.overlay.mount :as mount]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reindex :as reindex]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rewrite :as rewrite]
             [vaelii.impl.rules :as rules]
@@ -333,6 +335,79 @@
                     {:type :unknown-option :unknown (vec unknown)
                      :options (vec (sort opt-keys))}))))
 
+(defn- check-space-pair!
+  "Refuse an opts map that names one in-RAM space number and not the other.
+
+  This is `check-opts!`'s failure with the key spelt **correctly**.  The two numbers
+  default independently — `:record-space` to 0, `:index-space` to 1 — so
+  `{:backend :memory :record-space 77}` pairs a private record store with the *process
+  default* index map, which every `(open-kb {:backend :memory})` in the JVM is also
+  writing.  The two KBs then share one index over separate records, and the damage is
+  silent and worse than a shared store: `handle-of` answers out of the other KB's
+  postings, `assert` finds that handle, believes it is a duplicate, stores **nothing**
+  and returns it, so a write reports success and leaves no record — and `in?` on the
+  handle it returned answers true.
+
+  Only in-RAM records make both numbers live (`derived-index-space` keys a derived index
+  over durable records by the record *directory*, not by the number), so that is the case
+  refused.  Naming neither is the ordinary default and stays untouched.
+
+  `where` names the opts map, as in `check-opts!`: a fork's `:base` and `:overlay`
+  sub-maps build their stores from the same keys with the same independent defaults,
+  so a half-specified half is the same silent store-sharing one door down."
+  [opts rkind where]
+  (when (= :memory rkind)
+    (let [named (filterv #(contains? opts %) [:record-space :index-space])]
+      (when (= 1 (count named))
+        (let [given (first named)
+              other (if (= given :record-space) :index-space :record-space)]
+          (throw (ex-info (str where " was given " (pr-str given) " but not " (pr-str other)
+                               " — the two in-RAM space numbers default independently"
+                               " (:record-space 0, :index-space 1), so naming one leaves"
+                               " the other on the process default and this KB shares that"
+                               " half with every KB that took it.  A shared index over"
+                               " separate records answers one KB's queries out of the"
+                               " other's postings.  Name both, or neither.")
+                          {:type :unknown-option :given given :missing other
+                           :options [:record-space :index-space]})))))))
+
+(defn- check-mount-opts!
+  "Refuse a mount or durability key nothing in this axis selection reads.
+
+  All four keys are in `opt-keys` — each is a real option — so `check-opts!` passes
+  them, but each is read only under the selection it belongs to, and an opts map that
+  names one without the other is two halves of a request whose silent resolution is a
+  different KB.  `:base` / `:base-stores` / `:overlay` are read when an axis is
+  `:overlay`: on any other selection `{:backend :memory :base-stores …}` opens a plain
+  KB with nothing mounted, and every read that was meant to see the base answers as
+  though it were empty.  `:dir` is read when a half is `:disk`: on a RAM pair it names
+  a directory nothing writes, so the caller who asked for durability loses the store
+  at JVM exit — behind an open that looked exactly like the durable one.  (A fork's
+  top-level `:dir` is the same nothing: its own writable half's directory lives in the
+  `:overlay` sub-map, checked here on its own axes.)  `where` names the opts map, as
+  in `check-opts!`."
+  [opts {rkind :records ikind :index} where]
+  (when-not (or (= :overlay rkind) (= :overlay ikind))
+    (when-let [given (seq (filterv #(contains? opts %) [:base :base-stores :overlay]))]
+      (throw (ex-info (str where " was given " (str/join ", " (map pr-str given))
+                           " but neither axis is :overlay, so nothing would be mounted"
+                           " — the KB opens plain and every read of the base answers"
+                           " empty.  A fork is spelled {:backend :overlay :base …} (or"
+                           " :records / :index :overlay); drop the key if no fork was"
+                           " meant.")
+                      {:type :unknown-option :unknown (vec given)
+                       :records rkind :index ikind}))))
+  (when-not (or (= :disk rkind) (= :disk ikind))
+    (when (contains? opts :dir)
+      (throw (ex-info (str where " was given :dir " (pr-str (:dir opts))
+                           " but no half is :disk, so nothing writes there — the store"
+                           " lives in RAM and is gone at JVM exit, the opposite of what"
+                           " naming a directory asks for.  Want durability?"
+                           " {:backend :disk} (or :disk-memory / :disk-dense /"
+                           " :disk-columnar).")
+                      {:type :unknown-option :unknown [:dir]
+                       :records rkind :index ikind})))))
+
 (defn- check-naming!
   "Refuse a `:naming` setting `nm/policies` does not name, returning it.  Beside
   `check-opts!` because it is the same failure at one level down — an option read but not
@@ -473,6 +548,11 @@
     :or   {record-space 0 recover? :auto tms :reference naming :strict}
     :as   opts}
    recover-fn reindex-fn]
+  ;; The build's switches, before the KB's own options: a JVM property is read on a
+  ;; worker thread or at a `def`, so this is the earliest door where a wrong value can
+  ;; still be reported as the typo it is rather than as a fsync tick that logs a class
+  ;; name (`config/check!`).
+  (config/check!)
   (check-opts! opts "open-kb")
   (check-naming! naming)
   ;; **No default here, and nil is not one.**  An unstated policy means the caller said
@@ -482,15 +562,49 @@
   ;; the var out of the picture.
   (when (some? constraints) (check-constraints! constraints))
   (doseq [half [:base :overlay]]
-    (when-let [sub (get opts half)] (check-opts! sub (str half))))
+    (when-let [sub (get opts half)]
+      (check-opts! sub (str half))
+      (let [axes (backend-axes sub)]
+        (check-mount-opts! sub axes (str half))
+        (check-space-pair! sub (:records axes) (str half)))))
   (let [recover?                      (check-recover! recover?)
         {rkind :records ikind :index} (backend-axes opts)
+        _                             (check-mount-opts! opts {:records rkind :index ikind}
+                                                         "open-kb")
+        _                             (check-space-pair! opts rkind "open-kb")
         overlay?                      (or (= :overlay rkind) (= :overlay ikind))
         base                          (when overlay? (resolve-base opts))
         ov-opts                       (:overlay opts {})
         {ovr :records ovi :index}     (when overlay? (backend-axes ov-opts))
+        ;; The fork's own half and its base resolving to one store — one `:disk`
+        ;; directory `store-for` shares per canonical path, or one memory space pair
+        ;; the registry shares per number — is base immutability off with no error:
+        ;; `FrozenRecords` guards only the calls routed through it, and the fork's
+        ;; writes go to the same state direct.  Refused on the *descriptors* when the
+        ;; base arrives as opts (before anything opens), and on store identity as the
+        ;; backstop when it arrives as `:base-stores`.
+        _ (when (and overlay? (map? (:base opts)))
+            (let [b            (:base opts)
+                  {brk :records} (backend-axes b)
+                  same? (cond
+                          (and (= :disk brk) (= :disk ovr))
+                          (= (disk/canonical-dir (disk/disk-dir b))
+                             (disk/canonical-dir (disk/disk-dir ov-opts)))
+                          (and (= :memory brk) (= :memory ovr))
+                          (= [(:record-space b 0) (:index-space b 1)]
+                             [(:record-space ov-opts 0) (:index-space ov-opts 1)])
+                          :else false)]
+              (when same?
+                (throw (ex-info "the fork's own half and its base name one store — a fork cannot write its own base"
+                                {:type :base-is-overlay})))))
+        own-rstore (when (= :overlay rkind) (record-store-for ovr ov-opts))
+        own-istore (when (= :overlay ikind) (first (index-store-for ovi ovr ov-opts)))
+        _ (when (or (and own-rstore (identical? own-rstore (:records base)))
+                    (and own-istore (identical? own-istore (:index base))))
+            (throw (ex-info "the fork's own half and its base resolve to one store — a fork cannot write its own base"
+                            {:type :base-is-overlay})))
         rstore  (if (= :overlay rkind)
-                  (mount/mount-records (record-store-for ovr ov-opts)
+                  (mount/mount-records own-rstore
                                        (:records base)
                                        (mount/meta-kv ovr ov-opts))
                   (record-store-for rkind opts))
@@ -500,8 +614,7 @@
           ;; the recovery branch below needs to know is simply whether the merged view
           ;; holds anything — which the trie's own root count answers in O(1), and
           ;; answers correctly whether the base index was durable or derived-and-built.
-          (let [merged (mount/mount-index (first (index-store-for ovi ovr ov-opts))
-                                          (:index base))]
+          (let [merged (mount/mount-index own-istore (:index base))]
             [merged (pos? (long (p/count-at merged [])))])
           (index-store-for ikind rkind opts))
         ;; by name rather than positionally: seventeen `(atom {})`s in a row is a
@@ -556,7 +669,7 @@
                      ;; `{context -> how many rules are stated there}` — the other half
                      ;; of the same question: an edge only needs seeding when one side
                      ;; holds a rule that could newly reach the other side's facts, and
-                     ;; wiring an empty microtheory under a full one holds none.
+                     ;; wiring an empty context under a full one holds none.
                      :rule-contexts (atom {})
                      :negations (atom {})
                      :clashes   (atom {})
@@ -608,7 +721,106 @@
                      (trove/log! {:level :warn :id ::index-layout-rebuilt
                                   :msg (format "the durable index at %s was written under another key layout — rebuilt from %d records (%d rules) in %.0f ms"
                                                (disk/disk-dir opts) (long sentexes) (long rules) ms)})))
-          nil)))
+          nil)
+        ;; The layout gate above answers "are these the right *keys*"; it says nothing
+        ;; about whether the index describes all the records, and a short one opens clean
+        ;; and answers short forever.  Three ways in, none of them exotic: a torn `kv.log`
+        ;; tail (the record log and the index log are separate files with separate
+        ;; fsyncs, and truncating a torn tail is what recovery is *designed* to do), a
+        ;; directory grown under a derived-index mode — `:disk-dense` writes nothing under
+        ;; `<dir>/index`, so reopening it as `:disk` finds an empty durable index over
+        ;; full records — and a crash between the record write and the index batch.
+        ;;
+        ;; The failure is silent and compounding: reads answer out of a populated-looking
+        ;; store, and re-asserting a fact the index cannot find mints a **second handle**
+        ;; for a sentence already stored, which is the duplicate-canonical-form hazard the
+        ;; whole trie exists to prevent.  Coverage is exact — the root count equals the
+        ;; live record count on a healthy store, rules, negations and exceptWhen metas
+        ;; included — so it is compared rather than sampled, and repaired like a stale
+        ;; layout: rebuild from the records, which are the truth an index is derived from.
+        ;; Gated on `recover?`, where the layout gate is not: a layout mismatch means the
+        ;; keys cannot be read at all, while `:recover? false` is a caller saying "open
+        ;; this and read what is stored, do no work" — and the one-directional crossing
+        ;; from a derived-index mode is a migration they drive with an explicit `reindex`.
+        ;; `:auto`, the default, is where a short index is a fault rather than a choice.
+        (when (and recover? (not= :stale decision))
+          ;; Three instruments, because the three ways a short index arrives leave
+          ;; different survivors.  The **batch-seal counter** is the last op of every
+          ;; index batch, so a torn append-mode tail — which keeps a batch's prefix,
+          ;; the root count `count-at []` reads included — loses it first; zero means
+          ;; the index predates the counter or arrived by `index-load` replay, and the
+          ;; root count is the check that remains.  The **damaged flag** is the clean
+          ;; marker's length disagreeing with the file: a compacted log is one flat
+          ;; `[:put]` per key in hash order, so a lost tail is arbitrary keys — the
+          ;; seal may survive and the counts may still agree, and only the length says
+          ;; the file is not the one that was closed.
+          (let [indexed  (long (p/count-at istore []))
+                sealed   (long (p/count-at istore kv/sealed-prefix))
+                damaged? (boolean (:damaged (:backend istore)))
+                stored   (count (p/sentex-ids (:records kb)))]
+            (when (or damaged?
+                      (if (pos? sealed) (not= sealed stored) (not= indexed stored)))
+              (dfiles/mark-index-rebuilding! root)
+              (p/clear-index! istore)
+              (let [t0 (System/nanoTime)
+                    {:keys [sentexes rules]} (reindex-fn kb)
+                    ms (/ (- (System/nanoTime) t0) 1e6)]
+                (dfiles/stamp-index-layout! root kv/index-layout-version)
+                (trove/log! {:level :warn :id ::index-coverage-rebuilt
+                             :msg (format "the durable index at %s described %d of %d records%s — rebuilt from %d records (%d rules) in %.0f ms"
+                                          (disk/disk-dir opts)
+                                          (if (pos? sealed) sealed indexed) stored
+                                          (if damaged? " (and its log is shorter than its clean marker recorded)" "")
+                                          (long sentexes) (long rules) ms)})))))))
+    ;; A durable fork's **own** index half is held to the same gates as a plain
+    ;; `:disk` index — the layout sentinel, and the coverage instruments under
+    ;; `recover?` — against its own records, the delta.  The merged mount above
+    ;; answers reads, but what lives in `<fork-dir>/index` is only what the fork
+    ;; itself wrote: a layout bump would silently misread it (the base gets a clean
+    ;; `:stale-index-layout` refusal from `gate-base-index-layout!`; this half is the
+    ;; fork's own to stamp and rebuild), and a torn tail would silently shorten it.
+    ;; Rebuilt from the fork's own records, never the merged view: reindexing the
+    ;; merged records into the mount would write the base's entries into the
+    ;; writable half, and the merged reads would double them.
+    (when (and own-istore (= :disk ovi)
+               (.isDirectory (java.io.File. (str (disk/disk-dir ov-opts) "/index"))))
+      (let [root     (str (disk/disk-dir ov-opts) "/index")
+            rebuild! (fn []
+                       (p/clear-index! own-istore)
+                       (reduce (fn [acc h]
+                                 (if-let [sx (p/get-sentex own-rstore h)]
+                                   (cond-> (update acc :sentexes inc)
+                                     (reindex/index-one! own-istore sx h)
+                                     (update :rules inc))
+                                   acc))
+                               {:sentexes 0 :rules 0}
+                               (p/sentex-ids own-rstore)))
+            decision (dfiles/index-layout-decision
+                      root kv/index-layout-version
+                      (pos? (long (p/count-at own-istore []))))]
+        (case decision
+          :unstamped (dfiles/stamp-index-layout! root kv/index-layout-version)
+          :stale (do (dfiles/mark-index-rebuilding! root)
+                     (let [{:keys [sentexes rules]} (rebuild!)]
+                       (dfiles/stamp-index-layout! root kv/index-layout-version)
+                       (trove/log! {:level :warn :id ::fork-index-layout-rebuilt
+                                    :msg (format "the fork's own index at %s was written under another key layout — rebuilt from %d records (%d rules)"
+                                                 root (long sentexes) (long rules))})))
+          nil)
+        (when (and recover? (not= :stale decision))
+          (let [stored   (count (p/sentex-ids own-rstore))
+                sealed   (long (p/count-at own-istore kv/sealed-prefix))
+                indexed  (long (p/count-at own-istore []))
+                damaged? (boolean (:damaged (:backend own-istore)))]
+            (when (or damaged?
+                      (if (pos? sealed) (not= sealed stored) (not= indexed stored)))
+              (dfiles/mark-index-rebuilding! root)
+              (let [{:keys [sentexes rules]} (rebuild!)]
+                (dfiles/stamp-index-layout! root kv/index-layout-version)
+                (trove/log! {:level :warn :id ::fork-index-coverage-rebuilt
+                             :msg (format "the fork's own index at %s described %d of %d records — rebuilt from %d records (%d rules)"
+                                          root (if (pos? sealed) sealed indexed) stored
+                                          (long sentexes) (long rules))})))))))
     (cond
       ;; A **derived** index opens empty over records that are not, so the repair is
       ;; one step longer than `recover`: rebuild the index from the records first, then
@@ -1025,7 +1237,7 @@
   through here, so a stored term and a goal meet at one normal form.
 
   **With a `context`, both halves apply only where they are visible.**  A merge is a
-  sentex, so it rewrites the microtheories that inherit it and no others — the same
+  sentex, so it rewrites the contexts that inherit it and no others — the same
   filter `migrate-sentex` puts on the twins it creates, now on the question as well as
   on the answer.  Without it the two disagree: a rewrite migration correctly declined
   to make still renames the goal, and a context loses the ability to retrieve a fact it
@@ -1090,7 +1302,7 @@
   relying on the rewrite happening to be a no-op.
 
   Rewritten only by the merges `context` can see (`rewrite-term`'s three-arity): a
-  question asked from a microtheory is a question about what that microtheory holds,
+  question asked from a context is a question about what that context holds,
   so a merge it does not inherit must not rename what it asked."
   ([kb goal] (rewrite-goal kb goal nil))
   ([kb goal context]

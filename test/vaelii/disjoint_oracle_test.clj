@@ -30,7 +30,7 @@
   * **a declaration the goal's context cannot see.**  `:disjoint-index` is not
     context-scoped — it is the adjacency of the whole KB's declarations — so the
     visibility filter is the enumeration's own to apply, and a driver that trusted the
-    index would globalize every microtheory's separations.
+    index would globalize every context's separations.
   * **a retracted declaration.**  Belief filtering: assert, query, retract, query.
   * **a metatype.**  Its clique is consulted rather than stored, and its members need
     not be in the taxonomy's node set at all, so it is reached by no genl walk.
@@ -147,7 +147,7 @@
   ;; The case a `disjoint-index`-driven enumeration is likeliest to get wrong: the
   ;; index is the adjacency of every declaration in the KB and carries no context, so
   ;; the visibility filter has to be applied where the enumeration is, not left to the
-  ;; lookup.  Two microtheories that cannot see each other, the separation in one.
+  ;; lookup.  Two contexts that cannot see each other, the separation in one.
   (tu/with-terms [a_place an_agent a_city PhysicalGeographyContext GeographyContext]
     (v/assert kb (list 'genl a_place 'thing) 'UniverseContext)
     (v/assert kb (list 'genl an_agent 'thing) 'UniverseContext)

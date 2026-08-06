@@ -155,7 +155,7 @@
                        nil
                        (catch clojure.lang.ExceptionInfo e e))]
             (is (some? e) (str (pr-str bogus) " was accepted as a cost tier"))
-            (is (= :bad-opt (:type (ex-data e))))
+            (is (= :unknown-option (:type (ex-data e))))
             (is (= provers/cost-tiers (:known (ex-data e))))))))))
 
 (tu/deftest-kb ask-within-max-cost-compute-tier
@@ -225,3 +225,43 @@
         (is (= #{Ann Zed}
                (set (map #(get % '?who)
                          (:results (v/prove-within kb goal FamContext {:max-depth 1}))))))))))
+
+;; ---- the budget roster ----------------------------------------------------
+
+(deftest a-budget-bound-nothing-reads-is-refused
+  ;; Every bound is optional, so a misspelt one is not missing — the run is simply
+  ;; unbounded: `{:max-mss 100}` realizes the whole stream, which on an infinite
+  ;; source never returns.  (`:max-cost` outside the tiers is the *value* check and
+  ;; stays `:unknown-option` at the prover door; this is the key check one level up.)
+  (testing "collect refuses the typo before realizing anything"
+    (let [pulled (atom 0)
+          src    (map (fn [i] (swap! pulled inc) i) (range))
+          e      (is (thrown? clojure.lang.ExceptionInfo
+                              (budget/collect src {:max-mss 100})))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= [:max-mss] (:unknown (ex-data e))))
+      (is (re-find #":max-ms" (ex-message e)) "the right spelling is in the message")
+      (is (zero? @pulled) "nothing was realized on the way to the refusal")))
+  (testing "a non-map budget is refused rather than read as unbounded"
+    ;; The keyword is the point — the refusal is what this asserts — so the
+    ;; type mismatch clj-kondo sees is the test's subject, not a defect.
+    #_{:clj-kondo/ignore [:type-mismatch]}
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
+                          (budget/collect (range 5) :max-results))))
+  (testing "the four rostered bounds all pass at every door"
+    (tu/with-neutral-kb [kb tu/fresh]
+      (tu/with-terms [dog Fido BudgetContext]
+        (v/assert kb (list dog Fido) BudgetContext)
+        (is (= :complete (:status (v/ask-within kb (list dog '?x) BudgetContext
+                                                {:max-ms 5000 :max-results 10
+                                                 :max-cost :search}))))
+        (is (= :complete (:status (v/prove-within kb (list dog '?x) BudgetContext
+                                                  {:max-results 10 :max-depth 3})))))))
+  (testing "and both anytime doors hold their budget to the roster"
+    (tu/with-neutral-kb [kb tu/fresh]
+      (tu/with-terms [dog]
+        (doseq [door [#(v/ask-within kb (list dog '?x) {:max-result 1})
+                      #(v/prove-within kb (list dog '?x) {:max-result 1})]]
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (door)))]
+            (is (= :unknown-option (:type (ex-data e))))
+            (is (= [:max-result] (:unknown (ex-data e))))))))))

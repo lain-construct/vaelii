@@ -36,7 +36,8 @@
   tick instead)."
   (:require [clojure.edn :as edn]
             [taoensso.nippy :as nippy]
-            [taoensso.trove :as trove])
+            [taoensso.trove :as trove]
+            [vaelii.impl.config :as config])
   (:import [java.io DataInputStream DataOutputStream File
             RandomAccessFile FileInputStream FileOutputStream
             BufferedInputStream BufferedOutputStream]
@@ -121,8 +122,7 @@
   (spit (str root "/" index-layout-file) (pr-str {:index-layout current}))
   nil)
 
-(defn- dsync? []
-  (boolean (#{"dsync" "DSYNC" "Dsync"} (System/getProperty "vaelii.disk.fsync"))))
+(defn- dsync? [] (= :dsync (config/disk-fsync-mode)))
 
 (defn- open-rw ^RandomAccessFile [^String path ^String mode]
   (let [parent (.getParentFile (File. path))]
@@ -159,10 +159,9 @@
   (.force (.getChannel raf) (boolean meta-data?)))
 
 (defn- disk-compressor []
-  (case (or (System/getProperty "vaelii.disk.compress") "none")
-    ("none" "off" "false") nil
-    "zstd"                 nippy/zstd-compressor
-    "lz4"                  nippy/lz4-compressor
+  (case (config/disk-compress)
+    :zstd nippy/zstd-compressor
+    :lz4  nippy/lz4-compressor
     nil))
 
 (defn- freeze-bytes ^bytes [value]
@@ -398,6 +397,11 @@
           (nippy/freeze-to-out! out value)
           (.flush out)
           (.sync (.getFD fos))))
+      ;; Unguarded by platform, unlike `index-snapshot/rename!`, and the difference is
+      ;; the target: every file written this way — the counters, the premise set, the
+      ;; clean marker, the image's meta and its fallback blob — is read whole through
+      ;; `read-nippy-file`, and only the image's CSR sections are ever mapped.  So no
+      ;; process holds a mapping this replace has to break.
       (Files/move (Paths/get tmp (into-array String []))
                   (Paths/get path (into-array String []))
                   (into-array java.nio.file.CopyOption

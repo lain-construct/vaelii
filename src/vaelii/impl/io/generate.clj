@@ -60,7 +60,7 @@
    {:key :layers      :label "Rule layers"  :min 2 :max 8      :step 1    :default 3
     :help "how deep a derivation can cascade — the predicate stratification"}
    {:key :contexts    :label "Contexts"     :min 1 :max 512    :step 1    :default 1
-    :help "microtheories the facts are spread over — a chain, each seeing the one above"}])
+    :help "contexts the facts are spread over — a chain, each seeing the one above"}])
 
 (def defaults
   "Every parameter with its default: the numeric knobs plus the four that are not
@@ -178,7 +178,7 @@
                                 :lo lo :lcdf (zipf-cdf (max 1 (count lo)) 1.1)}])))]
     {:params       (merge defaults params)
      ;; the fact contexts form a **chain** under the schema context, not a fan of
-     ;; siblings: two incomparable microtheories have no common descendant, so a rule
+     ;; siblings: two incomparable contexts have no common descendant, so a rule
      ;; joining a fact from each would complete with nowhere to put its conclusion
      ;; (`:no-placement`).  Down a chain every pair is comparable and the conclusion
      ;; lands in the deeper of the two.

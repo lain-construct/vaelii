@@ -24,7 +24,7 @@ Matentzoglu et al.), and studies of real authoring find people doing it by hand 
 running the reasoner after every axiom, because the tool will not say what they just
 did.
 
-## The mechanism, and why it is not `edit` then `retract!`
+## The mechanism, and why it is not `edit!` then `retract!`
 
 Apply the batch, settle, read the belief diff, undo. The undo is the whole problem: a
 `retract!` **sweeps**, and what a sweep deletes can only be put back by *deriving it
@@ -140,12 +140,12 @@ though it stores nothing: a remote client gets the same answer over the daemon
 ([operations.md](operations.md)), because the daemon *is* the single writer.
 
 An **inert** sentex (`assert-inert`) in `:remove` reports nothing, because removing one
-moves no belief — it was never a TMS datum. That is the same answer `edit` gives, in
-belief terms; what `edit` additionally does is delete the record.
+moves no belief — it was never a TMS datum. That is the same answer `edit!` gives, in
+belief terms; what `edit!` additionally does is delete the record.
 
 ## Cost
 
-The batch's own cost — one settle over the affected region, exactly as `edit` — plus the
+The batch's own cost — one settle over the affected region, exactly as `edit!` — plus the
 rollback, which is a second one. Nothing scans the KB: every relabel is region-local
 ([nmtms.md](nmtms.md)), the rollback walks the premises the batch marked, and **the diff
 is taken over the relabelled region rather than over the believed set**.
@@ -169,7 +169,7 @@ Measured over generated corpora (`vaelii.impl.io.generate`, 40 predicates / 200 
 one hand-added rule, a batch of one fact that fires it; median of fifteen after a
 warm-up):
 
-| facts | stored sentexes | `preview` | `edit` + `retract!` |
+| facts | stored sentexes | `preview` | `edit!` + `retract!` |
 |---|---|---|---|
 | 2 000 | 2 761 | 0.72 ms | 0.68 ms |
 | 20 000 | 23 404 | 0.65 ms | 0.47 ms |
@@ -188,20 +188,21 @@ reads as a complete one.
 
 ## The other direction: what a write *did* mean
 
-`preview` answers before. **`edit-with-consequences`** answers after — the same two halves,
+`preview` answers before. **`edit-with-consequences!`** answers after — the same two halves,
 about a batch that landed:
 
 ```clojure
-(edit-with-consequences kb {:add [['(dog Fido) 'StoryContext]]})
+(edit-with-consequences! kb {:add [['(dog Fido) 'StoryContext]]})
 ;; => {:added [4] :removed {…}
 ;;     :believed-added   [{:sentence (dog Fido)    :premise? true  :handle 4 …}
 ;;                        {:sentence (mortal Fido) :premise? false :handle 5
 ;;                         :justification {:rule (implies (dog ?x) (mortal ?x))
 ;;                                         :antecedents [(dog Fido)] :informant 3}}]
-;;     :believed-removed []}
+;;     :believed-removed []
+;;     :bounded?         false}
 ```
 
-It exists because `edit` reports the handles it stored, which is what the caller already
+It exists because `edit!` reports the handles it stored, which is what the caller already
 said, and nothing about what followed. `:premise?` separates the two: a derived conclusion
 is not a premise, so `(remove :premise? …)` is exactly "what the writer did not say".
 
@@ -240,7 +241,7 @@ feed shares this diff and the two must not drift apart by accident.
 
 Measured the same way as the table above (one fact firing one rule, 300 iterations after a
 200-iteration warm-up): 0.31 ms at 2 003 stored sentexes, 0.31 ms at 4 005, 0.28 ms at
-23 430 — against a plain `edit` at 0.34 / 0.30 / 0.26 ms. The overhead is inside the noise
+23 430 — against a plain `edit!` at 0.34 / 0.30 / 0.26 ms. The overhead is inside the noise
 and, more to the point, does not grow with the KB: what it tracks is the region.
 
 ## The third caller: the same diff, continuously
@@ -268,7 +269,7 @@ before/after comparison of the live sentex and justification sets, because a tes
 relied on the neutral fixture would pass on a preview that stored everything and let the
 teardown clean up.
 
-Five of them are the **oracle**: run the preview, then really run the batch with `edit`,
+Five of them are the **oracle**: run the preview, then really run the batch with `edit!`,
 and compare the two belief diffs — derive, defeat, block a conclusion, remove a premise,
 release an exception. By sentence and not by handle, because content that a batch
 creates, and content that a released exception re-derives, lands on a fresh handle

@@ -131,6 +131,21 @@
 
 ;; ---- fall-through, override, isolation ------------------------------------
 
+(deftest a-fork-whose-own-half-is-its-base-is-refused
+  ;; both halves naming one store — one `:disk` directory, or here one memory space
+  ;; pair — is base immutability off with no error: `FrozenRecords` guards only the
+  ;; calls routed through it, and the fork's writes go to the same instance direct.
+  (let [spaces {:backend :memory :record-space [::selffork] :index-space [::selffork :ix]
+                :recover? false}
+        base   (doto (v/open-kb spaces) (v/clear!))]
+    (try
+      (is (= :base-is-overlay
+             (:type (try (v/open-kb {:backend :overlay :base spaces :overlay spaces
+                                     :recover? false})
+                         nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+      (finally (v/clear! base)))))
+
 (deftest a-fork-reads-through-to-its-base
   (let [base (fresh-base 1)
         f    (v/fork base)]
@@ -408,3 +423,66 @@
           (is (= :refuse (:constraints g)))
           (v/clear! g)))
       (finally (v/clear! base)))))
+
+(deftest a-half-specified-space-pair-is-refused-in-every-opts-map
+  ;; The two in-RAM space numbers default independently, so naming one and not the
+  ;; other pairs a private store with the process default — `check-space-pair!`'s
+  ;; documented corruption.  The refusal must hold wherever an opts map builds
+  ;; stores: the top level, and a fork's `:base` and `:overlay` halves, which build
+  ;; theirs from the same keys with the same defaults.
+  (let [refusal (fn [opts]
+                  (try (let [kb (v/open-kb opts)] (v/clear! kb) :opened)
+                       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))]
+    (testing "the top level"
+      (is (= :unknown-option (refusal {:backend :memory :record-space [::lone]}))))
+    (testing "the :base half"
+      (is (= :unknown-option
+             (refusal {:backend :overlay
+                       :base    {:backend :memory :record-space [::lone-base]}
+                       :overlay {:backend :memory :record-space [::ov 1]
+                                 :index-space [::ov 1 :ix]}}))))
+    (testing "the :overlay half"
+      (is (= :unknown-option
+             (refusal {:backend :overlay
+                       :base    {:backend :memory :record-space [::b 2]
+                                 :index-space [::b 2 :ix]}
+                       :overlay {:backend :memory :index-space [::lone-ov]}}))))
+    (testing "both-or-neither still passes, in every position"
+      (let [kb (v/open-kb {:backend :overlay
+                           :base    {:backend :memory :record-space [::b 3]
+                                     :index-space [::b 3 :ix]}
+                           :overlay {:backend :memory :record-space [::ov 3]
+                                     :index-space [::ov 3 :ix]}})]
+        (is (some? kb))
+        (v/clear! kb)))))
+
+(deftest a-durable-fork-own-index-is-stamped-and-gated
+  ;; The fork's own `:disk` index half carries the layout sentinel like any plain
+  ;; `:disk` index: unstamped, the next `index-layout-version` bump would replay its
+  ;; keys cleanly and miss every read whose shape moved — the base gets a clean
+  ;; `:stale-index-layout` refusal, and without this the fork got silence.  The half
+  ;; is the fork's own to rebuild, so a stale stamp rebuilds from the fork's own
+  ;; records rather than refusing.
+  (let [base (fresh-base 9)
+        dir  (tmpdir)]
+    (try
+      (let [f (v/fork base {:backend :disk :dir dir})]
+        (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+        (is (.isFile (java.io.File. (str dir "/index/layout.edn")))
+            "the fork's own index half is stamped at open"))
+      (disk/close-dir! dir)
+      ;; a stamp from another key layout: the shape an old build's fork leaves behind
+      (spit (str dir "/index/layout.edn")
+            (pr-str {:index-layout (dec kv/index-layout-version)}))
+      (testing "remounted under a moved layout, the fork's own half is rebuilt"
+        (let [f2 (v/fork base {:backend :disk :dir dir})]
+          (is (= '#{(dog Fido) (dog Rex)}
+                 (sentences (v/sentexes-matching f2 '(dog ?x) 'OverlayContext)))
+              "the fork-local fact is findable again")
+          (is (= (pr-str {:index-layout kv/index-layout-version})
+                 (slurp (str dir "/index/layout.edn")))
+              "and the stamp is current")))
+      (finally
+        (disk/close-dir! dir)
+        (rm-rf! dir)
+        (v/clear! base)))))

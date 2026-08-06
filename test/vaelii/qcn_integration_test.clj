@@ -138,7 +138,7 @@
   (set (map :context (v/sentexes-matching kb (list pred arg) '?ctx))))
 
 (tu/deftest-kb an-entailment-only-a-context-below-two-others-sees-fires-a-forward-rule
-  ;; The containment chain is split across two incomparable microtheories, so neither
+  ;; The containment chain is split across two incomparable contexts, so neither
   ;; composes it and the entailment exists only for a reader inheriting both.  `ask`
   ;; answers it there, and forward chaining owes the same answer: otherwise the same
   ;; knowledge derives different things according to which context its halves were
@@ -155,7 +155,7 @@
     (v/assert kb (list 'nonTangentialProperPart B D) BContext)
     (testing "neither sibling composes the chain, and the context below both does"
       (is (= 8 (count (space/possible-relations kb AContext A D)))
-          "A's microtheory cannot see B's half, so A to D is wide open there")
+          "A's context cannot see B's half, so A to D is wide open there")
       (is (= #{:ntpp} (space/possible-relations kb BothContext A D)))
       (is (v/ask? kb (list 'nonTangentialProperPart A D) BothContext))
       (is (nil? (v/handle-of kb (list 'nonTangentialProperPart A D) BothContext))
@@ -209,11 +209,11 @@
       (is (= #{BothContext} (placements kb tmpIn A)))
       (is (= #{BothContext} (placements kb tmpIn B)))
       (is (= #{AContext} (placements kb tmpIn D))
-          "D reaches E within one microtheory, so that is where its conclusion belongs"))))
+          "D reaches E within one context, so that is where its conclusion belongs"))))
 
 (tu/deftest-kb a-variable-context-asks-what-some-reader-entails-not-what-all-facts-would
   ;; `?ctx` means "in some context" everywhere else in the engine, and a calculus prover
-  ;; owes the same reading.  Two incomparable microtheories with *no* common descendant
+  ;; owes the same reading.  Two incomparable contexts with *no* common descendant
   ;; are the case that separates it: their facts compose for no reader at all, since no
   ;; context inherits both, and a single read over the union of what every context holds
   ;; would report a relation nowhere entailed.
@@ -232,7 +232,7 @@
       (is (v/ask? kb (list 'partOfRegion A B) AContext))
       (is (v/ask? kb (list 'partOfRegion A B) '?ctx))
       (is (v/ask? kb (list 'partOfRegion B D) '?ctx)
-          "from the other microtheory, which no single reader shares with the first"))
+          "from the other context, which no single reader shares with the first"))
     (testing "and an open goal enumerates the union of what the readers answer"
       (is (= #{[A B] [B D]}
              (set (for [s (v/ask kb (list 'properPartOfRegion '?x '?y) '?ctx)]
@@ -306,7 +306,7 @@
 
 (tu/deftest-kb ^:slow the-same-qualitative-knowledge-derives-the-same-belief-in-any-order
   ;; The oracle for the whole seam, and the property the two sections above are each one
-  ;; instance of: a rule, four facts of mixed polarity, two microtheories and the context
+  ;; instance of: a rule, four facts of mixed polarity, two contexts and the context
   ;; below both — asserted in eight orders, into a KB built from nothing each time, and
   ;; every order must reach the identical derived set, placement contexts included.
   ;;

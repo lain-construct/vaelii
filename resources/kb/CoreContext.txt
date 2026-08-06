@@ -1,4 +1,4 @@
-;; CoreContext — Vaelii's vocabulary microtheory: the engine-interpreted special
+;; CoreContext — Vaelii's vocabulary context: the engine-interpreted special
 ;; predicates (types, contexts, rules, metadata, evaluables) and the predicate
 ;; meta-ontology, each documented via a comment sentex. Schema only — the domain
 ;; relations, individuals, and facts live in other contexts.
@@ -18,7 +18,7 @@
 ;; the subjects it reasons about, and nothing here has to change to add or drop one.
 
 (comment abduciblePredicate
-         "(abduciblePredicate ?predicate) means that a (?predicate …) sentence may be hypothesized. When a backward proof dead-ends on one, abduce may assume it rather than fail. A grant, and the only thing that makes a predicate abducible: an undeclared one is never assumed, since an abducer that will hypothesize anything explains everything and is worth nothing. Read from the asking context's genlContext up-cone rather than universally, so it is a policy of the microtheory that gives it — one theory may be willing to assume what another, reading the same vocabulary, will not.")
+         "(abduciblePredicate ?predicate) means that a (?predicate …) sentence may be hypothesized. When a backward proof dead-ends on one, abduce may assume it rather than fail. A grant, and the only thing that makes a predicate abducible: an undeclared one is never assumed, since an abducer that will hypothesize anything explains everything and is worth nothing. Read from the asking context's genlContext up-cone rather than universally, so it is a policy of the context that gives it — one theory may be willing to assume what another, reading the same vocabulary, will not.")
 (unaryPredicate abduciblePredicate)
 
 (comment agg/avg
@@ -68,7 +68,7 @@
 ;; The meta-ontology rules below conclude into the ORDINARY placement — the maximal
 ;; context that sees the rule and the declaration — and not into a named one.  Every
 ;; context sees CoreContext, so a declaration made here still concludes here; one made
-;; in a microtheory concludes there, where its author put it.  Naming CoreContext would
+;; in a context concludes there, where its author put it.  Naming CoreContext would
 ;; publish it: a private (symmetric myRel) would become vocabulary the whole KB reads,
 ;; while (has-prop? kb :symmetric myRel ctx) — asked of the same declaration from the
 ;; same context — answered false.  One KB cannot say both.
@@ -97,7 +97,7 @@
 (instanceRelationPredicate contradicts)
 
 (comment decontextualizedPredicate
-         "(decontextualizedPredicate ?predicate) means that every (?predicate …) sentence, asserted or concluded by a rule, is also deduced into UniverseContext. Every microtheory sees UniverseContext, so the fact stops being a claim of one theory and becomes a claim of the KB. The copy is supported by the placement sentex and this declaration together, so retracting either withdraws it. Conceptually the inert rule (implies (?pred . ?args) (ist UniverseContext (?pred . ?args))), implemented in code because it has to run wherever content is stored and not only where it is asserted.")
+         "(decontextualizedPredicate ?predicate) means that every (?predicate …) sentence, asserted or concluded by a rule, is also deduced into UniverseContext. Every context sees UniverseContext, so the fact stops being a claim of one theory and becomes a claim of the KB. The copy is supported by the placement sentex and this declaration together, so retracting either withdraws it. Conceptually the inert rule (implies (?pred . ?args) (ist UniverseContext (?pred . ?args))), implemented in code because it has to run wherever content is stored and not only where it is asserted.")
 (unaryPredicate decontextualizedPredicate)
 
 (comment disjoint
@@ -115,7 +115,7 @@
 (instanceRelationPredicate evaluate)
 
 (comment forcedDecontextualizedPredicate
-         "(forcedDecontextualizedPredicate ?predicate) means that every (?predicate …) sentence is stored directly in UniverseContext by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlContext, so the context topology has one canonical home instead of a copy per microtheory.")
+         "(forcedDecontextualizedPredicate ?predicate) means that every (?predicate …) sentence is stored directly in UniverseContext by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlContext, so the context topology has one canonical home instead of a copy per context.")
 (unaryPredicate forcedDecontextualizedPredicate)
 
 (comment functional
@@ -306,7 +306,7 @@
 (genl typeRelationPredicate predicate)
 
 (comment typeToInstancePred
-         "(typeToInstancePred ?typePredicate ?instancePredicate) means that ?typePredicate and ?instancePredicate are the type-level and instance-level readings of one underlying relation. Declared of partType and part, for instance. A link rather than a rule: moving a claim from one level to the other needs a quantifier reading that nothing here fixes.")
+         "(typeToInstancePred ?typePredicate ?instancePredicate) means that ?typePredicate and ?instancePredicate are the type-level and instance-level readings of one underlying relation. Declared of partType and partOf, for instance. A link rather than a rule: moving a claim from one level to the other needs a quantifier reading that nothing here fixes.")
 (binaryPredicate typeToInstancePred)
 (instanceRelationPredicate typeToInstancePred)
 (argIsa typeToInstancePred 1 typeRelationPredicate)

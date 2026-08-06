@@ -7,7 +7,7 @@
   substitution.  Forward firing replaces it with a *deterministic* skolem constant so the
   semi-naive fixpoint terminates: the same `(rule, antecedent-binding)` must produce the
   same constant, or a re-derivation would mint a new one each round and never converge.
-  The constant is a NAT `(SkolemFn <rule-handle> <exist-index> <frontier-values…>)` routed
+  The constant is a NAT `(SkolemFn <rule-digest> <exist-index> <frontier-values…>)` routed
   through the ordinary reify path — `nat/reify-or-mint-nat` dedups it against
   `termOfUnit`, so re-firing on the same binding resolves to the one constant.  A single
   skolem function reified per-argument (rather than a per-rule function name) means one
@@ -32,9 +32,9 @@
 
 (def skolem-function
   "The one reifiable function every skolem constant is an application of.  A NAT
-  `(SkolemFn <rule-handle> <exist-index> <frontier-values…>)` reifies to a stable `nat/`
-  constant; the rule handle and frontier values in the arguments are what make it a
-  function of the `(rule, binding)`, so no per-rule function name is needed."
+  `(SkolemFn <rule-digest> <exist-index> <frontier-values…>)` reifies to a stable `nat/`
+  constant; the rule's content digest and the frontier values in the arguments are what
+  make it a function of the `(rule, binding)`, so no per-rule function name is needed."
   'SkolemFn)
 
 (defn ensure-skolem-function
@@ -75,21 +75,36 @@
         cvars (distinct (vars (:consequent rule)))]
     (vec (sort (remove post (filter avars cvars))))))
 
+(defn- rule-digest
+  "The content key a skolem constant carries: the hex SHA-1 of the rule's canonical
+  antecedents, consequent and context.  A witness is a function of the *rule*, and the
+  rule's identity is its content — so the same rule re-asserted after a retraction, or
+  asserted into a KB built in another order, mints the same witness NAT, and a fact
+  stated about a witness keeps referring to it.  Anything store-assigned here (a
+  handle) would put assertion order into stored `termOfUnit` content, which order
+  independence rules out; the chase literature keys skolem terms the same way, on the
+  rule and its existential position, never on a store id."
+  [rule]
+  (let [s (pr-str [(:antecedents rule) (:consequent rule) (:context rule)])
+        d (.digest (java.security.MessageDigest/getInstance "SHA-1")
+                   (.getBytes s "UTF-8"))]
+    (apply str (map #(format "%02x" %) d))))
+
 (defn skolemize-conclusion
   "Replace each still-unbound (existential) variable `free` in a rule's substituted
   conclusion `raw` with its deterministic skolem constant, and return the ground
   conclusion.
 
   The skolem for the i-th existential variable (existentials sorted, so `i` is stable) is
-  the NAT `(SkolemFn <rule-handle> i <frontier-values…>)` reified to a `nat/` constant.
-  Because the arguments are a function of the rule and this firing's frontier values, two
-  firings on the same antecedent binding reify to the *same* constant
+  the NAT `(SkolemFn <rule-digest> i <frontier-values…>)` reified to a `nat/` constant.
+  Because the arguments are a function of the rule's content and this firing's frontier
+  values, two firings on the same antecedent binding reify to the *same* constant
   (`reify-or-mint-nat` dedups via `termOfUnit`) — which is what lets the fixpoint
   converge — and the conjuncts of one head share it, since one rule head is one
-  `rule-handle` and one existential index."
+  digest and one existential index."
   [kb rule raw bindings free]
   (ensure-skolem-function kb)
-  (let [rh       (:rule-handle rule)
+  (let [rh       (rule-digest rule)
         args     (mapv #(res/substitute % bindings) (frontier-vars rule))
         ;; One binding around the whole fold rather than one per mint: `into` is eager, so
         ;; every mint runs inside it, and the flag says the same thing for all of them.

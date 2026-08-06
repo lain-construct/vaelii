@@ -106,7 +106,7 @@
     (let [[seen f] (recorder)]
       (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
       (v/watch kb f)
-      (let [report (v/edit-with-consequences kb {:add [[(list dog Fido) 'UniverseContext]]})]
+      (let [report (v/edit-with-consequences! kb {:add [[(list dog Fido) 'UniverseContext]]})]
         (is (= 1 (count @seen)))
         (is (= (set (map :sentence (:believed-added report))) (set (added @seen))))
         (is (= (set (map :sentence (:believed-removed report))) (set (removed @seen))))))))
@@ -218,8 +218,8 @@
     (let [[seen f] (recorder)]
       (v/watch kb f)
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/edit kb {:add [[(list dog Fido) 'UniverseContext]
-                                     ['(notGround ?x) 'UniverseContext]]})))
+                   (v/edit! kb {:add [[(list dog Fido) 'UniverseContext]
+                                      ['(notGround ?x) 'UniverseContext]]})))
       (is (empty? @seen) "nothing settled, so nothing was reported")
       (v/assert kb (list cat Tom) 'UniverseContext)
       (is (= #{(list dog Fido) (list cat Tom)} (set (added @seen)))
@@ -236,7 +236,7 @@
     (v/assert kb (list dog Pref) NameContext)
     (let [[seen f] (recorder)]
       (v/watch kb f)
-      (let [report (v/edit-with-consequences
+      (let [report (v/edit-with-consequences!
                     kb {:add [[(list 'sameAs Pref Dep) NameContext]]})]
         (is (= 1 (count @seen)))
         (is (= (set (map :sentence (:believed-added report))) (set (added @seen))))
@@ -302,7 +302,7 @@
     (let [wrote? (atom false)]
       (v/watch kb (fn [_] (when (compare-and-set! wrote? false true)
                             (v/assert kb (list sideEffect Yes) 'UniverseContext))))
-      (let [report (v/edit-with-consequences
+      (let [report (v/edit-with-consequences!
                     kb {:add [[(list dog Fido) 'UniverseContext]]})]
         (is (= [(list dog Fido)] (mapv :sentence (:believed-added report)))
             "the report is about the batch, not about what a listener did in response")

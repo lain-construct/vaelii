@@ -102,13 +102,13 @@
 
 (deftest editing-writes-through-the-daemon
   (testing "edit adds and removes over the wire (the browser's Save path), net-neutral"
-    (let [added (:added (access/edit *remote* {:add [['(bird Sky) 'NaturalWorldContext]]
-                                               :remove []}))
+    (let [added (:added (access/edit! *remote* {:add [['(bird Sky) 'NaturalWorldContext]]
+                                                :remove []}))
           h     (first added)]
       (is (some? h) "the remote assert returns a handle")
       (is (seq (access/sentexes-matching *remote* '(bird Sky) 'NaturalWorldContext))
           "the asserted fact is visible over the wire")
-      (access/edit *remote* {:add [] :remove [h]})
+      (access/edit! *remote* {:add [] :remove [h]})
       (is (empty? (access/sentexes-matching *remote* '(bird Sky) 'NaturalWorldContext))
           "and removing it over the wire takes it back out"))))
 

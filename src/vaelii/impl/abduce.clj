@@ -11,10 +11,10 @@
   The hard parts of abduction are containment, arbitration and cleanup, and this engine
   already had all three, built for other reasons:
 
-  - **Containment is the context lattice.**  A hypothesis goes into a fresh microtheory
+  - **Containment is the context lattice.**  A hypothesis goes into a fresh context
     hung *below* the asking context, so it sees everything the question could see and
     nothing that existed before it can see the hypothesis.  A shipped rule firing over a
-    hypothesis places its conclusion **in** that microtheory, because placement is the
+    hypothesis places its conclusion **in** that context, because placement is the
     maximal common descendant (docs/contexts.md) — so the consequences land inside the
     thing that gets discarded, with nothing arranging for it.  That is the sandbox's
     shape (`vaelii.impl.sandbox`), for the same reason.
@@ -105,7 +105,7 @@
 
   `:monotonic`, because the *edge* is not a hypothesis: which context sees which is a
   fact about the scratch space, and a defeasible one would let a contradiction among the
-  hypotheses quietly unhook the microtheory holding them."
+  hypotheses quietly unhook the context holding them."
   [kb base ops]
   (let [actx (context-for (token))]
     ((:assert ops) kb (edge actx base) 'UniverseContext {:strength :monotonic})

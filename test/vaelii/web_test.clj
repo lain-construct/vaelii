@@ -375,6 +375,18 @@
   (testing "a pattern that matches nothing says so"
     (is (re-find #"No terms match" (:body (GET "/find" "q=zzzznope"))))))
 
+(deftest a-pattern-that-blows-the-matcher-stack-reads-as-unusable
+  ;; A catastrophic pattern can raise StackOverflowError out of the regex engine —
+  ;; past Exception — and this handler stack has no exception middleware, so an
+  ;; uncaught one is a bare 500 on a route the browser hits per keystroke.  The
+  ;; matcher's failure, whatever its class, is `term-hits`' ordinary ::bad answer.
+  (with-redefs [acc/find-terms (fn [& _] (throw (StackOverflowError.)))]
+    (is (= :vaelii.impl.web/bad (#'web/term-hits tu/*kb* "a{2}" 10))
+        "the sentinel, not a throw")
+    (let [r (GET "/find" "q=a%7B2%7D")]
+      (is (= 200 (:status r)))
+      (is (re-find #"Not a valid regular expression" (:body r))))))
+
 (deftest find-jumps-straight-to-a-single-or-exact-term
   (testing "an exact term name jumps to its page — even though it is a substring of another"
     (let [r (GET "/find" "q=parentOf")]                    ; also a substring of grandparentOf
@@ -744,10 +756,10 @@
           (is (re-find (re-pattern (str ">" FruitFn "</a> <a[^>]*>" AppleTree "</a>")) body))
           (is (empty? (visible-nats body))))
         (testing "bold parens are the notation, and the first one links to the reified term"
-          (is (re-find (re-pattern (str "<a class=\"nart-paren\" href=\"/term\\?q=nat%2F"
+          (is (re-find (re-pattern (str "<a class=\"nat-paren\" href=\"/term\\?q=nat%2F"
                                         (name k) "\"[^>]*>\\(</a>"))
                        body))
-          (is (re-find #"<span class=\"nart-paren\">\)</span>" body)))
+          (is (re-find #"<span class=\"nat-paren\">\)</span>" body)))
         (testing "each term inside it is separately linked, so the expression is navigable"
           (is (re-find (re-pattern (str "href=\"/term\\?q=" FruitFn "\"")) body))
           (is (re-find (re-pattern (str "href=\"/term\\?q=" AppleTree "\"")) body)))))))
@@ -759,8 +771,8 @@
             inner (second (v/term-expression kb outer))]
         (is (v/reified-term? inner) "the outer expression holds the inner constant, one hop")
         (testing "the inner NAT is drawn inside the outer one, not flattened away"
-          (is (re-find (re-pattern (str "nart-paren\" href=\"/term\\?q=nat%2F" (name outer)
-                                        "\"[^>]*>\\(</a>[^!]{0,200}nart-paren\" href=\"/term\\?q=nat%2F"
+          (is (re-find (re-pattern (str "nat-paren\" href=\"/term\\?q=nat%2F" (name outer)
+                                        "\"[^>]*>\\(</a>[^!]{0,200}nat-paren\" href=\"/term\\?q=nat%2F"
                                         (name inner) "\""))
                        body)))
         (testing "and both levels are links, so either reified term can be opened"
@@ -806,14 +818,14 @@
 
 (tu/deftest-kb one-read-per-reified-term-however-often-it-is-rendered
   ;; The map is `(termOfUnit K ?e)`, one probe per constant — there is no batched read for
-  ;; it — so the per-request cache is the whole budget.  A page listing a NART in a dozen
+  ;; it — so the per-request cache is the whole budget.  A page listing a reified NAT in a dozen
   ;; rows must not be a dozen round-trips under `--attach`.
   (with-nat-kb kb
     (fn [{:keys [k colorOf ctx]}]
       (dotimes [i 12] (v/assert kb (list colorOf k (symbol (str "Shade" i))) ctx {:chain? false}))
       (let [counts (read-counts #(GET "/term" (str "q=" colorOf)))
             body   (:body (GET "/term" (str "q=" colorOf)))]
-        (is (< 12 (count (re-seq #"class=\"nart\"" body))) "the constant is rendered many times")
+        (is (< 12 (count (re-seq #"class=\"nat\"" body))) "the constant is rendered many times")
         (is (= (count (linked-nats body)) (get counts 'term-expression))
             "and read once per *distinct* constant on the page, not once per render")
         (is (every? (set facade-read-ops) (keys counts))
@@ -842,7 +854,7 @@
       (with-redefs [acc/term-expression (fn [_ t] (when (= t k) (list FruitFn k)))]
         (let [r (GET "/term" (str "q=" colorOf))]
           (is (= 200 (:status r)))
-          (is (re-find #"class=\"nart\"" (:body r)) "the expansion is drawn as far as it goes")
+          (is (re-find #"class=\"nat\"" (:body r)) "the expansion is drawn as far as it goes")
           (is (empty? (visible-nats (:body r)))))))))
 
 (tu/deftest-kb sentex-page-shows-a-believed-sentex-as-in
@@ -1043,7 +1055,7 @@
 
 ;; ---- multi-sentex editing (drag-select → textarea → one settle) -------
 ;; Selection is client-side; these exercise the server side — GET /edit seeds the
-;; textarea for a set of handles, POST /edit applies the save through `core/edit`.
+;; textarea for a set of handles, POST /edit applies the save through `core/edit!`.
 
 (defn- POST
   ;; wrap-params only fills :params from a real body/query-string, so hand it :params
@@ -1612,6 +1624,31 @@
       (is (= 200 (:status r)))
       (is (not (re-find #"Retracted<" (:body r)))))))
 
+(tu/deftest-kb a-stale-retract-answers-the-problem-not-a-success-panel
+  ;; The page rendered while the handle was live and somebody else retracted it — the
+  ;; POST then names a handle the KB no longer stores.  The write is preceded by the
+  ;; `check-edit` round-trip every other write post makes, so the answer is the problem
+  ;; (`:unknown-handle`) rather than a success-styled "Retracted 0 sentexes" — and
+  ;; rather than `edit`'s own refusal, which the browser has no middleware to catch.
+  (tu/with-terms [aP X RetractContext]
+    (let [fa (v/assert kb (list aP X) RetractContext)]
+      (v/retract! kb fa)
+      (let [r (POST "/retract" {"handles" (str fa)}
+                {"host" "localhost:3000" "origin" "http://localhost:3000"})]
+        (is (= 200 (:status r)) "a refusal is a panel, not an error status")
+        (testing "the panel reports the problem in check-edit's vocabulary"
+          (is (re-find #"Not retracted" (:body r)))
+          (is (re-find #"unknown-handle" (:body r)))
+          (is (re-find #"Nothing was written" (:body r)))
+          (is (not (re-find #"Retracted<" (:body r)))))))
+    (testing "a live selection still retracts as before"
+      (let [fb (v/assert kb (list aP X) RetractContext)
+            r  (POST "/retract" {"handles" (str fb)}
+                 {"host" "localhost:3000" "origin" "http://localhost:3000"})]
+        (is (= 200 (:status r)))
+        (is (re-find #"Retracted" (:body r)))
+        (is (nil? (v/sentex kb fb)))))))
+
 ;; ---- forward chaining, and what a load did ----------------------------
 
 (deftest the-stats-page-reports-and-triggers-forward-chaining
@@ -1664,3 +1701,36 @@
     (testing "no Host at all passes by design — a non-browser client, and what makes
               driving bare `web/app` elsewhere in this namespace equivalent"
       (is (= 200 (:status (served {:request-method :get :uri "/"})))))))
+
+;; ---- -main's argument grammar --------------------------------------------
+
+(deftest a-truncated-listen-flag-is-refused-not-bound-wide
+  ;; The stake: `run-jetty` treats a nil `:host` as the wildcard address, and
+  ;; `guard/allowed-hosts` treats a nil listen host as `::any` — so a `--listen`
+  ;; whose address was lost to a truncated command line would bind the browser's
+  ;; unauthenticated write routes on every interface with the rebinding guard off,
+  ;; while the public-bind warning reads as though the operator asked for it.
+  (testing "absent, the browser binds loopback"
+    (is (= "127.0.0.1" (:host (#'web/parse-args [])))))
+  (testing "present with an address, it binds that address"
+    (is (= "0.0.0.0" (:host (#'web/parse-args ["--listen" "0.0.0.0"])))))
+  (testing "present with nothing after it, it is refused"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo (#'web/parse-args ["--listen"])))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= "--listen" (:flag (ex-data e))))))
+  (testing "--port with no value, or a non-number, is refused the same way"
+    (is (thrown? clojure.lang.ExceptionInfo (#'web/parse-args ["--port"])))
+    (let [e (is (thrown? clojure.lang.ExceptionInfo (#'web/parse-args ["--port" "eighty"])))]
+      (is (= :unknown-option (:type (ex-data e))))))
+  (testing "a token the table does not know is refused, not skipped"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo (#'web/parse-args ["--liste" "0.0.0.0"])))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= "--liste" (:flag (ex-data e))))))
+  (testing "--attach still parses, with and without the optional web port"
+    (is (= {:host "127.0.0.1" :port 3000 :attach ["h" 4200]}
+           (select-keys (#'web/parse-args ["--attach" "h" "4200"]) [:host :port :attach])))
+    (is (= {:host "127.0.0.1" :port 8080 :attach ["h" 4200]}
+           (select-keys (#'web/parse-args ["--attach" "h" "4200" "8080"]) [:host :port :attach])))
+    (is (= {:host "0.0.0.0" :port 3000 :attach ["h" 4200]}
+           (select-keys (#'web/parse-args ["--attach" "h" "4200" "--listen" "0.0.0.0"])
+                        [:host :port :attach])))))

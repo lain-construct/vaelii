@@ -282,7 +282,7 @@ Individuals and predicates are Zipf-sampled, so the corpus has hot terms and a l
 like a real one. Generated names carry their role in their spelling, as the naming
 invariants require: `gen_type_7`, `GenInd42`, `genRel3`, `GenBand0Context`.
 
-The fact contexts are a **chain**, not a fan of siblings. Two incomparable microtheories
+The fact contexts are a **chain**, not a fan of siblings. Two incomparable contexts
 have no common descendant, so a rule joining a fact from each would complete with nowhere
 to put its conclusion (`:no-placement`, in `violations`). Down a chain every pair is
 comparable and the conclusion lands in the deeper of the two.

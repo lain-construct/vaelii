@@ -83,7 +83,7 @@
 
 (deftest a-firing-refused-at-derive-time-is-re-derived-when-an-edge-releases-it
   (testing "a genlContext edge makes the more specific claim visible"
-    ;; No inheritance and no declaration: the converse is stated in a microtheory the
+    ;; No inheritance and no declaration: the converse is stated in a context the
     ;; rule's context cannot see, so the exception holds and the firing is refused.
     ;; Wiring the two contexts together is what brings the converse into view.
     (tu/with-cleared-kb [kb tu/isolated-fresh]

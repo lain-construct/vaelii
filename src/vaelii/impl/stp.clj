@@ -633,7 +633,7 @@
   then bind or check.
 
   A **bind** needs both bounds finite: a half-bounded separation is a real piece of knowledge
-  but not a measure, and there is no honest NAUT for it, so the goal simply has no answer
+  but not a measure, and there is no honest structural NAT for it, so the goal simply has no answer
   rather than a fabricated one.  A **check** has no such trouble — a stated bound with an
   infinite side is not written, and a finite one is either contained or not."
   [kb goal context]

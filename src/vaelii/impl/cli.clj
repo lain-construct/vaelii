@@ -30,9 +30,24 @@
 
 ;; ---- arg + option parsing ------------------------------------------------
 
+(def ^:private value-flags
+  "The value-taking flags any command may carry — the whole roster the commands
+  below read.  A flag outside it is refused, not keywordized: `--strenght monotonic`
+  accepted in silence would store known-true content at `:default` — the exact
+  sentence the flag-with-no-value refusal beside it exists for, reached from the
+  other side — and a misspelt `--dir` would open the in-memory KB, gone at exit."
+  #{"--dir" "--strength" "--depth" "--variant" "--compression"})
+
 (defn parse-opts
-  "Split raw args into `[positionals opts]`.  `--k v` becomes `{:k v}`, a bare `--flag`
-  becomes `{:flag true}`; everything else is a positional, in order."
+  "Split raw args into `[positionals opts]`.  `--k v` becomes `{:k v}`, a bare
+  `--memory` / `--starter` becomes `{:flag true}`; everything else is a positional,
+  in order.
+
+  A value-taking flag with no value is refused (`:unknown-option`) rather than bound
+  nil: `assert … --strength` with nothing after it would otherwise store at `:default`
+  — the exact class the flag was written to escape — and `--dir` at the end of a line
+  would open the in-memory KB, gone at process exit.  A flag the roster does not
+  name is refused the same way."
   [args]
   (loop [as args, pos [], opts {}]
     (if (empty? as)
@@ -41,7 +56,13 @@
         (cond
           (not (str/starts-with? a "--")) (recur (rest as) (conj pos a) opts)
           (#{"--memory" "--starter"} a)   (recur (rest as) pos (assoc opts (keyword (subs a 2)) true))
-          :else (recur (drop 2 as) pos (assoc opts (keyword (subs a 2)) (second as))))))))
+          (not (value-flags a))
+          (throw (ex-info (str "unknown flag: " a) {:type :unknown-option :flag a}))
+          :else (if-some [v (second as)]
+                  (recur (drop 2 as) pos (assoc opts (keyword (subs a 2)) v))
+                  (throw (ex-info (str a " needs a value and the line ends after it"
+                                       " — write " a " <value>")
+                                  {:type :unknown-option :flag a}))))))))
 
 (defn read-arg
   "One argv string as data: the EDN it reads as — a sentence, a context symbol, a handle
@@ -104,10 +125,16 @@
       "contexts"    (sort (v/contexts kb))
       "conflicts"   (v/conflicts kb)
       "contradictions" (v/contradictions kb)
-      "load"        (let [entries (edn/read-string (slurp (str (nth args 0))))]
-                      (v/with-deferred-settle kb
-                        (mapv (fn [[s ctx o]] (v/assert kb s ctx o)) entries))
-                      {:loaded (count entries)})
+      ;; both numbers, because they differ exactly when the file repeats itself:
+      ;; `assert` answers the existing handle for a sentence already stored, so the
+      ;; distinct handles are the sentexes the load actually left in the KB, and a
+      ;; file of N duplicates reports `:loaded N :stored 1` instead of "loaded N"
+      "load"        (let [entries (edn/read-string (slurp (str (nth args 0))))
+                          handles (v/with-deferred-settle kb
+                                    (mapv (fn [[s ctx o]] (v/assert kb s ctx o)) entries))]
+                      {:loaded (count entries)
+                       ;; flatten: a rule concluding a conjunction answers a vector
+                       :stored (count (distinct (flatten handles)))})
       ;; the one command whose argument is a **destination** rather than knowledge:
       ;; `--variant` and `--compression` arrive as strings and are the writer's own
       ;; keywords, so they are read as such rather than re-spelled here
@@ -122,8 +149,15 @@
 
 (defn open-kb-from
   "Build the KB a run operates on from the parsed `opts`: `:dir` → durable disk
-  (recovered), else in-memory.  `:starter` loads the shipped schema."
-  [{:keys [dir starter] :as _opts}]
+  (recovered), else in-memory — which `:memory` also names explicitly, so `--memory
+  --dir <path>` is a contradiction and is refused rather than resolved by a guess.
+  `:starter` loads the shipped schema."
+  [{:keys [dir starter memory] :as _opts}]
+  (when (and memory dir)
+    (throw (ex-info (str "--memory and --dir " dir " contradict — a memory KB has no"
+                         " directory.  Drop one: --dir for the durable KB, --memory"
+                         " (or neither) for the in-process one.")
+                    {:type :unknown-option :flags ["--memory" "--dir"]})))
   (let [kb (if dir
              (v/open-kb {:backend :disk :dir dir :recover? :auto})
              (v/open-kb {}))]
@@ -147,22 +181,35 @@
         (cond
           (#{"exit" "quit"} line) (println "bye")
           (str/blank? line)       (recur)
+          ;; `Throwable`, as the browser's untrusted-EDN reads: a deeply nested line
+          ;; raises `StackOverflowError` out of `read-forms`, and the loop dying on a
+          ;; line of input is the one thing a shell must not do
           :else (do (try
                       (let [cmd  (re-find #"^\S+" line)
                             rest* (str/triml (subs line (count cmd)))]
                         (if (= cmd "repl")
                           (println "already in a repl")
                           (show (dispatch kb cmd (read-forms rest*) opts))))
-                      (catch Exception e (println "error:" (.getMessage e))))
+                      (catch Throwable e
+                        (println "error:" (or (.getMessage e)
+                                              (.. e getClass getSimpleName)))))
                     (recur)))))))
 
 (defn -main
   "Parse argv, open the KB, run the command, and print the result.  With `repl` (or no
   command) it drops into the interactive loop."
   [& argv]
-  (let [[positionals opts] (parse-opts argv)
+  ;; a refused flag or an opts contradiction is the operator's mistake in the shell's
+  ;; own vocabulary — one line and exit 1, the same courtesy the command arm extends
+  (let [[positionals opts] (try (parse-opts argv)
+                                (catch clojure.lang.ExceptionInfo e
+                                  (println "error:" (.getMessage e))
+                                  (System/exit 1)))
         [cmd & args] positionals
-        kb (open-kb-from opts)]
+        kb (try (open-kb-from opts)
+                (catch clojure.lang.ExceptionInfo e
+                  (println "error:" (.getMessage e))
+                  (System/exit 1)))]
     (cond
       (or (nil? cmd) (= cmd "repl"))
       (repl-loop kb opts)
@@ -172,9 +219,19 @@
       ;; is an operator's mistake, not a crash: print what the engine said and leave with
       ;; a status, so a shell script can tell.  The message is the engine's own, which is
       ;; what makes the CLI, the daemon and the browser refuse a thing in the same words.
+      ;; `Throwable`, not `ExceptionInfo`: `dispatch` reaches into `args` with `nth` and
+      ;; parses numbers with `Long/parseLong`, so a missing argument or a non-numeric
+      ;; `--depth` raises `IndexOutOfBoundsException` / `NumberFormatException` — a stack
+      ;; trace where the same mistake in engine vocabulary prints one line and exits 1.
+      ;; A missing file for `load` is the same shape — and so, past `Exception`, is a
+      ;; deeply nested EDN argument or `load` file, whose read raises
+      ;; `StackOverflowError` (the browser's untrusted-EDN reads make the same catch).
       (try (show (dispatch kb cmd (mapv read-arg args) opts))
            (catch clojure.lang.ExceptionInfo e
              (println "error:" (.getMessage e))
+             (System/exit 1))
+           (catch Throwable e
+             (println "error:" (or (.getMessage e) (.. e getClass getSimpleName)))
              (System/exit 1)))
 
       :else

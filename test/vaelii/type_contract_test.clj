@@ -1,0 +1,157 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
+(ns vaelii.type-contract-test
+  "The `:type` vocabulary, pinned as a roster.  Every refusal in the tree carries a
+  plain `:type` keyword, and callers discriminate on that one vocabulary — so a new
+  or renamed `:type` is a contract change, and this test makes it a *visible* one:
+  the scan below collects every literal on the refusal surface from the sources at
+  runtime (the same read-the-source pattern as `llm_test`'s roster), and the
+  checked-in roster goes stale until someone updates it deliberately, changelog in
+  hand.
+
+  What counts as the refusal surface, exactly — the scan is a lexer pass plus a
+  regex, and its honesty is these three rules:
+
+  - a literal `:type :<kw>` inside an `(ex-info …)` form, at any depth;
+  - a literal `:type :<kw>` inside a map literal that also carries `:message` or
+    `:ok false` — the problem-map and wire-reply shapes, which are built as values
+    and thrown or sent elsewhere;
+  - the two defaulted spellings, which carry no literal `:type :<kw>` pair:
+    `(:type (ex-data e) :<kw>)` and `(update :type #(or % :<kw>))`.
+
+  Deliberately excluded, because a `:type` key is not only an error key: the LLM
+  stream event maps (`:text`, `:tool-use`, `:done`, …), the ASP statement kinds in
+  `aspif.clj`, the catalog's option-descriptor maps (`:flag`, `:slider`, …), and
+  `dissoc` key lists — none is a refusal a caller discriminates on, and none sits
+  in an `ex-info` or beside a `:message`/`:ok false`."
+  (:require [clojure.java.io :as io]
+            [clojure.set :as set]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]))
+
+(defn- delimiter-analysis
+  "One string- and comment-aware pass over `src`: `:pairs` maps each opening
+  delimiter's position to its closer's, and `:stacks` maps each position named in
+  `snapshot-at` to the stack of enclosing opener positions, innermost last.
+  Character literals (`\\(`) and string escapes are skipped, so a delimiter in
+  either cannot unbalance the count."
+  [^String src snapshot-at]
+  (let [want (set snapshot-at)
+        n    (.length src)]
+    (loop [i 0, mode :code, stack [], pairs (transient {}), stacks (transient {})]
+      (if (>= i n)
+        {:pairs (persistent! pairs) :stacks (persistent! stacks)}
+        (let [c      (.charAt src i)
+              stacks (if (want i) (assoc! stacks i stack) stacks)]
+          (case mode
+            :code
+            (cond
+              (= c \")  (recur (inc i) :string stack pairs stacks)
+              (= c \;)  (recur (inc i) :comment stack pairs stacks)
+              (= c \\)  (recur (+ i 2) :code stack pairs stacks)
+              (or (= c \() (= c \[) (= c \{))
+              (recur (inc i) :code (conj stack i) pairs stacks)
+              (or (= c \)) (= c \]) (= c \}))
+              (if (seq stack)
+                (recur (inc i) :code (pop stack) (assoc! pairs (peek stack) i) stacks)
+                (recur (inc i) :code stack pairs stacks))
+              :else (recur (inc i) :code stack pairs stacks))
+            :string
+            (cond
+              (= c \\) (recur (+ i 2) :string stack pairs stacks)
+              (= c \") (recur (inc i) :code stack pairs stacks)
+              :else    (recur (inc i) :string stack pairs stacks))
+            :comment
+            (recur (inc i) (if (= c \newline) :code :comment) stack pairs stacks)))))))
+
+(def ^:private literal-type
+  #":type\s+:([A-Za-z][A-Za-z0-9-]*)")
+
+(def ^:private defaulted-types
+  "The two spellings that put a `:type` on the surface with no literal key/value
+  pair to scan: the ex-data lookup default and the client's `or` fallback."
+  [#"\(:type\s+\(ex-data\s+[^)]*\)\s+:([A-Za-z][A-Za-z0-9-]*)\)"
+   #"update\s+:type\s+#\(or\s+%\s+:([A-Za-z][A-Za-z0-9-]*)\)"])
+
+(defn- literal-matches
+  "Every literal `:type :<kw>` in `src`, as `{:kw :pos}` — position included, since
+  classification needs the enclosing forms."
+  [^String src]
+  (let [m (re-matcher literal-type src)]
+    (loop [out []]
+      (if (.find m)
+        (recur (conj out {:kw (keyword (.group m 1)) :pos (.start m)}))
+        out))))
+
+(defn- refusal-types
+  "The refusal-surface `:type` keywords in one source string, per the three rules in
+  the namespace docstring."
+  [^String src]
+  (let [matches (literal-matches src)
+        {:keys [pairs stacks]} (delimiter-analysis src (map :pos matches))
+        n (.length src)
+        ex-info-open? (fn [p]
+                        (and (= \( (.charAt src p))
+                             (some? (re-find #"^\(\s*ex-info[\s(\"]"
+                                             (subs src p (min n (+ p 12)))))))
+        literal
+        (for [{:keys [kw pos]} matches
+              :let [stack    (get stacks pos)
+                    map-open (last (filter #(= \{ (.charAt src ^long %)) stack))
+                    map-text (when map-open
+                               (subs src map-open (min n (inc (get pairs map-open n)))))]
+              :when (or (some ex-info-open? stack)
+                        (and map-text
+                             (or (str/includes? map-text ":message")
+                                 (str/includes? map-text ":ok false"))))]
+          kw)
+        defaulted (for [pat defaulted-types
+                        [_ kw] (re-seq pat src)]
+                    (keyword kw))]
+    (into (set literal) defaulted)))
+
+(def ^:private roster
+  "Every `:type` on the refusal surface, by hand.  Going stale is the feature: a new
+  or renamed keyword fails the comparison below until it is added here deliberately —
+  with a changelog entry, since callers discriminate on it (CONTRIBUTING.md §3.8)."
+  #{:already-loaded :arg-constraint-kind :arg-genl :arg-position
+    :arg-type :arity :asymmetric :bad-arg
+    :bad-args :bad-foreign-manifest :bad-handle :bad-host
+    :bad-level :bad-registrant :bad-reply
+    :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :busy
+    :context-escape :cross-origin :daemon-error :damaged-dictionary
+    :disjoint :disk-locked :duplicate-handle :error
+    :exception-not-closed :export-busy :frozen-base :functional
+    :incomplete-racer :inter-arg-type :internal-error :labeling-inconsistent
+    :llm-api-error :llm-encode :llm-no-credential :llm-not-applicable
+    :malformed-entry :malformed-record :missing-resource :naf-not-closed
+    :naming :no-base :no-depth-bound :no-destination
+    :no-dump :no-foreign-reader :not-a-directory :not-assertible
+    :not-checkable :not-defeasible :not-edn :not-empty :not-indexable
+    :not-found :not-ground :not-in-process :not-range-restricted :not-stratified
+    :not-watchable :not-well-formed :quantifier-not-local :report-only
+    :reset :shape :solver-failed :solver-unavailable
+    :stacked-fork :stale-index-layout :still-loading :still-stopping
+    :torn-snapshot :unbound-deferred :unforkable-index :unknown-backend
+    :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
+    :unknown-op :unknown-option :unknown-source :unknown-tactician
+    :unparseable :unreadable :unreadable-store :unsupported-compression
+    :unsupported-format :unsupported-platform :unsupported-variant :unsupported-version})
+
+(deftest the-type-vocabulary-is-the-roster
+  (let [files (->> (file-seq (io/file "src"))
+                   (filter #(.isFile ^java.io.File %))
+                   (map #(.getPath ^java.io.File %))
+                   (filter #(str/ends-with? % ".clj"))
+                   sort)
+        found (transduce (map (comp refusal-types slurp)) into #{} files)]
+    (is (seq files) "the scan found the sources")
+    (is (< 50 (count found))
+        "the scan collects the vocabulary — a near-empty read means the lexer or
+        the rules broke, not that the tree stopped refusing things")
+    (testing "a :type the roster does not name is a new piece of caller-visible
+              vocabulary — add it here deliberately, with its changelog entry"
+      (is (empty? (sort (set/difference found roster)))))
+    (testing "a roster entry the tree no longer spells is a rename or a removal —
+              both are the same contract change, seen from the other side"
+      (is (empty? (sort (set/difference roster found)))))))

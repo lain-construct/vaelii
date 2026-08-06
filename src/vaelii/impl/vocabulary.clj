@@ -14,7 +14,7 @@
 
   **Population: CoreContext's own terms.**  Not every predicate in the KB — a domain
   relation is *supposed* to be inert, and `(likes Fred Mary)` asks nothing of the engine.
-  CoreContext is the vocabulary microtheory, whose charter (see the header of
+  CoreContext is the vocabulary context, whose charter (see the header of
   `resources/kb/CoreContext.txt`) is exactly \"the engine-interpreted special predicates
   and the predicate meta-ontology\", and its file is term-centric: one `(comment <term>
   …)` block per term.  So the terms it comments are precisely the grammar, and precisely
@@ -49,7 +49,7 @@
             [vaelii.impl.special :as special]))
 
 (def vocabulary-context
-  "The microtheory whose terms this roster is about.  `core-context/load-into` names the
+  "The context whose terms this roster is about.  `core-context/load-into` names the
   same symbol; it is the one context whose contents are the engine's own grammar."
   'CoreContext)
 

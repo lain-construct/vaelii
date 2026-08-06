@@ -128,8 +128,8 @@ replace the engine.
 
 Neither is needed, because **a context already is a frame of reference**. A network is
 built per context out of the facts visible there, so `(leftOf Mouse Lion)` asserted in
-`LionMouseContext` is a claim in that microtheory's frame and in no other. Two
-microtheories looking at the same individuals from opposite sides state opposite facts,
+`LionMouseContext` is a claim in that context's frame and in no other. Two
+contexts looking at the same individuals from opposite sides state opposite facts,
 each context's network answers its own way, and neither contaminates the other. Nothing
 declares a viewpoint, because the context is the viewpoint; where a frame has to be argued
 about rather than assumed, the frame is a context and the argument is `genlContext`.

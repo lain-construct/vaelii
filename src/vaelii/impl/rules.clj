@@ -416,3 +416,45 @@
                      :problems    (vec problems)
                      :antecedents (vec antecedents)
                      :consequent  consequent}))))
+
+;; ---- the functor a rule is indexed by ------------------------------------
+
+(defn variable-functor-literals
+  "The `[role literal]` pairs of a rule whose functor is a **variable** — `(?p ?x ?y)`,
+  or the dotted rest `(?pred . ?args)`.  Read through `naming/applied-literals`, so the
+  frames descended into are the ones the naming check descends: a negated antecedent, an
+  `ist` consequent, a head existential, an aggregate's body."
+  [sentence]
+  (filterv (fn [[_ lit]] (sx/variable? (nm/functor lit)))
+           (nm/applied-literals sentence)))
+
+(defn check-indexable-functors
+  "Throw `:type :not-indexable` when a literal of the rule `sentence` puts a variable in
+  functor position.
+
+  **The rule index is keyed by predicate**, and a variable names none.  Canonicalization
+  numbers the functor to `?var0` before the rule is indexed, so the postings land under a
+  key no arriving fact and no goal can ever spell: `chain/fire-rules-for` reads the
+  arriving fact's functor and its `genls`, `resolution/concluding-rule-handles` reads the
+  goal's predicate and its specs, and neither can produce a canonical variable.  The rule
+  answers no backward goal at all, and fires forward only when a *concrete*-predicate
+  antecedent beside it arrives — so `(transitive foo)` before the facts derives nothing,
+  and after them joins over whatever happens to be stored at that instant.  Two arrival
+  orders, two answers, from a rule the engine reported as accepted.
+
+  The workaround the message names is the instantiated rule: one rule per predicate the
+  metarule was meant to range over, each with a functor the index can read.
+
+  An `:inert` rule is exempt at the caller (`core/check-rule-sentence`): it runs in
+  neither engine by construction, so it claims nothing the index has to honour."
+  [sentence]
+  (when-let [bad (seq (variable-functor-literals sentence))]
+    (let [[role lit] (first bad)]
+      (throw (ex-info (str "a rule's predicate cannot be a variable: " (pr-str lit)
+                           " in the " (case role :consequent "consequent" "antecedent")
+                           " — the rule index is keyed by predicate, so a variable"
+                           " functor is stored under a key no fact and no goal ever"
+                           " reads, and the rule answers no query.  Assert the"
+                           " instantiated rules, one per predicate it ranges over.")
+                      {:type :not-indexable :role role :literal lit
+                       :literals (mapv second bad) :sentence sentence})))))

@@ -174,3 +174,74 @@
   (is (= :not-range-restricted
          (try (vr/check-range-restricted ['(p ?x)] '(q ?y)) nil
               (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
+
+;; ---- seam 4: a rule the rule index cannot key on ------------------------
+;;
+;; The rule index has two cells and both are keyed on a **predicate**
+;; (`kv/rule-ante-key` / `rule-conseq-key`).  A literal with a variable in functor
+;; position names none, and `canonicalize-rule` numbers it to `?var0` before
+;; `special/index-rule-sentex` reads the sentence — so the posting lands under a key no
+;; arriving fact and no goal can spell.  Stored, indexed, and unreachable: the rule
+;; answers no backward goal, and fires forward only when a concrete-predicate antecedent
+;; beside it arrives, which makes its conclusions depend on arrival order.  So it is
+;; refused at the door, with the one exception that claims nothing — an `:inert` rule.
+
+(tu/deftest-kb a-rule-with-a-variable-predicate-is-refused
+  (tu/with-terms [likesOf]
+    (let [before-sx (tu/sentex-ids kb)
+          metarule  (vr/rule-sentence ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x))]
+      (testing "an antecedent literal with a variable functor"
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (v/assert kb metarule 'NaturalWorldContext)))]
+          (is (= :not-indexable (:type (ex-data e))))
+          (is (re-find #"instantiated" (ex-message e))
+              "and the message names what to write instead")))
+      (testing "a consequent literal with one, even when every antecedent is concrete"
+        (is (= :not-indexable
+               (try (v/assert kb (vr/rule-sentence [(list likesOf '?x '?y) '(transitive ?p)]
+                                                   '(?p ?y ?x))
+                              'NaturalWorldContext)
+                    nil
+                    (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
+      (testing "the same refusal through assert-rule, which wraps and calls assert"
+        (is (= :not-indexable
+               (try (v/assert-rule kb ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)
+                                   'NaturalWorldContext)
+                    nil
+                    (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
+      (testing "and nothing was stored on the way to any of those"
+        (is (= before-sx (tu/sentex-ids kb)))))))
+
+(tu/deftest-kb an-inert-rule-may-carry-a-variable-predicate
+  ;; `:inert` runs in neither engine — it is documentation with a handle — so an index
+  ;; key it never reads is nothing it promised.  `CoreContext` ships one: the
+  ;; decontextualized-predicate lift, stated as `(implies (?pred . ?args) (ist
+  ;; UniverseContext (?pred . ?args)))` for a reader and implemented in code.
+  (let [h (v/assert kb (list 'set/inertRule
+                             (vr/rule-sentence ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)))
+                    'NaturalWorldContext)]
+    (is (some? h) "the inert spelling still asserts")
+    (is (= :inert (:direction (v/sentex kb h))))
+    (v/retract! kb h)))
+
+(tu/deftest-kb a-concrete-rule-of-the-same-shape-still-asserts
+  ;; The complement, so the refusal above cannot be "refuse a rule with two antecedents":
+  ;; the instantiated rule the message asks for is exactly this, and it must land.
+  (tu/with-terms [likesOf]
+    (let [h (v/assert kb (vr/rule-sentence [(list likesOf '?x '?y)] (list likesOf '?y '?x))
+                      'NaturalWorldContext)]
+      (is (some? h))
+      (v/retract! kb h))))
+
+(deftest a-variable-functor-literal-is-a-value-first
+  ;; The same shape as range restriction: the reader answers with the literals, and the
+  ;; throw is a wrapper over it — so `check` can report what `assert` refuses without a
+  ;; second implementation to drift.
+  (is (empty? (vr/variable-functor-literals '(implies (and (dog ?x)) (animal ?x)))))
+  (is (= ['(?p ?x ?y) '(?p ?y ?x)]
+         (mapv second (vr/variable-functor-literals
+                       '(implies (and (?p ?x ?y) (transitive ?p)) (?p ?y ?x)))))
+      "both frames are read, and the concrete antecedent beside them is not a problem")
+  (is (= :not-indexable
+         (try (vr/check-indexable-functors '(implies (and (?p ?x ?y)) (?p ?y ?x))) nil
+              (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))

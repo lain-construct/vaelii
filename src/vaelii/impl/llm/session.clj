@@ -4,7 +4,7 @@
   "The turn loop: propose → validate → repair → an edit batch.
 
   **The model never writes.**  Its output is `{:add [[sentence context opts?] …]
-  :remove [handle …]}` — the exact shape `vaelii.core/edit` takes, and the exact shape
+  :remove [handle …]}` — the exact shape `vaelii.core/edit!` takes, and the exact shape
   the browser's textarea editor already produces.  So a proposal lands in the existing
   editor as a reviewable diff: no new write path, no new trust boundary, and no way
   for a model turn to reach storage.  Applying is a separate, explicit call
@@ -1200,7 +1200,7 @@
 ;; ---- the explicit apply step -------------------------------------------
 
 (defn apply-proposal!
-  "Apply a proposal's batch through `vaelii.core/edit` — **the only thing in this
+  "Apply a proposal's batch through `vaelii.core/edit!` — **the only thing in this
   namespace that writes**, and it is never reached from `propose`.
 
   Refuses a proposal that is not `:ok` unless `{:force? true}` says otherwise, so a
@@ -1218,7 +1218,7 @@
                      {:type :llm-not-applicable :status status
                       :rejections (:rejections proposal)})))
    (let [before (count (v/violations kb))
-         result (v/edit kb {:add (:add batch) :remove (:remove batch)})]
+         result (v/edit! kb {:add (:add batch) :remove (:remove batch)})]
      {:result result
       :violations (vec (drop before (v/violations kb)))
       :contradictions (vec (v/contradictions kb))})))

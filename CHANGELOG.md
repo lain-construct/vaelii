@@ -1,258 +1,366 @@
 # Changelog
 
+## 0.4.0 — 2026-08-05
+
+Correctness fixes found by reading the engine against its own stated invariants, in
+the places 0.2.0 and 0.3.0 did not reach: a backward-chaining loop guard that made a
+conjunctive query answer nothing, doors that disagreed about what they would accept,
+an index trusted without being checked against the records it describes, slots and
+keys that let arrival order decide belief, and derived caches a settle read one
+revival out of date. Thirteen entries are marked **Breaking** — they refuse input
+0.3.0 accepted, rename what it exported, or change an observable contract — which is
+why this is 0.4.0. The **Refusal** entries (CONTRIBUTING §3.8) cover input that is
+newly refused where what 0.3.0 did with it was corrupt state or answer a different
+question in silence, so no working caller loses anything it had. Each entry says what
+a reader would have observed; the mechanism is in the subsystem's doc.
+
+- **A conjunctive query could answer nothing while each of its conjuncts answered.**
+  `[(anc Tom ?y) (anc Tom ?z)]` was empty where `(anc Tom ?y)` answered twice, because
+  the per-path loop guard grew for a whole frame and a queued conjunct is a sibling of
+  the expansion, not a descendant. Silent in every direction: forward chaining and the
+  node engine both answered, `provable?` said false, `prove-within` reported `:status
+  :complete`, and the planner became semantic. `docs/inference.md`, "The loop guard's
+  scope is the subtree, not the frame".
+- **Breaking: `assert` refuses a sentence that is not an s-expression.** A string — what
+  a failed EDN read hands back, from `impl.cli`'s `read-arg` and the daemon's `:args` —
+  was stored, indexed and believed as an object no query can match; `nil` likewise; a
+  symbol, number or map threw a bare `UnsupportedOperationException` with no `:type`.
+  `check` refused all five, so the door built to predict `assert` disagreed with it.
+  *Migration:* nothing a working caller sent is refused; fix the producer that handed
+  `assert` unread text, and discriminate on `:shape`.
+- **Breaking: an `exceptWhen` query's literals are held to the naming invariants.**
+  `(exceptWhen (lives_in ?x cold_place) …)` stored a literal `docs/naming.md` says is
+  refused, as an exception no query could match — so the rule read as guarded and fired
+  as bare. Both doors now read each conjunct, before the rule is stored, so a refused
+  exception leaves no bare rule believed. *Migration:* spell the exception's literals to
+  the invariants (`livesIn`, not `lives_in`), and re-check any rule 0.3.0 left bare.
+- **Breaking: an `edit!` batch key nothing reads is refused.** `{:adds […]}` bound nil,
+  so `edit!` wrote nothing and reported `{:added [] :removed {…0}}` — a success — while
+  `check-edit`, whose job is to predict exactly that, reported no problem. Over the
+  daemon it was a `200 {:ok true}` for a write that did not happen. *Migration:* spell
+  the batch `{:add […] :remove […]}`; a batch under any other key wrote nothing.
+- **Breaking: naming one in-RAM space number and not the other is refused.**
+  `:record-space` and `:index-space` default independently, so
+  `{:backend :memory :record-space 77}` paired a private record store with the
+  process-default index every other in-memory KB writes. `assert` then found the other
+  KB's handle, read it as a duplicate, **stored nothing**, and returned a handle `in?`
+  answered true for. A fork's `:base` and `:overlay` halves take the same keys and are
+  refused the same way. *Migration:* name both or neither, in every opts map.
+- **A durable index is checked against the records it claims to describe.** `layout.edn`
+  gates the index's key shape; nothing gated its coverage, so a short index opened
+  clean, answered short forever and re-cemented its own stamp — and re-asserting a fact
+  it could not find minted a second handle for a sentence already stored. Three ways in:
+  a torn `kv.log` tail, a directory grown under a derived-index mode, and a crash
+  between the record write and the index batch. `docs/storage.md`.
+- **Breaking: `assert` acts on `:direction` instead of accepting and dropping it.** Only
+  `assert-rule` read the key, so a rule asserted `{:direction :backward}` stored `:both`
+  and forward-chained, materializing the cross product a backward-only rule exists to
+  avoid. A `:direction` on a non-rule, one contradicting the sentence's own wrapper, and
+  a value outside the roster are refused rather than resolved. In the same pass a
+  non-map `opts` answers `:unknown-option` from both doors, where `check` said `:shape`.
+  *Migration:* spell the direction `:backward` (`:forward` `:backward` `:inert` `:both`);
+  a `check` caller matching `:shape` for a non-map opts matches `:unknown-option` now.
+- **Breaking: a re-asserted rule's direction and defeasibility resolve by content.**
+  Neither slot is in the identity key, so a rule stated two ways resolves to one record
+  and the second spelling was dropped — letting arrival order decide a slot that decides
+  belief. A bare `implies` after a `set/inertRule` stayed inert and never fired; after a
+  `set/defaultRule` it stayed defeasible and lost to a monotonic rival it should have
+  tied with. The resolution reaches conclusions already derived, since a justification
+  bakes the rule's contribution in as its `:strength` at fire time.
+  `docs/canonicalization.md`. *Migration:* the join only widens a slot; to narrow one,
+  `retract!` the handle and re-assert the intended spelling.
+- **The derived caches are reconciled with what `clear-defeats!` revived.** A settle
+  lifts last settle's defeats at its top, but the cached closures were refreshed only in
+  `settle-finish` — after `constraint-nogoods` had read them — so discovery asked its
+  question against a vocabulary one settle out of date. A `P`/`¬P` pair made visible by
+  a revived `genlContext` edge went unarbitrated and `retract!` returned with both
+  believed, a state `recover` over the same records disagrees with.
+- **The disk KV index reads and publishes its RAM map under the lock.** `apply-ops!`
+  read `@data` before acquiring and published after releasing, while `compact!` runs on
+  the durability daemon's executor — a thread the single-writer contract says nothing
+  about — so a compaction in either window rewrote the log from a map missing the
+  in-flight write. `kv-clear!` was sharper: a compaction between its truncate and its
+  publish wrote the entire pre-clear map back over the log just emptied.
+- **Breaking: a client's mistake answers 400 with a `:type`, not 500 with none.**
+  `docs/operations.md` promises every `{:ok false}` carries the type the engine threw;
+  an unreadable body, a wrong argument count and an unknown op all answered untyped, the
+  first two as 500s. The engine's whole refusal vocabulary now answers **400**, unlogged
+  — answered 500 they count as backend faults at every reverse proxy and 5xx alarm.
+  *Migration:* a client branching on the status code should branch on `:type`; every
+  `{:ok false}` carries a non-nil keyword.
+- **The browser's `/propose/*` EDN read catches `Throwable`**, as every other
+  untrusted-EDN read in the namespace already does. A deeply nested form raises
+  `StackOverflowError`, which an `Exception` catch let escape — and the browser has no
+  exception middleware, so it left the handler entirely.
+- **Refusal: `query` refuses a non-map `opts` and a negative or non-integer
+  `:max-depth`.** Both read as "no depth", which is not an error condition but a
+  *different question* — the no-rule-expansion answer, returned as if it were the
+  bounded one asked for. `{:max-depth 0}` is admitted: it is that answer asked for by
+  name. *Migration:* none for a working caller.
+- **Breaking: `edit!` refuses what `check-edit` reports, before applying anything.** The
+  two disagreed in both directions: a 4-element `:add` entry applied with the extra
+  silently dropped where the dry run reported `:shape`, and a non-sequential entry threw
+  a bare `ISeq` error from every door. An unknown `:remove` handle is refused before any
+  entry is applied, so a checked-clean batch cannot half-apply. *Migration:* a
+  remove-if-present batch filters its handles through `in?` first.
+- **The recursive-literal hold-back keys on the peeled predicate.** A `not`- or
+  `ist`-headed consequent read its own frame as the predicate, so every frame-headed
+  antecedent was "the recursive literal" — two orderings of a negated-head rule minted
+  two handles, and a genuinely recursive rule with a negated head lost the hold-back,
+  turning right-recursion left-recursive.
+- **Breaking: a skolem witness is a function of its rule's content, not its handle.**
+  Retracting and re-asserting the same rule re-fired to a *different* witness, so a fact
+  stated about the old one silently stopped co-referring — and two KBs holding the same
+  knowledge in different orders stored different `termOfUnit` content, a handle in
+  stored content that order independence rules out. `docs/skolem.md`. *Migration:*
+  rebuild the KB from its assertions (`export!` / `import!` replays firings) rather than
+  carrying both spellings.
+- **Breaking: `edit` is `edit!`, and `edit-with-consequences` is
+  `edit-with-consequences!`.** The batch's `:remove` half runs the same
+  `retract-storage!` sweep `retract!` runs, while the name read as additive — the one
+  gap in the `!` roster the convention exists to close. *Migration:* rename the calls;
+  the wire op stays `:edit`, as `:retract` stays for `retract!`.
+- **Breaking: `:bad-opt` is retired, and one compression spelling survives.** Two
+  keywords split one failure class on no rule a reader could predict — seven sites said
+  `:bad-opt` where thirty-four said `:unknown-option`. *Migration:* discriminate on
+  `:unknown-option` and `:unsupported-compression`.
+- **Breaking: the dump's `meta.edn` names its dialect `:vaelii`.** Decorative on the read
+  side — the frame decides how a sentence is reconstructed — but it is a value in the
+  frozen format and a documented key of `import-dump`'s return, so the name it carries
+  is now-or-never. *Migration:* a reader matching the old value matches `:vaelii`;
+  `import-dump` reads dumps written either way.
+- **The node engine's claimed-key reads each guard's identity, not the guard count.** Two
+  distinct rules, each carrying its own `exceptWhen`, can rewrite one goal to the same
+  canonical residual through the `genl` fan; keyed on the count the two children were
+  one key, so the second was dropped before it was enqueued and every answer only its
+  exception admits was lost — silently, on the path `query` routes to whenever
+  `:max-depth` is given. `docs/inference.md`.
+- **A belief flip on a visibility `except` queues the same re-check as its arrival.**
+  Only the store and removal chokepoints called `recheck-except`, so an except *defeated*
+  by a settle's resolution revived nothing it hid: backward proving answered yes while
+  the store held nothing, and which belief set the KB ended with depended on the order
+  the except and its defeater arrived.
+- **`recover` reads only positive, atomic declarations into the taxonomy.**
+  `sentexes-with-functor` returns both polarities and the rebuild arms destructure the
+  positive shape positionally, so a stored `(not (genl a b))` bound its inner sentence as
+  a taxonomy node and nil as the other — poisoning every cache on any recover, the
+  default `{:recover? :auto}` reopen included.
+- **A `:neg` nogood is an at-least-one in every reader.** The ASP translation's soft
+  branch emitted only the positive body atoms, so a `:neg`-only nogood — what
+  `set/softConstraint` over negated choice literals produces — emitted its violation
+  witness as an unconditional fact: no steering pressure, and `:violated` reported a
+  satisfied at-least-one as broken. `docs/solving.md`.
+- **`conflicts` and `contradictions` are content-ordered.** Each report's sides were
+  already ordered by content; the *list* came off a hash set of handle-keyed nogoods, so
+  which pair `(first (contradictions kb))` returned was an answer about which was typed
+  first. `docs/nmtms.md`.
+- **Refusal: the connective frames are shape-checked at every door.** An `implies` at
+  arity 2 threw a bare `IndexOutOfBoundsException` while arity 4 stored a silently
+  truncated rule `check` read as clean; `(not A B)` stored as a positive fact whose
+  record and index disagreed; a bare symbol passed as a rule literal was accepted,
+  unmatchable; and a non-finite measure magnitude stored cleanly, then threw out of every
+  later duration goal in the context. *Migration:* nothing a working caller sent is
+  refused — every one of these stored an object no query could match.
+- **Refusal: the last open rosters close.** `find-terms` and `abduce` take key rosters (a
+  misspelt `:mtch` ran the prefix default; a misspelt `:keep?` tore down the scratch
+  context whose handles the caller meant to commit), the CLI refuses a flag outside its
+  roster, `escalate` refuses a floor outside 0–7, and `import-dump` refuses an unknown
+  `:framing` where it guessed a reader and failed as a `ZipException`. *Migration:* spell
+  the key or flag as the refusal's roster lists it.
+- **Refusal: the web and serve entry points refuse what their grammars do not know.**
+  `vaelii.web --listen` with no address parsed to a nil host — Jetty's wildcard bind,
+  with the Host allowlist reading nil as *any* — so a truncated command line put the
+  browser's unauthenticated write routes on every interface with the rebinding guard
+  off. `serve` read its positionals as a prefix, so `4200 --listen 0.0.0.0 /var/lib`
+  dropped the directory and ran a disk daemon in memory. *Migration:* none beyond
+  completing the command line.
+- **Refusal: the opts and shape rosters reach the remaining doors.** The roster guard
+  held at `assert`, `why`, `query` and `open-kb`, and every other door took the misspelt
+  key in silence — answering a different question than the one asked. Now refused: an
+  `open-kb` mount or durability key without its axis, an opts key nothing reads at
+  `forward-chain`, the extent readers, `preview`, `export!`, `import!` and the anytime
+  budget maps. *Migration:* spell the key as the refusal's roster lists it.
+- **Refusal: the operator's mistakes answer in one line.** A CLI flag missing its value
+  bound nil in silence — `lein cli assert '(dog Fido)' Ctx --strength` stored known-true
+  content at `:default` — and now exits 1 naming the flag; `--memory --dir` is refused as
+  a contradiction. *Migration:* none beyond completing the command line.
+- **The browser and CLI survive what they read.** The repl loop and the CLI command arm
+  catch `Throwable`, so a deeply nested form answers `error:` and a next prompt; the
+  browser's retract POST makes the `check-edit` round-trip `docs/operations.md` promises,
+  so a stale handle answers the problem panel rather than a success-styled "Retracted 0
+  sentexes".
+- **Refusal: every durability switch is read against a domain, and a value outside it
+  fails the open.** Each of the thirteen checkable `vaelii.*` / `VAELII_*` switches was a
+  membership test or an equality against one spelling, so none of them had a wrong value
+  — every misspelling was the *other branch*, silently.
+  `vaelii.disk.auto-compact=disabled` read as compaction on; `vaelii.disk.fsync=always`
+  read as the three-second tick, the level the operator was trying to leave. The three
+  numeric reads had no catch at all. `docs/storage.md`. *Migration:* none for a working
+  setup, but two spellings now *act* where they were ignored — `vaelii.disk.tokens=1` and
+  `vaelii.index.snapshot=1` turn their features on, and `vaelii.disk.lock=0` disables the
+  lock. Spell what you mean.
+- **Refusal: the mapped index image refuses the platform it corrupts on.** The image
+  publishes by renaming a new file over the live one while it is mapped, which is what
+  put `vaelii.index.snapshot` on macOS and Linux only — `docs/storage.md` said so and
+  nothing enforced it, so on Windows the publish failed part-way through a four-file
+  commit, in a place naming neither the cause nor the fix. *Migration:* none — the
+  property never worked where it is now refused; unset it and `:disk-columnar` rebuilds
+  its index on open.
+- **Breaking: `assert-rule` refuses a rule literal whose predicate is a variable.**
+  `(implies ((?p ?x ?y) (transitive ?p)) (?p ?y ?x))` asserted cleanly and was indexed
+  under `?var0`, which no arriving fact and no goal can spell — so the rule answered no
+  backward goal at all and fired forward only when the concrete-predicate antecedent
+  beside it arrived. Two arrival orders, two answers, from a rule the engine reported as
+  accepted. An `:inert` rule is exempt, which is what `CoreContext`'s decontextualized-
+  predicate lift is. *Migration:* assert the instantiated rules, one per predicate the
+  metarule ranged over.
+
 ## 0.3.0 — 2026-08-04
 
-Correctness fixes across the durable index, the snapshot, the JTMS, the export
-dump and the bounded prover, a sweep that gives every refusal a `:type`, the one
-wire contract 0.2.0's own sweep left qualified, and the serialization both
-servers' storage layer already assumed. Then a run of **inference and belief**
-work: two orders that reached two answers (a firing refused before it could
-become a justification, and a definitional clash whose halves sat either side of
-a `genlContext` edge), the two doors that disagreed about an inherited claim, and
-two enumerations that grew with the vocabulary rather than with their own answer.
-Eight entries are marked **Breaking** — they refuse input 0.2.0 accepted or
-change an observable contract, which is why this is 0.3.0 and not 0.2.1; the rest
-are compatible.
+Correctness fixes across the durable index, the snapshot, the JTMS, the export dump
+and the bounded prover, a sweep that gives every refusal a `:type`, the one wire
+contract 0.2.0's own sweep left qualified, and the serialization both servers' storage
+layer already assumed. Then a run of **inference and belief** work: two orders that
+reached two answers, the two doors that disagreed about an inherited claim, and two
+enumerations that grew with the vocabulary rather than with their own answer. Eight
+entries are marked **Breaking** — they refuse input 0.2.0 accepted or change an
+observable contract, which is why this is 0.3.0 and not 0.2.1; the rest are compatible.
 
 - **Breaking: the daemon's refusal `:type` keywords are plain** — `:not-edn`,
-  `:cross-origin`, `:bad-host`, `:body-too-large`, where the namespace serving
-  them qualified each one. This finishes tree-wide what 0.2.0's own breaking
-  entry claimed, so a client discriminating on a `:type` matches on what went
-  wrong rather than on where the code lives.
+  `:cross-origin`, `:bad-host`, `:body-too-large`, where the namespace serving them
+  qualified each one. This finishes tree-wide what 0.2.0's own breaking entry claimed.
 - **Breaking: both servers hold one request-body ceiling.** The cap and its
-  `VAELII_MAX_BODY_BYTES` override (16 MiB by default) live in
-  `vaelii.impl.guard`, which the daemon and the browser both read, so the
-  browser answers **413** for an oversized form body where only the daemon did —
-  a body 0.2.0's browser accepted, which is why this is breaking on the same
-  grounds 0.2.0 marked the daemon's own cap so. A daemon read is also fully
-  realized **inside** the write monitor — `wire-safe`'s walk is what realizes a
-  lazy answer, so running it after the monitor released let a `:query` straddle a
-  concurrent `:assert`.
-- **Breaking: the browser serializes its writes.** Jetty serves the write routes
-  on a thread pool, so two POSTs were two writers — where the storage layer is
-  written on the promise that they are not: `disk/kv`'s `apply-ops!` folds
-  against a map read outside its lock and publishes outside it too. Interleave
-  two and the WAL holds both frames while the RAM map holds one, so the running
-  index and the one replayed on the next open disagree. The browser now takes one
-  process-wide monitor around every content write, as the daemon always did. A
-  concurrent write waits rather than racing, which is observable as ordering.
-- **Every `ex-info` the engine throws carries a `:type`.** Twenty refusals threw
-  an untyped map, so a caller had to guess from which keys were present —
-  `lookup`, `import!`, the catalog loader, the deferred join, the solver bridges,
-  the disk codec and the token dictionary among them. Two forms that threw a raw
-  Java exception now answer instead: `(genl ?x ?x)` / `(disjoint ?x ?x)` answer
-  the question one variable in both positions asks — which members the relation
-  holds of themselves — rather than raising `Duplicate key`.
-- **Breaking: an `ist` form must have exactly three elements.** `(ist Ctx S)` is
-  the form; 0.2.0 read `assert` and `check` positionally, so `(ist Ctx S junk)`
-  asserted with the extra silently ignored and `(ist Ctx)` raised a raw
-  `IndexOutOfBoundsException`. Both now refuse with `:type :shape`, the same
-  problem `check` already reported.
-- **The durable index is gated on its key layout at open.** `layout.edn` sits
-  beside `format.edn` under `<dir>/index`, and a log whose stamp does not match
-  `kv/index-layout-version` is cleared, rebuilt from the records and restamped,
-  `:recover?` notwithstanding — an absent stamp over a populated log counts as
-  stale, since that is what an index written before the sentinel looks like. The
-  stamp lands only *after* the rebuild, and the directory is marked mid-rebuild
-  *before* the clear, so a crash anywhere between the two reads as still-stale
-  rather than as a fresh directory needing no work. The gate reads the index
-  **kind**, so it fires on a durable index and never on a fork, whose inherited
-  half is held to the sentinel by the `:base` refusal below.
-  **A 0.2.0 durable store carries no stamp, so
-  its first open under 0.3.0 pays one automatic reindex**: O(records), logged at
-  `:warn` with the record count and the time it took, and paid once. Without the
-  gate such a log replays cleanly and then misses every read whose key shape
-  moved — populated-looking counts over queries that answer nothing.
+  `VAELII_MAX_BODY_BYTES` override (16 MiB) live in `vaelii.impl.guard`, which both
+  read, so the browser answers **413** for an oversized form body where only the daemon
+  did. A daemon read is also fully realized **inside** the write monitor — `wire-safe`'s
+  walk is what realizes a lazy answer, so running it after the monitor released let a
+  `:query` straddle a concurrent `:assert`.
+- **Breaking: the browser serializes its writes.** Jetty serves the write routes on a
+  thread pool, so two POSTs were two writers — where the storage layer is written on the
+  promise that they are not. Interleave two and the WAL holds both frames while the RAM
+  map holds one, so the running index and the one replayed on the next open disagree.
+  The browser now takes one process-wide monitor around every content write, as the
+  daemon always did; a concurrent write waits rather than racing.
+- **Every `ex-info` the engine throws carries a `:type`.** Twenty refusals threw an
+  untyped map, so a caller had to guess from which keys were present. Two forms that
+  threw a raw Java exception now answer instead: `(genl ?x ?x)` / `(disjoint ?x ?x)`
+  answer the question one variable in both positions asks.
+- **Breaking: an `ist` form must have exactly three elements.** 0.2.0 read `assert` and
+  `check` positionally, so `(ist Ctx S junk)` asserted with the extra silently ignored
+  and `(ist Ctx)` raised a raw `IndexOutOfBoundsException`. Both refuse with `:shape`.
+- **The durable index is gated on its key layout at open.** A log whose stamp does not
+  match `kv/index-layout-version` is cleared, rebuilt from the records and restamped,
+  `:recover?` notwithstanding; without the gate such a log replays cleanly and then
+  misses every read whose key shape moved. **A 0.2.0 durable store carries no stamp, so
+  its first open under 0.3.0 pays one automatic reindex**: O(records), logged at `:warn`,
+  paid once. `docs/storage.md`.
 - **Breaking: `open-kb` refuses a `:base` whose durable index is at an older key
-  layout** (`:type :stale-index-layout`). A fork's base is held to the same
-  sentinel as the fork's own half and gets the other answer: the repair is a
-  write, and a base is mounted read-only, so the refusal names the one place the
-  rebuild can happen — open that directory as a KB, then mount the fork over it.
-- **Breaking: `(fork (fork base))` is refused** (`:type :stacked-fork`), which is
-  what `docs/overlay.md` has always stated. `core/fork` passes `:base-stores`,
-  which names no backend for the opts check to catch, so the stores are asked
-  directly (`mount/forked?`).
-- **Breaking: `open-kb` refuses a `:recover?` setting it does not name.** `:auto`
-  is the default, `true` is accepted as an alias for it, and `:warn` and `false`
-  are the rest of the roster; any other value read as the warn branch and handed
-  back an empty TMS over a store that is not empty, which answers `[]` to
-  everything. A **stale derived index** — one describing records that are gone —
-  is dropped on open whatever `:recover?` says: `false` asks for silence about an
-  unrecovered store, not for an index answering out of records nobody holds.
-- **Breaking: `close!` releases a durable fork's own directory.** A fork's
-  writable half takes the same exclusive lock and holds the same file handles as
-  any durable KB, so without its own `:dir` it could never be handed to another
-  process short of exiting the JVM. 0.2.0's docstring promised the opposite in as
-  many words — `close!` on a fork was a no-op that kept its lock — so code that
-  closed a fork in a `finally` and kept reading it worked and now does not. The
-  base's directory stays unnamed here: it is mounted read-only and shared by
-  every fork over it.
-- **A failed compaction takes its temporary files with it.** A rewrite that threw
-  — a full disk, a damaged frame — closed its handles and left `<log>.compact`
-  behind, and `f/open-log` seeks to the end while `f/open-idx` does not truncate,
-  so the *next* compaction in the same session opened that temp and appended to
-  it. Its replay then put back records deleted in between. The cleanup is scoped
-  to the pre-commit phase: past the marker the temps are the only complete copy,
-  and the next open finishes the replay off the marker, which is what it is for.
-  The record store and the KV index both take the three-handle open under a guard
-  too, so a throw from the second or third no longer leaks the ones before it.
+  layout** (`:stale-index-layout`). The repair is a write and a base is mounted
+  read-only, so the refusal names the one place the rebuild can happen: open that
+  directory as a KB, then mount the fork over it.
+- **Breaking: `(fork (fork base))` is refused** (`:stacked-fork`), which is what
+  `docs/overlay.md` has always stated.
+- **Breaking: `open-kb` refuses a `:recover?` setting it does not name.** `:auto` is the
+  default, `true` an alias for it, `:warn` and `false` the rest; any other value read as
+  the warn branch and handed back an empty TMS over a store that is not empty, which
+  answers `[]` to everything. A stale derived index is dropped on open whatever
+  `:recover?` says.
+- **Breaking: `close!` releases a durable fork's own directory.** A fork's writable half
+  takes the same exclusive lock as any durable KB, so without its own `:dir` it could
+  never be handed to another process short of exiting the JVM. 0.2.0's docstring promised
+  the opposite, so code that closed a fork in a `finally` and kept reading it worked and
+  now does not.
+- **A failed compaction takes its temporary files with it.** A rewrite that threw closed
+  its handles and left `<log>.compact` behind, and the next compaction in the same
+  session opened that temp and appended to it — its replay then put back records deleted
+  in between. The cleanup is scoped to the pre-commit phase: past the marker the temps
+  are the only complete copy.
 - **A failed open gives back the directory lock with no handles still on it.**
-  `open-kv-backend` and `open-token-log` replayed their logs outside any guard, so
-  an unrecognized op frame or a torn dictionary entry propagated to a caller that
-  answers a failed open by releasing the lock — leaving it released while this JVM
-  still held an open handle, the one state `close-dir!` exists to prevent.
-- **A fork's merged `kv-entries` is realized under its monitor.** Both halves were
-  lazy, so the seq handed back from inside the lock realized outside it, and every
-  element it then produced called the merged-view reads the monitor exists to
-  serialize. An export of a fork taken while anything wrote it projected two
-  states at once. Same class as the daemon's `wire-safe` fix above.
-- **The rete alpha registry is synchronized.** It is JVM-lifetime shared state
-  reached from the store observer hooks, which fire on whichever thread is
-  writing, and a `HashMap` racing its own rehash can leave a reader spinning on a
-  probe loop that never terminates. Its check-then-put is one step now too, so two
-  callers cannot each build an alpha and leave the loser's permanently unmaintained.
+  `open-kv-backend` and `open-token-log` replayed their logs outside any guard, so a torn
+  frame propagated to a caller that answers a failed open by releasing the lock —
+  leaving it released while this JVM still held an open handle.
+- **A fork's merged `kv-entries` is realized under its monitor.** Both halves were lazy,
+  so the seq handed back from inside the lock realized outside it. An export of a fork
+  taken while anything wrote it projected two states at once.
+- **The rete alpha registry is synchronized.** It is JVM-lifetime shared state reached
+  from the store observer hooks, which fire on whichever thread is writing, and a
+  `HashMap` racing its own rehash can leave a reader spinning on a probe loop that never
+  terminates. Its check-then-put is one step too, so two callers cannot leave the loser's
+  alpha permanently unmaintained.
 - **`load-source` claims the catalog under one monitor.** The busy test, the
-  already-loaded test and the registration were three separate reads of the
-  catalog state, so two requests arriving together each passed all three and
-  spawned a loader — two background loaders writing the same stores, which is the
-  case the guard exists to refuse.
-- **The browser reads untrusted EDN under `Throwable`, as the daemon does.** A
-  deeply nested form overflows the reader's stack with a `StackOverflowError`,
-  which an `Exception` catch lets escape — a 500 where an unreadable term, line or
-  textarea is the ordinary answer these three sites exist to give.
-- **The index snapshot's roots-fallback blob is validated like the sections
-  beside it.** `roots-fallback.nippy` carries the argument-root postings, which
-  are primary index truth, and a missing or torn blob loaded as `[]` behind a
-  warning while every argument-root read answered `#{}` out of a snapshot that
-  opened clean. The meta records the blob's entry count and byte length, the
-  decision checks the length exactly, and the load thaws strictly — a torn blob
-  or a count mismatch throws into the rebuild path. The reloaded token dictionary
-  is checked against the log by count, since the two sides key on different
-  equality, and a mismatch rebuilds from the records rather than citing the wrong
-  entry for every mapped edge.
-- **The mapped index snapshot survives a JVM shutdown, and a failed save leaves
-  the previous image intact.** The stamp is taken against the records before a
-  byte moves, durability registrants close in phases, and every section lands in
-  a `.tmp` until the swap — so a shutdown cannot close the records under `save!`
-  and leave it having deleted the commit mark of the image it was writing. A
-  failed *open* likewise gives back the handles it took: `open-kind`,
-  `open-record-store`, the token log and the durability registration each undo
-  their own opens, so a throw cannot outlive the directory lock that made the
-  handles safe to hold.
-- **An export dump carries every provenance stamp, and `export → import →
-  export` is byte-stable.** The provenance walk covers justification handles as
-  well as sentex ones, so a stamp `add-provenance` put on a justification is no
-  longer dropped, and import remaps a justification's own handle to replay it.
-  Import also stores a justification's antecedents as a **vector**, the shape the
-  engine's own write path stores, so a round-tripped dump is byte-for-byte the
-  dump it came from.
-- **The JTMS dedup index carries the identity of the TMS it mirrors.** A nested
-  chain over a second KB — legal from an `:on-progress` callback, and with
-  overlapping handle spaces — could answer one KB's dedup question out of the
-  other's supports. Every reader and both wholesale clears hand the map out only
-  to that TMS, and anything else falls back to the reference scan. Keys coerce
-  fixnum boxing to `Long` at the boundary, since the map compares with Java
-  `equals` where the scan compares with `=`, and an `Integer`-boxed handle would
-  silently split a key.
-- **`prove-within` prepares its goal**, through the same `prepare-goal-for-read`
-  every other read path takes, so a reifiable NAT or a merge-retired spelling is
-  the same question under the bounded prover that it is under `ask`.
-- **The rete forward matcher fans over predicate-`genl` sub-predicates at every
-  arity**, as the reference `res/match-pattern` does. Fanning only for a
-  two-element sentence gave the opt-in matcher a different belief set from the
-  default engine's on any rule whose antecedent had another arity.
+  already-loaded test and the registration were three separate reads, so two requests
+  arriving together each passed all three and spawned a loader.
+- **The browser reads untrusted EDN under `Throwable`, as the daemon does.** A deeply
+  nested form overflows the reader's stack with a `StackOverflowError`, which an
+  `Exception` catch lets escape — a 500 where an unreadable term is the ordinary answer.
+- **The index snapshot's roots-fallback blob is validated like the sections beside it.**
+  `roots-fallback.nippy` carries argument-root postings, which are primary index truth,
+  and a missing or torn blob loaded as `[]` behind a warning while every argument-root
+  read answered `#{}` out of a snapshot that opened clean. The meta records the blob's
+  count and byte length, and the load thaws strictly.
+- **The mapped index snapshot survives a JVM shutdown, and a failed save leaves the
+  previous image intact.** The stamp is taken against the records before a byte moves,
+  durability registrants close in phases, and every section lands in a `.tmp` until the
+  swap. A failed *open* likewise gives back the handles it took.
+- **An export dump carries every provenance stamp, and `export → import → export` is
+  byte-stable.** The provenance walk covers justification handles as well as sentex ones,
+  and import stores a justification's antecedents as a **vector**, the shape the engine's
+  own write path stores.
+- **The JTMS dedup index carries the identity of the TMS it mirrors.** A nested chain
+  over a second KB — legal from an `:on-progress` callback, with overlapping handle
+  spaces — could answer one KB's dedup question out of the other's supports. Keys coerce
+  fixnum boxing to `Long` at the boundary, since the map compares with Java `equals`
+  where the scan compares with `=`.
+- **`prove-within` prepares its goal**, through the same `prepare-goal-for-read` every
+  other read path takes, so a reifiable NAT or a merge-retired spelling is the same
+  question under the bounded prover that it is under `ask`.
+- **The rete forward matcher fans over predicate-`genl` sub-predicates at every arity**,
+  as the reference `res/match-pattern` does. Fanning only for a two-element sentence gave
+  the opt-in matcher a different belief set on any rule whose antecedent had another
+  arity.
 - **A firing refused at derive time comes back when its exception releases.**
-  `place-conseq` does not place a firing whose `exceptWhen` exception or
-  `(unknown S)` antecedent already holds, and such a firing left no
-  justification, no node, and nothing in `jtms/blocked` — so a settle pass, which
-  reads a release off the justifications that left the blocked set, could not see
-  it, and the conclusion stayed suppressed after the block lifted. The same
-  knowledge in the other order concluded it. The refusal is now recorded as
-  `[rule handle, bindings]` in a per-KB record; a queued rule's entries are
-  re-evaluated under the narrowing the placed firings already take, and a
-  released one is re-derived from its own bindings rather than by re-joining the
-  rule over the fact extent. The record is capped at 4096 entries per rule, past
-  which the rule falls back to that re-join; `recover` rebuilds it by re-firing,
-  and the two edge triggers that narrowed on a rule's *placed* firings ask their
-  question of its refusals too. See `docs/exceptions.md`, "A refused firing is
-  remembered as bindings".
-- **Five order-independence repairs.** `contradictions` names the same side of a
-  clash whatever order the two arrived in — `handle-naming`'s exact-match arm was
-  a bare `ffirst` over matches that fan across the whole `genlContext` cone, and
-  `asymmetry-problem`'s tie-break stopped at the context name; both order on
-  content. The two settle sweeps that share one exposure-instance budget walk
-  their moved region in content order, so which nogoods are minted past the
-  budget does not depend on arrival order either. `query` with `{:proof? true
-  :portfolio? true}` returns each answer once: `portfolio-solutions` dedups on
-  the bindings rather than on the whole result map, so a solution two racers
-  proved differently is one answer, as `core/query`'s contract says.
-  `negation-nogoods` writes with a compare-and-set, so a `note-opposed!` landing
-  between the read and the write is carried rather than dropped. And the node
-  engine's inline join plans with the `:est-override` belonging to its registry
-  leaf, the pair `prove-seq` is handed.
+  `place-conseq` does not place a firing whose `exceptWhen` exception already holds, and
+  such a firing left no justification and nothing in `jtms/blocked` — so a settle pass
+  could not see it and the conclusion stayed suppressed after the block lifted. The same
+  knowledge in the other order concluded it. The refusal is recorded as `[rule handle,
+  bindings]`, capped at 4096 entries per rule. `docs/exceptions.md`.
+- **Five order-independence repairs.** `contradictions` names the same side of a clash
+  whatever order the two arrived in; the two settle sweeps sharing one exposure-instance
+  budget walk their moved region in content order; `query` with `{:proof? true
+  :portfolio? true}` returns each answer once; `negation-nogoods` writes with a
+  compare-and-set; and the node engine's inline join plans with the `:est-override`
+  belonging to its registry leaf.
 - **A forward rule fires on a claim argument-position preservation licenses**, so
   `sentexes-matching` and `ask` stop disagreeing about the same knowledge.
   `(argPreserving largerThan 1 genl)` beside `(largerThan dog cat)` licenses
-  `(largerThan chihuahua maine_coon)`, which `ask` reached through
-  `ArgPreservingProver` while the fixpoint fired only on the claims that were
-  written — so the same rule over the same KB answered differently depending on
-  which door the reader came in, and the conclusion it never drew had no `why`,
-  no retraction path and no way to be an antecedent. The join now contributes
-  the handles the inherited claim was **read from** — the claim that was stated,
-  the declaration licensing the move, the reach edges, and `(transitive R)` for
-  a fact-relation — so retracting any of them withdraws the conclusion and
-  placement descends to the microtheory that can see them all. A more specific
-  contrary claim withdraws a firing with nothing retracted, blocked and revived
-  by the machinery `exceptWhen` already uses. Union, never replacement: a stored
-  claim matches exactly as it did, and a KB declaring no preservation pays two
-  set-cardinality reads per datum. One asymmetry is left and is narrower than
-  the one this closes: the declaration is an antecedent of the firing, which is
-  what makes retracting it withdraw the conclusion, and a justification confers
-  the weakest class it rests on — so a `:monotonic` claim declared preserved by
-  a `:default` declaration draws a `:default` conclusion, where `ask` answers
-  without weighing either. Assert the declaration `:monotonic` if the derived
-  conclusion should carry the claim's own strength. `docs/inherit.md`.
+  `(largerThan chihuahua maine_coon)`, which `ask` reached while the fixpoint fired only
+  on the claims that were written — so the conclusion it never drew had no `why`, no
+  retraction path and no way to be an antecedent. The join contributes the handles the
+  inherited claim was read from, so retracting any of them withdraws the conclusion. One
+  asymmetry is left: a justification confers the weakest class it rests on, so a
+  `:monotonic` claim declared preserved by a `:default` declaration draws a `:default`
+  conclusion. `docs/inherit.md`.
 - **A head-existential rule carrying an aggregate mints a ground witness.**
-  `skolem/frontier-vars` subtracts a post-join literal's output, so the Skolem
-  NAT no longer takes a variable into its argument list. In the same pass,
-  `matches-visible`'s cache key omits no retrieval-strategy var, so a
-  differential oracle cannot compare a result against itself.
-- **An open `disjoint` goal is enumerated from the declarations rather than from
-  the vocabulary.** A separation convicts two subtrees, so the answers are the
-  subtypes of what a *visible* declaration names
-  (`taxonomy/separating-partners`, `taxonomy/separating-pairs`) and the cost is
-  the answer's own size; 0.2.0 asked `taxonomy/disjoint?` once per type in the
-  KB, and once per **pair** of types with both arguments open. On a KB of 4,000
-  types carrying one separation that is 15.4 ms to 0.13 ms with an argument
-  bound — flat in the type count where it grew linearly — and at 1,000 types the
-  two-variable goal goes from 2.5 s to 4 ms. `lein perf`'s
-  `disjoint-enumeration` check is the claim. Two answers arrive with it: the
-  open goal binds a disjoint metatype's members even where they carry no `genl`
-  edge, which is what the ground goal has always said of them, and the candidate
-  set (the taxonomy's nodes plus the declared pairs) did not hold. The
-  prover's `est-bindings` is sized off the declarations too, so a `disjoint`
-  conjunct in a registry-planned join is costed at what it will yield.
-- **A definitional clash is arbitrated from a context that can see both halves.**
-  The checks are scoped to the context they are asked in, and `settle` asked each
-  candidate's question from that sentex's own — so a pair whose halves sit either
-  side of a `genlContext` edge was answerable from exactly one of the two, and
-  only when that half was the one the settle moved. Known-true content in a
-  general microtheory sat beside a default that denies it, in one arrival order
-  and not the other. `settle/clash-askers` runs the check from the candidate's own
-  context and from the maximal common descendant of it and each context holding a
-  sentex the candidate could pair with; nothing is widened, since a vantage
-  already sees both halves. Runs under the KB's `:arbitrate` policy, like the
-  retroactive sweeps — under `:refuse` a pair neither writer could see stays the
-  exposure pass's report.
-- **A pair per opposing sentex, not per opposing type.** One sentence stated in a
-  general microtheory and again in one that sees it is two sentexes, of possibly
-  different strength, and a claim that denies it denies both.
-  `checks/disjoint-problems` and the asymmetric arm named one handle each, so the
-  content-first of the two was weighed and the other left believed beside content
-  that contradicts it; `functional-problems` counted its clashes per sentex all
-  along. The asymmetric arm reads the stored converses beside `inherit/surviving`,
-  which answers one claim per tuple by design. `clash_oracle_test` covers the
-  cross-context pair rather than excluding it, and is what found both.
+  `skolem/frontier-vars` subtracts a post-join literal's output, so the Skolem NAT no
+  longer takes a variable into its argument list.
+- **An open `disjoint` goal is enumerated from the declarations rather than from the
+  vocabulary.** A separation convicts two subtrees, so the answers are the subtypes of
+  what a *visible* declaration names and the cost is the answer's own size; 0.2.0 asked
+  `taxonomy/disjoint?` once per type, and once per **pair** with both arguments open. On
+  4,000 types carrying one separation that is 15.4 ms to 0.13 ms with an argument bound —
+  flat where it grew linearly — and at 1,000 types the two-variable goal goes from 2.5 s
+  to 4 ms. `lein perf`'s `disjoint-enumeration` check is the claim.
+- **A definitional clash is arbitrated from a context that can see both halves.** The
+  checks are scoped to the context they are asked in, so a pair whose halves sit either
+  side of a `genlContext` edge was answerable from exactly one of the two, and only when
+  that half was the one the settle moved. `settle/clash-askers` runs the check from the
+  candidate's own context and from the maximal common descendant of it and each context
+  holding a sentex it could pair with; nothing is widened.
+- **A pair per opposing sentex, not per opposing type.** One sentence stated in a general
+  context and again in one that sees it is two sentexes, of possibly different strength,
+  and a claim that denies it denies both — where the checks named one handle each, so the
+  content-first of the two was weighed and the other left believed beside content that
+  contradicts it.
 
 ## 0.2.0 — 2026-08-03
 
@@ -274,7 +382,7 @@ the 0.1.0 header are in it, newest first.
   the vector `assert` returns for a conjunctive rule included, which 0.1.0's
   `retract!` silently answered with `{:removed-sentexes 0}`. `nil` stays a
   question with an answer (`in?` false, `why` `{:stored? false}`,
-  `add-provenance` a no-op), and `check-edit` reports what `edit` throws. `why`
+  `add-provenance` a no-op), and `check-edit` reports what `edit!` throws. `why`
   also takes `{:max-depth n}` (default 256), marks a capped branch
   `{:truncated? true}` instead of overflowing, and refuses bad opts
   (`:unknown-option`).
@@ -342,7 +450,7 @@ first; every entry below is in 0.1.0.
 - A change feed: the region a settle already computes is handed to a listener
   instead of discarded.
 - English in — a sentence read into candidates a person still has to accept.
-- A qualitative relation two microtheories entail together fires a forward
+- A qualitative relation two contexts entail together fires a forward
   rule; a believed negative reaches the wiring a positive does; "some context"
   means the union of what the readers answer.
 - Three readers of one question agree over a cyclic hierarchy, and settle

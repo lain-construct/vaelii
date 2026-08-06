@@ -11,7 +11,7 @@
     (overlapDuration I1 I2 D)          D is how long I1 and I2 overlap
 
   An interval's own duration is an ordinary stored fact, `(length I M)`, whose measure
-  `M` is a NAUT — `(QuantityFn N Unit)` or `(QuantityIntervalFn Lo Hi Unit)`.  The index
+  `M` is a structural NAT — `(QuantityFn N Unit)` or `(QuantityIntervalFn Lo Hi Unit)`.  The index
   answers those; this prover only reads them, normalizes each through
   `provers/normalize-quantity` against the KB's `dimensionOf` / `conversionFactor` table,
   does the arithmetic on `[lo hi]` magnitude bounds, and renders the result back as a

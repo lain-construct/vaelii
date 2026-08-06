@@ -29,7 +29,7 @@ moving.
 
 Nothing here computes anything new to fix that. A settle already knows the **region** it
 relabelled and which of that region was believed when it first touched it; `preview` and
-`edit-with-consequences` already turn that pair into a belief diff and render it. The
+`edit-with-consequences!` already turn that pair into a belief diff and render it. The
 information a feed needs was being computed on every mutation and then thrown away.
 
 This is not a cache and not a materialized view. The three are easily conflated under
@@ -53,7 +53,7 @@ mirror the stored fact set, which is a storage question. Belief is not, so the f
 stored sentex enters or leaves belief. An answer that exists solely while a prover is
 computing it — an evaluable, an aggregate, `unknown`, an `argIsa` type inference, a
 `set/backwardRule`'s conclusion — is nobody's belief and no relabel carries it. That is
-the same limit `preview` and `edit-with-consequences` have, and it is why `watch` refuses
+the same limit `preview` and `edit-with-consequences!` have, and it is why `watch` refuses
 a goal of that shape rather than watching it silently for nothing (below).
 
 ## The event is a region diff
@@ -62,7 +62,7 @@ a goal of that shape rather than watching it silently for nothing (below).
 (`jtms/touched`) plus the flips no relabel records, and which of that set was believed
 before (`jtms/touched-in`). Three destinations then read the same answer — the caller's
 `*touched-sink*` / `*touched-in-sink*` (which is what `preview` and
-`edit-with-consequences` bind) and the feed's own accumulator. One place decides, so
+`edit-with-consequences!` bind) and the feed's own accumulator. One place decides, so
 three mechanisms cannot disagree about what a batch meant.
 
 `core/moved-handles` turns region + before-labels + belief-now into `[added removed]`, and
@@ -77,13 +77,13 @@ as built.
 
 ## One settle is one event
 
-A batch under `with-deferred-settle` / `assert-many` / `edit` settles **once**, so it is
-one event whose halves are exactly what `edit-with-consequences` reports for the same
+A batch under `with-deferred-settle` / `assert-many` / `edit!` settles **once**, so it is
+one event whose halves are exactly what `edit-with-consequences!` reports for the same
 batch. A conclusion derived and then defeated inside the batch appears in neither: a feed
 reports what *changed*, not what happened on the way.
 
 A teardown is the one operation that settles more than once — revive, re-derive what the
-removal released, settle again — and `core/retract!` and `core/edit` therefore **hold**
+removal released, settle again — and `core/retract!` and `core/edit!` therefore **hold**
 the feed for their duration (`feed/with-one-event`). The regions union and one event is
 delivered. Delivered per settle instead, a datum that went OUT in the first pass and
 revived in the second would arrive as a removal followed by an addition when the
@@ -160,7 +160,7 @@ the loop gives up after 64 rounds with a `:warn` rather than hanging the writer.
 
 A listener's writes are also fenced off from the caller's diff: `*touched-sink*` and
 `*touched-in-sink*` are unbound for the duration of delivery, so an
-`edit-with-consequences` never reports a listener's assertions as consequences of the
+`edit-with-consequences!` never reports a listener's assertions as consequences of the
 batch.
 
 **Delivery order is registration order**, and the *content* of a batch does not depend on
@@ -198,19 +198,19 @@ should hand the event to a queue and return.
   the same reason: the entry means *newly*, and on a rebuild there is no newly.
 - **A datum the dependency-directed sweep deleted.** It is in the region with no record
   left to describe, so it is dropped rather than guessed at.
-  `edit-with-consequences` has the same gap; `preview` is what answers "what would this
+  `edit-with-consequences!` has the same gap; `preview` is what answers "what would this
   removal take with it", since it suspends instead of retracting and can still name every
   casualty.
 - **A spelling an equality merge displaced.** A merge supersedes the displaced sentex on
   the **assert** path, and the before-labels hand-off covers only what a *settle*
   supersedes — so the displaced spelling loses belief with nothing in the region saying
-  it did. `edit-with-consequences` misses it identically (the two agree, which is the
+  it did. `edit-with-consequences!` misses it identically (the two agree, which is the
   contract, and a test pins that they do); `preview` reports it as `:superseded`, because
   its rollback lets it read belief-before off the restored KB instead. Closing it means
   the equality path posting the displaced handle where a settle can see it, which would
-  move `edit-with-consequences`' answer too — a change to that mechanism, not to this
+  move `edit-with-consequences!`' answer too — a change to that mechanism, not to this
   one.
-- **A batch that threw.** `edit` is not a transaction: a throw mid-batch leaves what was
+- **A batch that threw.** `edit!` is not a transaction: a throw mid-batch leaves what was
   already stored in place with the settle not run, so there is nothing to deliver *yet*.
   Nothing is lost — the region is still uncleared, so the next settle reports it.
 
@@ -249,7 +249,7 @@ is what bounds it. An event is built once per settle and shared by every listene
   `forward-chain` delivers what it derived; registering a listener moves no belief.
 - **Granularity**: a three-fact batch is one event; a teardown that releases an exception
   and re-derives what it swept is one event; a batch that threw reports nothing and the
-  next settle reports what it left; the feed and `edit-with-consequences` are the same
+  next settle reports what it left; the feed and `edit-with-consequences!` are the same
   answer on the same batch — two mechanisms sharing their entry shapes and nothing else,
   so agreement is evidence rather than tautology, and an equality merge is pinned
   separately because it is where they agree about a *gap*.
@@ -259,7 +259,7 @@ is what bounds it. An event is built once per settle and shared by every listene
   instead of spinning; a listener may `unwatch` itself mid-delivery without disturbing
   its neighbours; **a listener's own writes are not reported as the batch's
   consequences** — the sinks are closed for the duration, or an
-  `edit-with-consequences` would attribute them to the caller.
+  `edit-with-consequences!` would attribute them to the caller.
 - **Honesty**: a standing query fires only on what answers it, through a subtype and a
   sub-predicate, up the `genlContext` cone and no further; eight unanswerable goal shapes
   are refused and register nothing, as are a goal with no context and a listener that is

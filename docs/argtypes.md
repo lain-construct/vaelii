@@ -103,10 +103,10 @@ buys the local/inherited rule below for free.
 ### Local declares, inherited only constrains
 
 A declaration is *inherited* by every descendant of the context it was written in, and
-there it constrains: an ancestor schema enforces its argument types in every microtheory
+there it constrains: an ancestor schema enforces its argument types in every context
 below it. It does not **entail** there. An upper-band schema would otherwise spray
 derived `(T x)` memberships across every context that inherits it — claims no author of
-that microtheory made.
+that context made.
 
 So only a declaration written in the context being checked, or in `UniverseContext`
 (which speaks for every context by construction), draws the entailment. Pure can express

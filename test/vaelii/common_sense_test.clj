@@ -232,7 +232,7 @@
 (tu/deftest-kb an-explanation-is-offered-only-for-what-the-theory-will-assume
   ;; Why would a dog not be awake?  Because it is asleep — the one thing BiologyContext
   ;; grants, and the abducer will hypothesize nothing else.  A grant is a policy of the
-  ;; microtheory rather than a capability of the engine, which is what keeps abduction
+  ;; context rather than a capability of the engine, which is what keeps abduction
   ;; from explaining everything and therefore nothing.
   (tu/with-terms [Rex]
     (v/assert kb (list 'dog Rex) N)

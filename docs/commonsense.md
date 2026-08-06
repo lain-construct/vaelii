@@ -89,7 +89,7 @@ piling up.
 
 **One abducible grant.** `BiologyContext` declares `(abduciblePredicate asleep)` and
 nothing else, which is what makes *why is this dog not awake* answerable and *why does it
-not fly* refused with the dead end named. A grant is a policy the microtheory states, and
+not fly* refused with the dead end named. A grant is a policy the context states, and
 the whole value of abduction here is what is **not** granted.
 
 ## The judge, and which way the trust runs

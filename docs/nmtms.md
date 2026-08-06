@@ -436,7 +436,7 @@ Two beliefs clash when **some context sees both** — i.e. their contexts have a
 non-empty common down-closure (`tax/maximal-common-descendant-contexts`). Asking only
 whether one context `sees?` the other is too weak: it catches a *comparable* pair and
 nothing else, silently exempting every sibling pair from contradiction detection. Two
-incomparable microtheories can share a descendant, and from that descendant `X` and
+incomparable contexts can share a descendant, and from that descendant `X` and
 `(not X)` are both visible, so the clash is real there.
 
 The common-descendant test strictly generalises `sees?` (if K sees Y then K is itself
@@ -560,8 +560,19 @@ sorting by handle is the tempting answer and it is the one that fails, because h
 are allocated in assertion order — "which side is `(first (:sides c))`?" would then mean
 "which side was typed first", on a report whose `:sentence` said the same thing either
 way. So the sides are ordered by printed sentence, then by context (one sentence can
-clash with itself across two microtheories), then by handle for a pair a reader cannot
+clash with itself across two contexts), then by handle for a pair a reader cannot
 tell apart regardless. `:handles` is `:sides`' handles in that order, so the two agree.
+
+**The list is ordered by the same rule the sides are.** Ordering the pair inside a report
+and leaving the vector of reports unordered would move the problem out one level rather
+than solve it: the nogoods are held in a hash set keyed by handle, so
+`(first (contradictions kb))` would be an answer about which pair was typed first, on a
+call whose every other reading is order-independent. Both vectors sort by printed
+sentence, then context, then handle — the sides' rule applied to the reports — and the
+sort key rides each report's metadata, so a settle computes it once rather than once per
+comparison. That last part is not a micro-optimization: recomputing the key inside the
+comparator is a 60x regression on `lein perf`'s `clash-arbitration` check, which is what
+holds it.
 
 ### The reports are rebuilt only where the region moved
 
@@ -602,13 +613,13 @@ that the per-pair term stays bookkeeping rather than a re-derivation of the chec
 ### Who asks the pair's question
 
 Discovery re-checks the sentexes the settle **moved**, and the checks are scoped to the
-context they are asked in — a microtheory is convicted only on grounds it can see
+context they are asked in — a context is convicted only on grounds it can see
 ([contexts.md](contexts.md)). Where each side of a pair convicts the other that is
 enough: whichever side arrives second finds the pair, so the answer does not depend on
 which arrived first.
 
 A pair whose halves sit either side of a `genlContext` edge convicts one way only.
-`(animal X)` in a general microtheory and `(plant X)` in one that sees it are each
+`(animal X)` in a general context and `(plant X)` in one that sees it are each
 admissible where they are written, and only the seeing side has both in view. Asked from
 the arriving sentex's own context alone, the general side's check finds nothing at all,
 so the same three sentences would land on a defeat or on two coexisting claims according
@@ -620,7 +631,7 @@ form**: its own, and the maximal common descendant of its own and each context h
 sentex it could pair with (`settle/clash-askers`). Nothing is widened by that — each
 vantage already sees both halves, and it convicts on what it can see. The maximal common
 descendant is the *least specific* context with the whole clash in view, so a narrow
-microtheory's separation never reaches back over a general claim it was never about.
+context's separation never reaches back over a general claim it was never about.
 Which sentexes a candidate could pair with is read off the argument-1 roots, one posting
 per term: its term's other memberships for a separation, the other fillers of the slot
 for a `functional` predicate, the converse of an `asymmetric` claim.
@@ -635,7 +646,7 @@ one, is neither refused nor reported: the door sees one half and the ledger has 
 kind for it.
 
 **One sentence stated in two visible contexts is two sentexes**, and a claim that denies
-it denies both. The same membership in a general microtheory and in one that sees it can
+it denies both. The same membership in a general context and in one that sees it can
 carry different strengths and different support, so `checks/disjoint-problems` names one
 pair per opposing *sentex* rather than per opposing type, and the asymmetric arm does the
 same for the converse. `functional-problems` counted its clashes that way from the start.
@@ -737,12 +748,12 @@ behaving as a universal nobody licensed. Universals are written as rules, where
 canonicalized record's `:antecedent`, so `implies`, a `set/*Rule` wrapper, and a
 nesting of the two are classified alike. Every rejection carries an `ex-info` `:type`,
 so a caller discriminates on that rather than guessing from which keys are present:
-`:naming` `:not-well-formed` `:not-ground` `:not-range-restricted` `:not-assertible`
-`:arity` `:arg-type` `:arg-genl` `:arg-position` `:inter-arg-type`
+`:naming` `:not-well-formed` `:not-ground` `:not-range-restricted` `:not-indexable`
+`:not-assertible` `:arity` `:arg-type` `:arg-genl` `:arg-position` `:inter-arg-type`
 `:arg-constraint-kind` `:disjoint` `:functional` `:asymmetric` `:not-stratified`
 `:exception-not-closed`, plus the two about the *request* rather than the knowledge —
-`:shape` (the context is not a symbol, the sentence is not an s-expression, `opts` is
-not a map) and `:unknown-option` (an `opts` key `assert` does not read, or a
+`:shape` (the context is not a symbol, the sentence is not an s-expression) and
+`:unknown-option` (a non-map `opts`, an `opts` key `assert` does not read, or a
 `:strength` that is not an assertable class).
 
 ## Where the layer stops

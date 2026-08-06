@@ -27,7 +27,7 @@
 ;; not acting may hypothesize that it is asleep — the one explanation here cheap enough
 ;; to be worth guessing, since an animal is asleep for part of every day and nothing
 ;; else follows from it. Nothing else is granted: an abducer that will assume anything
-;; explains everything and is worth nothing, so each grant is a policy this microtheory
+;; explains everything and is worth nothing, so each grant is a policy this context
 ;; states rather than a capability the engine has.
 (abduciblePredicate asleep)
 

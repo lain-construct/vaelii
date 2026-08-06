@@ -112,7 +112,70 @@
     (let [f (File/createTempFile "vaelii-cli-load" ".edn")]
       (try
         (spit f (pr-str [[(list dog Fido) LoadContext] [(list cat Felix) LoadContext]]))
-        (is (= {:loaded 2} (cli/dispatch kb "load" [(.getPath f)] {})))
+        (is (= {:loaded 2 :stored 2} (cli/dispatch kb "load" [(.getPath f)] {})))
         (is (seq (v/sentexes-matching kb (list dog Fido) LoadContext)))
         (is (seq (v/sentexes-matching kb (list cat Felix) LoadContext)))
         (finally (.delete f))))))
+
+(tu/deftest-kb load-reports-entries-and-stored-sentexes-separately
+  ;; `assert` answers the existing handle for a sentence already stored, so a file of
+  ;; duplicates reports what it *did* — one stored sentex — beside what it read.  A
+  ;; bare "loaded 3" reports the input's size as though it were the write's.
+  (tu/with-terms [dog Fido DupContext]
+    (let [f (File/createTempFile "vaelii-cli-dup" ".edn")]
+      (try
+        (spit f (pr-str [[(list dog Fido) DupContext]
+                         [(list dog Fido) DupContext]
+                         [(list dog Fido) DupContext]]))
+        (is (= {:loaded 3 :stored 1} (cli/dispatch kb "load" [(.getPath f)] {})))
+        (is (= 1 (count (v/sentexes-matching kb (list dog '?x) DupContext))))
+        (finally (.delete f))))))
+
+(deftest a-flag-missing-its-value-is-refused-not-bound-nil
+  ;; `--strength` at the end of a line would otherwise bind nil, and the assert lands
+  ;; at :default — the exact class the flag was written to escape — with `--dir` the
+  ;; same shape: the KB opens in memory and evaporates at process exit.
+  (doseq [flag ["--strength" "--dir" "--depth"]]
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (cli/parse-opts ["assert" "(dog Fido)" "Ctx" flag]))
+                (str flag " with no value is refused"))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= flag (:flag (ex-data e))))
+      (is (re-find #"needs a value" (ex-message e)))))
+  (testing "a flag with its value still parses"
+    (is (= [["assert"] {:strength "monotonic"}]
+           (cli/parse-opts ["assert" "--strength" "monotonic"])))))
+
+(deftest memory-forces-the-memory-backend-and-contradicts-dir
+  (testing "--memory alone opens the in-process KB"
+    (let [kb (cli/open-kb-from {:memory true})]
+      (is (nil? (:dir kb)) "no directory: the memory backend")))
+  (testing "--memory --dir is a contradiction, refused rather than resolved by a guess"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (cli/open-kb-from {:memory true :dir "/tmp/vaelii-nowhere"})))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (re-find #"contradict" (ex-message e))))))
+
+(tu/deftest-kb the-repl-loop-survives-a-stack-overflowing-line
+  ;; A deeply nested EDN line raises StackOverflowError out of `read-forms` — past
+  ;; `Exception`, so a `catch Exception` loop dies on a line of input.  The loop
+  ;; catches `Throwable`, as the browser's untrusted-EDN reads do, prints one line and
+  ;; reads the next.
+  (let [deep (str (apply str (repeat 100000 "[")) (apply str (repeat 100000 "]")))
+        out  (with-out-str
+               (with-in-str (str "why " deep "\ntypes\nexit\n")
+                 (#'cli/repl-loop kb {})))]
+    (is (re-find #"error: StackOverflowError" out)
+        "the overflow is reported as an ordinary error line")
+    (is (re-find #"bye" out) "and the loop survived it to reach exit")))
+
+(deftest an-unknown-flag-is-refused-not-keywordized
+  ;; `--strenght monotonic` keywordized in silence stored known-true content at
+  ;; :default — the exact sentence the flag-with-no-value refusal exists for,
+  ;; reached from the other side — and a misspelt `--dir` opened the in-memory KB.
+  (doseq [args [["assert" "(dog Fido)" "C" "--strenght" "monotonic"]
+                ["query" "(dog ?x)" "C" "--dept" "3"]
+                ["load" "/tmp/x.edn" "--dri" "/tmp/kb"]]]
+    (let [e (try (cli/parse-opts args) nil
+                 (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :unknown-option (:type e)) (pr-str args)))))

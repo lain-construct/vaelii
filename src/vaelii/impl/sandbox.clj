@@ -3,7 +3,7 @@
 (ns vaelii.impl.sandbox
   "Somewhere safe to be wrong.
 
-  A **sandbox** is a scratch microtheory of one browser session's own, hung below
+  A **sandbox** is a scratch context of one browser session's own, hung below
   `WellContext` so it sees the whole shipped ontology and nothing shipped sees it.  A
   reader can therefore use every type, every relation and every rule the KB ships, and
   cannot damage any of them: their content is visible only from inside, and one control
@@ -128,7 +128,7 @@
   [target ctx]
   (when ctx
     (when-not (live? target ctx)
-      (v/edit target {:add [[(edge ctx) 'UniverseContext {:strength :monotonic}]]}))
+      (v/edit! target {:add [[(edge ctx) 'UniverseContext {:strength :monotonic}]]}))
     ctx))
 
 (defn extent
@@ -151,10 +151,10 @@
   (if-not (and ctx (live? target ctx))
     {:removed-sentexes 0 :removed-justifications 0}
     (let [handles (mapv :id (v/sentexes-in-context target ctx))
-          gone    (:removed (v/edit target {:remove handles}))
+          gone    (:removed (v/edit! target {:remove handles}))
           ;; the edge last, and separately: `genlContext` is forced-decontextualized, so
           ;; it is stored in UniverseContext and was never in the extent above
           e       (v/handle-of target (edge ctx) 'UniverseContext)
-          gone2   (if e (:removed (v/edit target {:remove [e]}))
+          gone2   (if e (:removed (v/edit! target {:remove [e]}))
                       {:removed-sentexes 0 :removed-justifications 0})]
       (merge-with + gone gone2))))

@@ -39,7 +39,7 @@
 ;; potential over the condensation, so a cycle costs a component rather than
 ;; soundness.  Merging the contexts instead would be the stronger claim — a context
 ;; is where a sentex is *stored*, not only what it can see — and would throw away
-;; which microtheory an assertion was made in.  See docs/contexts.md.
+;; which context an assertion was made in.  See docs/contexts.md.
 
 (defn genl-problems [tax [_ sub super :as s]]
   (cond-> []
@@ -289,7 +289,7 @@
     into a terminating rewrite (`rewrite/orient`), or it is refused here before
     anything is stored.  A ground `(equals (F a) (F b))` is *not* schematic — it
     reifies to symbols first (docs/nat.md) — and a compound that reifies to no symbol
-    (a NAUT measure) still hits the refusal below.
+    (a structural NAT measure) still hits the refusal below.
 
   `rewriteOf` carries two further restrictions.  It is directional, so a self-edge
   (the degenerate cycle, and what a sloppy import pipeline actually emits) and a

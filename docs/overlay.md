@@ -14,6 +14,14 @@ durable store registry, which takes the directory's exclusive single-writer lock
 directory is refused with `:type :disk-locked` — base immutability is a property of the
 decorator, not a licence to open the bytes twice.
 
+A base mounted from **`:base` opts** (rather than the `fork` call's `:base-stores`)
+holds that lock for the JVM's life: the fork's `close!` releases only the fork's own
+directory, and no KB value names the base's, since the registry shares it with every
+fork over it and counts no openers. To keep the base's release in hand, open it as
+its own KB and fork *that* — closing the base KB is then what frees the directory
+for another process.  A fork's own half also never writes into its base's directory:
+both halves naming one store is refused outright (`:type :base-is-overlay`).
+
 ```clojure
 (def base (v/open-kb {:backend :disk :dir "/kb/frozen" :recover? :auto}))
 (def f    (v/fork base))                             ; ephemeral: an in-RAM overlay

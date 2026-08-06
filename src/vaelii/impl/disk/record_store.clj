@@ -48,6 +48,7 @@
   to — the read primitives are positional — but still does, because that is what
   serializes it against a concurrent append and its slot write."
   (:require [taoensso.trove :as trove]
+            [vaelii.impl.config :as config]
             [vaelii.impl.disk.codec :as codec]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.tokens :as dtok]
@@ -56,11 +57,10 @@
 
 (def ^:private kind-names ["sentexes" "justifications" "provenance"])
 
-(def ^:private tokenized-default?
-  "Write sentex bodies as token ids (`vaelii.disk.tokens`).  Off by default: it is the
-  one part of the record store that adds a durable ground truth, so a store opts in.
-  Reading is never gated on it — a frame carries its own tag."
-  (= "true" (System/getProperty "vaelii.disk.tokens")))
+;; `vaelii.disk.tokens` and `vaelii.disk.cache` are read at the store's **open**
+;; (`open-record-store`), not here.  A `def` reading a property is a read at namespace
+;; load, and a load-time refusal of `vaelii.disk.cache=64k` reports as a namespace that
+;; will not load — the typo delivered as a broken build.  `config` owns both domains.
 
 ;; ---- the hot-record cache ----------------------------------------------
 ;; A record fetch is two positional reads plus a nippy thaw (~3 µs warm), and a real
@@ -72,10 +72,6 @@
 ;; change are `store!` (which replaces the cached value), `kill!` (which drops it), and
 ;; `clear-records!` (which empties the cache).  Compaction rewrites frames but preserves
 ;; every id's content, so it needs no invalidation.
-
-(def ^:private cache-capacity
-  "Hot records held per kind, from `vaelii.disk.cache` (0 disables the cache)."
-  (or (some-> (System/getProperty "vaelii.disk.cache") Long/parseLong) 65536))
 
 (defn- lru
   "A bounded access-ordered LRU map, synchronized: an access-ordered `LinkedHashMap`
@@ -414,7 +410,8 @@
   property; it is a *write* choice only — frames written either way always read."
   ([dir] (open-record-store dir nil))
   ([dir {:keys [cache-capacity tokenize?]
-         :or   {cache-capacity cache-capacity tokenize? tokenized-default?}}]
+         :or   {cache-capacity (config/disk-cache-capacity)
+                tokenize?      (config/disk-tokens?)}}]
    (let [root (str dir "/records")]
      (f/ensure-dir! root)
      (f/assert-format! root)

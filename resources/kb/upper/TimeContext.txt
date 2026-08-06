@@ -2,7 +2,7 @@
 ;; algebra, qualitative order between INSTANTS in the point algebra, the two joined by an
 ;; interval's endpoints, and the metric layer that puts real measures on the gaps. Sees
 ;; CoreContext; UniverseContext sees it, so a temporal relation is stateable from every
-;; microtheory. An interval and an instant are both ordinary individuals — nothing here
+;; context. An interval and an instant are both ordinary individuals — nothing here
 ;; declares them, and nothing here is about clocks or calendars.
 ;;
 ;; Thirteen BASE relations, jointly exhaustive and pairwise disjoint, so exactly one holds
@@ -46,7 +46,7 @@
 ;;
 ;; Duration is the quantitative half, and it is where time meets measurement. An
 ;; interval's own duration is the stored fact (length I M), whose measure M is one of
-;; MeasureContext's NAUTs. totalDuration and overlapDuration are computed from those and
+;; MeasureContext's structural NATs. totalDuration and overlapDuration are computed from those and
 ;; never stored: a prover reads the lengths, normalizes them against the unit table, does
 ;; the arithmetic on magnitude bounds, and renders the answer in the dimension's base
 ;; unit — as a point when it is exact and an interval when it is only bounded, so an

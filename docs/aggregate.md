@@ -170,7 +170,7 @@ decided.
 **Read from the asking context**, the same scoping `different` puts on the same
 partition ([equality.md](equality.md)) and for the same reason: a census is of what
 *this* context believes, and the unique names it holds are the ones it has not been told
-to merge. A `(sameAs Alan Turing)` stated in a microtheory collapses the two there and
+to merge. A `(sameAs Alan Turing)` stated in a context collapses the two there and
 nowhere else — the context above it was never told, its own solutions still name both,
 and it still counts two. Read globally instead, a private merge would silently retire a
 name for readers who cannot see it.
@@ -307,7 +307,7 @@ A count is recomputed, never cached, so a rule joining on one is **re-joined** �
 merely re-checked — whenever a counted fact arrives. A chain of *n* nodes under
 `(transitive ancestorOf)`, with the grouping rule above (`lein bench-aggchain`):
 
-| nodes | no rule | rule first | deferred chaining | one `edit` | rule last |
+| nodes | no rule | rule first | deferred chaining | one `edit!` | rule last |
 |---|---|---|---|---|---|
 | 10 | 1.7 | 21.3 | 20.2 | 5.1 | 4.4 |
 | 20 | 1.6 | 45.8 | 48.6 | 7.9 | 6.8 |
@@ -323,7 +323,7 @@ is queued in the re-check index and drained by **settle**, and settle runs per a
 whether or not chaining did. Deferring the half that was never the cost changes nothing,
 which is why the column is in the table rather than left as an assumption.
 
-**One `edit` lands exactly on `rule last`** — the floor, where the reductions happen
+**One `edit!` lands exactly on `rule last`** — the floor, where the reductions happen
 once over a finished extent. One settle, one drain of the queue, one join. The ratio is
 4x at n=10 and 9x at n=40 and keeps climbing, which is the shape to read rather than
 either number: the per-assert path is quadratic and the batch is not. So the actionable
@@ -378,7 +378,7 @@ other.
 **It counts where the conclusion lands, and has no say in where that is.** An
 aggregate matches nothing, so it contributes no handle, so it is not an ingredient of
 placement — the rule's *other* antecedents decide that alone. One rule therefore gives
-each microtheory its own count, which is the useful half:
+each context its own count, which is the useful half:
 
 ```clojure
 ;; Left and Right under Root; the rule in Root

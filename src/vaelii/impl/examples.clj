@@ -21,7 +21,7 @@
     **sandboxed** — premises naming individuals.  The starter ships no cast (the
     fables and their casts live in the test-world), so an example about defaults,
     joins or refusals has to bring its own, and it writes them into the reader's own
-    sandbox microtheory.  Nothing shipped can see in, and the sandbox reset takes the
+    sandbox context.  Nothing shipped can see in, and the sandbox reset takes the
     whole thing away.
 
   `:expect` is what the ontology is supposed to answer, and `examples_test` asserts
@@ -344,4 +344,4 @@
   Returns the handles the batch added."
   [kb {:keys [premises]} context]
   (when (seq premises)
-    (:added (v/edit kb {:add (mapv (fn [s] [s context]) premises)}))))
+    (:added (v/edit! kb {:add (mapv (fn [s] [s context]) premises)}))))

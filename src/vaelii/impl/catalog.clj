@@ -180,7 +180,7 @@
     {:sentences (:sentex-count m)
      :supports  (or (:justification-count m) (:deduction-count m))
      :index?    (= :records+index (:variant m))
-     :dialect   (if (= :vaelii/export (:format m)) :pure :engine)}))
+     :dialect   (if (= :vaelii/export (:format m)) :vaelii :engine)}))
 
 (defn- du
   "Bytes on disk under `d`, or nil.  A store carries no count of what it holds, so its
@@ -224,12 +224,12 @@
                           :total sentences
                           :options corpus-options})
                :dump   (let [{:keys [sentences supports dialect index?]} (dump-scale d)]
-                         {:blurb (str (if (= :pure dialect)
+                         {:blurb (str (if (= :vaelii dialect)
                                         "A vaelii export dump, in our own dialect"
                                         "An engine-dialect dump, re-canonicalized on the way in")
                                       (when supports
                                         (str " — " (format "%,d" (long supports))
-                                             (if (= :pure dialect) " justifications" " deductions")))
+                                             (if (= :vaelii dialect) " justifications" " deductions")))
                                       (when index? ", with its index")
                                       ".")
                           :dialect dialect

@@ -34,7 +34,7 @@ The engine already had all three, built for other reasons:
 
 | | |
 |---|---|
-| **containment** | the context lattice.  A hypothesis goes into a fresh microtheory hung *below* the asking context, so it sees everything the question could see and nothing that existed before can see it |
+| **containment** | the context lattice.  A hypothesis goes into a fresh context hung *below* the asking context, so it sees everything the question could see and nothing that existed before can see it |
 | **arbitration** | strengths.  A hypothesis is a `:default` premise, so a `:monotonic` fact that contradicts it defeats it through the ordinary path |
 | **cleanup** | retraction.  A hypothesis is an ordinary premise, so `retract!` and the dependency-directed sweep take it and everything it supported |
 
@@ -101,7 +101,7 @@ ratio of matches to dead ends it is not there at all.
    the *only* thing that does.  It is a predicate property like `transitive` / `symmetric`
    — cached in the taxonomy, belief-following, retractable — with one deliberate
    difference: it is **not** decontextualized.  Those are claims about a predicate that
-   hold wherever it is mentioned; this is a **policy** of the microtheory that grants it,
+   hold wherever it is mentioned; this is a **policy** of the context that grants it,
    so it is read from the asking context's `genlContext` up-cone and one theory may be
    willing to assume a predicate that another, reading the same vocabulary, will not.
    The shipped schema grants exactly one: `BiologyContext` declares `(abduciblePredicate
@@ -174,7 +174,7 @@ when the truth may be that a predicate was never granted:
 ## Isolation, which is the contract
 
 **An `abduce` call whose result you ignore leaves the KB as it found it.**  The scratch
-context is torn down before returning — the extent in one `edit`, so it is one settle and
+context is torn down before returning — the extent in one `edit!`, so it is one settle and
 the sweep takes the derived content with the premises it rested on, then the `genlContext`
 edge, which was never *in* the extent (`genlContext` is forced-decontextualized, so it
 lives in UniverseContext).  The teardown also runs on the way out of an exception, which
@@ -198,14 +198,14 @@ An ordinary premise, and every part of that is load-bearing:
 | | |
 |---|---|
 | strength | `:default`.  A `:monotonic` fact that contradicts it defeats it, and what it licensed goes OUT with it — through the ordinary path, with no abduction-specific rule anywhere.  Retract the fact and the assumption revives |
-| context | the scratch microtheory, so nothing that existed before the call can see it |
+| context | the scratch context, so nothing that existed before the call can see it |
 | provenance | `{:abduced true :abduced-for <goal>}`, asserted with `:creator :vaelii.impl.abduce/hypothesis` beside it — a reader of the record can tell an assumption from something a person asserted, and can see what it was assumed *for* |
 | justification | none.  It is assumed, not derived; `premise?` is true and `why` reports it as one |
 
 The `genlContext` edge that makes the scratch context is `:monotonic`, and that is not an
 inconsistency: which context sees which is a fact about the scratch space, and a
 defeasible one would let a contradiction among the hypotheses quietly unhook the
-microtheory holding them.
+context holding them.
 
 ## Scope
 

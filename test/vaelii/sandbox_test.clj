@@ -6,7 +6,7 @@
 
   The property that matters is asymmetric visibility, and it is not a permission check:
   the sandbox hangs below `WellContext`, so `genlContext` — the same relation that decides
-  what any microtheory can see — gives it every shipped type and rule while giving nothing
+  what any context can see — gives it every shipped type and rule while giving nothing
   shipped a way to look back in. These tests assert both directions, because only having
   half of it is a sandbox that either cannot be used or cannot be trusted."
   (:require [clojure.string :as str]

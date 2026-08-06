@@ -11,32 +11,28 @@
   not depend on the stores it drives (which would cycle).
 
   Config (system properties): `vaelii.disk.sync-ms` (tick interval, 0 disables the
-  daemon), `vaelii.disk.auto-compact` (off with `false`/`0`/`off`),
-  `vaelii.disk.compact-dead-ratio` (default 0.5),
-  `vaelii.disk.compact-min-interval-ms` (default 300000)."
+  daemon), `vaelii.disk.auto-compact`, `vaelii.disk.compact-dead-ratio` (default 0.5),
+  `vaelii.disk.compact-min-interval-ms` (default 300000).  Every one is read through
+  `vaelii.impl.config`, which owns their domains and refuses a value outside one —
+  and the two the tick reads are why `config/check!` runs at the open: a refusal *here*
+  lands inside `fsync-all`'s `catch Throwable` below, which logs a class name every
+  three seconds and leaves auto-compaction dead."
   (:require [clojure.string :as str]
-            [taoensso.trove :as trove])
+            [taoensso.trove :as trove]
+            [vaelii.impl.config :as config])
   (:import [java.util.concurrent Executors ExecutorService ScheduledExecutorService TimeUnit]))
 
-(defn- prop-long [k default]
-  (if-let [s (System/getProperty k)] (Long/parseLong s) default))
-
-(defn- prop-double [k default]
-  (if-let [s (System/getProperty k)] (Double/parseDouble s) default))
-
-(defn- fsync-interval-ms [] (prop-long "vaelii.disk.sync-ms" 3000))
 (defn auto-compact?
   "Is background/opportunistic compaction enabled (`vaelii.disk.auto-compact`)?  Public
   because the close path consults the same switch the tick does — one knob, not two."
   []
-  (not (#{"0" "false" "off" "no"} (System/getProperty "vaelii.disk.auto-compact"))))
+  (config/disk-auto-compact?))
 
 (defn compact-dead-ratio
   "The dead-ratio a log must reach to be worth compacting
   (`vaelii.disk.compact-dead-ratio`, default 0.5).  Public for the same reason."
   []
-  (prop-double "vaelii.disk.compact-dead-ratio" 0.5))
-(defn- compact-min-interval-ms [] (prop-long "vaelii.disk.compact-min-interval-ms" 300000))
+  (config/disk-compact-dead-ratio))
 
 (defonce ^:private registry (atom {}))
 (defonce ^:private next-id (atom 0))
@@ -128,7 +124,7 @@
 (defn- maybe-compact! []
   (when (and (auto-compact?) (not @compaction-paused))
     (let [now       (System/currentTimeMillis)
-          interval  (compact-min-interval-ms)
+          interval  (config/disk-compact-min-interval-ms)
           threshold (compact-dead-ratio)]
       (doseq [[id {:keys [compact dead-ratio label]}] @registry
               :when (and compact dead-ratio
@@ -211,7 +207,7 @@
   (let [id (swap! next-id inc)]
     (swap! registry assoc id entry)
     (install-shutdown-hook!)
-    (start-scheduler! (fsync-interval-ms))
+    (start-scheduler! (config/disk-sync-ms))
     id))
 
 (defn deregister!

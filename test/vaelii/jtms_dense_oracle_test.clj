@@ -75,11 +75,15 @@
     ;; that is violated: the reference grows a node with no `:depth` and the next
     ;; `ensure-node` on it throws, so a generator that skipped this would be comparing
     ;; two readings of undefined behaviour.
-    :justify      (let [[jid antes c s] args]
+    ;; the informant is a rule handle conjoined as an antecedent when given — the
+    ;; engine's own firing shape (`chain/derive-conclusion` conjoins `:rule-handle`) —
+    ;; else the symbolic placeholder
+    :justify      (let [[jid antes c s inf] args]
                     (doseq [a antes] (jtms/ensure-node t a 1))
                     (jtms/ensure-node t c 1)
-                    (jtms/add-justification t (jtms/->just jid 'rule antes c {} s))
+                    (jtms/add-justification t (jtms/->just jid (or inf 'rule) antes c {} s))
                     nil)
+    :restrength   (let [[inf s] args] (jtms/restrength-informant t inf s) nil)
     :defeat       (do (jtms/defeat t (first args)) nil)
     :clear-defeat (do (jtms/clear-defeats! t) nil)
     :set-blocked  (do (jtms/set-blocked t (first args)) nil)
@@ -127,8 +131,13 @@
                    (4 5 6 7)
                    (if (and (seq issued) (zero? (.nextInt rng 4)))
                      (reissue)                      ; the redundant-witness fast path
-                     (let [k (inc (.nextInt rng 2))]
-                       [:justify next-jid (vec (distinct (repeatedly k d))) (d) (str*)]))
+                     (let [k     (inc (.nextInt rng 2))
+                           antes (vec (distinct (repeatedly k d)))
+                           ;; half the fresh justifications carry an integer informant
+                           ;; conjoined as an antecedent, so `:restrength` has real
+                           ;; work — the engine's own firing shape
+                           inf   (when (zero? (.nextInt rng 2)) (first antes))]
+                       [:justify next-jid antes (d) (str*) inf]))
                    8       [:defeat (vec (distinct (repeatedly (inc (.nextInt rng 2)) d)))]
                    9       [:clear-defeat]
                    10      [:set-blocked (vec (distinct (repeatedly (.nextInt rng 3) some-jid)))]
@@ -136,12 +145,13 @@
                              [:block [(some-jid)]]
                              [:unblock [(some-jid)]])
                    12      [:retract (d)]
-                   13      (case (.nextInt rng 4)
+                   13      (case (.nextInt rng 5)
                              0 [:sweep [(d)]]
                              1 [:supersede (into {} (for [_ (range (.nextInt rng 2))]
                                                       [(d) {:rep (d)}]))]
                              2 [:reset-touch]
-                             3 [:suspend (d)]))
+                             3 [:suspend (d)]
+                             4 [:restrength (d) (str*)]))
               fresh? (and (= :justify (first op)) (= next-jid (second op)))]
           [(conj ops op)
            (if fresh? (conj issued op) issued)
@@ -248,6 +258,33 @@
                    (jtms/add-justification t (jtms/->just 11 'r [1 2] 4 {} :monotonic)))
                  (fn [t] [(jtms/defeat-class t 3) (jtms/defeat-class t 4)
                           (jtms/defeat-class t 2)]))))))
+
+(deftest restrength-follows-the-informant
+  (testing "the rule-contribution slot moves with the informant, in both representations"
+    ;; premise 1 is the fact, premise 2 the rule — conjoined as an antecedent and named
+    ;; as the informant, the engine's firing shape.  The justification confers :default
+    ;; until the rule resolves strict, then :monotonic; the informant is excluded from
+    ;; the antecedent cap, so the flip is the whole change.
+    (is (= [:default :monotonic]
+           (both (fn [t]
+                   (jtms/add-premise t 1 :monotonic)
+                   (jtms/add-premise t 2 :default)
+                   (jtms/ensure-node t 3 1)
+                   (jtms/add-justification t (jtms/->just 10 2 [1 2] 3 {} :default)))
+                 (fn [t]
+                   (let [before (jtms/defeat-class t 3)]
+                     (jtms/restrength-informant t 2 :monotonic)
+                     [before (jtms/defeat-class t 3)]))))))
+  (testing "and a symbolic informant, which no rule handle names, moves nothing"
+    (is (= [:default :default]
+           (both (fn [t]
+                   (jtms/add-premise t 1 :monotonic)
+                   (jtms/ensure-node t 3 1)
+                   (jtms/add-justification t (jtms/->just 10 'r [1] 3 {} :default)))
+                 (fn [t]
+                   (let [before (jtms/defeat-class t 3)]
+                     (jtms/restrength-informant t 'r :monotonic)
+                     [before (jtms/defeat-class t 3)])))))))
 
 (deftest deep-chain-classes-agree
   (testing "a class rises through a chain — the fixpoint, not a single pass"

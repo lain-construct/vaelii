@@ -206,7 +206,7 @@
     (testing "it reports as a bad option, not as a check problem — a sentence can never
               be checked into this, so it does not belong in the :type vocabulary the
               editor renders"
-      (is (= :bad-opt (:type e)))
+      (is (= :unknown-option (:type e)))
       (is (= :nope (:calculus e))))
     (testing "and it says what there is instead of only what there is not"
       (is (some #{:rcc8} (:known e))))))
@@ -229,7 +229,7 @@
       (is (some? (v/reasoner nm)) (str nm))))
   (testing "an unknown name is a bad argument, and names the roster"
     (let [d (try (v/reasoner :nope) nil (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-      (is (= :bad-opt (:type d)))
+      (is (= :unknown-option (:type d)))
       (is (= (v/reasoners) (:known d))))))
 
 (tu/deftest-kb registering-allen-makes-an-entailed-relation-derivable
@@ -274,7 +274,7 @@
     (is (some? (v/set-solver kb :asp))))
   (testing "an unknown name is refused rather than installed"
     (let [d (try (v/set-solver kb :nope) nil (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-      (is (= :bad-opt (:type d)))
+      (is (= :unknown-option (:type d)))
       (is (= [:asp :stub] (:known d)))))
   (v/set-solver kb :stub))
 
@@ -314,3 +314,31 @@
                           (.replace "_" "-")))
                 set))
         "a new namespace outside impl/ is a new public promise — add it here on purpose")))
+
+;; ---- the extent fns refuse an option nothing reads ----------------------
+
+(tu/deftest-kb an-extent-option-nothing-reads-is-refused
+  ;; The one option the extent fns take is the belief filter, so the silent-default
+  ;; failure is the filter silently off: `{:believed true}` (missing the `?`) reads as
+  ;; no key at all and the stored extent comes back whole, defeated defaults included —
+  ;; indistinguishable from a believed extent with nothing defeated in it.
+  (tu/with-terms [flies Tweety ExtentContext]
+    (v/assert kb (list flies Tweety) ExtentContext)
+    (testing "the missing-? typo is refused at all three doors, naming the roster"
+      (doseq [call [#(v/sentexes-in-context kb ExtentContext {:believed true})
+                    #(v/sentexes-with-functor kb flies {:believed true})
+                    #(v/sentexes-with-arg kb 1 Tweety {:believed true})]]
+        (let [e (is (thrown? clojure.lang.ExceptionInfo (call)))]
+          (is (= :unknown-option (:type (ex-data e))))
+          (is (= [:believed] (:unknown (ex-data e))))
+          (is (re-find #":believed\?" (ex-message e))
+              "the right spelling is in the message"))))
+    (testing "a non-map opts is refused rather than read as no filter"
+      ;; The keyword is the point — the refusal is what this asserts — so the
+      ;; type mismatch clj-kondo sees is the test's subject, not a defect.
+      #_{:clj-kondo/ignore [:type-mismatch]}
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
+                            (v/sentexes-in-context kb ExtentContext :believed?))))
+    (testing "the rostered spelling still filters"
+      (is (= 1 (count (v/sentexes-with-functor kb flies {:believed? true}))))
+      (is (= 1 (count (v/sentexes-in-context kb ExtentContext {:believed? true})))))))

@@ -272,7 +272,7 @@
 (deftest a-rule-above-fires-on-the-facts-of-a-context-newly-wired-under-it
   ;; the other direction of the same edge, and the one that survives a fix taking only
   ;; the first: a rule stated *above* applies in every context that sees it, so wiring a
-  ;; microtheory under that context hands the rule the microtheory's own facts and places
+  ;; new context under it hands the rule that context's own facts and places
   ;; the conclusion there.  Seeding is by fact, so it has to reach both cones.
   (let [ops [#(v/assert % '(genlContext XMidContext UniverseContext) 'UniverseContext)
              #(v/assert % '(genlContext XLowContext XMidContext) 'UniverseContext)

@@ -4,7 +4,7 @@
 ;; normalize against (dimensionOf / conversionFactor), and the five comparisons they
 ;; compute (sameQuantity / quantityLessThan / quantityGreaterThan and the two
 ;; or-equal forms). Sees CoreContext; UniverseContext sees it, so a measure is
-;; comparable from every microtheory.
+;; comparable from every context.
 ;;
 ;; A comparison is never stored — the provers compute it from ground measures against
 ;; the table, and two measures of different dimensions are simply not comparable. See
@@ -90,7 +90,7 @@
 (conversionFactor Minute Second 60)
 
 (comment QuantityFn
-         "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms. An unreifiableFunction application, a NAUT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
+         "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms. An unreifiableFunction application, a structural NAT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
 (unreifiableFunction QuantityFn)
 
 (comment quantityGreaterThan

@@ -56,6 +56,16 @@ and those files describe the project around it.
       whose every use is below its own definition (so it does nothing).  The
       preferred fix is a reordering; the comment is where "an ordering cannot
       fix this" gets written down.
+  E11 Borrowed vocabulary: another system's word for something this engine
+      already names.  Cyc's microtheory is our context; its NART and NAUT are
+      our reified and structural NAT.  Reads as vaelii's own vocabulary while
+      belonging to somebody else, and for a coinage found in no general KR
+      literature it also implies a provenance nobody claimed.  Quoting the
+      other system is not borrowing — `genlMt` and `BaseKB` are identifiers
+      IN OpenCyc, not words for anything here, and go untouched.  Scans the
+      sources, the docs, `extra_md_files` and the shipped ontology under
+      `resources/kb/`; the allowlist excuses a token where a doc needs the
+      borrowed word to explain the borrowing.
   W1  Line-number citations into .clj files (`foo.clj:123`) — warned, not
       failed: cite the var name instead, line numbers always rot.
   W2  Backticked `alias/name` for an UNKNOWN alias whose name is defined
@@ -725,6 +735,65 @@ for path in clj_files():
                      f"{rel}:{i + 1} `{name}` is declared but never used above its "
                      f"definition (line {defined + 1}) — the declare does nothing; "
                      f"`defn` interns the var before it compiles the body")
+
+# ── E11: borrowed vocabulary — somebody else's word for a thing we name ─────
+# The engine calls it a CONTEXT, and a non-atomic term is a NAT — reified or
+# structural. Cyc's words for those same things are not vaelii's, and prose
+# that uses them reads as though they were: wrong for a reader who then looks
+# them up, and for a coinage that appears in no general KR literature, a claim
+# about where this engine came from that nobody made.
+#
+# Citing the other system stays legitimate, and this check leaves it alone:
+# `genlMt`, `BaseKB` and `UniversalVocabularyMt` are IDENTIFIERS in OpenCyc,
+# not words for anything here, so they are not borrowed vocabulary — they are
+# quotations. Where a doc genuinely needs the borrowed word to explain the
+# borrowing ("microtheories are contexts", to a reader arriving from Cyc), the
+# allowlist takes the token, the same escape hatch every other check here has.
+#
+# Assembled from halves for the reason _BANNED_REPO is: a checker that spelt
+# the words it bans would be the tree's only occurrence of them.
+BORROWED = {
+    "micro" + "theory": "context",
+    "micro" + "theories": "contexts",
+    "na" + "rt": "reified NAT",
+    "na" + "ut": "structural NAT",
+}
+BORROWED_RE = re.compile(r"\b(" + "|".join(BORROWED) + r")\b", re.I)
+# These two STATE this rule, so they spell the words in order to ban them —
+# the same bind E7 is in, and the same fix. Exempting the files is the only
+# honest option: the allowlist matches a TOKEN, so excusing the borrowed word
+# in them would disarm the check in every other file too.
+E11_STATES_THE_RULE = {"CONTRIBUTING.md", ".claude/rules/conventions.md"}
+
+
+def kb_text_files():
+    """The shipped ontology, `resources/kb/**.txt`.
+
+    Data rather than code, but the `comment` strings in it are vaelii's own
+    prose about vaelii's own vocabulary, so the naming rules bind it. The rest
+    of `resources/` is vendored (`public/htmx.min.js`) and is not read.
+    """
+    for dirpath, _, names in os.walk(os.path.join(RESOURCES, "kb")):
+        for n in sorted(names):
+            if n.endswith(".txt"):
+                yield os.path.join(dirpath, n)
+
+
+for path in itertools.chain(repo_text_files(), extra_md_files(),
+                            kb_text_files()):
+    if os.path.abspath(path) == SELF or not os.path.exists(path):
+        continue
+    rel = os.path.relpath(path, ROOT)
+    if rel in E11_STATES_THE_RULE:
+        continue
+    for i, line in enumerate(open(path, errors="replace"), 1):
+        m = BORROWED_RE.search(line)
+        if m:
+            word = m.group(0)
+            ours = BORROWED[word.lower()]
+            flag("E11", path, word,
+                 f"{rel}:{i} `{word}` is another system's word for what this "
+                 f"engine calls a {ours}")
 
 for e in errors:
     print(e)

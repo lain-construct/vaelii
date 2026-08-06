@@ -180,6 +180,43 @@
              :naming :constraints :base :base-stores :overlay}
            kb/opt-keys))))
 
+(deftest a-mount-or-durability-key-without-its-axis-is-refused
+  ;; All four keys are in the roster, so `check-opts!` passes them — but each is read
+  ;; only under the axis selection it belongs to.  `{:backend :memory :base-stores …}`
+  ;; opens a plain RAM KB with nothing mounted, and `{:backend :memory :dir …}` names
+  ;; a directory nothing writes: the caller who asked for durability loses the store
+  ;; at JVM exit, behind an open that looked exactly like the durable one.
+  (testing ":base / :base-stores / :overlay need an :overlay axis"
+    (doseq [extra [{:base-stores {}} {:base {:backend :memory}} {:overlay {}}]]
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (v/open-kb (merge {:backend :memory :record-space 88
+                                              :index-space 89}
+                                             extra)))
+                  (str (pr-str extra) " is refused"))]
+        (is (= :unknown-option (:type (ex-data e))))
+        (is (= (vec (keys extra)) (:unknown (ex-data e))))
+        (is (re-find #":overlay" (ex-message e)) "the message names the fix"))))
+  (testing ":dir needs a :disk half"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (v/open-kb {:backend :memory :record-space 88 :index-space 89
+                                     :dir "/tmp/vaelii-nowhere"})))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= [:dir] (:unknown (ex-data e))))
+      (is (re-find #":disk" (ex-message e)) "the message says how durability is asked for"))
+    (testing "and an :overlay half is held to its own axes"
+      (let [base (v/open-kb {:record-space 88 :index-space 89 :recover? false})]
+        (try
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no half is :disk"
+                                (v/fork base {:dir "/tmp/vaelii-nowhere"}))
+              "an ephemeral fork naming a directory is the same silent evaporation")
+          (finally (v/clear! base))))))
+  (testing "the selections that do read the keys still open"
+    (with-tmp
+      (fn [dir]
+        (let [kb (v/open-kb {:backend :disk-memory :dir dir :recover? false})]
+          (is (some? kb))
+          (v/clear! kb))))))
+
 (deftest recover-takes-one-of-four-settings-and-refuses-the-rest
   ;; The key is in the roster, so `check-opts!` passes it — the *value* is the check,
   ;; and it has to be a refusal.  Reading an unnamed setting as the warn branch hands
@@ -293,11 +330,13 @@
               "and the disk index was never opened"))))))
 
 (deftest a-disk-memory-kb-restarted-as-disk-needs-an-explicit-reindex
-  ;; The reverse crossing is not symmetric, and deliberately so.  A durable index that
-  ;; was never written is indistinguishable from one that is merely empty, and repairing
-  ;; it on open would be a behaviour change to `:disk` rather than a new mode — so the
-  ;; durable side keeps its contract (`recover` reads what is stored) and the one-time
-  ;; migration is the caller's explicit `reindex`.
+  ;; The reverse crossing is not symmetric, and deliberately so — under `:recover?
+  ;; false`, which is what this test opens with.  That setting is a caller asking to read
+  ;; what is stored and do no work on open, so the durable side keeps its contract and
+  ;; the one-time migration is their explicit `reindex`.  Under `:auto` the same short
+  ;; index is repaired instead: the record count tells an index that was never written
+  ;; apart from one that is merely empty, and a torn `kv.log` tail arrives at the same
+  ;; state with no crossing and no caller to know a `reindex` is owed.
   (with-restart
     (fn [dir] (observations (populate! (v/open-kb {:backend :disk-memory :dir dir :recover? false}))))
     (fn [dir before]

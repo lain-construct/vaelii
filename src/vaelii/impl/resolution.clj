@@ -359,7 +359,7 @@
   A rule is a sentex, so it is inherited like any other: a context reasons with the
   rules its `genlContext` up-cone holds and no others.  This is the backward dual of
   forward chaining refusing to place a conclusion in a context that cannot see the
-  rule — without it a microtheory proves `(ancestorOf Tom Bob)` from a rule some
+  rule — without it a context proves `(ancestorOf Tom Bob)` from a rule some
   sibling theory wrote, while the *forward* firing of that same rule correctly
   evaporates for want of a placement, and the two chainers disagree about one KB.
 
@@ -699,7 +699,7 @@
   facts: an `except` asserted in a context `view-context` sees (its genlContext
   up-closure) hides its target there and in every descendant.  Empty — the common,
   fast-path case — when nothing is excepted, or when `view-context` is a variable (an
-  `except` in some microtheory hides its target *there and below*, not from the more
+  `except` in some context hides its target *there and below*, not from the more
   general contexts above it, so an any-context read still sees it).
 
   Storage-cheap: gated on the `except` functor root's cardinality, so a KB with no
@@ -778,9 +778,10 @@
   reference fan-out.
 
   A sentex an `except` has hidden from `view-context` is filtered out — the read side
-  of visibility removal.  Forward chaining reaches the same filter down its own road:
-  its join goes through `chain/*matcher*`, which is `match-pattern`, and `match-one`
-  applies the same hidden-handle test there.
+  of visibility removal.  Forward chaining holds the same line by a different
+  mechanism: its join runs at `'?ctx`, where the hidden set is empty by construction,
+  and the block is applied per *placement* (`chain/antecedent-hidden?`,
+  `justification-excepted?`), where the context the except scopes to is known.
 
   Answers are **cached per KB** by the literal they answer, α-renamed so two spellings
   of one question share an entry, and stamped with the change clock so any mutation
@@ -960,6 +961,20 @@
 (defn- guard-marker? [g] (and (vector? g) (= ::guard (first g))))
 (defn- marker-guard  [g] (second g))
 
+;; ---- scope markers on the goal stack -------------------------------------
+;; The loop guard is a property of a goal's own *derivation path*, not of the frame it
+;; happens to ride in.  Expanding a goal pushes its antecedents and the conjuncts still
+;; queued behind them into one frame, so a `:seen` grown for the expansion stayed in
+;; force for those siblings too: a later conjunct repeating that goal-key was refused
+;; rule expansion and answered nothing, which made `[(anc Tom ?y) (anc Tom ?z)]` empty
+;; while each conjunct alone answered.  A marker behind the antecedents restores the
+;; scope the expansion started from, exactly where that subtree ends — the same place,
+;; and the same one-stack-entry cost, as the guard marker above.
+
+(defn- ->scope-marker [seen] [::scope seen])
+(defn- scope-marker? [g] (and (vector? g) (= ::scope (first g))))
+(defn- marker-seen   [g] (second g))
+
 ;; ---- dead ends -----------------------------------------------------------
 
 (def ^:dynamic *dead-end*
@@ -1094,6 +1109,14 @@
                             :answer-vars answer-vars}))
                    solutions)
 
+            ;; the expanded goal's subtree ends here: the conjuncts still queued behind
+            ;; it are siblings, not descendants, and answer under the scope it started in
+            (scope-marker? (first goals))
+            (recur (conj stack {:goals (rest goals) :bindings bindings
+                                :seen (marker-seen (first goals)) :depth depth
+                                :answer-vars answer-vars})
+                   solutions)
+
             ;; A deferred goal (`different` / `evaluate` / `unknown`) is *computed* by the
             ;; registry, not matched or expanded: push one continuation frame per extension
             ;; binding, and no rule frames (see the `*deferred-solver*` section above).
@@ -1131,10 +1154,14 @@
                                             (freshen-rule rule taken)
                                             b (subsuming-unify kb g consequent bindings)]
                                       :when b]
-                                  {:goals    (into (cond-> (planned-antecedents
-                                                            kb antecedents consequent context b
-                                                            est-override)
-                                                     guard (conj (->guard-marker guard)))
+                                  {:goals    (into (-> (planned-antecedents
+                                                        kb antecedents consequent context b
+                                                        est-override)
+                                                       (cond-> guard (conj (->guard-marker guard)))
+                                                       ;; behind the guard: the scope is
+                                                       ;; restored once this rule's own
+                                                       ;; subtree is finished with it
+                                                       (conj (->scope-marker seen)))
                                                    rest-goals)
                                    :bindings b
                                    :seen     (conj seen k)

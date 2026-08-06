@@ -132,6 +132,35 @@
       (parity kb (list flies ExPenguin) ExContext)
       (parity kb (list flies ExBird) ExContext))))
 
+(tu/deftest-kb two-guarded-rules-to-one-residual-both-answer
+  ;; two *distinct* rules, each carrying its own exceptWhen, rewrite one goal to the
+  ;; same canonical residual through the genl fan.  The claimed-key must read the
+  ;; guards' identities, not their count: counted, the two children are one key, the
+  ;; second is dropped before it is enqueued, and every answer only its exception
+  ;; admits is lost — while prove (DFS) answers in full.
+  (tu/with-terms [dog_t cat_t animal_t qq aa bb GdContext]
+    (tu/with-terms [GdT1 GdT2]
+      (v/assert kb (list 'genl dog_t animal_t) GdContext)
+      (v/assert kb (list 'genl cat_t animal_t) GdContext)
+      (v/assert kb (list qq GdT1) GdContext)
+      (v/assert kb (list qq GdT2) GdContext)
+      (v/assert kb (list aa GdT1) GdContext)
+      (v/assert kb (list bb GdT2) GdContext)
+      ;; backward-only, so no firing pre-stores the conclusions: the node engine has
+      ;; to expand both rules, which is where a counted key drops one
+      (v/assert kb (list 'exceptWhen (list aa '?x)
+                         (list 'set/defaultRule
+                               (list 'set/backwardRule
+                                     (list 'implies (list qq '?x) (list dog_t '?x)))))
+                GdContext)
+      (v/assert kb (list 'exceptWhen (list bb '?x)
+                         (list 'set/defaultRule
+                               (list 'set/backwardRule
+                                     (list 'implies (list qq '?x) (list cat_t '?x)))))
+                GdContext)
+      (is (= #{{'?y GdT1} {'?y GdT2}}
+             (parity kb (list animal_t '?y) GdContext 3))))))
+
 (tu/deftest-kb a-deferred-antecedent-agrees
   (tu/with-terms [pairOf distinctPair DfContext]
     (tu/with-terms [DfA DfB]

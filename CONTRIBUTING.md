@@ -222,6 +222,80 @@ constraint, a subtle invariant, a workaround for a specific bug. Do not explain 
 the code does — well-named identifiers do that — and do not reference the current task
 ("added for X flow"); that belongs in the pull-request description.
 
+### 3.7 Vocabulary: our words for our things
+
+Where this engine already has a word, use it rather than the word another system uses
+for the same idea. A sentex holds in a **context**, never a *microtheory*; a non-atomic
+term is a **NAT**, **reified** or **structural**, never a *NART* or a *NAUT*. Those are
+Cyc's coinages, and prose that reaches for them reads as though they were ours — which
+misleads a reader who then goes looking for them, and, for a term that appears nowhere
+in the general knowledge-representation literature, implies a provenance nobody claimed.
+
+Quoting the other system is a different thing and is welcome where it earns its place:
+`genlMt`, `BaseKB` and `UniversalVocabularyMt` are identifiers *in* OpenCyc, not words
+for anything here, and the OpenCyc reader plugin talks about Cyc's own microtheory slot
+because that is the field it reads. The test is whether the word names something of
+theirs or something of ours.
+
+`lein lint` fails on the borrowed words. This section is exempt by name, since it has
+to spell them to ban them.
+
+### 3.8 What counts as breaking
+
+A change is classified by who can observe it, and the release number follows the
+classification. Three classes:
+
+1. **A contract change a working caller can observe** — a return shape, a `:type`
+   keyword, a status code, a documented default. That is **Breaking**: the changelog
+   entry carries the label, and the release that ships it bumps the minor version
+   (the 0.x digit, pre-1.0). "Working" is the operative word: the caller's code does
+   what its author believes, and stops doing it on upgrade.
+2. **A new refusal of input whose acceptance corrupts state, stores junk no query
+   can match, or silently does nothing.** No working caller exists to break — the
+   input never did what whoever sent it believed — so the entry is labeled
+   **Refusal** and is patch-eligible; when several accumulate they batch into one
+   designated minor rather than each forcing a release. A Refusal entry argues its
+   own premise: it says what accepting the input does to the store, because that
+   claim is the whole justification for the lighter treatment.
+3. **Additive** — a `:type` where none was, a new option key, a new op in the
+   daemon's allowlist. Neither label; any release may carry it.
+
+The split has citable precedent rather than being this repo's invention:
+
+- **SemVer** defines a patch as "an internal change that fixes incorrect
+  behavior" — class 2 is exactly that, even when the fix is a refusal.
+- **Go's compatibility promise** exempts bugs and security fixes from "programs
+  keep compiling and running": a program depending on buggy behavior is not owed
+  the bug. Its `GODEBUG` flags are the escape valve when a corrected behavior
+  still needs a temporary opt-out.
+- **Rust RFC 1105** is the reference statement that not every breaking change is
+  major: a minor release may carry a technically-breaking change no reasonable
+  code observes.
+- **PostgreSQL** minor releases routinely tighten checks whose acceptance
+  produces wrong results; the fix ships in a patch because the accepted input is
+  already broken.
+- **SQLite** shows the ladder for the other case — input people demonstrably *do*
+  rely on: keep the behavior, then warn, then offer an opt-out, then flip the
+  default, across releases. That is class 1 handled gently, not class 2.
+
+The counterweight is **Hyrum's law**: with enough callers, every observable
+behavior is depended on by somebody. Class 2 therefore demands a positive
+argument that no working caller exists — "the stored sentence can never match a
+query" is one; "probably nobody does that" is not. When in doubt, treat the
+change as class 1.
+
+Two process rules follow:
+
+- **Every Breaking and every Refusal entry carries a one-line *Migration:***
+  stating what a caller of the previous release does about it — even when the
+  answer is "nothing: no working caller exists", because that sentence is the
+  class-2 claim made checkable.
+- **At release time the changelog is closed against `git log --oneline
+  <last-tag>..`**: every `fix(`/`feat(` commit has an entry, or the release notes
+  a reason it needs none (a fix to code the last release never shipped, say). An
+  entry written at commit time is cheap; one reconstructed at release time is
+  guesswork.
+
 ## 4. Adding things
 
 ### 4.1 Adding a predicate, type or rule

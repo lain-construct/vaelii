@@ -18,14 +18,14 @@
   Fixture recipes:
 
     ;; a shared KB loaded once (starter / CoreContext), neutral per test
-    (use-fixtures :once (tu/loaded #'*kb* starter/load-into))
-    (use-fixtures :each (tu/neutral #'*kb*))
+    (use-fixtures :once (tu/loaded starter/load-into))
+    (use-fixtures :each (tu/neutral))
 
     ;; a fresh KB rebuilt per test (empty or CoreContext-loaded), neutral per test
-    (use-fixtures :each (tu/neutral-fresh #'*kb* tu/fresh))
+    (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
     ;; an inline KB inside one deftest (varied baselines in one file)
-    (tu/with-neutral-kb tu/fresh (fn [kb] ...))"
+    (tu/with-neutral-kb [kb tu/fresh] ...)"
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [is]]
@@ -154,6 +154,18 @@
 
 (def scratch-space  (space-opts block-top       (- block-top 1)))
 (def isolated-space (space-opts (- block-top 2) (- block-top 3)))
+
+(def plain-memory-space
+  "A plain in-RAM KB beside `*kb*`, whatever storage the run selected — for a test
+  that needs a second, backend-independent KB (an export parity source, a round-trip
+  target).  Its own derived pair, so it shares a store with nothing: not the process
+  defaults, and not the fork's writable half under the overlay run.  `(assoc
+  scratch-space :backend :memory)` is not this: under the overlay run that spelling
+  drags the template's `:base`/`:overlay` halves along — a contradiction `open-kb`
+  refuses — and, carrying no top-level pair, would land on the process defaults."
+  {:backend :memory
+   :record-space [::plain block-top] :index-space [::plain (- block-top 1)]
+   :recover? false :tms tms-kind})
 
 ;; ---- live model calls -----------------------------------------------------
 
@@ -378,8 +390,11 @@
   (fn [f]
     (let [kb (fresh)]
       (load-fn kb)
-      (binding [*kb* kb] (f))
-      (clear-kb! kb))))
+      ;; `finally`, like every sibling fixture: an Error escaping the namespace's
+      ;; tests would otherwise leave the shared scratch pair populated for whatever
+      ;; namespace runs next
+      (try (binding [*kb* kb] (f))
+           (finally (clear-kb! kb))))))
 
 (defn with-fresh
   "A `:once` fixture binding an empty cleared KB.  Pair with `neutral`."

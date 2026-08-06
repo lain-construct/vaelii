@@ -273,6 +273,19 @@
     :else           (Long/parseLong (str reply))))
 (defn- count-at* [backend prefix] (->count (kv-get backend (count-key prefix))))
 
+(def sealed-prefix
+  "The count prefix of the batch-seal counter: incremented as the **last** op of every
+  `index-sentex` batch and decremented as the last op of an unindex's cleanup batch,
+  so it equals the indexed-sentex count exactly when every batch landed whole.  The
+  durable open's coverage gate compares it against the record count: the WAL logs one
+  frame per op, so a torn tail keeps a batch's *prefix* — the root counter `count-at
+  []` reads is op 0 and survives every tear, which is what makes it the wrong
+  instrument — while this counter is the op a tear loses first.  A namespaced keyword,
+  so it collides with no term path; only the count key is written, so no trie walk
+  ever meets it.  Zero on a store whose index arrived by `index-load` replay or was
+  written before the counter existed — the gate falls back to the root count there."
+  [::sealed])
+
 (defrecord KvIndexStore [backend]
   p/IndexStore
   ;; One batch, not three round trips: the trie levels, the inverted term index, and
@@ -300,7 +313,9 @@
                          (range (inc n)))
                  (map (fn [t] [:add-to-set (term-key t) handle]) terms)
                  (map (fn [k] [:add-to-set k handle]) (root-keys sentex))
-                 roster slots))
+                 roster slots
+                 ;; the batch seal, last on purpose — `sealed-prefix` says why
+                 [[:increment (count-key sealed-prefix)]]))
       handle))
 
   ;; Two batches instead of a round trip per trie level: one to drop the leaf handle
@@ -335,7 +350,9 @@
                          dead)
                  (map (fn [t] [:remove-from-set (term-key t) handle]) terms)
                  (map (fn [k] [:remove-from-set k handle]) (root-keys sentex))
-                 roster slots))
+                 roster slots
+                 ;; the batch seal, last on purpose — `sealed-prefix` says why
+                 [[:decrement (count-key sealed-prefix)]]))
       handle))
 
   (count-at [_ prefix] (count-at* backend prefix))
@@ -491,7 +508,12 @@
 
   ;; the flat-map index *is* the portable projection, so both directions are the
   ;; backend's own enumeration and install — no key is reshaped on the way through.
-  (index-entries [_]         (kv-entries backend))
+  ;; minus the batch-seal counter: it describes the WAL's own health, not the
+  ;; records, so it is no part of the portable projection — a dump carries it to no
+  ;; store that can read it as anything, and the cross-backend parity of this seq is
+  ;; what `index-dump-test` pins
+  (index-entries [_]         (remove (fn [[k _]] (= k (count-key sealed-prefix)))
+                                     (kv-entries backend)))
   (index-load    [_ entries] (kv-load    backend entries))
 
   (clear-index! [_] (kv-clear! backend) nil))

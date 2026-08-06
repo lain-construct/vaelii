@@ -173,7 +173,7 @@
   incomparable contexts can still share a descendant, and from that descendant both
   the positive and the negation are visible — the clash is real there, and reporting
   it only when one context happens to sit above the other would silently exempt every
-  sibling microtheory.  The common-descendant test strictly generalises `sees?`
+  sibling context.  The common-descendant test strictly generalises `sees?`
   (if K sees Y then K is itself a common descendant), so nothing `sees?` catches is
   lost.
 
@@ -355,6 +355,34 @@
   [tms {:keys [nogood]}]
   (every? #(jtms/in? tms %) nogood))
 
+(defn- believed-excepts
+  "The believed visibility-`except` handles, as a set — the instrument the settle
+  loop diffs across a pass to catch a *belief* flip on one.  Gated on the functor
+  count, so a KB using no `except` pays one index read."
+  [kb]
+  (let [idx (:index kb)]
+    (if (pos? (p/count-with-functor idx sx/except-functor))
+      (into #{} (filter #(jtms/in? (:tms kb) %))
+            (p/sentexes-with-functor idx sx/except-functor))
+      #{})))
+
+(defn- recheck-flipped-excepts
+  "Queue the re-check for every visibility `except` in `handles` and return the rule
+  handles it marked.  A *belief* flip on an except — defeated by this settle's
+  resolution, or revived by `clear-defeats!` — changes which handles are hidden
+  exactly as its arrival or departure does, and the store/removal chokepoints that
+  ordinarily call `recheck-except` cannot see a flip: without this, defeating an
+  except revives nothing it hid, and which belief set a KB ends with depends on the
+  order the except and its defeater arrived.  The returned rules force the loop's
+  productive branch — a reveal has no blocked justification to move and no refusal
+  record to release, so nothing else marks the pass productive."
+  [kb handles]
+  (into #{}
+        (comp (keep #(p/get-sentex (:records kb) %))
+              (filter #(= sx/except-functor (nm/functor (:sentence %))))
+              (mapcat #(special/recheck-except kb %)))
+        handles))
+
 (defn- resolve-contradictions
   "Resolve the nogoods to a fixpoint, returning
   `{:violated [hard...] :dilemmas [ngmap...]}`.
@@ -439,7 +467,7 @@
         ;; order, so sorting the sides by one would make "which side is first?" an
         ;; answer about which was typed first while `:sentence` beside it said the same
         ;; thing either way.  The context separates one sentence clashing with itself
-        ;; across two microtheories; the handle is the last resort, for a pair a reader
+        ;; across two contexts; the handle is the last resort, for a pair a reader
         ;; cannot tell apart anyway.
         sides (->> nogood
                    (map (fn [h]
@@ -496,8 +524,22 @@
                       (when-let [r (get prev (:nogood ng))]
                         (when (= (:kind ng) (:kind r)) r)))
                     (clash-report kb ng)))
-        vs    (mapv build violated)
-        ds    (mapv build dilemmas)]
+        ;; The *list* is ordered by the same rule the sides inside each report are:
+        ;; content, never handles.  The reports come off a hash set of handle-keyed
+        ;; nogoods, so an unsorted vector puts `(first (contradictions kb))` at the
+        ;; mercy of assertion order — the leak `clash-report` closes one level down.
+        ;; The key rides the report's *metadata*, computed once when the report is
+        ;; built and carried with it through the memo: `pr-str`ing every side of
+        ;; every standing report per settle is O(standing) string work on the path
+        ;; whose whole memo exists to avoid exactly that (`clash-arbitration` gates
+        ;; it), and metadata stays off the wire and out of `=`.
+        rkey  (fn [r] (or (::order (meta r))
+                          (mapv (juxt (comp pr-str :sentence) (comp pr-str :context))
+                                (:sides r))))
+        keyed (fn [r] (cond-> r (nil? (::order (meta r)))
+                              (vary-meta assoc ::order (rkey r))))
+        vs    (vec (sort-by rkey (map (comp keyed build) violated)))
+        ds    (vec (sort-by rkey (map (comp keyed build) dilemmas)))]
     (reset! (:reports kb) (into {} (map (juxt :nogood identity)) (concat vs ds)))
     (reset! (:conflicts kb) vs)
     (reset! (:contradictions kb) ds)))
@@ -739,7 +781,7 @@
   (`jtms/touched-in`).  A caller binding both learns which way each one moved, which the
   region alone cannot say — most of a relabelled region does not move at all.
 
-  `core/edit`'s consequence report binds both.  `preview` binds only the region, because
+  `core/edit!`'s consequence report binds both.  `preview` binds only the region, because
   its rollback lets it read belief-before off the restored KB instead."
   nil)
 
@@ -986,7 +1028,7 @@
   Both are pure functions of the types and their contexts, and of a taxonomy that does
   not change while a settle runs.  The term is in the reported *message* and nowhere
   else in the answer, so thousands of individuals holding the same two types in the
-  same two microtheories ask one question rather than thousands.  That is the whole
+  same two contexts ask one question rather than thousands.  That is the whole
   point: candidates are counted in instances, but distinct type/context pairs are
   counted in vocabulary.
 
@@ -1247,7 +1289,7 @@
 
   A side whose spec closure is **empty** has no membership below it and therefore no
   clash above it, so the reach is empty outright.  That is the case a separation naming
-  a non-symbol names — OpenCyc declares thousands against a NART like `(AbnormalFn
+  a non-symbol names — OpenCyc declares thousands against a reified NAT like `(AbnormalFn
   chromosome)` — and it is said here rather than left to fall out of the sizing
   arithmetic picking the empty side, because what makes it true is a coupling two
   functions away: `believed-memberships` reads a clash half only from a sentence whose
@@ -1632,7 +1674,7 @@
 (defn- clash-vantages
   "The contexts `s`'s definitional question is asked **from**, beyond its own.
 
-  The checks are scoped to the context they are asked in, and rightly — a microtheory is
+  The checks are scoped to the context they are asked in, and rightly — a context is
   convicted only on grounds it can see (`checks/disjoint-problems`).  But a pair whose
   halves sit in two contexts is visible from neither of them alone: `GenContext` is
   general, `SpecContext` sees it, and only `SpecContext` has both memberships in view.
@@ -1645,7 +1687,7 @@
   sees both halves, and what it convicts on is what it can see.  The vantage is the
   *maximal* common descendant rather than any of them, which is the conservative end —
   the least specific context that has the whole clash in view is the one whose grounds
-  the arbitration rests on, so a narrow microtheory's separation never reaches back over
+  the arbitration rests on, so a narrow context's separation never reaches back over
   a general claim it was never about.  Where one context sees the other the maximum is
   that context, which is the ordinary case and one `sees?` probe."
   [kb s]
@@ -2255,68 +2297,101 @@
   ;; the pre-clear defeated set now; `settle-finish` folds it with the post-resolve
   ;; defeated set and the moved count into the `belief-moved?` gate on the cache
   ;; reconcile.  Both reads are of the small defeated set, never the graph.
-  (let [defeated-before? (boolean (seq (jtms/defeated (:tms kb))))
+  (let [defeated-before  (jtms/defeated (:tms kb))
+        defeated-before? (boolean (seq defeated-before))
         moved? (fn [moved] (or defeated-before?
                                (boolean (seq (jtms/defeated (:tms kb))))
                                (pos? moved)))]
     (jtms/clear-defeats! (:tms kb))
-    (loop [pass 1, moved 0, seen #{}]
-      ;; The definitional clashes are re-derived **per pass**, not per defeat round: a
-      ;; pass can re-chain a released rule and put new content in the region, where a
-      ;; defeat round only ever withdraws belief and so can retire a pair but never
-      ;; make one.  `resolve-contradictions` filters the set to what is still believed
-      ;; before each of its own rounds.
-      (let [ngs    (constraint-nogoods kb)
-            ;; accumulated across passes, because the exposure pass at the end has to
-            ;; know about every pair this settle decided, not only the last pass's
-            arbitrated (into seen (map :nogood) ngs)
-            {:keys [violated dilemmas]} (resolve-contradictions kb ngs)
-            queued (drain-recheck! kb)]
-        (if (empty? queued)
-          (settle-finish kb pass moved violated dilemmas (moved? moved) arbitrated)
-          (let [was  (jtms/blocked (:tms kb))
-                new  (exception-blocked-set kb queued)
-                ;; an aggregate rule is owed a re-join whether or not anything blocked
-                ;; — a count that rose licenses a firing no block ever suppressed
-                aggs (aggregate-recheck-rules kb queued)
-                ;; ...and so is a firing that was refused before it could be blocked:
-                ;; nothing about it is in `was` for `new` to differ from, so the blocked
-                ;; set is the wrong instrument for it and its own record is asked
-                ;; instead.  Decided before the sweep and re-decided after it.
-                {free :free over :overflow} (released-refusals kb queued)]
-            (if (and (= new was) (empty? aggs) (empty? free) (empty? over))
-              (settle-finish kb pass moved violated dilemmas (moved? moved) arbitrated)   ; unproductive pass: converged
-              ;; read before the sweep, which deletes justifications
-              (let [released (released-rules kb was new)]
-                (jtms/set-blocked (:tms kb) new)
-                (sweep-excepted! kb (into #{} (remove was) new))
-                ;; A released refusal is re-derived from the bindings it recorded, not
-                ;; re-joined: `place-conclusion` with the firing's own conclusion,
-                ;; placement and antecedents.  The conclusions it places are new datums,
-                ;; so they go back on the agenda like any other.
-                (let [seeds (into [] (mapcat (fn [[rh e]] (chain/release-refusal! kb rh e)))
-                                  free)]
-                  (when (seq seeds) (rechain-seeds kb seeds)))
-                ;; What has to be chained again is what this pass *released* — plus the
-                ;; rules with no triggering sentence to read, the rules whose refusal
-                ;; record overflowed (no entries to re-ask, so the coarse re-join is what
-                ;; is left), and whatever the sweep queued, since deleting a fact can
-                ;; release some other rule's exception at derive time where no block ever
-                ;; existed to lift.  Not every rule the pass touched: seeding `chain`
-                ;; with a rule joins it over the whole extent, so a blanket re-chain is
-                ;; quadratic in the firing count.
-                (rechain-exception-rules kb (into released
-                                                  (concat (blanket-recheck-rules queued)
-                                                          aggs
-                                                          over
-                                                          (keys @(:recheck kb)))))
-                (if (< pass max-settle-passes)
-                  (recur (inc pass) (inc moved) arbitrated)
-                  (do (trove/log! {:level :warn :id ::exception-fixpoint
-                                   :msg  (str "exception re-check did not converge in "
-                                              max-settle-passes " passes; giving up")
-                                   :data {:passes pass :blocked (count new)}})
-                      (settle-finish kb pass (inc moved) violated dilemmas (moved? (inc moved)) arbitrated)))))))))))
+    ;; ...and reconcile the belief-derived caches with what that revived, **before**
+    ;; anything asks them a question.  `clear-defeats!` lifts a defeat, so a `genl` or
+    ;; `genlContext` edge defeated last settle is believed again as of this line — but
+    ;; the cached closures still describe the KB without it until `refresh-beliefs` runs,
+    ;; and that ran only in `settle-finish`, after `constraint-nogoods` below had already
+    ;; read them.  Discovery therefore asked its question against a vocabulary one settle
+    ;; out of date: a `P`/`¬P` pair made jointly visible by the revived edge was not
+    ;; arbitrated, so `retract!` returned with both believed — a state the KB's own
+    ;; `recover` over the same records disagrees with.
+    ;;
+    ;; Gated on there having *been* a defeat to lift, and scoped by `touched`, so a
+    ;; settle with nothing defeated pays nothing — which is nearly all of them, and the
+    ;; same reasoning `settle-finish`'s own `belief-moved?` gate states.
+    (let [revival-flips (when defeated-before?
+                          (tax/refresh-beliefs (:taxonomy kb) #(jtms/in? (:tms kb) %)
+                                               (jtms/touched (:tms kb)))
+                          (tax/restore-depths (:taxonomy kb))
+                          ;; ...and an except among the revived is a visibility flip:
+                          ;; what it hid is seeable again, and only this settle knows
+                          ;; the defeat was lifted
+                          (recheck-flipped-excepts kb defeated-before))]
+      (loop [pass 1, moved 0, seen #{}, flips (or revival-flips #{})]
+        ;; The definitional clashes are re-derived **per pass**, not per defeat round: a
+        ;; pass can re-chain a released rule and put new content in the region, where a
+        ;; defeat round only ever withdraws belief and so can retire a pair but never
+        ;; make one.  `resolve-contradictions` filters the set to what is still believed
+        ;; before each of its own rounds.
+        (let [ngs    (constraint-nogoods kb)
+              ;; accumulated across passes, because the exposure pass at the end has to
+              ;; know about every pair this settle decided, not only the last pass's
+              arbitrated (into seen (map :nogood) ngs)
+              ex-before  (believed-excepts kb)
+              {:keys [violated dilemmas]} (resolve-contradictions kb ngs)
+              ;; a resolution that defeated (or revived) a visibility except flipped
+              ;; what its cone can see — queue the same re-check its arrival or
+              ;; departure queues, and carry the marked rules to the re-chain, since a
+              ;; reveal moves no blocked justification for the drain to notice
+              flips  (into flips
+                           (recheck-flipped-excepts
+                            kb (let [ex-after (believed-excepts kb)]
+                                 (concat (set/difference ex-before ex-after)
+                                         (set/difference ex-after ex-before)))))
+              queued (drain-recheck! kb)]
+          (if (empty? queued)
+            (settle-finish kb pass moved violated dilemmas (moved? moved) arbitrated)
+            (let [was  (jtms/blocked (:tms kb))
+                  new  (exception-blocked-set kb queued)
+                  ;; an aggregate rule is owed a re-join whether or not anything blocked
+                  ;; — a count that rose licenses a firing no block ever suppressed
+                  aggs (aggregate-recheck-rules kb queued)
+                  ;; ...and so is a firing that was refused before it could be blocked:
+                  ;; nothing about it is in `was` for `new` to differ from, so the blocked
+                  ;; set is the wrong instrument for it and its own record is asked
+                  ;; instead.  Decided before the sweep and re-decided after it.
+                  {free :free over :overflow} (released-refusals kb queued)]
+              (if (and (= new was) (empty? aggs) (empty? free) (empty? over) (empty? flips))
+                (settle-finish kb pass moved violated dilemmas (moved? moved) arbitrated)   ; unproductive pass: converged
+                ;; read before the sweep, which deletes justifications
+                (let [released (released-rules kb was new)]
+                  (jtms/set-blocked (:tms kb) new)
+                  (sweep-excepted! kb (into #{} (remove was) new))
+                  ;; A released refusal is re-derived from the bindings it recorded, not
+                  ;; re-joined: `place-conclusion` with the firing's own conclusion,
+                  ;; placement and antecedents.  The conclusions it places are new datums,
+                  ;; so they go back on the agenda like any other.
+                  (let [seeds (into [] (mapcat (fn [[rh e]] (chain/release-refusal! kb rh e)))
+                                    free)]
+                    (when (seq seeds) (rechain-seeds kb seeds)))
+                  ;; What has to be chained again is what this pass *released* — plus the
+                  ;; rules with no triggering sentence to read, the rules whose refusal
+                  ;; record overflowed (no entries to re-ask, so the coarse re-join is what
+                  ;; is left), and whatever the sweep queued, since deleting a fact can
+                  ;; release some other rule's exception at derive time where no block ever
+                  ;; existed to lift.  Not every rule the pass touched: seeding `chain`
+                  ;; with a rule joins it over the whole extent, so a blanket re-chain is
+                  ;; quadratic in the firing count.
+                  (rechain-exception-rules kb (into released
+                                                    (concat (blanket-recheck-rules queued)
+                                                            aggs
+                                                            over
+                                                            flips
+                                                            (keys @(:recheck kb)))))
+                  (if (< pass max-settle-passes)
+                    (recur (inc pass) (inc moved) arbitrated #{})
+                    (do (trove/log! {:level :warn :id ::exception-fixpoint
+                                     :msg  (str "exception re-check did not converge in "
+                                                max-settle-passes " passes; giving up")
+                                     :data {:passes pass :blocked (count new)}})
+                        (settle-finish kb pass (inc moved) violated dilemmas (moved? (inc moved)) arbitrated))))))))))))
 
 (defn settle
   "Settle belief (`settle*`), then hand the region it moved to whoever is listening.

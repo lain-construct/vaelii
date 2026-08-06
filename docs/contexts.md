@@ -1,7 +1,7 @@
 # Contexts
 
-Every sentex is in exactly one **context** (a CapitalCamelCase symbol ending in `Context`). Contexts are
-microtheories: they partition and scope belief.
+Every sentex is in exactly one **context** (a CapitalCamelCase symbol ending in `Context`). Contexts
+partition and scope belief.
 
 ## genlContext: the context hierarchy
 
@@ -22,7 +22,7 @@ depth potential over the **condensation** and reads a mutually-visible pair in O
 What a cycle is *not* is a merge. The contexts stay distinct records with distinct
 extents, because a context is where a sentex is **stored** and not only what it can see:
 `sentexes-matching` is exact-context, `(ist BaseKB S)` and `(ist UniversalVocabularyMt S)` are two
-sentexes, and collapsing them would throw away which microtheory an assertion was made
+sentexes, and collapsing them would throw away which context an assertion was made
 in — the one thing an ontology import exists to carry. The claim "each sees the other"
 is weaker than "these are the same place", and only the weaker one was made.
 
@@ -149,7 +149,7 @@ themselves, closed under `maximal-common-descendant-contexts` over their pairs. 
 subsystems need it, and neither can settle for "the contexts holding a fact":
 
 - a qualitative network composes only what one reader can see, so a context inheriting
-  two microtheories entails what neither entails alone ([qcn.md](qcn.md));
+  two contexts entails what neither entails alone ([qcn.md](qcn.md));
 - an equality election runs only over the edges one reader can see, so a fact above a
   merge is restated differently by different readers ([equality.md](equality.md)).
 
@@ -159,7 +159,7 @@ the third. The closure may therefore hold a context that is maximal for no subse
 costs a read and cannot cost an answer — a more specific reader sees a superset of the
 knowledge, so it either agrees with a more general one or refines it. **Fewer than two
 contexts closes immediately**, which is every KB that has not divided the knowledge in
-question between microtheories: there is nothing for a second to meet.
+question between contexts: there is nothing for a second to meet.
 
 The starter's owns-parts rule shows both outcomes. The rule `(implies (and (owns ?p
 ?whole) (partOf ?part ?whole)) (owns ?p ?part))` is a middle theory (`MereologyContext`,
@@ -227,8 +227,8 @@ are **derived** from the predicate metadata by CoreContext rules, so a `(symmetr
 yields `(symmetricPredicate siblingOf)` and `isa? siblingOf symmetricPredicate` holds —
 exactly as `isa? dog unaryPredicate` does for a type. Those rules deliberately name **no**
 context and place by the ordinary rule: every context sees CoreContext, so a declaration
-made there still concludes there, and one made in a microtheory concludes in that
-microtheory rather than becoming vocabulary the whole KB reads (see "The consumers"
+made there still concludes there, and one made in a context concludes in that
+context rather than becoming vocabulary the whole KB reads (see "The consumers"
 below).
 
 ## decontextualizedPredicate: a fact that belongs to the KB, not to one theory
@@ -236,7 +236,7 @@ below).
 `(decontextualizedPredicate P)` takes every `(P ...)` out of the context it was stated
 in. Each one — asserted, or concluded by a rule — is additionally **deduced into
 UniverseContext**, supported by the placement sentex *and* the
-`(decontextualizedPredicate P)` sentex. Since every microtheory sees UniverseContext,
+`(decontextualizedPredicate P)` sentex. Since every context sees UniverseContext,
 the fact becomes visible everywhere, even from a *sibling* context that cannot see
 where it was stated. Retracting or defeating either the original or the declaration
 withdraws the copy through the JTMS, and declaring it retroactively lifts the `(P ...)`
@@ -267,7 +267,7 @@ stated meet in the target as a violation nothing reports:
 ```
 
 UniverseContext is the target that closes this, because it is the one context every
-microtheory sees: the first copy is visible to the *next* assert, so the ordinary
+context sees: the first copy is visible to the *next* assert, so the ordinary
 context-scoped check catches the clash at its source, and the second assert is refused
 where it is made. That is not a lucky property of a well-known context — it is the
 whole reason the target is fixed.
@@ -299,7 +299,7 @@ the predicate fire on the copy as well as on the original.
 
 That second firing is the point, and it is about **placement**, not about what a rule
 can see — forward chaining already matches antecedents across every context. Firing on
-the original places the conclusion in the source microtheory; firing on the copy places
+the original places the conclusion in the source context; firing on the copy places
 it in UniverseContext. So a consequence of a decontextualized fact is decontextualized
 in turn, which is what you want (if `(edgeTo A B)` holds everywhere, so does what a
 universal rule concludes from it) and what it costs: **two stored sentexes for one
@@ -314,7 +314,7 @@ Two boundaries, both deliberate:
 
 - **A negative fact is not lifted.** `(not (P a))` has functor `not`, so a declaration
   about `P` does not reach it. The positive extent becomes universal and the negative
-  one stays in its microtheory.
+  one stays in its context.
 - **Declaring is O(extent).** The retroactive sweep creates one copy per stored
   `(P ...)` inside a single synchronous `assert` — measured at ~0.09 ms a fact, flat, so
   a predicate with a large extent is a long assert. Declare before loading where you
@@ -380,7 +380,7 @@ gate is what keeps the sweep bounded on a large ontology.
 Both answers are memoized per pass on the pair `[t1 c1 t2 c2]`, which is what they
 are functions of — the term appears in the reported message and nowhere else — so a
 corpus where thousands of individuals hold the same two types in the same two
-microtheories asks once.
+contexts asks once.
 
 ## The consumers, and what each of them may reach
 
@@ -415,12 +415,12 @@ just as well when the feature is broken outright.
   candidates may see different supporters of one edge and a single global witness would
   drop whichever cannot see it. Only where *no* candidate can is the taxonomy binding,
   and the conclusion **descends** to the maximal contexts that see the edges too. A rule
-  and a fact in one microtheory, over a hierarchy stated in a sibling, therefore
+  and a fact in one context, over a hierarchy stated in a sibling, therefore
   conclude in the contexts below both instead of concluding nowhere. An `(ist Ctx S)`
   consequent is not lowered: the target is named rather than derived, so it places
   where the author said or not at all. A drop is a `:no-placement` entry naming the
   subsumption and the contexts that would have taken it but for the edges, since "your
-  microtheory cannot see that edge" is a different thing to fix from "your facts are in
+  context cannot see that edge" is a different thing to fix from "your facts are in
   sibling contexts".
 
   Which fact satisfied which antecedent is not recoverable from the justification's
@@ -460,21 +460,21 @@ just as well when the feature is broken outright.
   It seeds **both** cones, because an edge pairs rules and facts in two directions. A
   rule below can now see facts above; and a rule stated *above* is inherited into the
   context newly wired under it, so the edge equally hands the general rule the
-  microtheory's own facts and places the conclusion there. Seeding is by fact, so the
+  context's own facts and places the conclusion there. Seeding is by fact, so the
   seeds are the believed sentexes of `super`'s up-cone together with those of `sub`'s
   down-cone.
 
   **It is enumerated from the rules, and each half is gated on the other holding one.**
   Both are about cost, and the cost is asymptotic rather than constant. Walking the cone
   and keeping the facts a rule could match is a record fetch per sentex *in the cone*, so
-  wiring N microtheories under a `UniverseContext` holding K facts is O(N·K) against
+  wiring N contexts under a `UniverseContext` holding K facts is O(N·K) against
   O(N+K) without it, and a spindle D deep is O(D²) because each edge's up-cone is the
   whole chain above. Two ref-counted rosters maintained at the rule index/unindex choke
   points — `:rule-antecedents`, the predicates some rule takes as an antecedent, and
   `:rule-contexts`, the contexts rules are stated in, both beside `:opposed` and both
   replayed by `recover` — turn it around: walk those predicates' extents, keep what falls
   in the cone, and skip a half entirely when the other side holds no rule to benefit.
-  Wiring an *empty* microtheory under a full one is the commonest edge there is and now
+  Wiring an *empty* context under a full one is the commonest edge there is and now
   seeds nothing, where the ungated version re-seeded the whole ontology above it and
   re-joined rules that had already fired on every fact of it. Measured on the starter
   load: 1.80x ungated, 1.04x with both. The removal side needs no twin: dropping an edge
@@ -489,10 +489,10 @@ just as well when the feature is broken outright.
 
 - **An equality applies where it is visible on the question as well as on the answer.**
   Migration and supersession check per sentex; the *goal* rewrite has to check too, or
-  an invisible `(rewriteOf Superman Clark)` renames a microtheory's question to a
+  an invisible `(rewriteOf Superman Clark)` renames a context's question to a
   spelling that exists nowhere and it loses a fact it still believes, under either
   name. `kb/rewrite-goal` takes the context, `different` reads the scoped partition
-  (the unique-name assumption is what a microtheory holds until *it* is told
+  (the unique-name assumption is what a context holds until *it* is told
   otherwise), and the public reads take the context too (docs/taxonomy.md).
 
 - **`argPreserving` walks the edges the asker can see** — `inherit/witness-terms`
@@ -501,7 +501,7 @@ just as well when the feature is broken outright.
 
 - **The predicate meta-ontology concludes where it was declared.** The metadata rules
   in `kb/CoreContext.txt` place by the ordinary rule and name no context, so a
-  `(symmetric myRel)` stated in a microtheory concludes `(symmetricPredicate myRel)`
+  `(symmetric myRel)` stated in a context concludes `(symmetricPredicate myRel)`
   *there*. **Do not name CoreContext in them.** Doing so publishes the conclusion: `isa?`
   would answer from a context that cannot see the declaration, while `has-prop?`, asked
   of the same declaration from the same context, answers false.

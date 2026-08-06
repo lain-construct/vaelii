@@ -288,24 +288,24 @@
 ;; argument ever be a type?), a **scoped** open-world floor (does the writer see
 ;; any evidence at all?), and the scoped subtype test.  The middle one is what
 ;; keeps a NAF check from convicting harder the less a context sees: an imported
-;; NART's minting edges land in UniverseContext, and a writer whose cone does not
+;; reified NAT's minting edges land in UniverseContext, and a writer whose cone does not
 ;; reach them must excuse, not convict.
 
 (tu/deftest-kb an-argument-whose-edges-are-out-of-sight-is-excused-not-convicted
   (let [rel (tu/tmp-pred) root (tu/tmp-type) kind (tu/tmp-type)
-        nart (tu/tmp-ind) plain (tu/tmp-ind)
+        reified (tu/tmp-ind) plain (tu/tmp-ind)
         ctx (tu/tmp-ctx)]
     ;; ctx is deliberately unwired: it cannot see UniverseContext
     (v/assert kb (list 'genl root 'thing) ctx)
     (v/assert kb (list 'argGenl rel 1 root) ctx)
-    ;; a NART-shaped constant minted with real genl edges into UniverseContext —
+    ;; a reified NAT-shaped constant minted with real genl edges into UniverseContext —
     ;; the raw writer stands in for nat/mint-nat!, whose edges are exactly this
-    (tax/add-genl (:taxonomy kb) nart root 999901 'UniverseContext)
+    (tax/add-genl (:taxonomy kb) reified root 999901 'UniverseContext)
     (testing "globally in the hierarchy, invisibly from ctx: open world excuses"
-      (is (v/assert kb (list rel nart (tu/tmp-type)) ctx)))
+      (is (v/assert kb (list rel reified (tu/tmp-type)) ctx)))
     (testing "a plain individual with no edges anywhere is still convicted"
       (is (= :arg-genl (ex-type #(v/assert kb (list rel plain (tu/tmp-type)) ctx)))))
     (testing "visible evidence reaching the wrong place still convicts"
       (v/assert kb (list 'genl kind 'thing) ctx)     ; visible, but not under root
       (is (= :arg-genl (ex-type #(v/assert kb (list rel kind (tu/tmp-type)) ctx)))))
-    (tax/del-genl! (:taxonomy kb) nart root 999901)))
+    (tax/del-genl! (:taxonomy kb) reified root 999901)))

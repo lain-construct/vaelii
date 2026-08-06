@@ -28,7 +28,7 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
 (assert kb sentence context opts)              ; premise: check + store + index + chain + settle -> handle
                                                ; opts: {:strength :monotonic|:default :chain? bool :max-depth n}
                                                ; `assert-opt-keys` is the roster; a key off it is refused
-(assert-rule kb antecedents consequent context opts)  ; opts as `assert`, plus :direction
+(assert-rule kb antecedents consequent context opts)  ; opts as `assert` (:direction included)
                                                ; (:forward | :backward | :inert | :both, default :both) —
                                                ; the programmatic spelling of a set/*Rule wrapper
 (assert-inert kb sentence context)              ; stored, indexed and durable, but NOT a premise:
@@ -45,7 +45,7 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
 (check kb sentence context opts)                ; would assert succeed? -> [] or [{:type :message …}]
 (check-edit kb {:add […] :remove […]})          ; the same over an edit batch, each problem naming its entry
 (preview kb {:add […] :remove […]} opts)        ; what the batch would BELIEVE -> the diff, then rolled back
-(edit-with-consequences kb batch opts?)         ; `edit`, plus what it turned out to mean — the same diff, after
+(edit-with-consequences kb batch opts?)         ; `edit!`, plus what it turned out to mean — the same diff, after
 (watch kb f)                                    ; call `f` with that same diff whenever belief moves -> token
 (watch kb goal context f)                       ; ...only for what `goal` answers, entries + :bindings
 (unwatch kb token) / (watchers kb)              ; drop one -> bool / what is registered, without the fns
@@ -86,7 +86,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 (resume partial budget)                        ; continue a :timeout/:capped partial result
 (abduce kb goal context opts)                   ; what would have to be true for the goal to follow:
                                                ; hypotheses minted as :default premises in a scratch
-                                               ; microtheory -> {:solutions :hypotheses :refused
+                                               ; context -> {:solutions :hypotheses :refused
                                                ; :context :status}.  Torn down before it returns
                                                ; unless {:keep? true}; only (abduciblePredicate P)
                                                ; makes a predicate assumable (docs/abduction.md)
@@ -124,7 +124,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; :provenance? bool :on-progress f} — 10000 records a
                                                ; frame, provenance written by default
 (import! kb dir opts?)                         ; read a dump back into the (empty) kb — export!'s
-                                               ; inverse.  opts {:belief? bool :on-progress f}:
+                                               ; inverse.  opts {:belief? bool :report-every n
+                                               ; :on-progress f}:
                                                ; :belief? true (the default) recovers belief too;
                                                ; false stores and indexes only — browsable, not
                                                ; belief-queryable, the path past what an in-RAM
@@ -267,12 +268,12 @@ re-running or settling by hand recovers it — but the depth potential is repair
 the way out, since nothing else would ever repair it and every later reachability read
 would pay for that.
 
-`edit` batches assertions **and** retractions into one settle — `{:add [[sentence
+`edit!` batches assertions **and** retractions into one settle — `{:add [[sentence
 context opts?] …] :remove [handle …]}`.  The adds land **before** the removes, so a
 conclusion the removed premises solely-supported but an added one re-derives keeps a
 witness through the dependency-directed sweep: it is not swept and rebuilt, and never
 flickers OUT and back.  The final belief equals running the asserts and retracts
-singly — `edit` skips the intermediate tear-down and the N per-op settles.  Use it to
+singly — `edit!` skips the intermediate tear-down and the N per-op settles.  Use it to
 *replace* knowledge (a rule by a refined rule, a fact by a corrected one) without the
 conclusions resting on it going dark in between.
 
@@ -298,21 +299,21 @@ spelling — `functor lives_in in rule consequent (lives_in ?x cold_place) is sn
 
 It returns a **vector of problems**, empty when the sentence is admissible.  Each is a
 map with the `:type` keyword `assert` would have thrown — `:naming`, `:not-ground`,
-`:not-well-formed`, `:not-range-restricted`, `:not-stratified`, `:not-assertible`,
-`:exception-not-closed`, `:arg-type`, `:arg-genl`, `:arg-position`, `:inter-arg-type`,
+`:not-well-formed`, `:not-range-restricted`, `:not-indexable`, `:not-stratified`,
+`:not-assertible`, `:exception-not-closed`, `:arg-type`, `:arg-genl`, `:arg-position`, `:inter-arg-type`,
 `:arg-constraint-kind`, `:arity`, `:disjoint`, `:functional`, `:asymmetric` — a readable
 `:message`, and whatever else that check knows (`:arg` / `:expected` / `:position` for an
 argIsa breach, plus `:trigger` and `:trigger-position` for the `interArgIsa` form, which
 names the argument whose type made the constraint fire; `:cycle` for a stratification
 one).  Three further types are about the *request* rather than the
-knowledge: `:shape` (the context is not a symbol, the sentence is not an s-expression,
-`opts` is not a map), `:unknown-option` (an `opts` key `assert` does not read, or a
+knowledge: `:shape` (the context is not a symbol, the sentence is not an
+s-expression), `:unknown-option` (a non-map `opts`, an `opts` key `assert` does not read, or a
 `:strength` that is not an assertable class — below) and `:not-checkable` (a top-level
 `do/` imperative, which `check` will not run to find out what it does).  The stages stop
 at the first that finds anything, since each later one reads the KB assuming the earlier
 ones held.
 
-`check-edit` is the same over an `edit` batch, and each problem additionally carries
+`check-edit` is the same over an `edit!` batch, and each problem additionally carries
 `:in` (`:add` / `:remove`), `:index` and `:entry`, so a caller can point at the line
 rather than at the batch.  An `:add` is judged against the KB **as it stands**, and a
 `:remove` for naming an actually stored handle (`:unknown-handle`).
@@ -328,9 +329,11 @@ would *mean*: `(preview kb {:add […] :remove […]} opts)` returns the belief 
 would add and the belief it would take away, and then puts the KB back exactly as it
 found it.
 
-**`edit-with-consequences`** is the same question after the fact — `edit`'s
-`{:added :removed}` with `:believed-added` / `:believed-removed` merged in, in `preview`'s
-entry shapes, so a caller renders a promise and its outcome with one renderer.  `edit`
+**`edit-with-consequences!`** is the same question after the fact — `edit!`'s
+`{:added :removed}` with `:believed-added` / `:believed-removed` **and `:bounded?`**
+merged in, in `preview`'s entry shapes, so a caller renders a promise and its outcome
+with one renderer — and knows when a cap bit, since a capped diff read as complete is
+a consequence silently unreported.  `edit!`
 alone reports the handles it stored, which is what the caller already said; this reports
 what followed, and `:premise?` on each entry is what separates the two.  Its removed half
 omits what the sweep *deleted* (there is no record left to describe) — for that, ask
@@ -345,7 +348,7 @@ entries `goal` answers and carrying the `:bindings` that answered.  Both return 
 `unwatch`; `watchers` lists what is registered.
 
 A batch settles once, so a batch is one call, and its halves are what
-`edit-with-consequences` reports for the same batch.  A `preview` and a `recover` are
+`edit-with-consequences!` reports for the same batch.  A `preview` and a `recover` are
 silent, a mutation that moved no belief is silent, and a goal whose truth is not a function
 of the moved region — a conjunction, an aggregate, `unknown`, `thereExists`, an evaluable,
 an `ist` — is **refused** (`:not-watchable`) rather than watched for nothing.  A listener
@@ -361,10 +364,27 @@ otherwise silent in the same way: the sentence lands, at a defeat class the call
 not ask for, and a stored sentex carries no record of the class it was meant to have.
 `{:strenth :monotonic}` makes known-true content defeasible; `{:strength 0.7}` names a
 class the KB does not have; `(assert kb s ctx :monotonic)` names nothing at all.
-`check` reports all of them (the non-map shape under `:shape`), so a batch critic
-catches them before anything is written.  `why` holds its own `opts` to the same
+`check` reports all of them (the non-map `opts` under `:unknown-option`), so a batch
+critic catches them before anything is written.  `why` holds its own `opts` to the same
 standard: it reads `:max-depth` alone, and a non-map `opts`, an unknown key, or a
 `:max-depth` that is not a natural number is refused (`:unknown-option`).
+
+**Every door holds a roster, not just these two.**  An option map is a request, and a key
+a door does not read is a request it cannot honour — so it is refused rather than
+dropped, at `forward-chain`, the extent readers (`sentexes-in-context` /
+`-with-functor` / `-with-arg`), `query`, `preview`, `edit-with-consequences!`, `export!`,
+`import!`, `find-terms`, `abduce`, the anytime budget maps, and `open-kb`.  The failure a
+roster exists to stop is not a crash but a *different answer*: `{:max-derivation n}` at
+`forward-chain` ran unbounded, `{:believed true}` at an extent reader answered the stored
+extent with defeated defaults in it, and an `open-kb` mount or durability key naming no
+axis opened a KB other than the one asked for.  Each of those is a plausible answer to a
+question nobody asked, which is the shape of failure hardest to notice from the outside.
+
+One roster is open on purpose and says so: `query`'s, which hands what it does not name
+to the node engine.  Everywhere else a key off the roster is `:unknown-option`, and
+`check` reports what the writing door would throw.  The CLI keeps a roster of its own —
+its `--` flags, refused the same way and for the same reason — since a command line is
+not an option map.
 
 **Every handle-taking fn holds one contract.**  `nil` is a question with an answer —
 `handle-of` answers nil for a sentence the KB does not hold, so `(in? kb (handle-of kb
@@ -378,7 +398,7 @@ consequent, so `(retract! kb (assert kb rule ctx))` would otherwise be a silent 
 that reads as "there was nothing to do".  The contract covers `retract!`, `in?`,
 `premise?`, `why`, `why-not`, `provenance`, `add-provenance`, `sentex`,
 `justification`, `defeat-class`, `supporting-justifications`,
-`dependent-justifications`, and `edit`'s `:remove` entries; `check-edit` reports the
+`dependent-justifications`, and `edit!`'s `:remove` entries; `check-edit` reports the
 same refusal as a problem (`:bad-handle`) rather than throwing it.
 
 `vaelii.impl.spec` carries opt-in `clojure.spec` `fdef`s for the whole shape-carrying
@@ -473,7 +493,7 @@ cat)` — dogs are bigger than cats — and a claim about two particular animals
 and the worked fables hang **below WellContext** in the test-world. `test/vaelii/world.clj`
 loads a cast (type memberships + natural-world facts in `NaturalWorldContext`, social
 facts in a sibling `SocialWorldContext`); `test/vaelii/world_fables.clj` adds four Aesop
-fables as microtheories under `StoriesContext` (`LionMouseContext`, `TortoiseHareContext`,
+fables as contexts under `StoriesContext` (`LionMouseContext`, `TortoiseHareContext`,
 `AntGrasshopperContext`, `CriedWolfContext`), each *deriving* its moral by joined
 inference; `test/vaelii/world_narrative.clj` layers a **story-understanding ontology**
 (types agent/event/action/goal/mental_state and relations

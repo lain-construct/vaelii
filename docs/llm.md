@@ -2,7 +2,7 @@
 
 A pluggable language model that reads a KB through its own tools and answers with a
 **proposed edit batch**. It never writes. The batch is the exact shape
-`vaelii.core/edit` takes, which is also the shape the browser's textarea editor
+`vaelii.core/edit!` takes, which is also the shape the browser's textarea editor
 already produces — so a proposal lands in the existing editor as a reviewable diff,
 adding no write path and no trust boundary.
 
@@ -690,7 +690,7 @@ runaway and a wall-clock timeout does not stop a host that is still generating.
 The panel is where the **explicit apply** actually happens. Each line comes back with the
 shapes `correct` would accept, numbered, the rewrite leading; the reader picks one (which
 re-derives it from `apply-correction` and re-checks it), accepts what they want, and the
-accepted set goes through `vaelii.core/edit` in one settle. So `apply-proposal!`'s
+accepted set goes through `vaelii.core/edit!` in one settle. So `apply-proposal!`'s
 contract holds all the way to the screen: a model's output reaches storage only where a
 person put it there, one line at a time. See [docs/web.md](web.md), "Proposing knowledge".
 

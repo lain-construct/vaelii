@@ -79,8 +79,16 @@
   the format and `kv/index-layout-version`, the byte-order tag (an image whose endianness
   differs is refused rather than read wrong), and `record-store/slot-fingerprint`.  The
   decision carries a reason from `import`'s vocabulary — `:absent` `:layout-changed`
-  `:records-differ` `:entries-truncated` — because a rebuild nobody can explain is a
-  rebuild nobody notices.
+  `:records-differ` `:entries-truncated` `:unsupported-platform` — because a rebuild
+  nobody can explain is a rebuild nobody notices.
+
+  ## The platform
+
+  The commit is an atomic rename over a file this process has mapped, which Windows does
+  not permit, so `vaelii.index.snapshot` is **refused** there (`enabled?`) and an image
+  found on disk is discarded as `:unsupported-platform` rather than read and never
+  refreshed.  Nothing else in the `:disk` backend is implicated: the logs are appends and
+  the slots are positional writes.
 
   A commit is one atomic step: the sections are written to temps and fsynced, the meta is
   **deleted**, the temps are renamed into place, and the meta is written last.  Its
@@ -93,8 +101,10 @@
   vocabulary is fixed — and resident heap that still grows with the facts, because the
   token dictionary is fact-scaled and the CSR skeleton is path-scaled.  The acceptance
   property it was built for does **not** hold, which is why it is off by default."
-  (:require [taoensso.trove :as trove]
+  (:require [clojure.string :as str]
+            [taoensso.trove :as trove]
             [vaelii.impl.columnar :as col]
+            [vaelii.impl.config :as config]
             [vaelii.impl.dense-roots :as roots]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.tokens :as dtok]
@@ -121,12 +131,49 @@
   from a machine of the other endianness is refused instead of read as noise."
   "LITTLE_ENDIAN")
 
+;; ---- the platform the image publishes on --------------------------------
+
+(defn- os-name
+  "The platform, as a fn so a test can name one this machine is not — asserting the
+  guard by re-reading `os.name` would assert the expression it is checking."
+  ^String []
+  (str (System/getProperty "os.name")))
+
+(defn- publishable-platform?
+  "Can an image be *published* here?  The question is the rename, not the map: a
+  read-only `FileChannel.map` works everywhere, and what Windows does not permit is
+  `Files/move` with `REPLACE_EXISTING` over a target that is currently mapped — which is
+  how `rename!` below commits every section.  The JVM offers no portable unmap, so there
+  is no way to hold the guarantee there.
+
+  Windows is the refused case and everything else is admitted: the evidence is one
+  operating system's file-locking model, so \"not Windows\" is the honest reading of it.
+  The `:disk` backend itself is untouched by this — its logs and slots are ordinary
+  appends and positional writes, and refusing them here would turn a working platform
+  into a refused one on the strength of an off-by-default feature."
+  []
+  (not (str/starts-with? (str/lower-case (os-name)) "windows")))
+
 (defn enabled?
   "Is the mapped index snapshot on?  `vaelii.index.snapshot` — the property is the switch,
   and the *validity* check is not gated on it: a snapshot that exists is either valid or
-  discarded, never trusted because a flag said so."
+  discarded, never trusted because a flag said so.
+
+  On a platform that cannot publish an image, the property is **refused** rather than
+  read as off: an operator who set a flag and got the default in silence is the failure
+  `config` exists to close, and here the silence would be about durability of a rebuild
+  they think they no longer pay for."
   []
-  (= "true" (System/getProperty "vaelii.index.snapshot")))
+  (let [on? (config/index-snapshot?)]
+    (when (and on? (not (publishable-platform?)))
+      (throw (ex-info (str "vaelii.index.snapshot is on and this is " (os-name)
+                           " — the image publishes by renaming a new file over the live"
+                           " one while it is mapped, which Windows does not permit."
+                           "  Unset the property; :disk-columnar rebuilds its index from"
+                           " the records on open.")
+                      {:type :unsupported-platform :property "vaelii.index.snapshot"
+                       :os (os-name)})))
+    on?))
 
 (defn snapshot-root ^String [dir] (str dir "/index"))
 
@@ -398,6 +445,12 @@
         {kn :keys hn :handles}       (:roots m)]
     (cond
       (nil? m)                                       :absent
+      ;; An image is readable here and could never be refreshed: the publish is what the
+      ;; platform refuses, and a mapped index that cannot be rewritten is a cache that
+      ;; goes stale against its own records the moment one moves.  So it joins the
+      ;; mismatch classes beside byte order, which is the same portability question one
+      ;; layer down, and inherits their reindex path.
+      (not (publishable-platform?))                  :unsupported-platform
       (not= format-version (:format m))              :layout-changed
       (not= kv/index-layout-version (:index-layout m)) :layout-changed
       (not= byte-order-tag (:byte-order m))          :byte-order
@@ -524,7 +577,7 @@
 (defn load!
   "Map `dir/index` into `store`, or say why it cannot be.  Returns `{:index :mapped …}` or
   `{:index :rebuild :reason r}` with `r` one of `:absent` `:layout-changed` `:byte-order`
-  `:records-differ` `:entries-truncated` `:unreadable`.
+  `:unsupported-platform` `:records-differ` `:entries-truncated` `:unreadable`.
 
   The caller reindexes on any `:rebuild` — which is always legal, because the index is
   derived state and this is a cache of it."

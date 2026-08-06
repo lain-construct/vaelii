@@ -42,7 +42,7 @@
   together) and its negated members (`:neg`, forbidden to be *absent* together, e.g. an
   at-least-one requirement).  `:neg` is optional and usually absent."
   [ng]
-  (into (:nogood ng) (:neg ng)))
+  (into (set (:nogood ng)) (:neg ng)))
 
 (defn program
   "Build a solver Program for a set of `contested` handles and the `nogoods` among
@@ -94,12 +94,14 @@
              ;; contradiction list, not just within one nogood, since an earlier
              ;; choice constrains later ones
              ngs (sort-by (juxt (comp - :priority)
-                                #(pr-str (sort (map (partial content-key program) (:nogood %)))))
+                                #(pr-str (sort (map (partial content-key program)
+                                                    (concat (:nogood %) (:neg %))))))
                           contradictions)]
         (if (empty? ngs)
           {:defeat defeated :violated violated}
-          (let [{:keys [nogood] :as ng} (first ngs)
+          (let [{:keys [nogood neg] :as ng} (first ngs)
                 live      (remove defeated nogood)
+                present   (remove defeated neg)      ; `:neg` members still believed
                 choosable (filter assumptions live)]
             (cond
               ;; Satisfied as soon as ONE member is out — a nogood is a conjunction
@@ -110,6 +112,11 @@
               ;; disbelieved to satisfy a constraint that already holds.  The engine
               ;; only builds pairs today, which is why this was invisible.
               (< (count live) (count nogood)) (recur defeated violated (rest ngs))
+              ;; The `:neg` half is an at-least-one: any member still believed
+              ;; satisfies it, a fixed member (outside `assumptions`) permanently so.
+              ;; Only with every member defeated is it violated — and defeating more
+              ;; cannot restore presence, so there is nothing to choose.
+              (and (seq neg) (seq present)) (recur defeated violated (rest ngs))
               (empty? choosable)  (recur defeated (conj violated ng) (rest ngs)) ; cannot satisfy
               :else (recur (conj defeated (last (sort-by #(content-key program %) choosable)))
                            violated (rest ngs)))))))))

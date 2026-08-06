@@ -345,9 +345,9 @@ a.t-num     { color: var(--t-num); }                     /* 1970                
    opaque nat/ constant.  The parens are what say it is one *term* and not a compound
    sentence — the constant and the literal expression it maps to read identically
    otherwise — and the opening one links to the constant's own page. */
-a.nart-paren,
-.nart-paren { font-weight: 700; color: var(--ink); text-decoration: none; }
-a.nart-paren:hover { color: var(--accent); text-decoration: none; }
+a.nat-paren,
+.nat-paren { font-weight: 700; color: var(--ink); text-decoration: none; }
+a.nat-paren:hover { color: var(--accent); text-decoration: none; }
 
 .legend   { font-size: .85em; color: var(--muted); margin: .2rem 0; }
 .legend b { font-weight: 600; }

@@ -179,7 +179,7 @@
 
 (tu/deftest-kb the-transitivity-licence-is-read-from-the-asking-context
   ;; `usable-relation?` reads `(transitive R)` from the vantage, exactly as the
-  ;; declaration itself is read: a transitivity some microtheory this one cannot see
+  ;; declaration itself is read: a transitivity some context this one cannot see
   ;; states is not a licence it holds.
   ;;
   ;; The pair lives here rather than in `context_scoping_test` because it cannot be

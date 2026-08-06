@@ -14,7 +14,7 @@
   binary, a constraint being a set of relations on a *pair*.  The resolution is that a
   context already **is** a frame of reference: a network is built per context out of the
   facts visible there, so `(leftOf Mouse Lion)` asserted in `LionMouseContext` is a claim
-  in that microtheory's frame and in no other.  Two microtheories looking at the same
+  in that context's frame and in no other.  Two contexts looking at the same
   individuals from opposite sides state opposite facts and neither contaminates the
   other; a frame that has to be argued about rather than assumed is a context, and the
   argument is `genlContext`.  So this calculus is binary, composes exactly as the

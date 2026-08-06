@@ -30,6 +30,25 @@
       :timeout-ms timeout-ms
       :http       (.build b)})))
 
+(defn- read-reply
+  "Parse a daemon reply body, or refuse it typed.
+
+  The daemon answers EDN; anything else on the wire came from something that is not the
+  daemon — a proxy's HTML error page, a truncated body — and reading it raised a bare
+  `RuntimeException` with no `:type`, or handed back `nil`, which then read as
+  `{:ok nil}` and threw \"vaelii daemon: \" with no message and no type.  `Throwable`,
+  because a deeply nested reply overflows the reader's stack."
+  [^String body]
+  (let [form (try (edn/read-string body)
+                  (catch Throwable t
+                    (throw (ex-info (str "the daemon's reply does not read as EDN: "
+                                         (.getMessage t))
+                                    {:type :bad-reply :body body}))))]
+    (if (map? form)
+      form
+      (throw (ex-info (str "the daemon's reply is not a map: " (pr-str form))
+                      {:type :bad-reply :reply form})))))
+
 (defn- send-edn
   "POST `body` (an EDN string) to `path` and return the parsed EDN reply map."
   [conn path body]
@@ -39,7 +58,7 @@
     (.header rb "content-type" "application/edn")
     (.POST rb (HttpRequest$BodyPublishers/ofString ^String body))
     (let [^HttpResponse resp (.send http (.build rb) (HttpResponse$BodyHandlers/ofString))]
-      (edn/read-string ^String (.body resp)))))
+      (read-reply (.body resp)))))
 
 (defn call
   "POST `{:op op :args args}` and return the `:result`, or throw `ex-info` on an
@@ -49,8 +68,14 @@
   (let [reply (send-edn conn "/op" (pr-str {:op op :args (vec args)}))]
     (if (:ok reply)
       (:result reply)
+      ;; the daemon's own `:type` when it sent one, so a caller discriminates on the one
+      ;; vocabulary `docs/operations.md` promises; `:daemon-error` when it did not, since
+      ;; this was the one `ex-info` in the tree that could carry no `:type` at all.
+      ;; `or` rather than `merge` defaults: a reply carrying `:type nil` — the key
+      ;; present, the value useless — must not defeat the fallback.
       (throw (ex-info (str "vaelii daemon: " (:error reply))
-                      (assoc reply :op op :args (vec args)))))))
+                      (-> (merge reply {:op op :args (vec args)})
+                          (update :type #(or % :daemon-error))))))))
 
 (defn health
   "The daemon's liveness reply, `{:ok true}` — a GET, so it needs no op."
@@ -59,7 +84,7 @@
         ^HttpRequest$Builder rb (HttpRequest/newBuilder (URI/create (str (:base-url conn) "/health")))]
     (.GET rb)
     (let [^HttpResponse resp (.send http (.build rb) (HttpResponse$BodyHandlers/ofString))]
-      (edn/read-string ^String (.body resp)))))
+      (read-reply (.body resp)))))
 
 ;; ---- convenience wrappers: the vaelii.core surface, conn-first ------------
 ;; Each threads `conn` and forwards the same args the in-process fn takes.  A sentex

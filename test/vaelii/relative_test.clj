@@ -292,7 +292,7 @@
 
 (tu/deftest-kb a-frame-of-reference-is-a-context-and-does-not-leak
   ;; The test the whole design decision rests on.  Relative direction is ternary in the
-  ;; literature and the network is binary; the viewpoint is the microtheory.  So the same
+  ;; literature and the network is binary; the viewpoint is the context.  So the same
   ;; two individuals stand in opposite relations in two sibling contexts, each context's
   ;; network answers its own way, and neither is contaminated by the other.
   (tu/with-terms [Mouse Lion FromTheLionContext FromTheMouseContext]

@@ -49,9 +49,10 @@
   `vaelii.impl.catalog/classify` keys on it, so a half-written or cancelled export is
   not offered as loadable.  That is the one ordering constraint in the whole format.
 
-  Export from a KB nobody is writing: the walk fetches record by record, and pure's
+  Export from a KB nobody is writing: the walk fetches record by record, and the
   single-writer contract offers no snapshot to walk instead."
   (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
             [vaelii.impl.io.fingerprint :as fp]
@@ -251,6 +252,32 @@
 
 (def ^:private no-progress (fn [_]))
 
+(def ^:private export-opt-keys
+  "Every key `export!` reads."
+  #{:variant :compression :chunk-size :provenance? :on-progress})
+
+(defn- check-export-opts!
+  "Refuse an opts key `export!` does not read, and a non-nil non-map `opts` — before
+  the value checks, and like them before the destination directory exists.
+  `check-compression!` and `check-variant!` hold the *values* of two known keys; this
+  is the key check beside them, and the failure it stops is quieter than a bad value:
+  a misspelt `:varient` or `:provenence?` takes its default in silence and writes a
+  dump other than the one asked for — no index where one was ordered, the unbounded
+  provenance stream where it was dropped — under a summary that looks exactly right."
+  [opts]
+  (when (and (some? opts) (not (map? opts)))
+    (throw (ex-info (str "export! options must be a map, got " (pr-str opts))
+                    {:type :unknown-option :options (vec (sort export-opt-keys))})))
+  (when-let [unknown (seq (sort-by pr-str (remove export-opt-keys (keys opts))))]
+    (throw (ex-info (str "unknown export! option" (when (next unknown) "s") " "
+                         (str/join ", " (map pr-str unknown))
+                         " — export! reads "
+                         (str/join ", " (map pr-str (sort export-opt-keys)))
+                         ".  An option nothing reads takes the default in silence,"
+                         " which here writes a dump other than the one asked for.")
+                    {:type :unknown-option :unknown (vec unknown)
+                     :options (vec (sort export-opt-keys))}))))
+
 (defn- check-variant! [variant]
   (when-not (contains? variants variant)
     (throw (ex-info (str "unknown variant " variant " — a dump is written "
@@ -324,7 +351,9 @@
   ([kb dir] (export! kb dir {}))
   ([kb dir {:keys [variant compression chunk-size on-progress provenance?]
             :or   {variant :records compression :gzip chunk-size 10000
-                   on-progress no-progress provenance? true}}]
+                   on-progress no-progress provenance? true}
+            :as   opts}]
+   (check-export-opts! opts)
    (check-compression! compression)
    (check-variant! variant)
    (let [t0       (System/nanoTime)
@@ -370,7 +399,7 @@
                      :format              format-marker
                      :format-version      format-version
                      :variant             variant
-                     :dialect             :pure
+                     :dialect             :vaelii
                      :frames              :field-map
                      :framing             :chunked
                      :compression         compression

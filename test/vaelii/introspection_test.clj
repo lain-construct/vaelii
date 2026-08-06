@@ -176,7 +176,7 @@
       (is (contains? (set (v/types-of kb Fido)) dog)))
     (testing "the asserting context sees its own membership"
       (is (contains? (set (v/types-of kb Fido AlphaContext)) dog)))
-    (testing "a sibling microtheory does not"
+    (testing "a sibling context does not"
       (is (not (contains? (set (v/types-of kb Fido BetaContext)) dog))
           "Beta does not see Alpha, so Alpha's membership is invisible from it"))))
 

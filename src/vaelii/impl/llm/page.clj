@@ -73,7 +73,7 @@
   the choice cannot depend on arrival order.  The **vocabulary head is never chosen**: a term
   carries derived bookkeeping there (`(arity penguin 1)`, `(unaryPredicate penguin)`) which can
   outnumber its definitional sentexes, and new domain knowledge does not belong in the
-  microtheory that defines the vocabulary.  Reported back by
+  context that defines the vocabulary.  Reported back by
   `vaelii.impl.llm.session/propose-page`, because which context knowledge lands in is a
   decision a reviewer must see."
   [rows given]
@@ -219,7 +219,7 @@
 ;; ---- reading the answer -------------------------------------------------
 
 (defn assertion-entry
-  "One read sentence -> the `[sentence context opts?]` entry `vaelii.core/edit` takes,
+  "One read sentence -> the `[sentence context opts?]` entry `vaelii.core/edit!` takes,
   with the caller's context supplied.  `strength` rides across as
   `{:strength :monotonic}` when the model claimed the assertion is known-true; a default
   needs no opts, since that is `assert`'s own default."

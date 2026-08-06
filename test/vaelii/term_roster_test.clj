@@ -196,3 +196,30 @@
     (testing "an empty query matches everything, and :limit bounds it"
       (is (= (v/terms kb) (v/find-terms kb "")))
       (is (= 10 (count (v/find-terms kb "" {:limit 10})))))))
+
+(deftest find-terms-refuses-a-limit-that-is-not-a-positive-integer
+  ;; `:limit` reaches `take`, so a string limit raises a bare cast error — over the
+  ;; daemon's `:find-terms` op, a 500 with no `:type` to discriminate on.  Refused as
+  ;; `:unknown-option`, the vocabulary of the `:match` refusal beside it: a known key holding
+  ;; a value it cannot mean.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [parentOf Ann LimitContext]
+      (v/assert kb (list parentOf Ann Ann) LimitContext)
+      (doseq [bad ["5" 0 -1 5.0 :ten]]
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (v/find-terms kb "tmp" {:limit bad}))
+                    (str (pr-str bad) " is refused"))]
+          (is (= :unknown-option (:type (ex-data e))))
+          (is (re-find #"positive integer" (ex-message e)))))
+      (testing "a positive integer still bounds, and an explicit nil is no limit"
+        (is (= 1 (count (v/find-terms kb (subs (str parentOf) 0 3) {:limit 1}))))
+        (is (= (v/find-terms kb "tmp") (v/find-terms kb "tmp" {:limit nil})))))))
+
+(tu/deftest-kb a-find-terms-key-nothing-reads-is-refused
+  ;; a misspelt `:mtch` silently ran the default prefix search, and a prefix answer
+  ;; where substring was asked for reads as "no such term" — in the browser's own
+  ;; search box, over the wire.
+  (doseq [opts [{:mtch :substring} {:case-sensitve? true} {:limit 3 :mach :regex}]]
+    (let [e (try (v/find-terms kb "x" opts) nil
+                 (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :unknown-option (:type e)) (pr-str opts)))))

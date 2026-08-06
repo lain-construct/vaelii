@@ -159,3 +159,29 @@
       (testing "and no bogus context was invented"
         (is (= contexts-before (set (v/contexts kb))))
         (is (not (contains? (set (v/contexts kb)) NotACtx)))))))
+
+;; ---- the opts roster ------------------------------------------------------
+
+(tu/deftest-kb a-forward-chain-option-nothing-reads-is-refused
+  ;; Every key `forward-chain` takes is a bound or the window into one, so the
+  ;; silent-default failure is a run with no ceiling: `{:max-derivation n}` reads as no
+  ;; key at all and the fixpoint runs unbounded — the exact run the option was written
+  ;; to prevent.  Wire-reachable, too: the daemon's `:forward-chain` op passes its args
+  ;; straight through.
+  (testing "the singular typo is refused, naming the plural it meant"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (v/forward-chain kb {:max-derivation 5})))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= [:max-derivation] (:unknown (ex-data e))))
+      (is (re-find #":max-derivations" (ex-message e))
+          "the message lists what forward-chain does read")))
+  (testing "a non-map opts is refused rather than read as no bounds"
+    ;; The keyword is the point — the refusal is what this asserts — so the
+    ;; type mismatch clj-kondo sees is the test's subject, not a defect.
+    #_{:clj-kondo/ignore [:type-mismatch]}
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
+                          (v/forward-chain kb :max-derivations))))
+  (testing "the rostered keys still run"
+    (let [r (v/forward-chain kb {:max-depth 2 :max-derivations 10
+                                 :progress-every-ms 1000 :on-progress (fn [_])})]
+      (is (contains? r :derived)))))

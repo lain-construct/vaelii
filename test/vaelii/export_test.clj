@@ -157,7 +157,7 @@
             (testing "meta.edn announces the format rather than leaving it to be inferred"
               (is (= :vaelii/export (:format meta)))
               (is (= 1 (:format-version meta)))
-              (is (= {:variant :records :dialect :pure :frames :field-map
+              (is (= {:variant :records :dialect :vaelii :frames :field-map
                       :framing :chunked :handle-policy :preserved}
                      (select-keys meta [:variant :dialect :frames :framing :handle-policy])))
               (is (string? (:written-at meta)))
@@ -351,7 +351,7 @@
       (fn [mem-dir disk-dir store-dir]
         (rm-rf! mem-dir)
         (rm-rf! disk-dir)
-        (tu/with-cleared-kb [mem-kb #(doto (v/open-kb (assoc tu/scratch-space :backend :memory))
+        (tu/with-cleared-kb [mem-kb #(doto (v/open-kb tu/plain-memory-space)
                                        (tu/clear-kb!))]
           (let [store-path (.getPath ^File store-dir)
                 disk-kb    (v/open-kb {:backend :disk :dir store-path :recover? false})]
@@ -445,3 +445,48 @@
           (is (not (.exists (io/file dir "meta.edn"))))
           (is (nil? (catalog/classify dir))
               "and the catalog does not classify what it left behind as a dump"))))))
+
+;;; ── the opts rosters ──────────────────────────────────────────────────
+
+(deftest an-export-or-import-option-nothing-reads-is-refused
+  ;; `check-compression!` and `check-variant!` hold the *values* of two known keys;
+  ;; the key roster is the check beside them, against a quieter failure: a misspelt
+  ;; `:varient` or `:provenence?` takes its default in silence and writes a dump other
+  ;; than the one asked for — no index where one was ordered, the unbounded provenance
+  ;; stream where it was dropped — under a summary that looks exactly right.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (with-dirs* 1 "roster"
+      (fn [^File dir]
+        (rm-rf! dir)
+        (testing "export! refuses the misspelt key before the directory exists"
+          (let [e (is (thrown? clojure.lang.ExceptionInfo
+                               (export/export! kb dir {:varient :records+index})))]
+            (is (= :unknown-option (:type (ex-data e))))
+            (is (= [:varient] (:unknown (ex-data e))))
+            (is (re-find #":variant" (ex-message e)) "the right spelling is in it"))
+          (is (not (.exists ^File dir)) "a refused export leaves nothing to clean up"))
+        (testing "and a non-map opts the same"
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
+                                (export/export! kb dir :gzip))))))
+    (with-dirs* 1 "import-roster"
+      (fn [^File dir]
+        (rm-rf! dir)
+        (tu/with-terms [dog Fido Rex RosterContext]
+          (v/assert kb (list dog Fido) RosterContext)
+          (v/assert kb (list dog Rex) RosterContext))
+        (export/export! kb dir {:compression :none})
+        (tu/with-cleared-kb [target #(tu/isolated-fresh)]
+          (testing "import-dump refuses the misspelt flag before reading anything"
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (imp/import-dump target (str dir) {:beleif? false})))]
+              (is (= :unknown-option (:type (ex-data e))))
+              (is (= [:beleif?] (:unknown (ex-data e))))
+              (is (re-find #":belief\?" (ex-message e)))
+              (is (zero? (:sentexes (tu/content-count target))) "nothing landed")))
+          (testing "and :report-every is a real option, in the roster"
+            (let [seen (atom 0)
+                  s    (imp/import-dump target (str dir)
+                                        {:belief? false :report-every 1
+                                         :on-progress (fn [_] (swap! seen inc))})]
+              (is (map? s))
+              (is (pos? @seen) "the callback ran at the named cadence"))))))))

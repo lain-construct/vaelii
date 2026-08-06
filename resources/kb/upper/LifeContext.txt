@@ -1,7 +1,7 @@
 ;; LifeContext — relations about organisms: kinship (parentOf/childOf/siblingOf/
 ;; ancestorOf/grandparentOf), age (birthYearOf/olderThan/mortal), and behavior
 ;; (eats/flies/canTravel). Sees CoreContext; UniverseContext sees it, so any
-;; relation here is visible from every microtheory.
+;; relation here is visible from every context.
 
 (genlContext LifeContext CoreContext)
 (genlContext UniverseContext LifeContext)
@@ -30,10 +30,10 @@
 (argIsa awake 1 animal)
 
 (comment birthYearOf
-         "(birthYearOf ?person ?year) means that ?person was born in ?year. ?year is a plain number rather than a term, which is why it carries no argIsa. Declared functional: a second, different year for one person is a contradiction rather than a second fact, and that is what makes birthYearOf sound enough to derive olderThan from.")
+         "(birthYearOf ?animal ?year) means that ?animal was born in ?year. ?year is a plain number rather than a term, which is why it carries no argIsa. Declared functional: a second, different year for one person is a contradiction rather than a second fact, and that is what makes birthYearOf sound enough to derive olderThan from.")
 (binaryPredicate birthYearOf)
 (instanceRelationPredicate birthYearOf)
-(argIsa birthYearOf 1 person)
+(argIsa birthYearOf 1 animal)
 (functional birthYearOf)
 
 (comment breathesAir
@@ -118,11 +118,11 @@
 (functional motherOf)
 
 (comment olderThan
-         "(olderThan ?person1 ?person2) means that ?person1 was born before ?person2. Derived rather than asserted — a rule compares the two birthYearOf values with the evaluable lessThan — so it holds exactly when both birth years are known and ordered.")
+         "(olderThan ?animal1 ?animal2) means that ?animal1 was born before ?animal2. Derived rather than asserted — a rule compares the two birthYearOf values with the evaluable lessThan — so it holds exactly when both birth years are known and ordered.")
 (binaryPredicate olderThan)
 (instanceRelationPredicate olderThan)
-(argIsa olderThan 1 person)
-(argIsa olderThan 2 person)
+(argIsa olderThan 1 animal)
+(argIsa olderThan 2 animal)
 
 (comment parentOf
          "(parentOf ?parent ?child) means that ?parent is a biological parent of ?child. Both arguments are individual animals, and step- or adoptive parenthood is not this predicate. The primitive of the kinship theory: childOf, siblingOf, grandparentOf and ancestorOf are all read off it rather than asserted beside it.")

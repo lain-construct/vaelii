@@ -84,7 +84,7 @@
   supporting-justifications dependent-justifications lookup escalate explain-levels context-size
   sentexes-in-context sentexes-with-arg sentexes-with-functor count-with-arg
   count-with-functor disjoint-metatypes metatype-members conflicts contradictions
-  ;; what a reified term denotes, so a NART is displayed as the expression it was
+  ;; what a reified term denotes, so a reified NAT is displayed as the expression it was
   ;; minted from rather than as its opaque constant (docs/nat.md).  Gated by the pure
   ;; `reified-term?` below, so a KB with no reified terms never sends it
   term-expression
@@ -105,17 +105,17 @@
 
 ;; ---- the writes ---------------------------------------------------------
 
-(defn edit
+(defn edit!
   "Apply an edit batch to the target, local or over the daemon.  `batch` is
   `{:add [[sentence context opts?]…] :remove [handles…]}`; adds land before removes and
-  the whole thing settles once (`vaelii.core/edit`).  Both of the browser's mutations —
+  the whole thing settles once (`vaelii.core/edit!`).  Both of the browser's mutations —
   saving edited sentexes, asserting new ones, retracting a selection — are this one
   call, so every write it makes is one settle."
   [target batch] (dispatch :edit target [batch]))
 
-(defn edit-with-consequences
+(defn edit-with-consequences!
   "`edit`, and what the batch turned out to mean — the belief it added and took away
-  (`vaelii.core/edit-with-consequences`, docs/preview.md).  The browser's commit paths
+  (`vaelii.core/edit-with-consequences!`, docs/preview.md).  The browser's commit paths
   use this rather than `edit` so a page can say what followed from a save; the extra
   answer is sentences and handles, EDN-clean, so it crosses the wire like any read."
   ([target batch] (dispatch :edit-with-consequences target [batch]))

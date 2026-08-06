@@ -1,6 +1,6 @@
-# Measures: the NAUT-evaluating quantity prover
+# Measures: the measure-evaluating quantity prover
 
-A **measure** is a NAUT — an `unreifiableFunction` application that stays *structural*
+A **measure** is a structural NAT — an `unreifiableFunction` application that stays *structural*
 so its magnitude and unit are readable ([nat.md](nat.md)):
 
 ```clojure
@@ -36,7 +36,7 @@ Put them in a context every querent sees (e.g. `UniverseContext`) so the prover 
 them from any asking context. That is not only convenience: a quantity comparison in a
 **rule antecedent** is a deferred literal, and the forward join asks the registry at the
 wildcard `'?ctx` where a backward search asks at its goal's context
-([inference.md](inference.md)). So a unit table split across microtheories reads whole
+([inference.md](inference.md)). So a unit table split across contexts reads whole
 forward and per-cone backward, and one stated where every reader sees it is the one
 arrangement under which the two agree.
 

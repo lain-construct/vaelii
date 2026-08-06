@@ -91,6 +91,27 @@
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (= :not-range-restricted (:type (ex-data e))) "?z is not the marked variable")))))
 
+(tu/deftest-kb the-witness-is-a-function-of-the-rule-content
+  ;; the skolem NAT keys on the rule's content digest, never on anything
+  ;; store-assigned: retracting the rule and re-asserting it — a new handle — re-fires
+  ;; to the *same* witness, so a fact stated about the witness keeps referring to it.
+  (tu/with-terms [pP qQ likes Tom A]
+    (let [hr (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C)]
+      (v/assert kb (list pP A) C {:strength :monotonic})
+      (let [k1 (witness kb (list qQ A '?w) 2)]
+        (is (some? k1) "the rule fired")
+        ;; a *binary* premise about the witness is a real use, so it keeps the
+        ;; constant's termOfUnit alive across the retraction (a unary fact would read
+        ;; as a materialized result type and be swept with it)
+        (v/assert kb (list likes Tom k1) C {:strength :monotonic})
+        (v/retract! kb hr)
+        (is (nil? (witness kb (list qQ A '?w) 2)) "the derived witness fell with its rule")
+        (let [hr2 (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C)
+              k2  (witness kb (list qQ A '?w) 2)]
+          (is (not= hr hr2) "the re-asserted rule takes a new handle")
+          (is (= k1 k2) "and still mints the same witness — content, not handle")
+          (is (v/query? kb (list likes Tom k2) C) "so the fact about the witness co-refers"))))))
+
 ;; ---- shared witness across a conjunctive head ----------------------------
 
 (tu/deftest-kb a-conjunctive-existential-head-shares-one-witness

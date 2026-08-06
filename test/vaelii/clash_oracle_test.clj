@@ -55,7 +55,7 @@
 
   The other one-sided shape, a pair **across a visibility edge**, is covered rather than
   excluded: a term's content is written in either context here, so `(animal X)` in the
-  general microtheory beside `(plant X)` in the one that sees it is an ordinary draw.
+  general context beside `(plant X)` in the one that sees it is an ordinary draw.
   Both paths ask each candidate's question from every context that can see a pair it
   could form (`settle/clash-askers`), so the two agree on it and the stream is what says
   so — the exhaustive reference reaches the pair from the specific side on every settle,
@@ -334,3 +334,25 @@
             (is (= ri re) (str "step " i " " (pr-str op) ": refusal differs"))
             (is (= si se) (str "step " i " " (pr-str op) ": " (pr-str (diff si se)))))))
       (finally (tu/clear-kb! inc-kb) (tu/clear-kb! exh-kb)))))
+
+(deftest the-contradictions-list-is-ordered-by-content-not-arrival
+  ;; `clash-report` orders the sides *inside* a report by content; the list one level
+  ;; up came off a hash set of handle-keyed nogoods, so `(first (contradictions kb))`
+  ;; — and any golden file or UI list over it — read whichever pair was typed first.
+  ;; Three independent dilemmas, two assertion orders: the whole vector must agree,
+  ;; position by position, when read through content rather than handles.
+  (let [pairs  '[[(clshP CA) (not (clshP CA))]
+                 [(clshQ CB) (not (clshQ CB))]
+                 [(clshR CC) (not (clshR CC))]]
+        read!  (fn [sentences]
+                 (let [kb (tu/fresh)]
+                   (try
+                     (doseq [s sentences] (v/assert kb s 'ClashBaseContext))
+                     (mapv (fn [r] (mapv :sentence (:sides r))) (v/contradictions kb))
+                     (finally (tu/clear-kb! kb)))))
+        fwd    (read! (apply concat pairs))
+        rev    (read! (apply concat (reverse pairs)))
+        rot    (read! (apply concat (take 3 (drop 1 (cycle pairs)))))]
+    (is (= 3 (count fwd)) "three standing dilemmas")
+    (is (= fwd rev rot) "every assertion order publishes one list")
+    (is (= fwd (vec (sort-by pr-str fwd))) "and it is the content order, stated directly")))

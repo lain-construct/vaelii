@@ -55,6 +55,8 @@ leaf handles and root postings rather than reading them onto the heap.
 Two space numbers (`:record-space` / `:index-space`, default 0/1) namespace the pair so
 several KBs coexist in one process; each backend uses them as it sees fit — the memory
 backend keys its registry by number, the disk backend derives a directory from them.
+Naming one in-RAM number without the other is refused: the unnamed half would sit in
+the default space, and two KBs meaning to be disjoint would share it.
 
 **An option `open-kb` does not read is refused, not ignored** (`:type
 :unknown-option`), and the space numbers are why. Every other opt fails loudly when it
@@ -160,9 +162,14 @@ above. A write thaws whatever it lands on, mapped or frozen alike. The image is 
 when the directory closes, so it never outlives what it describes by more than a crash,
 and a crash leaves no image at all.
 
-The swap is an atomic rename of the new file over the live one, and that is what puts
-the engine on **macOS and Linux only**: Windows will not replace a file while it is
-mapped, so the suite runs there and fails.
+The swap is an atomic rename of the new file over the live one, which Windows will not
+do while the target is mapped — so the image is **macOS and Linux only, and the engine
+refuses it elsewhere**: `vaelii.index.snapshot` on an unsupported platform throws
+`:unsupported-platform` naming the property, the OS and the reason, and an image already
+in the directory is discarded as one more `decision` mismatch class. Only the publish is
+implicated: the `:disk` backend's logs, slots and lock run on every platform, and with
+the property unset a `:disk-columnar` KB opens there and rebuilds its index from the
+records.
 
 One part of it does not work: the token dictionary is **not** vocabulary-scaled, so it
 is read into heap whole and its cost grows with the number of distinct terms rather
@@ -296,7 +303,26 @@ EOF four bytes at a time and pronounced intact.
 A clean `close!` records each log's length in `clean.nippy` and the next open skips the
 walk while the length still agrees; the marker is *consumed* on open, so it only ever
 describes a store nobody holds, and any disagreement — stale, absent, unreadable, past
-EOF — falls back to the walk.  The index WAL additionally **compacts on a clean close**
+EOF — falls back to the walk.
+
+The walk finds a frame boundary; it cannot say whether what remains is *everything*,
+and a short index opens populated-looking and answers short forever — re-asserting a
+fact it cannot find mints a second handle for a sentence already stored.  Two
+instruments close that, each for the loss that defeats the other, and `open-kb`'s
+coverage gate reads both.  The **batch-seal counter** (`kv/sealed-prefix`) is
+incremented as the *last* op of every `index-sentex` batch and decremented as the
+last op of an unindex's cleanup, so it equals the indexed-sentex count exactly when
+every batch landed whole: a torn append-mode tail keeps a batch's prefix — the root
+count included, which is why the root count alone is the wrong instrument — and loses
+the seal first.  The **length check** compares the file against the clean marker
+before the marker is consumed: a compacted log is one flat `[:put]` per key in hash
+order, so a tail lost at rest — a short restore, a partial copy — is arbitrary keys,
+the seal possibly among the survivors, and only the length says the file is not the
+one that was closed.  Either sign, and the gate rebuilds the index from the records.
+A store whose seal reads zero — one written before the counter, or an index installed
+whole by `import-dump`'s replay — is checked by the root count alone, as before.
+
+The index WAL additionally **compacts on a clean close**
 when its dead ratio has earned it (the same switch and threshold the background tick
 uses), because opening it is a replay and so costs the frame count rather than the
 live-key count.  Measured at 300k facts, that compaction is worth 4.5× on reopen (36.2s
@@ -314,10 +340,25 @@ in whatever was stored/killed during the rewrite (a concurrent `clear-records!` 
 abort flag and the reconcile discards its temps).  `reindex` rebuilds the index from the records on
 disk unchanged.
 
+**The switches are checked.**  Every `vaelii.*` property the backend reads — the tick
+(`vaelii.disk.sync-ms`), `vaelii.disk.fsync`, `vaelii.disk.auto-compact`,
+`vaelii.disk.compact-dead-ratio`, `vaelii.disk.compact-min-interval-ms`,
+`vaelii.disk.compress`, `vaelii.disk.cache`, `vaelii.disk.tokens`, `vaelii.disk.lock`,
+`vaelii.index.snapshot` — has a domain in `vaelii.impl.config`, and a value outside it is
+refused with `:unknown-option` naming the property, the value and the legal spellings.
+`open-kb` reads the lot before it opens anything (`config/check!`), which is the earliest
+door: two of them are read per fsync tick, where a throw is a log line nobody can
+attribute.  The boolean switches share one vocabulary — `true` / `1` / `on` / `yes` and
+`false` / `0` / `off` / `no`, case-insensitively, a blank value being unset — so a
+spelling that works for one works for all of them, and `=disabled` is an error rather
+than the opposite setting.  `vaelii.disk.fsync` takes `dsync` or nothing, and
+`vaelii.disk.compress` `zstd`, `lz4` or `none`.
+
 **Single-writer.**  `disk.lock` takes an exclusive OS `FileLock` on `.vaelii.lock`
 when a directory opens and fails fast if another JVM holds it — enforcing the
-single-writer contract.  `-Dvaelii.disk.lock=false` turns the lock off, for a filesystem whose `FileLock` is
-unreliable (some network mounts).  It removes the *enforcement* and not the contract:
+single-writer contract.  `-Dvaelii.disk.lock=false` (or `0` / `off` / `no`) turns the
+lock off, for a filesystem whose `FileLock` is unreliable (some network mounts).  It
+removes the *enforcement* and not the contract:
 a second writer under it corrupts exactly as the contract says one does, with nothing
 left to fail fast.
 `vaelii.core/close!` releases it without the JVM exiting —
@@ -467,7 +508,7 @@ pooled `?var0` still matches a fresh one as a binding key.
 What bounds the pool is **not** the vocabulary. A KB that only names things holds one
 entry per distinct name, but three writers mint a fresh symbol per *fact* — NAT
 reification (`nat/fresh-constant`), head-existential skolemization
-(`skolem/skolemize-conclusion`) and abduction's scratch microtheories — and the pool is
+(`skolem/skolemize-conclusion`) and abduction's scratch contexts — and the pool is
 static, process-wide and shared by every KB, so nothing hands an entry back. So it is
 capped at `sentex/*symbol-pool-limit*` (1M, several times any real vocabulary: the
 shipped ontology plus the whole of OpenCyc is ~188k constants) and cleared **wholesale**

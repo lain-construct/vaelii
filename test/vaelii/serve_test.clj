@@ -50,6 +50,16 @@
   [handler op args]
   (post-op* handler {"content-type" "application/edn"} op args))
 
+(defn- post-form
+  "POST `form` exactly as given — no `{:op :args}` shaping — which is how a
+  malformed request body itself is driven."
+  [handler form]
+  (let [body (pr-str form)
+        resp (handler {:request-method :post :uri "/op"
+                       :headers {"content-type" "application/edn"}
+                       :body (ByteArrayInputStream. (.getBytes ^String body "UTF-8"))})]
+    (assoc (edn/read-string (:body resp)) :status (:status resp))))
+
 ;; ---- the handler, no socket ---------------------------------------------
 
 (tu/deftest-kb app-dispatches-ops-and-refuses-bad-input
@@ -100,7 +110,13 @@
       (testing "a refusal (a non-ground fact) comes back as an error, not a crash"
         (let [r (post-op handler :assert [(list dog '?x) ServeContext])]
           (is (false? (:ok r)))
-          (is (= :not-ground (:type r)) "the ex-data :type rides the wire"))))))
+          (is (= :not-ground (:type r)) "the ex-data :type rides the wire")))
+      (testing "a non-sequential :args is the caller's mistake — 400 :bad-args with a
+                usable :type, not a bare 500 with none"
+        (let [r (post-form handler {:op :assert :args 5})]
+          (is (= 400 (:status r)))
+          (is (false? (:ok r)))
+          (is (= :bad-args (:type r))))))))
 
 ;; ---- the guards' refusal paths -------------------------------------------
 
@@ -318,3 +334,39 @@
               (is (empty? (client/sentexes-matching conn (list bird Tweety) WireContext))))))
         (finally
           (.stop server))))))
+
+;; ---- -main's --listen flag ------------------------------------------------
+
+(clojure.test/deftest a-listen-flag-with-no-address-is-refused
+  ;; Reading the trailing flag as loopback fails safe and is still a lie: `--listen`
+  ;; is the explicit opt-in to a public bind, and an operator whose flag was silently
+  ;; ignored walks away believing the daemon is reachable when only this machine can
+  ;; see it.  `-main` prints the message and exits 1, the port typo's pattern.
+  (testing "absent, the daemon binds loopback"
+    (is (= "127.0.0.1" (#'serve/listen-host ["4200" "/tmp/kb"]))))
+  (testing "present with an address, it binds that address"
+    (is (= "0.0.0.0" (#'serve/listen-host ["4200" "--listen" "0.0.0.0"]))))
+  (testing "present with nothing after it, it is refused"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (#'serve/listen-host ["4200" "/tmp/kb" "--listen"])))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= "--listen" (:flag (ex-data e))))
+      (is (re-find #"needs an address" (ex-message e))))))
+
+(clojure.test/deftest positionals-survive-a-flag-in-any-position
+  ;; A positional silently dropped is a disk daemon running in memory — every client
+  ;; write evaporating at exit — so the argument grammar must not depend on where the
+  ;; flag sits, and what it does not know it refuses.
+  (testing "flags and positionals interleave freely"
+    (is (= ["4200" "/var/lib"] (#'serve/positional-args ["4200" "/var/lib" "--listen" "0.0.0.0"])))
+    (is (= ["4200" "/var/lib"] (#'serve/positional-args ["4200" "--listen" "0.0.0.0" "/var/lib"])))
+    (is (= ["4200" "/var/lib"] (#'serve/positional-args ["--listen" "0.0.0.0" "4200" "/var/lib"]))))
+  (testing "an unknown flag is refused, not skipped"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (#'serve/positional-args ["4200" "--lisen" "0.0.0.0"])))]
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= "--lisen" (:flag (ex-data e))))))
+  (testing "a third positional is refused, not ignored"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (#'serve/positional-args ["4200" "/var/lib" "stray"])))]
+      (is (= :unknown-option (:type (ex-data e)))))))

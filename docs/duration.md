@@ -10,7 +10,7 @@ units, and adds up the lengths of several. Two computed predicates, neither ever
 ```
 
 An interval's own duration is an ordinary stored fact, `(length I M)`, whose measure `M`
-is one of [quantity.md](quantity.md)'s NAUTs — `(QuantityFn 2 Hour)`, or
+is one of [quantity.md](quantity.md)'s structural NATs — `(QuantityFn 2 Hour)`, or
 `(QuantityIntervalFn 1 2 Hour)` when only bounds are known. The index answers those; this
 prover only reads them.
 

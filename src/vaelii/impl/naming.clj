@@ -54,7 +54,7 @@
 ;; author chose, so the walk descends through it and checks what it holds.
 ;;
 ;; Arguments are deliberately **not** walked: a compound in argument position is a
-;; term, not a literal — an arithmetic expression `(+ 1 2)`, a NAUT `(QuantityFn 5
+;; term, not a literal — an arithmetic expression `(+ 1 2)`, a structural NAT `(QuantityFn 5
 ;; Meter)`, a quoted connective `(comment not "…")` — and its head names a function or
 ;; is plain data, neither of which the predicate conventions govern.
 
@@ -96,24 +96,22 @@
   [q]
   (if (vector? q) q [q]))
 
-(defn literals
+(defn applied-literals
   "The `[role literal]` pairs of `sentence` as written — every position at which it
-  applies a predicate to arguments, tagged with the frame that position sits in
+  applies *something* to arguments, tagged with the frame that position sits in
   (`:sentence` / `:antecedent` / `:consequent` / `:exception`).
 
   Frames are descended through, arguments are not, so this is exactly the set of
-  functors an author named."
-  ([sentence] (literals :sentence sentence))
+  positions an author wrote a predicate application in — a variable functor
+  (`(?p ?x ?y)`, the dotted rest `(?pred . ?args)`) among them, which is what
+  `literals` filters back out and `rules/variable-functor-literals` keeps."
+  ([sentence] (applied-literals :sentence sentence))
   ([role form]
    (if-not (and (sequential? form) (seq form))
      []
      (let [h (first form)
            n (count form)]
        (cond
-         ;; a variable in functor position is a pattern — the dotted rest `(?pred
-         ;; . ?args)`, or a bare `(?p ?x)` — and names no predicate to check
-         (sx/variable? h) []
-
          ;; a `do/` imperative is an instruction; it is refused outright inside a rule
          ;; (`core/check-no-imperative`) and dispatched at the top level, never named
          (sx/do-form? form) []
@@ -121,40 +119,52 @@
          ;; `(sentexHandle N)` names a stored sentex by integer id
          (= sx/sentex-handle-functor h) []
 
-         (rule-wrapper? h) (literals role (second form))
+         (sx/variable? h) [[role form]]
+
+         (rule-wrapper? h) (applied-literals role (second form))
 
          ;; `(exceptWhen <query> <rule-or-handle>)` — the query's conjuncts are
          ;; literals of their own, then whatever the exception qualifies
          (and (= sx/except-wrapper h) (= 3 n))
-         (into (vec (mapcat #(literals :exception %)
+         (into (vec (mapcat #(applied-literals :exception %)
                             (exception-query-conjuncts (second form))))
-               (literals role (nth form 2)))
+               (applied-literals role (nth form 2)))
 
-         (and (= sx/not-functor h) (= 2 n)) (literals role (second form))
+         (and (= sx/not-functor h) (= 2 n)) (applied-literals role (second form))
 
-         (= sx/and-functor h) (vec (mapcat #(literals role %) (rest form)))
+         (= sx/and-functor h) (vec (mapcat #(applied-literals role %) (rest form)))
 
          (and (= sx/rule-functor h) (= 3 n))
-         (into (vec (mapcat #(literals :antecedent %) (sx/rule-antecedents form)))
-               (literals :consequent (sx/rule-consequent form)))
+         (into (vec (mapcat #(applied-literals :antecedent %) (sx/rule-antecedents form)))
+               (applied-literals :consequent (sx/rule-consequent form)))
 
          ;; `(ist Ctx S)` directs S into Ctx; S is the literal (Ctx is checked by
          ;; `ist-context-problems`)
-         (and (= sx/ist-functor h) (= 3 n)) (literals role (nth form 2))
+         (and (= sx/ist-functor h) (= 3 n)) (applied-literals role (nth form 2))
 
          ;; negation as failure: `(unknown S)` and `(thereExists <vars> S)` frame a
          ;; query, and a head `(exists <vars> C)` frames the consequent it quantifies
-         (sx/unknown? form)      (literals role (second form))
-         (sx/there-exists? form) (literals role (nth form 2))
-         (sx/head-exists? form)  (literals role (sx/head-exists-body form))
+         (sx/unknown? form)      (applied-literals role (second form))
+         (sx/there-exists? form) (applied-literals role (nth form 2))
+         (sx/head-exists? form)  (applied-literals role (sx/head-exists-body form))
 
          ;; an aggregate frames a query too: `(agg/count ?n ?v <body>)` says
          ;; nothing itself, and its body is a goal rather than an argument — read as a
          ;; literal it would be a three-place `agg/count` and the body inside it
          ;; would never be checked at all
-         (sx/aggregate? form)    (literals role (sx/aggregate-body form))
+         (sx/aggregate? form)    (applied-literals role (sx/aggregate-body form))
 
          :else [[role form]])))))
+
+(defn literals
+  "The `[role literal]` pairs whose functor **names a predicate** — `applied-literals`
+  without the variable-functor positions, which are patterns and name nothing these
+  invariants can judge.  This is the set of functors an author named, and what every
+  check below reads."
+  ([sentence] (literals :sentence sentence))
+  ([role form]
+   (filterv (fn [[_ lit]] (not (sx/variable? (first lit))))
+            (applied-literals role form))))
 
 ;; ---- the invariants, per literal -----------------------------------------
 
@@ -194,7 +204,7 @@
   say: `BabyPenguin` if it is an individual, `baby_penguin` if it is a type.
 
   Only the literal's **own** arguments are checked, never a compound one's insides: a
-  compound in argument position is a term — `(+ 1 2)`, a NAUT `(QuantityFn 5 Meter)` —
+  compound in argument position is a term — `(+ 1 2)`, a structural NAT `(QuantityFn 5 Meter)` —
   and its head is a function, not a name this can judge.  Non-symbols (a number, a
   comment's string) name nothing and are skipped, as is a variable and the dotted rest
   marker."

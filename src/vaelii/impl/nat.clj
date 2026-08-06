@@ -7,12 +7,12 @@
   `(FruitFn AppleTree)`, `(CapitalOf France)`.  A function splits by declaration
   into two kinds:
 
-    (reifiableFunction F)    object-denoting.  A ground `(F a…)` is a **NART**: it
+    (reifiableFunction F)    object-denoting.  A ground `(F a…)` is a **reified NAT**: it
                              reifies to an opaque `nat/`-namespaced constant `K`
-                             *before* it reaches the index, so the NART autoindexes
+                             *before* it reaches the index, so the reified NAT autoindexes
                              exactly like a hand-minted symbol — no trie-key change,
                              no term-index change.
-    (unreifiableFunction F)  evaluated/interpreted.  The NAT is a **NAUT** and stays
+    (unreifiableFunction F)  evaluated/interpreted.  The NAT is a **structural NAT** and stays
                              *structural* — `(QuantityFn 5 Meter)` keeps its magnitude
                              and unit readable for a downstream prover; it is never
                              minted.
@@ -32,7 +32,7 @@
 
   What sits above this and *calls* the reify rather than reimplementing it:
   `vaelii.impl.skolem` mints the witness an existential rule head fires to, and
-  `vaelii.core` drops an orphaned NART when its last use is retracted (it rides the
+  `vaelii.core` drops an orphaned reified NAT when its last use is retracted (it rides the
   `retract!` sweep).
 
   Reads the store, the taxonomy and belief directly (nat <- kb); reaches assertion only
@@ -46,14 +46,14 @@
             [vaelii.impl.wiring :as wiring]))
 
 (def nat-namespace
-  "Reserved namespace for reified-NAT (NART) constants.  The cheap detector the
+  "Reserved namespace for reified-NAT constants.  The cheap detector the
   display and mutation layers key on — a symbol is a reified NAT iff its namespace
   is exactly this."
   "nat")
 
 (def universal-context
   "Where every NAT bookkeeping fact lives — `(reifiableFunction F)`, `(termOfUnit K
-  E)`, `(resultIsa F T)`, and a minted NART's materialized types — so it is visible
+  E)`, `(resultIsa F T)`, and a minted reified NAT's materialized types — so it is visible
   from every context, matching the other universal vocabulary."
   'UniverseContext)
 
@@ -71,13 +71,13 @@
   '#{termOfUnit rewriteOf})
 
 (defn reified-nat-symbol?
-  "True iff `term` is a reified-NAT (NART) constant — a symbol in the `nat/`
+  "True iff `term` is a reified-NAT constant — a symbol in the `nat/`
   namespace."
   [term]
   (and (symbol? term) (= nat-namespace (namespace term))))
 
 (defn fresh-constant
-  "Allocate a fresh, opaque `nat/`-namespaced NART constant.  Only ever appears in
+  "Allocate a fresh, opaque `nat/`-namespaced reified NAT constant.  Only ever appears in
   argument position, so `naming/problems` (which checks functors, not arguments)
   never sees it as a functor and needs no exemption."
   []
@@ -125,7 +125,7 @@
 ;; ---- index-backed lookups ------------------------------------------------
 ;; `E → K` (dedup) and `K → E` (reverse) are both `(termOfUnit …)` queries — the
 ;; functor/argument roots answer them, so no new IndexStore method is needed.  Reads
-;; are belief-filtered by `kb/sentexes-matching`, so a superseded spelling (a renamed NART's old
+;; are belief-filtered by `kb/sentexes-matching`, so a superseded spelling (a renamed reified NAT's old
 ;; expression) does not answer.
 
 (defn nat-expression
@@ -164,12 +164,12 @@
 
 (defn result-isa-types
   "Types `T` with `(resultIsa head T)` — materialized as `(T K)` on a freshly minted
-  NART whose function is `head` (its output is an *instance* of T)."
+  reified NAT whose function is `head` (its output is an *instance* of T)."
   [kb head] (result-targets kb 'resultIsa head))
 
 (defn result-genl-types
   "Types `T` with `(resultGenl head T)` — materialized as `(genl K T)` on a freshly
-  minted NART whose function is `head` (its output is a *subtype* of T)."
+  minted reified NAT whose function is `head` (its output is a *subtype* of T)."
   [kb head] (result-targets kb 'resultGenl head))
 
 ;; ---- the corresponding predicate -----------------------------------------
@@ -294,16 +294,16 @@
 ;; ---- display / export ----------------------------------------------------
 
 (defn- contains-reified-nat?
-  "True iff `form` contains a reified NART constant anywhere."
+  "True iff `form` contains a reified NAT constant anywhere."
   [form]
   (boolean (some reified-nat-symbol? (tree-seq seq? seq form))))
 
 (defn expand-expression
-  "Recursively replace every reified NART constant in `form` with the functional
+  "Recursively replace every reified NAT constant in `form` with the functional
   expression it denotes — human-readable printing / export
   (`(color (FruitFn AppleTree) Red)`, never a raw `nat/` symbol).  Returns `form`
-  UNCHANGED (same identity) when it holds no reified NART, so non-NART content is
-  untouched; only NART-bearing forms are rebuilt."
+  UNCHANGED (same identity) when it holds no reified NAT, so content holding no reified NAT is
+  untouched; only reified NAT-bearing forms are rebuilt."
   [kb form]
   (cond
     (reified-nat-symbol? form) (if-let [e (nat-expression kb form)]
@@ -426,7 +426,7 @@
 
 (defn orphaned-constants
   "Reified constants no live use references any more: every believed sentex naming
-  `k` is one of `k`'s own bookkeeping sentexes.  Removing the fact that used a NART
+  `k` is one of `k`'s own bookkeeping sentexes.  Removing the fact that used a reified NAT
   leaves it an orphan — its `termOfUnit` and materialized types would dangle a raw
   `nat/` symbol — so those are collected and removed."
   [kb]
@@ -490,7 +490,7 @@
   "Mint a fresh reified constant for the ground NAT expression `E`: allocate an opaque
   `nat/` constant `K`, assert `(termOfUnit K E)` in UniverseContext, materialize the
   function's result types (`(T K)` per `resultIsa`, `(genl K T)` per `resultGenl`),
-  and return `K`.  The bookkeeping is `:monotonic` — a NART's identity and result
+  and return `K`.  The bookkeeping is `:monotonic` — a reified NAT's identity and result
   types are structural, not defeasible defaults.  `assert` stores synchronously, so a
   second occurrence of `E` in the same sentence dedups against this.
 

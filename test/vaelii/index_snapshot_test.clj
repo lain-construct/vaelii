@@ -317,3 +317,80 @@
           (let [[kb3 rebuilds] (opening dir)]
             (is (= 1 rebuilds))
             (is (= want (answers kb3)) "equal answers, whatever the ids were")))))))
+
+;; ---- the platform the image publishes on --------------------------------
+;;
+;; The commit is `Files/move` with `REPLACE_EXISTING` over a file this process has
+;; mapped, and Windows does not permit that.  CI runs neither Windows nor an honest way
+;; to fake one, so the platform *read* is injected: string-matching `os.name` inside the
+;; test would assert the expression under test.
+
+(defn- on-windows
+  "Run `f` with the snapshot's platform read answering Windows."
+  [f]
+  (with-redefs [snap/os-name (constantly "Windows 11")] (f)))
+
+(deftest the-image-refuses-the-platform-it-corrupts-on
+  (testing "the property set on a platform that cannot publish is an error, not a default"
+    (on-windows
+     (fn []
+       (with-snapshot-dir
+         (fn [_dir]
+           (let [e (is (thrown? clojure.lang.ExceptionInfo (snap/enabled?)))]
+             (is (= :unsupported-platform (:type (ex-data e))))
+             (is (= "vaelii.index.snapshot" (:property (ex-data e))))
+             (is (= "Windows 11" (:os (ex-data e))))
+             (is (re-find #"Windows" (ex-message e)) "the message names the platform")
+             (is (re-find #"rebuild" (ex-message e)) "and what unsetting it costs")))))))
+  (testing "and it reaches the open, which is where an operator meets it"
+    (on-windows
+     (fn []
+       (with-snapshot-dir
+         (fn [dir]
+           (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                (v/open-kb {:records :disk :index :columnar :dir dir
+                                            :recover? false})))]
+             (is (= :unsupported-platform (:type (ex-data e)))))))))))
+
+(deftest the-refused-platform-still-runs-the-disk-backend
+  ;; Only the image's publish is implicated.  A guard that reached the records or the
+  ;; lock would turn a working platform into a refused one on the strength of an
+  ;; off-by-default feature.
+  (let [dir (tmpdir)]
+    (try
+      (on-windows
+       (fn []
+         (let [kb   (build! (v/open-kb {:records :disk :index :columnar :dir dir
+                                        :recover? false}))
+               want (answers kb)]
+           (is (false? (snap/enabled?)) "with the property unset there is nothing to refuse")
+           (backend/close-dir! dir)
+           (is (not (.exists (meta-file dir))) "and no image was written")
+           (let [[kb2 rebuilds] (opening dir)]
+             (is (= 1 rebuilds) "the index rebuilds from the records, as it always did")
+             (is (= want (answers kb2)))))))
+      (finally (backend/close-dir! dir) (rm-rf! dir)))))
+
+(deftest an-image-on-a-platform-that-cannot-refresh-it-is-discarded
+  ;; The remaining case: a directory carrying an image, opened where it can be mapped and
+  ;; never rewritten.  A mapped index that cannot be refreshed is a cache going stale
+  ;; against its own records, so it joins the mismatch classes beside byte order rather
+  ;; than being read and hoped for.
+  (with-snapshot-dir
+    (fn [dir]
+      (let [kb   (build! (v/open-kb {:records :disk :index :columnar :dir dir
+                                     :recover? false}))
+            want (answers kb)]
+        (backend/close-dir! dir)
+        (is (.exists (meta-file dir)) "this platform wrote one")
+        (let [m (f/read-nippy-file (meta-path dir) nil)]
+          (is (= {:index :rebuild :reason :unsupported-platform}
+                 (on-windows
+                  (fn []
+                    (select-keys (snap/load! dir (scratch-index "platform")
+                                             (constantly (:records m)))
+                                 [:index :reason]))))))
+        (testing "and this platform still maps it"
+          (let [[kb2 rebuilds] (opening dir)]
+            (is (zero? rebuilds))
+            (is (= want (answers kb2)))))))))

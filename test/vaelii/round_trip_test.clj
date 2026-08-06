@@ -42,10 +42,10 @@
   (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 (defn- memory-kb
-  "A cleared KB on the suite's scratch pair, forced to `:memory` whatever the suite's
-  backend gate says — this namespace is *about* the two backends, so it names both."
+  "A cleared plain `:memory` KB (`tu/plain-memory-space`) whatever the suite's backend
+  gate says — this namespace is *about* the two backends, so it names both."
   []
-  (doto (v/open-kb (assoc tu/scratch-space :backend :memory)) (tu/clear-kb!)))
+  (doto (v/open-kb tu/plain-memory-space) (tu/clear-kb!)))
 
 (defn- disk-kb [^File dir]
   (v/open-kb {:backend :disk :dir (.getPath dir) :recover? false}))
@@ -230,7 +230,7 @@
          (fn [] (disk-kb store))
          (fn [source target summary _t]
            (testing "the summary says what it read and what it did with the handles"
-             (is (= :pure (:dialect summary)))
+             (is (= :vaelii (:dialect summary)))
              (is (= :preserved (:handle-policy summary)))
              (is (zero? (:collapsed summary)) "nothing canonicalized onto another handle")
              (is (zero? (:rewritten-handles summary))
@@ -326,7 +326,7 @@
                 summary (v/import! target dump)]
             (is (= (v/sentex-count source) (:sentexes written))
                 "the writer reports what it wrote")
-            (is (= :pure (:dialect summary)))
+            (is (= :vaelii (:dialect summary)))
             (is (= :preserved (:handle-policy summary)))
             (compare-kbs! source target))))
       (finally (backend/close-dir! (.getPath store))
@@ -372,7 +372,7 @@
           (let [card (first (filter #(= "an-export" (:name %)) (catalog/sources)))]
             (is (some? card) "discovered on the search path")
             (is (= :dump (:kind card)))
-            (is (= :pure (:dialect card)) "and named as ours")
+            (is (= :vaelii (:dialect card)) "and named as ours")
             (is (re-find #"our own dialect" (:blurb card)))
             (is (re-find #"justifications" (:blurb card))
                 "counted in the units this dialect keeps"))
@@ -430,7 +430,7 @@
   "A cleared `:memory` KB whose front door is open — the KB a corpus in someone else's
   dialect is loaded into."
   []
-  (doto (v/open-kb (assoc tu/scratch-space :backend :memory :naming :off)) (tu/clear-kb!)))
+  (doto (v/open-kb (assoc tu/plain-memory-space :naming :off)) (tu/clear-kb!)))
 
 (def ^:private foreign-dialect
   "Sentences shaped like the real imported corpus: a `Cx`-prefixed context rather than a

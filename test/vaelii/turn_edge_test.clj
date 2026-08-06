@@ -95,7 +95,7 @@
 
 (deftest a-forced-genlcontext-from-a-plain-context-lands-in-the-universe
   ;; genlContext is a forcedDecontextualizedPredicate: asserting one in an ordinary
-  ;; microtheory forces its storage to UniverseContext, yet the cached closure still
+  ;; context forces its storage to UniverseContext, yet the cached closure still
   ;; sees the edge (and its transitive consequences); retraction removes it.
   (tu/with-neutral-kb [kb core-context-kb]
     (let [alpha (tu/tmp-ctx) beta (tu/tmp-ctx) gamma (tu/tmp-ctx)]

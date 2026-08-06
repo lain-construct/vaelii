@@ -149,7 +149,7 @@ empty, `:compute` and `:search` both keep the whole registry. A goal answerable 
 a dropped tier simply yields nothing (an honest empty, not a hang). Combined with `:max-ms` it is a genuine anytime
 strategy: *cheap tiers only, and stop at N milliseconds*.
 
-A value that is not one of the three tiers is **refused** (`:type :bad-opt`), not read
+A value that is not one of the three tiers is **refused** (`:type :unknown-option`), not read
 as no ceiling. A caller writing `:cheap` for `:lookup` is asking to exclude the
 expensive tier, so running it is the one reading of that typo that is certainly wrong —
 and the mistake is invisible in the result, since a ceiling that admits everything

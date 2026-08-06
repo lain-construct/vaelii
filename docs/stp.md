@@ -93,7 +93,7 @@ There is no numeric syntax here. A stated constraint is the ordinary ternary fac
 (temporalDistance Departure Arrival (QuantityIntervalFn 1 2 Hour)) ; somewhere in between
 ```
 
-with the measure NAUTs of [quantity.md](quantity.md), and a **negative** magnitude saying
+with the measure structural NATs of [quantity.md](quantity.md), and a **negative** magnitude saying
 the second instant falls first. Every magnitude normalizes through
 `provers/normalize-quantity` against the KB's `dimensionOf` / `conversionFactor` table, so
 constraints stated in minutes and in hours compose without anything being said about it, and
@@ -122,7 +122,7 @@ it once.
 * **bind** — an open `M` takes the tightest bound entailed, rendered as a point
   `(QuantityFn …)` when the bounds coincide and a `(QuantityIntervalFn …)` when they do not.
   Both bounds must be finite: a half-bounded gap is real knowledge but not a measure, and
-  there is no honest NAUT for it, so the goal has no answer rather than a fabricated one.
+  there is no honest structural NAT for it, so the goal has no answer rather than a fabricated one.
 * **check** — a ground `M` is **entailed** exactly when the derived bound is *contained* in
   it. A stated bound is a weaker claim than a tighter derived one, so the derived one
   implies it: after the closure pins `P → Q` at 13 minutes, both `(QuantityFn 780 Second)`

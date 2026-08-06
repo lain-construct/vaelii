@@ -689,7 +689,7 @@ having been recorded in advance.
 
 There is one network per **reader**, not one per context that holds a fact, and the
 difference is the whole of `qcn-kb/reader-contexts`. A reader sees the entire
-`genlContext` cone above it, so a context inheriting two microtheories holds both their
+`genlContext` cone above it, so a context inheriting two contexts holds both their
 facts in one network and composes what neither composes alone — `(ntpp A B)` in one and
 `(ntpp B D)` in the other entail `A ⊏ D` for that reader and for nobody else. `ask` has
 always answered there, because a query is asked *from* a context; a re-join has to be told
@@ -704,14 +704,14 @@ more specific reader sees a superset of the facts and narrowing only ever adds
 entailments.
 
 **A calculus whose facts are all in one context takes neither step**, which is every KB
-that has not divided its spatial or temporal claims between microtheories: with one fact
+that has not divided its spatial or temporal claims between contexts: with one fact
 context there is nothing for a second to meet.
 
 The same set answers a second question, which is why it lives in `qcn-kb` rather than in
 the chainer. A goal whose context is a **variable** means "in some context", as it does
 for every other prover — and the reading that would be wrong is the tempting one: read
 every context's facts into a single network and ask it. Those differ, and unsoundly.
-`(ntpp A B)` in one microtheory and `(ntpp B D)` in an incomparable one compose for
+`(ntpp A B)` in one context and `(ntpp B D)` in an incomparable one compose for
 *nobody*, since no context inherits both, yet one wildcard read holds them together and
 reports `A ⊏ D`. So the prover fans over the readers and unions their answers, and every
 binding it yields is entailed for a reader that exists. The union network is still what
@@ -782,13 +782,13 @@ baseline exists and empty immediately after one, `:all` again when a handle is r
 defeated out of the network, and empty in a sibling context the arriving fact is invisible
 from. One counts what the join enumerated — thirteen regions in a chain entail 78 nested
 pairs and an arrival answers at most 26 of them. And one grows a chain split across two
-microtheories a fact at a time, since the contexts a delta is taken for and the contexts
+contexts a fact at a time, since the contexts a delta is taken for and the contexts
 the join runs against have to be the same set.
 
 Over the seam as a whole the guard is an **order oracle**, because every failure here is a
 missing answer rather than a wrong one, and a KB that is merely less informative than it
 should be reads as correct against anything except another order of the same content. So a
-rule, four facts of mixed polarity, two microtheories and the context below both are
+rule, four facts of mixed polarity, two contexts and the context below both are
 asserted in eight seeded orders into a KB built from nothing each time — rules permuted
 along with facts, since "the rule arrived last" is what a rule's own full join would
 otherwise paper over — and every order must reach the identical derived set, placement

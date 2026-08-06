@@ -37,7 +37,7 @@
 #
 #   lein gate                  # all three, full report
 #   lein gate --fail-fast      # stop at the first failure
-#   lein gate --quick          # perf on its small size pair (a pre-commit read)
+#   lein gate --quick          # perf: one attempt, widened bound (a pre-commit read)
 #   lein gate --skip test      # drop a stage; repeatable
 #   lein gate --only perf      # run one; repeatable
 #   lein gate --all            # test stage at `:all` — the ^:slow tests too

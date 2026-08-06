@@ -57,7 +57,7 @@
     (doseq [i (range n)] (v/assert kb (list 'node (node i)) ctx))
     (when (= :first when-rule) (v/assert kb rule ctx))
     (cond-> (if (= :edit mode)
-              (ms #(v/edit kb {:add (vec eds)}))
+              (ms #(v/edit! kb {:add (vec eds)}))
               (ms #(doseq [[s c] eds] (v/assert kb s c opts))))
       (= :defer mode)     (+ (ms #(v/forward-chain kb {})))
       (= :last when-rule) (+ (ms #(v/assert kb rule ctx))))))

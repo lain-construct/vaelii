@@ -59,11 +59,11 @@
    :assert-rule  (op v/assert-rule)
    :assert-many  (op v/assert-many)
    :retract      (op v/retract!)
-   :edit         (op v/edit)
+   :edit         (op v/edit!)
    ;; the same write, reporting what it turned out to mean — the *after* to `:preview`'s
    ;; *before*, and the one a caller wants when it has just committed rather than when it
    ;; is deciding whether to
-   :edit-with-consequences (op v/edit-with-consequences)
+   :edit-with-consequences (op v/edit-with-consequences!)
    ;; the dry run of the two above: what `assert` / `edit` would refuse, and why,
    ;; without storing anything.  A remote editor validates before it writes.
    :check        (op v/check)
@@ -163,6 +163,23 @@
   [x]
   (walk/postwalk (fn [y] (if (record? y) (into {} y) y)) x))
 
+(def ^:private client-error-types
+  "The engine's request-refusal vocabulary — every `:type` the doors throw at input a
+  caller shaped wrong, answered **400** like the daemon's own seven.  A snake_case
+  predicate or a misspelt option is the client's mistake: answered 500, it would
+  count as a backend fault at every reverse proxy and 5xx alarm between the caller
+  and the daemon, and feed the log one warning per typo.  A `:type` outside this set keeps
+  the 500 default, so a genuine internal fault — a broken solver binary, a store
+  error — still reads as one; a *new* refusal type belongs in this set the day it is
+  born, and `wire_contract_test` pins the pairing."
+  #{:naming :not-well-formed :not-ground :not-range-restricted :not-indexable
+    :shape :sentence
+    :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind :arity
+    :disjoint :functional :asymmetric :unknown-option :bad-handle
+    :unknown-handle :bad-level :exception-not-closed :not-stratified :naf-not-closed
+    :quantifier-not-local :not-watchable :not-checkable :not-assertible
+    :bad-table-entry})
+
 (defn- handle-op
   "Run one `{:op :args}` request under the write lock and answer with EDN.
 
@@ -187,7 +204,25 @@
                         :error "cross-origin request refused"})
 
         :else
-        (let [{:keys [op args]} (edn/read-string (guard/read-capped-body req))
+        ;; The body read is its own step so an unreadable one answers **400 `:not-edn`**
+        ;; rather than falling into the catch below as a 500 with the reader's message —
+        ;; a malformed request is the client's fault, and `docs/operations.md` promises a
+        ;; client discriminates on `:type` rather than on the status code.
+        (let [body (guard/read-capped-body req)
+              form (try (edn/read-string body)
+                        (catch Throwable t
+                          (throw (ex-info (str "request body does not read as EDN: "
+                                               (.getMessage t))
+                                          {:type :not-edn}))))
+              {:keys [op args]} (when (map? form) form)
+              ;; `:args` is spliced with `(vec args)` below, so a non-sequential one —
+              ;; `{:op :assert :args 5}` — would throw a bare IllegalArgumentException
+              ;; into the Throwable arm and answer 500 with no usable `:type`.  It is
+              ;; the caller's mistake, so it is a 400 `:bad-args` like the arity
+              ;; mismatch beside it.
+              _ (when-not (or (nil? args) (sequential? args))
+                  (throw (ex-info (str "op :args must be a sequence, got " (pr-str args))
+                                  {:type :bad-args :op op})))
               f (ops op)]
           (if f
             ;; `wire-safe` inside the monitor, not after it: the walk is what *realizes*
@@ -195,23 +230,38 @@
             ;; let a `:query` read its matches while a concurrent `:assert` is settling
             ;; — one reply straddling two states of the KB.  The daemon promises reads
             ;; pay the same lock, and the read is not over until its seq is.
-            (let [result (locking monitor (wire-safe (f kb (vec args))))]
+            ;; an arity mismatch is the caller naming the wrong number of args, so it is
+            ;; a 400 like the unknown op beside it rather than a server fault
+            (let [result (try (locking monitor (wire-safe (f kb (vec args))))
+                              (catch clojure.lang.ArityException t
+                                (throw (ex-info (str "wrong number of arguments for op "
+                                                     (pr-str op) ": " (.getMessage t))
+                                                {:type :bad-args :op op}))))]
               (edn-reply 200 {:ok true :result result}))
             (edn-reply 400 {:ok false :error (str "unknown op: " (pr-str op))
+                            :type :unknown-op
                             :ops (vec (sort (keys ops)))}))))
       (catch clojure.lang.ExceptionInfo e
-        (if (= :body-too-large (:type (ex-data e)))
-          (edn-reply 413 {:ok false :error (.getMessage e) :type :body-too-large})
-          (do (trove/log! {:level :warn :id ::op-error :error e})
-              (edn-reply 500 {:ok false :error (.getMessage e)
-                              :type (:type (ex-data e))}))))
+        (let [ty (:type (ex-data e))]
+          (cond
+            (= :body-too-large ty)
+            (edn-reply 413 {:ok false :error (.getMessage e) :type :body-too-large})
+            (or (#{:not-edn :bad-args} ty) (client-error-types ty))
+            (edn-reply 400 {:ok false :error (.getMessage e) :type ty})
+            :else
+            (do (trove/log! {:level :warn :id ::op-error :error e})
+                (edn-reply 500 {:ok false :error (.getMessage e)
+                                :type (or ty :internal-error)})))))
       ;; `Throwable`, not `Exception`: an oversized or deeply-nested body raises
       ;; `OutOfMemoryError`/`StackOverflowError`, which an `Exception` catch lets
       ;; escape the handler and kill the connection rather than answering on it.
+      ;; `:internal-error` when the throwable carries no `:type` of its own — a bare
+      ;; Java exception would otherwise answer `:type nil`, the key present and
+      ;; useless, breaching the one-vocabulary promise (`docs/operations.md`).
       (catch Throwable t
         (trove/log! {:level :warn :id ::op-error :error t})
         (edn-reply 500 {:ok false :error (.getMessage t)
-                        :type (:type (ex-data t))})))))
+                        :type (:type (ex-data t) :internal-error)})))))
 
 (def ^:private loopback
   "The interface the daemon binds unless told otherwise.  `POST /op` is the **write**
@@ -244,7 +294,11 @@
          ["/op" {:post (fn [req] (handle-op kb monitor req))}]])
        (ring/create-default-handler
         {:not-found (fn [_] {:status 404 :headers {"content-type" "application/edn"}
-                             :body (pr-str {:ok false :error "not found"})})}))
+                             ;; typed like every other {:ok false} — the migration
+                             ;; line "every reply carries a non-nil :type" holds on
+                             ;; this route too, not only on POST /op
+                             :body (pr-str {:ok false :error "not found"
+                                            :type :not-found})})}))
       allowed
       (fn [_] {:status 400
                :headers {"content-type" "application/edn"}
@@ -267,10 +321,44 @@
   ^long [^Server server]
   (.getLocalPort ^ServerConnector (first (.getConnectors server))))
 
+(defn- listen-host
+  "The bind address `--listen` names, or `loopback` when the flag is absent — and a
+  refusal (`:unknown-option`) when the flag is present with no address after it.
+  Reading that as loopback fails safe and is still a lie: the flag is the explicit
+  opt-in to a public bind, and an operator whose flag was silently ignored walks away
+  believing the daemon is reachable when only this machine can see it."
+  [args]
+  (let [tail (drop-while #(not= "--listen" %) args)]
+    (if (seq tail)
+      (or (second tail)
+          (throw (ex-info "--listen needs an address (e.g. --listen 0.0.0.0)"
+                          {:type :unknown-option :flag "--listen"})))
+      loopback)))
+
+(defn- positional-args
+  "The non-flag arguments, in order, wherever they sit relative to the flags —
+  `4200 --listen 0.0.0.0 /var/lib` names the same daemon as
+  `4200 /var/lib --listen 0.0.0.0`.  A flag this table does not know, or a third
+  positional, is refused (`:unknown-option`): a positional silently dropped is a
+  disk daemon running in memory, every client write evaporating at exit with one
+  `:dir :memory` log line as the only witness."
+  [args]
+  (loop [[a & more] (seq args), pos []]
+    (cond
+      (nil? a)                        (if (> (count pos) 2)
+                                        (throw (ex-info (str "unexpected argument: " (nth pos 2))
+                                                        {:type :unknown-option :arg (nth pos 2)}))
+                                        pos)
+      (= "--listen" a)                (recur (rest more) pos)   ; value read by listen-host
+      (.startsWith ^String a "--")    (throw (ex-info (str "unknown flag: " a)
+                                                      {:type :unknown-option :flag a}))
+      :else                           (recur more (conj pos a)))))
+
 (defn -main
-  "Run the daemon in the foreground.  Args: `[port [dir]] [--listen ADDR]` — `dir`
-  selects the durable `:disk` backend (recovered on open, so it persists across
-  restarts); with no `dir` the KB is in-memory and lives only as long as the process.
+  "Run the daemon in the foreground.  Args: `[port [dir]] [--listen ADDR]`, in any
+  order — `dir` selects the durable `:disk` backend (recovered on open, so it
+  persists across restarts); with no `dir` the KB is in-memory and lives only as
+  long as the process.
 
     lein run -m vaelii.impl.serve 4200 /var/lib/vaelii
     lein run -m vaelii.impl.serve 4200 /var/lib/vaelii --listen 0.0.0.0   ; opt-in
@@ -279,11 +367,27 @@
   above: `POST /op` writes, and nothing authenticates it.  Put a reverse proxy that does
   in front of it before naming an address — and note that naming one also drops the
   `Host` allowlist (`guard/allowed-hosts`), since the name you reach it by is then
-  yours to know; set `VAELII_ALLOWED_HOSTS` to keep the check."
+  yours to know; set `VAELII_ALLOWED_HOSTS` to keep the check.  A `--listen` with no
+  address, an unknown flag, or a stray argument is one line and exit 1, like the
+  port typo below."
   [& args]
-  (let [[port-s dir] (vec (take-while #(not (.startsWith ^String % "--")) args))
-        host  (or (second (drop-while #(not= "--listen" %) args)) loopback)
-        port  (if port-s (Integer/parseInt port-s) 4200)
+  (let [[port-s dir] (try (positional-args args)
+                          (catch clojure.lang.ExceptionInfo e
+                            (binding [*out* *err*] (println (ex-message e)))
+                            (System/exit 1)))
+        host  (try (listen-host args)
+                   (catch clojure.lang.ExceptionInfo e
+                     (binding [*out* *err*] (println (ex-message e)))
+                     (System/exit 1)))
+        ;; a non-numeric port is the operator's typo: one line and exit 1, not a
+        ;; NumberFormatException stack trace — the same courtesy `impl.cli` extends
+        port  (if port-s
+                (try (Integer/parseInt port-s)
+                     (catch NumberFormatException _
+                       (binding [*out* *err*]
+                         (println (str "not a port number: " port-s)))
+                       (System/exit 1)))
+                4200)
         kb    (if dir
                 (v/open-kb {:backend :disk :dir dir :recover? :auto})
                 (v/open-kb {}))]

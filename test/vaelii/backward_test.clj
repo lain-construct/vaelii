@@ -5,6 +5,7 @@
   on transitive types (genl) and context visibility (genlContext)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.plan :as plan]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -93,6 +94,35 @@
       (is (v/provable? kb [(list parentOf Tom '?y) (list cat '?y)] JoinContext)))
     (testing "an empty conjunction is trivially proved"
       (is (v/provable? kb [] JoinContext)))))
+
+(tu/deftest-kb a-repeated-goal-key-across-conjuncts-answers-in-both
+  ;; the per-path loop guard is scoped to the expansion subtree: a later conjunct
+  ;; repeating an earlier conjunct's goal-key is a *sibling* of the expanded goal, not
+  ;; a descendant, so it gets its own rule expansion — the cross product, never the
+  ;; empty answer while each conjunct answers alone.  Two children of one parent, so
+  ;; both conjuncts answer only through the rules and share one goal-key.
+  (tu/with-terms [parentOf ancestorOf Tom Bob Cal GuardContext]
+    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) GuardContext)
+    (v/assert-rule kb [(list parentOf '?x '?y) (list ancestorOf '?y '?z)]
+                   (list ancestorOf '?x '?z) GuardContext)
+    (v/assert kb (list parentOf Tom Bob) GuardContext)
+    (v/assert kb (list parentOf Tom Cal) GuardContext)
+    (testing "each conjunct alone answers twice, so the pair is a 4-row cross product"
+      (is (= #{Bob Cal}
+             (set (map #(get % '?y) (v/prove kb (list ancestorOf Tom '?y) GuardContext)))))
+      (is (= #{[Bob Bob] [Bob Cal] [Cal Bob] [Cal Cal]}
+             (set (map (juxt #(get % '?y) #(get % '?z))
+                       (v/prove kb [(list ancestorOf Tom '?y) (list ancestorOf Tom '?z)]
+                                GuardContext))))))
+    (testing "provable? agrees with prove on the repeated-key conjunction"
+      (is (v/provable? kb [(list ancestorOf Tom '?y) (list ancestorOf Tom '?z)]
+                       GuardContext)))
+    (testing "the planner does not change the answer set"
+      (is (= #{[Bob Bob] [Bob Cal] [Cal Bob] [Cal Cal]}
+             (binding [plan/*enabled* false]
+               (set (map (juxt #(get % '?y) #(get % '?z))
+                         (v/prove kb [(list ancestorOf Tom '?y) (list ancestorOf Tom '?z)]
+                                  GuardContext)))))))))
 
 (tu/deftest-kb prove-a-single-goal-is-unchanged-by-the-conjunction-form
   (tu/with-terms [parentOf grandparentOf Tom Bob Ann JoinContext]

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.world-fables
-  "Children's stories as microtheories — worked examples, test-world data below the
+  "Children's stories as contexts — worked examples, test-world data below the
   shipped schema (see vaelii.world).
 
   Each fable is a context under StoriesContext (which sees the shipped upper ontology
@@ -197,7 +197,7 @@
                  '(inDanger ?victim) 'CriedWolfContext))
 
 (defn load-into
-  "Load the story microtheories into `kb` (which must already have the starter
+  "Load the story contexts into `kb` (which must already have the starter
   ontology).  Returns kb."
   [kb]
   (doseq [s context-links] (v/assert kb s 'UniverseContext))

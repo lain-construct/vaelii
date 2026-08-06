@@ -6,7 +6,7 @@
   The disk record store and the disk KV index have no cross-process file locking:
   two JVMs appending to the same logs tear them.  This namespace takes an OS advisory
   `FileLock` on `<dir>/.vaelii.lock` when a disk backend opens, and fails fast if
-  another live JVM already holds it.  This matches pure's single-writer contract
+  another live JVM already holds it.  This is the single-writer contract
   (docs/storage.md) — one process holds the KB.
 
   The lock is exclusive and ref-counted per canonical directory (the record store and
@@ -16,7 +16,8 @@
   scenario."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [taoensso.trove :as trove])
+            [taoensso.trove :as trove]
+            [vaelii.impl.config :as config])
   (:import [java.io File RandomAccessFile]
            [java.nio ByteBuffer]
            [java.nio.channels FileChannel FileLock OverlappingFileLockException]
@@ -26,7 +27,7 @@
 
 (defonce ^:private held (atom {}))
 
-(defn disabled? [] (= "false" (some-> (System/getProperty "vaelii.disk.lock") str/trim)))
+(defn disabled? [] (not (config/disk-lock?)))
 
 (defn- canonical [dir] (.getCanonicalPath (io/file dir)))
 

@@ -1,6 +1,6 @@
 ;; SocietyContext — social relations among persons: likes, marriedTo, owns.
 ;; Sees CoreContext; UniverseContext sees it, so any relation here is visible
-;; from every microtheory.
+;; from every context.
 
 (genlContext SocietyContext CoreContext)
 (genlContext UniverseContext SocietyContext)
@@ -27,7 +27,7 @@
 (argIsa likes 1 person)
 
 (comment marriedTo
-         "(marriedTo ?person1 ?person2) means that ?person1 and ?person2 are married to each other. Declared symmetric, so one assertion answers both orders and the mirrored spelling stores as the same sentex, and decontextualized, so a marriage stated in one microtheory is a claim of the whole KB rather than of that theory. A standing state rather than the wedding: there is no time argument, so a KB that needs to say when it began states that of an interval instead.")
+         "(marriedTo ?person1 ?person2) means that ?person1 and ?person2 are married to each other. Declared symmetric, so one assertion answers both orders and the mirrored spelling stores as the same sentex, and decontextualized, so a marriage stated in one context is a claim of the whole KB rather than of that theory. A standing state rather than the wedding: there is no time argument, so a KB that needs to say when it began states that of an interval instead.")
 (binaryPredicate marriedTo)
 (instanceRelationPredicate marriedTo)
 (argIsa marriedTo 1 person)

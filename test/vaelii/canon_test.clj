@@ -225,30 +225,75 @@
   (let [a (tu/tmp-type) b (tu/tmp-type)]
     (v/assert kb (list 'genl a 'thing) 'UContext)
     (v/assert kb (list 'genl b 'thing) 'UContext)
-    (testing "re-asserting a rule with a different direction keeps the first direction"
-      (let [h (v/assert kb (list 'set/forwardRule (list 'implies (list a '?x) (list b '?x))) 'UContext)]
-        (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'UContext)  ; no-op
+    (testing "re-asserting a rule with a different direction resolves to one record"
+      (let [h  (v/assert kb (list 'set/forwardRule (list 'implies (list a '?x) (list b '?x))) 'UContext)
+            h2 (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'UContext)]
+        (is (= h h2) "one rule, however its direction is spelled")
         (testing "both predicate indexes are complete — a rule is findable either way"
           (is (contains? (p/rules-by-antecedent (:index kb) a) h))
           (is (contains? (p/rules-by-consequent (:index kb) b) h)))
-        (testing "but the direction did not become :both — first writer wins"
-          (is (= :forward (:direction (v/sentex kb h))))))))
+        (testing "and the direction is the least restrictive of the two, not the first"
+          ;; forward joined with backward is both: the two assertions are two claims
+          ;; about one rule, and a rule that may run each way may run both.  Resolving
+          ;; from content is what makes the answer the same in either arrival order.
+          (is (= :both (:direction (v/sentex kb h))))
+          (is (= :both (:direction (v/sentex kb (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'UContext))))
+              "and a third assertion changes nothing — the join is idempotent")))))
   (let [bird (tu/tmp-type) animal (tu/tmp-type) penguin (tu/tmp-type)
         flies (tu/tmp-pred) pengu (tu/tmp-ind)]
     (v/assert kb (list 'genl bird animal) 'UContext)
     (v/assert kb (list 'genl penguin bird) 'UContext)
-    (testing "re-asserting keeps the first defeasibility (first-writer-wins)"
-      (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) 'UContext)  ; default first
-      (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) 'UContext)                          ; bare re-assert: no-op
-      (v/assert kb (list 'implies (list penguin '?x) (list 'not (list flies '?x))) 'UContext)           ; bare exception rule
-      (v/assert kb (list penguin pengu) 'UContext {:strength :monotonic})
-      ;; the bird⇒flies rule stayed a default, so the bare exception — :monotonic over a
-      ;; known-true premise — defeats it cleanly.  Had the bare re-assert taken effect,
-      ;; that rule would confer :monotonic over the same premise and this would be a
-      ;; hard contradiction instead.
-      (is (empty? (v/sentexes-matching kb (list flies pengu) 'UContext)))
-      (is (seq   (v/sentexes-matching kb (list 'not (list flies pengu)) 'UContext)))
-      (is (empty? (v/conflicts kb))))))
+    (testing "re-asserting resolves defeasibility to strict — stated once outright, it holds"
+      (let [h (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) 'UContext)]
+        (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) 'UContext)   ; bare: strict wins
+        (is (nil? (:defeasible (v/sentex kb h)))
+            "a rule somebody also stated without set/defaultRule is not a default")
+        (v/assert kb (list 'implies (list penguin '?x) (list 'not (list flies '?x))) 'UContext)
+        (v/assert kb (list penguin pengu) 'UContext {:strength :monotonic})
+        ;; the same answer in either arrival order, which is the point: a conclusion
+        ;; capped by its own premise's strength, and the exception rule taking it.
+        (is (empty? (v/sentexes-matching kb (list flies pengu) 'UContext)))
+        (is (seq   (v/sentexes-matching kb (list 'not (list flies pengu)) 'UContext)))
+        (is (empty? (v/conflicts kb)))))))
+
+(tu/deftest-kb slot-resolution-reaches-conclusions-already-derived
+  ;; The two spellings of one rule may arrive with the facts *between* them, so the
+  ;; rule fires before the slots resolve.  The record slot resolves by content either
+  ;; way; what this pins is that the justifications already fired through the rule
+  ;; move with it (`jtms/restrength-informant`): a firing bakes the rule's
+  ;; contribution in as the justification's `:strength`, and a defeasible→strict
+  ;; resolution that left it there would keep exactly the arrival order the slot join
+  ;; removes — a conclusion at `:default` in one order losing to a monotonic rival it
+  ;; ties with in the other.
+  (let [run (fn [spell-first spell-second]
+              (let [bird (tu/tmp-type) flies (tu/tmp-pred) tweety (tu/tmp-ind)
+                    rule (list 'implies (list bird '?x) (list flies '?x))]
+                (v/assert kb (list 'genl bird 'thing) 'UContext)
+                (v/assert kb (spell-first rule) 'UContext)
+                (v/assert kb (list bird tweety) 'UContext {:strength :monotonic})
+                (v/assert kb (spell-second rule) 'UContext)
+                (v/assert kb (list 'not (list flies tweety)) 'UContext
+                          {:strength :monotonic})
+                (let [fid (some-> (first (v/sentexes-matching kb (list flies tweety)
+                                                              'UContext))
+                                  :id)]
+                  {:conclusion-class (when fid (v/defeat-class kb fid))
+                   :just-strengths   (when fid
+                                       (set (map :strength
+                                                 (v/supporting-justifications kb fid))))
+                   :standing?        [(some? fid)
+                                      (boolean
+                                       (seq (v/sentexes-matching
+                                             kb (list 'not (list flies tweety))
+                                             'UContext)))]})))
+        defaulted #(list 'set/defaultRule %)
+        a (run defaulted identity)      ; defeasible, fact, then strict
+        b (run identity defaulted)]     ; strict, fact, then defeasible
+    (is (= :monotonic (:conclusion-class a))
+        "the conclusion reads the resolved slot, not the fire-time copy")
+    (is (= #{:monotonic} (:just-strengths a))
+        "the stored justification's strength moved with the record")
+    (is (= a b) "the same knowledge in either order is one belief state")))
 
 ;; ---- strength is a first-class field on sentexes and justifications ---------
 
@@ -323,6 +368,34 @@
       (testing "but the reversed join (grand ?z ?x) is genuinely different"
         (is (not= h1 (v/assert-rule kb [(list par '?x '?y) (list par '?y '?z)]
                                     (list grand '?z '?x) 'UContext)))))))
+
+(tu/deftest-kb a-framed-consequent-holds-only-the-recursive-literal
+  ;; the recursive-literal hold-back keys on the predicate a literal is *about*, not on
+  ;; its outermost functor: under a `not`- or `ist`-headed consequent an antecedent's
+  ;; own frame is not "the recursive literal", so it sorts like any generator — and the
+  ;; genuinely recursive antecedent is held back either way.
+  (let [p (tu/tmp-pred) q (tu/tmp-pred) r (tu/tmp-pred) ctx (tu/tmp-ctx)]
+    (testing "a negated-head rule dedups across antecedent order"
+      (let [h1 (v/assert-rule kb [(list 'not (list p '?x)) (list 'not (list q '?x))]
+                              (list 'not (list r '?x)) 'UContext)
+            n1 (count (p/sentex-ids (:records kb)))
+            h2 (v/assert-rule kb [(list 'not (list q '?x)) (list 'not (list p '?x))]
+                              (list 'not (list r '?x)) 'UContext)]
+        (is (= h1 h2))
+        (is (= n1 (count (p/sentex-ids (:records kb)))))))
+    (testing "an ist-headed rule dedups across antecedent order"
+      (let [h1 (v/assert-rule kb [(list p '?x) (list q '?x)] (list 'ist ctx (list r '?x))
+                              'UContext)
+            h2 (v/assert-rule kb [(list q '?x) (list p '?x)] (list 'ist ctx (list r '?x))
+                              'UContext)]
+        (is (= h1 h2))))
+    (testing "a recursive rule with a negated head keeps its recursive literal held"
+      (let [b (tu/tmp-pred) a (tu/tmp-pred)
+            h (v/assert-rule kb [(list b '?x '?y) (list a '?y '?z)]
+                             (list 'not (list a '?x '?z)) 'UContext)]
+        ;; held-back literals follow the generators, so the author's right-recursion
+        ;; survives canonicalization instead of being hoisted to position 0
+        (is (= [b a] (mapv first (:antecedent (v/sentex kb h)))))))))
 
 (tu/deftest-kb canonicalization-is-idempotent
   (testing "canonicalizing an already-canonical rule is a no-op"

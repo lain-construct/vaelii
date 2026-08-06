@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.derived-callout-test
-  "What a write turned out to mean — `vaelii.core/edit-with-consequences` — and the
+  "What a write turned out to mean — `vaelii.core/edit-with-consequences!` — and the
   callout the browser renders from it.
 
   The engine half is checked against `preview`, which answers the same question about the
@@ -28,7 +28,7 @@
   (tu/with-terms [dog mortal Fido RuleContext]
     (v/assert kb (list 'genlContext RuleContext 'WellContext) 'UniverseContext)
     (v/assert-rule kb [(list dog '?x)] (list mortal '?x) RuleContext)
-    (let [r (v/edit-with-consequences kb {:add [[(list dog Fido) RuleContext]]})
+    (let [r (v/edit-with-consequences! kb {:add [[(list dog Fido) RuleContext]]})
           derived (remove :premise? (:believed-added r))]
       (testing "the premise the caller wrote is reported, and marked as one — that mark is
                 how a reader tells what it said from what followed"
@@ -50,7 +50,7 @@
 (tu/deftest-kb a-write-that-follows-from-nothing-reports-only-itself
   (tu/with-terms [swims Willy QuietContext]
     (v/assert kb (list 'genlContext QuietContext 'WellContext) 'UniverseContext)
-    (let [r (v/edit-with-consequences kb {:add [[(list swims Willy) QuietContext]]})]
+    (let [r (v/edit-with-consequences! kb {:add [[(list swims Willy) QuietContext]]})]
       (is (= [(list swims Willy)] (sentences (:believed-added r))))
       (is (every? :premise? (:believed-added r)) "nothing followed, and nothing is claimed")
       (is (= [] (:believed-removed r))))))
@@ -65,7 +65,7 @@
     (is (v/ask? kb (list flies Tweety) DefeatContext) "the default holds first")
     (testing "known-true content beats a default, and the withdrawal is reported — the
               half a caller reading only `:added` would never see"
-      (let [r (v/edit-with-consequences
+      (let [r (v/edit-with-consequences!
                kb {:add [[(list 'not (list flies Tweety)) DefeatContext
                           {:strength :monotonic}]]})
             gone (:believed-removed r)]
@@ -84,7 +84,7 @@
       (tu/with-terms [Tom]
         (let [batch    {:add [[(list cat Tom) PairContext]]}
               promised (v/preview kb batch)
-              actual   (v/edit-with-consequences kb batch)]
+              actual   (v/edit-with-consequences! kb batch)]
           (is (= (set (sentences (:believed-added promised)))
                  (set (sentences (:believed-added actual)))))
           (is (= (set (sentences (:believed-removed promised)))
@@ -99,7 +99,7 @@
       (try
         (v/assert kb '(genlContext TmsCalloutContext UniverseContext) 'UniverseContext)
         (v/assert-rule kb ['(tmsCalloutDog ?x)] '(tmsCalloutMortal ?x) 'TmsCalloutContext)
-        (let [r (v/edit-with-consequences
+        (let [r (v/edit-with-consequences!
                  kb {:add [['(tmsCalloutDog TmsCalloutFido) 'TmsCalloutContext]]})]
           (is (= ['(tmsCalloutMortal TmsCalloutFido)]
                  (sentences (remove :premise? (:believed-added r))))
@@ -112,8 +112,8 @@
     (let [preds (repeatedly 4 #(tu/tmp-pred "capped"))]
       (doseq [p preds] (v/assert-rule kb [(list seed '?x)] (list p '?x) CapContext))
       (tu/with-terms [Thing]
-        (let [r (v/edit-with-consequences kb {:add [[(list seed Thing) CapContext]]}
-                                          {:max-results 2})]
+        (let [r (v/edit-with-consequences! kb {:add [[(list seed Thing) CapContext]]}
+                                           {:max-results 2})]
           (is (= 2 (count (:believed-added r))))
           (is (:bounded? r) "a partial answer never reads as a complete one"))))))
 

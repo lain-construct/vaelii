@@ -103,7 +103,7 @@ and `genls` / `specs` walk it on demand.
   refuse a `genl` edge that would close one, because a type cycle claims two types are
   coextensive — a claim about *terms*, which is the equality partition's job, and which
   would make a `disjoint` pair disjoint from itself. A **context** cycle claims only that
-  the two microtheories see each other, which is a thing `genlMt` says (OpenCyc states 49
+  the two contexts see each other, which is a thing `genlMt` says (OpenCyc states 49
   of them, BaseKB's own component among them), so it is admitted and the taxonomy holds
   it.
 - Holding it means the potential ranks the **condensation** rather than the graph:
@@ -319,7 +319,7 @@ is refused exactly as `Fido` being both a `dog` and a `cat` is. The same widenin
 `argIsa` constrain predicate-valued positions — `(argIsa typeToInstancePred 1
 typeRelationPredicate)` refuses a link whose first argument is not classified
 type-level. Numbers, strings and compounds stay outside both checks, since no type
-membership can be asserted of one (a NAT reifies to a NART symbol first, so a reified
+membership can be asserted of one (a NAT reifies to its constant first, so a reified
 term is checked under its constant). Open-world is unchanged: a term carrying no type
 membership at all still cannot violate anything.
 
@@ -372,7 +372,7 @@ which is what bounds a two-variable goal.
 
 The visibility filter belongs *here* rather than at the lookup: `:disjoint-index` is
 the adjacency of every declaration in the KB and carries no context, so an
-enumeration driven straight off it would report a microtheory's separations to a
+enumeration driven straight off it would report a context's separations to a
 context that cannot see them. One prologue serves the test and the enumeration for
 that reason — a candidate the predicate convicts and the enumeration cannot reach is
 an answer that silently stops existing, and two copies of this is how that happens.
@@ -413,7 +413,7 @@ no walk) and probing each of its terms against the other side's closure through 
 argument-1 root. `settle/two-sided-reach` is that rule, and the metatype-member route
 `(M T)` is the same thing between `T` and `M`'s other members. A side whose spec
 closure is **empty** reaches nobody at all — which is what a separation naming a
-non-symbol says, and OpenCyc declares thousands against NARTs like `(AbnormalFn
+non-symbol says, and OpenCyc declares thousands against reified NATs like `(AbnormalFn
 chromosome)`. That is stated in the code rather than left to the sizing arithmetic
 picking the empty side, because what makes it true lives two functions away:
 `believed-memberships` reads a clash half only from a sentence whose functor is a
@@ -520,7 +520,7 @@ maintained by `integrate-sentex`:
   for the same first argument (`checks/functional-problems`). With equality this would
   instead unify the two values.
 - `(decontextualizedPredicate P)` — every `(P ...)`, asserted or concluded by a rule,
-  is also deduced into UniverseContext, which every microtheory sees, so the fact stops
+  is also deduced into UniverseContext, which every context sees, so the fact stops
   being a claim of one theory. The target is fixed rather than named, because the
   definitional checks are context-scoped and only cover the copy when the stating
   context can see where it lands (see [contexts.md](contexts.md)).
@@ -585,7 +585,7 @@ argument is judged against the hierarchy the writer's own cone holds. Open-world
 holds for both, with a global floor and a scoped one: an argument outside the
 hierarchy **everywhere** is excused unless it is an **individual** (which
 `wff/genl-problems` refuses `genl` of, so it can never acquire the edges that would
-excuse it — a global probe on purpose, since a NART reads as an individual by
+excuse it — a global probe on purpose, since a reified NAT reads as an individual by
 spelling and is minted with real `genl` edges into `UniverseContext`, which not
 every writer sees); and an argument whose edges are merely *out of the writer's
 sight* is excused too, since a NAF check that convicted on invisible evidence would

@@ -126,10 +126,16 @@
          pos       (fn [ng] (sort-by atom-of (filter assumptions (:nogood ng))))
          neg       (fn [ng] (sort-by atom-of (filter assumptions (:neg ng))))
          involved  (fn [ng] (concat (pos ng) (neg ng)))
-         doomed    (filterv (comp empty? involved) contradictions)
-         live      (remove (comp empty? involved) contradictions)
+         ;; A fixed `:neg` member is an assumed-true one: its default-negated literal
+         ;; is false, so the body can never hold and the nogood constrains nothing.
+         ;; Dropping only the member instead would *tighten* the constraint — models
+         ;; nothing forbade would be excluded, or penalized.
+         vacuous?  (fn [ng] (not-every? assumptions (:neg ng)))
+         grounded  (remove vacuous? contradictions)
+         doomed    (filterv (comp empty? involved) grounded)
+         live      (remove (comp empty? involved) grounded)
          ;; A `:hard` nogood is an integrity constraint (no witness atom, no minimize);
-         ;; the rest are soft, minimized violations (positive members only).
+         ;; the rest are soft, minimized violations.
          hard-live (filter :hard live)
          soft-live (remove :hard live)
          ;; Caller priorities become levels by ascending rank, clear of 0 and 1.
@@ -144,9 +150,14 @@
                                    (concat (mapv atom-of (pos ng))
                                            (mapv #(- (atom-of %)) (neg ng)))))
                          hard-live)
-                    ;; v :- every contested member of the nogood holds
+                    ;; v :- the whole signed body holds — every `:nogood` member true
+                    ;; and every `:neg` member absent, the same body the hard branch
+                    ;; forbids.  Positive members alone would emit a `:neg`-only
+                    ;; nogood's witness as an unconditional fact: always violated,
+                    ;; never steering.
                     (mapcat (fn [[ng v]]
-                              [(aspif/rule v (mapv atom-of (pos ng)))
+                              [(aspif/rule v (concat (mapv atom-of (pos ng))
+                                                     (mapv #(- (atom-of %)) (neg ng))))
                                (aspif/minimize (levels (:priority ng)) [[v 1]])])
                             v-atoms)
                     ;; keep as much belief as possible: a defeated atom is a false one.

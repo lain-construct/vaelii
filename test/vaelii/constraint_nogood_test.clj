@@ -494,7 +494,7 @@
 ;;; ── the pair only one context can see ─────────────────────────────────
 
 ;; A separation, a functional slot and an asymmetric claim are all checked against what
-;; the *asking* context can see, which is right — a microtheory is convicted only on
+;; the *asking* context can see, which is right — a context is convicted only on
 ;; grounds it can see.  It leaves a pair whose halves sit either side of a `genlContext`
 ;; edge answerable from exactly one of the two contexts they are written in, so the
 ;; question has to be asked from there rather than from whichever half arrived last
@@ -556,7 +556,7 @@
         (is (empty? (v/contradictions kb)) "decided, so there is no dilemma left to report")))))
 
 (tu/deftest-kb a-membership-stated-in-two-visible-contexts-forms-two-pairs
-  ;; One sentence stated in a general microtheory and again in one that sees it is *two*
+  ;; One sentence stated in a general context and again in one that sees it is *two*
   ;; sentexes, of possibly different strength, and a third membership that denies the
   ;; type denies both.  Naming only the content-first of them left the other believed
   ;; beside content that contradicts it.
@@ -711,7 +711,7 @@
   ;; The clash only one side can see.  `ZGenContext` is general and `ZSpecContext` sees
   ;; it, so the two memberships are jointly visible from exactly one of the two contexts
   ;; they are written in — and the definitional checks are scoped to the asserting
-  ;; context, correctly, because a microtheory is only convicted on grounds it can see.
+  ;; context, correctly, because a context is only convicted on grounds it can see.
   ;; Asking the pair's question from the arriving sentex's *own* context therefore
   ;; answers it from the general side, which cannot see the specific membership at all.
   ;;

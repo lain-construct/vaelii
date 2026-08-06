@@ -13,7 +13,7 @@
   that only checks the negative passes just as well when the feature is broken
   outright.  The lattice throughout is two siblings under UniverseContext, neither
   seeing the other, which is the sharpest shape: whatever A knows, B must not, and B
-  is a perfectly ordinary microtheory that inherits the whole shipped ontology.
+  is a perfectly ordinary context that inherits the whole shipped ontology.
 
   Two of these are **order-independence** tests wearing a visibility coat.  A rule
   that fires by subsumption rests on the `genl` edge it subsumed through as much as on
@@ -34,7 +34,7 @@
 (use-fixtures :each (tu/neutral))
 
 (defn- siblings!
-  "Wire `a` and `b` as incomparable microtheories under UniverseContext: each sees the
+  "Wire `a` and `b` as incomparable contexts under UniverseContext: each sees the
   whole shipped ontology, neither sees the other, and no context sees both."
   [kb a b]
   (v/assert kb (list 'genlContext a 'UniverseContext) 'UniverseContext)
@@ -185,7 +185,7 @@
 (tu/deftest-kb predicate-metadata-is-a-licence-the-whole-kb-holds
   ;; `transitive` is a `decontextualizedPredicate`, so A's declaration is *lifted* into
   ;; UniverseContext and B sees it — predicate metadata is a claim about the vocabulary
-  ;; rather than a claim of a microtheory, and the lift is what says so.  So B may walk
+  ;; rather than a claim of a context, and the lift is what says so.  So B may walk
   ;; the relation, and what licensed it is the lift, not a peek into a sibling.
   (tu/with-terms [cursed8 begat8 A8 B8 AContext BContext]
     (siblings! kb AContext BContext)
@@ -429,7 +429,7 @@
     (v/assert kb (list leftP17 Item) AContext)
     (v/assert kb (list rightP17 Item) BContext)
     (is (seq (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)] '?ctx))
-        "the open question unions the two microtheories")
+        "the open question unions the two contexts")
     (is (empty? (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)] AContext))
         "asked from a context, it answers only what that context holds")
     (is (empty? (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)] BContext)))))

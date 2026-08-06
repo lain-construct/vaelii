@@ -82,7 +82,7 @@
 
 (tu/deftest-kb the-census-counts-only-the-merges-its-own-context-can-see
   ;; The same scoping `different` puts on the same partition: the unique names a
-  ;; microtheory holds are the ones *it* has not been told to merge.  Read globally, a
+  ;; context holds are the ones *it* has not been told to merge.  Read globally, a
   ;; `sameAs` stated down here would collapse two values in the general context that was
   ;; never told — whose own solutions still name both.
   (tu/with-terms [knows Ada Alan Turing LowContext]
@@ -332,14 +332,14 @@
 ;; the join — so it is counted *where the conclusion lands* and has no say in where
 ;; that is.  Placement is decided entirely by the rule's other antecedents.  Both
 ;; halves of that are surprising the first time, and both are what makes one rule give
-;; each microtheory its own count.
+;; each context its own count.
 
 (defn- counts-by-context
   [kb childCount]
   (into {} (map (fn [sx] [(:context sx) (nth (:sentence sx) 2)]))
         (v/sentexes-matching kb (list childCount '?x '?n) '?ctx)))
 
-(defn- two-microtheories!
+(defn- two-contexts!
   "`Left` and `Right` under `Root`, and the counting rule in `Root`."
   [kb {:keys [person childOf childCount Root Left Right]}]
   (doseq [c [Left Right]]
@@ -354,7 +354,7 @@
   (tu/with-terms [person childOf childCount Ann RootContext LeftContext RightContext]
     (let [world {:person person :childOf childOf :childCount childCount
                  :Root RootContext :Left LeftContext :Right RightContext}]
-      (two-microtheories! kb world)
+      (two-contexts! kb world)
       (v/assert kb (list childOf Ann 'C1) LeftContext)
       (v/assert kb (list childOf Ann 'C2) LeftContext)
       (v/assert kb (list childOf Ann 'C3) RightContext)
@@ -368,7 +368,7 @@
         (v/assert kb (list person Ann) RightContext)
         (is (= {RootContext 0 LeftContext 2 RightContext 1}
                (counts-by-context kb childCount))
-            "one rule, three microtheories, three answers")))))
+            "one rule, three contexts, three answers")))))
 
 (tu/deftest-kb the-counted-facts-are-not-in-the-justification
   ;; which is the whole reason `justification-excepted?` needs an arm of its own: the
@@ -376,8 +376,8 @@
   ;; still reaches the conclusion, through the re-check index rather than through
   ;; dependency-directed sweep.
   (tu/with-terms [person childOf childCount Ann RootContext LeftContext RightContext]
-    (two-microtheories! kb {:person person :childOf childOf :childCount childCount
-                            :Root RootContext :Left LeftContext :Right RightContext})
+    (two-contexts! kb {:person person :childOf childOf :childCount childCount
+                       :Root RootContext :Left LeftContext :Right RightContext})
     (v/assert kb (list person Ann) LeftContext)
     (v/assert kb (list childOf Ann 'C1) LeftContext)
     (let [h2 (v/assert kb (list childOf Ann 'C2) LeftContext)]
@@ -629,7 +629,7 @@
       (let [one-at-a-time (counted kb ancestorCount)]
         (doseq [[a b] edges] (v/retract! kb (v/handle-of kb (list ancestorOf a b) 'WellContext)))
         (is (= {A 0 B 0 C 0 D 0} (counted kb ancestorCount)) "back to an empty relation")
-        (v/edit kb {:add (mapv (fn [[a b]] [(list ancestorOf a b) 'WellContext]) edges)})
+        (v/edit! kb {:add (mapv (fn [[a b]] [(list ancestorOf a b) 'WellContext]) edges)})
         (is (= one-at-a-time (counted kb ancestorCount))
             "the batch settles once and reaches the identical counts")))))
 

@@ -47,12 +47,12 @@
   "Is delivery deferred to an enclosing operation?
 
   Most mutations settle once, so the settle *is* the operation and its region is the
-  whole story.  A teardown is the exception: `core/retract!` and `core/edit` settle,
+  whole story.  A teardown is the exception: `core/retract!` and `core/edit!` settle,
   re-derive what the removal released, and settle again — and a datum that goes OUT in
   the first pass and revives in the second moved no net belief at all.  Delivering per
   settle would report both halves of that flicker.  So those two hold the feed for
   their duration; the regions union, and one event is delivered with the batch's net
-  answer, which is the same answer `core/edit-with-consequences` gives for the same
+  answer, which is the same answer `core/edit-with-consequences!` gives for the same
   batch.
 
   Nests: an inner hold is a no-op wrapper (`remove-orphaned-nats!` retracts inside a
@@ -231,7 +231,7 @@
   `*held?*`).  Returns `body`'s value.
 
   The delivery runs even when `body` **throws**, so a half-applied batch still reports the
-  belief it did move.  Often that is nothing: `core/edit` throws during its deferred
+  belief it did move.  Often that is nothing: `core/edit!` throws during its deferred
   phase, before any settle, so no region was ever filed — and nothing is lost, because the
   touched set is still uncleared and the next settle reports it."
   [kb & body]

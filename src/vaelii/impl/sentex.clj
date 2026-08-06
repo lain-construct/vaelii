@@ -117,7 +117,7 @@
   per distinct name and is ontology-sized, but three writers mint a *fresh* symbol per
   fact: NAT reification (`nat/fresh-constant`, one `nat/g…` per reified non-atomic
   term), head-existential skolemization (`skolem/skolemize-conclusion`, one witness per
-  existential per firing frontier) and abduction (one scratch-microtheory context each).
+  existential per firing frontier) and abduction (one scratch context each).
   Under any of those the pool grows with the fact count rather than with the ontology,
   and nothing hands an entry back: it is static, process-wide and shared by every KB in
   it, so `retract!`, the store clears, `core/clear!`, a KB close and a catalog switch all
@@ -437,9 +437,12 @@
   (and (sequential? form) (= not-functor (first form)) (= 2 (count form))))
 
 (defn implies?
-  "Is `form` a rule form `(implies <ante> <conseq>)`?"
+  "Is `form` a rule form `(implies <ante> <conseq>)`?  Arity checked: an `implies` at
+  any other arity is never read as a rule — `rule-consequent` is an `nth`, and an
+  arity-4 form read as a rule silently dropped its tail.  `connective-problems`
+  refuses the malformed form at both doors before this question is asked."
   [form]
-  (and (sequential? form) (= rule-functor (first form))))
+  (and (sequential? form) (= rule-functor (first form)) (= 3 (count form))))
 
 (defn- peel-not
   "Strip leading `not` wrappers, returning [truth body] with double negation
@@ -1215,6 +1218,22 @@
                [[{:order [] :st empty-numbering}] 0]
                groups)))))
 
+(defn- framed-pred
+  "The predicate a literal is *about*, descending the `not` and `ist` frames: `r` for
+  `(r ?x)`, `(not (r ?x))` and `(ist ?c (r ?x))` alike.  This is the identity the
+  recursive-literal hold-back keys on — a rule concluding `(not (anc ?x ?z))` recurses
+  through an `anc` antecedent exactly as its positive twin does, and the frame is not
+  the predicate.  Reading the frame itself as the predicate would classify every
+  `not`-headed antecedent as recursive under a `not`-headed consequent, holding all of
+  them in author order and losing the canonical sort."
+  [form]
+  (loop [f form]
+    (cond
+      (negation? f) (recur (second f))
+      (and (sequential? f) (= ist-functor (first f)) (= 3 (count f))) (recur (nth f 2))
+      (sequential? f) (first f)
+      :else nil)))
+
 (defn- canonicalize-rule
   "Canonical antecedent order + canonical variables for a rule.  Returns
   [antecedents consequent varmap].
@@ -1243,9 +1262,10 @@
   (let [norm       #(normalize-literal % symmetric?)
         all        (collapse-comparison-chains (mapv norm antes))
         conseq0    (norm conseq)
-        conseq-pred (when (sequential? conseq0) (first conseq0))
+        conseq-pred (framed-pred conseq0)
         held?      (fn [l] (or (deferred-literal? l)
-                               (and (sequential? l) (= (first l) conseq-pred))))
+                               (and (some? conseq-pred)
+                                    (= (framed-pred l) conseq-pred))))
         gens       (filterv (complement held?) all)
         defs       (filterv held? all)
         ;; the generators are numbered by the search; the held-back literals, then the
@@ -1365,6 +1385,82 @@
   saw the positive polarity would miss every withdrawal a negation causes."
   [sentence]
   (second (peel-not (canon sentence))))
+
+(defn connective-problems
+  "Structural problems with `sentence`'s connective frames, as strings (empty if OK) —
+  read by `check` and thrown by `assert` under `:not-well-formed` before anything is
+  stored:
+
+  * a structural connective at an arity it does not have — `(not A B)` would store as
+    a positive fact whose record and index disagree about what it says, and an
+    `implies` at arity 2 threw a bare exception where arity 4 silently dropped its
+    tail;
+  * a rule or exception literal that is not itself a sentence — a bare symbol in
+    antecedent or consequent position matches nothing and checks as nothing;
+  * a head existential outside consequent position — `exists` marks a consequent
+    variable for skolemization and is not a predicate;
+  * a nested `implies` — a rule is a sentence, not a literal;
+  * a top-level `and` — a conjunction is an antecedent or a query, never one
+    assertable sentence; assert its conjuncts."
+  [sentence]
+  (letfn
+   [(walk [role form]
+      (cond
+        (variable? form) []                        ; a pattern position; not ours
+        (not (sequential? form))
+        (if (= :sentence role)
+          []                                       ; top-level shape has its own check
+          [(str "a " (clojure.core/name role) " literal must be a sentence, got " (pr-str form))])
+        (empty? form) ["an empty form is not a sentence"]
+        :else
+        (let [h (first form) n (count form)]
+          (cond
+            (variable? h)                 []       ; `(?p ?x)` names no connective
+            (do-form? form)               []
+            (= sentex-handle-functor h)   []
+            (or (= h default-rule-wrapper) (= h assumption-rule-wrapper)
+                (contains? rule-direction-wrappers h) (constraint-rule-wrappers h))
+            (if (= 2 n)
+              (walk role (second form))
+              [(str (pr-str h) " wraps one rule, got arity " (dec n))])
+            (= h except-wrapper)
+            (if (= 3 n)
+              (into (vec (mapcat #(walk :exception %)
+                                 (exception-conjuncts (second form))))
+                    (walk role (nth form 2)))
+              [(str "exceptWhen takes a query and a rule, got arity " (dec n))])
+            (= h not-functor)
+            (if (= 2 n)
+              (walk role (second form))
+              [(str "not takes one sentence, got arity " (dec n))])
+            (= h ist-functor)
+            (if (= 3 n)
+              (walk role (nth form 2))
+              (if (= :sentence role)
+                []            ; the top-level ist arity has its own `:shape` contract
+                [(str "ist takes a context and a sentence, got arity " (dec n))]))
+            (= h and-functor)
+            (if (= :sentence role)
+              ["a conjunction is not one assertable sentence; assert its conjuncts"]
+              (vec (mapcat #(walk role %) (rest form))))
+            (= h rule-functor)
+            (cond
+              (not= 3 n)
+              [(str "implies takes antecedents and one consequent, got arity " (dec n))]
+              (not= :sentence role)
+              [(str "a rule cannot stand as a " (clojure.core/name role) " literal")]
+              :else
+              (into (vec (mapcat #(walk :antecedent %) (rule-antecedents form)))
+                    (walk :consequent (rule-consequent form))))
+            (head-exists? form)
+            (if (= :consequent role)
+              (walk role (head-exists-body form))
+              [(str "exists marks a rule consequent; it cannot stand in "
+                    (clojure.core/name role) " position")])
+            (there-exists? form) (walk role (nth form 2))
+            (aggregate? form)    (walk role (aggregate-body form))
+            :else []))))]
+    (walk :sentence sentence)))
 
 (defn rename-vars
   "`form` with every variable `m` names replaced by the name it maps to — **one pass**,

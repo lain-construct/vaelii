@@ -23,6 +23,10 @@
                   of a stream to realize.
     :max-depth    transformation (rule-expansion) depth — honored by `prove-within`
 
+  A key outside those four is refused (`:unknown-option`, `check-budget!`): every
+  bound is optional, so a misspelt one is not missing — the run is simply unbounded,
+  in silence.
+
   A **partial result** — the anytime contract returned by `collect` / `from-batch`
   / `resume`:
 
@@ -39,7 +43,36 @@
   whole answer.  The resume continuation captures an in-memory lazy tail (or, for
   `prove-within`, the DFS goal stack), so resumption is **in-process only** — it
   does not survive a restart, and holding one pins its captured state in the heap
-  (see the single-writer contract in docs/storage.md).")
+  (see the single-writer contract in docs/storage.md)."
+  (:require [clojure.string :as str]))
+
+(def budget-keys
+  "Every bound a budget may carry.  `collect` reads `:max-ms` / `:max-results`;
+  `:max-cost` is honored by `ask-within` (it selects which provers run, before the
+  stream is built) and `:max-depth` by `prove-within` — all four are budget
+  vocabulary, so all four pass `check-budget!`.  Public for the reason
+  `vaelii.core/assert-opt-keys` is: it is the answer to \"is this a real bound?\"."
+  #{:max-ms :max-results :max-cost :max-depth})
+
+(defn check-budget!
+  "Refuse a budget key nothing reads, and a non-nil non-map budget (`:unknown-option`
+  both).  A budget is a map of *optional* bounds, so a misspelt key is not missing —
+  the run is simply unbounded: `{:max-mss 100}` realizes the whole stream, which on an
+  infinite source never returns, and is in any case the opposite of what was asked.
+  (A `:max-cost` value outside the tiers is the *value* check, `:unknown-option` at
+  `vaelii.impl.provers/ask-capped` — this is the key check one level up.)"
+  [budget]
+  (when (and (some? budget) (not (map? budget)))
+    (throw (ex-info (str "a budget must be a map of bounds, got " (pr-str budget))
+                    {:type :unknown-option :options (vec (sort budget-keys))})))
+  (when-let [unknown (seq (sort-by pr-str (remove budget-keys (keys budget))))]
+    (throw (ex-info (str "unknown budget bound" (when (next unknown) "s") " "
+                         (str/join ", " (map pr-str unknown))
+                         " — a budget carries "
+                         (str/join ", " (map pr-str (sort budget-keys)))
+                         ".  A bound nothing reads is an unbounded run in silence.")
+                    {:type :unknown-option :unknown (vec unknown)
+                     :options (vec (sort budget-keys))}))))
 
 (defn deadline
   "Absolute `System/nanoTime` instant `:max-ms` from now, or nil when unbounded."
@@ -78,6 +111,7 @@
   cap check sits above the `empty?` that would force it — so exactly n elements are
   realized (an unbounded source is bounded without reading past the cap)."
   [xs budget]
+  (check-budget! budget)
   (let [max-results (:max-results budget)
         dl          (deadline budget)
         start       (System/nanoTime)]

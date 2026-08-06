@@ -71,13 +71,13 @@ no "No SLF4J providers were found" warning appears.
 | `/network?ctx=<context>&calc=<calculus>` | the **constraint network** a qualitative calculus computes over a context: the tightened matrix (a cell is what still holds of row-to-column), whether the believed facts are satisfiable at all, and one scenario out of it. With no context, the six calculi and their vocabularies |
 | `/demo` (GET/POST) | the **non-monotonicity walkthrough**: three stepped writes to the reader's sandbox in which `(flies Pingu)` is believed, stops being believed, and comes back — at a different handle. GET renders where the sandbox stands, POST runs one step. Every step writes, so every step is origin-checked (below) |
 | `/reasoning` (GET/POST) | the **worked examples**: every kind of inference the shipped ontology performs, each a question with a live answer, the level that answered it, and links to the stored sentexes it reasoned from. GET computes every read-only card on render; POST establishes one example's premises in the reader's sandbox (below) |
-| `/assert` (GET/POST) | the **new-sentex form**: sentences (one per line), a context, and the known-true switch. GET seeds it (`?q=<term>` from a term page); POST checks every line and applies them in one `edit`, then says what followed (below) |
+| `/assert` (GET/POST) | the **new-sentex form**: sentences (one per line), a context, and the known-true switch. GET seeds it (`?q=<term>` from a term page); POST checks every line and applies them in one `edit!`, then says what followed (below) |
 | `/edit` (GET/POST) | the **multi-sentex editor**: GET seeds a textarea for a set of selected handles, POST checks and applies the save. htmx fragments swapped into the editor panel, not standalone pages. |
 | `/propose` (GET/POST) | the **proposal panel** at the foot of a term page: GET renders the instruction box (asking no model), POST runs one page-scoped turn through `vaelii.impl.llm.session/propose-page` and swaps the lines it proposed into `#propose-result`. The turn writes nothing (below) |
 | `/propose/level` (POST) | the **same proposal at another density** — the list's own originals reposted, every verdict re-derived, no second model turn. Writes nothing |
 | `/propose/line` (POST) | one reviewed line, **re-rendered on the shape the reader picked** — the numbered alternative is re-derived from `correct` and re-checked, so the chips are of the sentence that would actually be stored. Writes nothing |
 | `/propose/preview` (POST) | what accepting the accepted lines would **mean** — the belief added, the belief withdrawn, the dilemmas opened, the refusals — through `vaelii.core/preview`. Writes nothing; the KB comes back at the same handles |
-| `/propose/apply` (POST) | the accepted lines, checked whole and stored through `vaelii.core/edit` in **one settle**. The panel's one write |
+| `/propose/apply` (POST) | the accepted lines, checked whole and stored through `vaelii.core/edit!` in **one settle**. The panel's one write |
 | `/retract` (GET/POST) | the **retract confirmation**: GET previews the teardown (the selection and what the sweep would take with it) and writes nothing; POST performs it |
 | `/chain` (POST) | run **forward chaining** and answer with the `/stats` page it changed. POST-only — it derives and places conclusions |
 | `/kbs` | the **knowledge bases**: what is loaded (with counts, an estimated footprint, and a progress bar for one still loading) and what can be — the shipped ontologies, a generated corpus with a slider per parameter, and every corpus / dump / store the catalog found. See [docs/catalog.md](catalog.md) |
@@ -194,11 +194,11 @@ figure and nothing else — the page is still 200 and still complete.
 
 ### Somewhere safe to be wrong
 
-Every browser session gets a **sandbox**: a scratch microtheory of its own, hung below
+Every browser session gets a **sandbox**: a scratch context of its own, hung below
 `WellContext`. `vaelii.impl.sandbox`.
 
 The asymmetry is the whole design, and it is not a permission check. `genlContext` already
-decides what a microtheory can see; hanging the sandbox at the bottom of the spindle means
+decides what a context can see; hanging the sandbox at the bottom of the spindle means
 everything shipped flows *in* — every type, every relation, every rule is usable — and
 nothing flows *out*, because no shipped context names it. A reader can therefore be wrong
 in any way they like without touching the ontology.
@@ -219,7 +219,7 @@ can discard, with nothing arranging for it.
 - **The assert form defaults its context to the sandbox**, so writing somewhere safe is
   what happens when the reader changes nothing. It is a default, not a lock: the field is
   editable, and anyone who knows they want `NaturalWorldContext` can type it.
-- **Reset is a real teardown**, not a flag — every sentex in the extent through `edit`'s
+- **Reset is a real teardown**, not a flag — every sentex in the extent through `edit!`'s
   `:remove`, then the `genlContext` edge, which is not in the extent because
   `genlContext` is forced-decontextualized and therefore stored in `UniverseContext`. The
   dependency-directed sweep takes the derived conclusions and their justifications, so the
@@ -245,7 +245,7 @@ sandbox:
 2. assert `(penguin Pingu)` — `(flies Pingu)` stops being believed, and nobody retracted it
 3. retract the penguin claim — it is believed again
 
-Nothing about the page is special-cased in the engine. Each step is an ordinary `v/edit`
+Nothing about the page is special-cased in the engine. Each step is an ordinary `v/edit!`
 against the sandbox, the page is re-read from the KB *after* the write rather than rendered
 from what it intended, and every handle on it links to the record it names — which is the
 whole point, since the claim being made is that this is the engine and not a story about
@@ -313,7 +313,7 @@ then asks, which is the order the page actually creates.
 ### What followed from a commit
 
 Both commit paths — the assert form and the proposal panel — write through
-`v/edit-with-consequences` rather than `v/edit`, so each can end with the thing a commit
+`v/edit-with-consequences!` rather than `v/edit!`, so each can end with the thing a commit
 otherwise leaves unsaid:
 
 > **You didn't say this, but it follows**
@@ -508,7 +508,7 @@ None of that is htmx-expressible, so it is the first of the five jobs
 ## Editing sentexes
 
 The browser is not read-only: sentexes can be **asserted, edited in bulk, and
-retracted**. Every write goes through `vaelii.core/edit` via the access facade, so each
+retracted**. Every write goes through `vaelii.core/edit!` via the access facade, so each
 is **one settle** and works the same in-process or attached to a daemon.
 
 Once ≥1 sentex is selected an **action bar** appears, with **Edit**, **Retract…** and
@@ -523,7 +523,7 @@ Clear.
 - **Save** POSTs the edited text. The server diffs the lines against the selection **by
   content**: a line you left alone touches nothing (its handle is untouched, no churn),
   a line you changed or deleted retracts its sentex, a new line is asserted. The batch
-  that diff produces is then run past **`vaelii.core/check`** before `edit` is called at
+  that diff produces is then run past **`vaelii.core/check`** before `edit!` is called at
   all, so a save the engine would refuse comes back as a message *beside its line* —
   with the `:type` `assert` would have thrown — rather than as an exception. A line that
   does not parse blocks the save the same way. Either way nothing is written and your
@@ -597,8 +597,9 @@ Clear.
 `vaelii.core/check` is `assert`'s own check chain run for its answer instead of its
 effect — the same functions in the same order, reporting each failure under the `:type`
 keyword `assert` would have thrown, storing nothing. The browser is its first caller:
-both write forms run `check-edit` over the batch they are about to apply and render the
-problems against the lines that produced them, so the reader sees
+every write form — the editor's Save, the assert form, the accepted-proposal commit
+and the retract POST — runs `check-edit` over the batch it is about to apply and
+renders the problems against the lines that produced them, so the reader sees
 `line 2 · not-ground · not ground: (parentOf Tom ?x) contains a variable` instead of a
 stack trace. It costs nothing when the content is fine, and the alternative — attempt
 the write and catch — writes the good half of a batch before failing on the bad half.
@@ -614,7 +615,7 @@ licenses, and answers with type-level assertions in that vocabulary. See
 What the browser adds is the bounds:
 
 - **The turn writes nothing.** A model proposes; the lines come back as a list to read.
-  What reaches the KB is what a reader **accepted**, through the same `edit` every other
+  What reaches the KB is what a reader **accepted**, through the same `edit!` every other
   write here goes through — so the model adds no write path and no trust boundary, and
   the last thing to touch a sentence before it is stored is a person.
 - **A runaway generation cannot hang the page.** Every turn carries `:max-tokens`
@@ -705,7 +706,7 @@ pick a shape.
   check. Storing it would store the sentence the correction was warning about.
 - **Applied whole or not at all.** `check-edit` runs over the batch first and one problem
   stores nothing — a half-applied review is an outcome nobody chose — and the adds go
-  through `v/edit` once, so they land in a single settle.
+  through `v/edit!` once, so they land in a single settle.
 
 ### One row, three densities
 
@@ -984,7 +985,7 @@ one — the rankings taken are the ones the index already answers in O(1):
 - **Contexts, by what they hold.** `context-size` is one set-size read each, so the whole
   ranking is `n` O(1) reads (150 ms over 13,196, and past `context-rank-cap` the page says
   it cannot rank rather than spending it). This is the ranking that earns its keep: a
-  corpus's mass is not spread evenly over its microtheories, and the four largest name the
+  corpus's mass is not spread evenly over its contexts, and the four largest name the
   subject outright — `UniversalVocabularyContext` 609,798, `GeneOntologyContentContext`
   119,192, `BaseKBContext` 63,497, `ComputerSoftwareDataContext` 32,469. Fifty alphabetical
   context names said none of that. It is the front page's lattice fallback and the whole
@@ -1094,7 +1095,7 @@ over `(termOfUnit K (F K))` is a stack overflow rather than a page.
 
 The cost is one `term-expression` read per **distinct** constant on the page, cached on
 the view — there is no batched read for the map, so the cache is the whole budget, and a
-page listing one NART in a dozen rows is one round-trip under `--attach` rather than
+page listing one reified NAT in a dozen rows is one round-trip under `--attach` rather than
 twelve. A KB that has minted none never touches it: `reified-term?` is a pure test on the
 symbol's namespace.
 
@@ -1210,10 +1211,12 @@ symbol's namespace.
   `resources/public`, served by a reitit `create-resource-handler` that catches
   whatever the page router did not match. The stylesheet keeps its own `/vaelii.css`
   route. Every static answer carries a **cache header**, and `VAELII_DEV` in the
-  environment picks the policy: set, the stylesheet is re-read per request and nothing
-  is cached, so editing the sheet shows on a refresh with no restart; unset, it is read
-  once and each asset is served `public, max-age=3600`, so a pageview is not a file read
-  and a repeat visit is not a download. Nothing is loaded from a CDN: a CDN could change
+  environment picks the policy: truthy (`1` / `true` / `on` / `yes`), the stylesheet is
+  re-read per request and nothing is cached, so editing the sheet shows on a refresh with
+  no restart; unset or falsy (`0` / `false` / `off` / `no`), it is read once and each
+  asset is served `public, max-age=3600`, so a pageview is not a file read and a repeat
+  visit is not a download. It is the *value* that decides, not the variable's presence,
+  and anything outside those spellings is refused when the namespace loads. Nothing is loaded from a CDN: a CDN could change
   what runs in the operator's browser and would log every page they open. Each vendored
   asset's licence is recorded in [licenses/THIRD-PARTY.md](../licenses/THIRD-PARTY.md).
 

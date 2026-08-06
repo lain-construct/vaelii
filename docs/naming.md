@@ -49,7 +49,7 @@ to reach the literals:
 
 Two positions are deliberately **not** literals. **Arguments** are never walked: a
 compound in argument position is a *term*, and its head names a function or is plain
-data — an arithmetic expression `(evaluate ?s (+ 1 2))`, a NAUT `(QuantityFn 5
+data — an arithmetic expression `(evaluate ?s (+ 1 2))`, a structural NAT `(QuantityFn 5
 Meter)`, a quoted connective `(comment not "…")`. And a **variable in functor
 position** is a pattern that names no predicate, so the dotted rest form
 `(?pred . ?args)` and a bare `(?p ?x)` pass.

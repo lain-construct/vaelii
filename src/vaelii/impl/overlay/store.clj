@@ -28,7 +28,7 @@
     ephemeral fork passes an in-RAM bookkeeping backend and pays nothing for the
     machinery.
 
-  **Counts need no delta bookkeeping here.**  A `RecordStore` in pure exposes handle
+  **Counts need no delta bookkeeping here.**  A `RecordStore` exposes handle
   *sets* rather than counts, and everything counted — `sentex-count`, `context-size`,
   `count-with-functor` — is read off the index, where the merge is the trie's own
   copy-on-write counters and the merged root sets (`vaelii.impl.overlay.kv`).  So the
@@ -36,7 +36,7 @@
   accounting that could drift from the records.
 
   **The fork's belief is rebuilt, not overlaid.**  The JTMS is not storage — it is a
-  separate protocol (`vaelii.impl.jtms`) over derived state — and pure already has the
+  separate protocol (`vaelii.impl.jtms`) over derived state — and the engine already has the
   operation that computes it from records: `recover`.  So a fork gets its own network by
   recovering over the merged view, and nothing here layers one truth-maintenance graph
   over another."

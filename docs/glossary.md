@@ -17,13 +17,13 @@ Each entry is tagged with its subsystem:
 makes a `(P …)` assumable by `abduce`, and the only thing that does — a
 belief-following taxonomy prop like `transitive`, but read from the asking
 context's up-cone rather than universally, because abducibility is a policy of
-the microtheory granting it. See [abduction.md](abduction.md).
+the context granting it. See [abduction.md](abduction.md).
 
 **Abduction** ![inference](../.github/badges/cat-inference.svg): `abduce` —
 what would have to be true for a goal to be provable. Runs the DFS backward
 chainer, observes the subgoals it could neither match nor expand
 (`res/*dead-end*`), and mints the gated ones as `:default` premises in a
-scratch microtheory hung below the asking context, so an ignored call leaves the
+scratch context hung below the asking context, so an ignored call leaves the
 KB as it found it and every answer names its assumptions. See
 [abduction.md](abduction.md).
 
@@ -133,7 +133,7 @@ predicates that denote its base relations — `{:name :algebra :denotation}`, wh
 ship; `core/calculi` is them as data. See [qcn.md](qcn.md).
 
 **Candidate** ![kb](../.github/badges/cat-kb.svg): A `[sentence context opts]` entry
-read **out of English** — the shape `edit` takes, carrying the span of text it came
+read **out of English** — the shape `edit!` takes, carrying the span of text it came
 from in its provenance, checked by `check-edit` and never asserted. Nothing in the
 engine can say a candidate means what the text said, which is why a reviewer sits
 between the pipeline and the store. See [reading.md](reading.md).
@@ -167,7 +167,7 @@ relations}}` over a set of nodes — a value, not a store, read out of the
 believed facts visible from a context. `core/qualitative-network` is the public
 reading of one. See [qcn.md](qcn.md).
 
-**Context** ![kb](../.github/badges/cat-kb.svg): The microtheory a sentex holds
+**Context** ![kb](../.github/badges/cat-kb.svg): The theory a sentex holds
 in — every sentex is in exactly one. Contexts form a `genlContext` hierarchy: a
 sub-context *sees* its supers. Names end in `Context`. See
 [contexts.md](contexts.md).
@@ -186,7 +186,7 @@ sentex. See [contexts.md](contexts.md).
 
 **`decontextualizedPredicate`** ![kb](../.github/badges/cat-kb.svg): Metadata
 deducing every `(P …)` — asserted or rule-concluded — into UniverseContext, so the
-fact is visible from every microtheory instead of belonging to one. The target is
+fact is visible from every context instead of belonging to one. The target is
 fixed, not named: the definitional checks are context-scoped and only cover the copy
 when the stating context sees where it lands. `forcedDecontextualizedPredicate` is the
 stronger variant that *stores* it there by force. See [contexts.md](contexts.md).
@@ -378,11 +378,12 @@ predicates camelCase, individuals CapitalCamelCase, types snake_case (unary
 predicates), contexts ending in `Context`. `assert` rejects a bad name. See
 [naming.md](naming.md).
 
-**NART / NAUT** ![kb](../.github/badges/cat-kb.svg): The two readings of a
-non-atomic term `(F a…)`. Under `(reifiableFunction F)` it denotes an object and
-is **reified** into an opaque `nat/`-namespaced constant before it reaches the
-index — a NART. Under `(unreifiableFunction F)` it stays a compound to be
-evaluated — a NAUT. See [nat.md](nat.md).
+**NAT** ![kb](../.github/badges/cat-kb.svg): A non-atomic term `(F a…)` — a
+function application denoting an entity. Two readings, by declaration. Under
+`(reifiableFunction F)` it denotes an object and is **reified** into an opaque
+`nat/`-namespaced constant before it reaches the index. Under
+`(unreifiableFunction F)` it stays **structural**, a compound to be evaluated.
+See [nat.md](nat.md).
 
 **Negation as failure (NAF)** ![inference](../.github/badges/cat-inference.svg):
 Closed-world negation. `(unknown S)` holds iff `S` is not derivable;

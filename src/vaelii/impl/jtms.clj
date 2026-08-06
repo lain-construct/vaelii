@@ -449,6 +449,21 @@
         (update :touched-in (fnil conj #{}) consequence))
       (resettle state [consequence]))))
 
+(defn- restrength-informant* [state informant strength]
+  ;; The rule handle is an antecedent of every justification it informs (a firing
+  ;; conjoins it — that is what makes retracting the rule withdraw its conclusions),
+  ;; so its node's `:consequences` adjacency is the candidate set and nothing scans
+  ;; the whole `:justs` map.  The informant filter keeps out a justification that
+  ;; merely *uses* the rule's handle as an ordinary antecedent.
+  (let [jids  (into []
+                    (filter #(= informant (get-in state [:justs % :informant])))
+                    (get-in state [:nodes informant :consequences] #{}))
+        stale (into [] (remove #(= strength (get-in state [:justs % :strength]))) jids)]
+    (if (empty? stale)
+      state
+      (-> (reduce (fn [s jid] (assoc-in s [:justs jid :strength] strength)) state stale)
+          (resettle (mapv #(get-in state [:justs % :consequence]) stale))))))
+
 ;; ---- retraction ---------------------------------------------------------
 
 (defn- dissoc-all
@@ -643,6 +658,9 @@
   (-add-premise      [tms datum strength] "Mark `datum` a premise at `strength`.")
   (-suspend-premise  [tms datum] "Drop `datum`'s premise mark and relabel — no sweep.")
   (-add-justification [tms just] "Record `just` and relabel what it moves.")
+  (-restrength-informant [tms informant strength]
+    "Set `strength` as the rule-contribution slot of every justification whose
+    informant is `informant`, and relabel the region their consequences span.")
   (-relabel          [tms]       "Whole-graph relabel (recover only).")
   (-defeat           [tms datums] "Force `datums` OUT and relabel their region.")
   (-clear-defeats    [tms]       "Empty the defeated set and relabel.")
@@ -704,6 +722,8 @@
   (-add-premise [_ datum strength] (swap! state premise* datum strength) nil)
   (-suspend-premise [_ datum] (swap! state suspend-premise* datum) nil)
   (-add-justification [_ just] (swap! state add-just* just) nil)
+  (-restrength-informant [_ informant strength]
+    (swap! state restrength-informant* informant strength) nil)
   (-relabel [_] (swap! state relabel-all*) nil)
   (-defeat [_ datums]
     (swap! state (fn [s] (-> s (update :defeated (fnil into #{}) datums) (resettle datums))))
@@ -1011,6 +1031,24 @@
     (when-let [^java.util.HashSet ks (.get cache (unbox (:consequence just)))]
       (.add ks (just-key (:informant just) (:antecedents just)))))
   just)
+
+(defn restrength-informant
+  "Set `strength` as the rule-contribution slot of every justification whose informant
+  is `informant`, and relabel the region their consequences span.
+
+  A justification's `:strength` is the *rule's* contribution, read off the record at
+  fire time (`chain/rule-view-of`) — a cache of one slot of one sentex.  When that slot
+  moves (a re-asserted rule's defeasibility resolves strict, `core/reconcile-rule-slots!`),
+  the cache must move with it, or belief keeps the arrival order the slot resolution
+  exists to remove: the same rule stated defeasible-then-strict and strict-then-defeasible
+  would confer two different classes on conclusions already derived.  The antecedent half
+  of `conferred-class` is already read live at labelling time, so this one scalar is the
+  only stored copy — updated here, then relabelled through the full affected region,
+  since a class that rises can flip defeat decisions anywhere in the consumer cone."
+  [tms informant strength]
+  (observe/note-change)
+  (-restrength-informant tms informant strength)
+  tms)
 
 (defn relabel
   "Recompute *every* node's label and defeat-class.  This is the one whole-graph

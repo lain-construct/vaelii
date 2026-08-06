@@ -2,7 +2,7 @@
 ;; objects, attributes, substances, artifacts, body parts and their kinds), the
 ;; physical-structure relations partOf/locatedIn/madeOf, and the two type-level
 ;; relations largerThan/partType. Sees CoreContext; UniverseContext sees it, so any
-;; type or relation here is visible from every microtheory.
+;; type or relation here is visible from every context.
 
 (genlContext AbstractContext CoreContext)
 (genlContext UniverseContext AbstractContext)

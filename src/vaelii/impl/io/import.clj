@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.io.import
-  "Import a vaelii **export dump** — a directory of record streams — into a pure KB,
-  landing in exactly the state pure's own restart path (`reindex` / `recover`) already
+  "Import a vaelii **export dump** — a directory of record streams — into a KB,
+  landing in exactly the state the engine's own restart path (`reindex` / `recover`) already
   knows how to produce.
 
   A dump is a directory whose `meta.edn` is the marker and schema; every other file is
@@ -44,7 +44,7 @@
   overwrite the first imported record.  Two things can still stop a handle landing as
   given, and neither is silent: a frame with no `:id`, and a frame whose canonical form
   is one already stored, which **collapses** onto that handle (a dedup this build is
-  right to perform — two engine forms can canonicalize to one pure record — and the
+  right to perform — two engine forms can canonicalize to one stored record — and the
   dump's numbering cannot survive it).  Either makes the import `:remapped`, and then one
   `old->new` map carries the dump's ids across: justification references, and the
   `(sentexHandle H)` a meta-sentex embeds *inside stored content*, which
@@ -65,7 +65,7 @@
   Anything else rebuilds, at `:info`, with the reason named.  A cache that silently
   stops being used is a cache nobody maintains.
 
-  The store-facing replay is written against pure's real seams: populate the record
+  The store-facing replay is written against the engine's real seams: populate the record
   store with the re-canonicalized records + justifications + premise marks, then either
   install the dumped index (`p/index-load`) or rebuild it (`reindex`), then
   `core/recover` — which rebuilds the JTMS and the taxonomy **from the records**, so a
@@ -73,6 +73,7 @@
   variant."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.walk :as walk]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
@@ -122,7 +123,7 @@
 
 (defn- reflective-input
   "Wrap `in` in the input stream named by `class-name` via its `(InputStream)`
-  constructor.  A codec here is one a dump may *arrive* in rather than one pure writes,
+  constructor.  A codec here is one a dump may *arrive* in rather than one this engine writes,
   so it is resolved reflectively: the dump imports iff the library is on the classpath,
   and a clear error names the missing dep otherwise.  `:gzip` and `:none` — the export
   default and the opt-out — need no dep and never reach here; `:xz` is written too
@@ -148,7 +149,7 @@
     :xz         (reflective-input "org.tukaani.xz.XZInputStream" in)
     :zstd       (reflective-input "io.airlift.compress.zstd.ZstdInputStream" in)
     (throw (ex-info (str "unknown compression " compression)
-                    {:type :unknown-compression :compression compression}))))
+                    {:type :unsupported-compression :compression compression}))))
 
 ;;; ── stream readers ────────────────────────────────────────────────────
 
@@ -206,12 +207,19 @@
 (defn- stream-reader-for
   "The reader for a dump's stream files.  One of ours **states** its framing, because a
   version number already means something else here; a foreign dump's is inferred from
-  its own version line — v6+ chunked, v4/v5 single-window."
+  its own version line — v6+ chunked, v4/v5 single-window.  The inference is for a
+  dump that states *nothing*: a `:framing` this build does not know is a declared
+  field of the frozen format holding a value from some other build, and guessing a
+  reader for it fails later as a decompression error with no `:type` — so it is
+  refused up front, the way an unknown `:compression` is."
   [meta]
   (case (:framing meta)
     :chunked read-chunked-seq
     :window  read-window-seq
-    (if (>= (long (:format-version meta 0)) 6) read-chunked-seq read-window-seq)))
+    nil      (if (>= (long (:format-version meta 0)) 6) read-chunked-seq read-window-seq)
+    (throw (ex-info (str "unknown dump :framing " (pr-str (:framing meta))
+                         " — this build reads :chunked and :window")
+                    {:type :unknown-framing :framing (:framing meta)}))))
 
 ;;; ── meta + gates ──────────────────────────────────────────────────────
 
@@ -334,7 +342,7 @@
 
 (defn- import-sentexes!
   "Stream the sentex frames: decode each to a readable sentence, re-canonicalize through
-  `res/kb-sentex`, and store it.  Two dump forms that canonicalize to one pure form
+  `res/kb-sentex`, and store it.  Two dump forms that canonicalize to one canonical form
   dedup to one handle (a local `[sentence context] -> handle` map), so a dump id is never
   assumed to survive 1:1.
 
@@ -737,7 +745,7 @@
                    :msg  (str "this corpus and `assert` disagree: " line)
                    :data (:naming result)}))
     (merge {:variant           (:variant meta)
-            :dialect           (if preserve? :pure :engine)
+            :dialect           (if preserve? :vaelii :engine)
             :handle-policy     (if preserved? :preserved :remapped)
             :belief?           false
             :sentexes          (:sentexes result)
@@ -749,12 +757,37 @@
 
 ;;; ── the entry point ───────────────────────────────────────────────────
 
+(def ^:private import-opt-keys
+  "Every key `import-dump` reads."
+  #{:belief? :report-every :on-progress})
+
+(defn- check-import-opts!
+  "Refuse an opts key `import-dump` does not read, and a non-nil non-map `opts` —
+  before `meta.edn` is even looked at.  The quiet failure here is `:belief?` misspelt:
+  the flag defaults *true*, so `{:beleif? false}` runs the full belief recovery on a
+  corpus the caller chose the records-only path for precisely because recovery would
+  not finish on it."
+  [opts]
+  (when (and (some? opts) (not (map? opts)))
+    (throw (ex-info (str "import-dump options must be a map, got " (pr-str opts))
+                    {:type :unknown-option :options (vec (sort import-opt-keys))})))
+  (when-let [unknown (seq (sort-by pr-str (remove import-opt-keys (keys opts))))]
+    (throw (ex-info (str "unknown import-dump option" (when (next unknown) "s") " "
+                         (str/join ", " (map pr-str unknown))
+                         " — import-dump reads "
+                         (str/join ", " (map pr-str (sort import-opt-keys)))
+                         ".  An option nothing reads takes the default in silence,"
+                         " which for :belief? means running the belief recovery the"
+                         " records-only path exists to skip.")
+                    {:type :unknown-option :unknown (vec unknown)
+                     :options (vec (sort import-opt-keys))}))))
+
 (defn import-dump
   "Import a vaelii export dump from `dir` into the (empty) `kb` — one
   `vaelii.impl.io.export` wrote, or one in a foreign dialect this build still carries a
   reader for (`vaelii.impl.foreign`).
 
-  With `{:belief? true}` (the default) it lands in the state pure's own restart path
+  With `{:belief? true}` (the default) it lands in the state the engine's own restart path
   produces: the record store populated from the re-canonicalized records + the
   justifications + premise marks, the index rebuilt (`reindex`), belief recovered
   (`recover`).
@@ -794,7 +827,9 @@
   the records go past, rather than from a re-assertion that throws a year later."
   ([kb dir] (import-dump kb dir {}))
   ([kb dir {:keys [belief? report-every on-progress]
-            :or   {belief? true report-every 500000 on-progress no-progress}}]
+            :or   {belief? true report-every 500000 on-progress no-progress}
+            :as   opts}]
+   (check-import-opts! opts)
    (let [meta    (read-meta dir)
          variant (:variant meta :records)]
      (assert-supported-version! meta)
@@ -866,7 +901,7 @@
                 (v/recover kb)
                 (let [summary (merge
                                {:variant            variant
-                                :dialect            (if ours? :pure :engine)
+                                :dialect            (if ours? :vaelii :engine)
                                 :handle-policy      (if kept? :preserved :remapped)
                                 :collapsed          collapsed
                                 :belief?            true

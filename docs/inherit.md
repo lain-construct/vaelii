@@ -96,7 +96,7 @@ Everything here is read from the asking context. The declarations come through
 `matches-visible`; `witness-terms` walks the `genl` closure **scoped** to the vantage,
 so a claim travels the subtype edges the asker can see and no others; and
 `usable-relation?` reads `(transitive R)` from there too — a transitivity some invisible
-microtheory declares is not a licence this one holds. `genlContext` is the stated
+context declares is not a licence this one holds. `genlContext` is the stated
 exception and stays global: the context topology is what [taxonomy.md](taxonomy.md)
 describes, and a preservation along it is a claim about that topology.
 
@@ -323,9 +323,9 @@ block an ordinary firing over a pair the KB happens to hold in both polarities.
 
 **Placement follows the reasons.** The claim, the declarations and the edges are
 antecedents, so `maximal-common-descendant-contexts` sees their contexts alongside the
-rule's, and the conclusion descends to the microtheory that can see the reach rather than
+rule's, and the conclusion descends to the context that can see the reach rather than
 sitting where the claim alone lives. A firing whose edges are stated in incomparable
-microtheories has no common descendant and is recorded as `:no-placement`, like any other
+contexts has no common descendant and is recorded as `:no-placement`, like any other
 completed firing that lands nowhere ([contexts.md](contexts.md)).
 
 Two things are deliberately left, and both are shared with the qualitative side. Support

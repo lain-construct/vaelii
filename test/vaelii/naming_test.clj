@@ -221,7 +221,7 @@
     (is (empty? (nm/problems '(comment penguin "A flightless bird.") 'WellContext)))
     (is (empty? (nm/problems '(implies (bird ?x) (flies ?x)) 'WellContext))))
   (testing "a compound argument is a term, so its head is a function and not a name"
-    ;; descending into it would judge `+` and every NAUT functor by naming rules that
+    ;; descending into it would judge `+` and every structural NAT functor by naming rules that
     ;; were never about them
     (is (empty? (nm/problems '(evaluate Sum (+ 1 2)) 'WellContext)))
     (is (empty? (nm/problems '(termOfUnit Rod1 (QuantityFn 5 Meter)) 'WellContext)))))
@@ -353,3 +353,20 @@
     (is (re-find #"66\.7%" (nm/tally-line t))))
   (testing "and says nothing at all when the corpus and the front door agree"
     (is (nil? (nm/tally-line (nm/tally nm/empty-tally '(dog Fido) 'WellContext))))))
+
+(deftest a-refused-exceptWhen-leaves-no-bare-rule-behind
+  ;; The exception's own literals are held to the naming invariants like every other
+  ;; literal a rule carries — and the refusal is **atomic**: it runs before the rule
+  ;; is stored, so a caller holds a throw and no handle, never a bare rule believed
+  ;; and firing unguarded with no handle returned to retract it by.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [bird flies WellContext]
+      (let [rule (list 'implies (list bird '?x) (list flies '?x))
+            bad  (list 'exceptWhen (list 'lives_in '?x 'cold_place) rule)]
+        (is (= :naming (:type (try (v/assert kb bad WellContext) nil
+                                   (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+            "a snake_case arity-2 functor in the exception query is refused")
+        (is (= [:naming] (mapv :type (v/check kb bad WellContext)))
+            "and check predicts it")
+        (is (nil? (v/handle-of kb rule WellContext))
+            "the bare rule was not stored — the refusal happened before the store")))))

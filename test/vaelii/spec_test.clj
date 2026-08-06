@@ -170,8 +170,77 @@
                (rejection #(v/assert kb (list dog Fido) SpecContext {:strenth :monotonic}))))
         (is (= :unknown-option
                (rejection #(v/assert kb (list dog Fido) SpecContext {:strength :monotone})))))
-      (testing "and `check` agrees with `assert` about the non-map, which is why the
-                guard is there rather than a look inside the map"
-        (is (= [:shape] (mapv :type (v/check kb (list dog Fido) SpecContext :nope)))))
+      (testing "and `check` agrees with `assert` about the non-map — same refusal,
+                same `:type`, since `shape-problems` runs the same guard"
+        (is (= [:unknown-option]
+               (mapv :type (v/check kb (list dog Fido) SpecContext :nope)))))
+      (testing "with an unknown key *and* a non-sequential sentence, both doors read
+                the opts first — one precedence, so one answer"
+        (is (= :unknown-option
+               (rejection #(v/assert kb "(dog Fido)" SpecContext {:strenth :monotonic}))))
+        (is (= [:unknown-option]
+               (mapv :type (v/check kb "(dog Fido)" SpecContext {:strenth :monotonic})))))
       (testing "none of them stored the sentence"
         (is (nil? (v/handle-of kb (list dog Fido) SpecContext)))))))
+
+(deftest a-direction-refusal-is-predicted-by-check
+  ;; `assert` acts on `:direction`, so every refusal it makes must be one `check`
+  ;; reports — `check-edit` runs `check` per entry, and a batch checked clean that
+  ;; then throws mid-`edit` leaves its earlier adds stored, the half-applied state
+  ;; the dry run exists to prevent.  Both doors read `direction-opt-problem`.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog cat Fido SpecContext]
+      (let [rule (list 'implies (list dog '?x) (list cat '?x))]
+        (testing "a value outside the roster is refused, not silently wrapped as nothing"
+          (is (= :unknown-option
+                 (rejection #(v/assert kb rule SpecContext {:direction :backwards}))))
+          (is (= [:unknown-option]
+                 (mapv :type (v/check kb rule SpecContext {:direction :backwards}))))
+          (is (nil? (v/handle-of kb rule SpecContext)) "and nothing was stored"))
+        (testing "a direction on a non-rule, and one contradicting the wrapper, likewise"
+          (is (= :unknown-option
+                 (rejection #(v/assert kb (list dog Fido) SpecContext
+                                       {:direction :backward}))))
+          (is (= [:unknown-option]
+                 (mapv :type (v/check kb (list dog Fido) SpecContext
+                                      {:direction :backward}))))
+          (is (= :unknown-option
+                 (rejection #(v/assert kb (list 'set/forwardRule rule) SpecContext
+                                       {:direction :backward}))))
+          (is (= [:unknown-option]
+                 (mapv :type (v/check kb (list 'set/forwardRule rule) SpecContext
+                                      {:direction :backward})))))
+        (testing "an applicable direction passes both doors and lands on the record"
+          (is (empty? (v/check kb rule SpecContext {:direction :backward})))
+          (let [h (v/assert kb rule SpecContext {:direction :backward})]
+            (is (= :backward (:direction (v/sentex kb h))))))))))
+
+;; ---- the connective frames --------------------------------------------------
+
+(deftest a-malformed-connective-is-refused-at-both-doors
+  ;; `implies?` is arity-checked and the shape stage walks the frames, so an
+  ;; `implies` at arity 2 (a bare exception before), an arity-4 one (a silently
+  ;; truncated rule before), a two-body `not` (a positive fact whose record and
+  ;; index disagreed), a bare-symbol rule literal, and a head-only `exists` in
+  ;; antecedent position are all one `:not-well-formed` — and `check` predicts each.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [pp qq rr Aa SpecContext]
+      (doseq [s [(list 'implies (list pp '?x))
+                 (list 'implies (list pp '?x) (list qq '?x) (list rr '?x))
+                 (list 'not (list pp Aa) (list qq Aa))
+                 (list 'and (list pp Aa) (list qq Aa))
+                 (list 'implies (list 'exists '?y (list pp '?y)) (list qq '?y))]]
+        (is (= :not-well-formed (rejection #(v/assert kb s SpecContext)))
+            (pr-str s))
+        (is (= [:not-well-formed] (mapv :type (v/check kb s SpecContext)))
+            (pr-str s)))
+      (testing "assert-rule refuses a bare symbol standing as a literal"
+        (is (= :not-well-formed
+               (rejection #(v/assert-rule kb [(list pp '?x) 'implies]
+                                          (list qq '?x) SpecContext))))
+        (is (= :not-well-formed
+               (rejection #(v/assert-rule kb [(list pp '?x)] 'BareSymbol SpecContext)))))
+      (testing "assert-inert refuses the same frames"
+        (is (= :not-well-formed
+               (rejection #(v/assert-inert kb (list 'not (list pp Aa) (list qq Aa))
+                                           SpecContext))))))))

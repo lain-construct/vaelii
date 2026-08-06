@@ -158,8 +158,9 @@
 
 ;; The deftype's methods call the operations below, and those need the type itself for
 ;; their hints — a genuine in-file cycle, so the entry points are declared ahead of it.
-(declare ensure! premise! suspend-premise! add-just! defeat! clear-defeats! relabel-all!
-         set-blocked! retract-datum! sweep-from! snapshot just-record)
+(declare ensure! premise! suspend-premise! add-just! restrength-informant! defeat!
+         clear-defeats! relabel-all! set-blocked! retract-datum! sweep-from! snapshot
+         just-record)
 
 (deftype DenseTms [^Object lock
                    ^RoaringBitmap nodes
@@ -216,6 +217,8 @@
   (-add-premise [this datum strength] (locking lock (premise! this datum strength)) nil)
   (-suspend-premise [this datum] (locking lock (suspend-premise! this datum)) nil)
   (-add-justification [this just] (locking lock (add-just! this just)) nil)
+  (-restrength-informant [this informant strength]
+    (locking lock (restrength-informant! this informant strength)) nil)
   (-relabel [this] (locking lock (relabel-all! this)) nil)
   (-defeat [this datums] (locking lock (defeat! this datums)) nil)
   (-clear-defeats [this] (locking lock (clear-defeats! this)) nil)
@@ -560,6 +563,32 @@
           (rb-add! ^RoaringBitmap (.-touched-in this) consequence))
         (rb-add! t consequence))
       (resettle! this [consequence]))))
+
+(defn- restrength-informant!
+  "The dense half of `jtms/restrength-informant`: the rule-contribution slot is the
+  `j-mono` bitmap, the candidate justifications are the informant's own `conseqs`
+  adjacency (a firing conjoins the rule handle as an antecedent), and the informant
+  column filters out a justification that merely uses the handle as an ordinary
+  antecedent.  Only a bit that actually moves seeds the relabel."
+  [^DenseTms this informant strength]
+  (when (integer? informant)
+    (let [inf   (int informant)
+          jinf  ^Int2IntOpenHashMap (.-j-inf this)
+          jmono ^RoaringBitmap (.-j-mono this)
+          mono? (= :monotonic strength)
+          ids   (adj-ints (.-conseqs this) inf)
+          n     (alength ids)]
+      (loop [i 0, seeds (transient [])]
+        (if (< i n)
+          (let [jid (aget ids i)]
+            (if (and (.containsKey jinf jid) (== (.get jinf jid) inf)
+                     (not= mono? (rb-has? jmono jid)))
+              (do (if mono? (rb-add! jmono jid) (rb-del! jmono jid))
+                  (let [c (j-consequence this jid)]
+                    (recur (inc i) (if (neg? c) seeds (conj! seeds c)))))
+              (recur (inc i) seeds)))
+          (let [s (persistent! seeds)]
+            (when (seq s) (resettle! this s))))))))
 
 (defn- defeat! [^DenseTms this datums]
   (let [d ^RoaringBitmap (.-defeated this)]

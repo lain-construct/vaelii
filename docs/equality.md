@@ -169,7 +169,7 @@ collects the twins, and un-superseding revives the originals.
 ### Scope, context, and re-election
 
 **An equality applies where it is visible.** A merge asserted in `CoreContext`
-applies everywhere; one asserted in a microtheory applies there and below, by the
+applies everywhere; one asserted in a context applies there and below, by the
 ordinary `genlContext` up-closure. That answers "is equality global or scoped" the
 same way everything else in the engine answers it, and it is what lets a story
 merge two characters without leaking into an unrelated one.
@@ -178,7 +178,7 @@ That holds on the **question** as much as on the answer. `kb/rewrite-goal` takes
 goal's context and rewrites only by the merges it can see; the class reads
 (`representative` / `same-class?` / `equiv-class` / `deprecated?`) take one too, and
 `different` reads the scoped partition, since the unique-name assumption is what a
-microtheory holds until *it* is told otherwise. Scoping migration alone would be worse
+context holds until *it* is told otherwise. Scoping migration alone would be worse
 than scoping nothing: the goal would be renamed to a spelling migration correctly
 declined to create, and the asking context would lose a fact it still believes, under
 either name. An invisible edge can **split** a class, so the scoped read is its own
@@ -384,7 +384,7 @@ shrinks, under the variable condition), so it is order-independent and rewriting
 always terminates. See [equational.md](equational.md) for the full mechanism.
 
 Compound equality over **reifiable NATs** — `(equals (MotherOf A) (MotherOf B))`,
-*A and B share a mother* — needs nothing new: each side reifies to its NART constant
+*A and B share a mother* — needs nothing new: each side reifies to its constant
 before it reaches the closure ([nat.md](nat.md)), reducing to an ordinary symbol
 merge that the partition + migration already handle.
 
@@ -406,7 +406,7 @@ non-confluent rule set is *detected and reported* (a `:non-confluent` violation 
 two equations disagree about a shared term) but not made confluent; the normal form
 stays deterministic and `unify` stays the arbiter, so a match is never *wrong*, only
 sometimes missed (see [equational.md](equational.md), "Confluence"). And equality over
-**NAUT / evaluated** functions is the compute provers' job (`sameQuantity`,
+**structural NAT / evaluated** functions is the compute provers' job (`sameQuantity`,
 `evaluate`), never the closure's.
 
 **`differentFrom`.** See above: `different` is not assertible, so there is no way

@@ -34,13 +34,19 @@ antecedent predicates *and* its consequent predicate, whatever its direction
 (`special/index-rule-sentex`, [indexing.md](indexing.md)). What the wrapper decides is
 which chainer will *use* what the index already holds.
 
-`assert-rule` also accepts `{:direction :forward|:backward|:inert|:both}`.
+`assert-rule` also accepts `{:direction :forward|:backward|:inert|:both}` — and so
+does `assert`, as the programmatic spelling of the `set/*Rule` wrappers.
 
-Rule assertion is **idempotent** (first-writer-wins): re-asserting an α-equivalent
-rule is a no-op — its indexing and firing are untouched, so it keeps its first
-direction and defeasibility. To change a rule's direction or turn a strict rule into
-a default (or back), retract it first. (This also avoids a re-asserted rule unioning
-stale index entries or leaving a stale strict justification under a now-default rule.)
+Re-asserting an α-equivalent rule dedups to the one stored handle, and its
+`:direction` / `:defeasible` slots resolve from **content**, not arrival order: the
+least restrictive direction of the spellings seen (`join-direction`), and strict
+over defeasible. A rule asserted bare after `set/inertRule` therefore fires, and one
+asserted strict after `set/defaultRule` ties with a monotonic rival — the same two
+assertions reaching the same beliefs whichever arrived first, which is what
+[nmtms.md](nmtms.md) requires. The resolution reaches the justifications already
+recorded (`restrength-informant`), so conclusions derived under the earlier spelling
+carry the resolved class too. To *remove* a direction or defeasibility a rule has
+acquired, retract it and re-assert the narrower spelling.
 
 ## Forward chaining
 
@@ -321,6 +327,27 @@ from the roots".
   ordered by cost, described below. `core/query` routes to it when given a
   `:max-depth`.
 
+### The loop guard's scope is the subtree, not the frame
+
+The `seen` set guards a goal against re-expanding **itself, below itself**. That is a
+claim about a path, and a frame is not one: `prove-from` expands a goal by pushing a
+single frame holding both the rule's antecedents and the conjuncts still queued behind
+the goal, and those queued conjuncts are **siblings** of the expansion, not descendants
+of it. Growing the guard for the whole frame would therefore charge a later conjunct for
+a goal key an earlier one claimed, and a conjunctive query would answer less than its
+own conjuncts do — `[(anc Tom ?y) (anc Tom ?z)]` empty where `(anc Tom ?y)` answers
+twice, with `provable?` saying false and `prove-within` reporting `:status :complete`.
+
+So the scope an expansion started from is **restored at the point that subtree ends**,
+by a marker pushed behind the antecedents: one stack entry per firing, the same
+mechanism and the same cost as the `exceptWhen` guard. The guard stays a statement about
+descent, which is the only thing it is sound to be.
+
+This is also why the planner cannot be allowed to change an answer. Reordering conjuncts
+moves which one claims a key first, so a guard scoped to the frame would make
+`plan/*enabled*` semantic rather than a cost decision, and adding facts could make a
+query stop answering. Scoped to the subtree, the order conjuncts are tried in is free.
+
 `ask` is **not** a third. It is the prover registry, and no member of the registry
 expands a rule — which is what makes it the thing a closed-world reader can run from
 inside a relabel loop, and what makes its cost a property of the goal rather than of
@@ -535,8 +562,13 @@ spend the whole allowance the way a single per-frame depth lets it.
 
 Dedup is global rather than per-path — a key is claimed with a compare-and-set before a
 node is enqueued, and a second arrival at an equivalent node is dropped. The key is the
-node's literals, their depths, the map back to the asker's variables, the pending guard
-count, and the rewrite window. The literals need no renaming to compare: they are
+node's literals, their depths, the map back to the asker's variables, the **set of
+pending guard identities**, and the rewrite window. Identities, not a count: two distinct
+rules each carrying its own `exceptWhen` can rewrite one goal to the same canonical
+residual — through the `genl` fan — and a count reads those two children as one key, so
+the second is dropped before it is enqueued and every answer only its exception admits is
+lost. Each guard carries the rule it came from, which is what makes the two keys
+distinct. The literals need no renaming to compare: they are
 *already* canonical, which is what canonicalizing them is for, so two alpha-variant
 conjunctions are one key with nothing further done about it. The map is in the key
 because one conjunction can be asked **on behalf of different answers** — one path's
@@ -1015,7 +1047,7 @@ registry rather than growing a second evaluator that could drift from it:
   provers that *do* read the KB: `DifferentProver` reads the equality partition, so a
   forward join sees every merge rather than the ones the conclusion's placement context
   sees, and `QuantityProver` reads `dimensionOf` / `conversionFactor`, so it sees every
-  microtheory's unit table rather than one cone's. There is no context-scoped forward
+  context's unit table rather than one cone's. There is no context-scoped forward
   path for either. A KB that needs the two to agree states its equality and its unit
   declarations in a context every reader sees ([quantity.md](quantity.md),
   [equality.md](equality.md)).
@@ -1147,7 +1179,7 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   `EvaluateProver`. See [aggregate.md](aggregate.md).
 - **DifferentProver** — `(different A B …)` holds when no two arguments name the same
   thing under the equality closure read from the asking context, so a merge a
-  microtheory cannot see leaves the two names different there. **Ground only** — an
+  context cannot see leaves the two names different there. **Ground only** — an
   open `(different ?x Y)` is a search of the whole domain's complement, and
   `applicable?` refuses it rather than answering it explosively. `:lookup`, 100. See
   [equality.md](equality.md).

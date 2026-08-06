@@ -216,6 +216,34 @@
       (testing "the monotonic negation defeats the default except; the target reappears"
         (is (v/ask? kb (list shiny gold) ctx))))))
 
+(tu/deftest-kb defeating-an-except-revives-the-derivation-it-blocked
+  ;; A belief flip on an except is a visibility flip.  The store/removal chokepoints
+  ;; queue the re-check when one arrives or leaves; the settle queues the same
+  ;; re-check when one is defeated or revived — else defeating an except revives
+  ;; nothing it hid: backward proving answers yes while the store holds nothing, and
+  ;; which belief set the KB ends with depends on the order the except and its
+  ;; defeater arrived.
+  (let [ctx (tu/tmp-ctx "Sub") qq (tu/tmp-pred) pp (tu/tmp-pred) Aa (tu/tmp-ind)]
+    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (let [h (v/assert kb (list qq Aa) ctx {:strength :monotonic})]
+      (v/assert kb (list 'implies (list qq '?x) (list pp '?x)) ctx)
+      (is (seq (v/sentexes-matching kb (list pp Aa) ctx)) "the rule fired")
+      (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :default})
+      (is (empty? (v/sentexes-matching kb (list pp Aa) ctx)) "the except sweeps the conclusion")
+      (v/assert kb (list 'not (list 'except (sx/sentex-handle h))) ctx {:strength :monotonic})
+      (testing "defeating the except re-derives what it hid, as retracting it would"
+        (is (v/ask? kb (list qq Aa) ctx) "the target is seeable again")
+        (is (seq (v/sentexes-matching kb (list pp Aa) ctx))
+            "and the conclusion resting on it is back in the store"))
+      (testing "the same knowledge in the other order ends in the same belief"
+        (tu/with-terms [Bb]
+          (let [h2 (v/assert kb (list qq Bb) ctx {:strength :monotonic})]
+            (v/assert kb (list 'not (list 'except (sx/sentex-handle h2))) ctx
+                      {:strength :monotonic})
+            (v/assert kb (list 'except (sx/sentex-handle h2)) ctx {:strength :default})
+            (is (seq (v/sentexes-matching kb (list pp Bb) ctx))
+                "an except born defeated hides nothing")))))))
+
 ;; ---- except: the full derivation block ----------------------------------
 
 (tu/deftest-kb except-blocks-a-derivation-that-rests-on-the-hidden-fact

@@ -14,13 +14,13 @@ already exists** rather than adding a new theory engine.
 
 `(equals (MotherOf Alice) (MotherOf Bob))` — *Alice and Bob share a mother, so they
 are siblings* — needs nothing new when `MotherOf` is a `reifiableFunction`. Each side
-is a **ground reifiable NAT**, so `assert` reifies it to its NART constant *before*
+is a **ground reifiable NAT**, so `assert` reifies it to its reified NAT constant *before*
 well-formedness runs ([nat.md](nat.md)): the sentence the checks see is an ordinary
 `(equals K1 K2)` over two symbols, and the partition + migration merge them. A fact
 about one holds of the other, and retracting the equation un-merges them — all the
 belief-following of ground equality, for free.
 
-A compound that **does not** reduce is still refused. A NAUT measure
+A compound that **does not** reduce is still refused. A measure
 `(QuantityFn 5 Kilogram)` is an `unreifiableFunction` application: it stays
 structural, never reifies to a symbol, so `wff/equality-problems` sees the compound
 and rejects it. Measure sameness is `sameQuantity`, a *computed* comparison

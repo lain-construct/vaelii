@@ -127,6 +127,40 @@
 
 ;; ---- 2. installed on a live KB -----------------------------------------
 
+(deftest a-neg-nogood-is-an-at-least-one
+  ;; `:neg` members are forbidden to be *absent* together.  Soft, its witness fires
+  ;; only on the whole signed body — never as an unconditional fact — so a satisfied
+  ;; at-least-one steers nothing and reports nothing.
+  (when asp?
+    (let [content {1 {:sentence '(col N K1) :context 'C}
+                   2 {:sentence '(col N K2) :context 'C}}]
+      (testing "a satisfied soft at-least-one reports no violation and defeats nothing"
+        (let [r (decide #{1 2} [{:neg #{1 2} :priority 0 :sentence '(atleastone)}] content)]
+          (is (empty? (:violated r)))
+          (is (empty? (:defeat r)))))
+      (testing "against a hard exclusion, the at-least-one is met by keeping exactly one"
+        (let [r (decide #{1 2} [{:nogood #{1 2} :hard true :sentence '(excl)}
+                                {:neg #{1 2} :priority 0 :sentence '(atleastone)}]
+                        content)]
+          (is (= 1 (count (:defeat r))) "one gives way to the exclusion")
+          (is (empty? (:violated r)) "and the at-least-one is met, not violated"))))))
+
+(deftest a-fixed-neg-member-makes-the-nogood-vacuous
+  ;; A `:neg` member outside the contested set is assumed true — present — so the
+  ;; at-least-one holds no matter what is decided.  Hard, the constraint must not
+  ;; tighten into `:- a1.`; soft, it must not penalize anything.
+  (when asp?
+    (let [content {1 {:sentence '(col N K1) :context 'C}}]
+      (testing "hard"
+        (let [r (decide #{1} [{:nogood #{1} :neg #{2} :hard true :sentence '(excl)}]
+                        content)]
+          (is (empty? (:defeat r)))
+          (is (empty? (:violated r)))))
+      (testing "soft"
+        (let [r (decide #{1} [{:neg #{1 2} :priority 0 :sentence '(atleastone)}] content)]
+          (is (empty? (:defeat r)))
+          (is (empty? (:violated r))))))))
+
 (deftest the-asp-solver-does-not-decide-a-nixon-diamond
   ;; The backend above can decide this shape and would, given the program.  It is
   ;; never given the program: the engine reports a default/default rebuttal as a

@@ -165,15 +165,16 @@
         (is (contains? (p/rules-by-antecedent (:index kb) p) h))
         (is (contains? (p/rules-by-consequent (:index kb) q) h))))))
 
-(tu/deftest-kb a-re-asserted-wrapper-does-not-change-the-record
-  ;; first-writer-wins falls out of find-or-create: the second assert resolves to the
-  ;; existing sentex, so the record keeps the direction it was built with.
+(tu/deftest-kb a-re-asserted-wrapper-resolves-the-record-slot
+  ;; One sentex, because direction is not in the identity key — the second assert
+  ;; resolves to the existing record.  Which direction that record then holds is decided
+  ;; from the two claims rather than from which arrived first, so the pair commutes.
   (tu/with-terms [p q]
     (let [rule (list 'implies (list p '?x) (list q '?x))
           h1   (v/assert kb (list 'set/forwardRule rule) 'UniverseContext)
           h2   (v/assert kb (list 'set/backwardRule rule) 'UniverseContext)]
       (is (= h1 h2))
-      (is (= :forward (:direction (v/sentex kb h1)))))))
+      (is (= :both (:direction (v/sentex kb h1)))))))
 
 (tu/deftest-kb rule-predicate-indexes-are-complete-in-both-directions
   (let [p (tu/tmp-pred) q (tu/tmp-pred)]

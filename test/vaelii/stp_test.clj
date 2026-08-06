@@ -21,7 +21,7 @@
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.stp TemporalDistanceProver]))
 
-;; A fresh KB per test: the CoreContext grammar, MeasureContext (the measure NAUTs and the
+;; A fresh KB per test: the CoreContext grammar, MeasureContext (the measure structural NATs and the
 ;; unit table the magnitudes normalize through), TimeContext (temporalDistance, startOf,
 ;; endOf and the interval relations), and the prover registered — it is opt-in, so
 ;; registering it is what turns stored constraints into a closure.

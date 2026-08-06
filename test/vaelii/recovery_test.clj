@@ -219,10 +219,10 @@
           (is (v/isa? kb2 Rex animal 'UniverseContext))
           (is (contains? (set (v/genls kb2 canine)) animal)))))))
 
-(tu/deftest-kb recover-re-supersedes-a-spelling-only-a-microtheory-retired
+(tu/deftest-kb recover-re-supersedes-a-spelling-only-a-context-retired
   ;; Supersession is the *reader's*: a term can head its whole class globally and still
-  ;; be retired inside a microtheory whose visible edges elect somebody else, when the
-  ;; `rewriteOf` that made it preferred is one that microtheory cannot see.  Nominating
+  ;; be retired inside a context whose visible edges elect somebody else, when the
+  ;; `rewriteOf` that made it preferred is one that context cannot see.  Nominating
   ;; recovery's candidates by the global election would drop exactly those and the KB
   ;; would come back believing both spellings (docs/equality.md).
   (tu/with-terms [admires Kim Tango Yankee Zulu Xray VisContext HidContext]

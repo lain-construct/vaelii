@@ -19,7 +19,7 @@
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.duration DurationProver]))
 
-;; a fresh KB per test: the CoreContext grammar, MeasureContext (the measure NAUTs and
+;; a fresh KB per test: the CoreContext grammar, MeasureContext (the measure structural NATs and
 ;; the dimensionOf / conversionFactor table the magnitudes normalize through),
 ;; TimeContext (the interval relations plus length / totalDuration / overlapDuration),
 ;; and the prover registered — it is opt-in, so registering it is what turns stored
@@ -426,3 +426,19 @@
                                            (list 'totalDuration (list 'list A B) '?d) C))))
     (testing "the registered prover on the very same facts does"
       (is (= '(QuantityFn 9000 Second) (bound kb (list 'totalDuration (list 'list A B) '?d)))))))
+
+(tu/deftest-kb a-non-finite-magnitude-is-refused-not-stored
+  ;; ##Inf and ##NaN are number?s, so an infinite bound stored cleanly — and then
+  ;; every duration and metric goal in the context threw a raw NumberFormatException
+  ;; out of the magnitude arithmetic.  Both doors refuse it before storage; a
+  ;; variable magnitude stays legal, since a rule antecedent binds it.
+  (tu/with-terms [lengthOf IvA DurContext]
+    (doseq [s [(list lengthOf IvA (list 'QuantityIntervalFn 0 ##Inf 'Second))
+               (list lengthOf IvA (list 'QuantityFn ##NaN 'Second))]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"finite"
+                            (v/assert kb s DurContext))
+          (pr-str s))
+      (is (= [:not-well-formed] (mapv :type (v/check kb s DurContext))) (pr-str s)))
+    (testing "a variable magnitude is a pattern, not a measure — still legal"
+      (is (some? (v/assert-rule kb [(list lengthOf '?i (list 'QuantityFn '?n 'Second))]
+                                (list 'quantifiedInterval '?i) DurContext))))))

@@ -356,6 +356,11 @@
   goal they cannot verify — see `query-floor`.  Pass 0 to include them."
   ([kb goal context] (escalate kb goal context query-floor))
   ([kb goal context floor]
+   ;; the same 0-7 vocabulary `lookup` refuses outside of: a floor above the top
+   ;; would make `tried` empty and answer {:level nil} — a plausible "nothing
+   ;; answered" for what is an off-by-one in the caller's arithmetic
+   (when-not (and (integer? floor) (<= 0 floor max-level))
+     (throw (ex-info (str "floor must be 0-" max-level) {:type :bad-level :floor floor})))
    (let [tried (range floor (inc max-level))
          ;; `some`, not `(first (keep ...))`: `(range 2 8)` is a **chunked** seq, and
          ;; `keep`'s chunked path runs its function over the whole chunk before

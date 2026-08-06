@@ -314,7 +314,7 @@
   "The belief diff a real `edit` of `batch` produces, as `{:added #{S} :removed #{S}}`."
   [kb batch]
   (let [before (believed-sentences kb)]
-    (v/edit kb batch)
+    (v/edit! kb batch)
     (let [after (believed-sentences kb)]
       {:added   (set (vals (apply dissoc after (keys before))))
        :removed (set (vals (apply dissoc before (keys after))))})))
@@ -424,3 +424,38 @@
       (testing "so the refusal comes from the application, at its own index"
         (is (= [[:add 1 :disjoint]] (mapv (juxt :in :index :type) (:refused r)))))
       (is (= before (content kb))))))
+
+;; ---- the opts roster ------------------------------------------------------
+
+(tu/deftest-kb a-consequence-door-option-nothing-reads-is-refused
+  ;; Every key `preview` and `edit-with-consequences` read is a bound, so the
+  ;; silent-default failure is a cap silently off: `{:max-result 5}` reads as no key at
+  ;; all, the diff comes back uncapped, and `:bounded?` says false as though the whole
+  ;; answer had been asked for.
+  (tu/with-terms [dog Fido CapContext]
+    (let [batch {:add [[(list dog Fido) CapContext]]}]
+      (testing "preview refuses the singular typo, naming its roster"
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (v/preview kb batch {:max-result 5})))]
+          (is (= :unknown-option (:type (ex-data e))))
+          (is (= [:max-result] (:unknown (ex-data e))))
+          (is (re-find #":max-results" (ex-message e)))))
+      (testing "edit-with-consequences reads only :max-results and says so"
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (v/edit-with-consequences! kb batch {:max-depth 3})))]
+          (is (= :unknown-option (:type (ex-data e))))
+          (is (= [:max-depth] (:unknown (ex-data e))))))
+      (testing "a non-map opts is refused at both doors"
+        ;; The keyword is the point — the refusal is what this asserts — so the
+        ;; type mismatch clj-kondo sees is the test's subject, not a defect.
+        #_{:clj-kondo/ignore [:type-mismatch]}
+        (doseq [door [#(v/preview kb batch :max-results)
+                      #(v/edit-with-consequences! kb batch :max-results)]]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map" (door)))))
+      (testing "the rostered keys still run"
+        (is (map? (v/preview kb batch {:max-depth 2 :max-derivations 10
+                                       :max-results 1})))
+        (let [r (v/edit-with-consequences! kb batch {:max-results 1})]
+          (is (contains? r :believed-added))
+          ;; put the KB back — the roster test's write is not its subject
+          (doseq [h (:added r)] (v/retract! kb h)))))))

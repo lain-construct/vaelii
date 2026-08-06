@@ -177,7 +177,7 @@
     (when (> k max-base-relations)
       (throw (ex-info (str "relation algebra has " k " base relations; "
                            max-base-relations " is the most a constraint mask holds")
-                      {:type :bad-opt :base-relations k :limit max-base-relations})))
+                      {:type :unknown-option :base-relations k :limit max-base-relations})))
     (let [bit       (into {} (map-indexed (fn [i r] [r (bit-shift-left 1 i)])) rels)
           ;; a relation outside the universe contributes nothing: a network's constraints
           ;; are subsets of it by construction (a reader intersects into the universe),

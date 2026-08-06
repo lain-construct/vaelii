@@ -30,5 +30,5 @@
 (partType mammal fur)
 (partType mammal leg)
 
-(partType tree leaf)
-(partType tree root)
+(partType plant leaf)
+(partType plant root)

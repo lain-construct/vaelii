@@ -273,7 +273,7 @@
       (v/assert kb (list 'argPreserving largerThan 1 'genl) UpperContext)
       (v/assert kb (list 'argPreserving largerThan 2 'genl) UpperContext)
       (v/assert kb (list largerThan dog_t cat_t) UpperContext))
-    ;; the edges are stated only in the lower microtheory, so only it can see the reach
+    ;; the edges are stated only in the lower context, so only it can see the reach
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl chihuahua_t dog_t) LowerContext)
       (v/assert kb (list 'genl maine_coon_t cat_t) LowerContext))
@@ -285,7 +285,7 @@
       (is (= LowerContext (:context sx))
           "and it descends to the edges rather than sitting above them"))
     (is (empty? (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t) UpperContext))
-        "the microtheory that cannot see the edges does not hold the conclusion")))
+        "the context that cannot see the edges does not hold the conclusion")))
 
 (tu/deftest-kb a-firing-with-no-common-context-is-reported-rather-than-dropped
   (tu/with-terms [dog_t cat_t chihuahua_t maine_coon_t largerThan outweighs
@@ -298,7 +298,7 @@
       (v/assert kb (list 'argPreserving largerThan 1 'genl) BaseContext)
       (v/assert kb (list 'argPreserving largerThan 2 'genl) BaseContext)
       (v/assert kb (list largerThan dog_t cat_t) BaseContext))
-    ;; incomparable microtheories hold one edge each: no context sees both
+    ;; incomparable contexts hold one edge each: no context sees both
     (v/assert kb (list 'genl chihuahua_t dog_t) LeftContext)
     (v/assert kb (list 'genl maine_coon_t cat_t) RightContext)
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))

@@ -43,30 +43,46 @@
     :decrement (let [v (dec (long (get m k 0)))] [(assoc m k v) v])
     :add-to-set [(update m k (fnil conj #{}) a) nil]
     :remove-from-set (let [s (disj (get m k) a)]
-                       [(if (empty? s) (dissoc m k) (assoc m k s)) nil])))
+                       [(if (empty? s) (dissoc m k) (assoc m k s)) nil])
+    ;; a WAL frame this build does not read is a log from some other build — refused
+    ;; by name at replay, never an untyped IllegalArgumentException out of the open
+    (throw (ex-info (str "unknown index WAL op " (pr-str op))
+                    {:type :unknown-frame :op op}))))
 
 (defn- apply-ops!
   "Apply write ops: fold them into the RAM map, append one frame **per op** to the WAL,
   publish the new map, and return the per-op replies.  Logical (op) logging, not
   new-value logging: a `:add-to-set` frame carries the one added member, O(1), never the
   grown set — so a bulk load of N members into one root writes O(N) WAL bytes, not
-  O(N²).  Single-writer, so the read-compute-publish is race-free."
+  O(N²).
+
+  **The whole read-compute-publish is under the lock.**  Single-writer covers the other
+  *writers*, and it is not what this lock is for: `compact!` snapshots `@data` inside the
+  lock and then rewrites the log to match, and it runs on the durability daemon's
+  compaction executor — a thread the single-writer contract says nothing about.  Reading
+  `@data` before acquiring and publishing after releasing left two windows on that
+  thread.  A compaction landing in either one writes the log from a map that is missing
+  this write (so the WAL holds the frame and the rewritten log does not, and the next
+  open replays an index the running one disagrees with), or, after `kv-clear!`, restores
+  the whole pre-clear map over a log that was just truncated.  The clear case is the one
+  that bites: `reindex` is clear-plus-rebuild, and a large reindex is exactly when a
+  compaction is queued."
   [{:keys [data log lock frames]} ops]
-  (let [[m1 replies]
-        (reduce (fn [[m rs] op]
-                  (let [[m' r] (apply-op m op)]
-                    [m' (conj rs r)]))
-                [@data []] ops)]
-    (locking lock
+  (locking lock
+    (let [[m1 replies]
+          (reduce (fn [[m rs] op]
+                    (let [[m' r] (apply-op m op)]
+                      [m' (conj rs r)]))
+                  [@data []] ops)]
       (doseq [op ops] (f/append-record! log op))
-      (vswap! frames + (count ops)))
-    (reset! data m1)
-    replies))
+      (vswap! frames + (count ops))
+      (reset! data m1)
+      replies)))
 
 ;; `closed` (a volatile boolean, written and read under `lock`) is `compact!`'s guard:
 ;; the durability daemon's queued-task check runs outside this store's lock, so a close
 ;; can land between that check and `compact!` acquiring the lock — see `compact!`.
-(defrecord DiskKvBackend [dir data log log-path lock frames closed]
+(defrecord DiskKvBackend [dir data log log-path lock frames closed damaged]
   kv/KvBackend
   (kv-get  [_ k]   (get @data k))
   (kv-put  [b k v] (apply-ops! b [[:put k v]]) nil)
@@ -95,9 +111,14 @@
       (apply-ops! b (mapv (fn [[k v]] [:put k v]) batch)))
     nil)
 
+  ;; the publish is inside the lock for `apply-ops!`'s reason, and more sharply here: a
+  ;; compaction between the truncate and the publish snapshots the *pre-clear* map and
+  ;; writes every entry of it back over the log this just emptied
   (kv-clear! [_]
-    (locking lock (f/truncate! log) (vreset! frames 0))
-    (reset! data {})
+    (locking lock
+      (f/truncate! log)
+      (vreset! frames 0)
+      (reset! data {}))
     nil))
 
 (defn open-kv-backend
@@ -113,7 +134,17 @@
     ;; holds, so it cannot survive into a session that appends
     (let [clean (f/read-clean-marker root)
           _     (f/remove-clean-marker! root)
-          log   (f/open-log log-path)]
+          log   (f/open-log log-path)
+          ;; The marker records the length the WAL *closed* at, so a file that is any
+          ;; other length now was not closed as this log: a tail lost to a short
+          ;; restore or a partial copy, most likely of a compacted log — one flat
+          ;; `[:put]` per key in hash order, where the lost keys are arbitrary and the
+          ;; batch-seal counter may well be among the survivors.  The tail walk below
+          ;; still finds a clean frame boundary and replays what remains; the flag is
+          ;; how the open gate knows that what remains is not everything.
+          damaged? (let [expected (get clean "kv")]
+                     (and (integer? expected)
+                          (not= (long expected) (f/log-length log))))]
       ;; The replay owns the handle until it hands it to the record it returns.  A frame
       ;; `apply-op` does not recognize, or an `:increment` over a key holding a set,
       ;; throws out of `scan-log` — and the caller (`backend/store-for`) answers a failed
@@ -127,7 +158,8 @@
           (f/scan-log log (fn [_ op]
                             (vswap! frames inc)
                             (vswap! m (fn [mm] (first (apply-op mm op))))))
-          (->DiskKvBackend root (atom @m) log log-path (Object.) frames (volatile! false)))
+          (->DiskKvBackend root (atom @m) log log-path (Object.) frames (volatile! false)
+                           damaged?))
         (catch Throwable t
           (try (f/close! log) (catch Throwable _ nil))
           (throw t))))))

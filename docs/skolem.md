@@ -36,14 +36,19 @@ the witness must be the **same constant per `(rule, antecedent-binding)`**.
 The skolem is a NAT:
 
 ```
-(SkolemFn <rule-handle> <existential-index> <frontier-values…>)
+(SkolemFn <rule-digest> <existential-index> <frontier-values…>)
 ```
 
 reified through the ordinary NAT path (`reify-or-mint-nat`, [nat.md](nat.md)):
 `termOfUnit` dedups it, so the first firing mints a `nat/` constant and every re-firing
 on the same binding resolves to that one. The arguments are what key determinism:
 
-- **rule-handle** distinguishes one rule's existentials from another's.
+- **rule-digest** — the hex SHA-1 of the rule's canonical antecedents, consequent
+  and context — distinguishes one rule's existentials from another's. It is
+  *content*, so the same rule re-asserted after a retraction, or asserted into a KB
+  built in another order, keys the same witness, and a fact stated about a witness
+  keeps referring to it across that cycle. The chase literature keys skolem terms
+  the same way: on the rule and its existential position, never on a store id.
 - **existential-index** distinguishes `?y` from `?z` in `(exists [?y ?z] …)`.
 - **frontier-values** — the bound values of the consequent variables the antecedents
   supply, less any a post-join literal *outputs* (an aggregate's `?n` is computed from
@@ -56,10 +61,11 @@ A single reifiable function `SkolemFn` carries all this in its arguments, so one
 `(reifiableFunction SkolemFn)` declaration — asserted when the first existential-head
 rule is stored — turns the whole mechanism on, including the NAT orphan-cleanup gate.
 
-The witness *name* is arbitrary, as skolem constants are: a different assertion order
-gives the rule a different handle and so a different `nat/…` symbol. This is not a
-belief difference — `(hasMother Tom <witness>)` holds either way — and belief
-tie-breaking never reads the handle, so order-independence of belief is intact.
+The witness *name* is arbitrary, as skolem constants are: the `nat/…` symbol is minted
+per KB, so two KBs holding the same knowledge may spell the same witness differently.
+The witness's stored *content* — the `termOfUnit` NAT — is a function of the rule's
+content and the frontier alone, so it is identical whatever order the KB was built in,
+and belief tie-breaking reads neither the symbol nor any handle.
 
 ## Belief-following
 

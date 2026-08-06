@@ -560,3 +560,14 @@
       (testing "taking every answer does"
         (dorun (v/lookup kb 6 (list parentOf Tom '?y) StoryContext))
         (is (true? @invoked))))))
+
+(tu/deftest-kb an-out-of-range-floor-is-refused-not-answered-empty
+  ;; `lookup` refuses a level outside 0-7; `escalate` gave a floor above the top an
+  ;; empty `tried` and answered {:level nil} — "nothing answered", the plausible
+  ;; reading of what is an off-by-one in the caller's arithmetic.
+  (tu/with-terms [pp Aa LvContext]
+    (v/assert kb (list pp Aa) LvContext)
+    (doseq [floor [8 99 -1 :two]]
+      (let [e (try (v/escalate kb (list pp Aa) LvContext floor) nil
+                   (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :bad-level (:type e)) (pr-str floor))))))

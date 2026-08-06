@@ -87,15 +87,27 @@ alone.
 direction is written, so like `not`/`implies` it canonicalizes **into the record**:
 `:direction` (`:forward`/`:backward`/`:inert`/`:both`, `:both` for a bare
 `implies`) and `:defeasible` (from `set/defaultRule`). Wrappers may nest — a
-defeasible forward rule — and never reach the stored sentence. `assert-rule`'s
-`:direction` opt is just the programmatic spelling: it wraps, and the wrapper
-becomes the field. Re-asserting with a different wrapper is a no-op (find-or-create
-returns the existing sentex), so a rule keeps the direction it was first given.
+defeasible forward rule — and never reach the stored sentence. The `:direction`
+opt on `assert` and `assert-rule` is just the programmatic spelling: it wraps, and
+the wrapper becomes the field.
+
+Neither slot is in the identity key, so re-asserting with a different wrapper
+resolves to the **one** sentex. Where the two spellings disagree, the slot is then
+resolved from **content**: the least restrictive direction (`:inert` is the bottom,
+`:forward` and `:backward` join to `:both`), and strict over defeasible — a rule
+somebody also stated without `set/defaultRule` is one they stated as holding
+outright. Both resolutions are commutative and idempotent, which is what the pair
+has to be: keying the slot on which assertion arrived first would let the same two
+assertions in the two orders reach two sets of beliefs, and order independence is
+not negotiable ([nmtms.md](nmtms.md)).
 
 ## Result
 
 So rules identical up to **variable names, antecedent order, symmetric argument
-order, and comparison direction** all dedup to one handle.
+order, and comparison direction** all dedup to one handle — with one carve-out the
+hold-back above states: a *deferred* literal and the *recursive* literal keep the
+author's relative order, since their position is operational, so two spellings that
+differ only in where those sit are two handles by design.
 
 ## See also
 

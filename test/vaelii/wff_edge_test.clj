@@ -41,7 +41,7 @@
 
 (tu/deftest-kb genlContext-admits-a-cycle-through-another-context
   ;; Unlike `genl`, a context cycle is a claim rather than a contradiction: it says the
-  ;; two microtheories see each other, which is what OpenCyc's `genlMt` states of
+  ;; two contexts see each other, which is what OpenCyc's `genlMt` states of
   ;; BaseKB and UniversalVocabularyMt.  Visibility is reachability, and reachability
   ;; over a cycle is perfectly well defined — see the note atop `wff`.
   (tu/with-terms [AlphaContext BetaContext]

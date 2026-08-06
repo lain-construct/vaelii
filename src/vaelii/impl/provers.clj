@@ -510,7 +510,7 @@
   class, so `(different A A)` fails on the `=` arm without consulting the closure at
   all — which also keeps the answer right for a term the closure has never seen.
 
-  Read from `context`: the unique-name assumption is what a microtheory holds until
+  Read from `context`: the unique-name assumption is what a context holds until
   *it* is told otherwise, so a merge it cannot see leaves the two names different
   there.  Otherwise a private `(sameAs A B)` would silently retire the UNA everywhere."
   [kb context args]
@@ -583,8 +583,8 @@
         (pvar? result)  [{result v}]
         :else           (if (= result v) [{}] [])))))
 
-;; ---- quantity / measure comparison (NAUT-evaluating) --------------------
-;; A measure is a NAUT — `(QuantityFn N Unit)` (a point) or
+;; ---- quantity / measure comparison (measure-evaluating) --------------------
+;; A measure is a structural NAT — `(QuantityFn N Unit)` (a point) or
 ;; `(QuantityIntervalFn Lo Hi Unit)` (an interval) — an `unreifiableFunction`
 ;; application that stays *structural* so its magnitude and unit are readable.  This
 ;; prover normalizes two ground measures against the KB's `dimensionOf` /
@@ -615,14 +615,19 @@
 
   Public because it is the shared answer to \"is this a measure?\": every prover that
   reads one — the comparison here, the durations, the metric temporal network — must
-  agree on the question, and three copies of this could not be kept agreeing."
+  agree on the question, and three copies of this could not be kept agreeing.
+
+  A magnitude is a **finite** number: `##Inf` and `##NaN` read as not-a-measure, the
+  same answer `assert` gives them (`:not-well-formed`), so the magnitude arithmetic
+  never sees one."
   [x]
-  (and (sequential? x) (seq x)
-       (case (first x)
-         QuantityFn         (and (= 3 (count x)) (number? (nth x 1)) (symbol? (nth x 2)))
-         QuantityIntervalFn (and (= 4 (count x)) (number? (nth x 1)) (number? (nth x 2))
-                                 (symbol? (nth x 3)))
-         false)))
+  (let [num? (fn [n] (and (number? n) (Double/isFinite (double n))))]
+    (and (sequential? x) (seq x)
+         (case (first x)
+           QuantityFn         (and (= 3 (count x)) (num? (nth x 1)) (symbol? (nth x 2)))
+           QuantityIntervalFn (and (= 4 (count x)) (num? (nth x 1)) (num? (nth x 2))
+                                   (symbol? (nth x 3)))
+           false))))
 
 (defn- table-agreed
   "The bindings of `ks` that every believed match of `pat` visible from `context` agrees
@@ -867,7 +872,7 @@
   **Read from `context`**, the same scoping `all-different?` puts on the same partition
   and for the same reason: a census is of what *this* context believes, and the unique
   names it holds are the ones it has not been told to merge.  A `(sameAs A B)` stated in
-  a microtheory would otherwise collapse two of them into one everywhere — including in
+  a context would otherwise collapse two of them into one everywhere — including in
   the general context that was never told, whose own solutions still name both.
 
   The scoped read is asked per value, so it takes `merged-term-pred`'s one-snapshot
@@ -1366,7 +1371,7 @@
     (let [ceiling (or (cost-rank max-cost)
                       (throw (ex-info (str "no such cost tier: " (pr-str max-cost)
                                            " — want one of " (pr-str cost-tiers))
-                                      {:type :bad-opt :max-cost max-cost
+                                      {:type :unknown-option :max-cost max-cost
                                        :known cost-tiers})))]
       (filterv #(<= (goal-cost-rank % kb goal context) ceiling) (registry kb)))))
 

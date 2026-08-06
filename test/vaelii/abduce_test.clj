@@ -130,7 +130,7 @@
     (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
     (grant kb wabPremise SiblingContext)
     (testing "a grant made in a context the asker cannot see does not reach it —
-              abducibility is a policy of the microtheory that gives it"
+              abducibility is a policy of the context that gives it"
       (is (empty? (:hypotheses (v/abduce kb (list wabGoal N) TheoryContext)))))
     (v/assert kb (list 'genlContext TheoryContext SiblingContext) 'UniverseContext)
     (testing "once it can see the grantor, it may assume"
@@ -437,7 +437,7 @@
       (try
         (testing "which context sees which is a fact about the scratch space; a
                   defeasible edge would let a clash among the hypotheses unhook the
-                  microtheory holding them"
+                  context holding them"
           (is (integer? e))
           (is (= :monotonic (v/defeat-class kb e))))
         (finally (v/abduce-discard! kb r))))))
@@ -486,3 +486,12 @@
         (is (= sx-before (tu/sentex-ids kb)))
         (is (= ctxs (set (v/contexts kb))))
         (is (empty? (filter #(str/starts-with? (name %) "Abduction") (v/contexts kb))))))))
+
+(tu/deftest-kb an-abduce-cap-nothing-reads-is-refused
+  ;; {:max-hypothesis 2} ran at the default 8, and a misspelt :keep? tore down the
+  ;; scratch context whose handles the caller meant to commit.
+  (tu/with-terms [pp Aa AbContext]
+    (doseq [opts [{:max-hypothesis 2} {:keep true} {:max-dpeth 3}]]
+      (let [e (try (v/abduce kb (list pp Aa) AbContext opts) nil
+                   (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :unknown-option (:type e)) (pr-str opts))))))

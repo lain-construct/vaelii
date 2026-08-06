@@ -101,6 +101,31 @@
     (is (= {} (:content p)))
     (is (= {:defeat #{} :violated []} (decide p)))))
 
+(deftest a-neg-nogood-is-an-at-least-one
+  ;; `:neg` members are forbidden to be *absent* together.  With every member still
+  ;; believed the requirement holds — nothing to defeat, nothing violated; only a
+  ;; nogood whose `:neg` members are all defeated is violated, and defeating more
+  ;; cannot restore presence.
+  (let [c (content 1 '(a) 2 '(b))]
+    (testing "a satisfied at-least-one is skipped, not violated"
+      (let [p (solve/program #{1 2}
+                             [{:neg #{1 2} :priority 0 :sentence '(atleastone)}]
+                             c)]
+        (is (= {:defeat #{} :violated []} (decide p)))))
+    (testing "a fixed member satisfies it permanently"
+      (let [p (solve/program #{1}
+                             [{:neg #{1 2} :priority 0 :sentence '(atleastone)}]
+                             c)]
+        (is (= #{2} (:fixed p)) "handle 2 is background, assumed true")
+        (is (= {:defeat #{} :violated []} (decide p)))))
+    (testing "a mixed nogood defeats its positive member, never reads :neg as positive"
+      ;; forbidden: (a) held while (b) absent — satisfied by defeating (a)... but (b)
+      ;; is believed, so the body never holds and nothing needs deciding
+      (let [p (solve/program #{1 2}
+                             [{:nogood #{1} :neg #{2} :priority 0 :sentence '(implic)}]
+                             c)]
+        (is (= {:defeat #{} :violated []} (decide p)))))))
+
 ;; ---- 2. content-key: the order-independence primitive --------------------
 
 (deftest content-key-orders-on-the-claim-not-on-the-handle

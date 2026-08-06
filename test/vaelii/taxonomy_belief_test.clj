@@ -89,6 +89,33 @@
       (testing "a restart does not change what the KB entails"
         (is (= before (tax/genl? (:taxonomy kb) foo_t bar_t)))))))
 
+(tu/deftest-kb recover-ignores-a-negated-declaration
+  ;; `sentexes-with-functor` returns both polarities, and a `(not (genl a b))`
+  ;; *opposes* the edge rather than asserting it — the assert path's functor dispatch
+  ;; (`not`) never routes one to an integrate arm, so neither may the rebuild.  Read
+  ;; positionally it binds its inner sentence as a taxonomy node and nil as the
+  ;; other, and one stored `(not (sameAs …))` turns the per-symbol equality filter on
+  ;; for every query, permanently.
+  (tu/with-terms [d_t e_t pp qq Aa Bb SubContext]
+    (v/assert kb (list 'not (list 'genl d_t e_t)) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'not (list 'sameAs Aa Bb)) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'not (list 'genlContext SubContext 'UniverseContext))
+              'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'not (list 'transitive pp)) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'not (list 'inverse pp qq)) 'UniverseContext {:strength :monotonic})
+    (let [snapshot #(hash-map :types     (set (v/types kb))
+                              :contexts  (set (v/contexts kb))
+                              :merged?   (some? (tax/merged-term-pred (:taxonomy kb)))
+                              :genl-edge (tax/genl? (:taxonomy kb) d_t e_t))
+          before (snapshot)]
+      (v/recover kb)
+      (testing "recovery integrates exactly what assertion integrated"
+        (is (= before (snapshot))))
+      (testing "and no cache holds a nil node or a compound non-term"
+        (is (every? symbol? (v/types kb)))
+        (is (every? symbol? (v/contexts kb)))
+        (is (not (:merged? (snapshot))) "no equality class exists, so no filter")))))
+
 (tu/deftest-kb recover-drops-an-edge-whose-sentex-is-gone
   (tu/with-terms [sub_t super_t StoryContext]
     (let [h (v/assert kb (list 'genl sub_t super_t) StoryContext)]
@@ -122,6 +149,33 @@
     (testing "defeating the context edge withdraws the inheritance"
       (is (not (tax/sees? (:taxonomy kb) SubContext SuperContext)))
       (is (empty? (v/ask kb (list parentOf Tom '?y) SubContext))))))
+
+(tu/deftest-kb a-revived-genlContext-arbitrates-the-pair-it-rejoins
+  ;; `clear-defeats!` revives a defeated edge at the top of the settle, so the closures
+  ;; discovery reads must be refreshed *before* `constraint-nogoods` asks them a
+  ;; question: a P/¬P pair made jointly visible by the revival is arbitrated in the
+  ;; same settle, never left with both sides believed — a state `recover` over the
+  ;; same records would disagree with.  The edge's defeater is *derived*, so lifting
+  ;; it removes no record and the revival happens purely in the settle.
+  (tu/with-terms [happy qq Tom Trigger SubContext SuperContext]
+    (v/assert kb (list 'genlContext SubContext SuperContext) 'UniverseContext)
+    (let [hn (v/assert kb (list 'not (list happy Tom)) SuperContext {:strength :monotonic})
+          hp (v/assert kb (list happy Tom) SubContext)]
+      (testing "with the edge in place, the default fact loses to the monotonic negation"
+        (is (v/in? kb hn))
+        (is (not (v/in? kb hp))))
+      (v/assert-rule kb [(list qq '?x)]
+                     (list 'not (list 'genlContext SubContext SuperContext))
+                     'UniverseContext)
+      (let [ht (v/assert kb (list qq Trigger) 'UniverseContext {:strength :monotonic})]
+        (testing "the derived monotonic negation defeats the edge"
+          (is (not (tax/sees? (:taxonomy kb) SubContext SuperContext)))
+          (is (v/in? kb hn)))
+        (v/retract! kb ht)
+        (testing "the retract's own settle revives the edge and re-arbitrates the pair"
+          (is (tax/sees? (:taxonomy kb) SubContext SuperContext))
+          (is (v/in? kb hn))
+          (is (not (v/in? kb hp))))))))
 
 (tu/deftest-kb a-quiet-settle-does-not-resurrect-a-defeated-edge
   ;; `refresh-beliefs` runs only when a settle actually moved belief (defeat, revival,

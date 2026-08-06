@@ -1,7 +1,7 @@
 # Reading English
 
 A pipeline that takes a document and answers with **candidate sentexes** — the
-`[sentence context opts]` entries `vaelii.core/edit` already takes, each carrying the span
+`[sentence context opts]` entries `vaelii.core/edit!` already takes, each carrying the span
 of text it came from. It never asserts anything: proposing rather than importing is the
 whole design.
 
@@ -26,7 +26,7 @@ claim the text never made. `(freed LionA MouseA)` is admissible; so is
 So the deliverable is a candidate generator with a reviewer between it and the store. Four
 consequences, and they are the design:
 
-- **Nothing here writes.** No `assert`, no `edit`, no `ist`. A test greps for them, and
+- **Nothing here writes.** No `assert`, no `edit!`, no `ist`. A test greps for them, and
   another runs a document through and asserts the KB is byte-identical afterwards.
 - **A candidate carries its span**, so an accepted sentence is auditable back to the
   characters that produced it. That is the whole reason to prefer this over a script that
@@ -133,7 +133,7 @@ cap cuts:
 1. **What the document's words resolved to** — the vocabulary the text demonstrably wants.
 2. **What an `argIsa` licenses** for a resolved type, so a document about a mouse is offered
    the relations a mouse can stand in.
-3. **Everything else the target context declares**, nearest microtheory first.
+3. **Everything else the target context declares**, nearest context first.
 
 Tier 3 exists because a document rarely spells a predicate the way the KB does. *…and so
 repay the kindness* does not resolve `repaidKindness`; a reader who cannot see that name
@@ -352,7 +352,7 @@ Ollama silently drop the front of the request.
 
 So the card cap is not a tuning knob, it is what makes a small window usable — and it is
 where the three relevance tiers earn their keep, because a cap cuts from the bottom: the
-microtheory's least-targeted vocabulary goes first and the words the document actually
+context's least-targeted vocabulary goes first and the words the document actually
 spelled stay.
 
 ### The confusion cases
@@ -449,7 +449,7 @@ reshuffles under a reviewer is a bug.
 | | |
 |---|---|
 | the span is the document's own characters | every segment of every fable satisfies `(= text (subs doc start end))` |
-| nothing writes | a source scan for `assert` / `edit` / `retract` / `ist`, and a run that leaves the sentex, index and term counts identical |
+| nothing writes | a source scan for `assert` / `edit!` / `retract` / `ist`, and a run that leaves the sentex, index and term counts identical |
 | the batch is applicable | `check-batch` **and** `check-edit` on it are both empty; a refused candidate is a repair carrying its verdict |
 | a candidate cannot file itself elsewhere | an `(ist Ctx S)` candidate is refused on every path, the message names both contexts, and a rule consequent's `ist` is left alone |
 | `:invalid` means refused, not empty | a document whose every claim is already stored is `:ok` with an empty batch, and applying it is a no-op |

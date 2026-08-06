@@ -701,7 +701,11 @@
   Queuing both on both directions over-approximates (the per-placement hidden-set test
   in `chain/justification-excepted?` and `derive-conclusion`'s block narrow it), which is
   the safe direction — a spurious re-check costs one query, a missed one leaves a
-  conclusion resting on an invisible fact or fails to bring one back."
+  conclusion resting on an invisible fact or fails to bring one back.
+
+  Returns the rule handles it marked — the settle loop re-chains them when the
+  trigger was a belief flip, which moves no blocked justification for the drain to
+  notice on its own."
   [kb except-sentex]
   (when-let [h (sx/handle-id (second (:sentence except-sentex)))]
     (let [tms      (:tms kb)
@@ -715,9 +719,10 @@
           ;; missed sweep or a missed revival
           firers   (when (symbol? pred)
                      (mapcat #(p/rules-by-antecedent (:index kb) %)
-                             (tax/genls (:taxonomy kb) pred)))]
-      (mark-recheck kb (vec (into (set users) firers)) :all)
-      nil)))
+                             (tax/genls (:taxonomy kb) pred)))
+          marked   (vec (into (set users) firers))]
+      (mark-recheck kb marked :all)
+      marked)))
 
 (defn recheck-except-cone
   "A `genlContext` edge moved visibility for the contexts in `context-down(sub)`, which
@@ -737,7 +742,7 @@
 
 ;; ---- the decontextualized predicate ---------------------------------------
 ;; `(decontextualizedPredicate P)` lifts every `(P ...)` out of the context it was
-;; stated in and into UniverseContext, which every microtheory sees — so the fact
+;; stated in and into UniverseContext, which every context sees — so the fact
 ;; stops being a claim of one theory and becomes a claim of the KB.
 ;;
 ;; The lift is a *deduction*: the original stays where it was stated and a copy is
@@ -753,7 +758,7 @@
 ;; stating context cannot see moves the fact somewhere those checks never looked, so
 ;; two facts that are each admissible where they were stated can meet in the target as
 ;; a disjointness violation nothing reports.  UniverseContext is the one target every
-;; microtheory sees, so the copy is visible to the next assert and the ordinary check
+;; context sees, so the copy is visible to the next assert and the ordinary check
 ;; catches the clash at its source.  `unchecked-target?` below covers the one case that
 ;; leaves: a context wired outside the spindle, which does not see UniverseContext
 ;; either.
@@ -1104,7 +1109,7 @@
 
   **Enumerated from the rules, not from the cone**, and the difference is asymptotic
   rather than a constant.  Walking the cone and keeping the facts some rule could match
-  costs one record fetch per sentex *in the cone* — so wiring N microtheories under a
+  costs one record fetch per sentex *in the cone* — so wiring N contexts under a
   `UniverseContext` holding K facts is O(N·K) where the KB without this is O(N+K), and
   building a spindle D deep is O(D²) because each edge's up-cone is the whole chain
   above it.  Measured: 3.9x on the first shape, 5x and climbing with depth on the
@@ -1123,7 +1128,7 @@
   ordinary case free rather than merely cheap.  Seeding `super`'s facts is worth nothing
   unless some rule sits in `sub`'s down-cone to newly see them, and seeding `sub`'s facts
   nothing unless a rule sits in `super`'s up-cone to be inherited into it.  Wiring an
-  empty microtheory under a full one — the commonest edge there is — holds no rule on the
+  empty context under a full one — the commonest edge there is — holds no rule on the
   new side, so it seeds nothing at all, where without the gate it re-seeds the whole
   ontology above and re-joins rules that already fired on every fact of it.  That is the
   difference between 3.9x on the shape and 1.0x, and it is not the enumeration but the
@@ -1963,7 +1968,7 @@
       ;; proof dead-ends on one (docs/abduction.md).  Deliberately **not**
       ;; decontextualized, unlike the marks above it: `transitive` / `symmetric` are
       ;; claims about a predicate that hold wherever it is mentioned, while this is a
-      ;; *policy* of the microtheory that grants it — one theory may be willing to
+      ;; *policy* of the context that grants it — one theory may be willing to
       ;; assume `wasWashed` and another, reading the same predicate, may not.  The
       ;; scoped `has-prop?` arity is what reads it, so the grant reaches exactly the
       ;; contexts that see the grantor.
@@ -2211,9 +2216,17 @@
   supporter's edge would be lost for good.
 
   So the taxonomy is rebuilt from what is stored, and belief is applied afterwards
-  by the `settle` at the end of `recover`, exactly as it is during normal operation."
+  by the `settle` at the end of `recover`, exactly as it is during normal operation.
+
+  Stored, not believed — but **positive**: `sentexes-with-functor` returns both
+  polarities, and a `(not (genl a b))` *opposes* the edge rather than asserting it.
+  The rebuild arms read the positive shape positionally, so a negation would bind
+  its inner sentence as a taxonomy node and nil as the other — and the assert path
+  never routes one here either, since its dispatch reads the functor `not`."
   [kb f]
-  (keep #(p/get-sentex (:records kb) %) (p/sentexes-with-functor (:index kb) f)))
+  (->> (p/sentexes-with-functor (:index kb) f)
+       (keep #(p/get-sentex (:records kb) %))
+       (filter #(and (= :true (:truth %)) (nil? (:antecedent %))))))
 
 (defn rebuild-taxonomy
   "Rebuild the in-memory taxonomy from the durable store: the `:rebuild` column of

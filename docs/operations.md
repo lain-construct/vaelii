@@ -58,9 +58,11 @@ lein cli repl --starter                                                    # int
   exit status — the same message the daemon and the browser report, because none of them
   writes one of its own.
 - **Options:** `--dir <path>` selects the durable backend (recovered on open, so it
-  persists across invocations); `--memory` (the default) is ephemeral; `--starter` loads
-  the shipped schema so you can explore the ontology; `--strength monotonic` marks an
-  `assert` known-true.
+  persists across invocations); `--memory` says the ephemeral default out loud — and
+  contradicts `--dir`, so naming both is refused; `--starter` loads the shipped schema
+  so you can explore the ontology; `--strength monotonic` marks an `assert`
+  known-true. A flag outside the roster, or one missing its value, is one line and
+  exit 1.
 - **`repl`** holds the KB in-process, so a memory KB accumulates for the session. Each
   line is `<cmd> <edn-forms…>`.
 
@@ -119,11 +121,20 @@ lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # reachable off-machine (opt-
   what realizes a lazy result, so it runs *inside* the lock the daemon serializes ops
   with; run after it, a `:query` could straddle a concurrent `:assert` and report a
   KB that never existed.
-- **Four refusals are the daemon's own**, and each carries a plain `:type` keyword —
-  unqualified, like every other `:type` the tree throws (docs/api.md): `:not-edn` (415,
-  the content-type guard above), `:cross-origin` (403), `:bad-host` (400) and
-  `:body-too-large` (413). Every other `{:ok false}` carries whatever `:type` the engine
-  threw, so a client discriminates on one vocabulary rather than on the status code.
+- **Eight refusals are the daemon's own**, and each carries a plain `:type` keyword —
+  unqualified, like every other `:type` the tree throws (docs/api.md): `:not-edn`
+  (415 for a missing or wrong content-type — the guard above — and 400 for a body
+  that does not read as EDN), `:cross-origin` (403), `:bad-host` (400),
+  `:body-too-large` (413), `:bad-args` (400 — the wrong number of args for the op, or
+  an `:args` that is not a sequence), `:unknown-op` (400, with the op roster in the
+  reply), `:not-found` (404, any route the router does not serve), and
+  `:internal-error` (500, the default the catch-all arms fill in when nothing typed
+  the failure, so the key is never present with nil in it). Every other `{:ok false}`
+  carries whatever `:type` the engine threw — the request-refusal vocabulary
+  (`:naming`, `:not-ground`, `:unknown-option`, `:bad-handle`, …) at **400**, since
+  it is the caller's mistake, and anything outside that roster at 500 — so a client
+  discriminates on the one `:type` vocabulary, with the status as the coarse
+  client-fault/server-fault split.
 - **Sentex records are projected to plain maps** before they hit the wire (the
   `sentex`-map contract, docs/api.md), so a client needs no `impl` record class.
 - **The vocabulary is served** (`:terms`, `:term-count`, `:find-terms`): a remote client
@@ -176,7 +187,11 @@ lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # reachable off-machine (opt-
   the network mirror of `vaelii.core`'s explicit-`kb` API. `client` returns a `conn`
   holding a reusable `HttpClient`; no socket opens until a call.
 - A daemon `{:ok false}` reply becomes an `ex-info` carrying its `:error` and `:type`,
-  so a remote naming / disjointness refusal reads like a local one.
+  so a remote naming / disjointness refusal reads like a local one. The client mints
+  two `:type`s of its own, for what the wire hands it that the daemon never typed:
+  `:daemon-error` (an `{:ok false}` with no usable `:type` — the fallback holds even
+  against `:type nil`) and `:bad-reply` (a reply that does not read as EDN, or reads
+  as something other than a map — a proxy's HTML error page, a truncated body).
 - The convenience wrappers (`assert`, `assert-rule`, `sentexes-matching`, `ask`, `prove`,
   `why`, `retract!`, …) mirror the `vaelii.core` surface, bare and `!`-marked exactly as
   it spells them; `call` reaches any allowlisted op directly.
@@ -187,7 +202,7 @@ The browser (`vaelii.web`) reaches a KB through the `vaelii.core` surface alone.
 surface is re-exported by `vaelii.impl.access` as a facade whose every op takes a
 *target* that is either an in-process KB or a remote daemon — the reads the browser
 renders with (`check` among them: it writes nothing, so it is a read), plus the four
-writes it performs: `edit`, `edit-with-consequences`, `forward-chain`, and `preview`
+writes it performs: `edit!`, `edit-with-consequences!`, `forward-chain`, and `preview`
 (filed with the writes although it stores nothing, because it applies the batch and
 rolls it back and so holds the single writer for its duration):
 
@@ -207,11 +222,12 @@ lein run -m vaelii.web --attach localhost 4200   # browse it, over the API, on :
   the right choice for local exploration. Attach is for inspecting a running daemon.
 - **Writing over the wire:** the browser's Save and its Retract dispatch to the daemon
   `:edit` op, its assert form and its accepted-proposal commit to
-  `:edit-with-consequences` (which answers with what the batch turned out to mean), its
-  forward-chain trigger to `:forward-chain`, and its proposal preview to `:preview` —
-  like any read, so modifying a KB works against an attached daemon too, with the daemon
-  the single writer serializing each one under its lock. Each is preceded by a `:check`
-  round-trip, so a refusal costs a message rather than a half-applied batch.
+  `:edit-with-consequences` (which answers with what the batch turned out to mean), and
+  its forward-chain trigger to `:forward-chain` — so modifying a KB works against an
+  attached daemon too, with the daemon the single writer serializing each one under its
+  lock. The write forms are preceded by a `:check-edit` round-trip, so a refusal costs
+  a message rather than a half-applied batch; the proposal preview runs on a local KB
+  only (`docs/web.md`), so an attached browser proposes without previewing.
 
 ## Not here
 

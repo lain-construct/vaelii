@@ -12,7 +12,7 @@
   and the store**, and every decision below follows from that:
 
   * a candidate is a `[sentence context opts]` entry, which is the shape
-    `vaelii.core/edit` already takes and the browser's editor already parses — so a
+    `vaelii.core/edit!` already takes and the browser's editor already parses — so a
     proposal lands as a reviewable diff and there is no second write path;
   * a candidate carries the **span** of the text it came from, so an accepted sentence is
     auditable back to the sentence that produced it;
@@ -224,11 +224,11 @@
 
   Scoped where `vaelii.impl.llm.inventory/declared-arities` is not, and that is the
   difference that matters here: a candidate is filed in one context, and the vocabulary of
-  the microtheory it lands in is precisely the vocabulary it may reuse.  What this puts on
+  the context it lands in is precisely the vocabulary it may reuse.  What this puts on
   the card is **names and shapes**, never content — a predicate's declaration says it exists
   and takes two arguments, and says nothing about what is true of anything.
 
-  **Ordered nearest microtheory first**, because that is where a cap has to cut.  The cone
+  **Ordered nearest context first**, because that is where a cap has to cut.  The cone
   of a leaf context runs from the story it is about up to the vocabulary head, and a
   predicate the story's own theory declares is worth more to a reader of that story than
   one `CoreContext` declares — so the cone is sorted by how much each context sees, which
@@ -260,7 +260,7 @@
      wants, and the reason resolution runs before the model is asked anything;
   2. what an `argIsa` **licenses** for a resolved type, so a document about a mouse is
      offered the relations a mouse can stand in;
-  3. everything else `context` **declares**, nearest microtheory first (`declared-in`) —
+  3. everything else `context` **declares**, nearest context first (`declared-in`) —
      the vocabulary of the theory the candidates land in.  Last because it is the least
      targeted, and included at all because a document rarely spells a predicate the way the
      KB does: *repay the kindness* does not resolve `repaidKindness`, and a reader who
@@ -304,7 +304,7 @@
          relations (distinct (concat (filter domain? seeds)
                                      (sort (distinct licensed))
                                      ;; `declared-in`'s own order, which is the relevance
-                                     ;; order — nearest microtheory first
+                                     ;; order — nearest context first
                                      (filter domain? (map first local))))
          kept      (take max-relations relations)
          shown     (take max-types types)]
@@ -467,7 +467,7 @@
   window."
   ([kb segs resolved context instruction] (user-turn kb segs resolved context instruction {}))
   ([kb segs resolved context instruction opts]
-   ;; A document card lists a whole microtheory's vocabulary where a page card lists one
+   ;; A document card lists a whole context's vocabulary where a page card lists one
    ;; term's neighbourhood, so each line gets a shorter reminder: the *signature* is what
    ;; makes a predicate reusable, and 40 predicates each carrying 140 characters of prose
    ;; spends the window on documentation nobody reads while translating.
@@ -498,7 +498,7 @@
   {:high 0.9 :medium 0.6 :low 0.3})
 
 (defn candidate-entry
-  "One read candidate -> the `[sentence context opts]` entry `vaelii.core/edit` takes.
+  "One read candidate -> the `[sentence context opts]` entry `vaelii.core/edit!` takes.
 
   `opts` carries the **provenance** — `{:source :segment :span :confidence}` — which is the
   reason to prefer this over a script that pastes facts in: the per-handle provenance map

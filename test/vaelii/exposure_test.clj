@@ -359,7 +359,7 @@
           "and the sweep that narrowed to them reports exactly what the complete question does"))))
 
 (tu/deftest-kb a-separation-naming-a-non-symbol-implicates-nobody
-  ;; A NART argument — OpenCyc declares thousands of separations against terms like
+  ;; A reified NAT argument — OpenCyc declares thousands of separations against terms like
   ;; `(AbnormalFn chromosome)` — has an empty spec closure, so no membership sits below
   ;; it and no clash sits above it.  The reach is empty outright rather than falling out
   ;; of the sizing arithmetic, and in particular the *symbol* side's extent is not swept

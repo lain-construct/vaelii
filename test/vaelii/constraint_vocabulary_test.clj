@@ -254,7 +254,7 @@
       (is (v/assert kb (list eats Rex Mystery) 'UniverseContext)))))
 
 (tu/deftest-kb a-declaration-the-context-cannot-see-does-not-convict
-  ;; Scoped like every other definitional check: a microtheory is refused only on grounds
+  ;; Scoped like every other definitional check: a context is refused only on grounds
   ;; it can see.  The declaration is written in a sibling context, so it reaches nobody.
   (tu/with-terms [carnivore_t meat_t grass_t eatsOf Rex Hay SideContext OtherContext]
     (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)

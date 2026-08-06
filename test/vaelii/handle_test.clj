@@ -147,7 +147,7 @@
           "and the read agrees — the nil write left nothing to find"))
     (testing "edit and check-edit both treat a nil :remove as nothing to remove"
       (is (= {:removed-sentexes 0 :removed-justifications 0}
-             (:removed (v/edit kb {:remove [nil]}))))
+             (:removed (v/edit! kb {:remove [nil]}))))
       (is (= [] (v/check-edit kb {:remove [nil]}))))
     (testing "which is what makes this composition work"
       (tu/with-terms [dog Missing]
@@ -175,7 +175,7 @@
                           ["dependent-justifications"  #(v/dependent-justifications kb hs)]
                           ["provenance"     #(v/provenance kb hs)]
                           ["add-provenance" #(v/add-provenance kb hs {:source :test})]
-                          ["edit :remove"   #(v/edit kb {:remove [hs]})]]]
+                          ["edit :remove"   #(v/edit! kb {:remove [hs]})]]]
             (let [d (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e)))]
               (is (= :bad-handle (:type d)) (str nm " refused the vector"))
               (is (= hs (:handle d)) (str nm " carried what it was given")))))

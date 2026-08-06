@@ -10,9 +10,9 @@
   * **Part A — compound equality over reifiable NATs.**  `(equals (MotherOf Alice)
     (MotherOf Bob))` — *Alice and Bob have the same mother, so they are siblings* —
     is accepted when `MotherOf` is a `reifiableFunction`.  It reduces to ordinary
-    individual equality: each side reifies to its NART constant *before* wff runs
+    individual equality: each side reifies to its constant *before* wff runs
     (docs/nat.md), so `(equals K1 K2)` merges in the partition and a fact about one
-    holds of the other.  A compound equality that does **not** reduce — a NAUT
+    holds of the other.  A compound equality that does **not** reduce — a structural NAT
     measure like `(QuantityFn 5 Kilogram)` — stays refused.
 
   * **Part B — schematic equational rules.**  `(equals (fatherOf (fatherOf ?x))
@@ -51,10 +51,10 @@
 
 ;; ---- Part A: compound equality over reifiable NATs ----------------------
 
-(tu/deftest-kb reifiable-compound-equality-merges-the-narts
+(tu/deftest-kb reifiable-compound-equality-merges-the-reified-nats
   ;; (equals (MotherOf Alice) (MotherOf Bob)): Alice and Bob share a mother.  Each
-  ;; side reifies to a NART constant before wff, so this is ordinary individual
-  ;; equality — the two NARTs merge and a fact about one holds of the other.
+  ;; side reifies to a reified NAT constant before wff, so this is ordinary individual
+  ;; equality — the two reified NATs merge and a fact about one holds of the other.
   (tu/with-terms [MotherOf Alice Bob livesIn NYC]
     (v/assert kb (list 'reifiableFunction MotherOf) 'UniverseContext)
     (v/assert kb (list livesIn (list MotherOf Alice) NYC) 'UniverseContext)
@@ -65,7 +65,7 @@
       (testing "the assertion is accepted, its sides reified to symbols"
         (is (some? h))
         (is (every? nat/reified-nat-symbol? (rest (:sentence (v/sentex kb h))))))
-      (testing "the NARTs merge — a fact about Alice's mother holds of Bob's"
+      (testing "the reified NATs merge — a fact about Alice's mother holds of Bob's"
         (is (= [{'?c NYC}] (v/ask kb (list livesIn (list MotherOf Bob) '?c) '?ctx))))
       (testing "and they resolve to one class"
         (is (v/same-class? kb
@@ -77,8 +77,8 @@
       (testing "and Alice's own fact survives"
         (is (= [{'?c NYC}] (v/ask kb (list livesIn (list MotherOf Alice) '?c) '?ctx)))))))
 
-(tu/deftest-kb naut-compound-equality-is-refused
-  ;; A NAUT measure stays structural (never reified), so `(equals (QuantityFn …)
+(tu/deftest-kb structural-nat-compound-equality-is-refused
+  ;; A structural NAT measure stays structural (never reified), so `(equals (QuantityFn …)
   ;; (QuantityFn …))` does not reduce to symbol equality and wff refuses the compound
   ;; — measure sameness is `sameQuantity`, a computed comparison, not the closure.
   (testing "equals over two ground QuantityFn measures is refused as not-well-formed"
