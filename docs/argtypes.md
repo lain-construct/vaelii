@@ -1,5 +1,13 @@
 # Assertive argument types: `argIsa` as an entailment
 
+- **Covers:** how, with the opt-in toggle on, an `argIsa` / `argGenl` / `interArgIsa`
+  declaration also mints the type it constrains as a derived, justified, retractable sentex.
+- **Not here:** `argIsa` / `argGenl` read as a constraint that rejects a wrongly-typed
+  argument (the default, toggle-off reading) → [taxonomy.md](taxonomy.md); `argPreserving`,
+  which carries a stated claim rather than a declared type across an argument →
+  [inherit.md](inherit.md).
+- **Assumes:** sentex, justification, context, `genl` → [glossary.md](glossary.md).
+
 `(argIsa parentOf 1 animal)` says the first argument of `parentOf` is an animal. Assert
 `(parentOf Fred Mary)` and the KB checks that claim against what it knows about `Fred` —
 and when it knows nothing, **passes and stores nothing**. The declaration is read as a
@@ -9,6 +17,8 @@ This is the other reading: the declaration also *entails* what it constrains, an
 entailment is a derived, justified, retractable sentex under truth maintenance.
 
 ```clojure
+(v/assert kb '(genl animal thing) 'UniverseContext)   ; the declared type has to be one
+                                                      ; the hierarchy holds — see below
 (binding [checks/*assertive-arg-types?* true]
   (v/assert kb '(argIsa parentOf 1 animal) 'WorldContext)
   (v/assert kb '(parentOf Fred Mary) 'WorldContext))

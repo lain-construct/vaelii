@@ -1,5 +1,13 @@
 # Interval duration arithmetic
 
+- **Covers:** how `totalDuration` and `overlapDuration` compute real-unit lengths
+  and overlaps from stored length facts, sharpened where a metric gap narrows them.
+- **Not here:** the generic constraint-network engine underlying the ordering →
+  [qcn.md](qcn.md); the qualitative ordering the relation sets come from →
+  [time.md](time.md); the metric gaps that sharpen an overlap window →
+  [stp.md](stp.md).
+- **Assumes:** Allen's interval algebra, NAT, context → [glossary.md](glossary.md).
+
 `vaelii.impl.duration` is the quantitative half of interval reasoning. Allen's algebra
 ([time.md](time.md)) says *that* two intervals overlap; this says *how long* for, in real
 units, and adds up the lengths of several. Two computed predicates, neither ever stored:

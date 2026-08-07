@@ -26,7 +26,7 @@
   reported alongside — the gap is the shared structure.
 
   Run: `lein bench-scale [premise-facts] [rule-facts]`  (defaults 200000 50000).
-  Uses record-space 20/22, index-space 21/23 (clear of the test block 12-15 and the other
+  Uses spaces 20 and 22 (clear of the test block 14-15 and the other
   bench harnesses' 9/10)."
   (:require [vaelii.bench.util :as u :refer [zipf-sample]]
             [vaelii.core :as v]
@@ -169,7 +169,7 @@
     (println "Wall-clock (load/s, reindex, recover) is UNTRUSTED while another load runs on this box.")
 
     ;; ---- Run A: premises only (the clean per-premise-node JTMS cost) ----
-    (let [kb  (v/open-kb {:backend :memory :record-space 20 :index-space 21 :recover? false})
+    (let [kb  (v/open-kb {:backend :memory :space 20 :recover? false})
           _   (do (p/clear-records! (:records kb)) (p/clear-index! (:index kb)))
           rng (java.util.Random. 42)
           {lms :ms} (load-premises! kb rng (config n))]
@@ -183,7 +183,7 @@
         (let [t0 (System/nanoTime)] (v/recover kb)   (println (format "  recover tms+tax: %.1f s" (/ (ms t0) 1000.0))))))
 
     ;; ---- Run B: rules fire (the per-justification / justification cost) ----
-    (let [kb  (v/open-kb {:backend :memory :record-space 22 :index-space 23 :recover? false})
+    (let [kb  (v/open-kb {:backend :memory :space 22 :recover? false})
           _   (do (p/clear-records! (:records kb)) (p/clear-index! (:index kb)))
           rng (java.util.Random. 7)
           {lms :ms} (load-with-rule! kb rng (config rn))]

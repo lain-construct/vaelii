@@ -1,5 +1,12 @@
 # Head existentials and skolemization
 
+- **Covers:** how a rule's head existential is skolemized to a deterministic NAT
+  constant on forward firing, keyed on the rule and its antecedent bindings.
+- **Not here:** reifying an ordinary function-application term to a constant →
+  [nat.md](nat.md); the range-restriction rule an existential head is the one
+  exception to → [inference.md](inference.md).
+- **Assumes:** sentex, context, justification, NAT → [glossary.md](glossary.md).
+
 A rule normally must be **range-restricted**: every consequent variable is bound by
 some antecedent, so a fired conclusion is ground. A **head existential** relaxes that
 for one explicitly marked variable:

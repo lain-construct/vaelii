@@ -1,5 +1,13 @@
 # Symbolic (schematic) equational reasoning
 
+- **Covers:** how a schematic `(equals L R)` with variables orients into a terminating
+  rewrite rule, so a stored term and a query goal meet at one normal form.
+- **Not here:** merging two ground symbol names into one partition →
+  [equality.md](equality.md); reifying a function-application term to a constant
+  before equality or rewriting ever sees it → [nat.md](nat.md).
+- **Assumes:** sentex, context, the equality closure, canonical form →
+  [glossary.md](glossary.md).
+
 Equations with **variables over function terms** — `(equals (fatherOf (fatherOf ?x))
 (grandfatherOf ?x))` — and how they come to rewrite and prove terms. This is the
 gap [equality.md](equality.md) leaves open: the closure there is a partition over

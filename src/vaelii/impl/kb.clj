@@ -117,9 +117,9 @@
 ;; ---- storage selection: two independent axes ------------------------------
 ;;
 ;; A KB's two stores answer to different pressures and are chosen separately.  The
-;; **records** (`:record-space`) are the ground truth — what must survive — so the
-;; question there is durability.  The **index** (`:index-space`) is *derived*: `reindex`
-;; rebuilds every entry of it from the records, through the protocols, so it need never
+;; **records** are the ground truth — what must survive — so the question there is
+;; durability.  The **index** is *derived*: `reindex` rebuilds every entry of it from
+;; the records, through the protocols, so it need never
 ;; be persisted at all and the question there is representation (how dense, how fast).
 ;; Welding the two into one `:backend` keyword makes every density experiment
 ;; memory-only and every durable KB pay for a durable index it can always recompute.
@@ -177,15 +177,15 @@
     axes))
 
 (defn- record-store-for
-  "The `RecordStore` for the record axis.  `:memory` keys the in-RAM store by
-  `:record-space`, so a KB rebuilt over the same number sees the same records
+  "The `RecordStore` for the record axis.  `:memory` keys the in-RAM store by `:space`,
+  so a KB rebuilt over the same number sees the same records
   (`vaelii.impl.memory`); `:disk` opens the durable log/idx record store in a directory
-  (`:dir`, else derived from the space numbers), shared per directory — and opens
+  (`:dir`, else derived from the space number), shared per directory — and opens
   *only* the records, so a derived-index mode writes no index files
   (`vaelii.impl.disk.backend`)."
-  [kind {:keys [record-space] :or {record-space 0} :as opts}]
+  [kind {:keys [space] :or {space 0} :as opts}]
   (case kind
-    :memory (mem/memory-record-store {:space record-space})
+    :memory (mem/memory-record-store {:space space})
     :disk   (disk/records-for (disk/disk-dir opts))
     ;; `:overlay` is resolved by `open-kb`, which alone knows the base — reaching here
     ;; means a base or an overlay half was itself declared `:overlay`, and a stack of
@@ -197,16 +197,17 @@
 
 (defn- derived-index-space
   "What a **derived** (in-RAM) index's shared state is keyed by.  A derived index is a
-  function of the records, so it must be shared exactly when the records are: the
-  `:index-space` number when the records are in RAM, the record *directory* when they
-  are on disk.  Keying a disk-backed KB's RAM index by the space number instead would
-  hand two KBs over different directories one shared index whenever they took the
-  default numbers — one directory's records answered out of the other's index, with
+  function of the records, so it must be shared exactly when the records are — and this
+  is the whole of what enforces that: the `:space` number when the records are in RAM,
+  the record *directory* when they are on disk.  Each axis has its own registry
+  (`vaelii.impl.memory`, `.dense-kv`, `.columnar`), so one number keys both stores
+  without either reaching the other's, and a KB cannot be given a private index over
+  records it shares — one directory's records answered out of another's index, with
   nothing to signal it."
-  [record-kind {:keys [index-space] :or {index-space 1} :as opts}]
+  [record-kind {:keys [space] :or {space 0} :as opts}]
   (if (= :disk record-kind)
     [:dir (disk/canonical-dir (disk/disk-dir opts))]
-    index-space))
+    space))
 
 (defn- index-store-for
   "`[index-store durable?]` for the index axis.  Three of the four are **derived-only**
@@ -313,12 +314,12 @@
 (def opt-keys
   "Every key `open-kb` reads.  Public because it is the answer to \"is this a real
   option?\", and a caller that can ask does not have to find out from a wrong answer."
-  #{:backend :records :index :record-space :index-space :dir :tms :recover?
+  #{:backend :records :index :space :dir :tms :recover?
     :naming :constraints :base :base-stores :overlay})
 
 (defn- check-opts!
   "Refuse a key `open-kb` does not read.  **An option that is not read is not an option**:
-  a misspelt `:record-space` leaves the KB on the default space in silence, so two KBs a
+  a misspelt `:space` leaves the KB on the default space in silence, so two KBs a
   caller built to keep apart share one store — each one's flush empties the other, and
   every read after it answers out of the wrong records with nothing to signal it.  A KB
   that took the default is indistinguishable downstream from one that asked for it, so
@@ -335,41 +336,41 @@
                     {:type :unknown-option :unknown (vec unknown)
                      :options (vec (sort opt-keys))}))))
 
-(defn- check-space-pair!
-  "Refuse an opts map that names one in-RAM space number and not the other.
+;; How many in-RAM KBs this process has opened on the **default** space without naming
+;; it — read by `note-default-ram-space!` below.  `defonce` so a REPL reload does not
+;; forget, which is the session the count exists for.
+(defonce ^:private default-ram-space-opens (atom 0))
 
-  This is `check-opts!`'s failure with the key spelt **correctly**.  The two numbers
-  default independently — `:record-space` to 0, `:index-space` to 1 — so
-  `{:backend :memory :record-space 77}` pairs a private record store with the *process
-  default* index map, which every `(open-kb {:backend :memory})` in the JVM is also
-  writing.  The two KBs then share one index over separate records, and the damage is
-  silent and worse than a shared store: `handle-of` answers out of the other KB's
-  postings, `assert` finds that handle, believes it is a duplicate, stores **nothing**
-  and returns it, so a write reports success and leaves no record — and `in?` on the
-  handle it returned answers true.
+(defn- note-default-ram-space!
+  "Say so the second time a KB opens on the default in-RAM space without naming it.
 
-  Only in-RAM records make both numbers live (`derived-index-space` keys a derived index
-  over durable records by the record *directory*, not by the number), so that is the case
-  refused.  Naming neither is the ordinary default and stays untouched.
+  The space number names the store, and it defaults to 0 — so `(open-kb {})` twice
+  in one process is **one store behind two KB values**, which is not what the second
+  call looks like it asked for.  It is the REPL's most ordinary gesture: build a KB,
+  experiment, then `(def kb2 (open-kb {}))` to start clean.  What that gets is the
+  first KB's records recovered into the second (an `::reindexed-on-open` line at
+  `:info`, addressed to a different question), and from then on two belief graphs over
+  one store: `kb` writes and `kb2` does not see it, because belief is per-KB and only
+  the writer's is relabelled.  Neither answer is an error, so nothing else says a word.
 
-  `where` names the opts map, as in `check-opts!`: a fork's `:base` and `:overlay`
-  sub-maps build their stores from the same keys with the same independent defaults,
-  so a half-specified half is the same silent store-sharing one door down."
-  [opts rkind where]
-  (when (= :memory rkind)
-    (let [named (filterv #(contains? opts %) [:record-space :index-space])]
-      (when (= 1 (count named))
-        (let [given (first named)
-              other (if (= given :record-space) :index-space :record-space)]
-          (throw (ex-info (str where " was given " (pr-str given) " but not " (pr-str other)
-                               " — the two in-RAM space numbers default independently"
-                               " (:record-space 0, :index-space 1), so naming one leaves"
-                               " the other on the process default and this KB shares that"
-                               " half with every KB that took it.  A shared index over"
-                               " separate records answers one KB's queries out of the"
-                               " other's postings.  Name both, or neither.")
-                          {:type :unknown-option :given given :missing other
-                           :options [:record-space :index-space]})))))))
+  **A warning and never a refusal.** Sharing a space is a feature — it is how
+  `recover` sees the same records, how the suite's fixtures rebuild over one store, and
+  how a second KB mounts a base.  What is unlikely to be deliberate is *defaulting*
+  onto it twice, so naming the number — `{:space 2}`, or `0` written out — says the
+  sharing is meant and silences this.  Only in-RAM records are affected: a `:disk` KB
+  is keyed by directory and takes a file lock."
+  [opts rkind]
+  (when (and (= :memory rkind)
+             (not (contains? opts :space))
+             (= 2 (swap! default-ram-space-opens inc)))
+    (trove/log! {:level :warn :id ::default-ram-space-reused
+                 :msg (str "a second in-RAM KB opened on the default space (:space 0) "
+                           "— the number names the store, so this KB and the earlier "
+                           "one are two belief graphs over one set of records, and a "
+                           "write through either is invisible to the other until it is "
+                           "recovered.  Give this KB its own space ({:space 2}), or "
+                           "name 0 to say the sharing is meant and silence this.")
+                 :data {:space 0}})))
 
 (defn- check-mount-opts!
   "Refuse a mount or durability key nothing in this axis selection reads.
@@ -380,7 +381,7 @@
   different KB.  `:base` / `:base-stores` / `:overlay` are read when an axis is
   `:overlay`: on any other selection `{:backend :memory :base-stores …}` opens a plain
   KB with nothing mounted, and every read that was meant to see the base answers as
-  though it were empty.  `:dir` is read when a half is `:disk`: on a RAM pair it names
+  though it were empty.  `:dir` is read when a half is `:disk`: on RAM stores it names
   a directory nothing writes, so the caller who asked for durability loses the store
   at JVM exit — behind an open that looked exactly like the durable one.  (A fork's
   top-level `:dir` is the same nothing: its own writable half's directory lives in the
@@ -544,8 +545,8 @@
   ;; where it matters most.  The mirror case below (a derived index describing records
   ;; that are gone) repairs first and logs after, and this branch agrees with it.
   ;; `:warn` and `false` are there for a caller that wants one of them, spelled out.
-  [{:keys [record-space recover? tms naming constraints]
-    :or   {record-space 0 recover? :auto tms :reference naming :strict}
+  [{:keys [space recover? tms naming constraints]
+    :or   {space 0 recover? :auto tms :reference naming :strict}
     :as   opts}
    recover-fn reindex-fn]
   ;; The build's switches, before the KB's own options: a JVM property is read on a
@@ -564,21 +565,19 @@
   (doseq [half [:base :overlay]]
     (when-let [sub (get opts half)]
       (check-opts! sub (str half))
-      (let [axes (backend-axes sub)]
-        (check-mount-opts! sub axes (str half))
-        (check-space-pair! sub (:records axes) (str half)))))
+      (check-mount-opts! sub (backend-axes sub) (str half))))
   (let [recover?                      (check-recover! recover?)
         {rkind :records ikind :index} (backend-axes opts)
         _                             (check-mount-opts! opts {:records rkind :index ikind}
                                                          "open-kb")
-        _                             (check-space-pair! opts rkind "open-kb")
+        _                             (note-default-ram-space! opts rkind)
         overlay?                      (or (= :overlay rkind) (= :overlay ikind))
         base                          (when overlay? (resolve-base opts))
         ov-opts                       (:overlay opts {})
         {ovr :records ovi :index}     (when overlay? (backend-axes ov-opts))
         ;; The fork's own half and its base resolving to one store — one `:disk`
-        ;; directory `store-for` shares per canonical path, or one memory space pair
-        ;; the registry shares per number — is base immutability off with no error:
+        ;; directory `store-for` shares per canonical path, or one memory space the
+        ;; registry shares per number — is base immutability off with no error:
         ;; `FrozenRecords` guards only the calls routed through it, and the fork's
         ;; writes go to the same state direct.  Refused on the *descriptors* when the
         ;; base arrives as opts (before anything opens), and on store identity as the
@@ -591,8 +590,7 @@
                           (= (disk/canonical-dir (disk/disk-dir b))
                              (disk/canonical-dir (disk/disk-dir ov-opts)))
                           (and (= :memory brk) (= :memory ovr))
-                          (= [(:record-space b 0) (:index-space b 1)]
-                             [(:record-space ov-opts 0) (:index-space ov-opts 1)])
+                          (= (:space b 0) (:space ov-opts 0))
                           :else false)]
               (when same?
                 (throw (ex-info "the fork's own half and its base name one store — a fork cannot write its own base"
@@ -852,7 +850,7 @@
                                             (if snap (str " — no usable index snapshot ("
                                                           (name (:reason snap)) ")") ""))})))))
           (trove/log! {:level :warn :id ::unrecovered-store
-                       :msg (str "the record store (space " record-space ") already holds sentexes "
+                       :msg (str "the record store (space " space ") already holds sentexes "
                                  "but this KB's TMS and taxonomy are empty"
                                  (when-not index-durable?
                                    ", and its index is derived state that opens empty")
@@ -1217,12 +1215,13 @@
   representative, recursively — so a merged term nested inside a compound is rewritten
   at whatever depth it sits.  That is the whole of ground congruence closure: the
   inverted term index finds the occurrence and this rewrites it, so no congruence
-  algorithm is needed (docs/equality.md, \"Congruence comes free\")."
+  algorithm is needed (docs/equality.md, \"Congruence comes free\").
+
+  One definition, in `resolution` beside the flat `representative-in` it recurses with,
+  because `different` normalizes its arguments the same way and two copies of a
+  congruence walk is one copy too many."
   [kb visible? term]
-  (cond
-    (sequential? term) (apply list (map #(rewrite-symbols kb visible? %) term))
-    (symbol? term)     (if (sx/variable? term) term (res/representative-in kb visible? term))
-    :else              term))
+  (res/representative-term kb visible? term))
 
 (defn rewrite-term*
   "`term` (a sentence or a term) rewritten to its **normal form**: first every symbol
@@ -1297,9 +1296,10 @@
   **`different` is exempt.**  Rewriting its arguments would map each to its class
   representative, so a merged pair would compare equal — and since reading class
   membership is the entire job of `different`, every `different` goal would go false
-  the moment anything merged.  Its arguments are already rewrite-invariant (the
-  prover consults the closure directly), so this exempts it explicitly rather than
-  relying on the rewrite happening to be a no-op.
+  the moment anything merged.  The prover normalizes its own arguments instead, with
+  the same recursive walk (`res/representative-term`) and then compares the results, so
+  the exemption is explicit here rather than resting on the rewrite happening to be a
+  no-op.
 
   Rewritten only by the merges `context` can see (`rewrite-term`'s three-arity): a
   question asked from a context is a question about what that context holds,

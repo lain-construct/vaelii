@@ -768,7 +768,7 @@
 
 (defn columnar-index-store
   "A dense columnar `IndexStore`.  `:space` selects the shared {dict, trie, roots} state."
-  [{:keys [space] :or {space 1}}]
+  [{:keys [space] :or {space 0}}]
   (let [{:keys [dict trie roots]} (state-for space)]
     (->ColumnarIndexStore dict trie roots (kv/->KvIndexStore roots))))
 

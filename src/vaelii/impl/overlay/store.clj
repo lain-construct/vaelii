@@ -29,7 +29,7 @@
     machinery.
 
   **Counts need no delta bookkeeping here.**  A `RecordStore` exposes handle
-  *sets* rather than counts, and everything counted — `sentex-count`, `context-size`,
+  *sets* rather than counts, and everything counted — `sentex-count`, `count-in-context`,
   `count-with-functor` — is read off the index, where the merge is the trie's own
   copy-on-write counters and the merged root sets (`vaelii.impl.overlay.kv`).  So the
   counts a fork reports are exact by construction rather than by a second, parallel

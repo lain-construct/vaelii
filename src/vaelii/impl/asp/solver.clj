@@ -15,13 +15,10 @@
    Select explicitly with -Dvaelii.asp.solver or VAELII_ASP_SOLVER = clingo|clasp.
    Default is auto: prefer in-process clingo when it loads, else clasp."
   (:require
-   [clojure.string :as str]
-   [vaelii.impl.asp.clasp :as clasp]))
+   [vaelii.impl.asp.clasp :as clasp]
+   [vaelii.impl.config :as config]))
 
-(defn- configured []
-  (some-> (or (System/getProperty "vaelii.asp.solver")
-              (System/getenv "VAELII_ASP_SOLVER"))
-          str/trim str/lower-case keyword))
+(defn- configured [] (config/asp-solver))
 
 (defonce ^:private clingo-backend
   ;; {:solve <fn> :available? <fn>} when libclingo loads in this JVM, else nil.
@@ -32,15 +29,13 @@
              (when (avail) {:solve solve :classify-both cboth :available? avail}))
            (catch Throwable _ nil))))
 
-(defonce ^:private clingo-max-program-bytes
-  ;; AUTO-mode size cutoff: a plain-ASP ASPIF program longer than this routes to clasp
-  ;; even when clingo is loadable, because the in-process win is a fixed saved fork while
-  ;; the loss grows with program size. Override with VAELII_CLINGO_MAX_BYTES; an explicit
-  ;; VAELII_ASP_SOLVER=clingo uses clingo whatever the size. The measurements, and why
-  ;; byte length is the right proxy: docs/asp.md, "Why size picks the backend".
-  (delay (or (some-> (System/getenv "VAELII_CLINGO_MAX_BYTES")
-                     str/trim not-empty Long/parseLong)
-             3000)))
+;; AUTO-mode size cutoff: a plain-ASP ASPIF program longer than this routes to clasp even
+;; when clingo is loadable, because the in-process win is a fixed saved fork while the loss
+;; grows with program size. An explicit VAELII_ASP_SOLVER=clingo uses clingo whatever the
+;; size. The measurements, and why byte length is the right proxy: docs/asp.md, "Why size
+;; picks the backend". Read per call rather than held in a delay, so `config/check!`
+;; refuses a bad value at `open-kb` instead of the first solve throwing from a cache.
+(defn- clingo-max-program-bytes [] (config/clingo-max-program-bytes))
 
 (defn- backend
   "The backend to use ignoring program size: explicit config, else auto (clingo
@@ -75,7 +70,7 @@
    programs prefer clasp (clingo's per-solve slope regresses past the crossover —
    see `clingo-max-program-bytes`)."
   [nbytes]
-  (choose-backend (configured) (some? @clingo-backend) nbytes @clingo-max-program-bytes))
+  (choose-backend (configured) (some? @clingo-backend) nbytes (clingo-max-program-bytes)))
 
 (defn solve
   "Solve `aspif-text` in `mode` via the selected backend. Contract identical to

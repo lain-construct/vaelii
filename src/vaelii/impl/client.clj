@@ -10,9 +10,15 @@
   API.  A `conn` from `client` holds a reusable `HttpClient`; no socket opens until a
   call.  A daemon reply of `{:ok false}` becomes an `ex-info` carrying the daemon's
   `:error` and `:type`, so a remote naming/disjointness refusal surfaces like a local
-  one."
+  one.
+
+  **The bearer token rides on the request the daemon requires it on**: the `conn`
+  carries it (`VAELII_API_TOKEN` unless `:token` says otherwise) and every call sets one
+  more header on the builder it was already using.  No dependency, no client state, and
+  the `conn` is still a map you can read."
   (:refer-clojure :exclude [isa?])
-  (:require [clojure.edn :as edn])
+  (:require [clojure.edn :as edn]
+            [vaelii.impl.guard :as guard])
   (:import [java.net URI]
            [java.net.http HttpClient HttpClient$Builder
             HttpRequest HttpRequest$Builder HttpRequest$BodyPublishers
@@ -21,14 +27,30 @@
 
 (defn client
   "A connection handle to a daemon at `host`:`port` (opts: `:timeout-ms`, default
-  30000).  Holds a reusable `HttpClient`; no network happens until a call."
+  30000).  Holds a reusable `HttpClient`; no network happens until a call.
+
+  `:token` is the bearer token every call presents.  Omitted, it is `VAELII_API_TOKEN`
+  (`guard/api-token`) — the same variable the daemon reads, so a client and a daemon in
+  one environment agree without either being configured; an explicit nil sends no
+  `Authorization` header, which is what an open daemon wants and what a test of the
+  refusal needs."
   ([host port] (client host port {}))
-  ([host port {:keys [timeout-ms] :or {timeout-ms 30000}}]
+  ([host port {:keys [timeout-ms] :or {timeout-ms 30000} :as opts}]
    (let [^HttpClient$Builder b (HttpClient/newBuilder)]
      (.connectTimeout b (Duration/ofMillis timeout-ms))
      {:base-url   (str "http://" host ":" port)
       :timeout-ms timeout-ms
+      :token      (if (contains? opts :token) (:token opts) (guard/api-token))
       :http       (.build b)})))
+
+(defn- with-token
+  "Set `conn`'s bearer token on the request builder, when it holds one.  One `.header`
+  call on the builder each call already makes — the whole of what carrying a credential
+  costs this client."
+  ^HttpRequest$Builder [^HttpRequest$Builder rb conn]
+  (when-let [token (:token conn)]
+    (.header rb "authorization" (str "Bearer " token)))
+  rb)
 
 (defn- read-reply
   "Parse a daemon reply body, or refuse it typed.
@@ -56,6 +78,7 @@
         ^HttpRequest$Builder rb (HttpRequest/newBuilder (URI/create (str (:base-url conn) path)))]
     (.timeout rb (Duration/ofMillis (long (:timeout-ms conn))))
     (.header rb "content-type" "application/edn")
+    (with-token rb conn)
     (.POST rb (HttpRequest$BodyPublishers/ofString ^String body))
     (let [^HttpResponse resp (.send http (.build rb) (HttpResponse$BodyHandlers/ofString))]
       (read-reply (.body resp)))))
@@ -78,10 +101,14 @@
                           (update :type #(or % :daemon-error))))))))
 
 (defn health
-  "The daemon's liveness reply, `{:ok true}` — a GET, so it needs no op."
+  "The daemon's liveness reply, `{:ok true}` — a GET, so it needs no op, and the one
+  route a daemon answers without the token (`serve/open-routes`).  The header is sent
+  when the `conn` holds one all the same: a probe that authenticates where it can is no
+  worse off, and this way one code path builds every request."
   [conn]
   (let [^HttpClient http (:http conn)
         ^HttpRequest$Builder rb (HttpRequest/newBuilder (URI/create (str (:base-url conn) "/health")))]
+    (with-token rb conn)
     (.GET rb)
     (let [^HttpResponse resp (.send http (.build rb) (HttpResponse$BodyHandlers/ofString))]
       (read-reply (.body resp)))))

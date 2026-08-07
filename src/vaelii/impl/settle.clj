@@ -2277,6 +2277,18 @@
            (fn [s] (-> s
                        (assoc :iterations moved :passes passes)
                        (update-in [:histogram moved] (fnil inc 0))))))
+  ;; What this settle cost and what it found, once per settle and at the end of it.
+  ;; `::exception-fixpoint` above speaks only when the joint fixpoint gives up, so
+  ;; without this a settle that took nine passes and one that took a single pass report
+  ;; the same nothing — and the pass count is the reading that says whether the KB's
+  ;; exceptions have started fighting each other.
+  (trove/log! {:level :debug :id ::settled
+               :data {:passes     passes
+                      :iterations moved
+                      :moved?     belief-moved?
+                      :conflicts  (count violated)
+                      :dilemmas   (count dilemmas)
+                      :arbitrated (count arbitrated)}})
   violated)
 
 (defn- settle*
@@ -2306,12 +2318,12 @@
     ;; ...and reconcile the belief-derived caches with what that revived, **before**
     ;; anything asks them a question.  `clear-defeats!` lifts a defeat, so a `genl` or
     ;; `genlContext` edge defeated last settle is believed again as of this line — but
-    ;; the cached closures still describe the KB without it until `refresh-beliefs` runs,
-    ;; and that ran only in `settle-finish`, after `constraint-nogoods` below had already
-    ;; read them.  Discovery therefore asked its question against a vocabulary one settle
-    ;; out of date: a `P`/`¬P` pair made jointly visible by the revived edge was not
-    ;; arbitrated, so `retract!` returned with both believed — a state the KB's own
-    ;; `recover` over the same records disagrees with.
+    ;; the cached closures still describe the KB without it until `refresh-beliefs` runs.
+    ;; It must therefore run *here*, before `constraint-nogoods` below reads them, and not
+    ;; only in `settle-finish`: discovery reading a vocabulary one settle out of date
+    ;; leaves a `P`/`¬P` pair made jointly visible by the revived edge unarbitrated, and
+    ;; `retract!` returns with both believed — a state the KB's own `recover` over the
+    ;; same records disagrees with.
     ;;
     ;; Gated on there having *been* a defeat to lift, and scoped by `touched`, so a
     ;; settle with nothing defeated pays nothing — which is nearly all of them, and the

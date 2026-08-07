@@ -12,6 +12,10 @@
   `:error` and `:type`, so a remote naming or disjointness refusal surfaces like a
   local one.
 
+  A daemon with `VAELII_API_TOKEN` set answers 401 (`:unauthorized`) to a call that
+  presents no bearer token; the `conn` reads the same variable, so a client in the
+  daemon's environment carries it with nothing said.
+
   Public because a client is a thing applications write against; the implementation is
   `vaelii.impl.client`, which is free to change.  Result shapes are `vaelii.core`'s: a
   sentex comes back as a plain map (the daemon projects the record), a solution as a
@@ -21,7 +25,9 @@
 
 (defn client
   "A connection handle to a daemon at `host`:`port` (opts: `:timeout-ms`, default
-  30000).  Holds a reusable `HttpClient`; no network happens until a call."
+  30000; `:token`, the bearer token every call presents — `VAELII_API_TOKEN` when the
+  key is absent, and an explicit nil to send no `Authorization` header at all).  Holds
+  a reusable `HttpClient`; no network happens until a call."
   ([host port] (c/client host port))
   ([host port opts] (c/client host port opts)))
 

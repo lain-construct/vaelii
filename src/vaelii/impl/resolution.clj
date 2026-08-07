@@ -396,6 +396,22 @@
       (second (tax/scoped-class tax term visible?))
       (tax/representative tax term))))
 
+(defn representative-term
+  "`term` with every non-variable symbol replaced by its class representative
+  (`representative-in`), **recursively** — so a merged symbol nested inside a compound is
+  rewritten at whatever depth it sits.
+
+  `representative-in` alone is a flat lookup: the closure is keyed by symbol, so handing
+  it a compound returns that compound unchanged and the caller silently compares
+  unnormalized forms.  Every caller that may see a compound wants this one, and the
+  difference is congruence — with `(sameAs Kilogram Kg)` believed, `(QuantityFn 5
+  Kilogram)` and `(QuantityFn 5 Kg)` normalize to one term here and to two there."
+  [kb visible? term]
+  (cond
+    (sequential? term) (apply list (map #(representative-term kb visible? %) term))
+    (symbol? term)     (if (sx/variable? term) term (representative-in kb visible? term))
+    :else              term))
+
 (defn kb-sentex
   "Build a sentex canonicalized against this KB's taxonomy: a symmetric predicate's
   arguments are sorted, so `(siblingOf Bob Ann)` and `(siblingOf Ann Bob)` become the

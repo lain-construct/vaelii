@@ -1,5 +1,11 @@
 # Getting a KB in front of you
 
+- **Covers:** which of the four loadable knowledge bases to pick, and the exact commands to
+  load each — from the shipped starter through a durable OpenCyc store.
+- **Not here:** the loading mechanism itself (sources, search path, progress, cancellation) →
+  [catalog.md](catalog.md); the foreign-reader plugin seam → [foreign.md](foreign.md).
+- **Assumes:** sentex, context, `recover` → [glossary.md](glossary.md).
+
 Four knowledge bases you can load, and the route to each is a different length: two ship
 in this repo, one ships in the plugin, and one you supply. A fifth source is the
 **generator**, which synthesizes a KB at whatever shape you ask for rather than reading
@@ -66,7 +72,7 @@ and it has to be converted first.
 
 ```sh
 cd vaelii-foreign
-lein convert convert test/resources/cyc-tiny ~/.vaelii/kbs/cyc-tiny
+lein convert convert cyc test/resources/cyc-tiny ~/.vaelii/kbs/cyc-tiny
 ```
 
 About a second: 8,899 assertions become 8,248 sentences in 16 contexts, 740 dropped with
@@ -89,15 +95,17 @@ tool, so the input is a directory inside it (`5022` on the 4.0 release):
 
 ```sh
 cd vaelii-foreign
-lein convert convert <opencyc>/server/cyc/run/units/5022 ~/.vaelii/kbs/opencyc-4.0
+lein convert convert cyc <opencyc>/server/cyc/run/units/5022 ~/.vaelii/kbs/opencyc-4.0
 ```
 
 `convert` is vaelii-foreign's alias, not this repo's, so both commands on this page run
 from that checkout; the engine has no such task and answers "not a task".
 
-1,889,842 assertions read in 9 seconds and convert to 1,831,617 sentences over 5,338
+1,889,842 assertions read in 5 seconds and convert to 1,848,561 sentences over 5,423
 contexts. The `lein convert` alias carries a heap that can hold a corpus; a plain `lein
-run` does not.
+run` does not. The plugin's own OpenCyc documentation owns these figures — it is where
+the conversion runs and where the drops are accounted for — so read them there rather
+than here when the two ever disagree.
 
 From there, two ways in, and they are a genuine trade rather than a better and a worse.
 

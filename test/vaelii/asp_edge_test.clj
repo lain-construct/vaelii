@@ -201,13 +201,13 @@
 
 (defn- isolated-kb
   "A cleared KB on the suite's isolated database pair rather than the shared
-  scratch pair.
+  scratch space.
 
   Deliberate: this test rebuilds a KB once per ordering, and `tu/fresh` flushes the
-  scratch pair every time.  Run inside the full suite that would repeatedly wipe the
+  scratch space every time.  Run inside the full suite that would repeatedly wipe the
   KB a *different* namespace is holding open through a `:once` fixture — the tests
   pass alone and fail together, which is the worst way to find out.  `test-util`
-  owns the isolated pair for exactly this."
+  owns the isolated space for exactly this."
   []
   (tu/isolated-fresh))
 

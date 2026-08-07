@@ -97,7 +97,7 @@
   ;; `into` names the Into context here (as everywhere in this ns), so this body
   ;; must not touch clojure.core/into
   (let [existing (set (v/contexts kb))
-        taken?   (fn [c] (or (existing c) (pos? (v/context-size kb c))))]
+        taken?   (fn [c] (or (existing c) (pos? (v/count-in-context kb c))))]
     (->> (iterate inc 1)
          (map #(labeling-context into %))
          (remove taken?)

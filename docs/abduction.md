@@ -1,5 +1,11 @@
 # Abduction: what would have to be true
 
+- **Covers:** `abduce` — mint the minimal, gated set of hypotheses a goal needs to become
+  provable, isolated in a scratch context.
+- **Not here:** the DFS backward chainer (`prove`) whose dead-end hook abduction listens on →
+  [inference.md](inference.md); open, non-ground hypotheses → [skolem.md](skolem.md).
+- **Assumes:** context, premise, strength, justification → [glossary.md](glossary.md).
+
 Backward chaining answers *is this provable?*  Abduction answers the complementary
 question — *what would have to be true for it to be provable?* — and mints the answer as
 a **hypothesis**.
@@ -9,7 +15,7 @@ a **hypothesis**.
 (v/assert kb '(implies (and (wasWashed ?x)) (clean ?x)) 'LaundryContext)
 
 (v/abduce kb '(clean Shirt) 'LaundryContext)
-;; {:solutions   [{?var0 Shirt} {}]
+;; {:solutions   [{} {}]
 ;;  :hypotheses  [{:sentence (wasWashed Shirt) :context Abduction3a9d…Context :handle nil}]
 ;;  :refused     []
 ;;  :context     Abduction3a9d…Context
@@ -19,8 +25,9 @@ a **hypothesis**.
 The goal is answerable — **given** `(wasWashed Shirt)`, which nobody said.  The two travel
 together, and there is no arity that returns the solutions alone.
 
-`:solutions` are `prove`'s, unprojected, so they carry the rule's canonical variables and
-there are two of them here for one reason worth spelling out: a hypothesis is minted
+`:solutions` are `prove`'s, unprojected, so they carry the rule's canonical variables —
+a ground goal like this one binds none of them, which is why both maps read empty. There
+are two of them here for one reason worth spelling out: a hypothesis is minted
 through the **whole** `assert` pipeline, chaining and settle included, so by the time the
 proof is re-run the rule has already fired and `(clean Shirt)` is a stored fact in the
 scratch context.  One solution is that fact, one is the rule expanded over the

@@ -1,5 +1,236 @@
 # Changelog
 
+## 0.5.0 — 2026-08-07
+
+Operating the engine, in the two senses a running process needs: what it will let a
+caller do, and what it will tell an operator it is doing. The daemon authenticates and
+refuses to bind an address without a credential, ships as a container image, and says
+which posture it started in; every switch the build reads has a row in a table a test
+keeps honest, and the four that took a presence where they meant a value now refuse a
+value nothing reads; the log level is a dial a running process turns; and the failures
+that look like answers — a query that returns `()`, a KB that shares another's store, a
+sentence legal enough to store and wrong enough to never match — each gained something
+that says so. Beside all of that, two entries are about the vocabulary rather than the
+process: a name can carry two more roles than it could, which is what a KB built by
+reading text needs of it, and a reader that counted a context's contents was the only one
+of three that did not say `count`. Nine entries are marked **Breaking**, one of which
+simplifies a store's name from two numbers to one and one of which turns a switch's name
+the right way up. The three **Refusal** entries (CONTRIBUTING §3.8)
+cover input that is newly refused where what 0.4.0 did with it was run a configuration
+nobody asked for and report a clean pass, so no working caller loses anything it had.
+Each entry says what a reader would have observed; the mechanism is in the subsystem's
+doc, and the entry names it.
+
+**Triage, for a 0.4.0 caller.** Every Breaking and Refusal entry below carries its own
+one-line *Migration*; this is the index to the ones that touch something you have
+written or deployed.
+
+| If your code… | Then |
+|---|---|
+| names `:record-space` / `:index-space` | one `:space` — keep the record number, drop the index one |
+| runs a daemon on a non-loopback `--listen` | export `VAELII_API_TOKEN` there and in every client, or it exits 2 |
+| reads a daemon 401, or branches on the wire `:type` | `:unauthorized` is a new one; `GET /health` is the only route without the token |
+| relies on `VAELII_RETE=0` running the sweep | it means off now; unset, or `=1` for on |
+| sets `VAELII_NOHIER` | it is `VAELII_HIER`, the other way up — `VAELII_NOHIER=1` becomes `VAELII_HIER=0` |
+| sets `VAELII_QUERY_ENGINE` / `VAELII_QUERY_STRATEGY` | a name outside the roster is refused rather than silently running the default |
+| sets `VAELII_WEB_PORT` for `lein browser` while `-main` stayed on 3000 | it moves both; pass `--port 3000` to pin `-main` |
+| lists KBs out of a search-path directory holding more than 200 | name the ones that matter in the catalog file |
+| depends on vaelii and has no SLF4J provider of its own | add one — `org.slf4j/slf4j-nop` no longer arrives transitively |
+| branches on what `term-role` answers | `:sense` and `:lexeme` are two new answers — add arms, or a `default` |
+| writes a `lex`-namespaced predicate | it names a lexeme now, and a lexeme names no relation |
+| calls `core/context-size`, or sends the daemon `:context-size` | both are `count-in-context` — same arguments, same answer |
+| compares two compound terms with `different` | a merged symbol inside one now makes them equal, where it did not |
+| sets `VAELII_ASP_SOLVER` to a name outside `clingo`/`clasp` | it is refused at `open-kb` rather than silently running auto |
+
+- **Breaking: a name can carry two more roles — a sense, and a lexeme.** `term-role`
+  answers `:sense` for a disambiguated type (`abrasive-grit`, `abandonment-romantic`) and
+  `:lexeme` for a symbol in the `lex` namespace (`lex/fool's_gold`), so its documented
+  domain gains two values a total `case` over it has no arm for. Two things move at a
+  `:strict` front door with them: a lowercase dashed name is a legal unary type where it
+  matched no convention and was refused, and a lexeme applied to arguments is refused
+  (`:lexeme-functor`, a seventh `problem-classes` key) since a surface form names no
+  relation. *Migration:* a `case` over `term-role` gains `:sense` and `:lexeme` arms, or
+  a `default`. Nothing else changes unless you wrote a `lex`-namespaced predicate, which
+  names a lexeme now and cannot be applied to anything.
+  `docs/naming.md`.
+- **Breaking: `context-size` is `count-in-context`.** The three O(1) cardinality readers
+  are one family and two of them said so: `count-with-functor`, `count-with-arg`, and a
+  context reader named for a size instead. It delegates to a protocol method already
+  called `count-in-context`, so the name it now carries is the one it always answered to
+  a layer down. The daemon's op keyword moves with it, since a wire name that disagreed
+  with the function would be the same split one seam further out. *Migration:*
+  `(v/context-size kb ctx)` becomes `(v/count-in-context kb ctx)`, and `{:op
+  :context-size}` becomes `{:op :count-in-context}` — same arguments, same answer, and
+  the old spellings are gone rather than deprecated.
+  `docs/api.md`, `docs/indexing.md`.
+- **Breaking: `different` descends into compound arguments.** It normalized each argument
+  with one lookup in the equality closure, and the closure is keyed by symbol — so a
+  compound was never found in it and came back unchanged, and `(different (QuantityFn 5
+  Kilogram) (QuantityFn 5 Kg))` answered *different* with `(sameAs Kilogram Kg)`
+  believed. It now replaces symbols at every depth before comparing, which is the
+  congruence its documentation always described. *Migration:* a goal comparing two
+  compounds can newly answer false where a merge reaches inside one of them; comparing
+  symbols is unchanged, and so is every `different` over terms nothing has merged.
+  `docs/equality.md`.
+- **Breaking: one space number names a KB's stores, `:space`.** `open-kb` takes a single
+  number where it took `:record-space` and `:index-space`, and it defaults to 0; a
+  `:disk` KB's derived directory is `space-<n>`, and the suite owns a block of two db
+  numbers rather than four (scratch 15, isolated 14). *Migration:* `{:record-space 2
+  :index-space 3}` becomes `{:space 2}` — keep the record number, drop the index one;
+  either retired key is refused by name (`:type :unknown-option`) rather than ignored.
+  Pass `:dir` to name a durable directory the derived spelling does not reach.
+  `docs/storage.md`.
+- **Breaking: the daemon authenticates, and refuses to bind an address without a
+  token.** With `VAELII_API_TOKEN` set, every request carries `Authorization: Bearer
+  <token>` or is answered 401 with a `WWW-Authenticate: Bearer` challenge and `{:ok
+  false :type :unauthorized}` — a new `:type` on the wire. `GET /health` is the only
+  route that answers without it. What the daemon binds decides what it requires:
+  `--listen` naming a non-loopback address without a token is one line on stderr and
+  exit 2, where 0.4.0 logged a warning and served the whole write block — `assert`,
+  `retract`, `edit`, `export`, and the chaining run beside them — to anything that
+  could reach the port. `vaelii.client` reads the same variable and takes `:token`.
+  *Migration:* export `VAELII_API_TOKEN` for a daemon that names an address, and give
+  the same value to every client that reaches it. Nothing changes on the loopback
+  default. `docs/operations.md`.
+- **Every switch the build reads has a row, and a test keeps the roster honest.**
+  `docs/operations.md` gains a configuration table — 56 environment variables and JVM
+  system properties, grouped by who sets one, each with where it is read, its legal
+  values, its default, and the one thing it decides. `config_surface_test` pins the
+  names against `test/golden/config-surface.edn` in both directions and checks each
+  `file:line` citation against the line it names, so the table cannot drift from the
+  code without a failing test. CONTRIBUTING §3.8 files a renamed or removed switch as
+  **Breaking**.
+- **Refusal: the four harness switches read a value instead of a presence.**
+  `VAELII_RETE` and the hierarchical-retrieval switch were membership tests, so `=0` ran
+  the sweep it names and an exported-but-empty variable ran one nobody asked for;
+  `VAELII_QUERY_ENGINE` and `VAELII_QUERY_STRATEGY` took a bare `(keyword …)`, so a
+  misspelt engine ran the *default* and reported a clean pass for a configuration
+  nothing exercised — the worst shape a test switch can have, since the result reads as
+  evidence. All four take the engine's boolean vocabulary now and refuse anything else
+  by name. Beside them, a test calls each reader with the properties cleared, so the
+  table's **Default** column fails rather than merely reading wrong. All four are read
+  only by the test harness — `docs/operations.md` lists them under *Developer*, and
+  nothing in a deployment sets one — which is what keeps a silent change of sense inside
+  a Refusal rather than making it a ninth Breaking. *Migration:* none
+  for a value in the vocabulary; a suite or CI job relying on `=0` meaning *on* now gets
+  the sweep off, which is what it says.
+- **Refusal: the ASP backend switches are read against their domains, at the door.**
+  `VAELII_ASP_SOLVER` took a bare `(keyword …)`, so a misspelt backend matched no arm of
+  the selector and ran **auto** — a run pinned to clasp could use clingo and report a
+  clean pass for a backend nothing exercised. `VAELII_CLINGO_MAX_BYTES` parsed with a
+  bare `Long/parseLong` inside a cached delay, so a non-numeric value threw from the
+  first ASP solve rather than from the configuration that was wrong. Both are read
+  through `vaelii.impl.config` now, which puts them in `config/check!` — refused at
+  `open-kb`, by name, in the same shape as every other switch. *Migration:* none for a
+  legal value.
+  `docs/operations.md`.
+- **Breaking: `VAELII_NOHIER` is `VAELII_HIER`, and the sense is the other way up.**
+  A switch that carries the negation in its own name makes `=0` mean *on*, which is the
+  one thing a reader must not have to work out at a glance — and the entry above had
+  just made the value load-bearing, so the two had to move together or `=0` would read
+  as the fallback path it now selects. `VAELII_HIER` defaults `true` (the set-algebra
+  retrieval), and `VAELII_HIER=0` routes every context-scoped match through the
+  reference nested fan-out. *Migration:* `VAELII_NOHIER=1` becomes `VAELII_HIER=0`; a
+  `VAELII_NOHIER` left set is simply unread, since a variable cannot be refused by name.
+  `docs/operations.md`.
+- **The log level is a dial a running process turns.** `vaelii.core/set-log-level` takes
+  one of `:error :warn :info :debug :trace` and installs Trove's console backend at it;
+  `log-level` reads back what is in force, and `VAELII_LOG_LEVEL` says it at startup (a
+  value outside the five is refused by name). Unset, the engine installs **no** backend
+  at all, so an application holding its own `taoensso.trove/*log-fn*` keeps it. Three
+  `:debug` statements are what make turning it up worth doing: what a chaining run
+  concluded and how long it took, what a settle cost and found, and the rule a dropped
+  conclusion came from. `docs/operations.md`.
+- **Breaking: `VAELII_WEB_PORT` moves `-main`'s port, and not only `lein browser`'s.**
+  `dev-repl` read the variable and `-main` did not, so `VAELII_WEB_PORT=3011 lein run -m
+  vaelii.web` bound 3000 and logged 3000. Both read one `default-port` now: the variable,
+  else the `vaelii.web.port` property, else 3000; an explicit `--port` still wins.
+  *Migration:* a deployment that set the variable for `lein browser` while relying on
+  `-main` ignoring it now moves both; pass `--port 3000` to pin `-main`.
+- **Breaking: a search-path directory is probed for its first 200 entries, and a KB
+  below the cut no longer appears on `/kbs`.** `sources` is recomputed per request, which
+  is what lets a corpus appear with no restart and what made the scan unbounded — a
+  `classify` per candidate, and a size estimate per `:store` one, on every page load.
+  `catalog/max-discovered` bounds it, and the cut is named on the page and in the log,
+  since a list that quietly ends early reads as "this machine has no other KBs".
+  *Migration:* name the ones that matter in the catalog file to list them regardless of
+  the count. `docs/catalog.md`.
+- **The front door says what a legal-but-wrong sentence should have been.** `(isa Fido
+  Dog)` breaks no naming invariant, so it stored a two-place relation nothing reads and
+  `(isa? kb 'Fido 'Dog)` answered false with nothing to search for. `nm/advice` reads
+  intent where `problems` reads the invariants: it recognizes the shape and logs a
+  `:warn` once per process spelling the rewrite that was meant. Beside it, a
+  `:no-placement` drop names `genlContext` and points at the `:rule-context` /
+  `:fact-contexts` already on the entry. `docs/naming.md`.
+- **A second `open-kb` defaulting onto the shared in-RAM space now warns**, naming both
+  fixes — give the KB its own number, or name `{:space 0}` explicitly to say the sharing
+  is meant. A warning rather than a refusal, since sharing the space is how `recover`
+  sees the same records and how a base is mounted. `docs/storage.md`.
+- **Refusal: the CLI checks each command's argument count before it dispatches, and
+  `help` names what each one takes.** `dispatch` reached into `args` with `nth`, so `lein
+  cli assert '(dog Rex)'` answered `error: IndexOutOfBoundsException` — true about a
+  vector, no help to someone who left off a context — and a long line was worse, since
+  the extra operand was dropped in silence. One table now carries every command's arity,
+  operands and gloss, so `check-arity!` and the usage text cannot go out of step.
+  *Migration:* none for a call already at the right arity; `lein cli help` prints the
+  count each command takes. `docs/operations.md`.
+- **`docs/troubleshooting.md` is a new page, indexed by symptom rather than by
+  subsystem.** The engine's hardest failures are the ones where nothing goes wrong — a
+  query answers `()`, an `assert` returns a handle, and both are legitimate values no
+  error distinguishes from the answer that was wanted — so a reader has to already know
+  the cause to find the page explaining it. Nine symptoms, each with what you would have
+  observed, how to confirm it in one call, and the fix.
+- **`lein lint` gains a versions check, and the kondo row notes a local/CI version
+  mismatch.** The `:with-foreign` pin and `defproject`'s own version are cut together and
+  nothing held them to it: the 0.4.0 bump left the pin naming `0.3.0`, so every
+  `lein with-profile +with-foreign` command failed to resolve. `lint-versions` reads that
+  pair and the `lein-cloverage` version stated twice, failing when either disagrees. The
+  kondo row prints a `NOTE` — never a failure — when the local binary is not the version
+  CI pins, since a newer kondo infers more than an older one flags.
+- **Three doc samples now print what they actually produce, and `prove`'s docstring says
+  it counts proofs, not answers.** `prove` returns one solution per derivation, so a goal
+  reachable both as a materialized fact and as the rule concluding it comes back twice
+  with equal maps — wrap it in `distinct` for an answer set, or reach for `query` / `ask`,
+  which project to the goal's variables and answer each binding once.
+- **The daemon ships as a container image**, with a two-stage `Dockerfile` and
+  `docker-compose.yml`: a build stage that runs `lein uberjar`, and a runtime stage of a
+  JRE and the jar alone. The container binds an address, so the token is required — an
+  image run without `VAELII_API_TOKEN` does not start rather than serving
+  unauthenticated. One container per volume; a second opener is refused `:disk-locked`
+  rather than scaled, which is why the compose file carries no `replicas:`. No `-Xmx` and
+  no collector flag are baked in, the second measured rather than omitted, and a JVM with
+  its own reason to ask has the new `:zgc` profile. `docs/operations.md`.
+- **A reflection warning and an uncalled public var now stop the build.** Both signals
+  were already emitted and neither was read. `lein lint` gains two rows: **`reflect`**
+  compiles `src` and `bench` and fails on any reflection, auto-boxing or primitive-recur
+  warning (the test tree is covered through the gate's own test log instead, since
+  compiling it here costs 8s → 74s), and **`unused`** reads clj-kondo's analysis over
+  `src test bench` and fails on a public definition with no usage, against
+  `scripts/unused-publics-baseline.txt`. Ten warnings had to go first, none in `src`.
+  `lein lint` is 9/9 and about 15s longer. CONTRIBUTING §1.1.
+- **Breaking: `org.slf4j/slf4j-nop` no longer reaches a consumer's classpath.** It sat in
+  top-level `:dependencies`, so every application depending on vaelii inherited it too,
+  where it could win SLF4J's provider race against that application's own backend and
+  silence it — the one thing a library must not do on a consumer's behalf. It lives in
+  the `:dev` and `:uberjar` profiles now, so every entry point this repo ships still
+  carries it while `lein deploy` publishes it as a test-scope declaration a consumer does
+  not resolve. *Migration:* an application that ships Jetty, had no provider of its own,
+  and relied on vaelii's to keep it quiet now sees SLF4J's "no providers" line again —
+  add `org.slf4j/slf4j-nop`, or any other provider, as its own dependency.
+  `docs/operations.md`.
+- **A public `--listen` bind with no `VAELII_ALLOWED_HOSTS` now warns.** Naming an address
+  drops the `Host` allowlist to every `Host` answered — a deliberate default, since a
+  reverse proxy legitimately sets its own and an operator cannot always enumerate it in
+  advance — but nothing said so at startup. `host-posture` names the policy
+  (`:allowlisted` / `:open`) beside the token question, and a public bind left unset gets
+  its own warning, apart from the token and TLS lines so a reader knows which check is
+  missing.
+- **`docs/troubleshooting.md` and `docs/storage.md` now name `:type :unknown-backend`.**
+  `open-kb` throws it from five call sites — an unknown `:backend` sugar name, the one
+  `{:records :memory :index :disk}` pairing the axes refuse, and an unknown `:records` /
+  `:index` / `:tms` kind — and none carried a line in either doc. The new entry reads the
+  other key each throw's `ex-data` carries to say which of the five it is.
+
 ## 0.4.0 — 2026-08-05
 
 Correctness fixes found by reading the engine against its own stated invariants, in
@@ -13,6 +244,25 @@ why this is 0.4.0. The **Refusal** entries (CONTRIBUTING §3.8) cover input that
 newly refused where what 0.3.0 did with it was corrupt state or answer a different
 question in silence, so no working caller loses anything it had. Each entry says what
 a reader would have observed; the mechanism is in the subsystem's doc.
+
+**Triage, for a 0.3.0 caller.** Every Breaking and Refusal entry below carries its own
+one-line *Migration*; this is the index to the ones that touch source you have written,
+so the rest can be read at leisure.
+
+| If your code… | Then |
+|---|---|
+| hands `assert` text it did not read as EDN | it is refused (`:shape`) — fix the producer |
+| writes `exceptWhen` literals like `(lives_in ?x cold_place)` | spell them to the invariants; re-check any rule 0.3.0 left bare |
+| spells an `edit!` batch `{:adds …}` | spell it `{:add […] :remove […]}` — the old key wrote nothing |
+| names one of `:record-space` / `:index-space` | name both, or neither, in every opts map |
+| passes `:direction` to `assert` on a non-rule | it is refused; a rule takes it and now acts on it |
+| states one rule two ways (bare `implies` after a `set/*Rule`) | the slots join by content; `retract!` and re-assert to narrow one |
+| calls `edit` or `edit-with-consequences` | they are `edit!` and `edit-with-consequences!` — the wire op stays `:edit` |
+| matches `:bad-opt`, or a `:shape` from a non-map `opts` | match `:unknown-option` |
+| reads a dump's `meta.edn` dialect | it is `:vaelii` |
+| stores skolem witness names across runs | the names moved; rebuild from the assertions (`export!` / `import!`) rather than carrying both spellings |
+| parses a daemon 500 for a client mistake | it is a 400 with a `:type` |
+| writes `(ist Ctx S)` with other than three elements | it is refused with `:shape` |
 
 - **A conjunctive query could answer nothing while each of its conjuncts answered.**
   `[(anc Tom ?y) (anc Tom ?z)]` was empty where `(anc Tom ?y)` answered twice, because

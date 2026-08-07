@@ -8,9 +8,17 @@
   leads with the bound argument's root (one lookup, spanning every functor and
   context) and filters the predicate and context hierarchies in memory.  The claim is
   it returns the **identical** `[handle bindings]` set.  This pins that against the
-  nested fan-out (flag off) over patterns generated from the starter's own facts,
+  nested fan-out (flag off) over patterns generated from the test-world's own facts,
   across concrete and variable contexts, symmetric predicates, negative literals (the
-  fallback), and — with a temporary predicate-genl edge — predicate subsumption."
+  fallback), and — with a temporary predicate-genl edge — predicate subsumption.
+
+  **The fixture loads the world, and every probe here depends on it.** The starter is
+  schema: it declares `parentOf` and `siblingOf` and asserts no instance of either, and
+  the contexts these patterns name (`MantleContext`, `SocialWorldContext`, …) are the
+  world's. Loaded without it, each comparison below is `#{}` against `#{}` — two paths
+  agreeing about nothing, which is what an oracle looks like when it has stopped
+  oracling. `probed` is the standing check against that: it counts the non-empty
+  comparisons and fails when a run makes none."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.naming :as nm]
@@ -18,12 +26,22 @@
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.starter :as starter]
-            [vaelii.test-util :as tu]))
+            [vaelii.test-util :as tu]
+            [vaelii.world :as world]))
 
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
 (use-fixtures :each (tu/neutral))
 
 (defn- proj [triples] (into #{} (map #(vec (take 2 %))) triples))
+
+(defn- probed
+  "`results` — the `[off on]` pairs one test compared — with the count that actually
+  matched something asserted non-zero.  An agreeing pair of empty sets is not evidence
+  the two paths agree; it is evidence neither was asked anything."
+  [what results]
+  (is (pos? (count (filter (fn [[off on]] (or (seq off) (seq on))) results)))
+      (str what ": every comparison was empty on both sides — the fixture is not"
+           " carrying the facts these patterns name, so this test proved nothing")))
 
 (defn- both-ways [f]
   [(binding [res/*hierarchical-retrieval* false] (proj (f)))
@@ -71,18 +89,30 @@
 (deftest symmetric-both-orders
   (tu/with-kb [kb]
     ;; siblingOf is symmetric in the starter — a mirrored fact must be found either way
-    (doseq [pat '[(siblingOf ?x Ann) (siblingOf Ann ?y) (siblingOf ?x ?y)
-                  (marriedTo ?x Tom) (marriedTo Tom ?y)]
-            ctx ctxs]
-      (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
-        (is (= off on) (str "symmetric diverged on " (pr-str pat) " @ " ctx))))))
+    (probed "symmetric-both-orders"
+            (for [pat '[(siblingOf ?x Ann) (siblingOf Ann ?y) (siblingOf ?x ?y)
+                        (marriedTo ?x Tom) (marriedTo Tom ?y)]
+                  ctx ctxs]
+              (let [[off on :as both] (both-ways #(res/matches-visible kb pat ctx))]
+                (is (= off on) (str "symmetric diverged on " (pr-str pat) " @ " ctx))
+                both)))))
 
+;; A `not`-headed sentence is rejected by `hierarchical-literal?`, and `matches-hierarchical`
+;; then calls the same `matches-visible*` the flag-off branch calls — so comparing the two
+;; flag settings on a negative literal compares one function with itself and holds whatever
+;; the fallback does.  What is worth pinning is the fallback being taken at all, which is a
+;; claim about the predicate rather than about the two paths agreeing.
 (deftest negative-literal-falls-back
   (tu/with-kb [kb]
-    (doseq [pat '[(not (parentOf ?x Ann)) (not (flies Tweety)) (not (dog ?x))]
-            ctx ctxs]
-      (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
-        (is (= off on) (str "negative diverged on " (pr-str pat) " @ " ctx))))))
+    (doseq [pat '[(not (parentOf ?x Ann)) (not (flies Tweety)) (not (dog ?x))]]
+      (is (not (#'res/hierarchical-literal? pat))
+          (str "a negative literal must not take the set-algebra path: " (pr-str pat))))
+    (probed "negative-literal-falls-back"
+            (for [pat '[(not (parentOf ?x Ann)) (not (flies Tweety)) (not (dog ?x))]
+                  ctx ctxs]
+              (let [[off on :as both] (both-ways #(res/matches-visible kb pat ctx))]
+                (is (= off on) (str "negative diverged on " (pr-str pat) " @ " ctx))
+                both)))))
 
 (tu/deftest-kb predicate-subsumption-under-hierarchical
   ;; a temporary sub-predicate of the real parentOf: the hierarchical path must fan the
@@ -102,9 +132,11 @@
 (tu/deftest-kb end-to-end-ask-and-backward-unchanged
   ;; the consumers of matches-visible must be invariant under the flag
   (tu/with-kb [kb]
-    (doseq [goal '[(parentOf ?x Ann) (siblingOf Carol ?y) (animal ?x)
-                   (grandparentOf ?x Ann) (ancestorOf Tom ?y)]
-            ctx '[?ctx MantleContext NaturalWorldContext]]
-      (let [ask-off (binding [res/*hierarchical-retrieval* false] (set (v/ask kb goal ctx)))
-            ask-on  (binding [res/*hierarchical-retrieval* true]  (set (v/ask kb goal ctx)))]
-        (is (= ask-off ask-on) (str "ask diverged on " (pr-str goal) " @ " ctx))))))
+    (probed "end-to-end-ask-and-backward-unchanged"
+            (for [goal '[(parentOf ?x Ann) (siblingOf Carol ?y) (animal ?x)
+                         (grandparentOf ?x Ann) (ancestorOf Tom ?y)]
+                  ctx '[?ctx MantleContext NaturalWorldContext]]
+              (let [ask-off (binding [res/*hierarchical-retrieval* false] (set (v/ask kb goal ctx)))
+                    ask-on  (binding [res/*hierarchical-retrieval* true]  (set (v/ask kb goal ctx)))]
+                (is (= ask-off ask-on) (str "ask diverged on " (pr-str goal) " @ " ctx))
+                [ask-off ask-on])))))

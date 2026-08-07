@@ -342,7 +342,7 @@
 
 (defn dense-kv-backend
   "A dense in-memory `KvBackend`.  Only `:space` matters (selects the shared state atom)."
-  [{:keys [space] :or {space 1}}]
+  [{:keys [space] :or {space 0}}]
   (->TieredKvBackend (space-atom space)))
 
 (defn dense-index-store

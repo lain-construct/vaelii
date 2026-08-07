@@ -132,7 +132,7 @@
     :not-watchable :not-well-formed :quantifier-not-local :report-only
     :reset :shape :solver-failed :solver-unavailable
     :stacked-fork :stale-index-layout :still-loading :still-stopping
-    :torn-snapshot :unbound-deferred :unforkable-index :unknown-backend
+    :torn-snapshot :unauthorized :unbound-deferred :unforkable-index :unknown-backend
     :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
     :unknown-op :unknown-option :unknown-source :unknown-tactician
     :unparseable :unreadable :unreadable-store :unsupported-compression

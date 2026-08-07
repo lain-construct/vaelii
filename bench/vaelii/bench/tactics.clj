@@ -94,7 +94,7 @@
   "The corpus, asserted.  Every rule is `:direction :backward`, so nothing forward-chains
   and what a query finds it derives."
   [{:keys [facts rules]}]
-  (let [k (v/open-kb {:backend :memory :record-space 38 :index-space 39 :recover? false})]
+  (let [k (v/open-kb {:backend :memory :space 38 :recover? false})]
     (p/clear-records! (:records k)) (p/clear-index! (:index k))
     (v/with-deferred-settle k
       (doseq [r rules]
@@ -183,7 +183,7 @@
         blks  (u/terms "Blk" (max 4 (quot (long inds) 8)))
         step  (fn [k] (symbol (str "step" k)))
         decoy (fn [k j l] (symbol (str "decoy" k "x" j "y" l)))
-        kb    (v/open-kb {:backend :memory :record-space 38 :index-space 39 :recover? false})
+        kb    (v/open-kb {:backend :memory :space 38 :recover? false})
         rule! (fn [antes conseq]
                 (try (v/assert-rule kb antes conseq context {:direction :backward})
                      (catch Exception _ nil)))]

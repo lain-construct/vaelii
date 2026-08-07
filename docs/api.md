@@ -1,5 +1,12 @@
 # Public API (`vaelii.core`)
 
+- **Covers:** every function on `vaelii.core`, what it takes and returns, and which query
+  function to reach for.
+- **Not here:** the CLI and daemon that call this API from outside the process →
+  [operations.md](operations.md); the naming invariants `assert` enforces →
+  [naming.md](naming.md).
+- **Assumes:** sentex, handle, context, strength → [glossary.md](glossary.md).
+
 `vaelii.core` is the engine's whole API. Five thin entry points are public beside it —
 `vaelii.client`, `vaelii.starter`, `vaelii.web`, `vaelii.serve`, `vaelii.cli` — and
 those six namespaces are the compatibility boundary. Everything else is `vaelii.impl.*`
@@ -9,7 +16,7 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
 `vaelii.core`) and `lein run -m vaelii.web`.
 
 ```clojure
-(def kb (open-kb {}))                         ; or {:record-space 15 :index-space 14}
+(def kb (open-kb {}))                         ; or {:space 15}
                                               ; :backend names a <records>-<index> pair —
                                               ; :memory :memory-dense :memory-columnar
                                               ; :disk-memory :disk-dense :disk-columnar
@@ -41,11 +48,11 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                                 ; no per-fact checks, no dedup, no provenance, no
                                                 ; chaining, one settle.  The caller owns the two
                                                 ; preconditions — well-formed, pairwise-distinct
-(edit kb {:add [[sentence context opts?] ...] :remove [handle ...]})  ; add-then-remove, one settle
+(edit! kb {:add [[sentence context opts?] ...] :remove [handle ...]}) ; add-then-remove, one settle
 (check kb sentence context opts)                ; would assert succeed? -> [] or [{:type :message …}]
 (check-edit kb {:add […] :remove […]})          ; the same over an edit batch, each problem naming its entry
 (preview kb {:add […] :remove […]} opts)        ; what the batch would BELIEVE -> the diff, then rolled back
-(edit-with-consequences kb batch opts?)         ; `edit!`, plus what it turned out to mean — the same diff, after
+(edit-with-consequences! kb batch opts?)        ; `edit!`, plus what it turned out to mean — the same diff, after
 (watch kb f)                                    ; call `f` with that same diff whenever belief moves -> token
 (watch kb goal context f)                       ; ...only for what `goal` answers, entries + :bindings
 (unwatch kb token) / (watchers kb)              ; drop one -> bool / what is registered, without the fns
@@ -176,7 +183,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 (term-count kb)                                 ; how many — one O(1) set-size read
 (sentex-count kb)                               ; how many sentexes in total — the trie's
                                                 ; own root count, O(1).  NOT the sum of
-                                                ; context-size over contexts: that misses
+                                                ; count-in-context over contexts: that misses
                                                 ; a context no genlContext edge names.
 (find-terms kb q [opts])                        ; the terms matching q, sorted
                                                 ; opts: {:match :prefix|:substring|:regex
@@ -185,7 +192,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 ;; defeated sentex included — so it can disagree with belief-filtering `sentexes-matching`.  The
 ;; extent fns take {:believed? true} to filter, which is O(n); there is no O(1)
 ;; believed count and none is pretended.
-(sentexes-in-context kb ctx [opts]) / (context-size kb ctx)              ; context root
+(sentexes-in-context kb ctx [opts]) / (count-in-context kb ctx)              ; context root
 (sentexes-with-functor kb pred [opts]) / (count-with-functor kb pred)    ; functor root
 (sentexes-with-arg kb pos term [opts]) / (count-with-arg kb pos term)    ; argument-position root
 (ist kb Ctx sentence)                           ; ist: find or create sentence in Ctx -> handle
@@ -211,6 +218,18 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; stored-but-disbelieved one is checked for an
                                                 ; exception first
 ;; introspection: sentex, justification, supporting-justifications, dependent-justifications, premise?, defeat-class
+
+;; the log dial — process-wide, since one JVM has one `taoensso.trove/*log-fn*`, and
+;; turnable on a process that is already running (docs/operations.md)
+(set-log-level :debug)                          ; :error :warn :info :debug :trace, quietest
+                                                ; first -> the level.  Anything else is refused
+                                                ; (:unknown-option) rather than read as the
+                                                ; nearest legal one
+(log-level)                                     ; what it reads now — nil when the engine has
+                                                ; installed no backend, which is what
+                                                ; VAELII_LOG_LEVEL unset leaves: a KB you opened
+                                                ; must not replace the logging of the
+                                                ; application that opened it
 
 ;; the five public dynamic vars — process- or thread-scoped settings, `binding`-shaped
 ;; because they are about a whole batch rather than one call
@@ -239,7 +258,7 @@ expansion each will do**.  Pick by what you are asking, not by habit:
 | **`query` / `query?`** | **the default** — one door, one dial: how deep to expand rules | no `:max-depth` and the registry answers alone; a `:max-depth` and the node engine expands rules that deep.  Either way a **conjunctive** join (vector goal) | binding maps `{?x v}` |
 | `ask` / `ask?` | an answer from what the KB stores or has cached, at a cost that does not depend on the rule graph | the prover registry (facts, transitivity, disjointness, inverse/symmetric metadata, evaluable arithmetic, NAF, argIsa) — **no rule expansion** | binding maps `{?x v}` |
 | `sentexes-matching` | *stored, believed* literals matching a pattern — retrieval, not reasoning | belief-filtered index read; no inference, no subtype expansion | **sentex maps** |
-| `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, facts + rules only; a **conjunctive** join (vector goal) | a vector of binding maps |
+| `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, facts + rules only; a **conjunctive** join (vector goal) | a vector of binding maps, **one per derivation** — equal maps repeat, so `distinct` for an answer set |
 | `lookup` / `escalate` / `explain-levels` | *diagnostics* — which level of machinery reaches this, and how dear | one explicit level of the 8-level stack | level maps |
 
 **Result shapes differ by family.** `sentexes-matching` and the extent/term readers
@@ -415,6 +434,8 @@ take back. Usually that means destroying or removing stored knowledge, and on
 | | |
 |---|---|
 | `retract!` | tears down premise support and everything solely resting on it |
+| `edit!` | its `:remove` half runs the same teardown `retract!` does, so a batch that adds and removes is as irreversible as its removals |
+| `edit-with-consequences!` | the same write, reporting what it turned out to mean |
 | `clear!` | wipes every record and index entry |
 | `clear-violations!` | empties the dropped-conclusion ledger (the drops are final either way) |
 | `abduce-discard!` | drops an abduction's scratch context and everything it licensed |
@@ -431,7 +452,9 @@ Everything that *adds* or *recomputes* is bare even though it mutates: `assert`,
 `assert-rule`, `add-premise`, `index-sentex`, `mark-prop`, `forward-chain`, `settle`,
 `recover`. So the `!` is a warning about not being able to undo, not a note that a
 function has effects — which is why `vaelii.core` excludes `clojure.core/assert` and
-callers write `v/assert`.
+callers write `v/assert`. A `set-` that installs a value is bare for the same reason:
+`set-solver` and `set-log-level` both name a setting the next call replaces, and
+`log-level` reads the one in force, so turning either back is one call.
 
 Assert known-true facts with `{:strength :monotonic}`; the default is `:default`
 (most of a common-sense KB), and a default is defeasible at the edges.

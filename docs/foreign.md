@@ -1,5 +1,12 @@
 # Foreign formats, and how they plug in
 
+- **Covers:** what ships here (no foreign reader) versus what a plugin on the classpath
+  teaches the engine to read, and how a reader map declares and resolves itself.
+- **Not here:** the sequence for converting and loading a foreign corpus to a first
+  browse → [kbs.md](kbs.md); what a converted corpus looks like as a loadable source →
+  [catalog.md](catalog.md).
+- **Assumes:** sentex, context → [glossary.md](glossary.md).
+
 Vaelii reads formats it does not write, through a plugin: a dump in **another engine's
 record dialect**, and a **translated OpenCyc corpus**, are the two this document works
 through — [vaelii-foreign](https://github.com/vaelii/vaelii-foreign) declares five in

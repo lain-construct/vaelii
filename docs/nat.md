@@ -1,5 +1,13 @@
 # Non-atomic terms (NATs)
 
+- **Covers:** how a function-application term reifies to an opaque constant before
+  the index sees it, or stays structural when it does not.
+- **Not here:** minting a deterministic constant for a rule's existential head →
+  [skolem.md](skolem.md); comparing two structural measure terms →
+  [quantity.md](quantity.md).
+- **Assumes:** sentex, context, taxonomy, predicate metadata →
+  [glossary.md](glossary.md).
+
 A **NAT** is a function-application term `(F arg…)` that *denotes an entity* —
 `(FruitFn AppleTree)`, `(CapitalOf France)`, `(QuantityFn 5 Meter)`. Pure has no
 first-class function terms in a stored sentence; every stored token is atomic. NATs

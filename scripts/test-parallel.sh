@@ -3,7 +3,7 @@
 #
 # The test stage is the gate's long pole — 395s of a ~490s `:default` run — and it is
 # one JVM walking 187 namespaces in sequence.  Splitting it is safe for one reason:
-# **the in-memory registry is per-JVM**, so two runs over the same space numbers do not
+# **the in-memory registry is per-JVM**, so two runs over the same space number do not
 # collide (docs/storage.md).  Each shard is its own `lein test`, its own KB registry,
 # its own `:once` fixtures and its own net-neutrality baseline; nothing crosses.
 #
@@ -12,7 +12,7 @@
 #   - **Split a namespace.**  A shard is a whole number of namespaces, because a
 #     `:once` fixture is what several tests in one file share.
 #   - **Run the durable backends.**  Two disk suites over one directory collide on the
-#     single-writer lock, and `VAELII_TEST_SPACE` admits only three non-overlapping
+#     single-writer lock, and `VAELII_TEST_SPACE` admits only six non-overlapping
 #     blocks — so this refuses a `VAELII_TEST_BACKEND` with a durable half rather than
 #     sharding into corruption.  `scripts/test-backends.sh` is sequential on purpose
 #     and stays that way.
@@ -49,7 +49,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# A durable half means one lock and three usable space blocks — not shardable.
+# A durable half means one lock and six usable space blocks — not shardable.
 case "${VAELII_TEST_BACKEND:-memory}" in
   *disk*)
     echo "test-parallel: VAELII_TEST_BACKEND=${VAELII_TEST_BACKEND} has a durable half." >&2

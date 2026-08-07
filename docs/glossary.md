@@ -1,5 +1,12 @@
 # Glossary
 
+- **Covers:** the definition of every term the docs and code use, one entry per term,
+  tagged by subsystem.
+- **Not here:** the per-subsystem map of which doc covers what → [README.md](README.md); the
+  naming rules a spelling is checked against → [naming.md](naming.md).
+- **Assumes:** nothing — this is where the vocabulary the other pages assume is defined.
+  The shape those terms fit together into is [README.md](README.md)'s one-paragraph model.
+
 Terms used across the vaelii docs and code. When a term has both an English and
 a KB-symbol meaning, both are covered.
 
@@ -224,6 +231,13 @@ read the field. See [inference.md](inference.md).
 types share no instance, closed under genl. A metatype's members are pairwise
 disjoint by being consulted, not by storing the clique. Belief-following. See
 [taxonomy.md](taxonomy.md).
+
+**Door** ![kb](../.github/badges/cat-kb.svg): An entry point knowledge reaches the
+engine through — `assert` / `assert-rule` / `edit!`, the `check` family that predicts
+them without storing, the CLI and the daemon's op dispatch. The word earns its keep
+because the doors must agree: a sentence one refuses and another stores is a state no
+caller asked for, and `check` disagreeing with `assert` makes the prediction worse than
+none. See [api.md](api.md), [operations.md](operations.md).
 
 ## E
 

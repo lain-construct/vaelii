@@ -262,7 +262,7 @@
 
 (s/fdef vaelii.core/sentexes-in-context
   :args (s/cat :kb ::kb :context ::context :opts (s/? ::extent-opts)) :ret ::sentex-seq)
-(s/fdef vaelii.core/context-size
+(s/fdef vaelii.core/count-in-context
   :args (s/cat :kb ::kb :context ::context) :ret nat-int?)
 (s/fdef vaelii.core/sentexes-with-functor
   :args (s/cat :kb ::kb :pred ::term :opts (s/? ::extent-opts)) :ret ::sentex-seq)
@@ -380,7 +380,7 @@
     vaelii.core/term-count
     vaelii.core/find-terms
     vaelii.core/sentexes-in-context
-    vaelii.core/context-size
+    vaelii.core/count-in-context
     vaelii.core/sentexes-with-functor
     vaelii.core/count-with-functor
     vaelii.core/sentexes-with-arg

@@ -1,5 +1,12 @@
 # Exceptions: `exceptWhen`
 
+- **Covers:** how a rule states its own exception (`exceptWhen`) — blocking evaluation, the
+  re-check index, and the stratification check over the rule dependency graph.
+- **Not here:** the same undercutting block inlined per antecedent literal →
+  [naf.md](naf.md); defeat classes, order independence and contradiction reporting →
+  [nmtms.md](nmtms.md).
+- **Assumes:** justification, defeasible, belief, `genl` → [glossary.md](glossary.md).
+
 How a rule states its own exception: a belief-following meta-sentex that names the
 rule by handle, re-evaluated per firing rather than materialized per instance.
 
@@ -626,9 +633,12 @@ throws `ex-info` with `:type :not-stratified` and a `:cycle` naming the nodes an
 edges around the loop.
 
 **Fast path:** with no exception on the rule being added and none on any stored rule,
-the graph has no negative edge at all and the walk is skipped. That is every rule in
-an ontology that uses no exceptions, which is most of them — including the whole
-bundled starter.
+the graph has no negative edge at all and the walk is skipped. That is every rule in an
+ontology that uses no exceptions, which is most of them. The guard is the KB's whole
+exception index rather than the rule at hand, so **one** exception anywhere ends the
+fast path for everything asserted after it: the bundled starter takes it until
+`BiologyContext`'s `dead` exception loads, and pays the walk from there on. The walk is
+cheap and the ordering is alphabetical, so this is a cost note, not a limit.
 
 ### A taxonomy edge closes a cycle too
 

@@ -1,5 +1,12 @@
 # Indexing
 
+- **Covers:** the six index families' key shapes — the trie, the secondary roots, the rule
+  and exception indexes, the term index, and the term roster — and what each answers.
+- **Not here:** the dense/columnar representations these families are packed into →
+  [density.md](density.md); the record store and the protocols the index sits beside →
+  [storage.md](storage.md).
+- **Assumes:** sentex, handle, context, canonical form → [glossary.md](glossary.md).
+
 `vaelii.impl.kv`. Six indexes over the same sentexes, all in the index store: the positional
 trie, the secondary roots, the rule index, the exception re-check index, the
 inverted term index, and the term roster beside it. `KvIndexStore` holds the logic over a
@@ -188,7 +195,7 @@ drift from its extent — the trie needs explicit counters only because a *prefi
 count aggregates the leaves beneath it. A rule contributes only its context; its
 predicates live in the rule index below.
 
-They are read through `core`: `sentexes-in-context` / `context-size`,
+They are read through `core`: `sentexes-in-context` / `count-in-context`,
 `sentexes-with-functor` / `count-with-functor`, `sentexes-with-arg` /
 `count-with-arg`. Two places rely on them for speed rather than convenience:
 `core/types-of` (the individual's asserted types — the retrieval `isa?` and

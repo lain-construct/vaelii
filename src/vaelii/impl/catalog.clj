@@ -283,26 +283,67 @@
                ;; loads is this namespace's business.
                (select-keys e [:id :name :blurb :kind :options]))))))
 
+(def max-discovered
+  "How many directories one search-path entry is probed for, at most.
+
+  A search-path entry is probed one level down, and every candidate under it costs a
+  `classify` (a `meta.edn` read) and, for a `:store`, a size estimate — on **every**
+  `/kbs` request, since `sources` is recomputed per call so a corpus dropped in appears
+  with no restart.  That is the trade, and it is a good one at the handful of KBs a
+  machine usually holds; it is not a good one unbounded, and a directory of converted
+  corpora is exactly what accumulates over time.  Nothing else in the browser renders an
+  uncapped list (docs/web.md, \"Long lists continue\"), and this is the number that makes
+  the KB list no exception.
+
+  Generous rather than tight: the cap exists to bound the cost, not to curate."
+  200)
+
 (defn sources
   "Every KB this process can load, built-ins first: the shipped ontologies and the
   generator, then whatever the catalog file names, then whatever the search path holds.
   Recomputed per call — dropping a corpus into a search-path directory makes it appear on
-  the next page load, with no restart."
+  the next page load, with no restart.
+
+  A search-path entry holding more than `max-discovered` candidates is probed for the
+  first `max-discovered` by name, and what was passed over is **named** — on the returned
+  vector's metadata as `:truncated`, and in the log.  A silent cap here would read as
+  \"this machine has no other KBs\", which is the one answer a KB list must not give by
+  accident.  The built-ins and the catalog file's own entries are never capped: each is
+  named explicitly rather than found, and a caller that wrote a path down is owed it."
   []
-  (let [found (for [p (search-path)
-                    :let [d (io/file p)]
-                    :when (.isDirectory d)
-                    d2 (if (classify d) [d] (sort-by #(.getName ^File %) (.listFiles d)))
-                    :let [s (discovered-source d2)]
-                    :when s]
-                s)]
-    (into [] (->> (concat built-in (configured-sources) found)
-                  (reduce (fn [[seen acc] s]                ; first spelling of an id wins
-                            (if (contains? seen (:id s))
-                              [seen acc]
-                              [(conj seen (:id s)) (conj acc s)]))
-                          [#{} []])
-                  second))))
+  (let [dropped (volatile! [])
+        probe   (fn [^File d]
+                  (if (classify d)
+                    [d]
+                    (let [kids (sort-by #(.getName ^File %) (.listFiles d))
+                          n    (count kids)]
+                      (when (> n max-discovered)
+                        (vswap! dropped conj {:dir (.getPath d)
+                                              :passed-over (- n max-discovered)
+                                              :probed max-discovered}))
+                      (take max-discovered kids))))
+        found   (for [p (search-path)
+                      :let [d (io/file p)]
+                      :when (.isDirectory d)
+                      d2 (probe d)
+                      :let [s (discovered-source d2)]
+                      :when s]
+                  s)
+        result  (into [] (->> (concat built-in (configured-sources) found)
+                              (reduce (fn [[seen acc] s]    ; first spelling of an id wins
+                                        (if (contains? seen (:id s))
+                                          [seen acc]
+                                          [(conj seen (:id s)) (conj acc s)]))
+                                      [#{} []])
+                              second))]
+    (when-let [t (seq @dropped)]
+      (trove/log! {:level :warn :id ::search-path-truncated
+                   :msg  (str "probed the first " max-discovered " entries of "
+                              (str/join ", " (map :dir t))
+                              " — a KB below that cut is not listed.  Name it in the "
+                              "catalog file to list it regardless (docs/catalog.md).")
+                   :data {:truncated (vec t)}}))
+    (with-meta result {:truncated (vec @dropped)})))
 
 (defn source
   "The source with this id, or nil."
@@ -312,7 +353,7 @@
 ;; ---- the registry --------------------------------------------------------
 ;;
 ;; One atom holds every loaded (and loading) KB, which of them is active, and the next
-;; free memory space pair.  A memory-backed KB is keyed by space number for the life of
+;; free memory space.  A memory-backed KB is keyed by space number for the life of
 ;; the JVM (`vaelii.impl.memory`), so two resident KBs must be given different ones —
 ;; and the numbers below start well clear of the block the test suite owns.
 
@@ -327,11 +368,10 @@
 
 (defn- now [] (System/currentTimeMillis))
 
-(defn- claim-spaces!
-  "The next free `[record-space index-space]` pair."
+(defn- claim-space!
+  "The next free `:space` number."
   []
-  (let [s (:next-space (swap! state update :next-space + 2))]
-    [(- s 2) (- s 1)]))
+  (dec (:next-space (swap! state update :next-space inc))))
 
 (defn- put-entry! [key f]
   (swap! state update-in [:entries key] f)
@@ -527,14 +567,14 @@
     nil))
 
 (defn- open-kb-for
-  "The KB an entry loads into: an in-memory one over a freshly claimed space pair, or —
+  "The KB an entry loads into: an in-memory one over a freshly claimed space, or —
   when the params name a directory — a durable `:disk` one there.  Returns
   `[kb where]`, `where` being what `unload!` needs to take it down again."
   [{:keys [dir]}]
   (if (str/blank? (str dir))
-    (let [[r i] (claim-spaces!)]
-      [(v/open-kb {:backend :memory :record-space r :index-space i :recover? false})
-       {:backend :memory :spaces [r i]}])
+    (let [s (claim-space!)]
+      [(v/open-kb {:backend :memory :space s :recover? false})
+       {:backend :memory :space s}])
     [(v/open-kb {:backend :disk :dir (str dir) :recover? false})
      {:backend :disk :dir (str dir)}]))
 
@@ -591,7 +631,7 @@
   `note-kb!` is called with `[kb where]` the moment the KB exists — *before* anything is
   loaded into it — so a load that then fails or is cancelled still leaves an entry that
   knows what it opened, and `unload!` can release it.  Without that, a cancelled corpus
-  load would strand its memory spaces or its file lock with nothing pointing at them."
+  load would strand its memory space or its file lock with nothing pointing at them."
   [{:keys [kind path]} params progress! note-kb!]
   (let [open! (fn [] (let [[kb where] (open-kb-for params)] (note-kb! kb where) kb))]
     (case kind

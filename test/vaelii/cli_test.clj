@@ -85,9 +85,9 @@
             (is (= :dump (catalog/classify dump)))
             (is (= :vaelii/export (:format (imp/read-meta dump)))))
           (testing "and the importer reads it back whole"
-            ;; its own space pair: the suite's scratch block is this KB's, and clearing it
+            ;; its own space: the suite's scratch block is this KB's, and clearing it
             ;; from under a running test is what the block exists to prevent
-            (let [target (v/open-kb {:backend :memory :record-space 66 :index-space 67
+            (let [target (v/open-kb {:backend :memory :space 66
                                      :recover? false})]
               (try
                 (imp/import-dump target (.getPath dump) {:belief? false})
@@ -179,3 +179,49 @@
     (let [e (try (cli/parse-opts args) nil
                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :unknown-option (:type e)) (pr-str args)))))
+
+(deftest a-short-command-line-names-the-missing-argument
+  ;; `dispatch` reaches into `args` with `nth`, so a line missing its context
+  ;; raised `IndexOutOfBoundsException` — caught and printed as one line, so
+  ;; `lein cli assert '(dog Rex)'` answered `error: IndexOutOfBoundsException`:
+  ;; true about a vector, and no help to someone who left off a context.
+  (testing "too few operands is refused, naming the command and the count"
+    (let [e (try (cli/check-arity! "assert" ['(dog Rex)]) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) "a one-operand assert is refused")
+      (is (= :unknown-option (:type (ex-data e))))
+      (is (= {:cmd "assert" :given 1 :takes [2 2]}
+             (select-keys (ex-data e) [:cmd :given :takes])))
+      (is (re-find #"assert takes 2 arguments, given 1" (ex-message e)))
+      (is (re-find #"usage: assert" (ex-message e))
+          "and the message carries the usage line")))
+  (testing "too many is refused too — a dropped context stores somewhere else"
+    (let [e (try (cli/check-arity! "assert" ['(dog Rex) 'AContext 'BContext]) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e))
+      (is (= 3 (:given (ex-data e))))))
+  (testing "an optional last operand takes either count"
+    (is (nil? (cli/check-arity! "why-not" ['(dog Rex)])))
+    (is (nil? (cli/check-arity! "why-not" ['(dog Rex) 'AContext])))
+    (is (nil? (cli/check-arity! "isa" ['Rex 'dog])))
+    (is (nil? (cli/check-arity! "isa" ['Rex 'dog 'AContext]))))
+  (testing "a zero-operand command refuses operands"
+    (is (nil? (cli/check-arity! "types" [])))
+    (is (thrown? clojure.lang.ExceptionInfo (cli/check-arity! "types" ['x]))))
+  (testing "an unknown command is dispatch's to refuse, not this one's"
+    (is (nil? (cli/check-arity! "nosuchcommand" [])))))
+
+(deftest the-usage-text-covers-every-command-the-table-knows
+  ;; One table feeds both the arity check and `help`, so a command cannot be
+  ;; advertised at an arity it does not take, or added without a usage line.
+  (let [u (cli/usage)]
+    (doseq [c cli/commands]
+      ;; `(?=\s|$)` rather than `\b`: `query?` and `provable?` end in a non-word
+      ;; character, so a word boundary never lands after them.
+      (is (re-find (re-pattern (str "(?m)^  " (java.util.regex.Pattern/quote c) "(?=\\s|$)")) u)
+          (str c " has a usage line")))
+    (is (re-find #"Quote every argument" u)
+        "the shell-quoting trap is stated, since `[` dies in zsh before the JVM starts")
+    (is (= (count cli/commands) (count (distinct cli/commands)))))
+  (testing "--help is a boolean flag rather than an unknown one"
+    (is (= [[] {:help true}] (cli/parse-opts ["--help"])))))

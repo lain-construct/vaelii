@@ -512,10 +512,15 @@
 
   Read from `context`: the unique-name assumption is what a context holds until
   *it* is told otherwise, so a merge it cannot see leaves the two names different
-  there.  Otherwise a private `(sameAs A B)` would silently retire the UNA everywhere."
+  there.  Otherwise a private `(sameAs A B)` would silently retire the UNA everywhere.
+
+  Compound arguments normalize **recursively** (`res/representative-term`), which is what
+  makes the answer congruence-consistent: the closure is keyed by symbol, so a flat
+  lookup on `(QuantityFn 5 Kilogram)` returns it unchanged and would report it different
+  from `(QuantityFn 5 Kg)` with `(sameAs Kilogram Kg)` believed."
   [kb context args]
   (let [vis (res/visible-supporter-fn kb context)
-        rep #(res/representative-in kb vis %)
+        rep #(res/representative-term kb vis %)
         v   (vec args)]
     (every? (fn [[a b]] (not (or (= a b) (= (rep a) (rep b)))))
             (for [i (range (count v)), j (range (inc i) (count v))]

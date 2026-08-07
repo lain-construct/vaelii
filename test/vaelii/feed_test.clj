@@ -367,7 +367,7 @@
   ;; The renderer behind the seam is installed once per process (`observe`'s pattern), so
   ;; the thing that must be per-KB is the registry.  Two live KBs, and neither hears the
   ;; other.  The second one is on the **isolated** pair: a `tu/fresh` here would clear the
-  ;; scratch pair out from under the `:each` fixture holding the first.
+  ;; scratch space out from under the `:each` fixture holding the first.
   (tu/with-cleared-kb [other tu/isolated-fresh]
     (tu/with-terms [dog Fido Rex]
       (let [[here hf]  (recorder)
@@ -389,15 +389,13 @@
   ;; index written over the `KvBackend` seam, so forking whatever `VAELII_TEST_BACKEND`
   ;; chose would throw on the two columnar pairs — and the claim here is about the
   ;; registry, not about the store under it.
-  (let [base (doto (v/open-kb {:backend :memory :record-space [::base]
-                               :index-space [::base :ix] :recover? false})
+  (let [base (doto (v/open-kb {:backend :memory :space [::base] :recover? false})
                tu/clear-kb!)]
     (tu/with-terms [dog Fido cat Tom]
       (v/assert base (list dog Fido) 'UniverseContext)
       (let [[seen f] (recorder)]
         (v/watch base f)
-        (let [forked (v/fork base {:backend :memory :record-space [::fork]
-                                   :index-space [::fork :ix]})]
+        (let [forked (v/fork base {:backend :memory :space [::fork]})]
           (is (empty? (v/watchers forked)) "a fork inherits no listeners")
           (is (empty? @seen) "and taking one is a rebuild, so the base heard nothing")
           (v/assert forked (list cat Tom) 'UniverseContext)

@@ -130,8 +130,7 @@
   ;; safe.  Explicitly `:memory` rather than the suite backend: under a disk run the
   ;; scratch KB has a directory, and closing it would pull the store out from under
   ;; every later test.
-  (let [kb (v/open-kb {:backend :memory :record-space ::noop-records
-                       :index-space ::noop-index :recover? false})]
+  (let [kb (v/open-kb {:backend :memory :space ::noop-space :recover? false})]
     (tu/with-terms [dog Fido Rex]
       (v/assert kb (list dog Fido) 'UniverseContext)
       (is (identical? kb (v/close! kb)) "close! returns the KB")
@@ -195,12 +194,12 @@
 (deftest disk-dir-derivation
   (is (= "/some/where" (backend/disk-dir {:dir "/some/where"}))
       ":dir names the directory outright")
-  (testing "otherwise it derives a distinct directory from the space pair"
-    (let [d (backend/disk-dir {:record-space 15 :index-space 14})]
-      (is (str/includes? d "space-15-14")))
-    (is (not= (backend/disk-dir {:record-space 15 :index-space 14})
-              (backend/disk-dir {:record-space 13 :index-space 12}))
-        "different space pairs derive different directories")))
+  (testing "otherwise it derives a distinct directory from the space"
+    (let [d (backend/disk-dir {:space 15})]
+      (is (str/includes? d "space-15")))
+    (is (not= (backend/disk-dir {:space 15})
+              (backend/disk-dir {:space 13}))
+        "different spaces derive different directories")))
 
 (deftest a-short-index-log-is-detected-and-rebuilt
   ;; The two instruments beside the layout gate, each driven through the loss that

@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.4.0"
+(defproject com.vaelii/vaelii "0.5.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -34,15 +34,12 @@
                  ;; escapes body position as well as attributes, so KB content and
                  ;; query params cannot inject markup (docs/web.md)
                  [hiccup "2.0.0"]
-                 ;; a no-op SLF4J binding: silences Jetty's "no providers" line.
-                 ;; Our own logging goes through Trove, above.
-                 [org.slf4j/slf4j-nop "2.0.18"]
                  ;; clasp's `--outf=2` JSON, and libclingo through JNA (docs/asp.md)
                  [cheshire "6.2.0"]
                  [net.java.dev.jna/jna "5.19.1"]
                  ;; the dense and columnar index backends, both off by default
                  ;; (docs/density.md)
-                 [org.roaringbitmap/RoaringBitmap "1.6.19"]
+                 [org.roaringbitmap/RoaringBitmap "1.6.20"]
                  [it.unimi.dsi/fastutil-core "8.5.19"]
                  ;; XZ (LZMA2) for the exporter's `:xz`. nippy brings it transitively;
                  ;; naming it is what makes the codec a promise rather than an accident
@@ -51,10 +48,11 @@
   :main ^:skip-aot vaelii.core
   :target-path "target/%s"
   ;; an unhinted interop call names itself at compile time instead of paying a silent
-  ;; runtime lookup.  It WARNS and does not fail — nothing greps the output, here or in
-  ;; scripts/lint.sh — so a warning is a defect to fix at the call site rather than a gate
-  ;; that stops the build.  Say so, because a comment promising a gate is how four of them
-  ;; sat in the test tree printing on every run of every backend.
+  ;; runtime lookup.  The flag only warns — but `scripts/check-reflection.sh` greps the
+  ;; output and fails on it, so a warning does stop the build: `lein lint`'s `reflect`
+  ;; row compiles src and bench, and `scripts/gate.sh` reads the test stage's log for
+  ;; the tree that pass does not compile.  Both halves are covered, and the allow-list
+  ;; is empty because a warning here is a defect to fix at the call site with a hint.
   :global-vars {*warn-on-reflection* true}
   ;; leiningen `pr-str`s the form it evaluates into a temp file, and that drops
   ;; metadata — including the `^Class` hint in leiningen's own `run` form, which the
@@ -68,7 +66,18 @@
                    :slow    #(and (:slow %) (not (:llm %)))
                    :llm     :llm
                    :all     (complement :llm)}
-  :profiles {:uberjar {:aot :all}
+  :profiles {;; `:aot :all` plus a no-op SLF4J binding: silences Jetty's "no providers"
+             ;; line inside the standalone jar. Not top-level `:dependencies` — that would
+             ;; make it a transitive dependency of every application that depends on
+             ;; vaelii, where it can win SLF4J's provider race against the host's own
+             ;; logging backend and silence that instead (vaelii.impl.logging holds the
+             ;; same line: no backend installs itself unless asked). `:uberjar` is never
+             ;; part of the default active profile set, so it never reaches `lein
+             ;; pom`/`lein deploy` either — the `:dev` copy below covers `lein
+             ;; run`/`test`/`serve`/`browser`, and is dropped when the standalone jar is
+             ;; assembled, so this needs its own copy at the same version.
+             :uberjar {:aot :all
+                       :dependencies [[org.slf4j/slf4j-nop "2.0.18"]]}
              ;; point JNA at libclingo (docs/asp.md). `VAELII_CLINGO_LIB` names the
              ;; directory holding it; the default is Homebrew's on Apple silicon, which
              ;; is where a macOS `brew install clingo` puts it and nowhere a Linux
@@ -95,13 +104,22 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.3.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.5.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
              ;; the same plugin at the root level so `cloverage` registers under
              ;; `with-profile +test`.
-             :dev {:plugins [[dev.weavejester/lein-cljfmt "0.16.5"]
+             ;;
+             ;; The :uberjar copy of slf4j-nop above covers the standalone jar; :dev is
+             ;; part of the default active profile set, so this copy is what silences
+             ;; Jetty for `lein run`, `lein test`, `lein serve` and `lein browser`. A
+             ;; :dev dependency carries Maven scope `test` in the generated POM
+             ;; (leiningen.core.project's default-profile-metadata), so `lein pom`/`lein
+             ;; deploy` declare it but a consumer's tooling never resolves it
+             ;; transitively — docs/operations.md, "Neither server logs a request".
+             :dev {:dependencies [[org.slf4j/slf4j-nop "2.0.18"]]
+                   :plugins [[dev.weavejester/lein-cljfmt "0.16.5"]
                              [lein-shell "0.5.0"]
                              [lein-cloverage "1.2.4"]]}
              ;; property-based tests, in :test rather than :dev because a local
@@ -119,17 +137,19 @@
                     ;; prints next to the failure it explains. Turn the rest back on
                     ;; when a red run needs them: `VAELII_TEST_LOG_LEVEL=info lein test`.
                     ;;
-                    ;; Runtime `resolve` rather than `trove/set-log-fn!` because
-                    ;; injections compile as one `do`: a macro in the same form as the
-                    ;; `require` that loads it has no var to resolve yet.
+                    ;; It is the engine's own dial (`vaelii.core/set-log-level`) rather
+                    ;; than a second mechanism spelled the same way: a suite quieted by
+                    ;; a private copy of the install would keep passing the day the
+                    ;; public one stopped working. A level outside the five is refused
+                    ;; here, so a typo fails the run rather than silencing it.
+                    ;;
+                    ;; Runtime `resolve` rather than the symbol itself because
+                    ;; injections compile as one `do`: a var in the same form as the
+                    ;; `require` that loads it is not there to resolve yet.
                     :injections
-                    [(require 'taoensso.trove 'taoensso.trove.console)
-                     (alter-var-root
-                      (resolve 'taoensso.trove/*log-fn*)
-                      (constantly
-                       ((resolve 'taoensso.trove.console/get-log-fn)
-                        {:min-level (keyword (or (System/getenv "VAELII_TEST_LOG_LEVEL")
-                                                 "error"))})))]}
+                    [(require 'vaelii.impl.logging)
+                     ((resolve 'vaelii.impl.logging/set-level)
+                      (keyword (or (System/getenv "VAELII_TEST_LOG_LEVEL") "error")))]}
              ;; sampling profiler for a repl: `(prof/profile (…))`, flamegraphs under
              ;; /tmp/clj-async-profiler/results/, `(prof/serve-ui 8080)`. The -XX pair
              ;; keeps inlined frames off their caller's line; the attach flag is how it
@@ -144,7 +164,7 @@
              ;; field layout rather than estimate it.
              :bench {:source-paths ["bench"]
                      :dependencies [[org.openjdk.jol/jol-core "0.17"]
-                                    [org.roaringbitmap/RoaringBitmap "1.6.19"]
+                                    [org.roaringbitmap/RoaringBitmap "1.6.20"]
                                     [it.unimi.dsi/fastutil-core "8.5.19"]]
                      :jvm-opts ["-Xmx6g" "--add-opens=java.base/java.lang=ALL-UNNAMED"
                                 "-Djdk.attach.allowAttachSelf=true"]}
@@ -154,6 +174,39 @@
              :browser {:repl-options
                        {:host "127.0.0.1"
                         :init (do ((requiring-resolve 'vaelii.impl.web/dev-repl)) nil)}}
+             ;; generational ZGC, asked for per task: `lein with-profile +zgc <task>`.
+             ;;
+             ;; Detected off the running JDK rather than written as a static vector,
+             ;; because **no single line is correct and boot-safe across 17/21/25**.
+             ;; Bare `-XX:+UseZGC`
+             ;; is generational from 23 (the platform default there, where naming the
+             ;; mode flag only warns); on 21-22 the explicit `-XX:+ZGenerational` is
+             ;; *required* or the collector is non-generational; before 21 the mode does
+             ;; not exist and naming the flag is fatal-unrecognized, so the JVM does not
+             ;; boot at all. `-XX:+IgnoreUnrecognizedVMOptions` is not the shortcut it
+             ;; looks like — it turns every later `-XX:` typo into a warn-and-skip.
+             ;;
+             ;; A profile rather than a top-level `:jvm-opts`, and the measurement is
+             ;; why. `lein perf`, two alternating passes at a fixed 6 GiB heap: the JDK
+             ;; default took 40.7-41.2 s at 1493-1510 MB peak RSS, generational ZGC
+             ;; 55.5-55.9 s at 6224-6258 MB — 36% slower while holding 4.2x the resident
+             ;; set, and ZGC alone tripped the `:negation-arbitration` growth bound on
+             ;; both passes. A concurrent collector earns its throughput cost on a live
+             ;; set of tens of gigabytes, and this engine's peak here is 1.5 GB. So the
+             ;; default collector is what the build runs on, a top-level entry would
+             ;; select the collector for the test and perf stages as well, and perf
+             ;; judges the *growth* between two sizes — moving the collector under it
+             ;; moves the thing it measures. The flags stay correct for a JVM that has
+             ;; its own reason to ask.
+             ;;
+             ;; One `~` around the whole vector: leiningen resolves `unquote` and not
+             ;; `unquote-splicing`, so `~@` does not work here.
+             :zgc {:jvm-opts ~(let [v     (System/getProperty "java.specification.version")
+                                    major (Integer/parseInt
+                                           (second (re-find #"^(?:1\.)?(\d+)" v)))]
+                                (if (<= 21 major 22)
+                                  ["-XX:+UseZGC" "-XX:+ZGenerational"]
+                                  ["-XX:+UseZGC"]))}
              ;; outdated-dependency report, isolated from every other classpath
              :antq {:dependencies [[com.github.liquidz/antq "2.11.1276"]]}}
   ;; indent rules come from an optional cljfmt-indents.edn at the repo root, so a
@@ -179,11 +232,17 @@
   ;; `lein fix` reformats in place.
   :aliases {"lint"            ["shell" "bash" "scripts/lint.sh"]
             "lint-glossary"   ["shell" "bash" "scripts/lint-glossary.sh"]
+            "lint-versions"   ["shell" "bash" "scripts/lint-versions.sh"]
             "lint-links"      ["shell" "python3" "scripts/check-doc-links.py" "--public-view"]
             "lint-drift"      ["shell" "python3" "scripts/check-doc-drift.py"]
             "lint-kondo"      ["shell" "clj-kondo" "--lint" "src" "test" "bench"]
             "lint-cljfmt"     ["cljfmt" "check"]
-            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/gate.sh" "scripts/update-badges.sh" "scripts/link-checkouts.sh"]
+            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/lint-versions.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/gate.sh" "scripts/update-badges.sh" "scripts/link-checkouts.sh" "scripts/check-reflection.sh"]
+            ;; the two ratchets: a compile pass whose warnings fail, and a public var
+            ;; nothing references.  Both are in scripts/lint.sh too, so `lein gate`
+            ;; picks them up inside the suite's wall clock; these are the one-offs.
+            "lint-reflect"    ["shell" "bash" "scripts/check-reflection.sh"]
+            "lint-unused"     ["shell" "python3" "scripts/check-unused-publics.py"]
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
             "gate"            ["shell" "bash" "scripts/gate.sh"]
@@ -218,6 +277,10 @@
             "bench-checks"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.checks"]
             "bench-inherit"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.inherit"]
             "bench-tactics"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.tactics"]
+            ;; the rebuildable caches' resident bytes and the KB-quality readings, in one
+            ;; JVM because both sit behind the same expensive corpus load.  `+with-foreign`
+            ;; too: a corpus run resolves the `:cyc-corpus` reader through the plugin.
+            "bench-caches"    ["with-profile" "+bench,+with-foreign" "run" "-m" "vaelii.bench.caches"]
             ;; the performance *gate*, as against the bench-* reports above: scaling
             ;; claims as growth ratios, non-zero exit on a regression
             "perf"            ["with-profile" "+bench" "run" "-m" "vaelii.bench.perf"]

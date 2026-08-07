@@ -153,7 +153,7 @@
 ;; allocated in assertion order, and that was a real bug in the Nixon diamond."
 ;; Every ordering of the merge and the facts must produce the identical reading.  The
 ;; permutation harness is `order_independence_test`'s, on the isolated database pair
-;; so the loop's clears cannot pull the scratch pair out from under this namespace.
+;; so the loop's clears cannot pull the scratch space out from under this namespace.
 
 (deftest the-representative-does-not-depend-on-assertion-order
   (tu/with-terms [bornIn worksAt Chicago Acme NameContext]

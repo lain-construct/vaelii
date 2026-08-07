@@ -26,7 +26,7 @@
             [vaelii.impl.protocols :as p]))
 
 (defn- run [m]
-  (let [kb (kb/open-kb {:backend :memory :record-space 38 :index-space 39 :recover? false}
+  (let [kb (kb/open-kb {:backend :memory :space 38 :recover? false}
                        (fn [_] nil) (fn [_] nil))]
     (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
     (v/assert-rule kb ['(rel ?x ?y) '(rel ?y ?z)] '(rel ?x ?z) 'CyContext {:direction :forward})

@@ -9,10 +9,17 @@
   EDN-clean, and bad input is refused.  Then one full loop starts jetty on an
   ephemeral port and drives it with the real client, proving the wire round-trips
   end to end: sentences out as symbol s-expressions, sentex records back as plain
-  maps."
+  maps.
+
+  Every test says which **posture** its daemon is in rather than letting the
+  environment decide: `open-app` serves with no token (the loopback default, and the
+  only handler under which the other refusals are reachable at all), `token` and
+  `authed-app` serve with one.  A `VAELII_API_TOKEN` in the shell running the suite
+  therefore changes nothing here."
   (:require [clojure.edn :as edn]
             [clojure.set :as set]
             [clojure.test :refer [is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.catalog :as catalog]
             [vaelii.impl.client :as client]
@@ -25,6 +32,24 @@
            [org.eclipse.jetty.server Server ServerConnector]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
+
+(def ^:private token
+  "The one token the authenticated tests below share.  A fixture rather than a per-test
+  string, so what a test varies is the *header*, which is the thing under test."
+  "s3cret-token")
+
+(defn- open-app
+  "`serve/app` with **no** token — the loopback default, and the handler every test of
+  another refusal needs: one that 401s first exercises none of them.  Explicit rather
+  than defaulted, since the default reads `VAELII_API_TOKEN` and the suite must not
+  answer differently in a shell that has one."
+  [kb]
+  (serve/app kb {:token nil}))
+
+(defn- authed-app
+  "`serve/app` holding `token` — the posture a public bind is required to be in."
+  [kb]
+  (serve/app kb {:token token}))
 
 (defn- post-op*
   "Call `handler` (from `serve/app`) with a POST /op carrying `{:op :args}` under
@@ -64,7 +89,7 @@
 
 (tu/deftest-kb app-dispatches-ops-and-refuses-bad-input
   (tu/with-terms [dog animal Fido ServeContext]
-    (let [handler (serve/app kb)]
+    (let [handler (open-app kb)]
       (testing "an assert op stores and returns the handle"
         (let [r (post-op handler :assert [(list dog Fido) ServeContext {:strength :monotonic}])]
           (is (:ok r))
@@ -125,7 +150,7 @@
   ;; preflight it and this daemon answers no preflight — demanding it is what keeps a
   ;; page the operator merely visits from driving the write route
   (tu/with-terms [dog Fido ServeContext]
-    (let [handler (serve/app kb)
+    (let [handler (open-app kb)
           before  (tu/sentex-ids kb)
           refused (fn [headers]
                     (post-op* handler headers :assert [(list dog Fido) ServeContext]))]
@@ -152,7 +177,7 @@
   ;; page that got one anyway.  A `:type` on the wire because a client discriminating on
   ;; the message string is discriminating on prose.
   (tu/with-terms [dog Fido ServeContext]
-    (let [handler (serve/app kb)
+    (let [handler (open-app kb)
           before  (tu/sentex-ids kb)
           from    (fn [hdrs]
                     (post-op* handler (merge {"content-type" "application/edn"} hdrs)
@@ -179,7 +204,7 @@
   ;; `guard/edn-body?` trims, lower-cases and prefix-matches, so a parameterized or
   ;; case-varied header is still the declaration the gate requires
   (tu/with-terms [dog Fido ServeContext]
-    (let [handler (serve/app kb)]
+    (let [handler (open-app kb)]
       (doseq [ct ["application/edn; charset=utf-8"
                   "Application/EDN"
                   "APPLICATION/EDN; CHARSET=UTF-8"
@@ -197,7 +222,7 @@
   ;; the check that has to hold — and it wraps the whole server, because a rebound
   ;; page reads the KB as happily as it writes to it
   (tu/with-terms [dog Fido ServeContext]
-    (let [handler (serve/app kb)
+    (let [handler (open-app kb)
           before  (tu/sentex-ids kb)]
       (testing "a write op under a rebound Host is a 400 before anything runs"
         (let [r (post-op* handler {"content-type" "application/edn"
@@ -229,7 +254,7 @@
 
 (tu/deftest-kb export-over-the-wire-writes-on-the-daemons-own-host
   (tu/with-terms [dog Fido ServeContext]
-    (let [handler (serve/app kb)
+    (let [handler (open-app kb)
           root (.toFile (Files/createTempDirectory "vaelii-serve-export-"
                                                    (into-array FileAttribute [])))
           dump (java.io.File. root "a-dump")]
@@ -251,17 +276,166 @@
             (is (= :not-empty (:type r)))))
         (finally (doseq [^File f (reverse (file-seq root))] (.delete f)))))))
 
+;; ---- the shared bearer token ---------------------------------------------
+
+(defn- post-with-auth
+  "POST a `:contexts` op under `auth` as the `Authorization` header (nil sends none),
+  and answer the raw response — the *headers* are half of what a 401 promises, so this
+  one does not parse the reply away."
+  [handler auth]
+  (let [body (pr-str {:op :contexts :args []})]
+    (handler {:request-method :post :uri "/op"
+              :headers (cond-> {"content-type" "application/edn"}
+                         auth (assoc "authorization" auth))
+              :body (ByteArrayInputStream. (.getBytes ^String body "UTF-8"))})))
+
+(tu/deftest-kb no-way-of-not-holding-the-token-is-told-from-another
+  ;; The refusal is the test, and the four ways of failing it have to be
+  ;; indistinguishable: a 401 that said *which* — "malformed header" against "wrong
+  ;; token", or a different message for a right prefix — is an oracle a caller walks a
+  ;; byte at a time.  Same status, same body, same challenge, whatever went wrong.
+  (tu/with-terms [dog Fido ServeContext]
+    (let [handler (authed-app kb)
+          before  (tu/sentex-ids kb)
+          bodies  (atom #{})]
+      (doseq [[label auth] [["no Authorization header at all"      nil]
+                            ["a wrong token"                       "Bearer wrong"]
+                            ["a token with the right prefix"       (str "Bearer " (subs token 0 4))]
+                            ["the right token with more after it"  (str "Bearer " token "x")]
+                            ["a malformed Authorization line"      token]
+                            ["another scheme entirely"             "Basic czNjcmV0"]
+                            ["the scheme with no token after it"   "Bearer "]]]
+        (let [resp (post-with-auth handler auth)
+              r    (edn/read-string (:body resp))]
+          (is (= 401 (:status resp)) label)
+          (is (false? (:ok r)) label)
+          (is (= :unauthorized (:type r)) label)
+          (is (= "Bearer" (get-in resp [:headers "www-authenticate"]))
+              (str label " — a 401 carries the challenge the status code is defined to"))
+          (is (= "application/edn" (get-in resp [:headers "content-type"]))
+              (str label " — the refusal is EDN like every other one"))
+          (swap! bodies conj (:body resp))))
+      (testing "and every one of them is the same body, byte for byte"
+        (is (= 1 (count @bodies))))
+      (testing "the token itself is accepted, so the refusals are the header's doing"
+        (is (= 200 (:status (post-with-auth handler (str "Bearer " token))))))
+      (testing "and the scheme is matched case-insensitively, as RFC 7235 defines it"
+        (is (= 200 (:status (post-with-auth handler (str "bearer " token))))))
+      (testing "nothing the refusals asked for ran"
+        (is (= before (tu/sentex-ids kb)))))))
+
+(tu/deftest-kb health-answers-unauthenticated-and-nothing-else-does
+  ;; The one carve-out, and the reason for it: a daemon only its token-holder can probe
+  ;; is one no orchestrator, load balancer or shell script can watch, and `{:ok true}`
+  ;; reveals nothing a caller did not learn by connecting.  The other side is driven off
+  ;; `serve/ops` itself, so an op added later is covered by construction.
+  (let [handler (authed-app kb)]
+    (testing "GET /health answers with no credential"
+      (let [resp (handler {:request-method :get :uri "/health"})]
+        (is (= 200 (:status resp)))
+        (is (:ok (edn/read-string (:body resp))))))
+    (testing "and every op in the table is refused without one"
+      (doseq [op (sort (keys serve/ops))]
+        (let [body (pr-str {:op op :args []})
+              resp (handler {:request-method :post :uri "/op"
+                             :headers {"content-type" "application/edn"}
+                             :body (ByteArrayInputStream.
+                                    (.getBytes ^String body "UTF-8"))})]
+          (is (= 401 (:status resp)) (str op))
+          (is (= :unauthorized (:type (edn/read-string (:body resp)))) (str op)))))
+    (testing "a route nothing serves is refused before the 404, since the router's
+              answer is not a thing an anonymous caller is owed either"
+      (is (= 401 (:status (handler {:request-method :get :uri "/nothing-here"})))))))
+
+(clojure.test/deftest the-token-comparison-is-one-named-constant-time-fn
+  ;; Asserted structurally rather than by timing: a wall-clock assertion over a
+  ;; nanosecond difference is flaky by construction on a machine running anything else,
+  ;; and would fail on a laptop that throttled mid-run.  What is pinnable is that the
+  ;; comparison is one fn (`MessageDigest/isEqual` over UTF-8 bytes, which reads every
+  ;; byte whatever the lengths) and that it answers correctly either side of equal
+  ;; length — the two cases a `=` on strings would short-circuit differently.
+  (let [matches? #'serve/token-matches?]
+    (testing "equal length"
+      (is (true?  (matches? "s3cret-token" "s3cret-token")))
+      (is (false? (matches? "s3cret-token" "s3cret-tokeN")))
+      (is (false? (matches? "s3cret-token" "X3cret-token"))))
+    (testing "unequal length, either way"
+      (is (false? (matches? "s3cret-token" "s3cret-toke")))
+      (is (false? (matches? "s3cret-token" "s3cret-tokens")))
+      (is (false? (matches? "s3cret-token" ""))))
+    (testing "the bytes are UTF-8, so a non-ASCII token compares as itself"
+      (is (true?  (matches? "sécret-ключ" "sécret-ключ")))
+      (is (false? (matches? "sécret-ключ" "secret-ключ"))))))
+
+(clojure.test/deftest a-bind-that-names-an-address-without-a-token-is-refused
+  ;; Fail closed, both arms.  `--listen` is the flag that publishes `POST /op` — the
+  ;; KB's only writer — *and* the flag that drops the `Host` allowlist, so without this
+  ;; the exposed configuration is the one with the fewest checks.  The loopback default
+  ;; is deliberately not held to it: `lein serve` on a laptop is a real workflow, and a
+  ;; credential required there only teaches an operator to export a constant.
+  (let [posture #'serve/auth-posture]
+    (testing "loopback with no token starts, open — however the interface is spelled"
+      (doseq [h ["127.0.0.1" "localhost" "[::1]" "::1" "0:0:0:0:0:0:0:1"]]
+        (is (= :open (posture h nil)) h))
+      (is (= :open (posture "127.0.0.1" "")) "a blank token is an unset one")
+      (is (= :open (posture "127.0.0.1" "   "))))
+    (testing "a token puts either bind in the authenticated posture"
+      (is (= :required (posture "127.0.0.1" "s3cret")))
+      (is (= :required (posture "0.0.0.0" "s3cret"))))
+    (testing "and an address with no token is refused, typed"
+      (doseq [h ["0.0.0.0" "10.0.0.4" "::" "example.internal"]]
+        (let [e (is (thrown? clojure.lang.ExceptionInfo (posture h nil)) h)]
+          (is (= :unauthorized (:type (ex-data e))) h)
+          (is (= h (:host (ex-data e))) h)
+          (is (re-find #"VAELII_API_TOKEN" (ex-message e)) h))))))
+
+(clojure.test/deftest the-daemon-says-which-posture-it-started-in
+  ;; A test of the log *line*, not of the absence of one: an operator reading a machine
+  ;; after an incident needs to find which posture it was in, and silence on the open
+  ;; one is indistinguishable from a daemon that never started.
+  (let [logged (atom [])
+        run!   (fn [host posture hosts]
+                 (reset! logged [])
+                 (binding [trove/*log-fn*
+                           (fn [_ns _coords level id _payload]
+                             (swap! logged conj [level id]) nil)]
+                   (#'serve/announce-auth! host posture hosts))
+                 @logged)]
+    (testing "loopback with no token starts, and warns naming the flag"
+      (is (= [[:warn ::serve/no-token]] (run! "127.0.0.1" :open :allowlisted))))
+    (testing "a token is said out loud too — both postures are on the record"
+      (is (= [[:info ::serve/authenticated]] (run! "127.0.0.1" :required :allowlisted))))
+    (testing "a public bind adds the line about what a token still does not cover"
+      (is (= [[:info ::serve/authenticated] [:warn ::serve/public-bind]]
+             (run! "0.0.0.0" :required :allowlisted))))
+    (testing "an open Host allowlist on a public bind warns too, named apart from the
+              token so a reader distinguishes which check is missing"
+      (is (= [[:info ::serve/authenticated] [:warn ::serve/public-bind]
+              [:warn ::serve/open-hosts]]
+             (run! "0.0.0.0" :required :open))))))
+
+(clojure.test/deftest host-posture-follows-the-allowlist
+  (let [posture #'serve/host-posture]
+    (testing "loopback is always allowlisted, token or not"
+      (is (= :allowlisted (posture "127.0.0.1"))))
+    (testing "a public bind is open unless VAELII_ALLOWED_HOSTS names something"
+      (if (some? (System/getenv "VAELII_ALLOWED_HOSTS"))
+        (println "SKIP vaelii.serve-test/host-posture-follows-the-allowlist:"
+                 "VAELII_ALLOWED_HOSTS is set in this environment")
+        (is (= :open (posture "0.0.0.0")))))))
+
 ;; ---- the body ceiling ----------------------------------------------------
 ;;
-;; `POST /op` is unauthenticated, so the caller who can reach it is the caller who can
-;; spend the daemon's heap by streaming a body at it.  The reading half — that the
-;; refusal happens *while* reading rather than after — is `vaelii.guard-test`, where the
-;; ceiling lives; what belongs here is that the refusal reaches the wire as a 413 in the
-;; daemon's own error shape, and that no op ran behind it.
+;; A caller who can reach `POST /op` is a caller who can spend the daemon's heap by
+;; streaming a body at it — and on the open loopback default that is every process on
+;; the machine.  The reading half — that the refusal happens *while* reading rather than
+;; after — is `vaelii.guard-test`, where the ceiling lives; what belongs here is that the
+;; refusal reaches the wire as a 413 in the daemon's own error shape, and that no op ran
+;; behind it.
 
 (tu/deftest-kb an-oversized-post-is-a-413-that-runs-no-op
   (tu/with-terms [dog Fido ServeContext]
-    (let [handler (serve/app kb)
+    (let [handler (open-app kb)
           before  (tu/sentex-ids kb)
           body    (.getBytes ^String (pr-str {:op :assert
                                               :args [(list dog Fido) ServeContext]})
@@ -290,11 +464,12 @@
 ;; ---- what it binds -------------------------------------------------------
 
 (tu/deftest-kb the-daemon-binds-loopback-unless-told-otherwise
-  ;; `POST /op` is the write route of the **single writer** and nothing authenticates
-  ;; it, so the default has to answer only this machine — the same rule the browser
-  ;; holds to, and the more consequential of the two.  Jetty binds every interface when
-  ;; no host is given, so "we passed no host" is precisely the bug: this reads the
-  ;; connector rather than the options, because the options are what was wrong.
+  ;; `POST /op` is the write route of the **single writer**, and a loopback daemon is
+  ;; allowed to run with no token, so the default has to answer only this machine — the
+  ;; same rule the browser holds to, and the more consequential of the two.  Jetty binds
+  ;; every interface when no host is given, so "we passed no host" is precisely the bug:
+  ;; this reads the connector rather than the options, because the options are what was
+  ;; wrong.
   (let [bound-host (fn [opts]
                      (let [^Server server (serve/start kb opts)]
                        (try
@@ -302,7 +477,7 @@
                          (finally (.stop server)))))]
     (is (= "127.0.0.1" (bound-host {:port 0}))
         "the daemon bound every interface — with no host given, jetty does, and POST /op
-         is then an unauthenticated write route reachable off-machine")
+         is then a write route reachable off-machine")
     (testing "and an explicit address is still honoured"
       (is (= "127.0.0.1" (bound-host {:port 0 :host "127.0.0.1"}))))))
 
@@ -310,9 +485,9 @@
 
 (tu/deftest-kb client-round-trips-through-the-daemon
   (tu/with-terms [bird flies penguin Tweety WireContext]
-    (let [server (serve/start kb {:port 0})]
+    (let [server (serve/start kb {:port 0 :token nil})]
       (try
-        (let [conn (client/client "localhost" (serve/port server))]
+        (let [conn (client/client "localhost" (serve/port server) {:token nil})]
           (testing "health"
             (is (:ok (client/health conn))))
           (testing "assert / query round-trip over the socket"
@@ -332,6 +507,37 @@
             (let [h (client/handle-of conn (list bird Tweety) WireContext)]
               (client/retract! conn h)
               (is (empty? (client/sentexes-matching conn (list bird Tweety) WireContext))))))
+        (finally
+          (.stop server))))))
+
+(tu/deftest-kb the-client-carries-the-token-over-the-socket
+  ;; The header half, end to end: `app`'s refusal is exercised without a socket above,
+  ;; and what this adds is that the client *sets* the header, on a real request, with
+  ;; nothing but the `conn` to carry it.
+  (tu/with-terms [bird Tweety WireContext]
+    (let [server (serve/start kb {:port 0 :token token})]
+      (try
+        (let [p        (serve/port server)
+              held     (client/client "localhost" p {:token token})
+              tokenless (client/client "localhost" p {:token nil})]
+          (testing "a client holding the token drives the daemon like any other"
+            (is (:ok (client/health held)))
+            (is (nat-int? (client/assert! held (list bird Tweety) WireContext)))
+            (is (= (list bird Tweety)
+                   (:sentence (first (client/sentexes-matching held (list bird '?x)
+                                                               WireContext))))))
+          (testing "and one without it gets the daemon's refusal under the daemon's
+                    own :type, the way every other remote refusal arrives"
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (client/ask? tokenless (list bird Tweety) WireContext)))]
+              (is (= :unauthorized (:type (ex-data e))))))
+          (testing "health is reachable either way — an orchestrator holds no token"
+            (is (:ok (client/health tokenless))))
+          (testing "a wrong token is the same refusal as none"
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (client/ask? (client/client "localhost" p {:token "nope"})
+                                              (list bird Tweety) WireContext)))]
+              (is (= :unauthorized (:type (ex-data e)))))))
         (finally
           (.stop server))))))
 

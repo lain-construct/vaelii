@@ -22,8 +22,8 @@ with forward/backward inference and JTMS truth maintenance.
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.4.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.4.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.5.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.5.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
@@ -49,7 +49,7 @@ Conventions: predicates are `camelCase`, individuals `CapitalCamelCase`, types
 (v/assert kb '(genl dog animal) 'UniverseContext)
 (v/assert kb '(genl animal thing) 'UniverseContext)
 (v/assert kb '(dog Fido) 'NaturalWorldContext)
-(v/isa?    kb 'Fido 'animal)                       ;=> true (via genl)
+(v/isa?    kb 'Fido 'animal)                       ;=> true (via genl; no context arg, so unscoped — any context counts)
 
 ;; a rule is a sentex; forward chaining + truth maintenance
 (v/assert-rule kb '[(parentOf ?x ?y) (parentOf ?y ?z)] '(grandparentOf ?x ?z) 'UniverseContext)
@@ -60,9 +60,46 @@ Conventions: predicates are `camelCase`, individuals `CapitalCamelCase`, types
 (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'NaturalWorldContext)))]
   (v/retract! kb bob))                             ;=> tears down what it solely supported
 
-;; or skip all of the above: the bundled starter ontology, on its own stores
-(starter/load-into (v/open-kb {:record-space 2 :index-space 3}))
+;; or skip all of the above: the bundled starter ontology, on its own stores —
+;; the space number names the store, so a second KB wants one of its own
+(def starter-kb (starter/load-into (v/open-kb {:space 2})))
 ```
+
+## The model
+
+The unit of knowledge is a **sentex**: a sentence — a Clojure s-expression, ground or a
+pattern with `?x` variables — plus the one **context** it holds in.
+
+A sentex canonicalizes into one of two records, split so a fact does not carry the
+rule-only slots: an `AtomicSentex` holds `[sentence context id truth strength]`, and a
+`RuleSentex` adds `[antecedent consequent varmap direction defeasible assumption
+constraint]`. **A rule is a sentex too**, indexed additionally by its antecedent and
+consequent predicates, so it gets a handle, truth maintenance and retraction for free.
+
+A **handle** is the integer id a stored sentex or justification is referenced by,
+allocated in assertion order. A **justification** is antecedent handles plus an informant,
+pointing at a conclusion and carrying the strength it confers; the JTMS reads these to
+compute belief. Sentences identical up to variable names, antecedent order, symmetric
+argument order or comparison direction dedup to one handle.
+
+Transitivity is not done with rules. The `genl` closure over types and the `genlContext`
+closure over contexts are cached and recomputed when an edge changes, as is the equality
+partition behind `rewriteOf` / `sameAs` / `equals`.
+
+Four properties hold everywhere:
+
+- **Order independence** — the same knowledge in any order yields the same beliefs. Belief
+  is computed from current state rather than accumulated, and every tie-break keys on
+  content, never on a handle.
+- **Locality** — no operation recomputes the whole graph; a relabel is scoped to the
+  affected region with the rest held fixed.
+- **Context scoping** — a read sees what its context sees, up the `genlContext` cone:
+  facts, rules, taxonomy edges and definitional checks alike.
+- **Belief filtering** — a stored sentex is not a believed one. Matching, the taxonomy
+  closures and the cached relations all follow belief.
+
+Assert known-true content with `{:strength :monotonic}`. The default is `:default`, which
+is most of a common-sense KB, and a default is defeasible at the edges.
 
 ## Web browser
 
@@ -109,9 +146,15 @@ lein serve 4200 /var/lib/vaelii
 (c/query   conn '(dog ?x)   'NaturalWorldContext)
 ```
 
-See [docs/index.md](docs/index.md) for the architecture — the grouped map of every
-per-subsystem note, starting from [docs/api.md](docs/api.md) and
-[docs/glossary.md](docs/glossary.md).
+## Documentation
+
+[docs/](docs/README.md) carries one note per subsystem. Four to start with:
+[kbs.md](docs/kbs.md) to get a KB in front of you, [api.md](docs/api.md) for the calls,
+[naming.md](docs/naming.md) for the spellings the KB enforces, and
+[contexts.md](docs/contexts.md) for what a read can see.
+[glossary.md](docs/glossary.md) defines the vocabulary. When something does not do what
+you meant — an empty query, a rule that will not fire, a KB holding facts nobody asserted
+— [troubleshooting.md](docs/troubleshooting.md) is indexed by symptom.
 
 ## Contributing
 

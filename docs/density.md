@@ -1,5 +1,12 @@
 # Density — the dense backends
 
+- **Covers:** the dense int-postings, columnar trie, and packed-root backends that replace
+  the default map-based index structures, and what each is measured to cost or save.
+- **Not here:** the index's logical key layout these backends implement →
+  [indexing.md](indexing.md); how `open-kb` selects a record/index backend pairing →
+  [storage.md](storage.md).
+- **Assumes:** sentex, handle, index, canonical form → [glossary.md](glossary.md).
+
 `vaelii.impl.dense-kv`, `vaelii.impl.columnar`, `vaelii.impl.dense-roots`,
 `vaelii.impl.tokens`, `vaelii.impl.dense-jtms`, and the record-side work in
 `vaelii.impl.disk.*`.

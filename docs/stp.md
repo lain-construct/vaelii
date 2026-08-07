@@ -1,5 +1,14 @@
 # Metric time — the simple temporal problem
 
+- **Covers:** how a simple temporal problem bounds the numeric gap between two
+  instants by shortest-path closure, and narrows Allen relations through the
+  startOf/endOf bridge.
+- **Not here:** the generic relation-algebra engine this deliberately does not use →
+  [qcn.md](qcn.md); the qualitative ordering algebras it narrows →
+  [time.md](time.md); the interval-length arithmetic it sharpens →
+  [duration.md](duration.md).
+- **Assumes:** NAT, context, Allen's interval algebra → [glossary.md](glossary.md).
+
 `vaelii.impl.stp` is the quantitative layer under [time.md](time.md). Allen's algebra says
 *that* one meeting ended before another began; the point algebra says the same about two
 moments. Neither says **how long** the gap was, and neither can tell you that a train

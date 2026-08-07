@@ -30,6 +30,7 @@
             [clojure.string :as str]
             [clojure.test :refer [is]]
             [vaelii.core :as v]
+            [vaelii.impl.config :as config]
             [vaelii.impl.protocols :as p]))
 
 ;; Run the *whole* suite through the incremental forward-chaining matcher
@@ -37,7 +38,13 @@
 ;; A regression harness only — the default (unset) leaves the reference matcher in
 ;; place, so ordinary runs are untouched.  Loaded before any test, since every test
 ;; namespace requires this one.
-(when (System/getenv "VAELII_RETE")
+;;
+;; Read through `config/prop-bool` and not for presence: a switch whose every value
+;; means *on* answers `VAELII_RETE=0` with the sweep the operator just turned off, and
+;; an exported-but-empty variable with a sweep they never asked for.  The harness
+;; switches take the same vocabulary as the engine's, so a spelling learned once works
+;; everywhere.
+(when (config/prop-bool "VAELII_RETE" false)
   ((requiring-resolve 'vaelii.impl.rete/enable!)))
 
 ;; And the same shape for the backward half: `VAELII_QUERY_ENGINE=inference` runs every
@@ -48,9 +55,16 @@
 ;; outlives whatever thread frame set it up.
 (defn query-engine-override
   "The engine `VAELII_QUERY_ENGINE` names, or nil.  Read by tests that pin a
-  DFS-specific artifact and must stand aside when the sweep is running."
+  DFS-specific artifact and must stand aside when the sweep is running.
+
+  The domain is `*query-engine*`'s own three, refused rather than passed through: a
+  bare `(keyword …)` turns a typo into an engine `case` falls off the end of, so the
+  sweep runs the default and reports a clean pass for a configuration nothing ran."
   []
-  (when-let [e (System/getenv "VAELII_QUERY_ENGINE")] (keyword e)))
+  (config/prop-enum "VAELII_QUERY_ENGINE"
+                    {"dfs" :dfs "inference" :inference "hybrid" :hybrid}
+                    nil
+                    "dfs, inference, or hybrid"))
 
 (when-let [e (query-engine-override)]
   (alter-var-root #'v/*query-engine* (constantly e))
@@ -66,32 +80,44 @@
 ;; Only meaningful beside `VAELII_QUERY_ENGINE=inference`; the DFS has one order and ignores
 ;; it.
 (defn query-strategy-override
-  "The tactician `VAELII_QUERY_STRATEGY` names, or nil."
+  "The tactician `VAELII_QUERY_STRATEGY` names, or nil.
+
+  The domain is `tactics/tacticians` itself and not a copy of its keys, so a tactician
+  added there is spellable here the same day and one removed stops being accepted
+  without a second edit.  A misspelt tactician is refused for the reason a misspelt
+  engine is: every one of them is complete, so the wrong name is a sweep that runs the
+  default order and passes, saying nothing about the tactician it named."
   []
-  (when-let [s (System/getenv "VAELII_QUERY_STRATEGY")] (keyword s)))
+  (let [roster    @(requiring-resolve 'vaelii.impl.tactics/tacticians)
+        spellings (into {} (map (juxt name identity)) (keys roster))]
+    (config/prop-enum "VAELII_QUERY_STRATEGY" spellings nil
+                      (str "one of " (str/join ", " (sort (keys spellings)))))))
 
 (when-let [s (query-strategy-override)]
   (alter-var-root #'v/*query-options* (constantly s)))
 
 ;; The set-algebra retrieval (`res/matches-hierarchical`) is the default; set
-;; `VAELII_NOHIER` to route every context-scoped match through the reference nested
-;; fan-out instead, so the whole suite can be run against the fallback path.
-(when (System/getenv "VAELII_NOHIER")
+;; `VAELII_HIER=0` to route every context-scoped match through the reference nested
+;; fan-out instead, so the whole suite can be run against the fallback path.  Spelled
+;; positively, so the value says what it selects: a switch whose name carries the
+;; negation reads `=0` as *on*, which is the one thing a reader must not have to work
+;; out at a glance.
+(when-not (config/prop-bool "VAELII_HIER" true)
   (alter-var-root (requiring-resolve 'vaelii.impl.resolution/*hierarchical-retrieval*)
                   (constantly false)))
 
 ;; ---- KBs on the scratch databases ---------------------------------------
 ;;
-;; The suite owns a **block of four** db numbers, named by its top:
+;; The suite owns a **block of two** db numbers, named by its top:
 ;;
-;;   scratch   top, top-1     the shared pair nearly every test runs on
-;;   isolated  top-2, top-3   for a test that rebuilds a KB in a loop and so would
-;;                            clear the scratch pair out from under a `:once` fixture
+;;   scratch   top     the shared db nearly every test runs on
+;;   isolated  top-1   for a test that rebuilds a KB in a loop and so would
+;;                     clear the scratch db out from under a `:once` fixture
 ;;
-;; The number pair keys the store: the in-memory backend keys its process-global
-;; registry by db number (so a KB rebuilt over the same numbers sees the same
+;; The number keys the store: the in-memory backend keys its process-global
+;; registry by db number (so a KB rebuilt over the same number sees the same
 ;; records — the restart the recovery tests rely on), and the disk backend derives
-;; its directory from the pair.  `VAELII_TEST_SPACE` moves the block, so two disk runs
+;; its directory from it.  `VAELII_TEST_SPACE` moves the block, so two disk runs
 ;; can use distinct directories at once.
 
 (def ^:private block-top
@@ -100,10 +126,10 @@
                  (catch NumberFormatException _
                    (throw (ex-info (str "VAELII_TEST_SPACE must be a space number, got " (pr-str s))
                                    {:value s}))))]
-      ;; the block is [n-3, n], and 0/1 are the default KB's db numbers
+      ;; the block is [n-1, n], and 0 is the default KB's db number
       (when-not (<= 5 n 15)
         (throw (ex-info (str "VAELII_TEST_SPACE must be between 5 and 15 — it names the top of a "
-                             "four-database block, and the block must clear db numbers 0 and 1 "
+                             "two-database block, and the block must clear db number 0 "
                              "(the default KB).  Got " n ".")
                         {:value n})))
       n)
@@ -111,7 +137,7 @@
 
 ;; The storage the whole suite runs on.  `:memory` (default) keeps everything in RAM
 ;; with no external dependency; `VAELII_TEST_BACKEND=disk` runs every test against the
-;; on-disk stores (the durability parity gate).  Either way the db numbers name a shared
+;; on-disk stores (the durability parity gate).  Either way the db number names a shared
 ;; store, so the block/isolated split and `fresh`'s clear behave identically.
 ;;
 ;; The value is a `:backend` name, `<records>-<index>` (`disk-memory`, `memory-columnar`)
@@ -119,7 +145,7 @@
 ;; `scripts/test-backends.sh` runs every one of them.
 ;;
 ;; `overlay` is the odd one: it names a *decorator* rather than a store, so the opts it
-;; expands to are built per space pair by `space-opts` below.
+;; expands to are built per space by `space-opts` below.
 (def ^:private storage
   (if-let [b (some-> (System/getenv "VAELII_TEST_BACKEND") str/trim str/lower-case not-empty)]
     {:backend (keyword b)}
@@ -139,32 +165,32 @@
 ;; unrecovered-store warning would be noise on nearly every build.
 
 (defn- space-opts
-  "The KB opts for one of the suite's space pairs, on whatever storage the run selected.
+  "The KB opts for one of the suite's spaces, on whatever storage the run selected.
   `overlay` is spelled out here rather than in `storage`, because a fork is a decorator
-  over *two* stores: the suite's own pair becomes the writable overlay, and the base is an
-  empty pair beside it — which is exactly the gate, a fork over nothing behaving as the
+  over *two* stores: the suite's own space becomes the writable overlay, and the base is an
+  empty space beside it — which is exactly the gate, a fork over nothing behaving as the
   thing it forked."
-  [rs is]
+  [s]
   (let [common {:recover? false :tms tms-kind}]
     (if (= :overlay (:backend storage))
       (merge common {:backend :overlay
-                     :base    {:backend :memory :record-space [::base rs] :index-space [::base is]}
-                     :overlay {:backend :memory :record-space rs :index-space is}})
-      (merge {:record-space rs :index-space is} common storage))))
+                     :base    {:backend :memory :space [::base s]}
+                     :overlay {:backend :memory :space s}})
+      (merge {:space s} common storage))))
 
-(def scratch-space  (space-opts block-top       (- block-top 1)))
-(def isolated-space (space-opts (- block-top 2) (- block-top 3)))
+(def scratch-space  (space-opts block-top))
+(def isolated-space (space-opts (- block-top 1)))
 
 (def plain-memory-space
   "A plain in-RAM KB beside `*kb*`, whatever storage the run selected — for a test
   that needs a second, backend-independent KB (an export parity source, a round-trip
-  target).  Its own derived pair, so it shares a store with nothing: not the process
-  defaults, and not the fork's writable half under the overlay run.  `(assoc
+  target).  Its own derived space, so it shares a store with nothing: not the process
+  default, and not the fork's writable half under the overlay run.  `(assoc
   scratch-space :backend :memory)` is not this: under the overlay run that spelling
   drags the template's `:base`/`:overlay` halves along — a contradiction `open-kb`
-  refuses — and, carrying no top-level pair, would land on the process defaults."
+  refuses — and, carrying no top-level space, would land on the process default."
   {:backend :memory
-   :record-space [::plain block-top] :index-space [::plain (- block-top 1)]
+   :space [::plain block-top]
    :recover? false :tms tms-kind})
 
 ;; ---- live model calls -----------------------------------------------------
@@ -182,13 +208,13 @@
              (some-> (System/getenv "VAELII_LLM_LIVE") str/trim str/lower-case)))
 
 (defn test-kb
-  "A KB on the shared scratch pair."
+  "A KB on the shared scratch space."
   []
   (v/open-kb scratch-space))
 
 (defn isolated-test-kb
-  "A KB on the isolated pair, for a test that rebuilds a KB in a loop: `fresh`
-  clears the scratch pair every call, which would wipe a KB another namespace is
+  "A KB on the isolated space, for a test that rebuilds a KB in a loop: `fresh`
+  clears the scratch space every call, which would wipe a KB another namespace is
   holding open through a `:once` fixture.  Such tests pass alone and fail together
   — the worst way to find out."
   []
@@ -205,11 +231,11 @@
   (some-> (:refused kb) (reset! {})))
 
 (defn fresh
-  "An empty, cleared KB on the shared scratch pair."
+  "An empty, cleared KB on the shared scratch space."
   [] (doto (test-kb) (clear-kb!)))
 
 (defn isolated-fresh
-  "An empty, cleared KB on the isolated pair.  See `isolated-test-kb`."
+  "An empty, cleared KB on the isolated space.  See `isolated-test-kb`."
   [] (doto (isolated-test-kb) (clear-kb!)))
 
 ;; ---- gensym'd temporary terms (naming-invariant by construction) --------
@@ -391,7 +417,7 @@
     (let [kb (fresh)]
       (load-fn kb)
       ;; `finally`, like every sibling fixture: an Error escaping the namespace's
-      ;; tests would otherwise leave the shared scratch pair populated for whatever
+      ;; tests would otherwise leave the shared scratch space populated for whatever
       ;; namespace runs next
       (try (binding [*kb* kb] (f))
            (finally (clear-kb! kb))))))

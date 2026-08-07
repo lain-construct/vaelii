@@ -97,7 +97,7 @@
                      "lits" "strategy" "rows" "exec ms" "exec x" "plan ms"))
     (println (str "  " (apply str (repeat 82 \-))))
     (doseq [width [2 3 4 5]]
-      (let [kb (v/open-kb {:backend :memory :record-space 30 :index-space 31 :recover? false})
+      (let [kb (v/open-kb {:backend :memory :space 30 :recover? false})
             _  (build! kb width n m)
             q  (conjunction width)
             plans {:written  (vec q)

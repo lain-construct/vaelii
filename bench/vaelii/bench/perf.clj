@@ -82,7 +82,7 @@
 (defn- fresh-kb
   "An empty KB on its own space, so one check cannot leave state in another's."
   []
-  (let [k (v/open-kb {:record-space 9 :index-space 8 :recover? false})]
+  (let [k (v/open-kb {:space 9 :recover? false})]
     (p/clear-records! (:records k))
     (p/clear-index!   (:index k))
     k))

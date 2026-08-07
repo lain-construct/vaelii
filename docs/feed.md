@@ -1,5 +1,12 @@
 # The change feed
 
+- **Covers:** what `watch` delivers to a listener when belief moves — every change for a
+  plain listener, or a standing query's filtered subset, one event per settle.
+- **Not here:** the operational surface a daemon serves, which has no way to push a feed
+  across the wire → [operations.md](operations.md); the one-shot before/after diff for a
+  batch not yet committed → [preview.md](preview.md).
+- **Assumes:** sentex, context, settle, justification → [glossary.md](glossary.md).
+
 `core/watch` — be told when belief moved, instead of asking again.
 
 ```clojure

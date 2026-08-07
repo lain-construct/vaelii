@@ -1,7 +1,19 @@
 # Inference and truth maintenance
 
+- **Covers:** how a rule fires forward and backward — direction, the forward agenda, the two
+  backward chainers (`prove` and the node engine), predicate subsumption, query planning, and
+  the `ask` prover registry.
+- **Not here:** resumable, resource-bounded search → [anytime.md](anytime.md); belief
+  maintenance, defeat classes and contradiction resolution → [nmtms.md](nmtms.md).
+- **Assumes:** sentex, context, `genl`, JTMS → [glossary.md](glossary.md).
+
 `vaelii.impl.rules`, `vaelii.impl.resolution`, `vaelii.impl.jtms`, the forward chainer in
 `vaelii.impl.chain`, and the fixpoint that follows it in `vaelii.impl.settle`.
+
+For this machinery as worked, verified examples rather than prose, see the `/reasoning`
+browser page ([web.md](web.md)) — each card runs a real query against the shipped
+ontology, kept honest against KB drift by
+[`examples_test.clj`](../test/vaelii/examples_test.clj).
 
 ## Rules are sentexes
 
@@ -774,10 +786,21 @@ was given); the node engine terminates on the **bound**. So a derivation deeper 
 bound is found by one and not the other, and the depth a query needs is a property of the
 data, which is why there is no default to pick.
 
-Within the bound the two agree, which is what `inference_parity_test` holds them to
-directly and what `VAELII_QUERY_ENGINE=inference` checks across the whole suite — 2,426
-tests, 238,110 assertions at `:all`, failing-set-identical. That is why `*query-engine*` defaults
-to `:dfs`: two engines that disagree are worse than one engine that is slow.
+Within the bound the two return the same answer **set**, which is what
+`inference_parity_test` holds them to directly and what `VAELII_QUERY_ENGINE=inference`
+checks across the whole suite — 2,655 tests, 239,998 assertions at `:all`,
+failing-set-identical.
+
+What the two do **not** share is multiplicity. The DFS returns one solution per
+derivation, so a goal reachable two ways comes back twice with equal maps; the node
+engine keys a `seen` set on the bindings, so two derivations of one answer are one
+answer and the proof it hands back is the first found. Both spellings of that are
+deliberate, and neither is a defect of the other — but it means **a caller counting
+`prove`'s results rather than reading their set is reading an engine-specific number**.
+`backward_test`'s multiplicity assertions therefore stand aside under the sweep
+(`tu/query-engine-override`) while its answer-set assertions run under both. That is
+why `*query-engine*` defaults to `:dfs`: two engines that disagree are worse than one
+engine that is slow.
 
 ## The literal cache (`vaelii.impl.literal-cache`)
 

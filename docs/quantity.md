@@ -1,5 +1,13 @@
 # Measures: the measure-evaluating quantity prover
 
+- **Covers:** how two ground measures are compared by normalizing against a
+  `dimensionOf` / `conversionFactor` table, with an epsilon tolerance.
+- **Not here:** why a measure term stays structural instead of reifying to a
+  constant → [nat.md](nat.md); interval arithmetic like total or overlap duration →
+  [duration.md](duration.md).
+- **Assumes:** sentex, context, structural NAT, deferred literal →
+  [glossary.md](glossary.md).
+
 A **measure** is a structural NAT — an `unreifiableFunction` application that stays *structural*
 so its magnitude and unit are readable ([nat.md](nat.md)):
 

@@ -1,5 +1,14 @@
 # Argument-position preservation
 
+- **Covers:** how `argPreserving` / `argPreservingInverse` license carrying a stated claim
+  about one argument across a transitive relation, and how a specific claim undercuts
+  rather than defeats a general one.
+- **Not here:** matching a unary type antecedent against a subtype's stored fact —
+  automatic, undeclared → [taxonomy.md](taxonomy.md); `argIsa` / `argGenl` minted as a
+  justified fact from a type declaration → [argtypes.md](argtypes.md).
+- **Assumes:** `genl`, transitive predicates, defeat-class, justification →
+  [glossary.md](glossary.md).
+
 `(largerThan dog cat)` says something about two *kinds*. Whether it also says something
 about `golden_retriever` and `maine_coon` is not decidable from the sentence — it
 depends on whether the relation distributes over the kinds' subkinds. Some relations do:

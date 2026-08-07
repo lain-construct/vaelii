@@ -74,7 +74,8 @@
       (dotimes [i nn]
         (let [n (.get order i) k (n-kids n)]
           (aset counts i (int (n-cnt n)))
-          (aset offsets (inc i) (+ (aget offsets i) (if k (.size ^Int2ObjectOpenHashMap k) 0)))))
+          (aset offsets (inc i) (int (+ (aget offsets i)
+                                        (if k (.size ^Int2ObjectOpenHashMap k) 0))))))
       (let [ne       (aget offsets nn)
             edge-tok (int-array ne)
             edge-tgt (int-array ne)]
@@ -145,8 +146,8 @@
    (survey/ensure-store! dir n)
    (survey/uniform-pairs dir n)))
 
-(defn- load-into [pairs backend rdb idb]
-  (let [kb (kb/open-kb {:backend backend :record-space rdb :index-space idb :recover? false}
+(defn- load-into [pairs backend db]
+  (let [kb (kb/open-kb {:backend backend :space db :recover? false}
                          (fn [_] nil) (fn [_] nil))]
     (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
     (doseq [[s c] pairs] (try (kb/create-sentex kb s c) (catch Exception _ nil)))
@@ -155,7 +156,7 @@
 (defn -main [& args]
   (let [n     (or (some-> (first args) Long/parseLong) 300000)
         pairs (real-pairs n)
-        kb    (load-into pairs :memory 28 29)
+        kb    (load-into pairs :memory 28)
         state @(:state (:backend (:index kb)))
         stored (count (p/sentex-ids (:records kb)))]
     (println (format "vaelii Phase-2 dense-trie measurement — %,d real facts (uniform sample)" stored))
@@ -163,9 +164,9 @@
     ;; measured the same way for each backend — :memory (flat map), :memory-dense
     ;; (int-postings values), :memory-columnar (native int-token trie + int-postings).
     (let [mem-idx  (postings/retained [(:index kb)])
-          dkb      (load-into pairs :memory-dense 26 27)
+          dkb      (load-into pairs :memory-dense 26)
           den-idx  (postings/retained [(:index dkb)])
-          ckb      (load-into pairs :memory-columnar 24 25)
+          ckb      (load-into pairs :memory-columnar 24)
           col-idx  (postings/retained [(:index ckb)])]
       (println "\n══ Phase 1 + 2 (landed): whole index store, retained heap ══")
       (println (format "  :memory          %8.1f MB   (flat map of boxed vector keys — the baseline)" (mb mem-idx)))

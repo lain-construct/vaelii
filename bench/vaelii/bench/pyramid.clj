@@ -67,7 +67,7 @@
     (format "%040x" (BigInteger. 1 (.digest md)))))
 
 (defn- fresh-kb []
-  (let [kb (v/open-kb {:backend :memory :record-space 44 :index-space 45
+  (let [kb (v/open-kb {:backend :memory :space 44
                        :recover? false})]
     (p/clear-records! (:records kb))
     (p/clear-index! (:index kb))

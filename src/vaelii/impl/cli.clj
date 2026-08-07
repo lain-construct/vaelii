@@ -10,6 +10,11 @@
     lein run -m vaelii.impl.cli why     3                                 --dir /tmp/kb
     lein run -m vaelii.impl.cli export  /tmp/dump                         --dir /tmp/kb
     lein run -m vaelii.impl.cli repl --starter          # interactive, starter schema
+    lein cli help                                      # every command and what it takes
+
+  `help` is a word rather than only a flag because Leiningen answers `lein cli --help`
+  itself, printing the alias expansion — the flag never reaches this namespace through
+  the alias, though it does through the full `lein run -m vaelii.impl.cli --help`.
 
   **Backend.**  `--dir <path>` uses the durable `:disk` backend (recovered on open, so
   a fact asserted in one invocation is there in the next); with no `--dir` the KB is
@@ -55,7 +60,8 @@
       (let [a (first as)]
         (cond
           (not (str/starts-with? a "--")) (recur (rest as) (conj pos a) opts)
-          (#{"--memory" "--starter"} a)   (recur (rest as) pos (assoc opts (keyword (subs a 2)) true))
+          (#{"--help" "--memory" "--starter"} a)
+          (recur (rest as) pos (assoc opts (keyword (subs a 2)) true))
           (not (value-flags a))
           (throw (ex-info (str "unknown flag: " a) {:type :unknown-option :flag a}))
           :else (if-some [v (second as)]
@@ -88,16 +94,96 @@
 ;; symbol, a handle a long), so `-main` (which edn-reads each argv string) and the REPL
 ;; (which reads forms off the line) share one implementation.
 
+(def command-table
+  "Every command word, in the order `--help` prints it: `[min max operands gloss]`.
+
+  `max` is nil for a command whose last operand is optional.  One table rather than
+  two, because the arity a command *takes* and the arity `--help` *advertises* going
+  out of step is how a usage message starts lying — and `dispatch` reaches into `args`
+  with `nth`, so an unchecked short line raises `IndexOutOfBoundsException`, whose
+  message is the class name and names neither the command nor the argument."
+  [["assert"      2 2   "'<sentence>' <Context>"        "store a fact"]
+   ["assert-rule" 3 3   "'[<antecedents>]' '<consequent>' <Context>" "store a rule"]
+   ["match"       2 2   "'<pattern>' <Context>"         "stored, believed literals"]
+   ["query"       2 2   "'<goal>' <Context>"            "the default read (--depth N to expand rules)"]
+   ["query?"      2 2   "'<goal>' <Context>"            "the same, as a boolean"]
+   ["ask"         2 2   "'<goal>' <Context>"            "the prover registry, no rule expansion"]
+   ["prove"       2 2   "'<goal>' <Context>"            "backward chaining; one solution per derivation"]
+   ["provable?"   2 2   "'<goal>' <Context>"            "the same, as a boolean"]
+   ["retract"     1 1   "<handle>"                      "remove a sentex and what it solely supported"]
+   ["why"         1 1   "<handle>"                      "the proof tree behind a belief"]
+   ["why-not"     1 2   "'<goal>' [<Context>]"          "why a goal is not believed"]
+   ["in"          1 1   "<handle>"                      "is it believed?"]
+   ["isa"         2 3   "<Individual> <type> [<Context>]" "type membership, via genl"]
+   ["types-of"    1 2   "<Individual> [<Context>]"      "the types asserted of it, not their supertypes"]
+   ["handle-of"   2 2   "'<sentence>' <Context>"        "the handle a sentence is stored under"]
+   ["types"       0 0   ""                              "types in the genl hierarchy"]
+   ["contexts"    0 0   ""                              "contexts in the genlContext hierarchy"]
+   ["conflicts"   0 0   ""                              "irreducible :monotonic clashes, both still believed"]
+   ["contradictions" 0 0 ""                             "coexisting P/¬P pairs at :default"]
+   ["load"        1 1   "<file>"                        "assert an edn vector of [sentence context opts]"]
+   ["export"      1 1   "<dest>"                        "write a dump (--variant, --compression)"]
+   ["repl"        0 0   ""                              "the interactive loop"]])
+
 (def commands
   "The command words `dispatch` knows, for the usage message and `unknown command`."
-  ["assert" "assert-rule" "match" "query" "query?" "ask" "prove" "provable?" "retract"
-   "why" "why-not" "in" "isa" "types-of" "handle-of" "types" "contexts" "conflicts"
-   "contradictions" "load" "export" "repl"])
+  (mapv first command-table))
+
+(def ^:private arity-of
+  "command word -> `[min max operands]`, for `check-arity!`."
+  (into {} (map (fn [[c mn mx ops _]] [c [mn mx ops]])) command-table))
+
+(defn check-arity!
+  "Refuse a command line with the wrong number of operands, naming what the command
+  takes and what it got.
+
+  Without this the short line reaches `dispatch`, whose `nth` raises
+  `IndexOutOfBoundsException` — caught and printed, so `lein cli assert '(dog Rex)'`
+  answers `error: IndexOutOfBoundsException`: a true statement about a vector, and no
+  help at all to someone who left off a context.  A *long* line is refused too, since
+  the extra operand is otherwise dropped in silence — and a dropped context is a fact
+  stored somewhere other than where it was meant to go."
+  [cmd args]
+  (when-some [[mn mx ops] (arity-of cmd)]
+    (let [n (count args)]
+      (when (or (< n mn) (and mx (> n mx)))
+        (throw (ex-info (str cmd " takes " (if (and mx (= mn mx))
+                                             (str mn " argument" (when (not= 1 mn) "s"))
+                                             (str mn "–" (or mx "any") " arguments"))
+                             ", given " n
+                             "\n  usage: " cmd (when (seq ops) (str " " ops))
+                             "\n  quote every argument: the shell eats ( ) [ ] and ?")
+                        {:type :unknown-option :cmd cmd :given n :takes [mn mx]}))))))
+
+(defn usage
+  "The `--help` text: every command, its operands and a one-line gloss."
+  []
+  (let [w (apply max (map (fn [[c _ _ ops _]] (count (str c " " ops))) command-table))]
+    (str "vaelii — a command-line driver for a KB\n\n"
+         "  lein cli <command> [args…] [--dir <path>] [--starter] [--memory]\n\n"
+         "Quote every argument. A shell eats parens, brackets and `?`:\n"
+         "  lein cli assert '(dog Fido)' NaturalWorldContext --dir /tmp/kb\n"
+         "  lein cli match  '(dog ?x)'   NaturalWorldContext --dir /tmp/kb\n\n"
+         "Commands:\n"
+         (str/join "\n"
+                   (for [[c _ _ ops gloss] command-table]
+                     (str "  " (format (str "%-" w "s")
+                                       (str c (when (seq ops) (str " " ops))))
+                          "   " gloss)))
+         "\n\nOptions:\n"
+         "  --dir <path>          the durable :disk KB (recovered on open); absent, in-memory\n"
+         "  --memory              the in-memory KB, said explicitly\n"
+         "  --starter             load the shipped starter schema\n"
+         "  --strength <s>        assert at :monotonic instead of :default\n"
+         "  --depth <n>           how far query expands rules\n"
+         "  --variant <v>         export: records | records+index\n"
+         "  --compression <c>     export: gzip | xz | none\n")))
 
 (defn dispatch
   "Run one command against `kb` and return its result (a handle, a seq of sentences /
   solutions, a proof tree, …).  `args` are data; `opts` is the parsed option map."
   [kb cmd args opts]
+  (check-arity! cmd args)
   (let [strength (when-let [s (:strength opts)] {:strength (keyword s)})
         ;; `--depth n` is how a command line says how far to expand rules.  Absent, the
         ;; read is whatever needs no rule — `query`'s contract, and there is deliberately
@@ -173,7 +259,7 @@
   fixed at repl start).  Holds `kb` in-process, so a memory KB accumulates for the
   session.  Ends on `exit` / `quit` / EOF."
   [kb opts]
-  (println "vaelii repl —" (str/join " " commands) "— or exit")
+  (println "vaelii repl —" (str/join " " commands) "— or help, or exit")
   (loop []
     (print "vaelii> ") (flush)
     (when-let [line (read-line)]
@@ -181,6 +267,7 @@
         (cond
           (#{"exit" "quit"} line) (println "bye")
           (str/blank? line)       (recur)
+          (#{"help" "--help"} line) (do (println (usage)) (recur))
           ;; `Throwable`, as the browser's untrusted-EDN reads: a deeply nested line
           ;; raises `StackOverflowError` out of `read-forms`, and the loop dying on a
           ;; line of input is the one thing a shell must not do
@@ -206,6 +293,11 @@
                                   (println "error:" (.getMessage e))
                                   (System/exit 1)))
         [cmd & args] positionals
+        ;; before the KB is opened: `--help` should answer on a machine with no KB,
+        ;; and should not take a `--dir` lock to print a page of text
+        _  (when (or (:help opts) (= cmd "help"))
+             (println (usage))
+             (System/exit 0))
         kb (try (open-kb-from opts)
                 (catch clojure.lang.ExceptionInfo e
                   (println "error:" (.getMessage e))
@@ -237,4 +329,5 @@
       :else
       (do (println "unknown command:" cmd)
           (println "commands:" (str/join " " commands))
+          (println "`lein cli help` for what each one takes")
           (System/exit 2)))))

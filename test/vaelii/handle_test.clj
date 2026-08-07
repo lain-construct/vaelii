@@ -15,7 +15,7 @@
   write can lose data.
 
   Its KBs are private (own db numbers, own temp directory) rather than the suite's
-  scratch pair, because the subject is a store's id counter — a shared store would
+  scratch space, because the subject is a store's id counter — a shared store would
   carry another namespace's handles into the arithmetic."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
@@ -39,7 +39,7 @@
   number is a fixed global path, and a run that was killed rather than closed leaves
   its single-writer lock behind on it."
   [f]
-  (doseq [opts [{:backend :memory :record-space 96 :index-space 97}
+  (doseq [opts [{:backend :memory :space 96}
                 {:backend :disk}]]
     (testing (str (:backend opts))
       (let [dir (when (= :disk (:backend opts)) (temp-dir))

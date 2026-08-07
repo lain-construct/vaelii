@@ -1,5 +1,12 @@
 # Equality: `rewriteOf`, `sameAs`, `equals`, and `different`
 
+- **Covers:** how `rewriteOf`, `sameAs` and `equals` merge two ground names into one
+  belief-following partition, and why `different` still holds afterward.
+- **Not here:** orienting a schematic equation with variables into a rewrite rule →
+  [equational.md](equational.md); reifying a function-application term to a constant
+  before it can be merged → [nat.md](nat.md).
+- **Assumes:** sentex, context, taxonomy, canonical form → [glossary.md](glossary.md).
+
 How two names come to denote one thing, and why the unique-name assumption survives it.
 
 ## The problem
@@ -109,10 +116,12 @@ store once, and this stores never.
 
 Because it consumes bindings rather than producing them, `different` is a
 **deferred literal**, the same class as `lessThan` / `greaterThan` / `evaluate`.
-`sentex/canonical-conjunction` holds that whole class back in the author's order —
-`held?` there asks the public `sentex/deferred-literal?` — because their position is
-operational rather than logical. (`sentex/cmp-term` is the total order the *generators*
-are sorted by, and never sees them.)
+`sentex/canonicalize-rule` holds that whole class back in the author's order — `held?`
+there asks the public `sentex/deferred-literal?` — because their position is operational
+rather than logical. (`sentex/cmp-blind` is the total order the *generators* are sorted
+by, and never sees them. Blind, because a comparator that read variable names would let
+the author's choice of `?x` over `?a` decide antecedent order, and two spellings of one
+rule would canonicalize apart.)
 
 ## What a merge does
 

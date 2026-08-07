@@ -70,7 +70,7 @@
   disk one, so the two are exactly as recoverable as each other."
   [kind opts]
   (case kind
-    :memory (mem/memory-kv-backend {:space [::meta (:record-space opts 0)]})
+    :memory (mem/memory-kv-backend {:space [::meta (:space opts 0)]})
     :disk   (disk/overlay-meta-for (disk/disk-dir opts))
     (throw (ex-info (str "no overlay bookkeeping for record backend " (pr-str kind)
                          " — a fork's own records are :memory or :disk")
@@ -99,13 +99,13 @@
 (defonce ^:private fork-seq (atom 0))
 
 (defn fresh-overlay-opts
-  "Storage opts for an **ephemeral** fork: an in-RAM overlay on a space pair nothing else
+  "Storage opts for an **ephemeral** fork: an in-RAM overlay on a space nothing else
   names, so two forks taken with no opts are independent rather than accidentally the same
-  one.  Naming the spaces explicitly is how a caller asks for the other behaviour — a
+  one.  Naming the space explicitly is how a caller asks for the other behaviour — a
   remount of a fork it took earlier."
   []
   (let [n (swap! fork-seq inc)]
-    {:backend :memory :record-space [::fork n] :index-space [::fork n :index]}))
+    {:backend :memory :space [::fork n]}))
 
 (defn mount-index
   "A `KvIndexStore` over an `OverlayKv`: `overlay`'s backend (writable) over `base`'s

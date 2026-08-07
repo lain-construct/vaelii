@@ -1,5 +1,13 @@
 # Web browser
 
+- **Covers:** what each browser route shows — terms, sentexes, justifications, proof
+  trees, the constraint network — and how the editor, assert form and proposal panel
+  write through `edit!`.
+- **Not here:** which KB sources exist and how one loads or switches →
+  [catalog.md](catalog.md); the model that proposes lines for the panel to render →
+  [llm.md](llm.md).
+- **Assumes:** sentex, context, handle, justification → [glossary.md](glossary.md).
+
 `vaelii.impl.web`. A small [reitit](https://github.com/metosin/reitit)-ring browser for
 inspecting a KB. Run it with `lein run -m vaelii.web` (serves a starter-loaded KB
 on `http://127.0.0.1:3000`).
@@ -12,7 +20,11 @@ lein run -m vaelii.web --attach HOST PORT [WEBPORT]
 
 lein browser                                           # ...or a REPL with it running in it
 VAELII_WEB_PORT=3010 lein browser
+VAELII_WEB_PORT=3010 lein run -m vaelii.web            # the variable moves either one
 ```
+
+`VAELII_WEB_PORT` is the default rather than an override: an explicit `--port` wins, and
+a value that does not parse falls back to 3000 rather than refusing to start.
 
 `--listen` and `--attach` are independent axes: `--listen` says who may reach the
 browser, `--attach` says whose KB it shows. The startup log names the interface it
@@ -52,9 +64,11 @@ so each run starts from a clean, deterministic state — re-asserting the starte
 over stale handles from an earlier run (or an earlier code version) would otherwise
 fail. For a *persistent* KB, construct one against existing databases and call
 `core/recover` instead of loading the starter. Startup logs go through
-[Trove](https://github.com/taoensso/trove) (`trove/log!`, default console backend);
-Jetty's own SLF4J logging is silenced by a NOP binding (`org.slf4j/slf4j-nop`), so
-no "No SLF4J providers were found" warning appears.
+[Trove](https://github.com/taoensso/trove) (`trove/log!`), at the level
+`VAELII_LOG_LEVEL` or `core/set-log-level` sets and Trove's own console default when
+neither does; Jetty's own SLF4J logging is silenced by a NOP binding
+(`org.slf4j/slf4j-nop`), so no "No SLF4J providers were found" warning appears — and no
+request log either, which [operations.md](operations.md) states as the trade it is.
 
 ## Pages
 
@@ -555,8 +569,8 @@ Clear.
   handle, so a line rewritten in place retracts at that position and asserts at it. Only
   that exact coincidence pairs — a line you appended has no row to replace, so it is
   listed in the result panel instead of pretending to be one.
-- The writes go through the access facade — `access/edit` (Save, Retract),
-  `access/edit-with-consequences` (the assert form, an accepted proposal),
+- The writes go through the access facade — `access/edit!` (Save, Retract),
+  `access/edit-with-consequences!` (the assert form, an accepted proposal),
   `access/forward-chain`, and `access/preview`, which stores nothing but holds the
   single writer while it applies a batch and rolls it back. So they work both
   in-process and when the browser is **attached to a daemon** — the daemon is the
@@ -982,7 +996,7 @@ So where a **cheap ranking** exists, the page shows the top of it and says what 
 is; where one does not, it caps and continues. Cheap is the constraint, and it is a real
 one — the rankings taken are the ones the index already answers in O(1):
 
-- **Contexts, by what they hold.** `context-size` is one set-size read each, so the whole
+- **Contexts, by what they hold.** `count-in-context` is one set-size read each, so the whole
   ranking is `n` O(1) reads (150 ms over 13,196, and past `context-rank-cap` the page says
   it cannot rank rather than spending it). This is the ranking that earns its keep: a
   corpus's mass is not spread evenly over its contexts, and the four largest name the

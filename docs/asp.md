@@ -1,5 +1,12 @@
 # The ASP backend
 
+- **Covers:** how the edge solver renders a contested `Program` to ASPIF and solves it
+  with clingo or clasp, deterministically.
+- **Not here:** the assumption-rule and constraint vocabulary that builds a `Program` in
+  the first place → [solving.md](solving.md); committing one labeling of a dilemma into
+  base belief → [labeling.md](labeling.md).
+- **Assumes:** edge solver, nogood, brave/cautious → [glossary.md](glossary.md).
+
 The real answer-set solver behind the edge-solver seam. Two layers: a
 general-purpose ASP toolkit that
 knows nothing about vaelii, and one namespace that renders a
@@ -121,9 +128,13 @@ depend on the order the knowledge arrived — the engine-wide invariant in
   render in hash order.
 - Level 0 makes defeating the greatest content-key cheapest, mirroring the stub.
 
-`asp_edge_test` pins this by running all 24 orderings of a Nixon diamond through a
-KB with `edge-solver` installed and demanding one distinct outcome — the same
-assertion `order_independence_test` makes for the stub.
+`asp_edge_test` pins the three directly, on hand-built configurations whose handles are
+swapped so that a handle-keyed allocation would render a different program from a
+content-keyed one. It separately runs all 24 orderings of a Nixon diamond through a KB
+with `edge-solver` installed and demands one distinct outcome — but that permutation
+answers a different question, since the engine routes a plain rebuttal to no solver at
+all (below): what it catches is whether the mere *presence* of a backend perturbs the
+result, which is the assertion `order_independence_test` makes for the stub.
 
 ## Classification: what was forced, what was a coin toss
 
@@ -144,10 +155,18 @@ Asking for all optimal answer sets instead of one separates them:
 (label/classify kb)             ; -> {:true #{h} :supportable #{h} :false #{h}}
 ```
 
-In a Nixon diamond both sides come back `:supportable`: whichever one the engine
-committed to, the other was equally available. Where two nogoods share a member,
-that member is `:false` and its partners `:true` — dropping the shared one costs a
-single defeat, so every optimum does it.
+Where two nogoods share a member, that member is `:false` and its partners `:true` —
+dropping the shared one costs a single defeat, so every optimum does it.
+
+**`classify` reads the last `Program` the engine built, and a plain rebuttal builds
+none.** The engine does not arbitrate a coexisting `P`/`¬P` pair at `:default`: that is a
+represented dilemma, both sides stay IN, and `settle` never reaches the solver. So
+`last-program` is nil and `classify` answers `{:true #{} :supportable #{} :false #{}}` —
+empty sets, not two `:supportable` handles. A Nixon diamond is exactly that shape, which
+makes it the illustration `classify` cannot be shown with: to classify one, commit to a
+labeling first with `do/labeling` ([labeling.md](labeling.md)), which is the mechanism
+that does build a program from a dilemma. `asp_edge_test`'s
+`the-asp-solver-does-not-decide-a-nixon-diamond` pins the absence.
 
 ### Two things keep this honest
 

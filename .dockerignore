@@ -1,0 +1,25 @@
+# The build context is `project.clj`, `src/` and `resources/`; everything below is
+# either rebuilt inside the image or has no business in it.  A KB directory is the
+# ordinary way this file stops mattering and the build context becomes gigabytes.
+.git/
+.github/
+.claude/
+target/
+checkouts/
+kbs/
+logs/
+heapdumps/
+
+# generated locally by a deploy/install run, never read by `lein uberjar`
+pom.xml
+
+# not on the uberjar's source path, so none of it reaches the artifact anyway
+test/
+bench/
+docs/
+scripts/
+
+*.log
+.lein-*
+.nrepl-port
+.DS_Store

@@ -1,5 +1,11 @@
 # Common sense, and how it is checked
 
+- **Covers:** what counts as a common-sense test, the sweep of questions it asks per
+  reasoning subsystem, and how an outside model judges the derived answers.
+- **Not here:** reading English into the KB → [reading.md](reading.md); the LLM
+  edit-proposal pipeline the oracle sits beside → [llm.md](llm.md).
+- **Assumes:** context, defeasible, `abduciblePredicate` → [glossary.md](glossary.md).
+
 Two test namespaces ask this knowledge base the questions it exists to answer, one per
 reasoning subsystem, and a third instrument puts its answers to an outside reader.
 

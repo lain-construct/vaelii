@@ -1,5 +1,12 @@
 # Storage
 
+- **Covers:** the `RecordStore` / `IndexStore` protocols, the seven legal record×index
+  backend pairings, nippy serialization, and the single-writer contract.
+- **Not here:** the six index families' key layout and retrieval →
+  [indexing.md](indexing.md); the dense/columnar backends that replace the default
+  map-based structures → [density.md](density.md).
+- **Assumes:** sentex, handle, record store, index store → [glossary.md](glossary.md).
+
 `vaelii.impl.protocols`, `vaelii.impl.kv`, `vaelii.impl.memory`,
 `vaelii.impl.disk.*`.
 
@@ -52,15 +59,30 @@ restart but still holds the whole map in memory. The one exception is the
 `:disk-columnar` image ("The image", below), which is off by default and `mmap`s the
 leaf handles and root postings rather than reading them onto the heap.
 
-Two space numbers (`:record-space` / `:index-space`, default 0/1) namespace the pair so
-several KBs coexist in one process; each backend uses them as it sees fit — the memory
-backend keys its registry by number, the disk backend derives a directory from them.
-Naming one in-RAM number without the other is refused: the unnamed half would sit in
-the default space, and two KBs meaning to be disjoint would share it.
+One space number (`:space`, default 0) namespaces both stores so several KBs coexist in
+one process; each backend uses it as it sees fit — the memory backend keys its registry
+by number, the disk backend derives a directory from it. **One number, not one per
+axis**: the index is a function of the records, so the two are shared or separate as one
+thing, and each backend keys a registry of its own, so no KB can be given a private
+index over records it shares.
+
+**A second in-RAM KB defaulting onto space 0 warns**, because both readings are
+legitimate and nothing else could tell them apart. `(open-kb {})` twice in one process is
+one set of records behind two KB values: the second recovers the first's facts, and from
+then on a write through either is invisible to the other, since belief is per-KB and only
+the writer's is relabelled. That is also the REPL's ordinary gesture for starting clean.
+So the second such open logs a `:warn` naming both fixes — give the KB its own number
+(`{:space 2}`), or name `{:space 0}` explicitly to say the sharing is meant and silence
+it. A warning rather than a refusal: sharing the space is how `recover` sees the same
+records, how the fixtures rebuild over one store, and how a base is mounted. In-RAM
+records only — a `:disk` KB is keyed by directory and takes a lock.
 
 **An option `open-kb` does not read is refused, not ignored** (`:type
-:unknown-option`), and the space numbers are why. Every other opt fails loudly when it
-is wrong — an unknown `:backend` throws, an impossible axis pair throws — but a
+:unknown-option`), and the space number is why. Every other opt fails loudly when it
+is wrong — an unknown `:backend` throws, an impossible axis pair throws, and so does
+an unknown `:records` / `:index` / `:tms` kind, all four as `:type :unknown-backend`
+([troubleshooting.md](troubleshooting.md#open-kb-refuses-an-unknown-backend) says which
+`ex-data` key tells them apart) — but a
 *misspelt* one is a key nothing looks at, so the KB opens on the default space and reads
 and writes there in silence. Two KBs a caller built to keep apart then share one store:
 each one's flush empties the other, and the second reads out of records the first
@@ -93,12 +115,12 @@ the store rather than doubled into `:memory-memory` / `:disk-disk`.
 
 - **Memory records** (`vaelii.impl.memory`) — plain Clojure maps in atoms, **no
   serialization** (records held directly, structured key vectors used as map keys). They
-  have **space-number sharing**: a process-global registry keyed by `:record-space`
+  have **space-number sharing**: a process-global registry keyed by `:space`
   means two KBs constructed over the same number share one store, so a restarted KB
   (`recover`) sees the records the first wrote — the persistence tests' contract.
   Durable within a JVM, not across a process restart.
 - **Disk records** (`vaelii.impl.disk.record-store`) — an on-disk log-structured store in a directory
-  (`:dir`, or derived from the space numbers). Durable across a process restart and
+  (`:dir`, or derived from the space number). Durable across a process restart and
   crash-safe, with no server. Selected for the whole suite with
   `VAELII_TEST_BACKEND=disk lein test` (durability parity gate: identical results).
   Detailed below.
@@ -177,8 +199,8 @@ than with residency.
 
 A derived index is shared for the life of the JVM under the identity of the records it
 belongs to — the space number for RAM records, the **canonical directory** for durable
-ones. Keying a disk-backed KB's RAM index by `:index-space` instead would hand two KBs
-over different directories one shared index whenever they took the default numbers. If
+ones. Keying a disk-backed KB's RAM index by the space number instead would hand two KBs
+over different directories one shared index whenever they took the default. If
 the records are emptied out from under it, the leftover index is dropped on the next
 open rather than left describing records that no longer exist.
 

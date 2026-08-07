@@ -1,5 +1,12 @@
 # Labeling: `do/` imperatives and brave/cautious solve
 
+- **Covers:** how `do/labeling` reaches the ASP backend to commit one reversible
+  resolution of a represented dilemma.
+- **Not here:** the assumption-rule vocabulary and its persistent, inert labeling path →
+  [solving.md](solving.md); the ASPIF encoding and solver backends →
+  [asp.md](asp.md).
+- **Assumes:** contradiction, defeat-class, context → [glossary.md](glossary.md).
+
 How the ASP backend is reached from the KB, and why it is reached by *asking* rather
 than by the engine deciding on its own.
 
@@ -196,10 +203,12 @@ Two neighbouring levels will mislead you:
 
 * **`sentexes-matching` (level 2) is context-exact.** It does not show inherited facts at all, so
   it reports the background missing from `Ctx` even though `Ctx` sees it.
-* **`ask` (level 7) re-derives.** Backward chaining will prove the defeated side again
-  from the rule that concluded it, so `ask` answers *both* sides. This is not something
-  labeling introduces — it happens in the base context too, and is a standing
-  disagreement between `ask` and belief.
+* **`prove` and `query` (level 7) re-derive.** Backward chaining opens the rule that
+  concluded the defeated side and proves it again, so they answer *both* sides. `ask`
+  does not: it is level 6, and no member of its prover registry expands a rule
+  ([levels.md](levels.md)), so it answers from what is stored or cached and reports the
+  defeat. This is not something labeling introduces — it happens in the base context
+  too, and is a standing disagreement between the proving levels and belief.
 
 ### Why an arbitrary pick is legitimate here
 
@@ -253,9 +262,10 @@ dilemma-to-`Program` bridge (`label/dilemma-program`), the solve-sourced labelin
 Limits, none of them silent:
 
 * **One labeling at a time**, because belief is global — the trade above.
-* **`ask` disagrees with belief about a defeated conclusion** — the caveat above. It
-  holds in the base context too; a labeled context is only where you are most likely
-  to trip over it.
+* **The proving levels disagree with belief about a defeated conclusion** — the caveat
+  above. `prove` and `query` re-derive it from the rule; `ask`, which expands no rule,
+  does not. It holds in the base context too; a labeled context is only where you are
+  most likely to trip over it.
 * **`label-context` and `label-dilemmas` overlap.** The former materializes a labeling
   the engine committed to and reads the TMS; the latter commits to one and reads the
   solve. Both are correct for their situation, and the table above says which is

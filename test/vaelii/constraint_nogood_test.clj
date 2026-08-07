@@ -929,10 +929,10 @@
   ;; policy is in force.  Pinned rather than left to be discovered: under `:refuse` a KB
   ;; believes both sides of a clash it was built incrementally into and one side of the
   ;; same clash after a restart, and that asymmetry should not move without a test failing.
-  ;; Its own space pair, keyed by a namespaced vector rather than a number, so it can
+  ;; Its own space, keyed by a namespaced vector rather than a number, so it can
   ;; collide with nothing — including a second concurrent run, which `VAELII_TEST_SPACE`
   ;; moves the suite's block for but could not move a hard-coded integer.
-  (let [spaces {:record-space [::restart :rec] :index-space [::restart :ix]}
+  (let [spaces {:space [::restart]}
         build! (fn [kb dog_t cat_t Fido]
                  (v/assert kb (list dog_t Fido) 'UniverseContext {:strength :monotonic})
                  (v/assert kb (list cat_t Fido) 'UniverseContext)

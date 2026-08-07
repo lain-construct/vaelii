@@ -1,5 +1,12 @@
 # Contexts
 
+- **Covers:** how a sentex is scoped to a context, how the `genlContext` closure orders
+  contexts into the shipped spindle, and where a forward-derived or lifted fact is placed.
+- **Not here:** `genl`, the sibling closure over types rather than contexts →
+  [taxonomy.md](taxonomy.md); a storage-level private copy of a whole KB, which a context
+  does not provide → [overlay.md](overlay.md).
+- **Assumes:** sentex, belief, `genl`, taxonomy → [glossary.md](glossary.md).
+
 Every sentex is in exactly one **context** (a CapitalCamelCase symbol ending in `Context`). Contexts
 partition and scope belief.
 

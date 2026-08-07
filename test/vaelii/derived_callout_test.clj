@@ -95,7 +95,7 @@
 
 (deftest the-two-truth-maintenance-representations-report-the-same-thing
   (doseq [tms [:reference :dense]]
-    (let [kb (v/open-kb {:record-space 13 :index-space 12 :tms tms})]
+    (let [kb (v/open-kb {:space 13 :tms tms})]
       (try
         (v/assert kb '(genlContext TmsCalloutContext UniverseContext) 'UniverseContext)
         (v/assert-rule kb ['(tmsCalloutDog ?x)] '(tmsCalloutMortal ?x) 'TmsCalloutContext)

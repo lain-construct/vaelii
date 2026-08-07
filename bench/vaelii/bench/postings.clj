@@ -26,7 +26,7 @@
   packs into Roaring runs while a scattered term does not — which is exactly why it must be
   measured on the real distribution, not asserted.
 
-  Run: `lein bench-postings [facts]`  (default 200000).  Uses record-space 24 / index-space 25."
+  Run: `lein bench-postings [facts]`  (default 200000).  Uses space 24."
   (:require [clojure.set :as set]
             [vaelii.bench.util :as u :refer [zipf-sample]]
             [vaelii.impl.kb :as kb]
@@ -208,7 +208,7 @@
              :ctxs (mapv #(symbol (str "Ctx" % "Context")) (range 8))
              :pred-cum (u/zipf-cumulative P 1.2) :ind-cum (u/zipf-cumulative M 1.0)
              :compound-frac 0.1}
-        kb (kb/open-kb {:backend :memory :record-space 24 :index-space 25 :recover? false}
+        kb (kb/open-kb {:backend :memory :space 24 :recover? false}
                        (fn [_] nil) (fn [_] nil))]
     (println (format "vaelii posting-encoding bake-off — %,d synthetic facts" n))
     (println "Density (jol retained heap) is TRUSTED; intersection/build wall-clock is UNTRUSTED under contention.")

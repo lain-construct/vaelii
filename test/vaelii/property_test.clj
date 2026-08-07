@@ -34,7 +34,7 @@
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
-;; Flush the scratch pair after this namespace's generated runs, so the KB content
+;; Flush the scratch space after this namespace's generated runs, so the KB content
 ;; the last generated ordering left behind does not leak into a later namespace.
 (use-fixtures :once (fn [f] (f) (tu/clear-kb! (tu/test-kb))))
 

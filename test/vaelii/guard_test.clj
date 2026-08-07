@@ -55,6 +55,15 @@
         (is (= ::guard/any (guard/allowed-hosts "0.0.0.0")))
         (is (= ::guard/any (guard/allowed-hosts "192.168.1.5")))))))
 
+;; ---- allowlist-open? -------------------------------------------------------
+
+(deftest allowlist-open-names-the-one-sentinel
+  (testing "the ::any sentinel, and only it, reads as open"
+    (is (true?  (guard/allowlist-open? ::guard/any)))
+    (is (false? (guard/allowlist-open? guard/loopback-hosts)))
+    (is (false? (guard/allowlist-open? #{"kb.example.com"})))
+    (is (false? (guard/allowlist-open? #{})))))
+
 ;; ---- host-allowed? -------------------------------------------------------
 
 (deftest host-allowed-refuses-a-rebound-name-on-a-loopback-bind
@@ -133,8 +142,9 @@
 
 ;; ---- the request-body ceiling --------------------------------------------
 ;;
-;; Neither server authenticates, so the caller who can reach a write route is the caller
-;; who can spend the process's heap by streaming a body at it.  What has to hold is not
+;; The browser authenticates nobody and the daemon need not, so the caller who can reach
+;; a write route is the caller who can spend the process's heap by streaming a body at
+;; it.  What has to hold is not
 ;; only that an oversized body is refused but that it is refused **while being read** —
 ;; a ceiling checked after the read is the read it was meant to prevent.  The two
 ;; servers' 413s are `vaelii.serve-test` and `vaelii.web-test`; this is the reading

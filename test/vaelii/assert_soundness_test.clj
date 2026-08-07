@@ -151,8 +151,10 @@
       (is (not= pos neg)
           "identical antecedents, opposite conclusions — these must be two sentexes")
       (testing "and each keeps its own consequent polarity"
-        (is (= :true  (:truth (:consequent (v/sentex kb pos))
-                              (:truth (v/sentex kb pos)))))
+        (is (= :true (:truth (v/sentex kb pos))))
+        (is (= :true (:truth (v/sentex kb neg)))
+            "both rules are asserted true — the negation is the consequent's polarity,
+             carried in the sentence, and never the rule sentex's own truth")
         (let [negated? (fn [h] (boolean
                                 (some #(and (sequential? %) (= 'not (first %)))
                                       (tree-seq sequential? seq

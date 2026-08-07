@@ -1,5 +1,12 @@
 # Reading English
 
+- **Covers:** how a document's own words resolve against the KB's vocabulary before a
+  model is asked anything, and how the result becomes spanned, scored candidate sentexes.
+- **Not here:** the other three propose paths and the vocabulary-inventory guard against
+  coined predicates → [llm.md](llm.md); the browser panel that renders and applies a
+  candidate batch → [web.md](web.md).
+- **Assumes:** sentex, context, candidate, canonical form → [glossary.md](glossary.md).
+
 A pipeline that takes a document and answers with **candidate sentexes** — the
 `[sentence context opts]` entries `vaelii.core/edit!` already takes, each carrying the span
 of text it came from. It never asserts anything: proposing rather than importing is the

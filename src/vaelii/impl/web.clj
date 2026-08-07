@@ -873,7 +873,7 @@
       arg-grps
       (when (seq ctx-ss)
         [{:label "As context" :idx (str "[:context-root " text "]")
-          :count (v/context-size kb term) :sentexes ctx-ss}])
+          :count (v/count-in-context kb term) :sentexes ctx-ss}])
       (when (seq rules)
         [{:label "In rules" :idx "[:rule-index] · [:term-index]"
           :count (count rules) :sentexes rules}])
@@ -1992,7 +1992,7 @@
   25)
 
 (def ^:private context-rank-cap
-  "How many contexts will be sized in order to rank them.  `context-size` is an O(1) read,
+  "How many contexts will be sized in order to rank them.  `count-in-context` is an O(1) read,
   but it is one read *each* — 13,196 of them is 150 ms in process and 13,196 HTTP
   round-trips under `--attach` — so past this the pages say they cannot rank rather than
   quietly spending it."
@@ -2009,7 +2009,7 @@
   (let [cs (vec (v/contexts kb))]
     (when (<= (count cs) context-rank-cap)
       (->> cs
-           (map (fn [c] [c (v/context-size kb c)]))
+           (map (fn [c] [c (v/count-in-context kb c)]))
            (filter (comp pos? second))
            (sort-by (juxt (comp - second) (comp str first)))))))
 
@@ -2140,7 +2140,7 @@
   the rest arrives on scroll."
   12)
 
-(defn- context-size-rows
+(defn- context-count-rows
   "One page of the contexts-by-size table, from `offset`, ending in the sentinel that
   fetches the next when it scrolls into view.  `ranked` is `contexts-by-size`'s answer, so
   the rows are the top of an order rather than a slice of an arbitrary one — which is what
@@ -2207,7 +2207,7 @@
   same question the page asked and gets the same order."
   [{:keys [kb] :as view} section offset]
   (frag (case section
-          "contexts"       (context-size-rows view (contexts-by-size kb) offset)
+          "contexts"       (context-count-rows view (contexts-by-size kb) offset)
           "contradictions" (contradiction-rows view offset)
           "conflicts"      (conflict-rows view offset)
           "violations"     (violation-rows view offset)
@@ -2300,7 +2300,7 @@
              (if-let [ranked (contexts-by-size kb)]
                [:table.stats-table
                 [:thead [:tr [:th "Context"] [:th.num "Sentexes"]]]
-                [:tbody (context-size-rows view ranked 0)]]
+                [:tbody (context-count-rows view ranked 0)]]
                [:p.muted (commas (count ctxs)) " contexts — too many to size."])
              ;; the three ledgers, each a page at a time.  A row here is one or two whole
              ;; sentences with every subterm linked, so the count that matters is on the
@@ -4710,7 +4710,16 @@
              [:h3 "Export"]
              (export-panel)
              [:h3 "Available"]
-             (for [s (catalog/sources)] (source-card s (contains? loaded (:id s)) busy?))))))
+             ;; the cap says so on the page as well as in the log: a list silently
+             ;; ending early reads as "this machine has no other KBs", which is the
+             ;; one answer a KB list must not give by accident (docs/catalog.md)
+             (let [srcs (catalog/sources)]
+               (list
+                (for [{:keys [dir passed-over]} (:truncated (meta srcs))]
+                  [:p.muted "Listing the first " catalog/max-discovered " entries of "
+                   [:code dir] " — " passed-over " more are not shown. Name one in the "
+                   "catalog file to list it regardless."])
+                (for [s srcs] (source-card s (contains? loaded (:id s)) busy?))))))))
 
 (defn- option-params
   "The load parameters for `source`, read out of the submitted form under the option
@@ -5279,11 +5288,32 @@
                                    {:source (catalog/source "starter")}))]
     {:kb kb :entry entry :target (catalog/holder kb)}))
 
+(defn- default-port
+  "The port to bind when nothing on the command line names one: `VAELII_WEB_PORT`, else
+  the `vaelii.web.port` system property, else 3000.  Read by `-main` and `dev-repl`
+  alike, so the variable means the same thing to `lein run -m vaelii.impl.web` as it does
+  to `lein browser` — a variable that moved the page for one and was ignored by the other
+  is one that reads as set and lands on 3000 anyway.
+
+  The property is the same env-then-property shape `vaelii.kb.path` uses
+  (docs/catalog.md), and for the same reason: a JVM cannot change its own environment,
+  so it is what a test sets.
+
+  An unparseable value falls through to the next source rather than failing startup — a
+  typo in a convenience variable should not be the thing that stops the browser coming
+  up."
+  []
+  (let [num (fn [s] (try (some-> s Long/parseLong int)
+                         (catch NumberFormatException _ nil)))]
+    (or (num (System/getenv "VAELII_WEB_PORT"))
+        (num (System/getProperty "vaelii.web.port"))
+        3000)))
+
 (defn- parse-args
   "`-main`'s options, in any order:
 
     --listen HOST            interface to bind (default loopback)
-    --port N                 web port (default 3000)
+    --port N                 web port (default VAELII_WEB_PORT, else 3000)
     --attach HOST PORT [WEBPORT]   read a running daemon instead of an in-process KB
 
   `--attach`'s third argument is optional and positional, so it is taken only when it
@@ -5306,7 +5336,7 @@
                         (throw (ex-info (str flag ": not a number: " v)
                                         {:type :unknown-option :flag flag :value v}))))))]
     (loop [[a & more] (seq args)
-           opts       {:host loopback :port 3000}]
+           opts       {:host loopback :port (default-port)}]
       (case a
         nil        opts
         "--listen" (recur (rest more) (assoc opts :host (need "--listen" (first more))))
@@ -5354,12 +5384,13 @@
   "Start the browser for a REPL session and hand the prompt straight back.
 
   What `lein browser` calls, and the only thing `project.clj` names.  Port from
-  `VAELII_WEB_PORT`, else 3000; loopback only.  A port already in use is **reported, not
-  thrown** — you asked for a REPL and you get one either way, which is the difference
-  between a busy port being an inconvenience and being a failed startup."
+  `VAELII_WEB_PORT`, else 3000 — the same read `-main` does; loopback only.  A port
+  already in use is **reported, not thrown** — you asked for a REPL and you get one
+  either way, which is the difference between a busy port being an inconvenience and
+  being a failed startup."
   []
   (dev-stop)
-  (let [port (or (some-> (System/getenv "VAELII_WEB_PORT") Long/parseLong) 3000)
+  (let [port (default-port)
         {:keys [target]} (opening-kb nil)]
     (warm-model)
     (try
@@ -5413,14 +5444,19 @@
                          (not attach) (assoc :record-store (type (:records kb))
                                              :index-store  (type (:index kb))))})
     ;; said out loud, as the daemon says it: the browser has write routes and no
-    ;; authentication either, and `--listen` also drops the Host allowlist to `::any`,
-    ;; so the one line naming what a public bind costs belongs on both servers
+    ;; authentication either, and a public bind drops the Host allowlist unless
+    ;; `VAELII_ALLOWED_HOSTS` names one, so the line naming what a public bind costs
+    ;; belongs on both servers — and names only the half that is true of this start.
     (when-not (= host loopback)
-      (trove/log! {:level :warn :id ::public-bind
-                   :msg (str "browser bound to " host " — its write routes are "
-                             "unauthenticated and the Host allowlist is off; put an "
-                             "authenticating proxy in front")
-                   :data {:host host}}))
+      (let [open? (guard/allowlist-open? (guard/allowed-hosts host))]
+        (trove/log! {:level :warn :id ::public-bind
+                     :msg (str "browser bound to " host " — its write routes are "
+                               "unauthenticated"
+                               (if open?
+                                 " and every Host header is answered"
+                                 " though VAELII_ALLOWED_HOSTS bounds the Host headers")
+                               "; put an authenticating proxy in front")
+                     :data {:host host :hosts (if open? :open :allowlisted)}})))
     ;; the proposal panel's model, loaded while the reader is still finding a term page
     (warm-model)
     (jetty/run-jetty (with-host (app target) host) {:port port :host host :join? true})))

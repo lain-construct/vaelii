@@ -40,7 +40,7 @@
 (defn- gen
   "For each relation: `e` tuples `[a x]`, `a` uniform over a small domain, `x` Zipf
   over this relation's own shuffled `?x` domain."
-  [rng {:keys [xdom-size a-size sizes]}]
+  [^java.util.Random rng {:keys [xdom-size a-size sizes]}]
   (let [xs  (u/terms "X" xdom-size)
         as  (u/terms "a" a-size)
         cum (u/zipf-cumulative xdom-size 1.1)]

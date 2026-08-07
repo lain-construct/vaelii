@@ -1,5 +1,15 @@
 # The LLM that proposes edits
 
+- **Covers:** the four paths a model can propose an edit batch through — whole-KB,
+  selection, page and document-scoped — and the deterministic critic every one of them
+  answers to before a human applies anything.
+- **Not here:** resolving a document's own words against the KB's vocabulary, the span a
+  candidate carries, and the score against hand-written fables →
+  [reading.md](reading.md); the browser panel that renders a proposal and takes the
+  accept click → [web.md](web.md).
+- **Assumes:** sentex, context, canonical form, justification →
+  [glossary.md](glossary.md).
+
 A pluggable language model that reads a KB through its own tools and answers with a
 **proposed edit batch**. It never writes. The batch is the exact shape
 `vaelii.core/edit!` takes, which is also the shape the browser's textarea editor

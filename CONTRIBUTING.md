@@ -15,7 +15,7 @@ in-memory, and the durable one is a directory.
 ```bash
 lein deps
 lein repl          # a REPL with vaelii.core loaded
-lein test          # the suite (see §5 — it owns four space numbers, so one run at a time)
+lein test          # the suite (see §5 — it owns two space numbers, so one run at a time)
 lein browser       # the one to work in: a REPL with the browser running in it, on :3000
 ```
 
@@ -37,7 +37,8 @@ installs:
 - `python3` — usually already present
 
 ```bash
-lein lint    # glossary, doc links, doc drift, clj-kondo, cljfmt, shellcheck
+lein lint    # glossary, versions, doc links, doc drift, clj-kondo, cljfmt, shellcheck,
+             # reflect (a compile pass), unused (a public var nothing calls)
 lein fix     # reformats in place; cljfmt is the only auto-repairable check
 lein gate    # lint, then the suite, then the perf claims — the check before you push
 ```
@@ -51,6 +52,19 @@ to its own log under `target/gate/`, and a failing stage prints its tail inline.
 loaded machine.
 
 You do not need the lint binaries to build, run or test; only to run the gate locally.
+
+**Two of those checks are ratchets: each stops the build rather than printing at you.**
+A **reflection or auto-boxing warning fails the build** — `reflect` compiles `src` and
+`bench`, and the gate's test stage reads its own log for the tree that pass does not
+compile, so both halves are covered. The fix is always a type hint at the call site;
+the allow-list is for a third-party release that still reflects, and turning
+`*warn-on-reflection*` off to get past it is the one response that is not available.
+And **a public var nothing references fails** `unused`, against
+`scripts/unused-publics-baseline.txt`. If it really has no caller, delete it. If its
+caller is one clj-kondo cannot see — `requiring-resolve`, a quoted-symbol registry, a
+REPL affordance — add it to the baseline with that reason, in its own commit: every
+line there is a claim somebody should be able to check later, which is why a baseline
+refresh never rides along with the change that needed it.
 
 **CI runs the same checks, through the same scripts.** A pull request gets two
 workflows, and neither is anything you cannot run yourself: `lint` is `lein lint`, and
@@ -71,7 +85,7 @@ It blocks nothing and nobody waits on it, which is why a change touching storage
 index, records or recovery still owes `./scripts/test-backends.sh` a local run — a bug
 that shows up only under `disk-columnar` should reach you in the pull request, not the
 next morning. A change touching inference, matching or retrieval owes the sweep for the
-same reason: `VAELII_NOHIER=1 lein test` is one command, and the retrieval paths
+same reason: `VAELII_HIER=0 lein test` is one command, and the retrieval paths
 disagreeing is exactly the kind of thing only that run can see.
 
 ## 2. Project layout, and the one rule that matters
@@ -83,7 +97,7 @@ test/vaelii/           the suite, plus the test-world fixtures (world*.clj)
 bench/                 the load/scale harnesses (:bench profile, its own source path)
 resources/kb/          the starter ontology as term-centric text, read by vaelii.impl.seed
 resources/public/      browser assets, served verbatim (licences in licenses/THIRD-PARTY.md)
-docs/                  one note per subsystem; docs/index.md is the grouped map
+docs/                  one note per subsystem; docs/README.md is the map
 ```
 
 Layout is the Leiningen default — `src/` + `test/` + `resources/` — not the Maven
@@ -260,6 +274,13 @@ classification. Three classes:
 3. **Additive** — a `:type` where none was, a new option key, a new op in the
    daemon's allowlist. Neither label; any release may carry it.
 
+**A configuration name is part of that surface.** Renaming or removing a `VAELII_*`
+environment variable or a `vaelii.*` system property is class 1 — a systemd unit or a
+deployment script that set it keeps setting it and stops being obeyed — so it takes the
+**Breaking** label and a migration line naming the new spelling, plus a regenerated
+`test/golden/config-surface.edn` and its row in `docs/operations.md` in the same commit.
+Adding one is Additive and owes the same golden and the same row.
+
 The split has citable precedent rather than being this repo's invention:
 
 - **SemVer** defines a patch as "an internal change that fixes incorrect
@@ -346,8 +367,8 @@ lein test-backends               # the whole suite once per backend (all eight)
 **Tests are integration tests against the storage backend**, not unit tests over
 mocks — the in-memory stores by default, with no external dependency.
 
-- **The suite owns a block of four space numbers**, named by its top: a scratch pair
-  15/14 that nearly every test uses, and an isolated pair 13/12 for tests that rebuild
+- **The suite owns a block of two space numbers**, named by its top: a scratch space
+  15 that nearly every test uses, and an isolated space 14 for tests that rebuild
   a KB in a loop. Every test KB shares those numbers and the fixtures clear them, so
   **run one suite at a time**. `VAELII_TEST_SPACE=11` moves the block, which is how two
   concurrent runs get distinct directories.
@@ -387,9 +408,12 @@ mocks — the in-memory stores by default, with no external dependency.
   `:info` up, and the suite provokes `:warn` on purpose — `::dropped-conclusion`,
   `:no-placement` and the aggregate refusals are what the assertions are *checking
   for*, so on a green run they were two thirds of the output and none of it a verdict.
-  The `:test` profile's `:injections` raise the floor. `VAELII_TEST_LOG_LEVEL=info lein
-  test` puts them back, which is what a red run wants; it takes any Trove level, so
-  `=debug` goes lower than the default backend ever did.
+  The `:test` profile's `:injections` raise the floor, through the engine's own dial
+  (`vaelii.core/set-log-level`) rather than a copy of it. `VAELII_TEST_LOG_LEVEL=info
+  lein test` puts them back, which is what a red run wants; it takes the same five
+  levels the dial does — `:error :warn :info :debug :trace` — so `=debug` adds the run
+  boundaries (what a chaining run concluded, what a settle cost, the rule behind a
+  dropped conclusion) and anything else fails the run by name rather than silencing it.
 - **Never gate on a piped test run.** `lein test 2>&1 | tail -30` reports `tail`'s exit
   status, always 0, so a red suite reads as green *and* the failure list is truncated
   out of the log. Redirect to a file, read the status, then grep it.
@@ -422,7 +446,8 @@ not, and there is nothing to see. `lein browser` serves through a handler that
 re-resolves `#'app` per request, so a reload actually lands.
 
 `(vaelii.impl.web/dev-stop)` takes the server down without leaving the prompt.
-`VAELII_WEB_PORT` moves it off 3000.
+`VAELII_WEB_PORT` moves it off 3000, and moves `lein run -m vaelii.web` too — an explicit
+`--port` still wins.
 
 **Both halves bind loopback, and that pairing is not configurable from here.** The
 browser has write routes and no authentication; an nREPL is arbitrary code execution by
@@ -465,7 +490,10 @@ on your work; filing the issue first lets us coordinate before you spend effort.
 ## 8. Documentation
 
 `docs/` carries one note per subsystem and is kept current with the code, so a change
-to behaviour is a change to a doc. [`docs/index.md`](docs/index.md) is the grouped map.
+to behaviour is a change to a doc. [`docs/README.md`](docs/README.md) is the map, and a
+new doc needs a line in it — `lein lint-drift` fails (E6) on a doc the map does not
+reach. Every page opens with the same three bullets — **Covers**, **Not here**,
+**Assumes** — so write those before the body; E12 fails on a page without them.
 
 | Change | Update |
 |---|---|
@@ -477,6 +505,21 @@ to behaviour is a change to a doc. [`docs/index.md`](docs/index.md) is the group
 
 `lein lint` also checks that every relative link in `README.md` and `docs/` resolves,
 and that no link escapes the repository.
+
+Its **versions** check holds the two coordinates this tree states twice. The
+`:with-foreign` pin and `defproject`'s own version are cut together, so a release names
+the sibling release going out beside it and a dev tree names the snapshot being cut; a
+lagging pin makes every `lein with-profile +with-foreign` command fail to resolve, and
+`lein install` in the sibling does not fix it — the sibling builds its *own* current
+version, so the install succeeds and the error is unchanged. The second pair is
+`lein-cloverage`, declared in `project.clj` and injected at the root by
+`scripts/coverage.sh`. Bump each pair in one commit; the check names the fix when you
+do not.
+
+The sibling pin carries one obligation into the release itself: the carve strips the
+snapshot suffix tree-wide, so a released tree names `vaelii-foreign` at its **own**
+version, and that version has to exist for `+with-foreign` to resolve. Publish the
+sibling release beside this one, not after it.
 
 ## 9. License & contributor terms
 

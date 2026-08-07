@@ -31,7 +31,7 @@
   "A KB with the CoreContext vocabulary and nothing else.  The in-memory stores are
   shared per space number, so `clear!` is what makes each row independent."
   []
-  (let [kb (v/open-kb {:backend :memory :record-space 30 :index-space 31 :recover? false})]
+  (let [kb (v/open-kb {:backend :memory :space 30 :recover? false})]
     (v/clear! kb)
     (core-context/load-into kb)
     kb))

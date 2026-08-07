@@ -1,20 +1,15 @@
 # Vaelii docs
 
-Per-subsystem notes, one file apiece — read alongside the code. This is the map, and
-between them these files document the whole engine.
+One file per subsystem, read alongside the code. This page is the map, and between them
+these files document the whole engine. A subsystem is described in exactly one place; the
+model the pages assume is the [README](../README.md), and the vocabulary is
+[glossary.md](glossary.md).
 
-## The one-paragraph model
-
-The unit of knowledge is a **sentex**: a sentence (a Clojure s-expression) plus the
-one **context** it holds in. Sentexes live in a **record store**, keyed by
-integer handle; they are found through an **index store** — derived from the records
-and rebuildable from them — that holds six indexes over the same sentexes: a positional
-**trie**, secondary **roots** (context / functor / argument), a **rule index**, an
-**exception re-check index**, an inverted **term index**, and the **term roster**
-beside it. Two transitive relations — `genl` over types and `genlContext`
-over contexts — are cached as closures and drive type reasoning and context placement.
-Rules are sentexes too. Belief is maintained by a JTMS with dependency-directed
-retraction.
+Sentexes live in a **record store**, keyed by integer handle, and are found through an
+**index store** — derived from the records and rebuildable from them — that holds six
+indexes over the same sentexes: a positional **trie**, secondary **roots** (context /
+functor / argument), a **rule index**, an **exception re-check index**, an inverted **term
+index**, and the **term roster** beside it.
 
 What ships is schema: `vaelii.impl.starter` loads the upper and middle contexts from
 `resources/kb/`, and nothing contingent — no cast, no facts of a story — comes with it.
@@ -24,10 +19,36 @@ contexts, each moral *derived* by a rule rather than stored as a string) and
 `vaelii.world-narrative` (a story-understanding ontology layered over the fables —
 causal / temporal / goal reasoning via predicate metadata and a goal-achievement rule).
 
+## Start from what you are trying to do
+
+| I want to… | Start at | Then |
+|---|---|---|
+| load a KB and look at it | [kbs.md](kbs.md) | [web.md](web.md), [catalog.md](catalog.md) |
+| assert facts and query them from Clojure | [api.md](api.md) | [naming.md](naming.md), [levels.md](levels.md) |
+| find out why my query answers nothing | [troubleshooting.md](troubleshooting.md) | [contexts.md](contexts.md) |
+| make a rule fire, and see what it concluded | [inference.md](inference.md) | [levels.md](levels.md), [contexts.md](contexts.md) |
+| say "usually, but not when…" | [exceptions.md](exceptions.md) | [nmtms.md](nmtms.md), [inherit.md](inherit.md) |
+| understand why the KB believes something | [nmtms.md](nmtms.md) | [preview.md](preview.md), [feed.md](feed.md) |
+| resolve a contradiction | [nmtms.md](nmtms.md) | [solving.md](solving.md), [asp.md](asp.md), [labeling.md](labeling.md) |
+| keep a KB across restarts | [storage.md](storage.md) | [overlay.md](overlay.md) |
+| know what a word in these docs means | [glossary.md](glossary.md) | |
+| build a type hierarchy that behaves | [taxonomy.md](taxonomy.md) | [argtypes.md](argtypes.md), [inherit.md](inherit.md) |
+| reason about time, space or distance | [qcn.md](qcn.md) | [time.md](time.md), [space.md](space.md), [stp.md](stp.md) |
+| drive a KB from a shell or over a network | [operations.md](operations.md) | [api.md](api.md) |
+| read another system's KB in | [foreign.md](foreign.md) | [kbs.md](kbs.md) |
+| turn English into sentexes | [reading.md](reading.md) | [llm.md](llm.md) |
+| find the code behind a subsystem | [namespaces.md](namespaces.md) | [dependencies.md](dependencies.md) |
+| understand what a query costs | [indexing.md](indexing.md) | [density.md](density.md), [anytime.md](anytime.md) |
+| see what this KB is *for* | [commonsense.md](commonsense.md) | |
+
+Every page opens with three bullets — **Covers**, **Not here**, **Assumes** — so a wrong
+page costs a sentence rather than a section.
+
 ## Start here
 
 - [kbs.md](kbs.md) — the four knowledge bases you can load and the route to each: what ships here, what the plugin ships, what you supply, and where a KB has to sit to be found.
 - [api.md](api.md) — the public API: every fn on `vaelii.core`, with what it takes and returns, and the five thin entry-point namespaces beside it.
+- [troubleshooting.md](troubleshooting.md) — indexed by symptom rather than subsystem: an empty query, a rule that will not fire, a refused `assert`, a KB holding facts nobody asserted.
 - [glossary.md](glossary.md) — every term used across these docs and the code, tagged by subsystem.
 - [commonsense.md](commonsense.md) — the questions this KB is asked, one per reasoning subsystem, what the schema had to grow to answer them, and the outside judge that reads the answers back.
 
@@ -61,6 +82,9 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 - [nat.md](nat.md) — non-atomic terms: reifiable functions reified to opaque constants before the index, unreifiable applications kept structural.
 - [quantity.md](quantity.md) — the measure-evaluating quantity prover: measure comparison over a `dimensionOf` / `conversionFactor` table, with an epsilon float policy.
 - [skolem.md](skolem.md) — head existentials `(exists ?y C)` skolemized to deterministic NAT constants on forward firing, and the occurs-check in `unify`.
+
+## Qualitative reasoning
+
 - [qcn.md](qcn.md) — the generic qualitative-constraint-network engine behind all six relation algebras: an algebra as a parameter, a network as a value, arc-queue path consistency, entailment *and* refutation, the support a derived relation carries, and the prover shape every calculus over it shares.
 - [space.md](space.md) — the four spatial algebras over it: RCC-8 topology, cardinal direction, relative direction (whose frame of reference is the context) and qualitative distance (whose composition is the triangle inequality over the class bounds).
 - [time.md](time.md) — the two temporal algebras over it: Allen's thirteen interval relations, with the composition table written twice so a transcription error is a test failure, and the three-relation point algebra over instants.
@@ -84,3 +108,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 - [llm.md](llm.md) — the pluggable LLM that reads a KB through generated tools and *proposes* an edit batch, graded by the engine's own well-formedness checks.
 - [reading.md](reading.md) — English in: a candidate generator with a reviewer between it and the store, resolving the document's own words against the KB's vocabulary before anything is asked, carrying the span each candidate came from, reporting what it could not translate — and scored against the hand-written fables.
 - [foreign.md](foreign.md) — the formats we read and do not write: no reader ships here, and a bridge is a plugin that declares itself in one edn resource on the classpath.
+
+## Generated
+
+- [dependencies.md](dependencies.md) — which `project.clj` dependencies `lein antq` last reported as outdated, written by `scripts/update-badges.sh --deps`.

@@ -6,13 +6,14 @@
   unloading an on-disk KB does not destroy it."
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.catalog :as cat]
             [vaelii.test-util :as tu]))
 
 ;; The catalog is process-global (one registry, one active KB), so every test starts and
-;; ends with it empty — and the loads below run on the catalog's own space numbers, well
+;; ends with it empty — and the loads below run on the catalog's own spaces, well
 ;; clear of the block the suite owns.
 (use-fixtures :each (fn [f] (cat/reset-registry!) (try (f) (finally (cat/reset-registry!)))))
 
@@ -173,7 +174,7 @@
   ;; exactly the state a store opened without `:recover?` is left in, reproduced without
   ;; a disk fixture: the memory stores are shared per space number, so a second `open-kb`
   ;; over the same pair sees every record and index entry and a *fresh*, empty TMS
-  (let [spaces {:backend :memory :record-space 60 :index-space 61 :recover? false}
+  (let [spaces {:backend :memory :space 60 :recover? false}
         built  (v/open-kb spaces)]
     (try
       (v/assert built '(dog Fido) 'UniverseContext {})
@@ -196,7 +197,7 @@
     (testing "the entry is gone and the stores it held are empty — a memory KB is keyed
               by space number and would otherwise hold its corpus for the life of the JVM"
       (is (nil? (cat/entry b)))
-      (is (zero? (reduce + 0 (map #(v/context-size kb %) (v/contexts kb))))))
+      (is (zero? (reduce + 0 (map #(v/count-in-context kb %) (v/contexts kb))))))
     (testing "and the active KB falls back to one that is still loaded"
       (is (= a (cat/active))))))
 
@@ -265,10 +266,64 @@
           (is (= :failed (:status e)))
           (is (string? (:error e)))
           (testing "the KB it opened before failing is still on the entry, so unloading
-                    releases it rather than stranding a space pair"
+                    releases it rather than stranding a space"
             (is (some? (:where e)))
             (is (cat/unload! key))
             (is (nil? (cat/entry key))))))
+      (finally
+        (if prop (System/setProperty "vaelii.kb.path" prop) (System/clearProperty "vaelii.kb.path"))
+        (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
+(deftest a-search-path-entry-is-probed-to-a-cap-that-says-so
+  ;; `sources` is recomputed per `/kbs` request, and every candidate under a
+  ;; search-path entry costs a `classify` — so an uncapped probe is an unbounded
+  ;; per-request scan, and the one list in the browser that did not cap
+  ;; (docs/web.md, "Long lists continue").  The cap is not the interesting half:
+  ;; a cap nobody is told about reads as "this machine has no other KBs", which
+  ;; is the one answer a KB list must not give by accident.
+  (let [root (io/file (System/getProperty "java.io.tmpdir")
+                      (str "vaelii-catalog-many-" (System/nanoTime)))
+        prop (System/getProperty "vaelii.kb.path")
+        n    (+ cat/max-discovered 5)
+        ;; every candidate is a real corpus, so none is skipped for being unreadable
+        ;; and the count reflects the cap alone
+        ;; `:context-order` is the marker `classify` reads for a corpus — the context
+        ;; order it was written in.  Anything else is not a KB and is passed over,
+        ;; which would make this measure the fixture rather than the cap.
+        mk!  (fn [i] (let [d (io/file root (format "kb%04d" i))]
+                       (.mkdirs d)
+                       (spit (io/file d "meta.edn")
+                             (pr-str {:context-order ['UniverseContext]}))))]
+    (try
+      (.mkdirs root)
+      (dotimes [i n] (mk! i))
+      (System/setProperty "vaelii.kb.path" (.getAbsolutePath root))
+      (let [srcs      (cat/sources)
+            truncated (:truncated (meta srcs))
+            ;; every one of the n candidates is a readable corpus, so the number that
+            ;; comes back is the cap itself and not an artefact of some being skipped.
+            ;; Scoped to this fixture's own directory: the machine running the suite
+            ;; may have a catalog file of its own, and those entries are never capped.
+            corpora   (filter #(and (= :corpus (:kind %))
+                                    (str/starts-with? (str (:path %)) (.getAbsolutePath root)))
+                              srcs)]
+        (testing "the probe stops at the cap"
+          (is (= cat/max-discovered (count corpora))
+              (str "probed " (count corpora) " of " n " candidates"))
+          (is (= 1 (count truncated)) "and the entry that was cut is named"))
+        (testing "what was passed over is counted, not merely elided"
+          (let [{:keys [dir passed-over probed]} (first truncated)]
+            (is (= (.getAbsolutePath root) dir))
+            (is (= cat/max-discovered probed))
+            (is (= 5 passed-over)))))
+      (testing "an entry under the cap reports no truncation at all"
+        (let [small (io/file (System/getProperty "java.io.tmpdir")
+                             (str "vaelii-catalog-few-" (System/nanoTime)))]
+          (try
+            (.mkdirs small)
+            (System/setProperty "vaelii.kb.path" (.getAbsolutePath small))
+            (is (empty? (:truncated (meta (cat/sources)))))
+            (finally (doseq [f (reverse (file-seq small))] (.delete ^java.io.File f))))))
       (finally
         (if prop (System/setProperty "vaelii.kb.path" prop) (System/clearProperty "vaelii.kb.path"))
         (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))

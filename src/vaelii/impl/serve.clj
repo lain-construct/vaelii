@@ -31,12 +31,22 @@
   plain maps before they hit the wire (the `sentex`-map contract), so the client reads
   them back without the `impl` record class.
 
-  **Nothing authenticates a caller**, so `vaelii.impl.guard` stands in for the session
-  the daemon does not have: `POST /op` requires `Content-Type: application/edn`, refuses
-  a cross-origin `Origin`, and answers only to a `Host` naming the interface it was
+  **One shared bearer token authenticates the caller.**  With `VAELII_API_TOKEN` set
+  (`guard/api-token`), every request presents `Authorization: Bearer <token>` or is
+  answered 401 with a `WWW-Authenticate: Bearer` challenge; `GET /health` is the one
+  route that answers without it.  One token for the process, not a session and not an
+  identity — per-caller identity is a reverse proxy's job, and this is the check that
+  has to exist below it.  Binding anything but loopback **requires** a token (`-main`
+  refuses to start otherwise); on the loopback default it is optional, and a daemon
+  without one is drivable by every process on the machine.
+
+  `vaelii.impl.guard` covers what a token does not, and matters most on the open
+  loopback daemon: `POST /op` requires `Content-Type: application/edn`, refuses a
+  cross-origin `Origin`, and answers only to a `Host` naming the interface it was
   started on.  Together those stop a page the operator happens to visit from driving
   the KB over loopback — which binding to loopback alone does not."
   (:require [clojure.edn :as edn]
+            [clojure.string :as str]
             [clojure.walk :as walk]
             [reitit.ring :as ring]
             [ring.adapter.jetty :as jetty]
@@ -133,7 +143,7 @@
    :lookup       (op v/lookup)
    :escalate     (op v/escalate)
    :explain-levels (op v/explain-levels)
-   :context-size (op v/context-size)
+   :count-in-context (op v/count-in-context)
    :sentexes-in-context   (op v/sentexes-in-context)
    :sentexes-with-arg     (op v/sentexes-with-arg)
    :sentexes-with-functor (op v/sentexes-with-functor)
@@ -183,11 +193,12 @@
 (defn- handle-op
   "Run one `{:op :args}` request under the write lock and answer with EDN.
 
-  The two guards run before the body is read.  `POST /op` is the write route of an
-  unauthenticated single writer, so a page the operator merely *visits* must not be
-  able to drive it: `guard/edn-body?` forces a CORS preflight this daemon cannot
-  answer, and `guard/same-origin?` refuses a browser that stamped someone else's
-  origin.  See `vaelii.impl.guard`."
+  The two guards run before the body is read.  `POST /op` is the write route of the
+  single writer, and on an open loopback daemon nothing above has identified the
+  caller, so a page the operator merely *visits* must not be able to drive it:
+  `guard/edn-body?` forces a CORS preflight this daemon cannot answer, and
+  `guard/same-origin?` refuses a browser that stamped someone else's origin.  See
+  `vaelii.impl.guard`."
   [kb monitor req]
   (let [edn-reply (fn [status m]
                     {:status status
@@ -263,15 +274,82 @@
         (edn-reply 500 {:ok false :error (.getMessage t)
                         :type (:type (ex-data t) :internal-error)})))))
 
+;; ---- authentication: one shared bearer token -----------------------------
+
+(def ^:private open-routes
+  "The routes that answer before the token is checked, and `GET /health` is the whole
+  set.  A daemon only its token-holder can probe is one no container orchestrator, load
+  balancer or shell script can watch, and `{:ok true}` tells a caller nothing it did not
+  already know by connecting.  Stated here because an unauthenticated route inside an
+  authenticated daemon reads as an oversight to delete: this one is a decision."
+  #{"/health"})
+
+(defn- token-matches?
+  "Is `presented` the `expected` token?  Compared in **constant time**:
+  `MessageDigest/isEqual` folds the length difference into its accumulator and reads
+  every byte either way, so neither the token's length nor the prefix a guess shares
+  with it shows up in how long the answer takes.  `=` on strings leaks both, and a
+  refusal that returns faster for a wrong first byte is a token oracle a caller can
+  walk.
+
+  No timing test asserts this, deliberately: a wall-clock assertion over a
+  nanosecond difference is flaky by construction on a machine running anything else.
+  What is testable is that one named fn does the comparison and answers correctly for
+  equal- and unequal-length inputs, which is why the comparison lives here rather than
+  inline in the wrapper below."
+  [expected presented]
+  (java.security.MessageDigest/isEqual
+   (.getBytes (str expected) java.nio.charset.StandardCharsets/UTF_8)
+   (.getBytes (str presented) java.nio.charset.StandardCharsets/UTF_8)))
+
+(defn- presented-token
+  "The token an `Authorization: Bearer …` header carries, or nil when the header is
+  absent or names another scheme.  The scheme is matched case-insensitively, as RFC
+  7235 defines it, and the token's own case is kept."
+  [req]
+  (let [auth (str (get-in req [:headers "authorization"]))]
+    (when (str/starts-with? (str/lower-case auth) "bearer ")
+      (subs auth 7))))
+
+(defn- wrap-bearer-auth
+  "Wrap `handler` so every request presents `token` as `Authorization: Bearer <token>`.
+  A blank token means no wrapper at all — the daemon serves open, which is the loopback
+  default (`-main`).
+
+  **The refusal does not distinguish.**  A wrong token, a missing header and a header
+  spelled some other way answer the *same* 401 with the *same* body: one that said
+  which is a token oracle.  The body is EDN carrying a non-nil `:type` like every other
+  refusal the daemon can answer, plus the `WWW-Authenticate` challenge a 401 is defined
+  to carry.
+
+  **Outermost**, outside the `Host` allowlist and the origin check: a caller with no
+  token is answered before the daemon forms any other opinion about the request."
+  [handler token]
+  (if (str/blank? token)
+    handler
+    (fn [req]
+      (if (or (contains? open-routes (:uri req))
+              (when-let [presented (presented-token req)]
+                (token-matches? token presented)))
+        (handler req)
+        {:status 401
+         :headers {"content-type" "application/edn"
+                   "www-authenticate" "Bearer"}
+         :body (pr-str {:ok false :type :unauthorized
+                        :error "this daemon requires Authorization: Bearer <token>"})}))))
+
 (def ^:private loopback
   "The interface the daemon binds unless told otherwise.  `POST /op` is the **write**
-  route of the single writer and carries no authentication, so it answers only the
-  machine it runs on; exposing it is an explicit choice (`--listen`), not the default.
-  The same rule the browser holds to (`vaelii.impl.web`), and the more important of the
-  two — the browser edits a KB, and this one *is* the KB's only writer.
+  route of the single writer, so it answers only the machine it runs on; exposing it is
+  an explicit choice (`--listen`), not the default.  The same rule the browser holds to
+  (`vaelii.impl.web`), and the more important of the two — the browser edits a KB, and
+  this one *is* the KB's only writer.
 
   Loopback bounds *which machine* may reach the daemon and nothing more: a browser on
-  that machine is a local client too, which is what `vaelii.impl.guard` is for."
+  that machine is a local client too, which is what `vaelii.impl.guard` is for, and
+  every other process on it is a client with a socket, which is what the bearer token
+  is for.  A loopback daemon may run open; one that binds an address may not
+  (`auth-posture`)."
   "127.0.0.1")
 
 (defn app
@@ -280,30 +358,38 @@
 
   `:host` names the interface this handler will be served on, which fixes the `Host`
   values it answers to (`guard/allowed-hosts`).  On the loopback default that refuses
-  a rebound DNS name, the one attack `same-origin?` cannot see."
+  a rebound DNS name, the one attack `same-origin?` cannot see.
+
+  `:token` is the shared bearer token every request must present.  Omitted, it is
+  `VAELII_API_TOKEN` (`guard/api-token`), so a daemon and a client on one host agree
+  without either being configured; an explicit nil serves **open**, which is what a
+  test of the other refusals needs — a handler that 401s first exercises none of them."
   ([kb] (app kb {}))
-  ([kb {:keys [host] :or {host loopback}}]
+  ([kb {:keys [host] :or {host loopback} :as opts}]
    (let [monitor (Object.)
+         token   (if (contains? opts :token) (:token opts) (guard/api-token))
          allowed (guard/allowed-hosts host)]
-     (guard/wrap-host-allowed
-      (ring/ring-handler
-       (ring/router
-        [["/health" {:get (fn [_] {:status 200
-                                   :headers {"content-type" "application/edn"}
-                                   :body (pr-str {:ok true})})}]
-         ["/op" {:post (fn [req] (handle-op kb monitor req))}]])
-       (ring/create-default-handler
-        {:not-found (fn [_] {:status 404 :headers {"content-type" "application/edn"}
-                             ;; typed like every other {:ok false} — the migration
-                             ;; line "every reply carries a non-nil :type" holds on
-                             ;; this route too, not only on POST /op
-                             :body (pr-str {:ok false :error "not found"
-                                            :type :not-found})})}))
-      allowed
-      (fn [_] {:status 400
-               :headers {"content-type" "application/edn"}
-               :body (pr-str {:ok false :type :bad-host
-                              :error "unrecognized Host header"})})))))
+     (wrap-bearer-auth
+      (guard/wrap-host-allowed
+       (ring/ring-handler
+        (ring/router
+         [["/health" {:get (fn [_] {:status 200
+                                    :headers {"content-type" "application/edn"}
+                                    :body (pr-str {:ok true})})}]
+          ["/op" {:post (fn [req] (handle-op kb monitor req))}]])
+        (ring/create-default-handler
+         {:not-found (fn [_] {:status 404 :headers {"content-type" "application/edn"}
+                              ;; typed like every other {:ok false} — the migration
+                              ;; line "every reply carries a non-nil :type" holds on
+                              ;; this route too, not only on POST /op
+                              :body (pr-str {:ok false :error "not found"
+                                             :type :not-found})})}))
+       allowed
+       (fn [_] {:status 400
+                :headers {"content-type" "application/edn"}
+                :body (pr-str {:ok false :type :bad-host
+                               :error "unrecognized Host header"})}))
+      token))))
 
 (defn start
   "Start the daemon over `kb` and return the running jetty `Server` (`:join? false`, so
@@ -311,9 +397,12 @@
   an ephemeral port; read the actual one with `port`.
 
   `:host` defaults to loopback; pass an address (`\"0.0.0.0\"`) to bind publicly, and
-  read the note on `loopback` before doing so."
-  ^Server [kb {:keys [port host] :or {port 4200 host loopback}}]
-  (jetty/run-jetty (app kb {:host host}) {:port port :host host :join? false}))
+  read the note on `loopback` before doing so.  `:token` is `app`'s, forwarded only
+  when the key is there, so an omitted one still reads `VAELII_API_TOKEN` and an
+  explicit nil still serves open."
+  ^Server [kb {:keys [port host] :or {port 4200 host loopback} :as opts}]
+  (jetty/run-jetty (app kb (assoc (select-keys opts [:token]) :host host))
+                   {:port port :host host :join? false}))
 
 (defn port
   "The actual TCP port a started `Server` is listening on — the ephemeral one when it
@@ -354,6 +443,82 @@
                                                       {:type :unknown-option :flag a}))
       :else                           (recur more (conj pos a)))))
 
+(defn- public-bind?
+  "Does `host` name an interface other than this machine's own?  Membership in
+  `guard/loopback-hosts` rather than equality with `loopback`, so the bind that
+  requires a token is exactly the bind that drops the `Host` allowlist:
+  `--listen 127.0.0.1` is the default said out loud and is held to the loopback rule,
+  `--listen 0.0.0.0` is not."
+  [host]
+  (not (contains? guard/loopback-hosts (str/lower-case (str host)))))
+
+(defn- auth-posture
+  "Which posture a daemon binding `host` with `token` runs in — and the refusal when
+  neither is available.
+
+    :required  a token is set, and every request presents it
+    :open      loopback with no token: every process on this machine drives the writes
+
+  **A bind that names an address with no token is refused** (`:unauthorized`), which is
+  the one place the daemon fails closed.  It is the flag that publishes `POST /op` —
+  the KB's only writer — and the same flag drops the `Host` allowlist, so the exposed
+  configuration would otherwise be the one with the fewest checks.  The loopback
+  default is not held to it because `lein serve` on a laptop is a real workflow that a
+  required credential would only teach an operator to export a constant.  The `Host`
+  allowlist is not held to it either — see `host-posture` for why that one warns
+  instead of refusing."
+  [host token]
+  (cond
+    (not (str/blank? token)) :required
+    (public-bind? host)
+    (throw (ex-info (str "VAELII_API_TOKEN must be set to bind " host
+                         " — POST /op is the KB's only writer, and naming an address"
+                         " publishes it")
+                    {:type :unauthorized :host host}))
+    :else :open))
+
+(defn- host-posture
+  "Which `Host`-allowlist policy a daemon binding `host` runs under — the question
+  `auth-posture` answers for the token, beside it:
+
+    :allowlisted  the daemon checks Host — loopback's own names, or VAELII_ALLOWED_HOSTS's
+    :open         every Host is answered — a public bind naming no VAELII_ALLOWED_HOSTS
+
+  **Never throws.**  Unlike a missing token, an open allowlist is not fail-closed: a
+  daemon fronted by a reverse proxy legitimately receives whatever `Host` the proxy
+  sets, and an operator cannot always enumerate that set in advance, so a refusal here
+  would trip a normal deployment rather than a broken one.  `announce-auth!` is what
+  turns `:open` into the operator-visible warning."
+  [host]
+  (if (guard/allowlist-open? (guard/allowed-hosts host)) :open :allowlisted))
+
+(defn- announce-auth!
+  "Say which postures the daemon started in, every start — the token question
+  (`posture`) and the `Host`-allowlist question (`hosts`) beside it.  Each absence is a
+  warning rather than a silence: it is the line an operator greps for after an
+  incident, and an absent log line is indistinguishable from a daemon that never
+  started."
+  [host posture hosts]
+  (if (= :required posture)
+    (trove/log! {:level :info :id ::authenticated
+                 :msg "every request must carry Authorization: Bearer <VAELII_API_TOKEN>"})
+    (trove/log! {:level :warn :id ::no-token
+                 :msg (str "no VAELII_API_TOKEN: POST /op is the KB's only writer and "
+                           "every process on this machine can drive it — set one, and "
+                           "note that --listen with an address requires one")}))
+  (when (public-bind? host)
+    (trove/log! {:level :warn :id ::public-bind
+                 :msg (str "daemon bound to " host " — the wire is plaintext; "
+                           "terminate TLS in a reverse proxy")
+                 :data {:host host}}))
+  (when (= :open hosts)
+    (trove/log! {:level :warn :id ::open-hosts
+                 :msg (str "no VAELII_ALLOWED_HOSTS: every Host header is answered on "
+                           host " — fine behind a reverse proxy that sets its own Host, "
+                           "a DNS-rebinding vector otherwise.  Name the hosts this "
+                           "daemon should answer, or confirm that is what fronts it")
+                 :data {:host host}})))
+
 (defn -main
   "Run the daemon in the foreground.  Args: `[port [dir]] [--listen ADDR]`, in any
   order — `dir` selects the durable `:disk` backend (recovered on open, so it
@@ -364,12 +529,22 @@
     lein run -m vaelii.impl.serve 4200 /var/lib/vaelii --listen 0.0.0.0   ; opt-in
 
   It binds **loopback** unless `--listen` says otherwise, for the reason on `loopback`
-  above: `POST /op` writes, and nothing authenticates it.  Put a reverse proxy that does
-  in front of it before naming an address — and note that naming one also drops the
-  `Host` allowlist (`guard/allowed-hosts`), since the name you reach it by is then
-  yours to know; set `VAELII_ALLOWED_HOSTS` to keep the check.  A `--listen` with no
-  address, an unknown flag, or a stray argument is one line and exit 1, like the
-  port typo below."
+  above: `POST /op` writes, and it is the KB's only writer.  What it binds and what it
+  requires are one decision (`auth-posture`), so they are stated together:
+
+  - `--listen` names a **non-loopback** address ⇒ `VAELII_API_TOKEN` is **required**.
+    Without one it is a line on stderr and exit **2**, a code of its own so a
+    supervisor tells a missing credential from the configuration typos below.
+  - **Loopback** — the default, and `--listen 127.0.0.1` said out loud — ⇒ the token
+    is used when set, and its absence is a startup warning naming the flag that would
+    require one.
+
+  Naming an address also drops the `Host` allowlist (`guard/allowed-hosts`), since the
+  name you reach it by is then yours to know; set `VAELII_ALLOWED_HOSTS` to keep the
+  check.  Left unset, the daemon starts anyway — a reverse proxy setting its own `Host`
+  needs exactly this — and `host-posture` turns the gap into a startup warning rather
+  than a silence.  A `--listen` with no address, an unknown flag, or a stray argument
+  is one line and exit 1, like the port typo below."
   [& args]
   (let [[port-s dir] (try (positional-args args)
                           (catch clojure.lang.ExceptionInfo e
@@ -388,15 +563,22 @@
                          (println (str "not a port number: " port-s)))
                        (System/exit 1)))
                 4200)
+        token (guard/api-token)
+        ;; before the KB is opened, which takes the directory's single-writer lock: a
+        ;; daemon that is going to refuse to serve must not first take a lock off the
+        ;; process that could have
+        posture (try (auth-posture host token)
+                     (catch clojure.lang.ExceptionInfo e
+                       (binding [*out* *err*] (println (ex-message e)))
+                       (System/exit 2)))
+        hosts (host-posture host)
         kb    (if dir
                 (v/open-kb {:backend :disk :dir dir :recover? :auto})
                 (v/open-kb {}))]
     (trove/log! {:level :info :id ::start
                  :msg "vaelii daemon listening"
-                 :data {:port port :host host :dir (or dir :memory)}})
-    (when-not (= host loopback)
-      (trove/log! {:level :warn :id ::public-bind
-                   :msg (str "daemon bound to " host " — POST /op writes and is "
-                             "unauthenticated; put an authenticating proxy in front")
-                   :data {:host host}}))
-    (jetty/run-jetty (app kb {:host host}) {:port port :host host :join? true})))
+                 :data {:port port :host host :dir (or dir :memory)
+                        :auth posture :hosts hosts}})
+    (announce-auth! host posture hosts)
+    (jetty/run-jetty (app kb {:host host :token token})
+                     {:port port :host host :join? true})))

@@ -144,3 +144,44 @@
                        (v/prove kb [(list parentOf '?x Bob) (list grandparentOf '?x '?z)]
                                 JoinContext)))))
       (is (v/provable? kb [(list parentOf Tom '?y) (list parentOf '?y Ann)] JoinContext)))))
+
+(tu/deftest-kb prove-answers-once-per-derivation-and-not-once-per-answer
+  ;; `prove`'s documented contract, and the one most likely to be "fixed" by a reader
+  ;; who meets it and reads a repeat as a bug: a goal reachable two ways comes back
+  ;; twice, with the two maps equal.  Deduping here would be a Breaking change and
+  ;; would take `abduce`'s explanations with it — an explanation is a derivation, so a
+  ;; reader that collapsed equal maps could not tell two of them apart.
+  ;;
+  ;; **That multiplicity is the DFS's, and it is the one thing the two engines do not
+  ;; share.**  The node engine keys a `seen` set on the bindings, so two derivations of
+  ;; one answer are one answer and the proof it hands back is the first found
+  ;; (`inference/step!`, which says so).  What both engines promise is the answer
+  ;; *set* — that is what `*query-engine*` claims, what `inference_parity_test`
+  ;; compares, and all of what `docs/inference.md` means by the two agreeing.  So the
+  ;; counting halves stand aside under `VAELII_QUERY_ENGINE`, in the shape
+  ;; `query_test.clj` uses, and the set halves run under both engines.
+  (tu/with-terms [viaA viaB shared Someone DerivContext]
+    (v/assert-rule kb [(list viaA '?x)] (list shared '?x) DerivContext)
+    (v/assert-rule kb [(list viaB '?x)] (list shared '?x) DerivContext)
+    (v/assert kb (list viaA Someone) DerivContext)
+    (v/assert kb (list viaB Someone) DerivContext)
+    (let [proofs (v/prove kb (list shared '?x) DerivContext)]
+      (when-not (tu/query-engine-override)
+        (testing "every derivation is its own solution, and equal maps repeat"
+          (is (< 1 (count proofs))
+              "two rules concluding one goal are two derivations")
+          (is (apply = proofs)
+              "and the maps are equal — the repeat carries no binding the others lack")))
+      (testing "the answer set is one binding, however many derivations reached it"
+        (is (= 1 (count (distinct proofs)))
+            "so `distinct` is what recovers the answer set"))
+      (testing "the readers that project to the goal's variables answer each binding once"
+        (is (= 1 (count (v/ask kb (list shared '?x) DerivContext))))
+        (is (= 1 (count (v/query kb (list shared '?x) DerivContext {:max-depth 3})))))
+      (testing "a ground goal binds nothing, so the repeats are empty maps"
+        (let [ground (v/prove kb (list shared Someone) DerivContext)]
+          (when-not (tu/query-engine-override)
+            (is (< 1 (count ground))))
+          (is (every? empty? ground))
+          (is (v/provable? kb (list shared Someone) DerivContext)
+              "provable? asks whether there is one, not how many"))))))

@@ -238,9 +238,10 @@
   ;; arbitration what the KB believed, turned on a cost flag.
   ;;
   ;; A **default-suite** test on purpose, for the reason `backend_parity_test` gives for
-  ;; being one: the thorough gate is the whole suite under `VAELII_NOHIER`, and no
-  ;; workflow sets it — nothing in CI runs the fan-out at all.  This fails in an ordinary
-  ;; `lein test` the day the two paths disagree again.
+  ;; being one: the thorough gate is the whole suite under `VAELII_HIER=0`, and the only
+  ;; workflow that sets it is `deep.yml`, which runs weekly rather than on a pull
+  ;; request.  This fails in an ordinary `lein test` the day the two paths disagree
+  ;; again, which is a week earlier than the sweep would say so.
   (doseq [seed (range 4)]
     (is (= (binding [res/*hierarchical-retrieval* true]  (stream-reading seed 24))
            (binding [res/*hierarchical-retrieval* false] (stream-reading seed 24)))

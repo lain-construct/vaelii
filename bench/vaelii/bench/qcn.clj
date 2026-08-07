@@ -42,7 +42,7 @@
             [vaelii.impl.space :as space]))
 
 (defn- fresh-kb []
-  (let [kb (v/open-kb {:backend :memory :record-space 30 :index-space 31 :recover? false})]
+  (let [kb (v/open-kb {:backend :memory :space 30 :recover? false})]
     (core-context/load-into kb)
     (seed/load-context kb 'SpaceContext "upper")
     (seed/load-context kb 'TimeContext "upper")

@@ -1,5 +1,11 @@
 # Resource-bounded / anytime inference
 
+- **Covers:** the budget a query runs under (`:max-ms`/`:max-results`/`:max-cost`/`:max-depth`),
+  the partial-result contract `ask-within`/`prove-within` return, and what `resume` continues.
+- **Not here:** the chainers and prover registry a budget bounds → [inference.md](inference.md);
+  the lookup-to-query stack whose laziness the budget spends → [levels.md](levels.md).
+- **Assumes:** sentex, prover, backward chaining → [glossary.md](glossary.md).
+
 `vaelii.impl.budget`, surfaced as `core/ask-within`, `core/prove-within`, and
 `core/resume`.
 

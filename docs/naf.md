@@ -1,5 +1,12 @@
 # Negation as failure: `unknown` and `thereExists`
 
+- **Covers:** closed-world negation as a query operator — `unknown`/`thereExists`,
+  ground/closed evaluation, and how a rule antecedent stays maintained as belief changes.
+- **Not here:** the rule-level exception this reuses block/sweep/revive from →
+  [exceptions.md](exceptions.md); aggregation, the third member of the same family →
+  [aggregate.md](aggregate.md).
+- **Assumes:** belief, justification, prover, `genl` → [glossary.md](glossary.md).
+
 Closed-world negation as a query operator, and the existential that closes a
 variable off so it can be negated. Neither is ever stored.
 

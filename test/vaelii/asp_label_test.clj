@@ -248,7 +248,7 @@
             (is (seq (v/sentexes-matching kb (list 'genlContext ctx 'UniverseContext) '?ctx))))
           (testing "but it records no labeling, because there was none to record"
             (is (empty? handles))
-            (is (zero? (v/context-size kb ctx)))
+            (is (zero? (v/count-in-context kb ctx)))
             (is (empty? (v/sentexes-in-context kb ctx)))))))))
 
 (deftest labeling-does-not-entrench-a-side-of-a-dilemma

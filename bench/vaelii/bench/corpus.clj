@@ -75,7 +75,7 @@
 
 (defn- load-run [label enable? md {:keys [facts rules]}]
   (if enable? (rete/enable!) (rete/disable!))
-  (let [kb (kb/open-kb {:backend :memory :record-space 36 :index-space 37 :recover? false}
+  (let [kb (kb/open-kb {:backend :memory :space 36 :recover? false}
                        (fn [k] (require 'vaelii.core) ((resolve 'vaelii.core/recover) k))
                        (fn [k] (require 'vaelii.core) ((resolve 'vaelii.core/reindex) k)))]
     (p/clear-records! (:records kb)) (p/clear-index! (:index kb))

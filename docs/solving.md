@@ -1,5 +1,12 @@
 # Solving: assumptionRule and persistent, inert labeling contexts
 
+- **Covers:** how `assumptionRule` and constraint declarations become `do/label`'s
+  persistent, inert labeling contexts, without touching base belief.
+- **Not here:** the ASPIF encoding and solver backends the resulting program runs on →
+  [asp.md](asp.md); committing one labeling live into base belief →
+  [labeling.md](labeling.md).
+- **Assumes:** sentex, context, premise → [glossary.md](glossary.md).
+
 How a solve is expressed, run, and **kept** — as sentexes in the records, not an
 in-memory snapshot — and why the base KB is never disturbed.
 

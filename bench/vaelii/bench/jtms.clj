@@ -77,7 +77,7 @@
   nodes, derived nodes, and real justifications — the shape that is being sized."
   ([n m strength] (build-kb n m strength :reference))
   ([n m strength tms]
-   (let [kb  (v/open-kb {:backend :memory :record-space 60 :index-space 61
+   (let [kb  (v/open-kb {:backend :memory :space 60
                          :recover? false :tms tms})
          rng (java.util.Random. 20260724)]
      (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
@@ -220,7 +220,7 @@
   which is the regime a rules-heavy KB is actually in."
   ([inds edges strength] (build-join-kb inds edges strength :reference))
   ([inds edges strength tms]
-   (let [kb  (v/open-kb {:backend :memory :record-space 62 :index-space 63
+   (let [kb  (v/open-kb {:backend :memory :space 62
                          :recover? false :tms tms})
          rng (java.util.Random. 20260725)
          who (u/terms "K" inds)]

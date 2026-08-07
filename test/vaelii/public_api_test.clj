@@ -134,9 +134,9 @@
         (is (= 1 (count (v/sentexes-with-arg kb 1 Tweety {:believed? true}))))
         (is (= 2 (count (v/sentexes-with-arg kb 1 Tweety))))
         (is (< (count (v/sentexes-in-context kb CountContext {:believed? true}))
-               (v/context-size kb CountContext))))
-      (testing "context-size counts every stored sentex in the context, rules included"
-        (is (= (v/context-size kb CountContext)
+               (v/count-in-context kb CountContext))))
+      (testing "count-in-context counts every stored sentex in the context, rules included"
+        (is (= (v/count-in-context kb CountContext)
                (count (v/sentexes-in-context kb CountContext))))))))
 
 ;; ---- qualitative constraint reasoning, read from core -------------------

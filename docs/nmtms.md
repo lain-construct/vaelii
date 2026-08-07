@@ -1,5 +1,12 @@
 # Non-monotonic truth maintenance
 
+- **Covers:** how belief is computed from justification strength, and how `settle`
+  resolves soft contradictions without throwing.
+- **Not here:** the belief a batch would move before it commits →
+  [preview.md](preview.md); the ASP backend a contested edge renders to →
+  [asp.md](asp.md).
+- **Assumes:** sentex, context, justification, strength → [glossary.md](glossary.md).
+
 `vaelii.impl.strength`, `vaelii.impl.solve`, `vaelii.impl.jtms`, and the settle layer in
 `vaelii.impl.settle`.
 

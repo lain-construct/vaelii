@@ -240,10 +240,10 @@
 
 (defn disk-dir
   "The directory a disk KB lives in.  `:dir` names it explicitly; otherwise it derives
-  from the space numbers under a base (`vaelii.disk.dir`, else `<tmpdir>/vaelii-disk`), so
-  the record/index space pair the other backends key on still names a distinct store."
-  [{:keys [dir record-space index-space] :or {record-space 0 index-space 1}}]
+  from the space number under a base (`vaelii.disk.dir`, else `<tmpdir>/vaelii-disk`), so
+  the space the other backends key on still names a distinct store."
+  [{:keys [dir space] :or {space 0}}]
   (or dir
       (let [base (or (System/getProperty "vaelii.disk.dir")
                      (str (System/getProperty "java.io.tmpdir") "/vaelii-disk"))]
-        (str base "/space-" record-space "-" index-space))))
+        (str base "/space-" space))))

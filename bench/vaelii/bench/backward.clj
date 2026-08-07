@@ -54,7 +54,7 @@
     (println (format "\n  %-10s %14s %14s %14s %12s %12s" "rules(N)" "rules→hot" "rules→mid" "rules→rare" "ridx baseMB" "ridx int[]MB"))
     (println (str "  " (apply str (repeat 80 \-))))
     (doseq [n [10000 50000 (min maxn 200000)]]
-      (let [kb (kb/open-kb {:backend :memory :record-space 30 :index-space 31 :recover? false}
+      (let [kb (kb/open-kb {:backend :memory :space 30 :recover? false}
                            (fn [_] nil) (fn [_] nil))]
         (p/clear-index! (:index kb))
         (index-rules! kb n (java.util.Random. 7) preds pcum)

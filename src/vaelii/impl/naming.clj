@@ -7,10 +7,14 @@
     predicate    camelCase, lowercase-initial, no underscore   parentOf, genl, argIsa
     individual   CapitalCamelCase                               Fido, Tom
     type         snake_case, lowercase, unary predicate         dog, physical_object
+    sense        a type, plus which sense of it is meant        abrasive-grit
     context      CapitalCamelCase ending in Context             UniverseContext, CoreContext
+    lexeme       the `lex` namespace; the name is parse input   lex/fool's_gold
 
   Single lowercase words (dog, genl, parentOf) satisfy both `predicate?` and
   `type-symbol?`; role is disambiguated by position and arity, not the symbol alone.
+  A sense is a type too, so it is unary for the same reason, and a lexeme is the one
+  role a *namespace* decides — its text is a surface form and not ours to spell.
   A functor carrying an **underscore** is a type name and nothing else, and types are
   used as *unary* predicates — `(dog Fido)`, not `(isa Fido Dog)` — so it is legal at
   arity 1 and nowhere else.  `(lives_in penguin cold_place)` is a type name doing a
@@ -35,11 +39,73 @@
 
 (defn- nm [s] (clojure.core/name s))
 
-(defn context?    [x] (and (symbol? x) (some? (re-matches #"[A-Z][A-Za-z0-9]*Context" (nm x)))))
-(defn individual? [x] (and (symbol? x) (some? (re-matches #"[A-Z][A-Za-z0-9]*" (nm x)))
+(def lexeme-namespace
+  "The namespace marking a **lexeme** — a surface form exactly as a model or a person
+  wrote it, before anything decided what it means.  A namespace rather than a spelling
+  because a lexeme's own text is unconstrained: it carries apostrophes (`fool's_gold`),
+  dashes, dots and digits, so any marker written *into* the name would collide with the
+  word it marks.  `(namespace x)` is a field read and cannot."
+  "lex")
+
+(defn lexeme?
+  "A lexeme: `lex/fool's_gold`.  Parse input, and the only role whose text this makes no
+  claim about — what a person typed is not ours to spell.
+
+  Every other namespace stays invisible to the role checks, exactly as before: `nm` reads
+  the name half, so `agg/count` and `set/forwardRule` are the predicates they always
+  were.  `lex` is the one namespace that decides a role."
+  [x]
+  (and (symbol? x) (= lexeme-namespace (namespace x))))
+
+(defn context?    [x] (and (symbol? x) (not (lexeme? x))
+                           (some? (re-matches #"[A-Z][A-Za-z0-9]*Context" (nm x)))))
+(defn individual? [x] (and (symbol? x) (not (lexeme? x))
+                           (some? (re-matches #"[A-Z][A-Za-z0-9]*" (nm x)))
                            (not (context? x))))
-(defn predicate?  [x] (and (symbol? x) (some? (re-matches #"[a-z][a-zA-Z0-9]*" (nm x)))))
-(defn type-symbol? [x] (and (symbol? x) (some? (re-matches #"[a-z][a-z0-9_]*" (nm x)))))
+(defn predicate?  [x] (and (symbol? x) (not (lexeme? x))
+                           (some? (re-matches #"[a-z][a-zA-Z0-9]*" (nm x)))))
+
+(def ^:private disambiguator-re
+  "A **sense** — a word, a `-`, and the disambiguator that says which sense of it is
+  meant: `abrasive-grit`, `abandonment-romantic`, `abandonment-dual`.  Senses are the
+  type hierarchy, and the disambiguator is what makes two senses of one word two terms
+  rather than one.
+
+  The split is on the **last** dash, because the word may hold its own — and may *end*
+  in one, which is the case that forces the rule.  `a-` is a word (A, then the minus),
+  so its sense is `a--musical_note`: the word is `a-`, the disambiguator is
+  `musical_note`, and the boundary is the second dash rather than the first.  Nothing
+  here parses that boundary — the `sense` and `disambiguation` facts record it, and this
+  only has to recognise the shape.
+
+  Both halves admit what real vocabulary carries — a leading dot (`.22_long_rifle-ammo`,
+  `.dll-library`), an internal apostrophe (`fool's_gold-mineral`, `deck-ship's_floor`), a
+  dash of the word's own, and a disambiguator that starts with a digit (`organ_cultures-3d`,
+  `chiptune_composer-8bit`).  A disambiguator is minted rather than found, so it is
+  tempting to hold it to snake_case — but the corpus mints `3d` and `8bit`, and they are
+  good disambiguators.  Only the **first character of the whole symbol** is constrained,
+  because only it is what the reader dispatches on.
+
+  What it may not do is **lead with a digit**, and the reason is the reader rather than
+  taste: `134a-gas` is read as a malformed *number*, not as a symbol, so a KB holding one
+  could not be written to text and read back.  A leading `'`, `#` or `:` fails the same
+  way.  A word that starts with a digit is escaped with an underscore when it is minted
+  — `_134a-gas` — which reads, sorts beside its neighbours, and says it was escaped."
+  #"[a-z._][a-z0-9_'.+=&:*>#-]*-[a-z0-9][a-z0-9_']*")
+
+(defn sense?
+  "A disambiguated type."
+  [x]
+  (and (symbol? x) (not (lexeme? x))
+       (some? (re-matches disambiguator-re (nm x)))))
+
+(defn type-symbol?
+  "A type: bare snake_case (`dog`, `physical_object`) or a sense (`abrasive-grit`).
+  Both are unary predicates — a sense is a type that says which sense it is."
+  [x]
+  (and (symbol? x) (not (lexeme? x))
+       (or (some? (re-matches #"[a-z][a-z0-9_]*" (nm x)))
+           (sense? x))))
 
 (defn functor [sentence] (when (sequential? sentence) (first sentence)))
 (defn args    [sentence] (when (sequential? sentence) (rest sentence)))
@@ -71,12 +137,13 @@
   reads as prose, but a caller that counts them needs to group without parsing English —
   an operator auditing a corpus wants five numbers, not eleven million sentences — so the
   class is the datum and the message is rendered from it."
-  {:context-name  "the KB context named is not a context"
-   :functor       "a functor matching no convention"
-   :functor-arity "a snake_case functor (a type) at an arity other than 1"
-   :argument      "a symbol argument matching no convention"
-   :ist-context   "an ist context slot that does not name a context"
-   :dot-marker    "a dotted rest marker outside a rule pattern"})
+  {:context-name   "the KB context named is not a context"
+   :functor        "a functor matching no convention"
+   :functor-arity  "a snake_case functor (a type) at an arity other than 1"
+   :lexeme-functor "a lexeme applied to arguments — a surface form names no relation"
+   :argument       "a symbol argument matching no convention"
+   :ist-context    "an ist context slot that does not name a context"
+   :dot-marker     "a dotted rest marker outside a rule pattern"})
 
 (defn- rule-wrapper?
   "One of the virtual wrappers that wrap a single rule form — direction, defeasible,
@@ -184,6 +251,14 @@
     (cond
       (nil? f) nil
 
+      ;; The one fence around a lexeme, and the whole of it.  A surface form is what
+      ;; somebody wrote, not a relation or a kind, so it cannot be applied to anything —
+      ;; while as an *argument* it is ordinary, which is what lets `(sense lex/w s)` say
+      ;; what a lexeme means and `(genl s lex/w)` stand as the improver's unsensified
+      ;; edge until it crafts the sense that replaces it.
+      (lexeme? f)
+      {:class :lexeme-functor :role role :symbol f :literal literal}
+
       (not (or (predicate? f) (type-symbol? f)))
       {:class :functor :role role :symbol f :literal literal}
 
@@ -212,7 +287,8 @@
   (when (and (symbol? a)
              (not (sx/variable? a))
              (not= sx/dot-marker a)
-             (not (or (individual? a) (context? a) (predicate? a) (type-symbol? a))))
+             (not (or (individual? a) (context? a) (predicate? a) (type-symbol? a)
+                      (lexeme? a))))
     {:class :argument :role role :symbol a :literal literal}))
 
 (defn- ist-context-problems
@@ -239,19 +315,29 @@
       :functor
       (str "functor " (pr-str symbol) " in " where " matches no naming convention: a"
            " predicate is camelCase (parentOf, argIsa), a type is snake_case"
-           " (physical_object) and only unary")
+           " (physical_object) or a sense (abrasive-grit), and a type is only unary")
+
+      :lexeme-functor
+      (str "functor " (pr-str symbol) " in " where " is a lexeme, and a surface form names"
+           " no relation, so it cannot be applied to anything — write the sense it means,"
+           " " (nm symbol) "-<which sense>, or leave it in argument position, where"
+           " (sense " symbol " <the sense>) says what it means")
 
       :functor-arity
-      (str "functor " symbol " in " where " is snake_case, which names a type and is legal"
-           " only as a unary predicate, but has " (arity literal) " arguments — write it"
-           " camelCase as " (camel-case symbol) ", or as (" symbol " <one argument>)")
+      (if (sense? symbol)
+        (str "functor " symbol " in " where " is a sense, which names a type and is legal"
+             " only as a unary predicate, but has " (arity literal) " arguments — write the"
+             " relation as a camelCase predicate, or as (" symbol " <one argument>)")
+        (str "functor " symbol " in " where " is snake_case, which names a type and is legal"
+             " only as a unary predicate, but has " (arity literal) " arguments — write it"
+             " camelCase as " (camel-case symbol) ", or as (" symbol " <one argument>)"))
 
       :argument
       (str "argument " (pr-str symbol) " in " where
            " matches no naming convention: an individual is CapitalCamelCase (Fido), a"
-           " type is snake_case (physical_object), a predicate is camelCase (parentOf)"
-           " — write it " (pascal-case symbol) " for an individual, or "
-           (str/lower-case (nm symbol)) " for a type")
+           " type is snake_case (physical_object) or a sense (abrasive-grit), and a"
+           " predicate is camelCase (parentOf) — write it " (pascal-case symbol)
+           " for an individual, or " (str/lower-case (nm symbol)) " for a type")
 
       :ist-context
       (str "ist directs " (pr-str literal) " into " (pr-str symbol)
@@ -387,10 +473,74 @@
            " — they are stored, findable and countable, but re-asserting one throws"
            " under :naming :strict"))))
 
+;; Advice already given in this process, so a corpus of the same mistake is one line
+;; rather than a line per fact.  `defonce` for the same reason the space counter is.
+(defonce ^:private advised (atom #{}))
+
+(defn- type-spelling
+  "The type name a CapitalCamelCase symbol was reaching for: `Dog` is `dog`, and
+  `PhysicalObject` is `physical_object` rather than `physicalobject` — types are
+  snake_case, so lower-casing alone would suggest a name the conventions refuse."
+  [s]
+  (-> (nm s)
+      (str/replace #"(?<=[a-z0-9])([A-Z])" "_$1")
+      str/lower-case))
+
+(defn advice
+  "A well-formed sentence that is nonetheless almost certainly not what was meant — or
+  nil.  Where `problems` reads the invariants, this reads *intent*, so everything here
+  passes every check and stores cleanly.
+
+  One entry so far.  `(isa Fido Dog)` is the membership spelling every other KR system
+  taught the reader, and here it stores a two-place predicate named `isa` relating two
+  individuals — legal, indexed, believed, and matched by nothing anyone will ask.  The
+  reader then asks `(isa? kb 'Fido 'Dog)` and gets false, with no error to search for,
+  because the type they meant was never asserted.  `CoreContext.txt` says never to write
+  it and `docs/naming.md` calls it out by name; neither is in front of someone who is
+  typing.
+
+  The bar for a new entry is that the shape has no legitimate reading: `isa` is a
+  predicate no shipped KB declares and the one the ontology names as the mistake.  A
+  shape somebody might mean stays out — a nudge that fires on correct input is one that
+  gets tuned out, and takes the real ones with it."
+  [sentence]
+  (let [f     (functor sentence)
+        [x t] (vec (args sentence))]
+    (when (and (= 'isa f) (= 2 (arity sentence)))
+      {:id      ::isa-is-not-how-membership-is-written
+       :message (str "(isa " x " " t ") stores a two-place `isa` predicate, which nothing "
+                     "reads — types here are unary predicates, so membership is written "
+                     ;; the rewrite only where both arguments are symbols: an argument
+                     ;; may legally be a number, a string or a compound term, and
+                     ;; `clojure.core/name` throws on all three — advice that crashes
+                     ;; the assert it was meant to help is worse than none
+                     (if (and (symbol? x) (symbol? t))
+                       (str "(" (type-spelling t) " " x ")")
+                       "as a unary type predicate, (dog Fido)")
+                     " and the hierarchy with genl.  docs/naming.md")})))
+
+(defn advise!
+  "Log `advice` about `sentence`, once per process per kind of advice.
+
+  Silent under `:naming :off`, which asks for names not to be policed at all.  Never a
+  refusal at any policy: the sentence is well-formed, and refusing a legal shape on a
+  guess about intent would make the front door unpredictable."
+  [policy sentence context]
+  (when (not= :off policy)
+    (when-let [{:keys [id message]} (advice sentence)]
+      (when-not (contains? @advised id)
+        (swap! advised conj id)
+        (trove/log! {:level :warn :id ::probably-not-meant
+                     :msg  (str "stored, and probably not what was meant: " message)
+                     :data {:sentence sentence :context context :advice id}})))))
+
 (defn check!
   "Enforce `policy` on `sentence` in `context`: throw `:naming` under `:strict`, log
   under `:warn`, do nothing under `:off`.  The one place the three differ, so no caller
-  spells the throw out and none can drift from another."
+  spells the throw out and none can drift from another.
+
+  Past the invariants it also gives `advice` — for a sentence that breaks none of them
+  and is still a mistake, which a refusal cannot reach."
   [policy sentence context]
   (when (not= :off policy)
     (when-let [ps (seq (problems sentence context))]
@@ -400,4 +550,5 @@
                                 (str/join "; " ps))
                      :data {:sentence sentence :context context}})
         (throw (ex-info (str "naming invariant: " (str/join "; " ps))
-                        {:type :naming :sentence sentence :context context}))))))
+                        {:type :naming :sentence sentence :context context}))))
+    (advise! policy sentence context)))

@@ -835,11 +835,10 @@
   conclusion is skipped (no sentex, no justification) and the violation lands in the
   KB's `violations` atom, readable with `core/violations`.
 
-  Dropping is the pragmatic answer, not the principled one.  The principled end state
-  is to reframe these as **high-priority nogoods** so a derived violation is
-  *arbitrated* by the settle layer like any other contradiction — defeating whichever
-  side is weaker instead of unconditionally discarding the newcomer — which is what
-  docs/nmtms.md already proposes.  That is a larger change and is not made here."
+  Dropping rather than arbitrating is deliberate, and docs/nmtms.md holds the reason:
+  an argument constraint convicts by the **absence** of a path from the argument's types
+  to the constraint type, so there is no second sentex to weigh the conclusion against
+  and nothing for a defeat class to compare.  A nogood needs two sides; this has one."
   [kb rule conseq pctx all-antes depth bindings strength]
   (let [existing (kb/find-sentex-handle kb conseq pctx)
         ;; Checked only when the conclusion is **new**.  Re-deriving a sentence already
@@ -1154,12 +1153,27 @@
                                :detail (cond-> {:rule-context  (:context rule)
                                                 :fact-contexts (vec (distinct fact-ctxs))
                                                 :message
+                                                ;; the remedy, not only the diagnosis: this
+                                                ;; fires on the commonest first-session
+                                                ;; mistake — facts asserted into a context
+                                                ;; with no edge to the one holding the rule
+                                                ;; — where the reader has a rule that did
+                                                ;; everything but conclude, and a message
+                                                ;; that named the shortfall without naming
+                                                ;; the relation that closes it
                                                 (if (seq links)
                                                   (str "completed firing has no placement context — "
                                                        "no context sees the rule, all antecedent facts, "
-                                                       "and the genl edges the match subsumed through")
+                                                       "and the genl edges the match subsumed through.  "
+                                                       "Add the genlContext edges that put one context "
+                                                       "above all of them (:rule-context and "
+                                                       ":fact-contexts below name what has to be seen, "
+                                                       ":subsumed the edges)")
                                                   (str "completed firing has no placement context — "
-                                                       "no context sees the rule and all antecedent facts"))}
+                                                       "no context sees the rule and all antecedent facts.  "
+                                                       "Add the genlContext edges that put one context "
+                                                       "above both (:rule-context and :fact-contexts "
+                                                       "below name what has to be seen)"))}
                                          (seq links)
                                          (assoc :subsumed (mapv first links)
                                                 :would-place
@@ -1675,11 +1689,24 @@
   **accumulates** across runs rather than resetting per run, so a bulk load's drops
   stay observable one assert later; and because internal callers discard the
   `:truncated?` flag, the :warn log is how a depth-capped chain's lost conclusions
-  surface."
+  surface.
+
+  At `:debug` every run says what it did, truncated or not — the run is the boundary a
+  log statement belongs at, and without one a chain that concluded nothing, a chain that
+  concluded forty thousand things and a chain still joining are the same silence to
+  somebody watching a load."
   [kb seed opts]
   (swap! (:chain-stats kb) update :runs inc)
-  (let [result (chain kb seed opts)]
+  (let [started (System/nanoTime)
+        result  (chain kb seed opts)]
     (swap! (:chain-stats kb) assoc :last result)
+    ;; the counting is inside the payload, which Trove builds as a delay: a run that is
+    ;; not being watched pays the `nanoTime` above and nothing else
+    (trove/log! {:level :debug :id ::chain-run
+                 :data (assoc result
+                              :run  (:runs @(:chain-stats kb))
+                              :seed (count seed)
+                              :ms   (quot (- (System/nanoTime) started) 1000000))})
     (when (:truncated? result)
       (trove/log! {:level :warn :id ::chain-truncated
                    :msg "forward chaining was truncated (max-depth or max-derivations) — conclusions are missing"

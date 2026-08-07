@@ -1,5 +1,13 @@
 # Taxonomy: types, genl, and disjointness
 
+- **Covers:** how the `genl` type hierarchy is cached and queried, how `disjoint` /
+  `disjointMetatype` are enforced, and how `argIsa` / `argGenl` constrain arguments as a
+  rejection check.
+- **Not here:** `genlContext`, the sibling closure over contexts rather than types →
+  [contexts.md](contexts.md); `argIsa` / `argGenl` read as an entailment that mints a
+  stored, justified fact → [argtypes.md](argtypes.md).
+- **Assumes:** sentex, context, belief, justification → [glossary.md](glossary.md).
+
 `vaelii.impl.taxonomy`. Transitivity is the lifeblood of common sense, so it is **not**
 done with rules — the direct adjacency of the type graph is stored and the transitive
 closure is answered on demand (read-memoized per edge generation), never materialized.
@@ -542,9 +550,12 @@ Predicates are **reified** and classified in the genl hierarchy under `predicate
   `reflexivePredicate` / `functionalPredicate`, all subtypes of `binaryPredicate`.
 
 The algebraic memberships are **derived from the metadata**: CoreContext carries rules
-`(symmetric ?p) ⇒ (ist CoreContext (symmetricPredicate ?p))` (and likewise for the
-others), so one declaration drives both the generic prover and the type membership,
-placed in CoreContext via the ist consequent. Arity memberships are asserted directly
+`(implies (and (symmetric ?p)) (symmetricPredicate ?p))` (and likewise for the others),
+so one declaration drives both the generic prover and the type membership. The rule
+names **no** context, and that is load-bearing rather than incidental — the conclusion
+places by the ordinary rule, in the context the declaration was made in, so a predicate
+declared symmetric privately gets its membership privately too
+([contexts.md](contexts.md), "Do not name CoreContext in them"). Arity memberships are asserted directly
 (every genl type is looped into `unaryPredicate`). So `isa? siblingOf
 symmetricPredicate`, `isa? siblingOf binaryPredicate`, and `isa? siblingOf
 predicate` all hold, and `isa? dog unaryPredicate` / `isa? argIsa ternaryPredicate`.

@@ -182,7 +182,7 @@
           (is (= #{(list color item 'red) (list color item 'blue)} (set (:choices r)))))
         (testing "no options context exists, in the hierarchy or as an extent"
           (is (not (contains? (set (v/contexts kb)) 'MenuPlanOptionsContext)))
-          (is (zero? (v/context-size kb 'MenuPlanOptionsContext))))
+          (is (zero? (v/count-in-context kb 'MenuPlanOptionsContext))))
         (testing "the choice predicate is stored only as labeling truth values"
           ;; two labelings × (one positive + one negative) — a stored menu would add
           ;; two more under the functor root

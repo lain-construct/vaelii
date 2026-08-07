@@ -1,5 +1,14 @@
 # Qualitative spatial reasoning — topology, direction and distance
 
+- **Covers:** the four spatial relation algebras — RCC-8 topology, cardinal
+  direction, relative direction, qualitative distance — and each one's base and
+  derived predicates.
+- **Not here:** the generic path-consistency engine and entailment/support machinery
+  all four share → [qcn.md](qcn.md); the temporal algebras (Allen's intervals, the
+  point algebra) → [time.md](time.md).
+- **Assumes:** base relation, relation algebra, constraint network →
+  [glossary.md](glossary.md).
+
 Four relation algebras over the constraint-network engine in [qcn.md](qcn.md), each with a
 prover that reads a KB into a network and reads answers back out:
 

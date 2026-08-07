@@ -4,11 +4,12 @@
   "The HTTP guards both servers hold to — `vaelii.impl.web` (the browser) and
   `vaelii.impl.serve` (the daemon).
 
-  Neither server authenticates, and both bind loopback for that reason.  Loopback is
-  what makes the checks here necessary rather than sufficient: a browser running on
-  the same machine *is* a local client, so \"only this machine may reach it\" does not
-  mean \"only this machine's owner may drive it\".  Two attacks follow from that, and
-  each guard below closes one.
+  The browser authenticates nobody and the daemon only when a token is set
+  (`api-token`), and both bind loopback for that reason.  Loopback is what makes the
+  checks here necessary rather than sufficient: a browser running on the same machine
+  *is* a local client, so \"only this machine may reach it\" does not mean \"only this
+  machine's owner may drive it\".  Two attacks follow from that, and each guard below
+  closes one.
 
   **Cross-site request forgery.**  Any page the operator visits can `fetch` a loopback
   URL.  `same-origin?` rejects the write whenever the browser stamps `Origin`.
@@ -46,7 +47,10 @@
   loopback bind — the default — answers only to loopback names, which is what closes
   rebinding.  A bind that named an address is already an explicit choice made against
   a documented warning, and the operator reaches it under a name only they know, so
-  it is left open rather than guessed at."
+  it is left open rather than guessed at — refusing it would trip a daemon fronted by
+  a reverse proxy that legitimately sets its own `Host`, which the operator cannot
+  always enumerate in advance.  Left unset, `serve`'s startup line warns once rather
+  than staying silent about it (`allowlist-open?`)."
   [bound-host]
   (let [env (System/getenv "VAELII_ALLOWED_HOSTS")]
     (cond
@@ -58,6 +62,15 @@
       loopback-hosts
 
       :else ::any)))
+
+(defn allowlist-open?
+  "Does `allowed` — as `allowed-hosts` returns it — admit every `Host`?  True only for
+  a public bind with no `VAELII_ALLOWED_HOSTS`: the loopback default and any
+  `VAELII_ALLOWED_HOSTS` value both resolve to a concrete set instead.  What a caller
+  above this namespace uses to turn the sentinel into an operator-facing word — `serve`'s
+  startup line names the posture rather than logging the keyword."
+  [allowed]
+  (= allowed ::any))
 
 (defn host-allowed?
   "Does this request's `Host` name an interface `allowed` covers?
@@ -124,16 +137,37 @@
       (handler req)
       (refusal req))))
 
+;; ---- the shared bearer token --------------------------------------------
+
+(defn api-token
+  "The daemon's shared bearer token, `VAELII_API_TOKEN`, or nil when it is unset or
+  blank.
+
+  **Read here rather than at either end of the wire**, for `max-body-bytes`' reason:
+  the daemon that requires the token and the client that presents it are two readers of
+  one variable, and two readings of \"set\" is one of them wrong.  A whitespace-only
+  value is *unset* — an exported-but-empty variable is the shell's way of saying
+  nothing — and anything else is the token byte for byte, untrimmed, because trimming a
+  secret silently changes it.
+
+  An environment variable rather than an option or a file: it is what a process manager
+  injects without the value reaching the repo, and nothing that reads a KB's opts can
+  leak it into a store."
+  []
+  (let [v (System/getenv "VAELII_API_TOKEN")]
+    (when-not (str/blank? v) v)))
+
 ;; ---- the request-body ceiling -------------------------------------------
 
 (def max-body-bytes
   "The cap on a request body, `VAELII_MAX_BODY_BYTES` or 16 MiB.
 
-  Neither server authenticates, so an unbounded body is heap an anonymous caller can
-  spend by streaming one — and the legitimate bodies are tiny either side: the daemon's
-  is a sentence and its context, the browser's is a form.  **One constant and one
-  variable for both**, because two servers with two ceilings is one of them wrong, and
-  an operator who lowers the limit means the machine rather than a route.
+  The browser authenticates nobody and the daemon need not, so an unbounded body is
+  heap an anonymous caller can spend by streaming one — and the legitimate bodies are
+  tiny either side: the daemon's is a sentence and its context, the browser's is a
+  form.  **One constant and one variable for both**, because two servers with two
+  ceilings is one of them wrong, and an operator who lowers the limit means the machine
+  rather than a route.
 
   A value that is not a positive integer is **refused at load**, naming itself.  This
   namespace is read by both servers, so a silent fallback would leave an operator who

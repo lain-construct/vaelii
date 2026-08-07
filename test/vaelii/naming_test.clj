@@ -275,7 +275,7 @@
 ;; ---- the policy is the KB's, not the build's -----------------------------
 
 (defn- kb-with
-  "A cleared KB on the scratch pair under one naming policy."
+  "A cleared KB on the scratch space under one naming policy."
   [policy]
   (fn [] (doto (v/open-kb (assoc tu/scratch-space :naming policy)) (tu/clear-kb!))))
 
@@ -370,3 +370,170 @@
             "and check predicts it")
         (is (nil? (v/handle-of kb rule WellContext))
             "the bare rule was not stored — the refusal happened before the store")))))
+
+(deftest the-membership-spelling-every-other-system-taught-is-advised-against
+  ;; `(isa Fido Dog)` breaks no invariant: `isa` is a well-formed predicate and both
+  ;; arguments are well-formed individuals, so it is stored, indexed and believed —
+  ;; as a two-place relation nothing reads.  The reader then asks `(isa? kb 'Fido
+  ;; 'Dog)`, gets false, and has no error to search for.  docs/naming.md calls this
+  ;; out by name and CoreContext.txt says never to write it; neither is in front of
+  ;; someone typing, so the front door says it.
+  (testing "the shape is advised against, and the advice names the right spelling"
+    (let [{:keys [id message]} (nm/advice '(isa Fido Dog))]
+      (is (= ::nm/isa-is-not-how-membership-is-written id))
+      (is (re-find #"\(dog Fido\)" message)
+          "the message spells the sentence that was meant")
+      (is (re-find #"unary" message))))
+  (testing "it is advice and not a refusal — the sentence breaks no invariant"
+    (is (empty? (nm/problems '(isa Fido Dog) 'UniverseContext))))
+  (testing "a multi-word type is spelled snake_case, not merely lower-cased"
+    ;; `physicalobject` is a name the conventions refuse, so suggesting it would
+    ;; trade one unusable sentence for another
+    (is (re-find #"\(physical_object Fido\)"
+                 (:message (nm/advice '(isa Fido PhysicalObject))))))
+  (testing "an argument that is not a symbol gets advice, not a ClassCastException"
+    ;; a number, a string and a compound are all legal in argument position, and
+    ;; `clojure.core/name` throws on every one of them — advice that crashes the
+    ;; assert it was meant to help is worse than no advice
+    (doseq [s ['(isa Fido 42)
+               '(isa 42 Dog)
+               '(isa Fido "Dog")
+               '(isa (theCatOf Tom) Dog)
+               '(isa Fido (kindOf Dog))]]
+      (let [a (nm/advice s)]                       ; `is` answers a boolean, not the value
+        (is (some? a) (pr-str s))
+        (is (string? (:message a)) (pr-str s))
+        (is (re-find #"unary type predicate" (:message a))
+            "and falls back to the generic form rather than guessing a rewrite"))))
+  (testing "nothing legitimate draws it"
+    (doseq [s ['(dog Fido)
+               '(genl dog thing)
+               '(argIsa parentOf 1 dog)          ; a different predicate entirely
+               '(likes Tom Ann)
+               '(isa Fido)                        ; not the two-place shape
+               '(isa Fido Dog Extra)]]
+      (is (nil? (nm/advice s)) (pr-str s))))
+  (testing "advise! is silent under :naming :off, which asks for no policing"
+    ;; reach past the once-per-process gate by asking the pure fn either side of it
+    (is (some? (nm/advice '(isa Fido Dog))))
+    (is (nil? (nm/advise! :off '(isa Fido Dog) 'UniverseContext)))))
+
+;;; ── senses and lexemes ────────────────────────────────────────────────
+
+(deftest a-sense-is-a-type-that-says-which-sense-it-is
+  (testing "a word, a dash, and the disambiguator"
+    (doseq [s '[abrasive-grit abandonment-romantic abandonment-dual game-theory]]
+      (is (= :sense (v/term-role s)) (pr-str s))
+      (is (nm/type-symbol? s) "a sense is a type — the hierarchy is built of them")))
+  (testing "two senses of one word are two terms, which is the whole point"
+    (is (not= 'abandonment-romantic 'abandonment-dual))
+    (is (every? #(= :sense (v/term-role %)) '[abandonment-romantic abandonment-dual])))
+  (testing "the split is the LAST dash, because a word may hold its own"
+    (is (= :sense (v/term-role 'a--musical_note)))       ; the word is `a-`, ending in a dash
+    (is (= :sense (v/term-role 'part-time-employment))))  ; the word is `part-time`
+  (testing "and both halves admit what real vocabulary carries"
+    (doseq [s '[.22_long_rifle-ammo .dll-library      ; a leading dot
+                fool's_gold-mineral deck-ship's_floor ; an apostrophe inside
+                organ_cultures-3d chiptune_composer-8bit]] ; a digit-leading disambiguator
+      (is (= :sense (v/term-role s)) (pr-str s))))
+  (testing "a sense is a unary predicate, like every other type"
+    (is (empty? (nm/problems* '(abrasive-grit Fido) 'UniverseContext)))
+    (is (= [:functor-arity]
+           (mapv :class (nm/problems* '(abrasive-grit Fido Rex) 'UniverseContext))))))
+
+(deftest a-lexeme-is-parse-input-and-is-marked-by-its-namespace
+  (testing "the namespace decides it, and the text is not ours to spell"
+    (doseq [s '[lex/thing lex/fool's_gold lex/a_la_carte]]
+      (is (= :lexeme (v/term-role s)) (pr-str s))
+      (is (nm/lexeme? s))))
+  (testing "a marker written INTO the name could not work — the word carries the same
+            character.  `fool's_gold` has an apostrophe of its own, and 333 lexemes in
+            the corpus carry one inside as well as at the end."
+    (is (= :lexeme (v/term-role 'lex/fool's_gold)))
+    (is (= "fool's_gold" (name 'lex/fool's_gold))))
+  (testing "every other namespace stays invisible to the role checks"
+    (is (= :predicate (v/term-role 'agg/count)))
+    (is (= :predicate (v/term-role 'set/forwardRule)))
+    (is (= :predicate (v/term-role 'ex/disambiguator)))
+    (is (not-any? nm/lexeme? '[agg/count set/forwardRule ex/disambiguator]))))
+
+(deftest the-one-fence-around-a-lexeme-is-that-it-names-no-relation
+  (testing "a lexeme applied to arguments is refused — a surface form is not a predicate"
+    (is (= [:lexeme-functor]
+           (mapv :class (nm/problems* '(lex/fools_gold Fido) 'UniverseContext)))))
+  (testing "but as an argument it is ordinary, which is what lets a sense be stated"
+    (is (empty? (nm/problems* '(sense lex/fools_gold fools_gold-mineral)
+                              'UniverseContext))))
+  (testing "and what lets the improver's unsensified edge stand until it crafts the sense"
+    ;; `(genl <sense> <lexeme>)` is the improver's input, not an error: it sensifies the
+    ;; lexeme by replacing it with a sense, which is its core operation.
+    (is (empty? (nm/problems* '(genl abrasive-grit lex/abrasive_tool)
+                              'UniverseContext)))))
+
+(deftest a-name-the-reader-would-not-read-back-is-refused
+  (testing "a leading digit reads as a malformed number, not a symbol"
+    (is (thrown? Exception (read-string "134a-gas")))
+    (is (nil? (v/term-role (symbol "134a-gas")))))
+  (testing "and the escaped spelling reads, and is a sense"
+    (is (= :sense (v/term-role (read-string "_134a-gas")))))
+  (testing "a leading apostrophe is the quote macro, so it never names anything"
+    (is (seq? (read-string "'centaur'-mythical")))
+    (is (= :sense (v/term-role (read-string "_'centaur'-mythical"))))))
+
+;;; ── the roster and its renderer are one thing ─────────────────────────
+
+(def ^:private class-samples
+  "One sentence per `problem-classes` key, and the context to check it in."
+  {:context-name   ['(dog Fido)                                'NotAThing]
+   :functor        ['(Flies Tweety)                            'WellContext]
+   :lexeme-functor ['(lex/fools_gold Fido)                     'WellContext]
+   :functor-arity  ['(lives_in Tweety cold_place)              'WellContext]
+   :argument       ['(parentOf Baby_Penguin Tom)               'WellContext]
+   :ist-context    ['(implies (bird ?x) (ist Fido (flies ?x))) 'WellContext]
+   :dot-marker     ['(parentOf Tom .)                          'WellContext]})
+
+(deftest every-problem-class-renders-a-message
+  ;; `problem-classes` is a map and `message` a `case` over its keys, so the two drift in
+  ;; a direction nothing else looks: a class the roster names and `problems*` emits with
+  ;; no arm to render it throws `IllegalArgumentException: No matching clause` out of
+  ;; `assert`, where the contract is an `ex-info` carrying `:type :naming`.  The roster
+  ;; test above checks the other direction — that an emitted class is one the roster
+  ;; names — and the two together are what make the pairing total.
+  (testing "a new class owes this test a sentence that produces it"
+    (is (= (set (keys nm/problem-classes)) (set (keys class-samples)))))
+  (doseq [[cls [sentence context]] class-samples]
+    (testing (str cls)
+      (let [ps (nm/problems* sentence context)]
+        (is (some #(= cls (:class %)) ps) "that sentence produces this class")
+        (doseq [p ps]
+          (let [m (nm/message p)]
+            (is (string? m) "and every violation it reports renders")
+            (is (seq m)))))
+      ;; the composition, which is what `assert` calls and where the crash surfaced
+      (is (seq (nm/problems sentence context))))))
+
+(deftest a-sense-at-the-wrong-arity-is-not-told-to-camelcase-itself
+  ;; A sense reaches `:functor-arity` for the same reason a snake_case type does — both
+  ;; are types, and a type is unary — but the snake_case repair does not transfer: there
+  ;; is no camelCase spelling of `abrasive-grit`, so offering one names the symbol back
+  ;; and reads as advice while being none.
+  (let [[m] (nm/problems '(abrasive-grit Fido Rex) 'UniverseContext)]
+    (is (re-find #"is a sense" m))
+    (is (not (re-find #"snake_case" m)))
+    (is (not (re-find #"camelCase as abrasive-grit" m))))
+  (testing "and the snake_case repair still names the camelCase spelling"
+    (let [[m] (nm/problems '(lives_in Tweety cold_place) 'UniverseContext)]
+      (is (re-find #"camelCase as livesIn" m)))))
+
+(deftest a-lexeme-functor-is-refused-as-an-ex-info-not-a-crash
+  ;; The front door's contract is that every refusal is an `ex-info` carrying a `:type`
+  ;; a caller can discriminate on.  A class with no `message` arm breaks it below the
+  ;; level `assert` can catch, so the refusal arrives as an `IllegalArgumentException`
+  ;; naming a `case` — true about the code, and no help to whoever wrote the sentence.
+  (tu/with-cleared-kb [kb (kb-with :strict)]
+    (let [e (try (v/assert kb '(lex/fools_gold Fido) 'WellContext) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) "a lexeme applied to arguments is refused")
+      (is (= :naming (:type (ex-data e))))
+      (is (re-find #"is a lexeme" (ex-message e)))
+      (is (zero? (v/sentex-count kb)) "and nothing was stored"))))

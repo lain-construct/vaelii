@@ -178,17 +178,34 @@
 (tu/deftest-kb different-reads-the-equality-closure
   (tu/with-terms [Obama BarackObama Bush]
     (v/assert kb (list 'sameAs Obama BarackObama) 'UniverseContext)
-    (if (tax/same-class? (:taxonomy kb) Obama BarackObama)
-      (testing "merged terms are not different"
-        (is (not (v/ask? kb (list 'different Obama BarackObama) 'UniverseContext)))
-        (is (v/ask? kb (list 'different Obama Bush) 'UniverseContext)
-            "a third, unmerged term still is")
-        (is (not (v/ask? kb (list 'different Obama BarackObama Bush) 'UniverseContext))
-            "one merged pair breaks pairwise distinctness for the whole list"))
-      ;; The merge path (core's `sameAs` assert) is not landed yet, so the closure has
-      ;; not put the two in one class and the unique-name assumption still holds.  This
-      ;; branch disappears the moment asserting `sameAs` merges.
-      (is (v/ask? kb (list 'different Obama BarackObama) 'UniverseContext)))))
+    (is (tax/same-class? (:taxonomy kb) Obama BarackObama)
+        "asserting `sameAs` merges — everything below reads the class it built")
+    (testing "merged terms are not different"
+      (is (not (v/ask? kb (list 'different Obama BarackObama) 'UniverseContext)))
+      (is (v/ask? kb (list 'different Obama Bush) 'UniverseContext)
+          "a third, unmerged term still is")
+      (is (not (v/ask? kb (list 'different Obama BarackObama Bush) 'UniverseContext))
+          "one merged pair breaks pairwise distinctness for the whole list"))))
+
+;; Congruence, which is the half a flat class lookup cannot answer: the closure is keyed by
+;; symbol, so a compound argument is never a key in it.  Normalizing the whole argument in
+;; one lookup leaves `(F 5 Kilogram)` unchanged and reports it different from `(F 5 Kg)`
+;; with the merge believed; `res/representative-term` descends instead, and these pin the
+;; difference in both directions so neither can regress unnoticed.
+
+(tu/deftest-kb different-descends-into-compound-arguments
+  (tu/with-terms [Kilogram Kg Gram QuantityFn]
+    (v/assert kb (list 'sameAs Kilogram Kg) 'UniverseContext)
+    (let [q (fn [u] (list QuantityFn 5 u))]
+      (is (not (v/ask? kb (list 'different (q Kilogram) (q Kg)) 'UniverseContext))
+          "same functor, same number, merged units — one term under congruence")
+      (is (v/ask? kb (list 'different (q Kilogram) (q Gram)) 'UniverseContext)
+          "an unmerged unit still tells the two compounds apart")
+      (is (v/ask? kb (list 'different (q Kilogram) (list QuantityFn 6 Kg)) 'UniverseContext)
+          "merging the unit does not merge compounds differing elsewhere")
+      (testing "and it descends past the first level"
+        (is (not (v/ask? kb (list 'different (q (q Kilogram)) (q (q Kg))) 'UniverseContext))
+            "the merged symbol sits two compounds deep and still normalizes")))))
 
 (tu/deftest-kb query-plan-exposes-estimates
   (let [dog (tu/tmp-type) animal (tu/tmp-type) likes (tu/tmp-pred)]

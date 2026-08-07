@@ -379,7 +379,7 @@
 ;; ---- RAM context --------------------------------------------------------
 
 (defn- measure-ram [recs]
-  (let [k (kb/open-kb {:backend :memory :record-space 22 :index-space 23 :recover? false}
+  (let [k (kb/open-kb {:backend :memory :space 22 :recover? false}
                       (fn [_] nil) (fn [_] nil))]
     (p/clear-records! (:records k)) (p/clear-index! (:index k))
     (doseq [r recs] (try (kb/create-sentex k (:sentence r) (:context r)) (catch Exception _ nil)))

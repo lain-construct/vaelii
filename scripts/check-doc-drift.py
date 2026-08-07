@@ -66,6 +66,12 @@ and those files describe the project around it.
       sources, the docs, `extra_md_files` and the shipped ontology under
       `resources/kb/`; the allowlist excuses a token where a doc needs the
       borrowed word to explain the borrowing.
+  E12 A doc under docs/ whose title is not followed by the three orientation
+      bullets — **Covers**, **Not here**, **Assumes**.  They are what lets a
+      reader (or a model routing on minimum context) spend one sentence rather
+      than one section discovering the page is the wrong one, and they are only
+      worth reading if every page has them.  docs/README.md is the map and
+      dependencies.md is generated, so neither carries them.
   W1  Line-number citations into .clj files (`foo.clj:123`) — warned, not
       failed: cite the var name instead, line numbers always rot.
   W2  Backticked `alias/name` for an UNKNOWN alias whose name is defined
@@ -292,6 +298,11 @@ def flag(kind, doc, token, msg):
 NS_STOP = {"docs", "scripts", "src", "resources", "test", "target",
            "checkouts", "bench", "vaelii"}
 
+# Docs whose markdown TABLE ROWS may carry `file.clj:NNN` citations without a W1
+# warning, because a test resolves each one (see the W1 loop below). Prose in the
+# same file is still warned about — the exemption is the checked citations.
+W1_CHECKED_BY_TEST = {"docs/operations.md"}
+
 for doc in md_files():
     lines = open(doc).read().split("\n")
 
@@ -410,9 +421,20 @@ for doc in md_files():
             flag("E4", doc, rel, f"path `{rel}` does not exist")
 
     # W1: line-number citations into clj files.
-    for m in re.finditer(r"[\w/-]+\.clj:\d+", prose):
-        flag("W1", doc, m.group(0),
-             f"line-number citation `{m.group(0)}` — cite the var name instead")
+    #
+    # The configuration table is the one place a line number is wanted, and the
+    # reason is that something checks it: config_surface_test reads every
+    # `file:line` cell out of that table and fails when the cited line does not
+    # name the switch. W1's argument is that line numbers rot silently, and a
+    # citation a test resolves does not — so the exemption is the rows of that
+    # table, not the file around them.
+    exempt_rows = os.path.relpath(doc, ROOT) in W1_CHECKED_BY_TEST
+    for pline in prose_lines:
+        if exempt_rows and pline.lstrip().startswith("|"):
+            continue
+        for m in re.finditer(r"[\w/-]+\.clj:\d+", pline):
+            flag("W1", doc, m.group(0),
+                 f"line-number citation `{m.group(0)}` — cite the var name instead")
 
 
 # ── E5: no reference from inside the repo to an agent instruction file ──────
@@ -450,9 +472,9 @@ for path in repo_text_files():
                  f"file, gitignored here; state the fact in docs/ instead")
 
 # ── E6: every doc under docs/ is linked from another doc ───────────────────
-# index.md is the map, so it needs no inbound link; dependencies.md is
+# docs/README.md is the map, so it needs no inbound link; dependencies.md is
 # generated.
-UNLINKED_OK = {"docs/index.md", "docs/dependencies.md"}
+UNLINKED_OK = {"docs/README.md", "docs/dependencies.md"}
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)#]+)")
 
 linked = set()
@@ -794,6 +816,35 @@ for path in itertools.chain(repo_text_files(), extra_md_files(),
             flag("E11", path, word,
                  f"{rel}:{i} `{word}` is another system's word for what this "
                  f"engine calls a {ours}")
+
+# ── E12: every doc opens with the three orientation bullets ─────────────────
+# A reader arriving from the map, and a model routing on as little context as it
+# can get away with, both decide from the same three lines: what the page covers,
+# which neighbour owns the thing it is confused with, and what vocabulary to have
+# first.  Their value is entirely in being universal — a reader who has to check
+# whether this page happens to have them is back to reading the page.  So the
+# convention is checked rather than trusted, the way the prose rules are.
+ORIENTATION = ("- **Covers:**", "- **Not here:**", "- **Assumes:**")
+# The map does not orient itself, and dependencies.md is generated output.
+ORIENTATION_EXEMPT = {"docs/README.md", "docs/dependencies.md"}
+
+for doc in md_files():
+    rel = os.path.relpath(doc, ROOT)
+    if not rel.startswith("docs" + os.sep) or rel in ORIENTATION_EXEMPT:
+        continue
+    lines = open(doc, errors="replace").read().splitlines()
+    # The block sits between the title and the first section heading. A bullet
+    # wraps across lines, so count the ones that START one rather than the
+    # non-blank lines under the title.
+    head = itertools.takewhile(lambda ln: not ln.startswith("## "), lines[1:])
+    opens = [ln for ln in head if ln.startswith("- **")][:3]
+    missing = [want for want, got in zip(ORIENTATION, opens + ["", "", ""])
+               if not got.startswith(want)]
+    if missing:
+        flag("E12", doc, rel,
+             f"{rel} does not open with {', '.join(m.strip('- *:') for m in missing)}"
+             f" — every doc under docs/ carries Covers / Not here / Assumes under"
+             f" its title, so a reader can route without reading the page")
 
 for e in errors:
     print(e)

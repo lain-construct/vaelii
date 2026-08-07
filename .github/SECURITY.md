@@ -22,11 +22,13 @@ patched.
 ## Scope
 
 Vaelii is a library first: `vaelii.core` over an in-memory or on-disk store, with no
-network surface. Two optional processes put it on a socket, and **neither
-authenticates anybody**. That is a design position, not an oversight — both are
-intended to run where only their operator can reach them — so the reports worth
-sending are about a boundary that fails to hold where it claims to, not about the
-absence of a login on a tool that never offered one.
+network surface. Two optional processes put it on a socket. The **browser
+authenticates nobody**, and the **daemon** holds one shared bearer token — required to
+bind anything but loopback, optional on loopback itself. Neither has users, roles or
+sessions, and that is a design position rather than an oversight: both are intended to
+run where only their operator can reach them, and per-caller identity is a reverse
+proxy's job. So the reports worth sending are about a boundary that fails to hold where
+it claims to, not about the absence of a login on a tool that never offered one.
 
 ### The browser (`vaelii.impl.web`, default port 3000)
 
@@ -69,26 +71,38 @@ absence of a login on a tool that never offered one.
 
 ### The daemon (`vaelii.impl.serve`, default port 4200)
 
-- **It binds loopback and has no authentication.** `--listen` binds an address instead,
-  and `lein serve 4200 /var/lib/vaelii --listen 0.0.0.0` then offers read *and write*
-  access to that KB to anything that can reach the port. Put a firewall or a reverse
-  proxy that authenticates in front of it first; the daemon will not do it for you.
+- **It binds loopback**, and `--listen` binds an address instead. A bind that names a
+  non-loopback address **requires `VAELII_API_TOKEN`**: without one the daemon prints a
+  line and exits 2, before it opens the KB. The flag that publishes `POST /op` is also
+  the flag that drops the `Host` allowlist, so the exposed configuration must not be the
+  least-defended one.
+- **A shared bearer token authenticates every request** when `VAELII_API_TOKEN` is set —
+  `Authorization: Bearer <token>`, compared in constant time, else 401 with a
+  `WWW-Authenticate: Bearer` challenge. A missing, wrong or malformed credential is one
+  refusal with one body, so nothing about it is an oracle. It is one token for the
+  process: there are no users, no roles and no sessions, and TLS is a reverse proxy's
+  job — the wire is plaintext.
+- **On a loopback bind the token is optional**, and without one every local account can
+  drive the write route. The daemon logs which posture it started in on every start.
+- **`GET /health` answers without the token**, and it is the only route that does, so a
+  container orchestrator can watch a daemon it holds no credential for. It reveals
+  `{:ok true}` and nothing else.
 - **`POST /op` refuses a body that is not `application/edn`, and refuses a
   cross-origin one.** Both matter on a loopback bind, because a page the operator
   merely visits is a local client: without the content-type requirement a cross-site
   `fetch` is a CORS-*simple* request that needs no preflight, and the write lands.
   As on the browser, a recognised `Host` is required too.
 - **Bodies are capped** at `VAELII_MAX_BODY_BYTES` (16 MiB) and read incrementally, so
-  an unauthenticated caller cannot spend the daemon's heap by streaming one.
+  a caller who reaches the port cannot spend the daemon's heap by streaming one.
 - **Bodies are read with `clojure.edn/read-string`**, which has no reader-eval, so an
   untrusted body cannot run code. A way around that is a bug worth reporting.
 - **Operations go through an allowlist** (`serve/ops`) of `vaelii.core` fns, so no
   client can reach an arbitrary var.
 - **`:export` writes to the filesystem of the host the daemon runs on**, at a directory
   the client names. It refuses a directory that exists and is non-empty, and that is
-  the only constraint on it — it will happily `mkdirs` a path that does not exist. On
-  an exposed daemon this is an unauthenticated file write, which is the sharpest
-  consequence of the point above.
+  the only constraint on it — it will happily `mkdirs` a path that does not exist. It is
+  therefore a file write for anyone holding the token, and on an open loopback daemon
+  for every local account: the sharpest consequence of the points above.
 
 ### Everything else
 

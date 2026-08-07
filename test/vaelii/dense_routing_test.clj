@@ -73,8 +73,8 @@
 
 ;; Own db numbers, outside the suite's block: this namespace opens whole KBs on named
 ;; backends rather than running on whichever one the suite's gate selected.
-(defn- open-kb! [backend record-space index-space]
-  (doto (v/open-kb {:backend backend :record-space record-space :index-space index-space
+(defn- open-kb! [backend space]
+  (doto (v/open-kb {:backend backend :space space
                     :recover? false})
     (tu/clear-kb!)))
 
@@ -116,7 +116,7 @@
   ;; The load-bearing half of this namespace: a family that exists but is declared
   ;; nowhere would otherwise be checked by nothing at all, and would take the fallback
   ;; in both dense backends without a single test noticing.
-  (let [kb    (open-kb! :memory 82 83)
+  (let [kb    (open-kb! :memory 82)
         _     (build! kb)
         found (set (keys (families-present kb)))]
     (is (empty? (filter #(= :unclassified (first %)) found))
@@ -134,7 +134,7 @@
 (deftest the-dense-backend-packs-every-handle-family
   ;; `kv-get` on `TieredKvBackend` hands back the stored value as it is held, so the
   ;; representation is readable without reaching into the backend's state.
-  (let [kb      (open-kb! :memory-dense 82 81)
+  (let [kb      (open-kb! :memory-dense 82)
         _       (build! kb)
         backend (:backend (:index kb))
         present (families-present kb)]
@@ -164,7 +164,7 @@
   ;; fallback key in an embedded plain backend.  `kv-get` reads *only* the fallback, so
   ;; "has members but `kv-get` is nil" is exactly "this key was int-routed" — no reach
   ;; into the deftype's fields required.
-  (let [kb      (open-kb! :memory-columnar 82 80)
+  (let [kb      (open-kb! :memory-columnar 82)
         _       (build! kb)
         roots   (:roots (:index kb))
         present (families-present kb)]

@@ -1,5 +1,12 @@
 # Sentex canonicalization (`vaelii.impl.sentex`)
 
+- **Covers:** how a sentence's variable names, antecedent order, symmetric arguments, and
+  comparison direction fold to one stored handle.
+- **Not here:** which spellings are legal for a predicate, individual, type or context →
+  [naming.md](naming.md); how the canonical form becomes the trie key →
+  [indexing.md](indexing.md).
+- **Assumes:** sentex, rule, antecedent, consequent → [glossary.md](glossary.md).
+
 Beyond the connectives, a sentence is put into a canonical form so logically
 identical knowledge is stored once.
 

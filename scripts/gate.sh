@@ -170,6 +170,21 @@ run_stage () {                 # run_stage <name> <blurb> <cmd...>
   return 0
 }
 
+# The reflection ratchet's other half.  `scripts/check-reflection.sh` compiles src and
+# bench; the **test tree** is compiled by `lein test` itself under the same
+# `*warn-on-reflection*`, so its warnings are already in this stage's log and reading
+# them costs nothing.  Compiling the test tree in the lint pass instead would take it
+# from 8 seconds to 74.  The split is stated in that script's header, and this is the
+# half it names — the incident the whole ratchet exists for happened in `test/`.
+check_test_reflection () {
+  wanted test || return 0
+  [[ -r "$OUT/test.log" ]] || return 0
+  local t0=$SECONDS rc=0
+  REFLECTION_LOG="$OUT/test.log" bash scripts/check-reflection.sh \
+    >"$OUT/reflect.log" 2>&1 || rc=$?
+  report_stage reflect "$rc" "$((SECONDS - t0))"
+}
+
 # One test JVM under `--sequential`, and under `--fail-fast` too: stopping at the
 # first failure is a claim about *order*, and there is no order among stages that
 # started together.
@@ -191,6 +206,7 @@ if [[ $sequential -eq 1 ]]; then
   # Cheapest first, so `--fail-fast` gets you the fast answer first.
   run_stage lint "static analysis" lein lint || true
   [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage test "$test_blurb" "${test_cmd[@]}" || true
+  check_test_reflection
   [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage perf "the scaling claims" lein "${perf_args[@]}" || true
 else
   # lint ‖ test, then perf alone — see SHAPE at the top.
@@ -213,6 +229,7 @@ else
   if [[ -n "$test_pid" ]]; then
     wait "$test_pid"; report_stage test "$?" "$((SECONDS - test_t0))"
   fi
+  check_test_reflection
 
   run_stage perf "the scaling claims" lein "${perf_args[@]}" || true
 fi

@@ -967,7 +967,7 @@
   ;; a fresh and empty TMS.  What a `:store` opened without `:recover?` is, and the
   ;; dangerous shape — `:ready`, so nothing about its status hints that every query
   ;; comes back empty.
-  (let [spaces {:backend :memory :record-space 62 :index-space 63 :recover? false}
+  (let [spaces {:backend :memory :space 62 :recover? false}
         built  (v/open-kb spaces)]
     (try
       (v/assert built '(dog Fido) 'UniverseContext {})
@@ -1201,7 +1201,7 @@
   ;; there is no other pagination.  So the claim to check at scale is that following
   ;; the sentinel repeatedly reaches **every** row and then stops — no page is skipped,
   ;; none is served twice, and the walk terminates.  On the isolated db pair, so
-  ;; flushing it cannot pull the scratch pair out from under this namespace's :once KB.
+  ;; flushing it cannot pull the scratch space out from under this namespace's :once KB.
   (tu/with-cleared-kb [kb tu/isolated-fresh]
     (let [app  (web/app kb)
           n    2400                                          ; 40 pages of 60
@@ -1226,7 +1226,7 @@
                               (is (= 40 pages) "in pages of the group cap, none skipped or repeated"))
             :else
             (let [body (:body (get* uri qs))]
-              (recur (next-url body) (+ seen (rows body)) (inc pages)))))))))
+              (recur (next-url body) (long (+ seen (rows body))) (inc pages)))))))))
 
 (deftest levels-results-continue-the-same-way
   (let [r (GET "/levels/rows" "q=(animal%20%3Fx)&ctx=NaturalWorldContext&level=4&offset=0")]
@@ -1727,10 +1727,69 @@
       (is (= :unknown-option (:type (ex-data e))))
       (is (= "--liste" (:flag (ex-data e))))))
   (testing "--attach still parses, with and without the optional web port"
-    (is (= {:host "127.0.0.1" :port 3000 :attach ["h" 4200]}
-           (select-keys (#'web/parse-args ["--attach" "h" "4200"]) [:host :port :attach])))
-    (is (= {:host "127.0.0.1" :port 8080 :attach ["h" 4200]}
-           (select-keys (#'web/parse-args ["--attach" "h" "4200" "8080"]) [:host :port :attach])))
-    (is (= {:host "0.0.0.0" :port 3000 :attach ["h" 4200]}
-           (select-keys (#'web/parse-args ["--attach" "h" "4200" "--listen" "0.0.0.0"])
-                        [:host :port :attach])))))
+    ;; the bare-default port is whatever `default-port` reads, not a literal: a
+    ;; developer with VAELII_WEB_PORT set in their shell must not fail this suite.
+    (let [dflt (#'web/default-port)]
+      (is (= {:host "127.0.0.1" :port dflt :attach ["h" 4200]}
+             (select-keys (#'web/parse-args ["--attach" "h" "4200"]) [:host :port :attach])))
+      (is (= {:host "127.0.0.1" :port 8080 :attach ["h" 4200]}
+             (select-keys (#'web/parse-args ["--attach" "h" "4200" "8080"]) [:host :port :attach])))
+      (is (= {:host "0.0.0.0" :port dflt :attach ["h" 4200]}
+             (select-keys (#'web/parse-args ["--attach" "h" "4200" "--listen" "0.0.0.0"])
+                          [:host :port :attach]))))))
+
+(deftest the-web-port-variable-moves-main-and-not-only-the-repl-browser
+  ;; `dev-repl` read VAELII_WEB_PORT and `-main` did not, while the docs said the
+  ;; variable moves "it" off 3000 without saying which.  A variable that is honoured
+  ;; by one entry point and ignored by the other reads as set and lands on 3000 —
+  ;; which is how an operator asking for a spare port takes the default one instead.
+  ;; A JVM cannot set its own environment, so the property is the testable half of
+  ;; the same read (docs/catalog.md's `vaelii.kb.path` shape).
+  (let [prop "vaelii.web.port"
+        prior (System/getProperty prop)]
+    (try
+      (System/clearProperty prop)
+      (testing "nothing set anywhere, and the port is 3000"
+        (when-not (System/getenv "VAELII_WEB_PORT")
+          (is (= 3000 (#'web/default-port)))
+          (is (= 3000 (:port (#'web/parse-args []))))))
+      (testing "the default source moves the port -main takes"
+        (System/setProperty prop "3311")
+        (is (= 3311 (#'web/default-port)))
+        (is (= 3311 (:port (#'web/parse-args []))))
+        (is (= 3311 (:port (#'web/parse-args ["--listen" "0.0.0.0"])))))
+      (testing "an explicit --port still wins over it"
+        (System/setProperty prop "3311")
+        (is (= 8080 (:port (#'web/parse-args ["--port" "8080"]))))
+        (is (= 8080 (:port (#'web/parse-args ["--attach" "h" "4200" "8080"])))))
+      (testing "a value that does not parse falls through rather than failing startup"
+        (System/setProperty prop "notanumber")
+        (when-not (System/getenv "VAELII_WEB_PORT")
+          (is (= 3000 (#'web/default-port)))))
+      (finally
+        (if prior (System/setProperty prop prior) (System/clearProperty prop))))))
+
+(deftest the-kbs-page-renders-its-available-list-and-says-when-it-was-cut
+  ;; The Available list is built from `catalog/sources`, whose search-path probe caps
+  ;; at `max-discovered`.  A cap nobody is told about reads as "this machine has no
+  ;; other KBs" — the one answer a KB list must not give by accident — so the note is
+  ;; the half worth pinning, and the page rendering at all is the half that was
+  ;; previously untested.
+  (testing "the page renders, with a card per source"
+    (let [r (GET "/kbs")]
+      (is (= 200 (:status r)))
+      (is (str/includes? (:body r) "Available"))
+      (is (str/includes? (:body r) "Knowledge bases"))))
+  (testing "an uncut probe says nothing about a cut"
+    (with-redefs [cat/sources (fn [] (with-meta [] {:truncated []}))]
+      (is (not (str/includes? (:body (GET "/kbs")) "are not shown")))))
+  (testing "a cut probe names the directory and the number passed over"
+    ;; `sources` is a plain var the page derefs, so redefining it reaches the call
+    (with-redefs [cat/sources (fn [] (with-meta []
+                                       {:truncated [{:dir "/some/kbs"
+                                                     :passed-over 51
+                                                     :probed cat/max-discovered}]}))]
+      (let [body (:body (GET "/kbs"))]
+        (is (str/includes? body "/some/kbs"))
+        (is (str/includes? body "51 more are not shown"))
+        (is (str/includes? body (str "first " cat/max-discovered " entries")))))))

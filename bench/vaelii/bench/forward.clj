@@ -44,7 +44,7 @@
 
 (defn- run [matcher-label enable? n rng]
   (if enable? (rete/enable!) (rete/disable!))
-  (let [kb (kb/open-kb {:backend :memory :record-space 32 :index-space 33 :recover? false}
+  (let [kb (kb/open-kb {:backend :memory :space 32 :recover? false}
                        (fn [k] (require 'vaelii.core) ((resolve 'vaelii.core/recover) k))
                        (fn [k] (require 'vaelii.core) ((resolve 'vaelii.core/reindex) k)))]
     (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
@@ -90,7 +90,7 @@
         recs (survey/uniform-records dir (* 40 n-rules))       ; oversample; rules are ~0.3%
         rules (take n-rules (filter :antecedent recs))
         facts (survey/uniform-pairs dir n-facts)
-        kb (kb/open-kb {:backend :memory :record-space 34 :index-space 35 :recover? false}
+        kb (kb/open-kb {:backend :memory :space 34 :recover? false}
                        (fn [k] (require 'vaelii.core) ((resolve 'vaelii.core/recover) k))
                        (fn [k] (require 'vaelii.core) ((resolve 'vaelii.core/reindex) k)))]
     (p/clear-records! (:records kb)) (p/clear-index! (:index kb))

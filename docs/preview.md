@@ -1,5 +1,12 @@
 # Consequence preview
 
+- **Covers:** what a batch of adds and removes would do to belief, computed then
+  rolled back at the same handles.
+- **Not here:** how belief itself is computed and revised on a real write →
+  [nmtms.md](nmtms.md); whether a batch would be admitted at all →
+  [api.md](api.md).
+- **Assumes:** sentex, context, justification, settle → [glossary.md](glossary.md).
+
 `core/preview` — what a batch would do to the KB, without leaving it done.
 
 ```clojure

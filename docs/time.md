@@ -1,5 +1,14 @@
 # Temporal reasoning — intervals, instants, and metric time
 
+- **Covers:** Allen's thirteen interval relations and the three-relation point
+  algebra, the two qualitative temporal algebras, and their composition tables.
+- **Not here:** the generic path-consistency engine both algebras run on →
+  [qcn.md](qcn.md); how long an interval lasts, and how long two overlap →
+  [duration.md](duration.md); the numeric gap between two instants →
+  [stp.md](stp.md).
+- **Assumes:** base relation, relation algebra, constraint network →
+  [glossary.md](glossary.md).
+
 Time is the one subject in this tree with layers. Four namespaces, most qualitative first:
 
 | Namespace | Unit | Says | Doc |

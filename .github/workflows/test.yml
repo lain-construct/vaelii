@@ -99,7 +99,7 @@ jobs:
           restore-keys: |
             m2-${{ runner.os }}-jdk21-
 
-      # The suite owns space numbers 12-15 and clears them; the foreign-reader
+      # The suite owns space numbers 14-15 and clears them; the foreign-reader
       # plugin owns 8-11, which is what lets both run at once on one machine.
       # Nothing is set here because each matrix leg is its own runner VM, so the
       # default block is already unshared — the convention matters to a developer

@@ -606,12 +606,12 @@
   "Atomically apply `f` — a pure `state -> [state' result]` fn — to atom `a`,
   retrying on contention exactly as `swap!` does, and return the result.
 
-  This replaces a deref-then-`reset!` shape that silently *discarded* any
-  concurrent `swap!` landing between the deref and the reset — under incidental
-  concurrency (a REPL thread beside the web handler) that was lost premises and
-  justifications, not staleness.  Atomicity here makes concurrent operations
-  compose; it does not make interleaved KB operations semantically serializable —
-  the engine's contract is still one writer (docs/storage.md)."
+  Do not reach for deref-then-`reset!` here.  It silently *discards* any concurrent
+  `swap!` landing between the two, and under incidental concurrency (a REPL thread
+  beside the web handler) what that loses is premises and justifications, not
+  staleness.  Atomicity here makes concurrent operations compose; it does not make
+  interleaved KB operations semantically serializable — the engine's contract is still
+  one writer (docs/storage.md)."
   [a f]
   (loop []
     (let [old @a

@@ -30,7 +30,7 @@
   space number, so a new handle over the same numbers would see the previous scenario's
   facts — `clear!` is what makes each row independent rather than cumulative."
   []
-  (let [kb (v/open-kb {:backend :memory :record-space 30 :index-space 31 :recover? false})]
+  (let [kb (v/open-kb {:backend :memory :space 30 :recover? false})]
     (v/clear! kb)
     (core-context/load-into kb)
     (seed/load-context kb 'SpaceContext "upper")

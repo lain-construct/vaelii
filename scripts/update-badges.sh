@@ -23,7 +23,13 @@
 #   - Coverage: cloverage line-coverage % from scripts/coverage.sh. That run
 #               takes minutes, so it is NOT run by default — the previous
 #               value already in coverage.svg is preserved. Pass --coverage to
-#               actually re-run coverage.sh and refresh it.
+#               actually re-run coverage.sh and refresh it. Its output is
+#               thousands of lines (an instrumented suite plus a per-file
+#               table) and only one figure is wanted here, so it is captured
+#               to COVERAGE_LOG rather than relayed: the path is announced
+#               before the run so it is tailable while it goes, and the tail
+#               prints inline only when nothing parseable came back. Same
+#               shape as a `lein gate` stage.
 #   - Deps:     count of outdated project.clj dependencies from `lein antq`.
 #               Like coverage, the antq run needs network + minutes, so it is
 #               NOT run by default. Pass --deps to refresh it; that also
@@ -335,14 +341,28 @@ docstrings=$(awk -v loc_src="$loc_src" -v loc_test="$loc_test" -v loc_doc="$loc_
 
 # ---- coverage: NOT run by default (it takes minutes). Precedence:
 #      --coverage live run  >  value in the existing coverage.svg  >  COVERAGE_FALLBACK.
+#      One number is wanted out of a run that prints thousands of lines, so the
+#      whole thing goes to COVERAGE_LOG (under the gitignored testbench/, beside
+#      coverage.sh's own raw log, so it survives the run and can be tailed while
+#      it goes) and only the parsed figure reaches stderr.
+COVERAGE_LOG="${COVERAGE_LOG:-testbench/coverage/badge.log}"
+COV_TAIL_LINES=40
 cov=""
 if [[ "$RUN_COV" == 1 ]]; then
-  echo "  running scripts/coverage.sh (instruments core + runs the suite; minutes)..." >&2
-  covlog=$(mktemp)
-  { ./scripts/coverage.sh 2>&1 || true; } | tee "$covlog" >&2
-  cov=$({ grep -aE '^[[:space:]]*lines:' "$covlog" | grep -oE '[0-9]+(\.[0-9]+)?' | head -1; } || true)
-  rm -f "$covlog"
-  [[ -z "$cov" ]] && echo "  WARN: could not parse coverage output; falling back to the existing/seed value" >&2
+  mkdir -p "$(dirname "$COVERAGE_LOG")"
+  echo "  running scripts/coverage.sh (instruments core + runs the suite; minutes)  # $COVERAGE_LOG" >&2
+  # Captured, never piped: a pipeline reports the *last* command's status, and
+  # coverage.sh's own is what says whether the figure below means anything.
+  cov_rc=0
+  ./scripts/coverage.sh >"$COVERAGE_LOG" 2>&1 || cov_rc=$?
+  cov=$({ grep -aE '^[[:space:]]*lines:' "$COVERAGE_LOG" | grep -oE '[0-9]+(\.[0-9]+)?' | head -1; } || true)
+  if [[ -z "$cov" ]]; then
+    echo "  WARN: coverage.sh exited $cov_rc with no parseable line-coverage figure; falling back to the existing/seed value. Tail of $COVERAGE_LOG:" >&2
+    while IFS= read -r line; do printf '    %s\n' "$line" >&2; done \
+      < <(tail -n "$COV_TAIL_LINES" "$COVERAGE_LOG")
+  elif [[ "$cov_rc" -ne 0 ]]; then
+    echo "  WARN: coverage.sh exited $cov_rc (the suite or the threshold said no); taking ${cov}% anyway — see $COVERAGE_LOG" >&2
+  fi
 fi
 [[ -z "$cov" ]] && cov=$({ grep -oE 'coverage: [0-9.]+' "$BADGES_DIR/coverage.svg" | grep -oE '[0-9.]+' | head -1; } 2>/dev/null || true)
 [[ -z "$cov" ]] && cov="$COVERAGE_FALLBACK"

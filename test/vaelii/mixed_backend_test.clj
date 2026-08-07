@@ -101,14 +101,14 @@
 (deftest the-two-axes-are-selectable-independently
   (testing ":records / :index name the halves directly, with no :backend sugar"
     (let [kb (v/open-kb {:records :memory :index :columnar
-                         :record-space 88 :index-space 89 :recover? false})]
+                         :space 88 :recover? false})]
       (v/clear! kb)
       (populate! kb)
       (is (= #{'(dog Fido)} (:dogs (observations kb))))
       (v/clear! kb)))
   (testing "an explicit axis opt overrides its half of the sugar"
     (let [kb (v/open-kb {:backend :memory-columnar :index :memory
-                         :record-space 88 :index-space 89 :recover? false})]
+                         :space 88 :recover? false})]
       (v/clear! kb)
       (is (instance? vaelii.impl.memory.MemoryKvBackend (:backend (:index kb)))
           ":index :memory won over :memory-columnar's columnar half"))))
@@ -122,13 +122,32 @@
                         #"unknown index backend .* :memory, :dense, :columnar, or :disk"
                         (v/open-kb {:records :memory :index :nonesuch}))))
 
+(deftest one-number-names-both-of-a-KBs-stores
+  ;; The index is a function of the records, so the two are shared or separate as one
+  ;; thing: `:space` keys both, and each backend keys a registry of its own, so there is
+  ;; no spelling for a private index over shared records — the arrangement in which a
+  ;; second KB's open finds a populated index over records it does not hold, drops it as
+  ;; stale, and leaves the first KB unable to find sentexes it is still holding.
+  (let [a (doto (v/open-kb {:space 289 :recover? false}) v/clear!)]
+    (try
+      (let [h (v/assert a '(dog Fido) 'MixedContext {:strength :monotonic})
+            b (v/open-kb {:space 289 :recover? false})]
+        (is (= h (v/handle-of b '(dog Fido) 'MixedContext))
+            "the second KB reads the first's postings, because it holds the records too")
+        (is (= h (v/handle-of a '(dog Fido) 'MixedContext))
+            "and the first still finds its own sentex — nothing was dropped under it")
+        (is (= h (v/assert a '(dog Fido) 'MixedContext {:strength :monotonic}))
+            "so asserting it again finds that sentex rather than minting a second handle")
+        (is (= 1 (v/sentex-count a))))
+      (finally (v/clear! a)))))
+
 (deftest two-space-numbers-are-two-stores
-  ;; What every other KB in one process depends on, and what the refusal below protects:
-  ;; a KB named by its own space pair holds its own records, and flushing one leaves the
+  ;; What every other KB in one process depends on:
+  ;; a KB named by its own space holds its own records, and flushing one leaves the
   ;; other whole.  That is what makes a second KB usable for holding one relation apart
   ;; from the KB it came out of — the flush that empties it runs while the first is full.
-  (let [a (v/open-kb {:record-space 88 :index-space 89 :recover? false})
-        b (v/open-kb {:record-space 188 :index-space 189 :recover? false})]
+  (let [a (v/open-kb {:space 88 :recover? false})
+        b (v/open-kb {:space 188 :recover? false})]
     (try
       (v/clear! a)
       (v/clear! b)
@@ -156,27 +175,26 @@
                          (v/open-kb {:backend :memory :record-db 188 :index-db 189})))]
       (is (= :unknown-option (:type (ex-data e))))
       (is (= [:index-db :record-db] (:unknown (ex-data e))) "both, not just the first")
-      (is (re-find #":record-space" (ex-message e))
+      (is (re-find #":space" (ex-message e))
           "the message lists what open-kb does read, so the right spelling is in it")))
   (testing "a near-miss on a flag is refused too — nothing here is optional"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown open-kb option :recovery\?"
-                          (v/open-kb {:record-space 88 :index-space 89 :recovery? false}))))
+                          (v/open-kb {:space 88 :recovery? false}))))
   (testing "a fork's own storage opts are held to the same set"
-    (let [base (v/open-kb {:record-space 88 :index-space 89 :recover? false})]
+    (let [base (v/open-kb {:space 88 :recover? false})]
       (try
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown :overlay option :record-db"
                               (v/fork base {:record-db 7})))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown :base option :record-db"
                               (v/open-kb {:backend :overlay
                                           :base    {:backend :memory :record-db 7}
-                                          :overlay {:backend :memory :record-space 188
-                                                    :index-space 189}})))
+                                          :overlay {:backend :memory :space 188}})))
         (finally (v/clear! base)))))
   ;; A key added to the constructor and not to the roster is refused, which says so at
   ;; once; a key left in the roster after nothing reads it is accepted and ignored, which
   ;; is the bug this whole test is about.  So the roster is pinned: it shrinks on purpose.
   (testing "and the roster is exactly the vocabulary"
-    (is (= #{:backend :records :index :record-space :index-space :dir :tms :recover?
+    (is (= #{:backend :records :index :space :dir :tms :recover?
              :naming :constraints :base :base-stores :overlay}
            kb/opt-keys))))
 
@@ -189,8 +207,7 @@
   (testing ":base / :base-stores / :overlay need an :overlay axis"
     (doseq [extra [{:base-stores {}} {:base {:backend :memory}} {:overlay {}}]]
       (let [e (is (thrown? clojure.lang.ExceptionInfo
-                           (v/open-kb (merge {:backend :memory :record-space 88
-                                              :index-space 89}
+                           (v/open-kb (merge {:backend :memory :space 88}
                                              extra)))
                   (str (pr-str extra) " is refused"))]
         (is (= :unknown-option (:type (ex-data e))))
@@ -198,13 +215,13 @@
         (is (re-find #":overlay" (ex-message e)) "the message names the fix"))))
   (testing ":dir needs a :disk half"
     (let [e (is (thrown? clojure.lang.ExceptionInfo
-                         (v/open-kb {:backend :memory :record-space 88 :index-space 89
+                         (v/open-kb {:backend :memory :space 88
                                      :dir "/tmp/vaelii-nowhere"})))]
       (is (= :unknown-option (:type (ex-data e))))
       (is (= [:dir] (:unknown (ex-data e))))
       (is (re-find #":disk" (ex-message e)) "the message says how durability is asked for"))
     (testing "and an :overlay half is held to its own axes"
-      (let [base (v/open-kb {:record-space 88 :index-space 89 :recover? false})]
+      (let [base (v/open-kb {:space 88 :recover? false})]
         (try
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no half is :disk"
                                 (v/fork base {:dir "/tmp/vaelii-nowhere"}))
@@ -224,19 +241,19 @@
   ;; a wrong answer where a refusal is owed.
   (testing "the four the roster names all open"
     (doseq [mode [:auto true :warn false]]
-      (let [kb (v/open-kb {:record-space 88 :index-space 89 :recover? mode})]
+      (let [kb (v/open-kb {:space 88 :recover? mode})]
         (is (some? kb) (str (pr-str mode) " opens"))
         (v/clear! kb))))
   (testing "and anything else is refused, naming what it does read"
     (doseq [bad [:yes :recover "auto" 1]]
       (let [e (is (thrown? clojure.lang.ExceptionInfo
-                           (v/open-kb {:record-space 88 :index-space 89 :recover? bad}))
+                           (v/open-kb {:space 88 :recover? bad}))
                   (str (pr-str bad) " is refused"))]
         (is (= :unknown-option (:type (ex-data e))))
         (is (re-find #":warn" (ex-message e)) "the message carries the roster"))))
   (testing "an explicit nil is refused too, and says it is not the default"
     (let [e (is (thrown? clojure.lang.ExceptionInfo
-                         (v/open-kb {:record-space 88 :index-space 89 :recover? nil})))]
+                         (v/open-kb {:space 88 :recover? nil})))]
       (is (= :unknown-option (:type (ex-data e))))
       (is (re-find #"omit the key" (ex-message e))
           "since :or does not fire on a present nil, the message has to say so"))))

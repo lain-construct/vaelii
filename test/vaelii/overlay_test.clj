@@ -17,6 +17,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.memory :as mem]
             [vaelii.impl.overlay.frozen :as frozen]
@@ -30,9 +31,9 @@
            [java.nio.file.attribute FileAttribute]))
 
 ;; Own space numbers, outside the suite's block, so a fork never shares a store with
-;; another test — and a *pair* per role, since a fork is two KBs' worth of stores.
-(defn- base-opts  [n] {:backend :memory :record-space [::base n]  :index-space [::base n :ix]})
-(defn- fork-opts  [n] {:backend :memory :record-space [::fork n]  :index-space [::fork n :ix]})
+;; another test — and one per role, since a fork is two KBs' worth of stores.
+(defn- base-opts  [n] {:backend :memory :space [::base n]})
+(defn- fork-opts  [n] {:backend :memory :space [::fork n]})
 
 (defn- tmpdir ^String []
   (str (Files/createTempDirectory "vaelii-overlay-" (into-array FileAttribute []))))
@@ -65,7 +66,7 @@
   kb)
 
 (defn- fresh-base
-  "A populated base KB on its own spaces, cleared first."
+  "A populated base KB on its own space, cleared first."
   [n]
   (populate! (doto (v/open-kb (assoc (base-opts n) :recover? false)) (v/clear!))))
 
@@ -101,7 +102,7 @@
   ;; arrays, with no backend underneath — so a KvBackend decorator would fork its roots
   ;; and silently leave the trie behind.  Say so instead.
   (let [base (doto (v/open-kb {:backend :memory-columnar
-                               :record-space [::col] :index-space [::col :ix] :recover? false})
+                               :space [::col] :recover? false})
                (v/clear!))]
     (is (nil? (mount/kv-backend-of (:index base))))
     ;; Matched on what the caller can act on — the backend named and the ones that
@@ -119,7 +120,7 @@
   ;; the stores are asked directly (`mount/forked?`) — which is the only place a second
   ;; layer is visible.
   (let [base (doto (v/open-kb {:backend :memory
-                               :record-space [::stk] :index-space [::stk :ix] :recover? false})
+                               :space [::stk] :recover? false})
                (v/clear!))
         one  (v/fork base)]
     (is (true? (mount/forked? one)) "the first fork is a fork — `forked?` reads the pair")
@@ -132,11 +133,10 @@
 ;; ---- fall-through, override, isolation ------------------------------------
 
 (deftest a-fork-whose-own-half-is-its-base-is-refused
-  ;; both halves naming one store — one `:disk` directory, or here one memory space
-  ;; pair — is base immutability off with no error: `FrozenRecords` guards only the
+  ;; both halves naming one store — one `:disk` directory, or here one memory space —
+  ;; is base immutability off with no error: `FrozenRecords` guards only the
   ;; calls routed through it, and the fork's writes go to the same instance direct.
-  (let [spaces {:backend :memory :record-space [::selffork] :index-space [::selffork :ix]
-                :recover? false}
+  (let [spaces {:backend :memory :space [::selffork] :recover? false}
         base   (doto (v/open-kb spaces) (v/clear!))]
     (try
       (is (= :base-is-overlay
@@ -263,10 +263,10 @@
       (v/retract! f (v/handle-of f '(dog Fido) 'OverlayContext))
       (is (= 1 (v/count-with-functor f 'dog)))
       (is (= 1 (v/count-with-functor base 'dog)))
-      (is (= n0 (v/context-size f 'OverlayContext))
+      (is (= n0 (v/count-in-context f 'OverlayContext))
           "the context root too — two records added, two swept, back where it started")
       (is (= (count (p/sentexes-in-context (:index f) 'OverlayContext))
-             (v/context-size f 'OverlayContext))
+             (v/count-in-context f 'OverlayContext))
           "a count never disagrees with the extent it counts"))
     (v/clear! base)))
 
@@ -424,37 +424,47 @@
           (v/clear! g)))
       (finally (v/clear! base)))))
 
-(deftest a-half-specified-space-pair-is-refused-in-every-opts-map
-  ;; The two in-RAM space numbers default independently, so naming one and not the
-  ;; other pairs a private store with the process default — `check-space-pair!`'s
-  ;; documented corruption.  The refusal must hold wherever an opts map builds
-  ;; stores: the top level, and a fork's `:base` and `:overlay` halves, which build
-  ;; theirs from the same keys with the same defaults.
-  (let [refusal (fn [opts]
-                  (try (let [kb (v/open-kb opts)] (v/clear! kb) :opened)
-                       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))]
-    (testing "the top level"
-      (is (= :unknown-option (refusal {:backend :memory :record-space [::lone]}))))
-    (testing "the :base half"
-      (is (= :unknown-option
-             (refusal {:backend :overlay
-                       :base    {:backend :memory :record-space [::lone-base]}
-                       :overlay {:backend :memory :record-space [::ov 1]
-                                 :index-space [::ov 1 :ix]}}))))
-    (testing "the :overlay half"
-      (is (= :unknown-option
-             (refusal {:backend :overlay
-                       :base    {:backend :memory :record-space [::b 2]
-                                 :index-space [::b 2 :ix]}
-                       :overlay {:backend :memory :index-space [::lone-ov]}}))))
-    (testing "both-or-neither still passes, in every position"
-      (let [kb (v/open-kb {:backend :overlay
-                           :base    {:backend :memory :record-space [::b 3]
-                                     :index-space [::b 3 :ix]}
-                           :overlay {:backend :memory :record-space [::ov 3]
-                                     :index-space [::ov 3 :ix]}})]
-        (is (some? kb))
-        (v/clear! kb)))))
+(deftest defaulting-onto-the-shared-ram-space-twice-is-noticed
+  ;; Naming the space is the ordinary way to say which store a KB is on; naming
+  ;; *neither* it nor a directory is the default — and doing that twice
+  ;; is one store behind two KB values, which is what `(def kb2 (open-kb {}))` looks
+  ;; like when a REPL means "start clean".  The second KB recovers the first's records,
+  ;; and thereafter a write through either is invisible to the other, since belief is
+  ;; per-KB.  Both answers are legitimate values, so only a warning can say it.
+  ;;
+  ;; The counter rather than the log line: nothing in this suite captures trove output,
+  ;; and the guard's whole decision is which opts maps it counts.  Space 0 is never
+  ;; opened here — it is outside the suite's block (testing.md).
+  (let [counter  @#'kb/default-ram-space-opens
+        note!    #'kb/note-default-ram-space!
+        counted? (fn [opts rkind]
+                   (let [before @counter]
+                     (note! opts rkind)
+                     (not= before @counter)))
+        prior    @counter]
+    (try
+      (testing "an in-RAM open naming no space is counted"
+        (reset! counter 0)
+        (is (counted? {} :memory))
+        (is (counted? {:backend :memory} :memory))
+        (is (= 2 @counter)))
+      (testing "naming it is deliberate sharing and is not"
+        (reset! counter 0)
+        (is (not (counted? {:space 2} :memory)))
+        (is (not (counted? {:space 0} :memory))
+            "writing the default out is how a caller says the sharing is meant")
+        (is (zero? @counter)))
+      (testing "durable records are keyed by directory and take a lock, so not those"
+        (reset! counter 0)
+        (is (not (counted? {:dir "/tmp/whatever"} :disk)))
+        (is (zero? @counter)))
+      (testing "counting continues past the second, so the line stays a one-off"
+        ;; the warning is keyed to the count reaching exactly 2: a line per open
+        ;; would be noise in a process that legitimately opens many
+        (reset! counter 0)
+        (dotimes [_ 5] (note! {} :memory))
+        (is (= 5 @counter)))
+      (finally (reset! counter prior)))))
 
 (deftest a-durable-fork-own-index-is-stamped-and-gated
   ;; The fork's own `:disk` index half carries the layout sentinel like any plain

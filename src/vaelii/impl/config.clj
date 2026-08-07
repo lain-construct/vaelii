@@ -40,6 +40,10 @@
     naming themselves, for `guard/max-body-bytes`' reason: a silent fallback leaves an
     operator believing a setting they never made, and a raw parse failure out of a `def`
     reports as a namespace that would not load rather than as the typo it is.
+  - `log-level` is read at namespace load too (`vaelii.impl.logging`), for a different
+    reason: it is the one switch whose effect is an *install*, and the door it belongs
+    at is the moment the engine is loaded rather than the moment a KB is opened.  A
+    process asks for a level once and gets it before the first line it wanted.
 
   ## What is not checkable here
 
@@ -240,6 +244,45 @@
   []
   (prop-bool "VAELII_DEV" false))
 
+(def asp-solver-spellings
+  "What the ASP backend switch reads, one spelling per backend.  Unset is **auto** —
+  in-process clingo when it loads, else clasp — which is why the reader's default is nil
+  rather than a backend: `auto` is the absence of a choice, not a third one to name."
+  {"clingo" :clingo "clasp" :clasp})
+
+(defn asp-solver
+  "Which ASP backend solves (`vaelii.asp.solver`, else `VAELII_ASP_SOLVER`), or **nil**
+  for auto.  The property is read first, and both spellings refuse a name outside the
+  roster: read as a bare `(keyword …)` a misspelt backend became a keyword nothing
+  matches and the selector's fallback arm ran **auto**, so a run pinned to clasp could
+  silently use clingo and report a clean pass for a backend nothing exercised."
+  []
+  (or (prop-enum "vaelii.asp.solver" asp-solver-spellings nil "clingo or clasp")
+      (prop-enum "VAELII_ASP_SOLVER" asp-solver-spellings nil "clingo or clasp")))
+
+(defn clingo-max-program-bytes
+  "The plain-ASP program size above which **auto** routes to clasp even where clingo
+  loads (`VAELII_CLINGO_MAX_BYTES`, default 3000).  An explicit backend ignores it."
+  []
+  (prop-long "VAELII_CLINGO_MAX_BYTES" 3000 0 nil))
+
+(def log-level-spellings
+  "What `VAELII_LOG_LEVEL` reads, one spelling per level the dial takes.  A def rather
+  than a literal inside the reader so that the environment and
+  `vaelii.core/set-log-level` can be checked to admit the same five: two rosters for one
+  dial is one of them wrong."
+  {"error" :error "warn" :warn "info" :info "debug" :debug "trace" :trace})
+
+(defn log-level
+  "The level the engine's own logging prints at (`VAELII_LOG_LEVEL`), or **nil** when
+  unset — and nil is a setting rather than a default: with it unset the engine installs
+  no backend at all, leaving whatever the host application put in
+  `taoensso.trove/*log-fn*` (`vaelii.impl.logging`).  So there is no default to name
+  here, and `=verbose` is refused rather than read as the one there would have been."
+  []
+  (prop-enum "VAELII_LOG_LEVEL" log-level-spellings nil
+             "error, warn, info, debug or trace"))
+
 (defn check!
   "Read every switch once, refusing the first whose value is outside its domain.
   `kb/open-kb` calls it, which is the earliest door that exists for the properties the
@@ -262,4 +305,7 @@
   (arbitrate-constraints?)
   (assertive-arg-types?)
   (web-dev?)
+  (log-level)
+  (asp-solver)
+  (clingo-max-program-bytes)
   nil)

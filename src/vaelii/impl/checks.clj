@@ -303,7 +303,7 @@
   promises the answer *set*, and a caller reading whole answers cannot observe more.
   Taking the first match would make it observable — a flag documented as a pure cost
   decision would decide which pair `contradictions` reports and, through arbitration,
-  what the KB believes (`clash_oracle_test` under `VAELII_NOHIER`).
+  what the KB believes (`clash_oracle_test` under `VAELII_HIER=0`).
 
   So **both** arms are content-ordered, exact matches first because the direct statement
   is the one the caller asked about.  The order key is the sentence *and its context*:
@@ -592,7 +592,7 @@
   and says nothing about order — correctly, since order is not a thing a caller reading
   whole answers can observe — so that made a documented cost decision change what the
   KB reported, and through arbitration what it believed.  `clash_oracle_test` catches it
-  under `VAELII_NOHIER`.
+  under `VAELII_HIER=0`.
 
   So: every exact membership when one is stored, and a content-ordered choice among the
   entailing ones when none is — a purely inherited membership has no direct sentex to

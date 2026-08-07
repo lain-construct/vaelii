@@ -306,6 +306,6 @@
        (report :done nil)
        {:params  p
         :units   units
-        :stored  (reduce + 0 (map #(v/context-size kb %) (v/contexts kb)))
+        :stored  (reduce + 0 (map #(v/count-in-context kb %) (v/contexts kb)))
         :derived (:derived chained 0)
         :truncated? (boolean (:truncated? chained))}))))

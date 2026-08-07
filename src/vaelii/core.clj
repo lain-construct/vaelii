@@ -39,6 +39,7 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.levels :as lvl]
+            [vaelii.impl.logging :as logging]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.observe :as observe]
@@ -76,8 +77,8 @@
   |---|---|---|
   | `:backend` | a records×index pair, spelled `<records>-<index>` | `:memory` |
   | `:records` / `:index` | one axis of that pair on its own | from `:backend` |
-  | `:record-space` / `:index-space` | which in-RAM stores this KB shares | `0` / `1` |
-  | `:dir` | the directory a `:disk` half lives in | derived from the spaces |
+  | `:space` | which in-RAM stores this KB shares | `0` |
+  | `:dir` | the directory a `:disk` half lives in | derived from the space |
   | `:base` / `:overlay` | the two halves of an `:overlay` fork | — |
   | `:tms` | `:reference` or `:dense` truth-maintenance representation | `:reference` |
   | `:naming` | `:strict` / `:warn` / `:off` — what the front door does with a name | `:strict` |
@@ -91,9 +92,22 @@
   which is what mounts a base this process has no KB open over.
 
   **An option this fn does not read is refused** rather than ignored, and the space
-  numbers are why: a misspelt `:record-space` is a key nothing looks at, so the KB would
+  number is why: a misspelt `:space` is a key nothing looks at, so the KB would
   quietly open on the default space and two KBs meant for separate stores would share
   one — each one's flush emptying the other.  `vaelii.impl.kb/opt-keys` is the roster.
+
+  **The space number names the store, and it defaults.**  So `(open-kb {})` twice in one
+  process is one set of records behind two KB values — the second recovers the first's
+  facts, and from then on a write through either is invisible to the other, since belief
+  is per-KB and only the writer's is relabelled.  That is the REPL's ordinary gesture for
+  starting clean, so the second default open logs a warning naming the fix.  Give a KB
+  that wants its own store its own space (`{:space 2}`); naming the number at all — 0
+  included — says the sharing is meant.
+
+  **One number, both stores.**  The records and the index answer to it together: each
+  backend keys its own registry, so a KB cannot be handed a private index over records
+  it shares, nor a shared index over records it does not.  An index is a function of the
+  records, so the two are shared or separate as one thing.
 
   **A non-empty store needs `recover`, and gets it.**  A fresh KB over stores that
   already hold sentexes has an empty TMS and taxonomy, so `sentexes-matching` answers
@@ -120,7 +134,7 @@
   so several forks may share one base and evolve independently.
 
   `opts` names the fork's *own* storage, as an ordinary opts map (`:backend :memory` by
-  default — an ephemeral hypothesis on space numbers nothing else uses; `{:backend :disk
+  default — an ephemeral hypothesis on a space nothing else uses; `{:backend :disk
   :dir …}` gives a durable one, which can be remounted over the same base later and
   serves the merged view it was left in).  `:tms` selects the fork's truth-maintenance
   representation.
@@ -212,7 +226,7 @@
   root, so O(1) and nothing fetched.
 
   A count of what is **stored**, like the `count-*` trio: a defeated or unsupported
-  sentex is included, as is a rule and a metadata declaration.  Summing `context-size`
+  sentex is included, as is a rule and a metadata declaration.  Summing `count-in-context`
   over `contexts` is not the same number — that counts only what is in a context the
   *taxonomy* knows, so content in a context no `genlContext` edge mentions is invisible
   to it."
@@ -303,7 +317,7 @@
 
 ;; ## Stored vs believed — read this before comparing an extent with a count
 ;;
-;; The `count-*` / `context-size` trio read a set's own cardinality: one O(1) read, no
+;; The three `count-*` readers read a set's own cardinality: one O(1) read, no
 ;; records fetched, no belief consulted.  That is the whole point of the secondary
 ;; roots, and it is why they are O(1).  The price is that they count what is
 ;; **stored**, which includes a sentex the JTMS currently holds OUT — a defeated
@@ -365,7 +379,7 @@
    (check-extent-opts! opts "sentexes-in-context")
    (believed-filter kb opts (records-of kb (p/sentexes-in-context (:index kb) context)))))
 
-(defn context-size
+(defn count-in-context
   "How many sentexes are **stored** in `context` — one set-size read, O(1), nothing fetched.
 
   Counts stored-not-believed sentexes too (a defeated default still occupies the
@@ -427,19 +441,25 @@
 
 (defn term-role
   "The naming role of `term`, for display / classification — one of `:variable` (`?x`),
-  `:number`, `:context`, `:individual`, `:predicate`, `:type`, or nil (a string, or a
-  symbol matching no convention).  Reads the naming invariants (`vaelii.impl.naming`)
-  that `assert` enforces, so a caller — a UI coloring a term, a tool grouping one — can
-  classify it by the same rules the engine validates by.  Decided most-specific first: a
-  context name is also CapitalCamel, so `:context` wins over `:individual`."
+  `:number`, `:lexeme`, `:context`, `:individual`, `:predicate`, `:sense`, `:type`, or
+  nil (a string, or a symbol matching no convention).  Reads the naming invariants
+  (`vaelii.impl.naming`) that `assert` enforces, so a caller — a UI coloring a term, a
+  tool grouping one — can classify it by the same rules the engine validates by.
+
+  Decided most-specific first, and each step earns its place: `:lexeme` is first because
+  a namespace decides it outright and the name half is not ours to read; a context name
+  is also CapitalCamel, so `:context` wins over `:individual`; and a sense is a type, so
+  `:sense` is reported before the `:type` it is a kind of."
   [term]
   (cond
     (sx/variable? term)    :variable
     (number? term)         :number
     (not (symbol? term))   nil
+    (nm/lexeme? term)      :lexeme
     (nm/context? term)     :context
     (nm/individual? term)  :individual
     (nm/predicate? term)   :predicate
+    (nm/sense? term)       :sense
     (nm/type-symbol? term) :type
     :else                  nil))
 
@@ -2285,6 +2305,13 @@
   rule's recursive literal stays last so right-recursion is preserved.  Solution
   *order* within the returned vector is not part of the contract.
 
+  **One solution per derivation, so equal binding maps repeat.**  A goal reachable
+  two ways — a stored fact that forward chaining already materialized *and* the rule
+  that concludes it, or two rules with the same consequent — comes back twice, with
+  the two maps equal.  `(count (prove …))` is therefore a count of proofs, not of
+  answers: wrap it in `distinct` for an answer set, or reach for `query` / `ask`,
+  which project to the goal's variables and answer each binding once.
+
   `query-plan` on the same vector shows the chosen order and why."
   ([kb goal] (prove kb goal '?ctx))
   ([kb goal context]
@@ -4041,6 +4068,41 @@
   compare."
   [kb]
   (mapv #(select-keys % [:token :goal :context]) (feed/listeners kb)))
+
+;; ---- the log dial --------------------------------------------------------
+
+(defn log-level
+  "The level the engine's own logging prints at, or **nil** when the engine has
+  installed no backend — which is the state a process is in until `set-log-level` is
+  called or `VAELII_LOG_LEVEL` is set.  Nil is not `:info`: it says the level is
+  whatever `taoensso.trove/*log-fn*` already holds, which is Trove's console backend at
+  `:info` unless the host application installed one of its own."
+  []
+  (logging/current-level))
+
+(defn set-log-level
+  "Set how much the engine says, on a **running** process, and return the level.  One of
+  `:error :warn :info :debug :trace`, quietest first; anything else is refused by name
+  (`:type :unknown-option`) rather than read as the nearest legal value.
+
+  Public here rather than in `impl` for the reason the diagnostics are: an operator
+  holds a KB and a REPL, not a namespace map.  The process that most needs a different
+  level is the one that cannot be restarted to get it — a daemon a week into a run, on a
+  `:disk` KB that pays `recover` on the way back up — and the level a process started
+  with is the answer to a question nobody had yet.
+
+  Process-wide and not per-KB: two KBs in one JVM share one `*log-fn*`.  It is also the
+  one setting here that changes the **process** rather than a KB, which is why
+  `vaelii.impl.serve`'s op table does not carry it: every op in that table acts on the
+  KB the daemon owns, the daemon's bearer token is optional on the loopback default, and
+  an op that turns on `:trace` is a caller spending the operator's disk from the far end
+  of a socket.  A daemon's level is the one its process started with
+  (`VAELII_LOG_LEVEL`), or this call from its own REPL.
+
+  `log-level` reads it back, so a caller that turns the dial up for one investigation
+  can put it where it was."
+  [level]
+  (logging/set-level level))
 
 ;; ---- persistence / recovery ---------------------------------------------
 

@@ -5,7 +5,11 @@
   answer is a status code *and* a plain `:type` keyword, the two halves
   `docs/operations.md` promises together.  Driven against `serve/app` directly —
   the handler is pure `request -> response`, so no socket — with one property over
-  the lot: `:ok` is false and `:type` is a non-nil keyword, whichever door refused."
+  the lot: `:ok` is false and `:type` is a non-nil keyword, whichever door refused.
+
+  Two handlers, because the 401 is the door in front of the others: `open-app` holds
+  no token (every refusal below is reachable), `authed-app` holds one (the 401 is the
+  only refusal reachable at all)."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.impl.guard :as guard]
@@ -29,9 +33,21 @@
 
 (defn- op-body [op args] (pr-str {:op op :args (vec args)}))
 
+(defn- open-app
+  "The handler with no bearer token — the loopback default, and the posture under which
+  every refusal below is reachable.  Named rather than defaulted, since the default
+  reads `VAELII_API_TOKEN` and a shell that has one would turn these pairs into 401s."
+  [kb]
+  (serve/app kb {:token nil}))
+
+(defn- authed-app
+  "The handler holding a token, which is where the 401 pair lives."
+  [kb]
+  (serve/app kb {:token "s3cret-token"}))
+
 (tu/deftest-kb every-wire-refusal-is-a-status-and-a-type
   (tu/with-terms [dog Rex WireProbeContext]
-    (let [handler (serve/app kb)
+    (let [handler (open-app kb)
           oversized (with-redefs [guard/max-body-bytes 8]
                       (post-raw handler edn-headers
                                 (op-body :assert [(list dog Rex) WireProbeContext])))
@@ -48,7 +64,12 @@
            ["a non-sequential :args" 400 :bad-args
             (post-raw handler edn-headers (pr-str {:op :assert :args 5}))]
            ["a body over the ceiling" 413 :body-too-large
-            oversized]]
+            oversized]
+           ;; the outermost door, and the only one whose refusal is deliberately
+           ;; uninformative: same body for a missing, wrong or malformed credential
+           ["no bearer token, to a daemon holding one" 401 :unauthorized
+            (post-raw (authed-app kb) edn-headers
+                      (op-body :assert [(list dog Rex) WireProbeContext]))]]
           ;; the engine's own refusal rides the wire under the engine's `:type`, and a
           ;; request-refusal is the *caller's* fault, so it is a 400 like the daemon's
           ;; own — answered 500 it counts as a backend fault at every reverse proxy

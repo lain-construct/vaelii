@@ -38,9 +38,9 @@
         "vaelii-parity-" (into-array java.nio.file.attribute.FileAttribute []))))
 
 (defn- backends []
-  [{:backend :memory          :record-space 90 :index-space 91}
-   {:backend :memory-dense    :record-space 92 :index-space 93}
-   {:backend :memory-columnar :record-space 94 :index-space 95}
+  [{:backend :memory          :space 90}
+   {:backend :memory-dense    :space 92}
+   {:backend :memory-columnar :space 94}
    {:backend :disk            :dir (disk-dir)}
    ;; the mixed modes: durable records with the index derived in RAM.  Both halves are
    ;; the ones above, so what these arms actually prove is the *composition* — that a
@@ -53,8 +53,8 @@
    ;; The thorough gate is the whole suite under `VAELII_TEST_BACKEND=overlay`; this is
    ;; the one that fails in an ordinary `lein test`.
    {:backend :overlay
-    :base    {:backend :memory :record-space 96 :index-space 97}
-    :overlay {:backend :memory :record-space 98 :index-space 99}}])
+    :base    {:backend :memory :space 96}
+    :overlay {:backend :memory :space 98}}])
 
 (defn- sentences
   "The `[sentence context]` pairs behind a seq of handles — the handle-free view."

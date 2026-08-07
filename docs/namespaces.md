@@ -1,10 +1,16 @@
 # Namespace layout
 
+- **Covers:** which source file holds each namespace, and the split between the six public
+  namespaces and `vaelii.impl.*`.
+- **Not here:** the one-line summary of every subsystem doc → [README.md](README.md); the
+  public API's function signatures → [api.md](api.md).
+- **Assumes:** sentex, context, JTMS, canonical form → [glossary.md](glossary.md).
+
 What lives where, one line per file. The public surface is **six namespaces** —
 `vaelii.core` plus five thin entry points (`vaelii.client`, `vaelii.starter`,
 `vaelii.web`, `vaelii.serve`, `vaelii.cli`) — and everything under `vaelii.impl.*` is
 free to change — tests reach into `impl` freely, nothing outside this repo should
-([api.md](api.md)). The per-subsystem notes are indexed in [index.md](index.md); this
+([api.md](api.md)). The per-subsystem notes are indexed in [README.md](README.md); this
 is the file map that sits under them.
 
 ```
@@ -121,17 +127,21 @@ resources/
 
 ## Not glossed above
 
-The map covers 86 of the 117 namespaces under `src/`. The rest are listed here by
+The map covers 86 of the 119 namespaces under `src/`. The rest are listed here by
 name rather than left out — the engine's write path (`integrate`, `special`,
 `checks`, `chain`, `settle`), the store seam (`kb`, `access`, `reindex`), the term
 layer (`nat`, `rewrite`, `inherit`, `gloss`, `spec`), the roster saying which of the
-engine's own vocabulary anything reads (`vocabulary`), and the LLM stack
+engine's own vocabulary anything reads (`vocabulary`), the two process-wide dials —
+`config` (every environment variable and system property, read once and refused by name
+at `open-kb`, [operations.md](operations.md)) and `logging` (the level dial, which
+installs no backend unless asked) — and the LLM stack
 ([llm.md](llm.md), with the reading path in [reading.md](reading.md) and the judge in
 [commonsense.md](commonsense.md)):
 
 ```
-impl/access.clj  impl/chain.clj  impl/checks.clj  impl/gloss.clj  impl/inherit.clj
-impl/integrate.clj  impl/kb.clj  impl/nat.clj  impl/reindex.clj  impl/rewrite.clj
+impl/access.clj  impl/chain.clj  impl/checks.clj  impl/config.clj  impl/gloss.clj
+impl/inherit.clj  impl/integrate.clj  impl/kb.clj  impl/logging.clj  impl/nat.clj
+impl/reindex.clj  impl/rewrite.clj
 impl/settle.clj  impl/spec.clj  impl/special.clj  impl/vocabulary.clj
 impl/asp/solve_context.clj
 impl/llm/{anthropic,correct,inventory,ollama,oracle,page,prompt,protocol,provider,

@@ -254,7 +254,7 @@
 (defn memory-kv-backend
   "An in-memory `KvBackend`.  Only `:space` in `opts` matters (it selects the shared
   state atom, so two index stores over the same space number share one map)."
-  [{:keys [space] :or {space 1}}]
+  [{:keys [space] :or {space 0}}]
   (->MemoryKvBackend (space-atom index-spaces space {})))
 
 (defn memory-index-store

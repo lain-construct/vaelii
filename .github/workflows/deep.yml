@@ -130,8 +130,16 @@ jobs:
   # re-run the whole suite through an *alternative implementation* of something
   # the engine otherwise picks for itself, and each is the same claim the backend
   # matrix makes: these must be failing-set-identical, because every one of them
-  # is a cost decision and none of them is a semantic one. A tactician orders
-  # goals; it does not choose answers.
+  # is a cost decision rather than a semantic one. A tactician orders goals; it
+  # does not choose answers.
+  #
+  # One bounded exception, and the suite carries it rather than this comment
+  # waving at it: the node engine agrees with the DFS on the answer *set* and not
+  # on how many derivations deliver it (docs/inference.md, and `inference/step!`
+  # keys a `seen` set on the bindings). So the handful of assertions that count
+  # `prove`'s results stand aside under `VAELII_QUERY_ENGINE`, through
+  # `tu/query-engine-override`, and everything about the answer set runs under
+  # both. An assertion standing aside says why, every time.
   #
   # The backends job crosses none of them — it varies storage and leaves all five
   # at their defaults — so before this job existed the reference implementations
@@ -164,8 +172,8 @@ jobs:
           # ignores the variable, so setting it alone would run the default twice
           - name: tactician
             env: VAELII_QUERY_ENGINE=inference VAELII_QUERY_STRATEGY=breadth-first
-          - name: nohier
-            env: VAELII_NOHIER=1
+          - name: hier-off
+            env: VAELII_HIER=0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

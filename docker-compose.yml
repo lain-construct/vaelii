@@ -1,0 +1,36 @@
+# One daemon, one store directory, one writer.
+#
+# There is no `replicas:` here and adding one would not scale this service: the
+# `:disk` backend takes an exclusive lock on open, and a second container over the
+# same volume is refused with `:disk-locked` and dies at startup.  Two processes
+# over one store is corruption rather than lag, so the constraint is named here
+# rather than discovered from a crash loop.
+
+services:
+  vaelii:
+    build: .
+
+    environment:
+      # Required, with no default on either side of the door.  Compose refuses to
+      # start without it; so does the daemon, which exits 2 before opening the KB
+      # when asked to bind an address with no token set.
+      VAELII_API_TOKEN: ${VAELII_API_TOKEN:?set VAELII_API_TOKEN - POST /op is this KB's only writer}
+      VAELII_LOG_LEVEL: info
+      # Naming an address drops the Host allowlist, and this restores it to the
+      # names the published port is actually reached by.  A reverse proxy that
+      # preserves its own Host needs that name here instead.
+      VAELII_ALLOWED_HOSTS: 127.0.0.1,localhost
+
+    ports:
+      # Host loopback only.  The daemon authenticates now, and this is still the
+      # binding to publish: putting an authenticated writer on a public interface
+      # is a decision to take deliberately, not one to inherit from a default.
+      - "127.0.0.1:4200:4200"
+
+    volumes:
+      - vaelii-store:/var/lib/vaelii
+
+    restart: unless-stopped
+
+volumes:
+  vaelii-store:

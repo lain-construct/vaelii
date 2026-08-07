@@ -282,8 +282,8 @@
       (is (= 1 (count (:hypotheses r2))))
       (testing "each ran in its own scratch context, and neither left one behind"
         (is (not= (:context r1) (:context r2)))
-        (is (zero? (v/context-size kb (:context r1))))
-        (is (zero? (v/context-size kb (:context r2))))))))
+        (is (zero? (v/count-in-context kb (:context r1))))
+        (is (zero? (v/count-in-context kb (:context r2))))))))
 
 ;; ---- the caps ------------------------------------------------------------
 

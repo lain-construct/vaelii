@@ -18,7 +18,7 @@
 
 
   Run: `lein bench-memory [facts] [rules] [iters]`  (defaults 200000 20000 200).
-  Uses record-space 10 / index-space 9 in the in-memory registry — no server, no
+  Uses space 10 in the in-memory registry — no server, no
   external dependency."
   (:require [vaelii.bench.util :as u :refer [zipf-sample]]
             [vaelii.impl.resolution :as res]
@@ -33,7 +33,7 @@
   "One synthetic fact `[sentence context]`: a Zipf predicate, 2-3 Zipf-individual
   arguments, and — with probability `compound-frac` — a compound last argument
   `(qtyFn <int> <unit>)`, so the structural trie is exercised."
-  [rng {:keys [preds inds units ctxs pred-cum ind-cum compound-frac]}]
+  [^java.util.Random rng {:keys [preds inds units ctxs pred-cum ind-cum compound-frac]}]
   (let [pred    (nth preds (zipf-sample pred-cum rng))
         ctx     (nth ctxs (.nextInt rng (count ctxs)))
         arity   (+ 2 (.nextInt rng 2))
@@ -46,7 +46,7 @@
                   rest-as)]
     [(apply list pred a rest-as) ctx]))
 
-(defn- load-facts! [kb rng {:keys [n] :as cfg}]
+(defn- load-facts! [kb ^java.util.Random rng {:keys [n] :as cfg}]
   (let [sample (java.util.ArrayList.)
         t0     (System/nanoTime)]
     (dotimes [i n]
@@ -58,7 +58,7 @@
                            (/ i (/ (- (System/nanoTime) t0) 1e9)))))))
     {:secs (/ (- (System/nanoTime) t0) 1e9) :sample (vec sample)}))
 
-(defn- load-rules! [kb rng {:keys [r preds pred-cum]}]
+(defn- load-rules! [kb ^java.util.Random rng {:keys [r preds pred-cum]}]
   (let [ix (:index kb), t0 (System/nanoTime)]
     (dotimes [i r]
       (let [antes (distinct (repeatedly (inc (.nextInt rng 3))
@@ -162,7 +162,7 @@
                 :pred-cum (u/zipf-cumulative P 1.2)
                 :ind-cum  (u/zipf-cumulative M 1.0)
                 :compound-frac 0.15}
-        kb     (kb/open-kb {:backend :memory :record-space 10 :index-space 9 :recover? false}
+        kb     (kb/open-kb {:backend :memory :space 10 :recover? false}
                            (fn [_] nil) (fn [_] nil))]
     (println (format "vaelii index benchmark — IN-MEMORY backend — %,d facts, %,d rules, %d preds, %,d individuals"
                      n r P M))

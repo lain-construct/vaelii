@@ -1,5 +1,13 @@
 # Scenarios — one arrangement out of a constraint network
 
+- **Covers:** how `scenarios` extracts one concrete, deterministic arrangement
+  from a tightened constraint network by fewest-possibilities-first backtracking.
+- **Not here:** the path-consistency engine and entailment reading it searches over
+  → [qcn.md](qcn.md); the spatial algebras it runs over → [space.md](space.md);
+  the temporal algebras it runs over → [time.md](time.md).
+- **Assumes:** constraint network, base relation, path consistency →
+  [glossary.md](glossary.md).
+
 Path consistency ([qcn.md](qcn.md)) answers what is *entailed*: a set of relations on every
 pair, narrowed as far as composition allows. That is the right answer to "what follows?" and
 the wrong shape for "show me". A drawing of the regions, a timeline of the intervals, an

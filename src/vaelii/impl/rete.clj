@@ -70,7 +70,7 @@
             [vaelii.impl.taxonomy :as tax]))
 
 ;; ---- the per-KB alpha registry ------------------------------------------
-;; Keyed by KB **object identity**, not value: two KBs over the same space numbers
+;; Keyed by KB **object identity**, not value: two KBs over the same space
 ;; can be `=` (their record stores wrap the same shared state) but must not share an
 ;; alpha.  A `java.util.IdentityHashMap` keys on `==`.
 ;;

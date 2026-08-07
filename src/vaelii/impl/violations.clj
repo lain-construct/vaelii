@@ -17,18 +17,43 @@
   fixpoint and from inside a relabel, and neither may abort — a definitional check that
   aborted mid-fixpoint would leave belief half-computed, which is the failure the value-
   first checks (`vaelii.impl.checks`) exist to avoid.  So a violation is *reported*, and
-  the run continues without the conclusion."
-  (:require [taoensso.trove :as trove]))
+  the run continues without the conclusion.
+
+  It reads the record store for one thing only: an entry names the rule that concluded
+  the dropped sentence by **handle**, and a handle is not something an operator reading
+  a log can look up.  So at `:debug` the drop is followed by the rule itself."
+  (:require [taoensso.trove :as trove]
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.sentex :as sx]))
 
 (def ^:private max-violations
   "The ledger accumulates across chaining runs (see `vaelii.core/violations`); this caps
   it so a pathological load cannot grow it unbounded — newest entries win."
   1000)
 
+(defn- dropping-rule
+  "The rule an entry blames, as the sentence its author wrote — variable names restored,
+  since a rule is stored canonically numbered.  Nil for an entry that names no rule (an
+  aggregate's numeric refusal, an exposure sweep cut short) and for a rule that has since
+  been retracted, which is itself the answer to why the conclusion stopped arriving."
+  [kb entry]
+  (when-let [h (:rule entry)]
+    (let [rsx (p/get-sentex (:records kb) h)]
+      {:rule h
+       :sentence (when rsx (if-let [vm (:varmap rsx)]
+                             (sx/originalize (:sentence rsx) vm)
+                             (:sentence rsx)))})))
+
 (defn report
   "Append dropped-conclusion entries to the accumulating ledger, stamped with the
   chaining run that dropped them, and log each at :warn — a drop must be visible even to
   a caller who never reads the ledger (a bulk load polls nothing).
+
+  The `:warn` line carries the entry as filed, which names the rule by handle.  At
+  `:debug` each drop that blames a rule is followed by that rule's own sentence: the
+  handle is what the ledger stores and the sentence is what the operator was going to go
+  looking for, and the lookup rides inside Trove's payload delay, so a run at `:warn`
+  pays for none of it.
 
   No `!`: this accumulates a report and destroys nothing, and the ledger it appends to is
   emptied only by `vaelii.core/clear-violations!`, which does."
@@ -37,7 +62,9 @@
     (let [run     (:runs @(:chain-stats kb))
           stamped (mapv #(assoc % :run run) entries)]
       (doseq [e stamped]
-        (trove/log! {:level :warn :id ::dropped-conclusion :data e}))
+        (trove/log! {:level :warn :id ::dropped-conclusion :data e})
+        (when (:rule e)
+          (trove/log! {:level :debug :id ::dropping-rule :data (dropping-rule kb e)})))
       (swap! (:violations kb)
              (fn [v]
                (let [v' (into v stamped)

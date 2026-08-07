@@ -7,18 +7,27 @@
 # check, and a dim [Ns] on the slow ones.  Exit non-zero iff any check failed.
 #
 #   - glossary    structural lint for docs/glossary.md (badges + order + links)
+#   - versions    the coordinates this tree states twice agree (sibling pin,
+#                 lein-cloverage)
 #   - links       relative markdown links across README + docs/ resolve
 #   - drift       doc claims about the code still match the code
-#   - kondo       clj-kondo over src + test + bench   (native binary)
+#   - kondo       clj-kondo over src + test + bench   (native binary; a NOTE
+#                 under the row when the local version is not the CI pin)
 #   - cljfmt      `lein cljfmt check` — formatting     (config in project.clj :cljfmt)
 #   - shellcheck  the repo's shell scripts
+#   - reflect     a compile pass over src + bench; any reflection/boxing warning
+#                 fails.  The test tree is covered by gate.sh instead — see the
+#                 header of scripts/check-reflection.sh for why the split exists
+#   - unused      a public var under impl/ that nothing references, against
+#                 scripts/unused-publics-baseline.txt
 #
 #   lein lint               # the clean report
 #   VERBOSE=1 lein lint     # also dump each check's full output, pass or fail
 #   bash scripts/lint.sh -v # same, when run directly
 #
-# The granular `lein lint-glossary` / `lint-links` / `lint-drift` / `lint-kondo` /
-# `lint-cljfmt` / `lint-shellcheck` aliases run a single check for a quick one-off.
+# The granular `lein lint-glossary` / `lint-versions` / `lint-links` /
+# `lint-drift` / `lint-kondo` / `lint-cljfmt` / `lint-shellcheck` /
+# `lint-reflect` / `lint-unused` aliases run a single check for a quick one-off.
 set -uo pipefail   # NOT -e: every check must run even after one fails.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,9 +48,9 @@ case "$(printf '%s' "${VAELII_COLOR:-}" | tr '[:upper:]' '[:lower:]')" in
         && ( -t 1 || ( -n "${TERM:-}" && "${TERM:-}" != dumb ) ) ]] && color=1 ;;
 esac
 if [[ $color -eq 1 ]]; then
-  GREEN=$'\e[32m'; RED=$'\e[1;31m'; DIM=$'\e[2m'; BOLD=$'\e[1m'; RST=$'\e[0m'
+  GREEN=$'\e[32m'; RED=$'\e[1;31m'; YELLOW=$'\e[33m'; DIM=$'\e[2m'; BOLD=$'\e[1m'; RST=$'\e[0m'
 else
-  GREEN=''; RED=''; DIM=''; BOLD=''; RST=''
+  GREEN=''; RED=''; YELLOW=''; DIM=''; BOLD=''; RST=''
 fi
 
 pass=0; fail=0; failed_labels=()
@@ -61,12 +70,15 @@ summary() {
   local label="$1" o="$2" s=""
   case "$label" in
     glossary)   s="$(grep -oE '\([0-9]+ entries\)' "$o" | head -1 | tr -d '()')" ;;
+    versions)   s="$(sed -n 's/^lint-versions: OK (\(.*\))$/\1/p' "$o" | head -1)" ;;
     links)      s="all resolve" ;;
     drift)      s="$(grep -oE '[0-9]+ errors, [0-9]+ warnings across [0-9]+ docs' "$o" | head -1)"
                 s="${s/across /(}"; s="${s/ docs./ docs)}" ;;
     kondo)      s="$(grep -oE 'errors: [0-9]+, warnings: [0-9]+' "$o" | tail -1)" ;;
     cljfmt)     s="all files formatted" ;;
     shellcheck) s="scripts clean" ;;
+    reflect)    s="$(grep -oE 'no reflection warnings.*' "$o" | head -1)" ;;
+    unused)     s="$(grep -oE '[0-9]+ known[^.]*' "$o" | head -1)" ;;
   esac
   echo "${s:-ok}"
 }
@@ -118,16 +130,50 @@ check() {
   print_status "$label" "$rc" "$out" "$t"
 }
 
+# kondo_version_note — say so when the local clj-kondo is not the one CI pins.
+#
+# The kondo check runs whatever binary is on PATH, and CI runs the version
+# `.github/workflows/lint.yml` names.  Nothing made those the same, so a local
+# `lint: 6/6 clean` could sit against a red CI lint: a newer kondo infers more
+# and flags what an older one passes, which is a green squash arriving on
+# staging with five errors waiting for it.
+#
+# A NOTE and never a failure, deliberately.  The pin moves whenever the workflow
+# is edited, and a package manager can lag it for weeks — brew was four months
+# behind the pin at one point, so there was a window where no `brew install`
+# could satisfy a hard check.  Refusing to run the linter at all during that
+# window costs more than the drift it would report.  Silent when the two agree,
+# and silent when either side cannot be read: an unreadable pin is a fact about
+# this script's parsing, not a finding about the tree.
+kondo_version_note() {
+  local pin have
+  command -v clj-kondo >/dev/null 2>&1 || return 0
+  pin="$(sed -n 's/^[[:space:]]*clj-kondo:[[:space:]]*\([0-9][0-9.]*\).*/\1/p' \
+           .github/workflows/lint.yml 2>/dev/null | head -1)"
+  have="$(clj-kondo --version 2>/dev/null \
+            | grep -oE '[0-9]{4}\.[0-9]{2}\.[0-9]{2}' | head -1)"
+  [[ -n "$pin" && -n "$have" && "$pin" != "$have" ]] || return 0
+  printf '  %-11s %s! local %s, CI pins %s — CI can fail on what this passes%s\n' \
+         '' "$YELLOW" "$have" "$pin" "$RST"
+  printf '  %-11s %s  brew upgrade borkdude/brew/clj-kondo, or install-clj-kondo --version %s%s\n' \
+         '' "$DIM" "$pin" "$RST"
+}
+
 printf '%slint%s\n' "$BOLD" "$RST"
 
 check glossary   -- bash scripts/lint-glossary.sh
+check versions   -- bash scripts/lint-versions.sh
 check links      -- python3 scripts/check-doc-links.py --public-view
 check drift      -- python3 scripts/check-doc-drift.py
 check kondo      -- clj-kondo --lint src test bench
+kondo_version_note
 check cljfmt     -- lein cljfmt check
-check shellcheck -- shellcheck scripts/lint.sh scripts/lint-glossary.sh scripts/coverage.sh \
-                               scripts/gate.sh scripts/test-backends.sh scripts/update-badges.sh \
-                               scripts/link-checkouts.sh
+check shellcheck -- shellcheck scripts/lint.sh scripts/lint-glossary.sh scripts/lint-versions.sh \
+                               scripts/coverage.sh scripts/gate.sh scripts/test-backends.sh \
+                               scripts/update-badges.sh scripts/link-checkouts.sh \
+                               scripts/check-reflection.sh
+check reflect    -- bash scripts/check-reflection.sh
+check unused     -- python3 scripts/check-unused-publics.py
 
 total=$((pass + fail))
 if [[ $fail -eq 0 ]]; then

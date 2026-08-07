@@ -1,5 +1,13 @@
 # Aggregation: a reduction over a query's solutions
 
+- **Covers:** the five reduction operators
+  (`agg/count`/`agg/sum`/`agg/min`/`agg/max`/`agg/avg`) as query operators, grouping by
+  binding discipline, and how a firing resting on a count is maintained.
+- **Not here:** the `unknown`/`thereExists` family this extends → [naf.md](naf.md); the
+  rule-level exception whose re-check and stratification machinery this reuses →
+  [exceptions.md](exceptions.md).
+- **Assumes:** context, belief, `genl`, justification → [glossary.md](glossary.md).
+
 Counting, summing and averaging as **query operators** — the third member of the
 `unknown` / `thereExists` family. Nothing here is stored, and nothing here is new
 engine machinery.

@@ -125,7 +125,7 @@
        (testing "term index + extents with the {:believed? true} opt"
          (v/find-sentexes kb Fido) (v/find-sentexes-all kb [Fido dog])
          (v/sentexes-in-context kb SpecContext {:believed? true})
-         (is (nat-int? (v/context-size kb SpecContext)))
+         (is (nat-int? (v/count-in-context kb SpecContext)))
          (v/sentexes-with-functor kb dog)
          (is (nat-int? (v/count-with-functor kb dog)))
          (v/sentexes-with-arg kb 1 Fido {:believed? true})

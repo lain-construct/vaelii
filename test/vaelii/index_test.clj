@@ -55,15 +55,15 @@
     (v/assert kb (list p b a) c1)
     (v/assert kb (list p a a) c2)
     (testing "a context's size is available without enumerating it"
-      (is (= 2 (v/context-size kb c1)))
-      (is (= 1 (v/context-size kb c2)))
-      (is (= 0 (v/context-size kb (tu/tmp-ctx)))))
+      (is (= 2 (v/count-in-context kb c1)))
+      (is (= 1 (v/count-in-context kb c2)))
+      (is (= 0 (v/count-in-context kb (tu/tmp-ctx)))))
     (testing "and its extent is the sentexes actually asserted there"
       (is (= #{c1} (set (map :context (v/sentexes-in-context kb c1)))))
       (is (= 2 (count (v/sentexes-in-context kb c1)))))
     (testing "retracting a member decrements it"
       (v/retract! kb (:id (first (v/sentexes-matching kb (list p a a) c2))))
-      (is (= 0 (v/context-size kb c2))))))
+      (is (= 0 (v/count-in-context kb c2))))))
 
 (tu/deftest-kb the-functor-root-spans-arity-and-polarity
   (let [dog (tu/tmp-type) fido (tu/tmp-ind) rex (tu/tmp-ind)

@@ -179,12 +179,12 @@
   ;; entry.  The two are easy to conflate: `root-keys` excludes a rule from the functor
   ;; and argument roots by guarding on the body's shape, and moving the context key
   ;; inside that same guard would drop rules from `sentexes-in-context` too, leaving
-  ;; `context-size` under-counting a rule-heavy context.
+  ;; `count-in-context` under-counting a rule-heavy context.
   (tu/with-terms [p q Fido dog RuleContext]
     (let [fact (v/assert kb (list dog Fido) RuleContext)
           rule (v/assert kb (list 'implies (list p '?x) (list q '?x)) RuleContext)]
       (testing "the context's extent and cardinality both count the rule"
-        (is (= 2 (v/context-size kb RuleContext)))
+        (is (= 2 (v/count-in-context kb RuleContext)))
         (is (= #{fact rule} (set (map :id (v/sentexes-in-context kb RuleContext))))))
       (testing "while the functor root still holds facts only"
         (is (= 0 (v/count-with-functor kb q)))

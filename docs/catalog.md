@@ -1,5 +1,12 @@
 # The KB catalog
 
+- **Covers:** what a KB source is (six kinds), how loading, unloading and exporting run
+  in the background with progress and cancellation, and what holding one costs in memory.
+- **Not here:** the sequence for getting each shipped, plugin or supplied KB to a first
+  load → [kbs.md](kbs.md); the reader map a corpus plugin declares itself with →
+  [foreign.md](foreign.md).
+- **Assumes:** sentex, context, `genl` / `genlContext` → [glossary.md](glossary.md).
+
 `vaelii.impl.catalog`. Everything else in this repo assumes it is holding *the* KB. The
 catalog is what makes that a choice: it lists the knowledge bases this process could
 load, loads one in the background while the pages keep answering, and says which of the
@@ -59,6 +66,17 @@ A KB **outside** the search path is named in a catalog file — `VAELII_KB_CATAL
 That file is the **only** place a machine's own paths live. Nothing about them is in the
 repo, and `sources` is recomputed per call — dropping a corpus into a search-path
 directory makes it appear on the next page load, with no restart.
+
+Recomputed per call is what makes that immediacy true, and it is also the cost: every
+candidate under a search-path entry is `classify`d — a `meta.edn` read, plus a size
+estimate for a `:store` — on **every** `/kbs` request. So a search-path entry is probed
+for the first `max-discovered` (200) children by name, which is the number that makes
+this list no exception to [web.md](web.md)'s "every list caps". A directory of converted
+corpora is exactly what grows past that over time, so the cut is **named** rather than
+taken quietly — on the page, and in the log — because a list that silently ends early
+reads as "this machine has no other KBs". A KB below the cut is listed regardless if the
+catalog file names it: an entry written down by hand is never capped, and neither are the
+built-ins.
 
 Every source carries its own `:options`: the form controls it accepts, as data. The
 generator's sliders are `vaelii.impl.io.generate/knobs` rendered directly, so the page
@@ -131,7 +149,7 @@ cards that offer it are the two shipped ontologies, the generator and a corpus �
 and a store rebuild belief instead (`:belief?` / `:recover?`), which is a different
 question from deriving what the rules conclude.
 
-The KB an entry loads into is in memory by default, over a space pair the catalog claims
+The KB an entry loads into is in memory by default, over a space the catalog claims
 (from 100 up, clear of the block the test suite owns). Name a `:dir` and it is a durable
 `:disk` KB there instead — which is what a corpus far past what RAM holds wants.
 

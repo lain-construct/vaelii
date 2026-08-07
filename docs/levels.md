@@ -1,5 +1,12 @@
 # The lookup-to-query stack
 
+- **Covers:** the eight-level stack from a raw index read to full backward chaining, and
+  `escalate`/`explain-levels` for naming which level a goal needs.
+- **Not here:** the forward/backward chaining machinery levels 6–7 wrap →
+  [inference.md](inference.md); the retired-spelling filter levels 3–4 apply but do not own →
+  [equality.md](equality.md).
+- **Assumes:** sentex, context, `genl`, prover → [glossary.md](glossary.md).
+
 `vaelii.impl.levels`, surfaced as `core/lookup`, `core/escalate`, `core/explain-levels`,
 `core/levels`.
 

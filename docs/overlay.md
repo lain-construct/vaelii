@@ -1,5 +1,12 @@
 # Forks: an overlay over a frozen base
 
+- **Covers:** what a fork is — a private, writable KB layered over a frozen, read-only base
+  — and how reads, writes, counts and tombstones route between the two.
+- **Not here:** the record/index store protocols and the single-writer lock a base is opened
+  through → [storage.md](storage.md); the dense backend internals (postings, the columnar
+  trie) a KV decorator wraps → [density.md](density.md).
+- **Assumes:** sentex, context, handle, JTMS → [glossary.md](glossary.md).
+
 `vaelii.impl.overlay.kv`, `vaelii.impl.overlay.store`,
 `vaelii.impl.overlay.frozen`, `vaelii.impl.overlay.mount`; `core/fork`.
 
@@ -151,7 +158,7 @@ deliberately, because that is what the caller asked for.
   gets an in-RAM one and pays nothing for the machinery.
 
 **Counts need no delta bookkeeping.** A `RecordStore` exposes handle *sets*, not
-counts, and everything counted — `sentex-count`, `context-size`, `count-with-functor` —
+counts, and everything counted — `sentex-count`, `count-in-context`, `count-with-functor` —
 is read off the *index*, where the merge is the trie's copy-on-write counters and the
 merged root sets. So a fork's counts are exact by construction rather than by a second,
 parallel accounting that could drift from the records.

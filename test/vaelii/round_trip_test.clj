@@ -435,8 +435,15 @@
 (def ^:private foreign-dialect
   "Sentences shaped like the real imported corpus: a `Cx`-prefixed context rather than a
   `Context`-suffixed one, namespaced predicates, and argument names carrying a hyphen or
-  a trailing apostrophe.  Every one of them is a name `assert` refuses under `:strict`,
-  and not one of them is a name this build may quietly repair."
+  a trailing apostrophe.  Every one is refused under `:strict` — on its *context* if
+  nothing else — and not one is a name this build may quietly repair.
+
+  The two kinds of name are refused for different reasons now, and the split is the
+  point.  A hyphenated name is a **sense** (`game-theory`, `testicular_cancer-reproductive`)
+  and is legal: a word, a dash, and the disambiguator saying which sense is meant.  A
+  trailing apostrophe is the legacy spelling of a **lexeme**, which vaelii marks with the
+  `lex` namespace instead, so `mining'` matches no convention and is refused as an
+  argument.  Three of these four therefore carry an argument violation, not all four."
   '[(ex/disambiguator mining')
     (genl choriocarcinoma' testicular_cancer-reproductive)
     (sense game_theory' game-theory)
@@ -474,8 +481,8 @@
                   (is (= (count foreign-dialect) checked refused)
                       "every record — they share a context the front door refuses")
                   (is (= (count foreign-dialect) (:context-name by-class)))
-                  (is (= (count foreign-dialect) (:argument by-class))
-                      "and every one also carries a hyphenated or apostrophed name")
+                  (is (= 3 (:argument by-class))
+                      "the three apostrophed names — a hyphenated one is a sense and legal")
                   (is (re-find #"records .* `assert` would refuse" (nm/tally-line tally)))))
               (testing "and a strict KB over the same store still reads all of it"
                 ;; the policy travels with the KB, not with the records

@@ -48,9 +48,9 @@
 ;; *about* the four backends, so it names them all rather than running on whichever one
 ;; the suite's gate selected.
 (def ^:private index-backends
-  [{:backend :memory          :record-space 88 :index-space 89}
-   {:backend :memory-dense    :record-space 88 :index-space 87}
-   {:backend :memory-columnar :record-space 88 :index-space 86}
+  [{:backend :memory          :space 88}
+   {:backend :memory-dense    :space 88}
+   {:backend :memory-columnar :space 88}
    {:backend :disk}])
 
 (defn- open-kb!

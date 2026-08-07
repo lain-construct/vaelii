@@ -38,7 +38,12 @@
 
 (defn remote
   "A remote access to the daemon at `host`:`port` — builds a client connection the
-  KB-read ops send over."
+  KB-read ops send over.
+
+  The connection reads `VAELII_API_TOKEN` like any other (`client/client`), so a
+  browser attached to an authenticating daemon carries the token by being started in
+  the same environment.  There is nothing here to configure and no second place to say
+  it: the target is a host and a port, and the credential is the process's."
   [host port] {:mode :remote :conn (client/client host port)})
 
 (defn local-kb
@@ -81,7 +86,7 @@
 (defreads
   query query? sentexes-matching ask ask? prove provable? sentex handle-of find-sentexes in? believed why-not
   why isa? types-of disjoint? genls specs types contexts premise? defeat-class justification
-  supporting-justifications dependent-justifications lookup escalate explain-levels context-size
+  supporting-justifications dependent-justifications lookup escalate explain-levels count-in-context
   sentexes-in-context sentexes-with-arg sentexes-with-functor count-with-arg
   count-with-functor disjoint-metatypes metatype-members conflicts contradictions
   ;; what a reified term denotes, so a reified NAT is displayed as the expression it was

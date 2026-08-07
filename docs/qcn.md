@@ -1,5 +1,12 @@
 # Qualitative constraint networks — one engine, six algebras
 
+- **Covers:** how the generic path-consistency engine turns a relation algebra
+  and a network into entailment, refutation and support that every calculus reuses.
+- **Not here:** the specific spatial algebras (RCC-8, direction, distance) →
+  [space.md](space.md); the temporal algebras (Allen's intervals, the point algebra) →
+  [time.md](time.md).
+- **Assumes:** sentex, context, genlContext, belief → [glossary.md](glossary.md).
+
 `vaelii.impl.qcn` reasons about relations that have no numbers behind them: *inside*,
 *north of*, *before*. You rarely know where a region's boundary runs or what o'clock a
 meeting started, but you do know how things stand relative to one another — and that is

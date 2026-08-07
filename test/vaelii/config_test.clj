@@ -16,8 +16,14 @@
   accessor's body."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.impl.catalog :as catalog]
             [vaelii.impl.config :as config]
-            [vaelii.impl.disk.files :as f]))
+            [vaelii.impl.disk.backend :as backend]
+            [vaelii.impl.disk.files :as f]
+            [vaelii.impl.guard :as guard]
+            [vaelii.impl.llm.ollama :as ollama]
+            [vaelii.impl.llm.provider :as provider]
+            [vaelii.impl.web :as web]))
 
 (def ^:private switched
   "Every property `config/check!` reads, so a test can clear the lot and see the
@@ -94,17 +100,17 @@
   (testing "the refusal lands at open-kb — the earliest door, before a record moves"
     (with-property "vaelii.disk.fsync" "always"
       (let [e (is (thrown? clojure.lang.ExceptionInfo
-                           (v/open-kb {:record-space 88 :index-space 89 :recover? false})))]
+                           (v/open-kb {:space 88 :recover? false})))]
         (is (= :unknown-option (:type (ex-data e))))
         (is (re-find #"dsync" (ex-message e)) "and names the mode there is")))
     (testing "on a RAM KB as much as a durable one: the process is one directory away"
       (with-property "vaelii.disk.compress" "gzip"
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/open-kb {:backend :memory :record-space 88 :index-space 89
+                     (v/open-kb {:backend :memory :space 88
                                  :recover? false}))))))
   (testing "and a KB whose switches are all legal still opens"
     (with-property "vaelii.disk.fsync" "dsync"
-      (let [kb (v/open-kb {:record-space 88 :index-space 89 :recover? false})]
+      (let [kb (v/open-kb {:space 88 :recover? false})]
         (is (some? kb))
         (v/clear! kb)))))
 
@@ -154,6 +160,54 @@
     (is (= 300000 (config/disk-compact-min-interval-ms)))
     (is (true?  (config/disk-lock?)))
     (is (false? (config/index-snapshot?)))))
+
+(def ^:private switched-elsewhere
+  "The properties read *outside* `vaelii.impl.config` — the disk directory, the
+  browser's port, KB discovery, the solver and the model host all hold their own
+  default at their own call site rather than going through a `prop-*` reader."
+  ["vaelii.disk.dir" "vaelii.web.port" "vaelii.kb.path" "vaelii.kb.catalog"
+   "vaelii.asp.solver" "vaelii.llm.provider"])
+
+(def ^:private env-spelled-defaults
+  "The variable-spelled switches whose default this test can only read as the
+  environment leaves it, with the reader and what `docs/operations.md` promises."
+  [["VAELII_API_TOKEN"              #(guard/api-token)                   nil]
+   ["VAELII_KB_PATH"                #(count (catalog/search-path))       2]
+   ["VAELII_LLM_PROVIDER"           #(provider/configured)               nil]
+   ["VAELII_OLLAMA_MODEL"           #(ollama/configured-model)           "phi4:14b"]
+   ["VAELII_OLLAMA_GENERATION_MODEL" #(ollama/configured-generation-model) "qwen3-coder:30b"]
+   ["VAELII_OLLAMA_NUM_CTX"         #(ollama/configured-num-ctx)         8192]
+   ["VAELII_OLLAMA_KEEP_ALIVE"      #(ollama/configured-keep-alive)      "30m"]])
+
+(deftest nothing-set-is-the-documented-default-outside-this-namespace
+  ;; `config_surface_test` pins every switch's *name* and its citation; this is the
+  ;; **Default** column of the same table, for the two-thirds of the surface whose
+  ;; reader lives somewhere other than `vaelii.impl.config`.  Without it that column is
+  ;; prose: a changed default is a doc nobody updated and a test nobody failed.
+  (with-properties* (mapv (fn [nm] [nm nil]) switched-elsewhere)
+    (fn []
+      (testing "the servers"
+        (is (= 16777216 guard/max-body-bytes))
+        (is (= 3000 (#'web/default-port))))
+      (testing "the durable store's directory"
+        (is (= (str (System/getProperty "java.io.tmpdir") "/vaelii-disk/space-0")
+               (backend/disk-dir {}))))
+      (testing "finding a KB"
+        (is (= 200 catalog/max-discovered))
+        (is (= [(str (System/getProperty "user.dir") "/kbs")
+                (str (System/getProperty "user.home") "/.vaelii/kbs")]
+               (vec (catalog/search-path)))))
+      (testing "the log level, whose reader is here but whose row is not with the disk"
+        (is (nil? (config/log-level))))
+      ;; A JVM cannot clear its own environment, so these are read as this machine
+      ;; leaves them — the same reading when unset, and skipped rather than wrongly
+      ;; failed on a developer box that exports one (`OLLAMA_HOST` is the likely one).
+      (testing "the variable-spelled switches this environment leaves unset"
+        (let [unset (remove (fn [[nm _ _]] (System/getenv nm)) env-spelled-defaults)]
+          (is (seq unset)
+              "every variable-spelled switch is set here, so this test checked none")
+          (doseq [[nm reader expected] unset]
+            (is (= expected (reader)) (str nm " unset must read its documented default"))))))))
 
 (deftest the-environment-switches-read-the-one-vocabulary
   ;; `prop-bool` is the whole body of `arbitrate-constraints?`, `assertive-arg-types?`

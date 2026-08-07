@@ -14,10 +14,16 @@
 
   This pins that claim the way the taxonomy pins its incremental closures against a
   rebuild — the flag ON must return the identical result set the flag OFF (pure
-  trie) does, over patterns generated from the starter's own stored facts (so they
+  trie) does, over patterns generated from the test-world's own stored facts (so they
   actually match, and cover numeric arguments the roots do not index, symmetric
   predicates, both polarities, and every argument position), and end to end through
-  `query`, `matches-visible`, `backward`, and `ask`."
+  `query`, `matches-visible`, `backward`, and `ask`.
+
+  **The fixture loads the world, and the probes below name its cast.** The starter is
+  schema — it declares `parentOf` and `birthYearOf` and asserts no instance of either —
+  so under a starter-only fixture every comparison here is `#{}` against `#{}`: two
+  retrieval paths agreeing about nothing. `probed` is the standing check, and it is why
+  the equality below means something."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.naming :as nm]
@@ -25,12 +31,23 @@
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.starter :as starter]
-            [vaelii.test-util :as tu]))
+            [vaelii.test-util :as tu]
+            [vaelii.world :as world]))
 
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
 (use-fixtures :each (tu/neutral))
 
 (defn- proj [triples] (into #{} (map #(vec (take 2 %))) triples))
+
+(defn- probed
+  "`results` — the `[off on]` pairs one test compared — with the count that actually
+  matched something asserted non-zero.  Two empty sets are equal, so an oracle whose
+  fixture stops carrying the facts it probes goes green while checking nothing; this is
+  what makes that a failure instead."
+  [what results]
+  (is (pos? (count (filter (fn [[off on]] (or (seq off) (seq on))) results)))
+      (str what ": every comparison was empty on both sides — the fixture is not"
+           " carrying the facts these patterns name, so this test proved nothing")))
 
 (defn- both-ways
   "The [handle bindings] set `f` yields with arg-root retrieval off (pure trie) and
@@ -94,20 +111,26 @@
 (deftest leading-variable-binary-patterns
   ;; the case the arg root exists for: a bound *second* argument with a variable first
   (tu/with-kb [kb]
-    (doseq [pred '[parentOf siblingOf marriedTo childOf owns locatedIn]]
-      (doseq [ind '[Tom Bob Ann Carol Fido Sam Tweety Dave]]
-        (let [pat (list pred (symbol "?x") ind)
-              [off on] (both-ways #(res/match-pattern kb pat '?ctx))]
-          (is (= off on) (str "diverged on " (pr-str pat))))))))
+    (probed "leading-variable-binary-patterns"
+            (for [pred '[parentOf siblingOf marriedTo childOf owns locatedIn]
+                  ind  '[Tom Bob Ann Carol Fido Sam Tweety Dave]]
+              (let [pat (list pred (symbol "?x") ind)
+                    [off on :as both] (both-ways #(res/match-pattern kb pat '?ctx))]
+                (is (= off on) (str "diverged on " (pr-str pat)))
+                both)))))
 
 (deftest numeric-argument-stays-on-the-trie
-  ;; bornIn has a numeric year; a number is not an indexable term, so `(bornIn ?x 1970)`
-  ;; must fall back to the trie and still return exactly what the trie returns
+  ;; `birthYearOf` has a numeric year, and a number is not an indexable term, so
+  ;; `(birthYearOf ?x 1970)` must fall back to the trie and still return exactly what the
+  ;; trie returns.  1970 and 1995 are the world's two; the rest match nothing on purpose,
+  ;; since falling back correctly on an absent value is the same claim.
   (tu/with-kb [kb]
-    (doseq [yr [1970 1995 1888 2000 42]]
-      (let [pat (list 'bornIn (symbol "?p") yr)
-            [off on] (both-ways #(res/match-pattern kb pat '?ctx))]
-        (is (= off on) (str "diverged on " (pr-str pat)))))))
+    (probed "numeric-argument-stays-on-the-trie"
+            (for [yr [1970 1995 1888 2000 42]]
+              (let [pat (list 'birthYearOf (symbol "?p") yr)
+                    [off on :as both] (both-ways #(res/match-pattern kb pat '?ctx))]
+                (is (= off on) (str "diverged on " (pr-str pat)))
+                both)))))
 
 ;; the case the user asked about: knowing *more* terms.  A shared individual sits at
 ;; the same argument position across several predicates, so a single argument root is
@@ -163,13 +186,15 @@
 (deftest end-to-end-paths-unchanged
   (tu/with-kb [kb]
     (testing "query returns the same believed matches"
-      (doseq [goal '[(parentOf ?x Ann) (siblingOf ?x Ann) (parentOf Tom ?y)
-                     (marriedTo ?x Tom) (owns ?p ?a)]]
-        (let [off (binding [res/*arg-root-retrieval* false]
-                    (set (map :sentence (v/sentexes-matching kb goal '?ctx))))
-              on  (binding [res/*arg-root-retrieval* true]
-                    (set (map :sentence (v/sentexes-matching kb goal '?ctx))))]
-          (is (= off on) (str "query diverged on " (pr-str goal))))))
+      (probed "end-to-end-paths-unchanged/query"
+              (for [goal '[(parentOf ?x Ann) (siblingOf ?x Ann) (parentOf Tom ?y)
+                           (marriedTo ?x Tom) (owns ?p ?a)]]
+                (let [off (binding [res/*arg-root-retrieval* false]
+                            (set (map :sentence (v/sentexes-matching kb goal '?ctx))))
+                      on  (binding [res/*arg-root-retrieval* true]
+                            (set (map :sentence (v/sentexes-matching kb goal '?ctx))))]
+                  (is (= off on) (str "query diverged on " (pr-str goal)))
+                  [off on]))))
     (testing "backward and ask agree with the trie"
       (doseq [goal '[(grandparentOf ?x Ann) (ancestorOf ?x Ann) (childOf Ann ?y)
                      (uncleOf ?x ?y)]]

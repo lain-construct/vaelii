@@ -46,7 +46,7 @@
 #
 # Runs are SEQUENTIAL by design.  Two disk-backed suites over one directory
 # would collide on the single-writer lock, and `VAELII_TEST_SPACE` only admits
-# three non-overlapping four-db blocks — so parallelism buys three runs, not
+# six non-overlapping two-db blocks — so parallelism buys six runs, not
 # eight, at the cost of every run's timing being unreadable.
 #
 # A leading-colon argument is a TEST SELECTOR, passed straight to `lein test`

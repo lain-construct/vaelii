@@ -111,14 +111,14 @@
 (deftest the-gate-reads-the-index-kind-and-so-never-fires-on-a-fork
   ;; `index-durable?` is not the discriminant: on the `:overlay` axis it says only that
   ;; the *merged view holds something*.  A fork inherits no `:dir`, so `disk/disk-dir`
-  ;; synthesizes the default `<tmpdir>/vaelii-disk/space-0-1` — the same directory a bare
+  ;; synthesizes the default `<tmpdir>/vaelii-disk/space-0` — the same directory a bare
   ;; `{:backend :disk}` uses — and a gate keyed on the flag would clear the fork's merged
   ;; index (permanently hiding the base's) and stamp a directory it never read.
   (let [dir  (tmpdir)
         ;; a real durable KB at the default location, carrying no sentinel: the state a
         ;; machine has after any 0.2.0-era `{:backend :disk}` open
         base (doto (v/open-kb {:backend :memory
-                               :record-space [::fork] :index-space [::fork :ix]
+                               :space [::fork]
                                :recover? false})
                (v/clear!))]
     (try

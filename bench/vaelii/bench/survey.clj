@@ -405,7 +405,7 @@
     (let [pairs (if uniform? (uniform-pairs default-dir n) (stream-sentences path n))]
       (println (format "  sampled %,d sentences (%,d usable)" n (count pairs)))
       (shape pairs)
-      (let [kb (kb/open-kb {:backend :memory :record-space 26 :index-space 27 :recover? false}
+      (let [kb (kb/open-kb {:backend :memory :space 26 :recover? false}
                            (fn [_] nil) (fn [_] nil))]
         (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
         (doseq [[s c] pairs] (try (kb/create-sentex kb s c) (catch Exception _ nil)))
