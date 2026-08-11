@@ -5,7 +5,7 @@
   `lein run -m vaelii.impl.cli <cmd> <args…>`.  It runs the engine in-process (no
   daemon); to talk to a running daemon use `vaelii.impl.client` instead.
 
-    lein run -m vaelii.impl.cli assert  '(dog Fido)'  NaturalWorldContext --dir /tmp/kb
+    lein run -m vaelii.impl.cli assert  '(dog Muffet)'  NaturalWorldContext --dir /tmp/kb
     lein run -m vaelii.impl.cli query   '(dog ?x)'    NaturalWorldContext --dir /tmp/kb
     lein run -m vaelii.impl.cli why     3                                 --dir /tmp/kb
     lein run -m vaelii.impl.cli export  /tmp/dump                         --dir /tmp/kb
@@ -121,6 +121,7 @@
    ["contexts"    0 0   ""                              "contexts in the genlContext hierarchy"]
    ["conflicts"   0 0   ""                              "irreducible :monotonic clashes, both still believed"]
    ["contradictions" 0 0 ""                             "coexisting P/¬P pairs at :default"]
+   ["quality"     0 0   ""                              "a report on the knowledge: unfired rules, skew, depth, coverage"]
    ["load"        1 1   "<file>"                        "assert an edn vector of [sentence context opts]"]
    ["export"      1 1   "<dest>"                        "write a dump (--variant, --compression)"]
    ["repl"        0 0   ""                              "the interactive loop"]])
@@ -162,7 +163,7 @@
     (str "vaelii — a command-line driver for a KB\n\n"
          "  lein cli <command> [args…] [--dir <path>] [--starter] [--memory]\n\n"
          "Quote every argument. A shell eats parens, brackets and `?`:\n"
-         "  lein cli assert '(dog Fido)' NaturalWorldContext --dir /tmp/kb\n"
+         "  lein cli assert '(dog Muffet)' NaturalWorldContext --dir /tmp/kb\n"
          "  lein cli match  '(dog ?x)'   NaturalWorldContext --dir /tmp/kb\n\n"
          "Commands:\n"
          (str/join "\n"
@@ -211,6 +212,10 @@
       "contexts"    (sort (v/contexts kb))
       "conflicts"   (v/conflicts kb)
       "contradictions" (v/contradictions kb)
+      ;; the one command that answers in prose rather than in data: the report is four
+      ;; distributions and a pretty-printed map of them is not a reading anybody takes.
+      ;; `show` prints a string as-is, so the Markdown arrives as written
+      "quality"     (v/quality-report (v/kb-quality kb))
       ;; both numbers, because they differ exactly when the file repeats itself:
       ;; `assert` answers the existing handle for a sentence already stored, so the
       ;; distinct handles are the sentexes the load actually left in the KB, and a

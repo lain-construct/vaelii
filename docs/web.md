@@ -83,7 +83,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/justification/:id` | a **justification**: its supports/arguments (antecedent sentexes) and its dependent sentex (the conclusion) |
 | `/levels?q=<goal>&ctx=<context>` | the **lookup-to-query stack**: what each of the eight levels answers for a goal, which level first does, and — above them — the **query plan**: the provers bearing on the goal with their estimates and which one runs. A **vector** goal is a conjunctive query and gets the join plan instead (below) |
 | `/network?ctx=<context>&calc=<calculus>` | the **constraint network** a qualitative calculus computes over a context: the tightened matrix (a cell is what still holds of row-to-column), whether the believed facts are satisfiable at all, and one scenario out of it. With no context, the six calculi and their vocabularies |
-| `/demo` (GET/POST) | the **non-monotonicity walkthrough**: three stepped writes to the reader's sandbox in which `(flies Pingu)` is believed, stops being believed, and comes back — at a different handle. GET renders where the sandbox stands, POST runs one step. Every step writes, so every step is origin-checked (below) |
+| `/demo` (GET/POST) | the **non-monotonicity walkthrough**: three stepped writes to the reader's sandbox in which `(hasCapability Pingu flying)` is believed, stops being believed, and comes back — at a different handle. GET renders where the sandbox stands, POST runs one step. Every step writes, so every step is origin-checked (below) |
 | `/reasoning` (GET/POST) | the **worked examples**: every kind of inference the shipped ontology performs, each a question with a live answer, the level that answered it, and links to the stored sentexes it reasoned from. GET computes every read-only card on render; POST establishes one example's premises in the reader's sandbox (below) |
 | `/assert` (GET/POST) | the **new-sentex form**: sentences (one per line), a context, and the known-true switch. GET seeds it (`?q=<term>` from a term page); POST checks every line and applies them in one `edit!`, then says what followed (below) |
 | `/edit` (GET/POST) | the **multi-sentex editor**: GET seeds a textarea for a set of selected handles, POST checks and applies the save. htmx fragments swapped into the editor panel, not standalone pages. |
@@ -93,7 +93,10 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/propose/preview` (POST) | what accepting the accepted lines would **mean** — the belief added, the belief withdrawn, the dilemmas opened, the refusals — through `vaelii.core/preview`. Writes nothing; the KB comes back at the same handles |
 | `/propose/apply` (POST) | the accepted lines, checked whole and stored through `vaelii.core/edit!` in **one settle**. The panel's one write |
 | `/retract` (GET/POST) | the **retract confirmation**: GET previews the teardown (the selection and what the sweep would take with it) and writes nothing; POST performs it |
-| `/chain` (POST) | run **forward chaining** and answer with the `/stats` page it changed. POST-only — it derives and places conclusions |
+| `/chain` (POST) | run **forward chaining** as a job, up to the derivation bound the form names, and answer with the `/stats` page it changed — or, when the run outlasts 250 ms, with `/jobs` (below). POST-only: it derives and places conclusions |
+| `/jobs` | the **jobs screen**: every long run this process has made recently — a load, an export, a chaining run — with where it has got to, what it left behind, and the one control that stops it (below) |
+| `/jobs/rows` | the job list, on the same self-terminating poll as the KB panels, carrying the header's running count as an out-of-band swap |
+| `/jobs/cancel` (POST) | **stop** a running job at its next progress report. A write to this process's registry rather than to a KB, so it is origin-checked but not behind `writing` — cancelling a job has to stay reachable *because* one is running |
 | `/kbs` | the **knowledge bases**: what is loaded (with counts, an estimated footprint, and a progress bar for one still loading) and what can be — the shipped ontologies, a generated corpus with a slider per parameter, and every corpus / dump / store the catalog found. See [docs/catalog.md](catalog.md) |
 | `/kbs/load`, `/kbs/unload`, `/kbs/activate` (POST) | **load** a source, **unload** an entry (cancelling it if it is still loading), **switch** to one. Each changes what this process holds, so each is a write: POST-only and origin-checked |
 | `/kbs/export`, `/kbs/export/cancel` (POST) | **write the active KB out** as a portable dump — a destination directory, the variant and the compression — and **stop** one that is running. POST-only and origin-checked, like every other write |
@@ -101,6 +104,9 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/kbs/export/rows` | the export panel, on the same self-terminating poll: the last job's report, and whether what it wrote is now offered under **Available** |
 | `/kbs/banner` | the **provisional-KB strip** every page carries when the KB it reads is not finished (below). Like the memory strip it is a read of the *process* and swaps only itself; it answers with the empty element once there is nothing to say, which is what stops the polling |
 | `/sandbox/reset` (POST) | **discard this session's sandbox** — every sentex in it and the `genlContext` edge that made it a context. The only control in the browser whose purpose is to destroy knowledge, so POST-only and origin-checked |
+| `/caches` | what this **process** is holding beside the stores: every cache the engine keeps, its bound, its unit and — where anything counts them — its hit rate, plus the heap strip below reused rather than redrawn, and the profiler. A read of the process, so its numbers are O(1) apiece and it can be left open (below) |
+| `/caches/rows` | the cache table, on the same self-terminating poll as the KB panels — it asks only while a job is running, which is when these numbers move |
+| `/caches/clear` (POST) | **drop the derived caches** and say what went. Origin-checked like every write and deliberately not behind `writing`: it moves no belief, holds no writer, and is the one control here meant to be used *while* a load runs |
 | `/kbs/memory` | the **memory strip** heading that panel, collapsed or (`?detail=1`) expanded into the per-KB breakdown. A read of the *process*, not of a KB, so it takes no view. Two requests reach it and they are different requests: the header line **toggles** (it asks for the state the panel is not in), while the panel **refreshes** at the state it is in, and only while a load is running — one element carrying both would poll the toggle and flip the breakdown open and shut every tick |
 | `/tree/rows?rel=<genl\|genlContext>&node=<term>` | one **level of a hierarchy**: that node's direct children, fetched the first time its disclosure is opened, and paged like any other list. `rel` reaches the index as a functor, so it is checked against the two transitivity relations rather than trusted |
 | `/term/rows`, `/find/rows`, `/levels/rows`, `/front/rows`, `/stats/rows` | **continuations**: one more page of rows for a capped list. Not pages — bare `<li>`s a list's sentinel fetches for itself (below). The last two take a `?section=` naming which list on the page is continuing |
@@ -255,8 +261,8 @@ they do, and nothing collects them.
 `/demo` is the one page that argues rather than reports. Three clicks, in the reader's own
 sandbox:
 
-1. assert `(bird Pingu)` — `(flies Pingu)` becomes believed, and nobody asserted it
-2. assert `(penguin Pingu)` — `(flies Pingu)` stops being believed, and nobody retracted it
+1. assert `(bird Pingu)` — `(hasCapability Pingu flying)` becomes believed, and nobody asserted it
+2. assert `(penguin Pingu)` — `(hasCapability Pingu flying)` stops being believed, and nobody retracted it
 3. retract the penguin claim — it is believed again
 
 Nothing about the page is special-cased in the engine. Each step is an ordinary `v/edit!`
@@ -269,8 +275,8 @@ reader who reloads, navigates away, or resets lands on the line that is actually
 Two things it is careful to show rather than assert:
 
 - **The cascade.** All five sentences the script touches are rendered at every step, with
-  their live belief pills: `(canTravel Pingu)` disappears alongside `(flies Pingu)` and
-  comes back with it, and `(not (flies Pingu))` appears in step 2 — the KB does not merely
+  their live belief pills: `(hasCapability Pingu travelling)` disappears alongside the
+  flight and comes back with it, and `(not (hasCapability Pingu flying))` appears in step 2 — the KB does not merely
   fail to conclude flight, it concludes flightlessness, which is a different statement.
 - **The returning conclusion is a new record.** `exceptWhen` blocks rather than rebuts, so
   the blocked justification is *invalid*, groundability goes with it, and the
@@ -331,8 +337,8 @@ Both commit paths — the assert form and the proposal panel — write through
 otherwise leaves unsaid:
 
 > **You didn't say this, but it follows**
-> `(mortal Fido)` — because `(dog Fido)` and the rule `(implies (living_thing ?x) (mortal ?x))` · _proof_
-> `(mammal Fido)` — because `(dog Fido)`, and every `dog` is a `mammal`
+> `(mortal Muffet)` — because `(dog Muffet)` and the rule `(implies (living_thing ?x) (mortal ?x))` · _proof_
+> `(mammal Muffet)` — because `(dog Muffet)`, and every `dog` is a `mammal`
 
 Those two lines come from **different mechanisms**, and the callout keeps them apart rather
 than blurring them into one list of "conclusions":
@@ -340,10 +346,10 @@ than blurring them into one list of "conclusions":
 - a **rule fired**. There is a derived sentex with a justification, so it is believed in
   the JTMS sense, has a handle, and its whole proof is one click away. The `because` names
   the antecedent that actually matched and the rule — which is why the example above reads
-  `(dog Fido)` against a rule about `living_thing`: the match fanned out over the genl spec
+  `(dog Muffet)` against a rule about `living_thing`: the match fanned out over the genl spec
   closure, and showing the matched antecedent is showing what happened.
-- a **type subsumes**. `(genl dog animal)` plus `(dog Fido)` makes Fido an animal, and the
-  engine deliberately never materializes `(animal Fido)` — matching fans the functor out
+- a **type subsumes**. `(genl dog animal)` plus `(dog Muffet)` makes Muffet an animal, and the
+  engine deliberately never materializes `(animal Muffet)` — matching fans the functor out
   over the spec closure instead, which is what lets a hundred million facts avoid a hundred
   million more ([taxonomy.md](taxonomy.md)). So there is no record, no justification and
   nothing to link; the claim is answered on demand by `isa?` / `ask`. Calling it "derived"
@@ -389,36 +395,92 @@ for two different answers: *Switch to* for a finished KB, **Browse as it loads**
 still arriving, **Browse what landed** for one that stopped part-way — which is usually
 the reason to have stopped it.
 
-**The reads open, the writes wait.** A KB can be read while a loader fills it; it cannot
+**The reads open, the writes refused.** A KB can be read while a job fills it; it cannot
 be *written* while one does. A store mutation lands atomically, so a reader beside the
-loader sees a consistent prefix — but two interleaved writers are not serializable at
-all ([storage.md](storage.md), the single-writer contract), and the loader is already
+job sees a consistent prefix — but two interleaved writers are not serializable at
+all ([storage.md](storage.md), the single-writer contract), and the job is already
 this process's writer. So every route that changes a KB's content goes through
-**`writing`**, which is the origin check and that question together: `/chain`, `/assert`,
+**`writing`**, which is the origin check and that question together: `/assert`,
 `/edit`, `/retract`, `/demo`, `/reasoning`, `/sandbox/reset`, `/propose/apply` — and
 `/propose/preview`, which reads by really asserting and rolling back, and is therefore a
-writer for the duration. `/kbs/load`, `/kbs/unload` and `/kbs/activate` are **not**
-guarded: they write this process's registry rather than a KB, and cancelling a load has
-to stay reachable precisely *because* one is running.
+writer for the duration. `/chain` goes through **`writing-job`**, the same guard for a
+write that *is* a job (below). `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
+`/jobs/cancel` are **not** guarded: they write this process's registry rather than a KB,
+and cancelling a job has to stay reachable precisely *because* one is running.
 
 The refusal renders as a **page**, not an error status, for the reason a catalog refusal
 does: an error status leaves htmx not swapping at all, so the write would look like it
-silently vanished. The check is narrow on purpose — it asks whether the *active* entry is
-the loading one, so loading a second KB in the background never stops you writing to the
-one on screen.
+silently vanished. It **names the job holding the writer** and links to it, since
+"something else is writing" is not an answer a reader can act on. The check is narrow on
+purpose — it asks about the KB this request would actually write, so loading a second KB
+in the background never stops you writing to the one on screen.
 
 `/kbs/export` is not guarded either, for a third reason: it writes the *filesystem*
 rather than a KB, so a load filling some other KB is no reason to refuse it. What an
 export cannot survive is the KB it is walking being written, and that is
 `catalog/export-entry!`'s own refusal to make ([catalog.md](catalog.md)).
 
+## Long work as jobs
+
+Three things here take minutes rather than milliseconds — filling a KB from a corpus,
+writing one back out, and joining every rule over everything stored — and they are **one
+mechanism** (`vaelii.impl.jobs`) with one status vocabulary, one progress reading and one
+cancel. `/jobs` is that registry rendered; the `/kbs` panels are the same registry
+filtered to the two kinds that belong beside a KB, which is why neither is a second list
+of anything.
+
+    :running → :cancelling → :done | :cancelled | :failed
+
+`:cancelling` is the honest middle. `jobs/cancel!` sets a flag and returns; the work stops
+at its next progress report, which for a phase that reports none (opening a large store
+scans its whole record log before it says anything) can be a while. An entry on `/kbs`
+wears its load's status, so the two never disagree about what a load is doing.
+
+**The 250 ms fast path is the detail that makes this usable.** A job that settles inside
+`jobs/fast-path-ms` is answered with its *result* — `/chain` on the shipped schema still
+answers with the `/stats` page and its derivation count, exactly as it did when it was a
+synchronous request. Only a run that outlasts the window is answered with the jobs screen.
+Without it every small operation acquires a spinner and a second round trip, and a tool
+where that is true feels slower than the one it replaced.
+
+**A job outlives the request that started it**, and that is the point: closing the tab
+cancels nothing, and reopening `/jobs` finds the run still going. The list is watched by
+the same self-terminating htmx poll every other panel uses — which survives a reload,
+where a socket does not — and the header carries the running count as an out-of-band swap,
+because the header sits outside the region a swap replaces. A finished job's report stays
+for an hour, which is long enough to read what it did. Nothing **unsettled** is dropped, at
+any age: forgetting a job releases its writer claim, and a thread that is still running is
+still writing. So a wedged job keeps its place and keeps counting — the badge saying a
+thread will never return is the truth about the process, and better than a store two
+writers took turns on.
+
+**One job writes at a time, and the second is refused rather than queued.** A load and a
+chaining run each claim this process's writer, so a chaining run while a corpus loads is
+refused with the holder named — a queue would make the second one's timings mean whatever
+was in front of it. An export claims nothing: it writes the filesystem, so it runs beside
+either. What stops a *request* interleaving with a job is `write-refusal`, above; what
+stops two jobs interleaving is the claim.
+
+**Cancellation never interrupts a job that writes a KB.** A thread interrupt landing
+mid-cascade on a durable store surfaces as `ClosedByInterruptException` and can leave a
+torn write, so a KB-writing job is flagged and left to notice, however long that takes.
+What a stopped run leaves is stated where the run is started: a cancelled chaining run
+leaves the conclusions it had already placed, a cancelled load leaves the sentexes that
+had already landed, and neither is a corrupt KB — it is the ordinary open-world prefix.
+
+And the card says **how much** landed, because a stopped job has no summary to say it
+with: it never reached its return value, so its last progress reading is the only account
+of what is in the KB, and it is shown as a count reached rather than as a bar still
+filling.
+
 ## Writing a KB out
 
 The Export panel on `/kbs` is the return leg of the loop the Available list is the
 outbound half of. It writes the **active** KB as a portable dump — a destination
-directory, the variant (`records` or `records+index`) and the compression — on the
-catalog's own job thread, so the page keeps answering and the panel polls itself only
-while there is something to watch.
+directory, the variant (`records` or `records+index`) and the compression — as a job, so
+the page keeps answering and the panel polls itself only while there is something to
+watch. The report it shows is the registry's newest export job rather than a slot of its
+own.
 
 Two things it says that a bare progress bar would not. A finished job reports **where the
 dump went and whether the catalog can see it there**, asked of `catalog/sources` rather
@@ -427,6 +489,92 @@ will never offer, and silently not appearing under Available is the confusing ou
 when the active entry is an **attached daemon** the form is replaced by a sentence saying
 so — its dump would be written on that daemon's host, and a path field that quietly named
 a directory on the wrong machine is the one failure mode here worth designing out.
+
+## What this process is holding
+
+`/kbs` measures **heap** and says exactly what kind of number that is: `catalog/memory`
+reports the JVM's `{:used :committed :max}` as a measurement and each loaded KB's
+`footprint` as an estimate, kept visibly apart because attributing heap to one of several
+resident KBs would mean unloading it and diffing. `/caches` is the other half of the same
+question — not what the stores cost, but what the engine holds *beside* them so a repeated
+question is not recomputed — and it reuses that strip rather than drawing a second one.
+
+The rows come from **one read**, `v/caches`, over a register every cache-holding namespace
+declares itself in at load. Four things about a row, and each of them is there because its
+absence would mislead:
+
+- **`:scope` and `:counters` are separate**, and the literal cache is why. Its entries are
+  this KB's and its hit counters are global `AtomicLong`s across every KB in the process,
+  since they measure the mechanism rather than a store. The page renders the second as
+  *rates: this process* under the first; without that, a reader takes another KB's work
+  for this one's.
+- **`:unit` is on every row.** One cache counts literals, another networks, another
+  symbols, another records — a column of bare integers over the four compares nothing.
+- **A blank entry count is a cache, not a gap.** The scope-bound ones — the stored-handle
+  map, the search step's neighbour memo, the justification dedup index — are built inside
+  one run and dropped when it returns, so there is nothing for a page to read between
+  them. They are listed with the reason rather than left off, because a list that quietly
+  omits them says the engine holds nothing else.
+- **A cache in a namespace this process never loaded has no row at all.** No metric-time
+  reasoner, no metric-closure row — which is the honest answer, where a row of zeroes
+  would claim a cache exists that does not.
+
+A KB also carries derived state that is deliberately **not** on the page, because it is
+not a cache: the memory of a firing the chainer refused, the set awaiting a re-check, the
+disjointness and negation ledgers, the reference counts that keep the rule index O(1).
+The test is whether the engine could recompute an entry from what is stored — a cache
+could, and each of those could not, so dropping one would change an answer rather than
+cost a recomputation. The page says so, since a reader who knows they exist and sees no
+mention of them cannot tell an omission from a judgement.
+
+Every limit on the page is a **wholesale clear** rather than an eviction: past it the
+cache is emptied and refilled by demand, because evicting exactly the right entry costs
+more bookkeeping than the entry saves. That is the policy worth being able to watch — a
+workload oscillating around a limit pays a full rebuild every time it crosses.
+
+**The clear is a measuring instrument.** Clear, ask the same question again, and watch the
+miss the second ask no longer gets to skip; nothing is destroyed, since every entry is
+derived. So it is POST and origin-checked like any other write and is deliberately *not*
+behind `writing` — it moves no belief and holds no writer, and a reader most wants it
+while a load is running. It leaves the structural caches alone (the symbol pool, the
+compiled relation algebras), and the page names which those are by asking the rows rather
+than by hard-coding them.
+
+**A clear reaches as wide as the counters it resets**, which is wider than the KB whose
+page it was pressed on. The scope split is not only a rendering question: a row whose
+rates belong to the process has its rates reset for the process, so a clear here zeroes
+the hit and miss counters every other KB's page is reading. The literal cache is that row
+— its entries go for this KB alone, its counters for all of them — and no other KB loses
+an entry or a belief; what a second reader loses is the measurement they were partway
+through. The page says which rows those are the same way it says which are left alone, by
+asking the rows for `:clearable?` and `:counters` rather than by naming a cache in prose
+that would outlive it.
+
+**A row that cannot be read says so.** The register is open — any namespace may declare a
+descriptor, and the read runs code the reader has never seen — so a read that throws costs
+its own row and carries an `:error` the page prints in place of the note. Reported as a
+cache that could not answer, never as one that is empty: in a column of dashes those are
+indistinguishable, and a page whose worth is highest while something is already wrong must
+not be the next thing to fail. A clear behaves the same way, entry by entry.
+
+**A bound that is a dynamic var is read where it is read.** `:limit` accepts a thunk, and
+the two rebindable bounds — the symbol pool's and the taxonomy's scoped memo budget — use
+one. A descriptor is built once, at namespace load, so a constant captured into it is that
+constant forever; that is right for a `def` and wrong for a var whose only reason to be
+dynamic is that something rebinds it. Reporting the root bound while the engine enforced
+another would misstate the one field a reader consults to ask whether a cache is about to
+flush wholesale.
+
+**The profiler** is folded in because it is the same subject — this process rather than
+this KB. `VAELII_PROFILER` starts `clj-async-profiler`'s UI with the browser and
+`VAELII_PROFILER_PORT` moves it off 8080; the call site is a `requiring-resolve`, so it
+exists without the dependency, which ships in the `:repl` profile. With the class absent
+the page says so plainly instead of rendering a link to a port nothing is listening on.
+
+**Something links to it.** A diagnostics page with no anchor pointing at it is a page
+nobody reads, so `/stats`, `/kbs` and `/jobs` each carry a line here — the three places a
+reader asking "why is this slow" lands — and `web_caches_test` asserts all three rather
+than leaving them to review.
 
 ## What a page costs
 
@@ -665,7 +813,7 @@ them. `vaelii.impl.llm.verdict` gathers them per entry and the panel renders eac
 ✓  (mortal penguin)      → (set/defaultRule (implies (penguin ?x) (mortal ?x)))  → shape  [genl]
 !  (partOf penguin wing) → (partOfType penguin wing)                → lift  ! direction
 +  (implies (penguin ?x) (swims ?x))                                + property
-✗  (genl penguin Fido)                                              ✗ malformed
+✗  (genl penguin Muffet)                                              ✗ malformed
 ```
 
 - **What the KB says** — `check-edit`'s typed problems, each as its *reason* (`open`,
@@ -904,18 +1052,31 @@ is complete the engine runs it alone and every other row reads `shadowed by …`
 other side.
 
 For a **vector** — the conjunctive goal `prove` takes — it is the join order `plan/order`
-chose, each literal with the fan-out it was estimated at and the variables already bound
-when it starts. The estimates deliberately do not read as a sorted column: each is made
-*under the bindings the ones above it produce*, which is sideways information passing and
-is the thing worth seeing. A literal whose position is operational rather than costed is
+chose, each literal with the variables already bound when it starts and the three numbers
+the decision turned on. **est. matches** is the sound upper bound on that literal's own
+fan-out under those bindings, the one whose reading of 1 is a proof; **rows** is the
+expected size of the relation it denotes on its own; **plan rows** is the expected size of
+the whole plan up to and including it, which is what a join was actually costed in. Read
+them together and a surprising order is diagnosable: a literal placed early on a small
+*est. matches* whose *plan rows* then jumps is the cost model wrong about a join rather
+than about a literal. None of the three reads as a sorted column, and the first two
+differ for a reason — an upper bound and an expectation answer different questions
+([inference.md](inference.md)) — while *est. matches* is made *under the bindings the rows
+above it produce*, which is sideways information passing and is the thing worth seeing.
+**block** is the group of literals it moved with: literals sharing a variable are one
+block and run together, and a whole block is held back the way a single literal is.
+A literal whose position is operational rather than costed is
 marked **pinned** — an evaluable may not outrun what binds it, and a recursive rule's
-recursive literal stays last so right-recursion survives. One is marked **cartesian**:
-sharing no variable with the rest, it multiplies the row count of everything after it
-wherever it runs, so it is held to the back on that structure and the estimate beside it
-is not what placed it — which is worth saying, since a selective one otherwise reads as a
-small number sitting last for no reason. A literal sharing no variable but matching at
-most once multiplies by at most one, so it leads like any cheap literal and is not
-marked. The eight levels answer about one literal, so a
+recursive literal stays last so right-recursion survives. A literal is marked
+**cartesian** when it shares no variable with the rest *and* was ranked behind a block
+that does: it multiplies the row count of everything after it wherever it runs, so the
+estimate beside it is not what placed it — worth saying, since a selective one otherwise
+reads as a small number sitting last for no reason. The mark is the answer to "why is
+this last", not a property of the literal, and it is why the two cases that are *not*
+held back go unmarked: one matching at most once multiplies by at most one and leads like
+any cheap literal, and one whose block the ranking put first was never held back at all —
+a cheap enough disconnected block leads, which is the transposition law rather than an
+exception to it ([inference.md](inference.md)). The eight levels answer about one literal, so a
 conjunction gets the plan and stops there, and says so.
 
 ### The standing disjointness question

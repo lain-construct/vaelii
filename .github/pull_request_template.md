@@ -21,11 +21,17 @@ None
 
 ## Checklist
 
+- [ ] **The base branch is `develop`.** `main` carries releases and is pushed by the
+      maintainer, so it is never a pull-request target — and it is the one branch the
+      required checks do not run on (CONTRIBUTING.md §7, §9.4).
 - [ ] Commit subjects follow `type(scope): subject` (CONTRIBUTING.md §7).
 - [ ] Every commit is signed off under the DCO (`git commit -s`; CONTRIBUTING.md §9.4).
 - [ ] I have signed the CLA via cla-assistant (CONTRIBUTING.md §9.5).
-- [ ] Any `Co-Authored-By:` / `Co-developed-by:` trailers credit human collaborators
-      only (CONTRIBUTING.md §7).
+- [ ] **Each commit's `author` is the person who signed it off** — a change someone else
+      drafted is landed by re-authoring it, not by appending a second sign-off
+      (CONTRIBUTING.md §7).
+- [ ] `Signed-off-by:`, `Co-Authored-By:` and `Co-developed-by:` name human
+      collaborators only — never a tool, bot or agent account (CONTRIBUTING.md §7).
 - [ ] New features and bug fixes have tests; a bug-fix test fails before the fix and
       passes after (CONTRIBUTING.md §5).
 - [ ] `lein gate` passes locally — lint, the suite, and the perf claims.

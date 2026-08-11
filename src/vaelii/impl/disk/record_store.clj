@@ -48,6 +48,7 @@
   to — the read primitives are positional — but still does, because that is what
   serializes it against a concurrent append and its slot write."
   (:require [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.config :as config]
             [vaelii.impl.disk.codec :as codec]
             [vaelii.impl.disk.files :as f]
@@ -72,6 +73,14 @@
 ;; change are `store!` (which replaces the cached value), `kill!` (which drops it), and
 ;; `clear-records!` (which empties the cache).  Compaction rewrites frames but preserves
 ;; every id's content, so it needs no invalidation.
+;;
+;; A bulk sweep — `export!`, `reindex`, the `recover` a fork runs over a live base —
+;; fetches every record through here and so rewrites the recency order.  It promotes like
+;; any other read, because what that costs is bounded by the capacity: refilling the
+;; working set is capped at `cap` misses while the sweep pays one read per record, so the
+;; next queries lose at most `cap / records` of the sweep's own cost.  Measured at 22 ms
+;; against a 2.6 s sweep of 800k records (`docs/storage.md`, "A bulk sweep claims
+;; recency").
 
 (defn- lru
   "A bounded access-ordered LRU map, synchronized: an access-ordered `LinkedHashMap`
@@ -592,3 +601,28 @@
   re-stores).  Preserves all live records and their handles."
   [{:keys [kinds]}]
   (doseq [k (vals kinds)] (compact-kind! k)))
+
+;; ---- what a paged store holds, declared ---------------------------------
+;;
+;; The one cache here an operator sizes rather than inherits (`vaelii.disk.cache`), and
+;; the only one whose entries are a KB's own records rather than something derived from
+;; them.  Cleared with the store, never by hand: dropping it costs the next read a
+;; positional read and a thaw apiece, and the record it holds is the same value the log
+;; holds — so there is no derivation to re-measure, only latency to re-pay.
+
+(caches/register-cache
+ {:cache    :hot-records
+  :label    "Hot records"
+  :scope    :kb
+  :unit     "records"
+  :limit    nil
+  :counters nil
+  :note     (str "Records already fetched off disk, held per kind in an LRU sized by "
+                 "vaelii.disk.cache — so the limit is per kind and the count is across "
+                 "them. Blank for a KB whose records are in memory: there is nothing to "
+                 "page, and so nothing to hold.")
+  :read     (fn [kb]
+              (when-let [kinds (:kinds (:records kb))]
+                {:entries (reduce + 0 (keep (fn [k]
+                                              (some-> ^java.util.Map (:cache k) .size))
+                                            (vals kinds)))}))})

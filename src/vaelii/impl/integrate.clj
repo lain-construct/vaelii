@@ -34,6 +34,39 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.special :as special]))
 
+(def ^:dynamic *removed-sink*
+  "A volatile holding a vector of the sentexes that have left the store, or nil — the
+  default, and the removal choke point records nothing.
+
+  What a caller needs when it must act on **the region a teardown touched** rather than
+  on the whole KB.  `core`'s reified-NAT orphan sweep is the one that does: an orphaned
+  constant is one some departing sentex stopped referencing, so the constants those
+  sentexes named are the whole of what it has to ask about.  The removals are not all in
+  one place — the dependency-directed sweep produces some, the settle that follows
+  produces more (`settle/sweep-excepted!`), and the sweep's own retractions produce more
+  again — so recording them where every removal already passes is what makes the
+  narrowed question equal to the whole-KB one.
+
+  A volatile rather than an atom: the engine is single-writer, and this sits on the
+  teardown path."
+  nil)
+
+(defn removal-sink
+  "The sink to record a teardown's removals into: the bound one when there is one, a
+  fresh volatile otherwise.  **Reused rather than shadowed**, so a nested teardown
+  appends to the record its caller is still reading — which is what lets the orphan
+  sweep see what its own retractions removed, and so find a cascade.
+
+  `want?` false answers **nil**, and a nil sink is the one that records nothing.  The
+  record is the reified-NAT sweep's and only that sweep's, so a KB declaring no
+  reifiable function has nothing to do with it — and the record is not free: it retains
+  every sentex a teardown removes for as long as the teardown runs, which on a cascade
+  is the whole cascade held in a vector nobody reads.  The caller passes the gate it was
+  going to consult anyway (`nat/any-reifiable-functions?`), so the KBs that never reify
+  pay the retention of nothing at all."
+  ([] (removal-sink true))
+  ([want?] (when want? (or *removed-sink* (volatile! [])))))
+
 (defn sentex-added
   "Everything that must happen because a sentex just landed in the store as a
   premise: reflect it into the caches through the special-predicate table, and
@@ -54,8 +87,13 @@
   cache effects through the table, drop it from every index, delete the record, and
   queue the exception re-check — a fact *leaving* is as much a re-check trigger as
   one arriving, since its departure may be exactly what releases some rule's
-  exception."
+  exception.
+
+  Records the sentex into `*removed-sink*` when one is bound, which is how a caller
+  learns the region a teardown removed without every removal path having to report it."
   [kb sentex]
+  ;; the removal record, for a caller scoping its own follow-up work to what left
+  (when-let [sink *removed-sink*] (vswap! sink conj sentex))
   (special/disintegrate-sentex! kb sentex)
   (p/unindex-sentex! (:index kb) sentex (:id sentex))
   (p/delete-sentex! (:records kb) (:id sentex))

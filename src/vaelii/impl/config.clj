@@ -244,6 +244,22 @@
   []
   (prop-bool "VAELII_DEV" false))
 
+(defn profiler?
+  "Should the sampling profiler's UI be started with the browser (`VAELII_PROFILER`,
+  default off)?
+
+  Off by default and asked for explicitly, because starting it is not free and not
+  private: the profiler attaches an agent to this JVM and serves flamegraphs on a second
+  port with no authentication of its own.  A reader who wants one says so."
+  []
+  (prop-bool "VAELII_PROFILER" false))
+
+(defn profiler-port
+  "The port the profiler's UI binds (`VAELII_PROFILER_PORT`, default 8080).  Read only
+  when `profiler?` says to start one."
+  []
+  (prop-long "VAELII_PROFILER_PORT" 8080 1 65535))
+
 (def asp-solver-spellings
   "What the ASP backend switch reads, one spelling per backend.  Unset is **auto** —
   in-process clingo when it loads, else clasp — which is why the reader's default is nil
@@ -305,6 +321,8 @@
   (arbitrate-constraints?)
   (assertive-arg-types?)
   (web-dev?)
+  (profiler?)
+  (profiler-port)
   (log-level)
   (asp-solver)
   (clingo-max-program-bytes)

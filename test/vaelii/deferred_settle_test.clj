@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.deferred-settle-test
-  "`with-deferred-settle` / `assert-many`: assert a batch with belief settled once
-  at the end instead of per assert.
+  "`with-deferred-settle` / `assert-many` / `bulk-assert-facts!`: assert a batch with
+  belief settled once at the end instead of per assert.
 
   The contract is *same belief, fewer settles*.  Belief is order-independent and
   recomputed from current state, so deferring the reconciliation cannot change the
@@ -12,6 +12,7 @@
   proves the settle was genuinely deferred rather than merely redundant."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
@@ -78,6 +79,59 @@
         (is (= (set hs)
                (set [(v/handle-of kb (list parentOf Tom Bob) FamContext)
                      (v/handle-of kb (list parentOf Bob Ann) FamContext)])))))))
+
+;; ---- bulk-assert-facts!: the fast path lands what the slow one lands ------
+;; The door's whole promise is that turning the checks, the dedup and the provenance
+;; off changes *nothing that is stored* — so the two halves below are the same corpus
+;; through the two doors, into two unrelated contexts, compared on all four things the
+;; docstring names: stored sentexes, index, beliefs, `count-with-functor`.
+
+(tu/deftest-kb bulk-assert-facts-lands-what-per-fact-assert-lands
+  (tu/with-terms [edgeOf BulkContext SlowContext]
+    (let [inds  (mapv #(tu/tmp-ind (str "Node" %)) (range 24))
+          facts (mapv (fn [a b] (list edgeOf a b)) inds (rest (cycle inds)))
+          n     (count facts)
+          idx   (:index kb)]
+      (let [hs (v/bulk-assert-facts! kb facts BulkContext)]
+        (is (= n (count hs)) "one handle back per input fact, in order"))
+      (doseq [f facts] (v/assert kb f SlowContext {:chain? false}))
+
+      (testing "same stored sentexes — one per fact on each side"
+        (is (= n (p/count-in-context idx BulkContext) (p/count-in-context idx SlowContext))))
+      (testing "same count-with-functor — the functor root took both halves"
+        (is (= (* 2 n) (v/count-with-functor kb edgeOf)))
+        (is (= (* 2 n) (p/count-at idx [edgeOf]))))
+      (testing "same beliefs — every fact matches and is IN on both sides"
+        (doseq [f facts]
+          (is (seq (v/sentexes-matching kb f BulkContext)))
+          (is (seq (v/sentexes-matching kb f SlowContext)))
+          (is (v/in? kb (v/handle-of kb f BulkContext)))
+          (is (v/in? kb (v/handle-of kb f SlowContext)))))
+      (testing "same index — each argument root holds both halves' handles"
+        (doseq [t inds, pos [1 2]]
+          (is (= (count (filter #(= BulkContext (:context (v/sentex kb %)))
+                                (p/sentexes-with-arg idx pos t)))
+                 (count (filter #(= SlowContext (:context (v/sentex kb %)))
+                                (p/sentexes-with-arg idx pos t)))))))
+      (testing "provenance is the one documented difference: the bulk premise carries none"
+        (is (nil? (v/provenance kb (v/handle-of kb (first facts) BulkContext))))
+        (is (some? (v/provenance kb (v/handle-of kb (first facts) SlowContext))))))))
+
+(tu/deftest-kb bulk-assert-facts-reports-its-rate-to-on-progress
+  ;; The load rate is what makes the next regression noticeable, so the door reports
+  ;; it rather than leaving every caller to time the call.  The closing event fires
+  ;; *after* the deferred settle, so it covers the whole load.
+  (tu/with-terms [edgeOf RateContext]
+    (let [inds   (mapv #(tu/tmp-ind (str "Rate" %)) (range 12))
+          facts  (mapv (fn [a b] (list edgeOf a b)) inds (rest (cycle inds)))
+          events (atom [])]
+      (v/bulk-assert-facts! kb facts RateContext {:on-progress #(swap! events conj %)})
+      (is (= 1 (count @events)) "one event: the corpus is under the 100,000-fact window")
+      (let [{:keys [phase total elapsed-ms facts-per-sec]} (first @events)]
+        (is (= :done phase))
+        (is (= (count facts) total))
+        (is (number? elapsed-ms))
+        (is (pos? facts-per-sec) "a rate, not a duration — comparable across corpus sizes")))))
 
 ;; ---- nesting composes: only the outermost settles ------------------------
 

@@ -45,6 +45,15 @@
   (lookup    [store pattern]       "Handles whose path matches a full pattern.")
   (count-at  [store prefix]        "Sentex count under a path prefix.")
   (children  [store prefix]        "Child tokens registered under an interior prefix.")
+  ;; How *many* children, without building them.  This is the trie's own distinct-value
+  ;; count at a position — what the query planner's cost model divides by
+  ;; (`vaelii.impl.plan`) — and it is asked once per literal per plan, so it must not
+  ;; scale with the KB.  `(count (children …))` does: both implementations materialize
+  ;; the child set to answer `children`, which turns planning a fixed conjunction into
+  ;; work proportional to how many distinct values sit at that position.  Every backend
+  ;; can answer the cardinality in O(1) — a set's count, or a node's edge-array span —
+  ;; so the count is its own read rather than a projection of the members.
+  (count-children [store prefix]   "How many child tokens sit under an interior prefix (O(1)).")
   ;; secondary roots — the trie is ordered [pred args… ctx], so it can only narrow
   ;; left-to-right.  These give constant-time extent *and* cardinality from the
   ;; other directions: by context, by functor, and by argument position.

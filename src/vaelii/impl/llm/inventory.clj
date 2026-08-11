@@ -255,12 +255,18 @@
           :genls (vec (take max-genls (remove (set ts) up)))})
 
        :predicate
+       ;; by argument position, and **specificity** breaks a position two `argIsa` sentexes
+       ;; both constrain: `sentexes-matching` promises the set and not an order, so ranking
+       ;; on what came back would put the card's arg types in arrival order.  Narrowest
+       ;; first, which is `predicate-shape`'s ranking too — the two describe one position
+       ;; and must agree about which declaration speaks for it
        (let [args (vec (for [{:keys [sentence]} (v/sentexes-matching kb (list 'argIsa term '?n '?t) '?ctx)]
-                         (nth sentence 3)))
+                         [(nth sentence 2) (nth sentence 3)]))
              up   (order (disj (set (v/genls kb term)) term))
              down (order (disj (set (v/specs kb term)) term))]
          {:term term :role role
-          :arg-types (vec (distinct args))
+          :arg-types (vec (distinct (map second (sort-by (juxt first (comp (partial specificity kb) second))
+                                                         args))))
           :genls (vec (take max-genls up))
           :specs (vec (take max-specs down))})
 
@@ -320,14 +326,35 @@
 (defn- used-with
   "The functors of stored facts holding `t` in one of the first three argument positions
   — the predicates the KB has actually said something with about this term, including the
-  ones no `argIsa` constrains.  Walked lazily and capped, so a term sitting in a million
-  facts costs `max-scan` record reads, not a million."
+  ones no `argIsa` constrains — as `{:predicates […] :unscanned n}`.  Walked lazily and
+  capped, so a term sitting in a million facts costs `max-scan` record reads per position,
+  not a million.
+
+  **What the cap cuts is cut from the card, not demoted on it.**  The tiers after this one
+  are `argisa-predicates` and the declared roster, so a predicate that *is* declared or
+  constrained is offered under a later tier whether or not the scan reached it — but a
+  predicate used with the term and never declared and never `argIsa`'d is on the card
+  because this found it, and nothing else looks for it.  That is the class this tier exists
+  for, and a term common enough to exceed `max-scan` at a position is exactly where it goes
+  missing.
+
+  So the cut is counted.  `:unscanned` is how many stored facts at those positions were not
+  read — one O(1) root count per position, no records — and `inventory` carries it into
+  `:dropped` for `render` to state.  It counts facts rather than predicates because the
+  predicates in them are the thing not read; naming the sample's size is the honest bound a
+  reader can have without the extent walk the cap exists to refuse.
+
+  The argument index answers with a set, so which `max-scan` facts are read is not a
+  content choice either.  What that can move is a predicate's *tier* among those it does
+  reach — `inventory` sorts each tier by name — and, past `:max-relations`, presence."
   [kb t max-scan]
-  (distinct (for [pos [1 2 3]
-                  sx (take max-scan (v/sentexes-with-arg kb pos t))
-                  :let [f (first (v/readable-sentence sx))]
-                  :when (and (symbol? f) (not (structural-functor? f)))]
-              f)))
+  {:predicates (distinct (for [pos [1 2 3]
+                               sx (take max-scan (v/sentexes-with-arg kb pos t))
+                               :let [f (first (v/readable-sentence sx))]
+                               :when (and (symbol? f) (not (structural-functor? f)))]
+                           f))
+   :unscanned (reduce + 0 (for [pos [1 2 3]]
+                            (max 0 (- (v/count-with-arg kb pos t) max-scan))))})
 
 (defn- props-of
   "The algebraic metadata a predicate carries, as keyword names — what makes reusing it
@@ -341,15 +368,25 @@
   "One predicate's inventory entry:
   `{:predicate :arity :args [[position type] …] :props […] :inverse :doc}`.
 
-  `:args` is every `argIsa` constraint on it, sorted by position, and `:arity` comes from
-  the KB's declarations — never from the constraints.  Together they are the part that stops
-  the model folding an argument into the predicate's name: seeing
-  `locatedIn/2 : physical_object × physical_object` makes reuse the obvious move, where a
-  bare `locatedIn` leaves the model guessing whether there is anywhere to put `Antarctica`."
+  `:args` is every `argIsa` constraint on it, sorted by position and then **narrowest
+  first**, and `:arity` comes from the KB's declarations — never from the constraints.
+  Together they are the part that stops the model folding an argument into the predicate's
+  name: seeing `locatedIn/2 : physical_object × physical_object` makes reuse the obvious
+  move, where a bare `locatedIn` leaves the model guessing whether there is anywhere to put
+  `Antarctica`.
+
+  Specificity is the tie-break rather than a nicety, and it decides two things.  Two
+  `argIsa` sentexes constraining one position — the usual shape when two contexts each
+  declare it — are returned as a set, so ranking on position alone leaves the signature
+  reading in whichever order the index answered; and `signature` prints the **first** of a
+  position's constraints, so the ranking chooses which one the card states.  A term has to
+  satisfy both to stand there, which makes the narrower the one worth printing:
+  `physical_object` says what belongs in the slot where `thing` separates no term from any
+  other.  `seed-types` ranks a predicate page's `:arg-types` the same way."
   [kb p arity]
   {:predicate p
    :arity (or arity (observed-arity kb p))
-   :args (vec (sort-by first
+   :args (vec (sort-by (juxt first (comp (partial specificity kb) second))
                        (for [{:keys [sentence]} (v/sentexes-matching kb (list 'argIsa p '?n '?t) '?ctx)]
                          [(nth sentence 2) (nth sentence 3)])))
    :props (props-of kb p)
@@ -364,7 +401,7 @@
        :types      [{:type :parent :doc} …]                    the type names to reuse
        :relations  [{:predicate :arity :args :props :inverse :doc :tier} …]  domain vocabulary
        :structural [{:predicate :arity :args :doc} …]           how to state a type-level claim
-       :dropped    {:relations n :types n}}
+       :dropped    {:relations n :types n :unscanned n}}
 
   **Two blocks, because they are two different things.**  The domain relations are what the
   reader's knowledge is *made of*; the structural handful is how a claim about a kind is
@@ -388,7 +425,12 @@
   position), plus `seed-types`' bounds.  The reads are all vocabulary-sized — four extent
   reads for the arities, the taxonomy's own node set, one pinned `comment` read — plus a
   per-rendered-predicate `argIsa` query, so the cost tracks the vocabulary and never the
-  number of facts."
+  number of facts.
+
+  **`:dropped` counts all three cuts**, because a card that cuts silently reads as the
+  whole vocabulary: `:relations` and `:types` are what the two count bounds left out, and
+  `:unscanned` is the facts `:max-scan` never read — the tier-0 cut, which is the one that
+  can lose a predicate outright rather than demote it (`used-with`)."
   ([kb term] (inventory kb term {}))
   ([kb term {:keys [max-relations max-types max-scan]
              :or {max-relations 120 max-types 80 max-scan 200}
@@ -402,7 +444,8 @@
          head-only? #(and (structural %) (not (nb-set %)))
          domain?    #(and (not (all-types %)) (not (head-only? %)) (not (structural-functor? %)))
          declared   (set (filter domain? (keys arities)))
-         ranked     (concat (map vector (repeat 0) (filter domain? (used-with kb term max-scan)))
+         used       (used-with kb term max-scan)
+         ranked     (concat (map vector (repeat 0) (filter domain? (:predicates used)))
                             (mapcat (fn [i t]
                                       (map vector (repeat (inc i))
                                            (filter domain? (argisa-predicates kb t))))
@@ -427,7 +470,8 @@
                              :when (or (arities p) (seq (core-context/comment-of kb p)))]
                          (predicate-shape kb p (arities p))))
       :dropped {:relations (max 0 (- (count ordered) (count kept)))
-                :types (max 0 (- (count types) (count shown)))}})))
+                :types (max 0 (- (count types) (count shown)))
+                :unscanned (:unscanned used)}})))
 
 ;; ---- rendering it, bounded by tokens ------------------------------------
 
@@ -435,9 +479,13 @@
   "A predicate's shape as a signature — `2 : `animal` × `food``, with `?` for a position the
   KB constrains to no type, the bare arity when it constrains none of them, and nothing at
   all when it never declared the arity.  Reading
-  `locatedIn/2 : physical_object × physical_object` is what makes reuse the obvious move."
+  `locatedIn/2 : physical_object × physical_object` is what makes reuse the obvious move.
+
+  A position two contexts both declare has two entries, and the **first** speaks for it —
+  `predicate-shape` sorts them narrowest first, so what the signature prints is the
+  constraint that says something."
   [{:keys [arity args]}]
-  (let [by-pos (into {} args)
+  (let [by-pos (reduce (fn [m [pos t]] (if (contains? m pos) m (assoc m pos t))) {} args)
         n      (or arity (when (seq args) (apply max (map first args))))]
     (cond
       (nil? n)       nil
@@ -482,12 +530,14 @@
           (recur (conj kept l) (long (+ spent cost)) more))))))
 
 (defn- block
-  [heading lead lines cut noun]
-  (when (seq lines)
-    (str "### " heading "\n\n"
-         (when lead (str lead "\n\n"))
-         (str/join "\n" lines)
-         (when (pos? cut) (str "\n\n_… and " cut " further " noun ", not listed here._")))))
+  ([heading lead lines cut noun] (block heading lead lines cut noun nil))
+  ([heading lead lines cut noun note]
+   (when (seq lines)
+     (str "### " heading "\n\n"
+          (when lead (str lead "\n\n"))
+          (str/join "\n" lines)
+          (when (pos? cut) (str "\n\n_… and " cut " further " noun ", not listed here._"))
+          (when note (str "\n\n_" note "_"))))))
 
 (defn render
   "The inventory as the prompt's vocabulary section, in markdown — **three blocks**: the
@@ -497,14 +547,17 @@
   The relation block is headed by the instruction that makes it load-bearing, since a card
   the model reads as background buys nothing.  `opts`: `:max-tokens` (nil = no cap),
   `:max-doc-chars` (140).  Where a cap or a count bound cut a block, the number left out is
-  stated rather than hidden."
+  stated rather than hidden — and the relation block says so for `:max-scan` too, which
+  cuts before the ranking rather than after it, so its loss is facts unread rather than
+  relations ranked and dropped."
   ([inv] (render inv {}))
   ([{:keys [relations types structural dropped]} {:keys [max-tokens max-doc-chars]
                                                   :or {max-doc-chars 140}}]
    (let [share (fn [f] (when max-tokens (long (* f max-tokens))))
          [rlines rcut] (fit (map #(predicate-line % max-doc-chars) relations) (share 0.55))
          [tlines tcut] (fit (map #(type-line % max-doc-chars) types) (share 0.3))
-         [slines scut] (fit (map #(predicate-line % max-doc-chars) structural) (share 0.15))]
+         [slines scut] (fit (map #(predicate-line % max-doc-chars) structural) (share 0.15))
+         unscanned     (or (:unscanned dropped) 0)]
      (str/join
       "\n\n"
       (remove str/blank?
@@ -512,7 +565,11 @@
                       (str "`name/arity : argument types`. Say what you mean with one of these "
                            "and its arguments rather than inventing a predicate name that "
                            "spells the argument out.")
-                      rlines (+ (or (:relations dropped) 0) rcut) "relations")
+                      rlines (+ (or (:relations dropped) 0) rcut) "relations"
+                      (when (pos? unscanned)
+                        (str "This card did not read " unscanned " further fact"
+                             (when (not= 1 unscanned) "s") " about this term; a relation "
+                             "used only there is not listed above.")))
                (block "Type names already in this knowledge base"
                       "`subtype < supertype`. Reuse a type name rather than coining a synonym."
                       tlines (+ (or (:types dropped) 0) tcut) "types")

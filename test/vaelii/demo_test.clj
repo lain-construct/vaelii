@@ -30,8 +30,8 @@
 
 (def ^:private bird    '(bird Pingu))
 (def ^:private penguin '(penguin Pingu))
-(def ^:private flies   '(flies Pingu))
-(def ^:private travel  '(canTravel Pingu))
+(def ^:private flies   '(hasCapability Pingu flying))
+(def ^:private travel  '(hasCapability Pingu travelling))
 
 (defn- fresh-sandbox [] (sandbox/context-for (sandbox/mint-token)))
 
@@ -73,7 +73,7 @@
           (testing "the proof is identical, which is the other half of the point"
             (let [rule-of #(-> (v/why kb %) :support first :rule)
                   from-of #(-> (v/why kb %) :support first :because first :handle)]
-              (is (= (rule-of h2) '(implies (bird ?x) (flies ?x))))
+              (is (= (rule-of h2) '(implies (bird ?x) (hasCapability ?x flying))))
               (is (= (from-of h2) (v/handle-of kb bird sbx)))))))
       (finally (sandbox/reset! kb sbx)))))
 
@@ -143,7 +143,7 @@
           (is (str/includes? b1 "<b>Believed</b>"))
           (is (nat-int? h1) "and threads the handle it reached forward")
           (is (str/includes? b1 (str "/why/" h1)) "linking the proof")
-          (is (str/includes? (text-of b1) "( implies ( bird ?x ) ( flies ?x ) )")
+          (is (str/includes? (text-of b1) "( implies ( bird ?x ) ( hasCapability ?x flying ) )")
               "the rule that concluded it is on the page, not just its name"))
 
         (let [b2 (step app cookie "except" b1)]
@@ -180,10 +180,10 @@
       (try
         (let [[_ b1 b2 b3] (run-through app cookie body ["start" "except" "restore"])]
           (is (gone? b1 "( penguin Pingu") "before step 2, nothing says Pingu is a penguin")
-          (is (gone? b2 "( canTravel Pingu")
+          (is (gone? b2 "( hasCapability Pingu travelling")
               "when flight goes, what rested on it goes with it, and the page shows that")
           (is (gone? b3 "( penguin Pingu") "and step 3 takes the penguin claim back")
-          (is (not (gone? b3 "( canTravel Pingu")) "so the consequence returns too"))
+          (is (not (gone? b3 "( hasCapability Pingu travelling")) "so the consequence returns too"))
         (finally (sandbox/reset! kb sandbox))))))
 
 (tu/deftest-kb running-it-twice-leaves-no-residue

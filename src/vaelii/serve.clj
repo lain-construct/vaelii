@@ -18,6 +18,18 @@
   surface a client can drive."
   serve/ops)
 
+(def feed-ops
+  "The change-feed operations, keyed by op keyword — `:watch`, `:poll`, `:unwatch` and
+  `:watchers`.  Separate from `ops` because they are not a `vaelii.core` fn with the KB
+  supplied: `core/watch` takes a function, and what crosses an EDN wire instead is a
+  subscription with a cursor, which is state this daemon holds (docs/feed.md)."
+  serve/feed-ops)
+
+(def op-names
+  "Every op keyword the daemon answers, sorted — `ops` and `feed-ops` together, and what
+  an `:unknown-op` refusal hands back."
+  serve/op-names)
+
 (defn app
   "The ring handler for `kb` — pure `request -> response`, so it is tested without a
   socket.  `:host` names the interface it will be served on, which fixes the `Host`

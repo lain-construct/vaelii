@@ -47,10 +47,16 @@
 (comment argGenl
          "(argGenl ?predicate ?position ?type) means that argument ?position of ?predicate must be a subtype of ?type. The argIsa constraint one level up, for a typeRelationPredicate whose arguments name kinds rather than instances: (argGenl partType 1 physical_object) says the argument names a kind of physical object, where (argIsa partOf 1 physical_object) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it.")
 (ternaryPredicate argGenl)
+(argIsa argGenl 1 predicate)
+(argIsa argGenl 2 integer)
+(argGenl argGenl 3 thing)
 
 (comment argIsa
          "(argIsa ?predicate ?position ?type) means that argument ?position of ?predicate must be of ?type. Checked through genl transitivity whenever a sentex is asserted, and open-world: an argument whose type is unknown cannot violate it, so this narrows what can be said without demanding that everything be typed.")
 (ternaryPredicate argIsa)
+(argIsa argIsa 1 predicate)
+(argIsa argIsa 2 integer)
+(argGenl argIsa 3 thing)
 
 (comment interArgIsa
          "(interArgIsa ?predicate ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?predicate is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what argIsa cannot: (interArgIsa eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (argIsa eats 2 meat) would demand meat of every eater. Open-world in both directions, and they point opposite ways — silence about the trigger argument's type leaves the constraint dormant rather than firing it, while silence about the target argument's is what convicts. Checked through genl transitivity from the writing context, like argIsa, and it entails the same way under assertive argument types.")
@@ -64,6 +70,7 @@
 (instanceRelationPredicate arity)
 (functional arity)
 (argIsa arity 1 predicate)
+(argIsa arity 2 integer)
 
 ;; The meta-ontology rules below conclude into the ORDINARY placement — the maximal
 ;; context that sees the rule and the declaration — and not into a named one.  Every
@@ -90,11 +97,15 @@
          "(comment ?term ?text) means that ?text documents ?term. Ordinary sentexes, so the KB documents itself in its own representation and a comment is queried, retracted and justified like anything else. Written as a signature and a definition, as this one is, so that first clause doubles as the template an English gloss of any (?term …) sentence is composed from; everything after it is prose for a reader and no machine reads it.")
 (binaryPredicate comment)
 (instanceRelationPredicate comment)
+(argIsa comment 1 thing)
+(argIsa comment 2 character_string)
 
 (comment contradicts
          "(contradicts ?sentence (not ?sentence)) means that the two sides are a contradiction among known-true beliefs that could not be resolved. The report form (conflicts kb) returns, so it is the result of a solve rather than a fact anyone asserts.")
 (binaryPredicate contradicts)
 (instanceRelationPredicate contradicts)
+(argIsa contradicts 1 thing)
+(argIsa contradicts 2 thing)
 
 (comment decontextualizedPredicate
          "(decontextualizedPredicate ?predicate) means that every (?predicate …) sentence, asserted or concluded by a rule, is also deduced into UniverseContext. Every context sees UniverseContext, so the fact stops being a claim of one theory and becomes a claim of the KB. The copy is supported by the placement sentex and this declaration together, so retracting either withdraws it. Conceptually the inert rule (implies (?pred . ?args) (ist UniverseContext (?pred . ?args))), implemented in code because it has to run wherever content is stored and not only where it is asserted.")
@@ -104,6 +115,8 @@
          "(disjoint ?type1 ?type2) means that the two types have no common instance. Inherited by subtypes through genl, so declaring it of dog and cat separates every breed from every breed. A hard constraint: a membership that violates it is refused where it is written, and one that only becomes visible from some descendant context is reported by exposed-clashes rather than thrown at whoever wrote the second half.")
 (binaryPredicate disjoint)
 (typeRelationPredicate disjoint)
+(argGenl disjoint 1 thing)
+(argGenl disjoint 2 thing)
 
 (comment disjointMetatype
          "(disjointMetatype ?metatype) means that every pair of ?metatype's member types is disjoint. The clique is consulted rather than stored, so it costs nothing quadratic and retraction reaches all of it: dropping ?metatype releases every pair at once, and dropping one member releases exactly that member's pairs.")
@@ -113,6 +126,8 @@
          "(evaluate ?result ?expression) means that ?result is the value of the symbolic ?expression. So (evaluate ?sum (+ 1 2)) binds ?sum to 3. A safe whitelist over +, -, *, /, mod, min, max, abs and expt rather than clojure eval, computed on demand and never stored.")
 (binaryPredicate evaluate)
 (instanceRelationPredicate evaluate)
+(argIsa evaluate 1 thing)
+(argIsa evaluate 2 thing)
 
 (comment forcedDecontextualizedPredicate
          "(forcedDecontextualizedPredicate ?predicate) means that every (?predicate …) sentence is stored directly in UniverseContext by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlContext, so the context topology has one canonical home instead of a copy per context.")
@@ -128,15 +143,23 @@
 (implies (and (functional ?p)) (functionalPredicate ?p))
 
 (comment functionCorrespondingPredicate
-         "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Fido) resolve to the Mary of a believed (motherOf Fido Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Fido's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiableFunction, an undeclared function having no application to reify. See docs/nat.md.")
+         "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiableFunction, an undeclared function having no application to reify. See docs/nat.md.")
 (binaryPredicate functionCorrespondingPredicate)
 (variableArity functionCorrespondingPredicate)
+(argIsa functionCorrespondingPredicate 1 function)
 (argIsa functionCorrespondingPredicate 2 predicate)
 
 (comment genl
-         "(genl ?subtype ?supertype) means that every ?subtype is a ?supertype. Transitive, and cached as a closure rather than run as a rule, since transitivity is the lifeblood of common sense and far too hot to chain. The hierarchy it builds is rooted at thing. Types are unary predicates, so membership is written (dog Fido) and never (isa Fido Dog).")
+         "(genl ?subtype ?supertype) means that every ?subtype is a ?supertype. Transitive, and cached as a closure rather than run as a rule, since transitivity is the lifeblood of common sense and far too hot to chain. The hierarchy it builds is rooted at thing. Types are unary predicates, so membership is written (dog Muffet) and never (isa Muffet Dog).")
 (binaryPredicate genl)
 (typeRelationPredicate genl)
+(argGenl genl 1 thing)
+;; Argument 2 is left undeclared, and it is the one position in the schema that is.
+;; (argGenl genl 2 thing) reads "the supertype is a subtype of thing", which the root
+;; cannot satisfy: genl is irreflexive here, so (genl thing thing) is refused as
+;; not-well-formed. Under the assertive reading the declaration would therefore entail
+;; a conclusion the KB drops, once per genl edge naming thing. A constraint the root
+;; fails is the wrong constraint, not a missing one.
 
 (comment reifiableFunction
          "(reifiableFunction ?function) means that ?function denotes an object. A ground application of it is a non-atomic term, and reifies to an opaque nat/-namespaced constant before it reaches the index, so it autoindexes like an atomic symbol while every page still renders it as the expression it was minted from. See docs/nat.md.")
@@ -150,23 +173,33 @@
          "(termOfUnit ?constant ?expression) means that the reified ?constant denotes the term expression ?expression. The constant-to-expression half of the reified-term map, expression-to-constant being the inverted term index. A quoting predicate: ?expression is a literal payload, not itself reified or type-checked as a term.")
 (binaryPredicate termOfUnit)
 (instanceRelationPredicate termOfUnit)
+(argIsa termOfUnit 1 thing)
+(argIsa termOfUnit 2 thing)
 
 (comment rewriteOf
          "(rewriteOf ?term ?expression) means that the term expression ?expression reifies to the existing ?term rather than to a fresh constant. A quoting predicate in that reading. With a plain symbol in the second position it is instead the equality relation retiring that symbol in favour of the first: the retired spelling stays stored but stops being believed and stops matching, every sentex naming it gains a rewritten twin, and retracting the rewriteOf gives the original back.")
 (binaryPredicate rewriteOf)
+(argIsa rewriteOf 1 thing)
+(argIsa rewriteOf 2 thing)
 
 (comment resultIsa
          "(resultIsa ?function ?type) means that the output of the reifiable ?function is an instance of ?type. Materialized as (?type K) on each freshly minted constant K whose function is ?function, so the membership is a real sentex with a justification rather than a rule that would have to run at read time.")
 (binaryPredicate resultIsa)
+(argIsa resultIsa 1 function)
+(argGenl resultIsa 2 thing)
 
 (comment resultGenl
          "(resultGenl ?function ?type) means that the output of the reifiable ?function is a subtype of ?type. Materialized as (genl K ?type) on each freshly minted constant K whose function is ?function.")
 (binaryPredicate resultGenl)
+(argIsa resultGenl 1 function)
+(argGenl resultGenl 2 thing)
 
 (comment genlContext
          "(genlContext ?subcontext ?supercontext) means that ?subcontext inherits from and sees everything asserted in ?supercontext. Transitive, and what places every derived conclusion: a firing lands in the most general contexts that see the rule, the facts and the taxonomy edges it used. Stored in UniverseContext by force, so the topology has one canonical home. A cycle is admitted, mutual visibility being a claim an ontology may fairly make.")
 (binaryPredicate genlContext)
 (instanceRelationPredicate genlContext)
+(argIsa genlContext 1 context)
+(argIsa genlContext 2 context)
 (forcedDecontextualizedPredicate genlContext)
 
 ;; `(genlContext UniverseContext CoreContext)` belongs to this vocabulary and is NOT
@@ -178,11 +211,15 @@
          "(greaterThan ?number1 ?number2 …) means that the numbers descend. Variable arity, so (greaterThan 3 2 1) reads as the chain 3 > 2 > 1. Evaluable: computed on demand from ground numbers, never stored. Canonicalizes to lessThan with the arguments reversed, so only the < direction is ever stored and a greaterThan goal is still answerable.")
 (binaryPredicate greaterThan)
 (instanceRelationPredicate greaterThan)
+(argIsa greaterThan 1 thing)
+(argIsa greaterThan 2 thing)
 (variableArity greaterThan)
 
 (comment implies
          "(implies (and ?antecedent …) ?consequent) means the rule concluding ?consequent from those antecedents. A rule is a sentex like any other, so it gets a handle, truth maintenance and retraction for free, and it is indexed by its antecedent and its consequent predicates alike. Used forward and backward unless a set/*Rule wrapper narrows it. Range-restricted: every variable in the consequent must appear in an antecedent.")
 (binaryPredicate implies)
+(argIsa implies 1 thing)
+(argIsa implies 2 thing)
 
 (comment instanceRelationPredicate
          "(instanceRelationPredicate ?predicate) means that ?predicate relates individuals rather than kinds. So (?predicate x y) is a ground fact between two specific things. The default classification for an extracted binary predicate, and one half of the relationKind metatype.")
@@ -193,22 +230,31 @@
          "(inverse ?predicate1 ?predicate2) means that ?predicate1 and ?predicate2 are inverse relations, so (?predicate1 a b) holds exactly when (?predicate2 b a) does. Declared of parentOf and childOf, for instance. Answered by a prover that hands the swapped goal back to the engine rather than matching raw facts, so an inverse composes with its partner's transitivity.")
 (binaryPredicate inverse)
 (instanceRelationPredicate inverse)
+(argIsa inverse 1 predicate)
+(argIsa inverse 2 predicate)
 (decontextualizedPredicate inverse)
 
 (comment ist
          "(ist ?context ?sentence) means that ?sentence holds in ?context. Never stored as a sentex of its own: given to assert it finds or creates ?sentence in ?context and returns that handle, and used as a rule's consequent it directs the conclusion into the named context instead of the computed placement. The wrapped sentence is a term, so one sentence is findable from another through the term index.")
 (binaryPredicate ist)
 (instanceRelationPredicate ist)
+(argIsa ist 1 context)
+(argIsa ist 2 thing)
 
 (comment lessThan
          "(lessThan ?number1 ?number2 …) means that the numbers ascend. Variable arity, so (lessThan 1 2 3) reads as the chain 1 < 2 < 3. Evaluable: computed on demand from ground arguments, never stored and never forward-chained. Chained comparisons in a rule collapse into one literal, so (lessThan ?a ?b) beside (lessThan ?b ?c) becomes (lessThan ?a ?b ?c).")
 (binaryPredicate lessThan)
 (instanceRelationPredicate lessThan)
+(argIsa lessThan 1 thing)
+(argIsa lessThan 2 thing)
 (variableArity lessThan)
 
 (comment not
          "(not ?sentence) means the negation of ?sentence, a first-class sentex. Believing a sentence and its negation at once is a soft contradiction resolved at settle time rather than a hard error: the weaker belief is defeated, and a defeasible tie is left standing as a represented dilemma. See docs/nmtms.md.")
 (unaryPredicate not)
+
+(comment function            "The type of all functions — the reifiable and unreifiable heads a non-atomic term is built from. A function is a thing, and is not a predicate: it denotes or evaluates to a value where a predicate holds or fails.")
+(genl function thing)
 
 (comment predicate           "The type of all predicates — the relations and types used in sentences. A predicate is a thing.")
 (genl predicate thing)
@@ -260,11 +306,15 @@
          "(argPreserving ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlContext, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
 (ternaryPredicate argPreserving)
 (argIsa argPreserving 1 predicate)
+(argIsa argPreserving 2 integer)
+(argIsa argPreserving 3 predicate)
 
 (comment argPreservingInverse
          "(argPreservingInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along ?relation read backwards. A stored (?predicate … W …) licenses the claim about A whenever (?relation W A) holds, so with genl this is upward inheritance. It exists so that direction never requires declaring an inverse predicate with no other use. Same restriction on ?relation.")
 (ternaryPredicate argPreservingInverse)
 (argIsa argPreservingInverse 1 predicate)
+(argIsa argPreservingInverse 2 integer)
+(argIsa argPreservingInverse 3 predicate)
 
 (comment symmetricPredicate  "A binary predicate P with (P a b) implying (P b a). Derived from (symmetric P).")
 (genl symmetricPredicate binaryPredicate)

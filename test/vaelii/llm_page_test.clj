@@ -84,7 +84,7 @@
     (is (nil? (get (inv/declared-arities kb) p)))
     (testing "the shape falls back to a stored fact's arity, which is ground truth"
       (is (nil? (:arity (inv/predicate-shape kb p nil))))
-      (v/assert kb (list p 'Fido 'Roses) ctx)
+      (v/assert kb (list p 'Muffet 'Roses) ctx)
       (is (= 2 (:arity (inv/predicate-shape kb p nil)))))))
 
 (tu/deftest-kb the-inventory-is-sourced-from-declarations-not-facts
@@ -122,7 +122,7 @@
     (testing "argIsa constraints make it a relation"
       (is (= :predicate (inv/term-kind kb eats)))
       (is (= :predicate (inv/term-kind kb flies))))
-    (is (= :individual (inv/term-kind kb 'Fido)))
+    (is (= :individual (inv/term-kind kb 'Muffet)))
     (is (= :context (inv/term-kind kb 'WellContext)))))
 
 (tu/deftest-kb the-card-is-bounded-by-tokens-and-says-what-it-cut
@@ -132,6 +132,44 @@
         cut (inv/render i {:max-tokens 40})]
     (is (> (count whole) (count cut)))
     (is (str/includes? cut "not listed here"))))
+
+(tu/deftest-kb the-scan-bound-is-counted-rather-than-silent
+  ;; the fact scan is the only tier that reads facts, so a predicate used with the term and
+  ;; never declared is on the card because that scan reached it — and off the card
+  ;; altogether when it did not, since no later tier looks for it.  A cut nobody is shown
+  ;; reads as the whole of the vocabulary.
+  (let [{:keys [ctx]} (world kb)]
+    (tu/with-terms [Tux fedBy]
+      (doseq [w (repeatedly 5 #(tu/fresh-term :individual :Who))]
+        (v/assert kb (list fedBy Tux w) ctx))
+      (testing "scanned, the undeclared predicate is on the card and nothing went unread"
+        (let [i (inv/inventory kb Tux {:max-scan 5})]
+          (is (some #(= fedBy (:predicate %)) (:relations i)))
+          (is (zero? (:unscanned (:dropped i))))))
+      (testing "unscanned, it is offered nowhere else — and the card says how much it did not read"
+        (let [i (inv/inventory kb Tux {:max-scan 0})]
+          (is (not-any? #(= fedBy (:predicate %)) (:relations i))
+              "never declared and never argIsa'd, so the later tiers cannot demote it")
+          (is (= 5 (:unscanned (:dropped i))))
+          (is (str/includes? (inv/render i) "did not read 5 further facts")))))))
+
+(tu/deftest-kb a-position-two-contexts-declare-reads-as-the-narrower-one
+  ;; a term has to satisfy both declarations to stand in the position, so the narrower one
+  ;; is what the card should state — `animal` says less than `bird` about what belongs
+  ;; there, and the alphabet is not what decides between them.
+  (let [{:keys [animal bird ctx]} (world kb)]
+    (tu/with-terms [chases OtherContext]
+      (v/assert kb (list 'genlContext OtherContext 'CoreContext) 'UniverseContext)
+      (v/assert kb (list 'binaryPredicate chases) ctx)
+      (v/assert kb (list 'argIsa chases 1 animal) ctx)
+      (v/assert kb (list 'argIsa chases 1 bird) OtherContext)
+      (v/assert kb (list 'argIsa chases 2 animal) ctx)
+      (let [shape (inv/predicate-shape kb chases 2)]
+        (is (= [[1 bird] [1 animal] [2 animal]] (:args shape)) "narrowest first, within a position")
+        (is (= (str "2 : `" bird "` × `" animal "`") (inv/signature shape))
+            "and the signature prints the first of a position, which is now the informative one"))
+      (is (= bird (first (:arg-types (inv/seed-types kb chases))))
+          "the predicate page's own neighbourhood ranks it the same way"))))
 
 ;; ---- the coining flag: the only guard against fragmentation -------------
 
@@ -225,6 +263,82 @@
     (testing "it names its rule by raw handle — meaningless to a model, and imitable"
       (is (not-any? #(str/includes? (:line %) "sentexHandle")
                     (page/stored-lines kb penguin))))))
+
+(tu/deftest-kb the-cap-takes-the-content-first-lines-not-the-first-stored
+  ;; the block is capped, so which lines the model is shown is a content choice — and the
+  ;; term index answers with a set of handles, so a cap applied ahead of the sort would
+  ;; show whichever facts the scan happened to lift.  Asserted in reverse of content order,
+  ;; so the two rankings disagree at every position and a scan-ordered cut takes the
+  ;; other end of the batch.
+  (let [{:keys [penguin likes ctx]} (world kb)
+        sens (mapv #(list likes % penguin)
+                   (repeatedly 20 #(tu/fresh-term :individual :Who)))]
+    (doseq [s (reverse (sort-by pr-str sens))] (v/assert kb s ctx))
+    (let [all   (page/stored-lines kb penguin {:max-lines 1000})
+          three (page/stored-lines kb penguin {:max-lines 3})]
+      (is (= (sort (map :line all)) (map :line all)) "the full list is content-ordered")
+      (is (= 3 (count three)))
+      (is (= (take 3 (map :line all)) (map :line three))
+          "the content-first three, whatever order they were written in"))))
+
+(tu/deftest-kb the-same-knowledge-in-two-orders-gives-one-page
+  ;; handles are allocated in assertion order, so a page cut on anything but content would
+  ;; be a function of how the knowledge was loaded rather than of what it says.  Below the
+  ;; scan bound everything the term is mentioned in is fetched and the cut is by content,
+  ;; so two loads of one body of knowledge agree line for line.  Each load is torn down
+  ;; before the next, so the second is asserting the same sentences at different handles.
+  (let [{:keys [likes ctx]} (world kb)]
+    (tu/with-terms [Tux]
+      (let [sens    (mapv #(list likes Tux %) (repeatedly 12 #(tu/fresh-term :individual :Who)))
+            page-of (fn [order]
+                      (let [hs (mapv #(v/assert kb % ctx) order)
+                            ls (mapv :line (page/stored-lines kb Tux {:max-lines 5}))]
+                        (doseq [h (flatten hs)] (v/retract! kb h))
+                        ls))
+            loaded  (page-of sens)]
+        (is (= 5 (count loaded)) "the cap bit, so the two loads have something to disagree about")
+        (is (= loaded (page-of (reverse sens))))
+        (is (= loaded (page-of (shuffle sens))))))))
+
+(tu/deftest-kb the-scan-bound-samples-the-terms-earliest-mentions
+  ;; the term index answers with a *set*, so a scan taking whatever it enumerated first
+  ;; samples the term's knowledge by hash of handle — an order no reader can name and one
+  ;; that moves with the index's representation.  Sorted, the sample is the mentions
+  ;; recorded first: one answer per KB, on every backend and every read.
+  (let [{:keys [likes ctx]} (world kb)]
+    (tu/with-terms [Tux]
+      (let [sens (mapv #(list likes Tux %) (repeatedly 20 #(tu/fresh-term :individual :Who)))]
+        (doseq [s sens] (v/assert kb s ctx))
+        (is (= 20 (count (v/find-sentexes kb Tux))) "nothing else mentions the term")
+        (let [rows (page/stored-lines kb Tux {:max-lines 1000 :max-scan 6})]
+          (is (true? (:truncated? (meta rows))))
+          (is (= (sort (map pr-str (take 6 sens))) (map :line rows))
+              "the six recorded first, read out in content order"))))))
+
+(tu/deftest-kb a-page-shown-a-sample-is-told-it-is-one
+  ;; a bare count of what is on screen reads as the whole of what is stored, and the same
+  ;; prompt asks the model not to repeat anything already there
+  (let [{:keys [penguin likes ctx]} (world kb)]
+    (doseq [s (mapv #(list likes % penguin)
+                    (repeatedly 12 #(tu/fresh-term :individual :Who)))]
+      (v/assert kb s ctx))
+    (testing "everything shown, and the heading claims nothing else"
+      (let [rows (page/stored-lines kb penguin {:max-lines 1000})]
+        (is (false? (:truncated? (meta rows))))
+        (is (= (str (count rows)) (page/stored-heading rows)))))
+    (testing "cut by the line cap: how many there were, and no more claimed than that"
+      (let [rows (page/stored-lines kb penguin {:max-lines 4})]
+        (is (= 4 (count rows)))
+        (is (false? (:truncated? (meta rows))))
+        (is (= (str "4 of " (:found (meta rows))) (page/stored-heading rows)))
+        (is (str/includes? (page/user-turn kb penguin rows ctx "flesh it out")
+                           (str "4 of " (:found (meta rows)))))))
+    (testing "cut by the scan bound too: the count found is a floor, and says so"
+      (let [rows (page/stored-lines kb penguin {:max-lines 4 :max-scan 6})]
+        (is (true? (:truncated? (meta rows))))
+        (is (= (str "4 of more than " (:found (meta rows))) (page/stored-heading rows)))))
+    (testing "rows built without the metadata still get a plain count"
+      (is (= "2" (page/stored-heading [{:line "(a)"} {:line "(b)"}]))))))
 
 (tu/deftest-kb the-page-context-is-modal-and-never-the-vocabulary-head
   (let [{:keys [penguin ctx]} (world kb)

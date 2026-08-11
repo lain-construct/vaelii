@@ -30,10 +30,13 @@
 
   **An entry** is a source that has been loaded, or is loading: a KB, a status, and a
   progress reading the loaders report into (`:on-progress`, reported by every loader —
-  the corpus reader, `io.import/import-dump` and `io.generate/load-into`).  One load runs at a time, on its
-  own thread, and is cancelled by a flag the progress callback throws on — the loaders
-  have no other safe interruption point, and an import is not a transaction, so a
-  cancelled load leaves the KB holding what had already landed.
+  the corpus reader, `io.import/import-dump` and `io.generate/load-into`).  The running
+  half of that is not here: a load is a **job** (`vaelii.impl.jobs`), which is what gives
+  it a thread of its own, the progress reading, the cancel flag and the report — so an
+  entry carries the job's id and reads its status rather than keeping one.  One load runs
+  at a time, since a load claims this process's writer, and cancelling one is cooperative:
+  the loaders have no other safe interruption point, and an import is not a transaction,
+  so a cancelled load leaves the KB holding what had already landed.
 
   **A KB is readable before it is finished.**  `activate` asks only that an entry hold a
   KB, so the one arriving can be the one every page reads — a corpus is browsable from
@@ -41,10 +44,10 @@
   belief is still being rebuilt behind it.  What that costs a reader is completeness, not
   correctness, and `active-caveat` is what says so.
 
-  **And a KB can go back out.**  `export-entry!` writes a loaded one as an export dump on
-  the same thread discipline a load runs on, which closes the loop: a dump written under
-  the search path is a `:dump` source the moment its `meta.edn` lands, so exporting and
-  reloading needs nothing outside this namespace.
+  **And a KB can go back out.**  `export-entry!` writes a loaded one as an export dump as
+  a job like any other, which closes the loop: a dump written under the search path is a
+  `:dump` source the moment its `meta.edn` lands, so exporting and reloading needs nothing
+  outside this namespace.
 
   **Unloading never deletes an on-disk KB.**  A memory-backed entry has its stores
   cleared (they would otherwise hold the corpus for the life of the JVM); a disk-backed
@@ -60,6 +63,7 @@
             [vaelii.impl.foreign :as foreign]
             [vaelii.impl.io.generate :as generate]
             [vaelii.impl.io.import :as import]
+            [vaelii.impl.jobs :as jobs]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.starter :as starter])
@@ -361,9 +365,11 @@
 
 (defonce ^:private state (atom {:active nil :entries {} :order [] :next-space first-space}))
 
-;; `load-source`'s claim is a read-test-write across three touches of `state`, which one
-;; `swap!` cannot express (it throws two different refusals, and a `swap!` fn must be
-;; retryable).  This makes the three one step.
+;; `load-source`'s claim is a read-test-write across two touches of `state`, which one
+;; `swap!` cannot express (it throws rather than retrying, and a `swap!` fn must be
+;; retryable).  This makes the two one step.  The *other* claim — that only one job writes
+;; at a time — is the registry's, under its own monitor, and nothing here takes them in
+;; the other order.
 (defonce ^:private load-monitor (Object.))
 
 (defn- now [] (System/currentTimeMillis))
@@ -373,27 +379,49 @@
   []
   (dec (:next-space (swap! state update :next-space inc))))
 
-(defn- put-entry! [key f]
-  (swap! state update-in [:entries key] f)
+(defn- put-entry!
+  "Apply `f` to entry `key` — **and only while the registry still holds it**.  Nothing here
+  creates an entry (`load-source` and `register!` both do that with their own `assoc-in`),
+  so an update reaching a dropped key would not fail: it would *recreate* the entry as a
+  fragment with no `:key` and no `:started`, which `view` subtracts from.  Reachable
+  because a load's own thread writes here as it unwinds, and `unload!` may have dropped
+  the entry in between."
+  [key f]
+  (swap! state (fn [s] (cond-> s (contains? (:entries s) key) (update-in [:entries key] f))))
   key)
+
+(defn- with-job
+  "An entry's own fields, plus the four its **job** owns: where the load has got to, what
+  became of it, and when.  An entry has no status of its own to disagree with the job's —
+  a load reports through the registry like every other long operation, and one place
+  holding the answer is what stops the panel and the loader from telling two stories.
+
+  An entry `register!` filed has no job (it was handed a KB that was already built) and
+  carries its own settled status; so does one whose job has aged out of the registry, which
+  is why a load files its terminal status onto the entry as it finishes rather than leaving
+  the placeholder it registered with — see `load-source`."
+  [e]
+  (if-let [j (jobs/job (:job e))]
+    (merge e (select-keys j [:status :progress :error :finished]))
+    e))
 
 (defn entry
   "One entry, whole (`:kb` included) — for a caller that wants the KB itself."
   [key]
-  (get-in @state [:entries key]))
+  (with-job (get-in @state [:entries key])))
 
 (defn- view
-  "An entry as something safe to render or send: the KB, the thread and the cancel flag
-  dropped, elapsed time filled in.
+  "An entry as something safe to render or send: the KB dropped, elapsed time filled in.
 
   `:kb?` survives the dropping because it is what decides whether an entry can be read
   at all — a load registers before it opens anything, and until then there is no KB to
   activate however healthy the entry looks."
   [e]
   (when e
-    (-> (dissoc e :kb :future :cancel)
-        (assoc :elapsed-ms (- (or (:finished e) (now)) (:started e))
-               :kb?        (some? (:kb e))))))
+    (let [e (with-job e)]
+      (-> (dissoc e :kb)
+          (assoc :elapsed-ms (- (or (:finished e) (now)) (:started e))
+                 :kb?        (some? (:kb e)))))))
 
 (defn entries
   "Every entry, in load order, as views."
@@ -422,10 +450,11 @@
   (:kb (entry (active))))
 
 (defn loading?
-  "Is a load running?  One runs at a time: they are minutes long and memory-hungry, and
-  two at once would make each other's timings meaningless."
+  "Is a load running?  One runs at a time: a load claims this process's writer, and two at
+  once would make each other's timings meaningless.  Asked of the registry, since that is
+  where a running load lives."
   []
-  (boolean (some #(= :loading (:status %)) (vals (:entries @state)))))
+  (boolean (some #(= :load (:kind %)) (jobs/running))))
 
 (defn holder
   "A deref-able that always yields the KB to read — the active entry's, or `fallback`
@@ -553,19 +582,6 @@
 
 ;; ---- loading -------------------------------------------------------------
 
-(def ^:private cancelled ::cancelled)
-
-(defn- progress-fn
-  "The `:on-progress` callback handed to a loader: record where the load is, and throw
-  when the entry has been asked to stop.  Throwing is the whole cancellation mechanism —
-  a loader is a tight assert loop with no other point at which stopping is safe."
-  [key cancel]
-  (fn [p]
-    (when @cancel (throw (ex-info "load cancelled" {:type cancelled})))
-    (swap! state update-in [:entries key :progress]
-           (fn [old] (merge old (assoc p :at (now)))))
-    nil))
-
 (defn- open-kb-for
   "The KB an entry loads into: an in-memory one over a freshly claimed space, or —
   when the params name a directory — a durable `:disk` one there.  Returns
@@ -683,74 +699,102 @@
     id
     (str id "#" (inc (count (filter #(str/starts-with? % (str id "#")) (:order @state)))))))
 
-(defn load-source
-  "Start loading the source with id `source-id` under `params`, on its own thread.
-  Returns the entry key, or throws when another load is already running or the id names
-  no source.
+(defn- drop-entry!
+  "Forget entry `key` — the registry half of `unload!`, and what a load that never started
+  leaves behind."
+  [key]
+  (swap! state (fn [s]
+                 (-> s
+                     (update :entries dissoc key)
+                     (update :order #(vec (remove #{key} %)))
+                     (update :active #(when (not= % key) %))))))
 
-  The entry is registered `:loading` before this returns, so the caller can render it
-  immediately; `entries` then reports its progress until it settles into `:ready` (the KB
-  is queryable, and activated when nothing else is) or `:failed` / `:cancelled`."
+(defn load-source
+  "Start loading the source with id `source-id` under `params`, as a job.  Returns the
+  entry key, or throws when the id names no source, the source is already loaded, or
+  another job holds this process's writer.
+
+  The entry is registered `:running` before this returns, so the caller can render it
+  immediately; `entries` then reports the job's progress until it settles into `:done`
+  (the KB is queryable, and activated when nothing else is) or `:failed` / `:cancelled`."
   ([source-id] (load-source source-id {}))
   ([source-id params]
    (let [src (or (source source-id)
                  (throw (ex-info (str "no KB source " (pr-str source-id)) {:type :unknown-source})))
-         key (entry-key src)
-         cancel (atom false)
-         started (now)]
-     ;; Check and claim under one monitor.  The busy test, the already-loaded test and
-     ;; the `swap!` that registers the entry are three separate touches of `@state`, and
-     ;; two requests arriving together on Jetty's pool each passed all three — both
-     ;; spawned a loader, and two background loaders then wrote the same stores.  That is
-     ;; the exact case this guard exists to refuse, and it is the one it missed.
+         key (entry-key src)]
+     ;; Check and claim under one monitor.  The already-loaded test and the `swap!` that
+     ;; registers the entry are two separate touches of `@state`, and two requests arriving
+     ;; together on Jetty's pool each passed both — both spawned a loader, and two
+     ;; background loaders then wrote the same stores.  That is the exact case this guard
+     ;; exists to refuse, and it is the one it missed.  A *second load* is refused a layer
+     ;; down, by the writer claim in the registry.
      (locking load-monitor
-       (when (loading?)
-         (throw (ex-info "a load is already running" {:type :busy :active (active)})))
        (when (entry key)
          (throw (ex-info (str (:name src) " is already loaded — unload it first")
                          {:type :already-loaded :key key})))
+       ;; The status and progress here are what an entry reads for the moment between being
+       ;; registered and its job's id landing on it — `with-job` prefers the job the instant
+       ;; there is one.  Not redundant: a caller rendering an entry in that window would
+       ;; otherwise be handed a nil status, and the page names it.
        (swap! state (fn [s]
                       (-> s
                           (assoc-in [:entries key]
                                     {:key key :source (dissoc src :options) :name (:name src)
-                                     :params params :status :loading :started started
-                                     :progress {:phase :starting :done 0 :total (:total src)}
-                                     :cancel cancel})
-                          (update :order #(vec (distinct (conj % key))))))))
-     (let [progress! (progress-fn key cancel)
-           note-kb!  (fn [kb where] (put-entry! key #(assoc % :kb kb :where where)))
-           f (future
-               (try
-                 (let [summary (run-load src params progress! note-kb!)
-                       kb      (:kb (entry key))]
-                   (put-entry! key #(assoc % :status :ready
-                                           :summary summary :finished (now)
-                                           :stats (stats kb)
-                                           :progress (assoc (:progress %) :phase :done)))
-                   (swap! state (fn [s] (cond-> s (nil? (:active s)) (assoc :active key))))
-                   (trove/log! {:level :info :id ::loaded
-                                :msg (str "loaded KB " key) :data summary}))
-                 (catch Throwable t
-                   (let [c? (= cancelled (:type (ex-data t)))]
-                     ;; a cancelled or failed load leaves whatever had landed in its
-                     ;; stores; `unload!` is what takes those down
-                     (put-entry! key #(assoc % :status (if c? :cancelled :failed)
-                                             :error (or (.getMessage t) (str (class t)))
-                                             :finished (now)))
-                     (when-not c?
-                       (trove/log! {:level :error :id ::load-failed
-                                    :msg (str "loading KB " key " failed: " (.getMessage t))}))))))]
-       (put-entry! key #(assoc % :future f))
-       key))))
+                                     :params params :status :running :started (now)
+                                     :progress {:phase :starting :done 0 :total (:total src)}})
+                          (update :order #(vec (distinct (conj % key)))))))
+       (try
+         (let [id (jobs/submit
+                   {:label      (str "Load " (:name src))
+                    :kind       :load
+                    ;; the KB does not exist yet — `run-load` opens it — so the claim is
+                    ;; made without naming it, and `write-blocked?` reads the entry for
+                    ;; the identity once there is one
+                    :writes     true
+                    :progress   {:phase :starting :done 0 :total (:total src)}
+                    :result-url "/kbs"
+                    :entry      key}
+                   (fn [progress!]
+                     ;; The entry outlives its job's report — a settled job ages out of the
+                     ;; registry after an hour — so the status the entry keeps *of its own*
+                     ;; has to be the settled one.  `with-job` prefers the job while there is
+                     ;; one and falls back to this; a fallback still reading `:running` is an
+                     ;; entry that never finishes loading, and two callers act on that: the
+                     ;; browser refuses every write to the KB (`write-blocked?`) and `unload!`
+                     ;; refuses `:still-stopping`, both of them for ever.
+                     (try
+                       (let [note-kb! (fn [kb where] (put-entry! key #(assoc % :kb kb :where where)))
+                             summary  (run-load src params progress! note-kb!)]
+                         ;; a cancelled or failed load leaves whatever had landed in its
+                         ;; stores; `unload!` is what takes those down
+                         ;; `:progress` settles with the status, as it does on the job
+                         ;; itself: the placeholder this entry registered with reads
+                         ;; `:starting`, and an hour on that is the only reading left
+                         (put-entry! key #(assoc % :summary summary :stats (stats (:kb %))
+                                                 :status :done :finished (now)
+                                                 :progress {:phase :done}))
+                         (swap! state (fn [s] (cond-> s (nil? (:active s)) (assoc :active key))))
+                         (trove/log! {:level :info :id ::loaded
+                                      :msg (str "loaded KB " key) :data summary})
+                         summary)
+                       (catch Throwable t
+                         (put-entry! key #(assoc % :status (if (jobs/cancelled? t) :cancelled :failed)
+                                                 :finished (now)
+                                                 :error (or (.getMessage t) (str (class t)))))
+                         (throw t)))))]
+           (put-entry! key #(assoc % :job id))
+           key)
+         (catch Throwable t
+           ;; nothing is running, so the entry is a claim on a KB that will never exist
+           (drop-entry! key)
+           (throw t)))))))
 
 (defn cancel!
   "Ask a running load to stop at its next progress report.  `!` because what it leaves
   behind is a half-loaded KB — the loaders write as they go and none of them is a
   transaction."
   [key]
-  (when-let [c (:cancel (entry key))]
-    (reset! c true)
-    true))
+  (boolean (some-> (:job (entry key)) jobs/cancel!)))
 
 (defn unload!
   "Take an entry down: cancel it if it is still loading, drop it from the registry, and
@@ -768,12 +812,15 @@
     ;; whole record log before it says anything) can outlast the wait — so say the entry
     ;; is still stopping and leave it whole rather than pulling the stores out from under
     ;; a live writer.
-    (when (= :loading (:status e))
+    (when (= :running (:status e))
       (cancel! key)
-      (when (and (:future e) (= ::timeout (deref (:future e) 30000 ::timeout)))
-        (put-entry! key #(assoc % :status :cancelling
-                                :error "still stopping — its loader has not reached a
-                                        point at which it can be interrupted"))
+      ;; A job the registry has already dropped — one still running six hours later is
+      ;; presumed wedged — answers no status at all, which is not a settled one either, so
+      ;; this refuses for the same reason: its thread is still going, and the stores are
+      ;; still its.
+      (when-not (#{:done :cancelled :failed} (:status (jobs/wait (:job e) 30000)))
+        (put-entry! key #(assoc % :error "still stopping — its loader has not reached a
+                                          point at which it can be interrupted"))
         (throw (ex-info (str (:name e) " is still stopping; unload it again in a moment")
                         {:type :still-stopping :key key}))))
     (let [{:keys [backend dir]} (:where (entry key))]
@@ -785,18 +832,12 @@
         (catch Exception ex
           (trove/log! {:level :warn :id ::unload-problem
                        :msg (str "releasing KB " key ": " (.getMessage ex))}))))
-    (swap! state (fn [s]
-                   (-> s
-                       (update :entries dissoc key)
-                       (update :order #(vec (remove #{key} %)))
-                       (update :active #(when (not= % key) %)))))
-    ;; nothing active but something loaded — fall to the most recent ready entry, so the
+    (drop-entry! key)
+    ;; nothing active but something loaded — fall to the most recent finished entry, so the
     ;; browser is never left pointing at nothing while a KB is sitting right there
-    (swap! state (fn [s]
-                   (if (:active s)
-                     s
-                     (assoc s :active (last (filter #(= :ready (:status (get-in s [:entries %])))
-                                                    (:order s)))))))
+    (when-not (active)
+      (swap! state assoc :active
+             (last (filter #(= :done (:status (entry %))) (:order @state)))))
     true))
 
 (defn activate
@@ -828,12 +869,18 @@
   Asked of the **KB itself** rather than of the active entry, and by identity, because
   those are not the same question: loading a second KB in the background is no reason to
   stop writing to the one on screen, and a caller holding a KB the catalog never heard of
-  (a test, an embedding, an `--attach`) is nobody's loader's business."
+  (a test, an embedding, an `--attach`) is nobody's loader's business.
+
+  Two halves, because a writing job names its KB at two different times.  A job handed one
+  — a chaining run — says so at `submit` and the registry answers for it (`jobs/writes-kb?`).
+  A **load** opens its own, so the identity is on the entry rather than in the job, and the
+  entries are what is walked for those."
   [kb]
   (boolean (and kb
-                (some (fn [e] (and (#{:loading :cancelling} (:status e))
-                                   (identical? kb (:kb e))))
-                      (vals (:entries @state))))))
+                (or (jobs/writes-kb? kb)
+                    (some (fn [e] (and (#{:running :cancelling} (:status (with-job e)))
+                                       (identical? kb (:kb e))))
+                          (vals (:entries @state)))))))
 
 (defn active-caveat
   "What is provisional about the KB the browser is reading, or nil when nothing is.
@@ -850,7 +897,7 @@
     hierarchy either, so a fully stored KB renders as one with no types and no contexts
     at all.
 
-  The second outlives the first: a store opened without `:recover?` is `:ready` and stays
+  The second outlives the first: a store opened without `:recover?` is `:done` and stays
   that way, and a `:dump` imported with `:belief? false` likewise.  That is why it is
   reported beside the status rather than folded into it — the dangerous case is the one
   that looks finished.  The TMS is what is probed, since the two are built as a pair.
@@ -865,7 +912,7 @@
     (when (:records kb)
       (let [n        (try (v/sentex-count kb) (catch Exception _ 0))
             belief?  (or (zero? n) (boolean (first (jtms/datums (:tms kb)))))
-            settled? (= :ready (:status e))]
+            settled? (= :done (:status e))]
         (when-not (and settled? belief?)
           {:key key :name (:name e) :status (:status e)
            :progress (:progress e) :belief? belief?})))))
@@ -876,38 +923,19 @@
 ;; discover, so exporting and reloading is a round trip that never leaves the browser —
 ;; which is the whole reason export is here rather than only in the CLI.
 ;;
-;; It runs the way a load runs, and for the same reasons: its own thread (minutes, on a
-;; corpus), progress recorded where the panel already looks for it, cancelled by the
-;; progress callback throwing (`export!` calls it at each chunk boundary, and there is no
-;; other point at which stopping leaves a directory rather than a file half-written).
-;; What it is *not* is an entry: an export produces no KB, and filing it as one would put
-;; a second handle on a KB somebody could then unload out from under the writer.
-
-(defn export-job
-  "The running — or last — export, as something safe to render: the cancel flag and the
-  thread dropped, elapsed time filled in.  Nil until something has been exported.
-
-  One slot, not a list.  An export is a job with a report, and the report worth keeping
-  is the last one; a finished job stays visible until the next export replaces it, which
-  is what lets the panel say where the dump went."
-  []
-  (when-let [j (:export @state)]
-    (-> (dissoc j :cancel :future)
-        (assoc :elapsed-ms (- (or (:finished j) (now)) (:started j))))))
+;; It runs the way a load runs, and for the same reason: it is a job like any other
+;; (`vaelii.impl.jobs`) — minutes on a corpus, progress recorded where the panel looks for
+;; it, cancelled by the progress callback throwing (`export!` calls it at each chunk
+;; boundary, and there is no other point at which stopping leaves a directory rather than a
+;; file half-written).  What it is *not* is an entry: an export produces no KB, and filing
+;; it as one would put a second handle on a KB somebody could then unload out from under
+;; the writer.  Nor does it claim the writer: a dump is written to the filesystem, so a
+;; load filling some other KB may run beside it.
 
 (defn exporting?
   "Is an export running?  One at a time, as with loads."
   []
-  (= :running (:status (:export @state))))
-
-(defn- export-progress-fn
-  "The `:on-progress` callback handed to `export!`: record where it has got to, and throw
-  when it has been asked to stop."
-  [cancel]
-  (fn [p]
-    (when @cancel (throw (ex-info "export cancelled" {:type cancelled})))
-    (swap! state update-in [:export :progress] (fn [old] (merge old (assoc p :at (now)))))
-    nil))
+  (boolean (some #(= :export (:kind %)) (jobs/running))))
 
 (defn export-entry!
   "Write the KB in entry `key` out as a dump in `dir`, on its own thread, and return the
@@ -946,44 +974,32 @@
       (throw (ex-info (str (:name e) " is still loading — a dump of a KB something is"
                            " still writing is a dump of no single state")
                       {:type :still-loading :key key})))
-    (let [cancel (atom false)]
-      (swap! state assoc :export
-             {:key key :name (:name e) :dir (str dir)
-              :variant (:variant opts :records) :status :running :started (now)
-              :progress {:phase :starting :done 0} :cancel cancel})
-      (let [f (future
-                (try
-                  (let [summary (v/export! kb (str dir)
-                                           (assoc opts :on-progress (export-progress-fn cancel)))]
-                    (swap! state update :export merge
-                           {:status :done :summary summary :finished (now)
-                            :progress {:phase :done :done (:sentexes summary)
-                                       :total (:sentexes summary)}})
-                    (trove/log! {:level :info :id ::exported
-                                 :msg (str "exported KB " key " to " (:dir summary))
-                                 :data summary}))
-                  (catch Throwable t
-                    (let [c? (= cancelled (:type (ex-data t)))]
-                      (swap! state update :export merge
-                             {:status (if c? :cancelled :failed) :finished (now)
-                              :error (or (.getMessage t) (str (class t)))})
-                      (when-not c?
-                        (trove/log! {:level :error :id ::export-failed
-                                     :msg (str "exporting KB " key " failed: "
-                                               (.getMessage t))}))))))]
-        (swap! state update :export assoc :future f)
-        (export-job)))))
+    (let [id (jobs/submit
+              {:label      (str "Export " (:name e))
+               :kind       :export
+               ;; a dump is bytes on the filesystem, so this claims no writer — but it is
+               ;; never hard-interrupted either, for the same reason a KB-writing job is
+               ;; not: an interrupt mid-frame leaves a file torn rather than short
+               :result-url "/kbs"
+               :entry      key :name (:name e) :dir (str dir)
+               :variant    (:variant opts :records)
+               :progress   {:phase :starting :done 0}}
+              (fn [progress!]
+                (let [summary (v/export! kb (str dir) (assoc opts :on-progress progress!))]
+                  (trove/log! {:level :info :id ::exported
+                               :msg (str "exported KB " key " to " (:dir summary))
+                               :data summary})
+                  summary)))]
+      (jobs/job id))))
 
 (defn cancel-export!
   "Ask a running export to stop at its next chunk boundary.  `!` because what it leaves
   behind is a directory holding part of a dump."
   []
-  (when-let [c (:cancel (:export @state))]
-    (reset! c true)
-    true))
+  (boolean (some-> (jobs/latest :export) :id jobs/cancel!)))
 
 (defn register!
-  "File an already-built KB as a `:ready` entry and make it active if nothing else is —
+  "File an already-built KB as a settled entry and make it active if nothing else is —
   how the browser's own startup KB, and an attached daemon, get into the list beside the
   ones the catalog loads.
 
@@ -995,7 +1011,7 @@
    (swap! state (fn [s]
                   (-> s
                       (assoc-in [:entries key]
-                                {:key key :name name :status :ready :kb kb :where where
+                                {:key key :name name :status :done :kb kb :where where
                                  :source (or source {:kind :registered}) :started (now)
                                  :finished (now) :stats (stats kb) :progress {:phase :done}})
                       (update :order #(vec (distinct (conj % key))))
@@ -1003,9 +1019,16 @@
    key))
 
 (defn reset-registry!
-  "Forget every entry, releasing each as `unload!` does, and stop a running export.  For
-  a process shutting down and for tests; nothing in the browser calls it."
+  "Forget every entry, releasing each as `unload!` does, and stop every job.  For a process
+  shutting down and for tests; nothing in the browser calls it.
+
+  The export is stopped **first** and waited for, and the entries come second: `unload!`
+  clears the stores an entry holds, and an export still walking one of them would be
+  reading a KB as it emptied."
   []
-  (cancel-export!)
+  (when-let [id (:id (jobs/latest :export))]
+    (jobs/cancel! id)
+    (jobs/wait id 30000))
   (doseq [k (:order @state)] (unload! k))
+  (jobs/reset-registry!)
   (reset! state {:active nil :entries {} :order [] :next-space first-space}))

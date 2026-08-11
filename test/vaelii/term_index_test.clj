@@ -10,18 +10,18 @@
 
 (tu/deftest-kb findable-by-any-term
   (let [parentOf (tu/tmp-pred) likesPet (tu/tmp-pred)
-        tom (tu/tmp-ind) bob (tu/tmp-ind) fido (tu/tmp-ind)]
+        tom (tu/tmp-ind) bob (tu/tmp-ind) muffet (tu/tmp-ind)]
     (v/assert kb (list parentOf tom bob) 'NaturalWorldContext)
-    (v/assert kb (list likesPet bob fido) 'NaturalWorldContext)
+    (v/assert kb (list likesPet bob muffet) 'NaturalWorldContext)
     (testing "a sentex is findable by any term it contains — any position"
       (is (= 2 (count (v/find-sentexes kb bob))))        ; predicate arg in both
       (is (= 1 (count (v/find-sentexes kb tom))))
-      (is (= 1 (count (v/find-sentexes kb fido))))
+      (is (= 1 (count (v/find-sentexes kb muffet))))
       (is (= 1 (count (v/find-sentexes kb parentOf))))   ; by functor
       (is (= 2 (count (v/find-sentexes kb 'NaturalWorldContext)))))  ; by context
     (testing "intersection of several terms"
-      (is (= 1 (count (v/find-sentexes-all kb [bob fido]))))
-      (is (= 0 (count (v/find-sentexes-all kb [tom fido])))))))
+      (is (= 1 (count (v/find-sentexes-all kb [bob muffet]))))
+      (is (= 0 (count (v/find-sentexes-all kb [tom muffet])))))))
 
 (tu/deftest-kb ist-finds-or-creates
   (let [loves (tu/tmp-pred) mary (tu/tmp-ind) john (tu/tmp-ind)

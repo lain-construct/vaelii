@@ -1,10 +1,11 @@
 # The change feed
 
 - **Covers:** what `watch` delivers to a listener when belief moves — every change for a
-  plain listener, or a standing query's filtered subset, one event per settle.
-- **Not here:** the operational surface a daemon serves, which has no way to push a feed
-  across the wire → [operations.md](operations.md); the one-shot before/after diff for a
-  batch not yet committed → [preview.md](preview.md).
+  plain listener, or a standing query's filtered subset, one event per settle — and the
+  cursor a remote caller reads the same events forward with.
+- **Not here:** the rest of the operational surface a daemon serves, and the daemon's
+  guards and authentication → [operations.md](operations.md); the one-shot before/after
+  diff for a batch not yet committed → [preview.md](preview.md).
 - **Assumes:** sentex, context, settle, justification → [glossary.md](glossary.md).
 
 `core/watch` — be told when belief moved, instead of asking again.
@@ -102,7 +103,7 @@ sweep's retractions inside a retraction stay inside one event.
 
 `(watch kb goal context f)` matches the region's entries against `goal` with
 `res/match1` — the same subsumption a rule antecedent gets, so `(animal ?x)` is answered
-by a stored `(dog Fido)` through the `genl` closure and `(parentOf ?x ?y)` by a stored
+by a stored `(dog Muffet)` through the `genl` closure and `(parentOf ?x ?y)` by a stored
 `(fatherOf Tom Bob)` through the predicate hierarchy. One cached closure lookup per
 candidate.
 
@@ -245,6 +246,117 @@ A batch whose conclusions **cascade** produces a proportionally larger event, be
 region is larger — that is the answer being asked for, and `:max-derivations` on the write
 is what bounds it. An event is built once per settle and shared by every listener.
 
+## Across the wire
+
+`watch` takes a **function**, and a function does not cross an EDN wire — the same wall
+`:export`'s `:on-progress` hits ([operations.md](operations.md)). So the daemon's half of
+the feed is not the callback marshalled somehow; it is the one thing request/response can
+carry, which is **state with a cursor**. `vaelii.impl.subscribe` holds it, and four ops
+reach it:
+
+```clojure
+(require '[vaelii.client :as c])
+(def conn (c/client "localhost" 4200))
+
+(c/watch conn)                          ; => {:token 0 :cursor 0 :max-events 256}
+(c/watch conn '(animal ?x) 'WellContext)      ; a standing query, same refusals
+(c/poll conn 0 0 {:wait-ms 20000})      ; => {:events [{…}] :cursor 3 :lagged 0}
+(c/unwatch conn 0)                      ; => true
+(c/watchers conn)                       ; => [{:token 0 :delivered 3 :pending 0}]
+```
+
+The daemon registers an ordinary listener of its own per subscription; that listener
+files each event into a bounded ring, and a caller reads the ring forward. **The events
+are the same events** — one settle files one region, `dispatch-feed!` renders it once,
+and an in-process listener and a wire subscription over the same KB are handed that one
+answer. `feed_wire_test` pins the equality through a full EDN round trip, since a client
+with none of this repo's classes on its classpath is who the wire is for.
+
+**A cursor counts events, not handles.** It starts at 0 and advances by one per delivered
+event, so a caller stores one integer and compares nothing. `poll` answers the events past
+the cursor it was handed, plus the cursor to send next time.
+
+**The ring is bounded, and falling off it is said out loud.** `max-events` (256) is the
+slack a reader has between polls; past it the oldest event goes and the *count* of what
+went is reported as `:lagged` on the next poll. That field is present on every reply, zero
+and all — a client that forgets to read it is a client that cannot have one. This is the
+decision the feature stands on: a feed with a silent gap is strictly worse than polling,
+because the caller believes it is current and has no way to find out otherwise. What
+survives in the ring is the **newest**, so a caller that resyncs after a lag is starting
+from as close to now as the daemon can put it.
+
+**A token naming no subscription is refused, never answered empty**, for the same reason:
+`:unknown-subscription` for one dropped, timed out, or issued by another daemon, and
+`:bad-cursor` for a cursor that is not a whole number or that runs ahead of what the
+subscription has delivered. Answered `{:events []}`, either would be a feed that has
+stopped without saying so.
+
+**Long poll, not a second protocol.** `{:wait-ms n}` parks the request until the first
+event arrives or the wait runs out, capped at 30 s. It buys most of the latency a feed is
+for while keeping `Content-Type: application/edn`, adding no second wire format and
+needing nothing from a client but a longer read timeout — which `vaelii.client` extends by
+the wait the daemon will actually take, not by the one asked for, since the cap is applied
+there. There is no server-sent-events route and no socket held open by the client's own
+machinery.
+
+**A parked poll holds a thread, and that is a second ceiling.** Moving the wait outside
+`serve`'s monitor keeps a parked poll from blocking the *writer*; it does nothing about
+the *worker threads*, and with more polls parked than the HTTP pool has threads the daemon
+answers nothing at all — `/health`, a write, another caller's read — until one times out.
+So `max-parked` (16) bounds how many may wait at once, deliberately well under
+`serve/http-threads` (50), which is stated rather than defaulted so the pair can be
+checked; `serve_test` checks it. Over the ceiling a poll **asking to wait** is refused
+(`:too-many-waiters`) and told to poll on a timer instead — the same feed at a worse
+latency, costing one request and no held thread. A poll that does not ask to wait is never
+refused, and neither is one whose events are already there, since neither blocks.
+
+**The wait is outside the daemon's monitor.** `serve` serializes ops behind one monitor
+per handler, so a poll parked inside it would block every writer for the length of its
+wait — a feature about liveness turned into a global stall. `:watch` and `:unwatch` *do*
+take the monitor, which is what makes the subscription's boundary exact: every settle
+that finished before a `:watch` returned is outside its feed, and every one that starts
+after it is inside.
+
+**A remote listener cannot run on the writing thread**, and that is the one respect in
+which it is better off than the in-process one: it cannot slow the writer. What runs on
+the writing thread is a swap and a `notifyAll`; the reader is a separate request, and the
+synchronous contract above is deliberately not simulated across the wire.
+
+**What a subscription costs, and what bounds it.** One listener and one ring of at most
+`max-events`; at most `max-subscriptions` (64) of them per daemon, and one nobody has
+polled inside `idle-ms` (5 minutes) is reaped at the next call — listener and all, so its
+token is afterwards refused like any other unknown one. Reaching the ceiling refuses the
+*new* subscription (`:too-many-subscriptions`) rather than evicting somebody else's, since
+an eviction nobody is told about is the silent gap again. Nothing here authenticates the
+caller — that is the bearer token's job, one layer out — but heap a stranger can allocate
+wants a ceiling whether or not it is authenticated.
+
+**Those ceilings bound the event *count*, not the bytes.** An event carries one settle's
+whole relabelled region, so its size is the size of the largest batch the KB takes: 20
+`assert-many` calls of 500 facts left one abandoned subscription holding 10,000 preview
+entries. The in-process feed hands an event to its listener and forgets it; a ring retains
+it, which turns a transient per-settle allocation into retained heap. `64 x 256` is
+therefore a bound on how many regions can be held, and what one of them weighs is a
+property of how the KB is written to. `:watchers` is what an operator reads against that —
+a `:pending` sitting at `max-events` is a subscriber already dropping events, and on a
+bulk-loading KB it is also the row holding the most heap.
+
+**The registry is per handler**, beside the monitor: a token names a subscription *on this
+daemon*, so two handlers over one KB are two daemons and neither answers the other's
+token. A daemon owns its KB for its lifetime, so a subscription pins nothing the handler
+was not already holding.
+
+Three things the wire inherits rather than restates. A goal `watch` refuses is refused
+identically over `POST /op`, under the same `:type :not-watchable`, because it is the same
+check. `preview`, `recover` and `reindex` deliver nothing here either — the wire is not a
+way to observe them. And a daemon with **no** subscriptions pays exactly what the
+in-process feed's no-listener case pays, which is the standard `feed-listener-scaling`
+already holds it to.
+
+**The browser is unchanged.** Its live regions on `/kbs` and `/jobs` poll an htmx
+fragment, and that is the right pattern for a *progress bar* — a job's percentage is
+progress, and progress is not belief moving. Nothing in the browser subscribes.
+
 ## Tests
 
 `test/vaelii/feed_test.clj` — 35 tests over four themes:
@@ -278,3 +390,29 @@ Two cost claims are tested rather than asserted. `lein perf`'s
 the standing query is the one that would re-run something. And the `delay` over the
 entries is pinned by counting calls at the renderer: a standing query whose goal matches
 nothing must render **zero** entries, where a plain listener renders the diff.
+
+`test/vaelii/feed_wire_test.clj` — 16 tests over the transport, and none of them re-tests
+what an event means:
+
+- **One answer, two targets**: a batch driven through `POST /op` produces, on the wire,
+  exactly the event an in-process listener over the same KB receives — compared after
+  `pr-str` and `read-string`, since the round trip is where a record, a lazy seq or a
+  list turned vector would show up. The cursor advances and never repeats an event; a
+  standing query filters the wire feed and carries the binding that answered.
+- **Falling behind**: a ring outrun reports the exact count it dropped and keeps the
+  newest, `:lagged` is on every reply including the ones at zero, and an abandoned
+  subscription holds its bound and no more before the idle reap takes it — listener
+  included, with its token refused afterwards.
+- **The refusals**: six goal shapes and a contextless goal refused on the wire under the
+  in-process `:type`, registering nothing; the token vocabulary and the ceiling as
+  (status, `:type`) pairs, which `wire_contract_test` pins beside the daemon's own.
+- **The monitor**: a write completes while a long poll is parked, and the poll wakes on
+  the notify rather than on its timeout; a wait with nothing to report answers empty and
+  is capped whatever the caller asks for; dropping a subscription wakes the poll parked
+  on it rather than leaving it to time out.
+- **The boundary**: `preview` / `recover` / `reindex` deliver nothing over the wire
+  either, two handlers over one KB do not answer each other's tokens, and the feed ops
+  are absent from `serve/ops` — which is what keeps them out of the model's tool set and
+  out of the local access facade. One `^:slow` test drives the whole thing over a real
+  socket with `vaelii.client`, which is where the long poll's extended read timeout is
+  the claim.

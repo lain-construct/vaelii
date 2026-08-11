@@ -12,13 +12,13 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (tu/deftest-kb negation-is-soft-not-thrown
-  (let [dog (tu/tmp-type) fido (tu/tmp-ind) rex (tu/tmp-ind)]
+  (let [dog (tu/tmp-type) muffet (tu/tmp-ind) rex (tu/tmp-ind)]
     (testing "asserting the negation of a believed fact does not throw"
-      (v/assert kb (list dog fido) 'UniverseContext {:strength :monotonic})
-      (is (some? (v/assert kb (list 'not (list dog fido)) 'UniverseContext)))
+      (v/assert kb (list dog muffet) 'UniverseContext {:strength :monotonic})
+      (is (some? (v/assert kb (list 'not (list dog muffet)) 'UniverseContext)))
       (testing "and the weaker (default) belief is the one defeated"
-        (is (seq    (v/sentexes-matching kb (list dog fido) 'UniverseContext)))         ; monotonic survives
-        (is (empty? (v/sentexes-matching kb (list 'not (list dog fido)) 'UniverseContext)))  ; default defeated
+        (is (seq    (v/sentexes-matching kb (list dog muffet) 'UniverseContext)))         ; monotonic survives
+        (is (empty? (v/sentexes-matching kb (list 'not (list dog muffet)) 'UniverseContext)))  ; default defeated
         (is (empty? (v/conflicts kb)))))                                    ; resolved, nothing reported
     (testing "strength decides regardless of assertion order"
       (v/assert kb (list 'not (list dog rex)) 'UniverseContext)                ; default
@@ -118,6 +118,37 @@
           (v/retract! kb hn)
           (is (empty? (v/contradictions kb)))
           (is (seq (v/sentexes-matching kb (list warm sun) 'UniverseContext))))))))
+
+(tu/deftest-kb a-body-with-no-twin-is-not-posted-and-still-pairs-later
+  ;; `note-opposed!` writes to the coincidence set and to the negation memo only for a
+  ;; body opposed before the store or after it — a body with no twin has no pairing that
+  ;; could have moved, and posting one costs a `conj` into a set that grows to the size
+  ;; of the corpus on a bulk load.  The order that would expose a wrong guard is a
+  ;; **settle between the two polarities**: the memo is derived while nothing is opposed,
+  ;; and the twin's arrival is then the only thing that can invalidate it.
+  (let [warm (tu/tmp-pred) sun (tu/tmp-ind) moon (tu/tmp-ind)]
+    (v/assert kb (list warm sun) 'UniverseContext)
+    (v/assert kb (list warm moon) 'UniverseContext)          ; a second settle, nothing opposed
+    (is (empty? (v/contradictions kb)))
+    (testing "and the memo did not grow: a batch of twinless bodies posts nothing"
+      ;; read inside the batch, since the closing settle drops the whole memo when
+      ;; nothing is opposed and would hide an unguarded post.  This is the invariant
+      ;; that keeps a bulk load's per-fact cost a constant: an unguarded post is one
+      ;; `conj` per fact into a set that ends the load holding the whole corpus.
+      (v/with-deferred-settle kb
+        (doseq [i (range 8)]
+          (v/assert kb (list warm (tu/tmp-ind (str "Cold" i))) 'UniverseContext
+                    {:chain? false}))
+        (is (empty? (:dirty @(:negations kb))))))
+    (let [hn (v/assert kb (list 'not (list warm sun)) 'UniverseContext)]
+      (is (= 1 (count (v/contradictions kb))) "the twin arriving is what forms the pair")
+      (testing "and the memo drops the entry when the twin leaves"
+        (v/retract! kb hn)
+        (is (empty? (v/contradictions kb)))
+        (is (seq (v/sentexes-matching kb (list warm sun) 'UniverseContext)))))
+    (testing "the pair re-forms when the twin comes back"
+      (v/assert kb (list 'not (list warm sun)) 'UniverseContext)
+      (is (= 1 (count (v/contradictions kb)))))))
 
 (tu/deftest-kb the-opposed-set-survives-recover
   ;; The coincidence set is derived state no store holds, so `recover` rebuilds it

@@ -1,7 +1,8 @@
 ;; LifeContext — relations about organisms: kinship (parentOf/childOf/siblingOf/
-;; ancestorOf/grandparentOf), age (birthYearOf/olderThan/mortal), and behavior
-;; (eats/flies/canTravel). Sees CoreContext; UniverseContext sees it, so any
-;; relation here is visible from every context.
+;; ancestorOf/grandparentOf), age (birthYearOf/olderThan/mortal), and behaviour
+;; (eats, and hasCapability over the capability kinds flying/travelling). Sees
+;; CoreContext; UniverseContext sees it, so any relation here is visible from every
+;; context.
 
 (genlContext LifeContext CoreContext)
 (genlContext UniverseContext LifeContext)
@@ -30,21 +31,17 @@
 (argIsa awake 1 animal)
 
 (comment birthYearOf
-         "(birthYearOf ?animal ?year) means that ?animal was born in ?year. ?year is a plain number rather than a term, which is why it carries no argIsa. Declared functional: a second, different year for one person is a contradiction rather than a second fact, and that is what makes birthYearOf sound enough to derive olderThan from.")
+         "(birthYearOf ?animal ?year) means that ?animal was born in ?year. ?year is a plain number rather than a term, so its argIsa is thing and constrains nothing — a number carries no type membership to check. Declared functional: a second, different year for one person is a contradiction rather than a second fact, and that is what makes birthYearOf sound enough to derive olderThan from.")
 (binaryPredicate birthYearOf)
 (instanceRelationPredicate birthYearOf)
 (argIsa birthYearOf 1 animal)
+(argIsa birthYearOf 2 thing)
 (functional birthYearOf)
 
 (comment breathesAir
          "(breathesAir ?animal) means that ?animal takes its oxygen from the air. True by default of an animal and blocked for a fish. The exception names a whole CLASS rather than one awkward species, so it reaches every kind of fish ever added and needs no upkeep — matching fans the antecedent out over the subtype closure, so the exception does too.")
 (unaryPredicate breathesAir)
 (argIsa breathesAir 1 animal)
-
-(comment canTravel
-         "(canTravel ?animal) means that ?animal can get from one place to another under its own power. Derived rather than asserted — a rule concludes it from being able to fly — so it goes out when its ground does: retract the flight and the travel goes with it.")
-(unaryPredicate canTravel)
-(argIsa canTravel 1 animal)
 
 (comment childOf
          "(childOf ?child ?parent) means that ?parent is a biological parent of ?child. Declared the inverse of parentOf and never asserted alongside it: (parentOf Ann Tom) answers (childOf Tom Ann) through the inverse prover, and retracting the one withdraws the other.")
@@ -66,7 +63,7 @@
 (argIsa eats 2 food)
 
 (comment FatherFn
-         "(FatherFn ?animal) means the father of ?animal. A reifiableFunction, so a ground application denotes an object rather than being computed, and it reifies to an opaque constant before it reaches the index. Corresponding to fatherOf is what keeps it from minting a second name for a father the KB already knows: (FatherFn Fido) resolves to the father of a believed (fatherOf Fido F). Where none is known it mints a placeholder and projects that back onto fatherOf, so the placeholder still answers whose father it is, and a father arriving later is equated with it. See docs/nat.md.")
+         "(FatherFn ?animal) means the father of ?animal. A reifiableFunction, so a ground application denotes an object rather than being computed, and it reifies to an opaque constant before it reaches the index. Corresponding to fatherOf is what keeps it from minting a second name for a father the KB already knows: (FatherFn Muffet) resolves to the father of a believed (fatherOf Muffet F). Where none is known it mints a placeholder and projects that back onto fatherOf, so the placeholder still answers whose father it is, and a father arriving later is equated with it. See docs/nat.md.")
 (reifiableFunction FatherFn)
 (functionCorrespondingPredicate FatherFn fatherOf)
 (resultIsa FatherFn animal)
@@ -79,10 +76,9 @@
 (argIsa fatherOf 2 animal)
 (functional fatherOf)
 
-(comment flies
-         "(flies ?animal) means that ?animal can fly under its own power. True by default of birds, and for a flightless one the rule concluding it simply does not fire — the exceptWhen blocks it — so a penguin is a case the theory declines rather than a contradiction the KB has to arbitrate.")
-(unaryPredicate flies)
-(argIsa flies 1 animal)
+(comment flying
+         "Getting through the air under one's own power. A kind of travelling, so a kind that flies travels without that being written down twice.")
+(genl flying travelling)
 
 (comment grandparentOf
          "(grandparentOf ?grandparent ?grandchild) means that ?grandparent is a parent of a parent of ?grandchild. Derived by a joined rule over two parentOf facts rather than asserted, so it is believed exactly as long as both links are.")
@@ -90,6 +86,14 @@
 (instanceRelationPredicate grandparentOf)
 (argIsa grandparentOf 1 animal)
 (argIsa grandparentOf 2 animal)
+
+(comment hasCapability
+         "(hasCapability ?thing ?capability) means that ?thing can do ?capability. Read at BOTH levels, which is why it carries no relationKind: (hasCapability bird flying) says the kind flies, (hasCapability Tweety flying) says one bird does, and the two are joined by a rule rather than by either being the other. That is deliberate — a claim about a kind and a claim about a member are different claims, and moving between them needs a quantifier reading (every bird, or some bird) the KB will not guess. The first position takes argIsa and NOT argGenl, though it holds a kind half the time: argGenl is the one argument check that is not open-world about an individual — it knows a CapitalCamelCase name can never be a subtype of anything and convicts rather than abstaining — so the pair that would narrow a kind-only slot empties this one. argIsa admits both, a kind reaching animal through its own genl closure. Declared argPreserving along genl on the first position, which carries a claim about a kind down to its subkinds: a kind of bird flies with nothing written about it. Declared argPreservingInverse along genl on the second, which carries it UP the capability hierarchy: flying is a kind of travelling, so whatever flies travels.")
+(binaryPredicate hasCapability)
+(argIsa hasCapability 1 animal)
+(argGenl hasCapability 2 capability)
+(argPreserving hasCapability 1 genl)
+(argPreservingInverse hasCapability 2 genl)
 
 (comment livesIn
          "(livesIn ?animal ?place) means that ?animal makes its home in ?place. Where the animal belongs rather than where it is at this moment, which is what locatedIn says. A default rule carries the one to the other, so an animal that lives somewhere is taken to be there unless something better is known.")
@@ -147,6 +151,10 @@
 (argIsa siblingOf 1 animal)
 (argIsa siblingOf 2 animal)
 (symmetric siblingOf)
+
+(comment travelling
+         "Getting from one place to another under one's own power. The general capability flying is a kind of; a kind that can travel some other way states that way's capability under it too.")
+(genl travelling capability)
 
 (comment warmBlooded
          "(warmBlooded ?animal) means that ?animal holds its own body temperature rather than taking the temperature around it. Derived of the mammals and the birds and denied of the three cold-blooded classes, so it is never asserted of any particular animal — which is what makes it a worked example of a claim inherited from a kind rather than stated of a thing.")

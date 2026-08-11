@@ -122,9 +122,16 @@ So only a declaration written in the context being checked, or in `UniverseConte
 (which speaks for every context by construction), draws the entailment. Pure can express
 this because every supporter records the context it asserts from.
 
-This is also what keeps the shipped ontology quiet: the starter's `(argIsa parentOf 1
-animal)` lives in `LifeContext` while the cast lives in `NaturalWorldContext`, so nothing
-is minted there however the toggle is set.
+This is also what keeps the **cast** quiet: the starter's `(argIsa parentOf 1 animal)`
+lives in `LifeContext` while the individuals live in `NaturalWorldContext`, so nothing is
+minted over them however the toggle is set. The schema's own contexts are the other case
+and mint freely, because there a declaration and the facts it constrains are written side
+by side — `(genl animal thing)` sits in `CoreContext` beside `(argGenl genl 1 thing)`.
+Every argument position in the shipped ontology is declared, so the toggle-on starter load
+mints 222 memberships against 1571 stored (the table under [Cost](#cost)). The root's own
+`genl` supertype position is the single undeclared one, and `CoreContext` says why beside
+it: `thing` cannot be a proper subtype of itself, so the constraint the root would fail is
+the wrong constraint rather than a missing one.
 
 ### Nothing is withheld for redundancy
 
@@ -144,8 +151,8 @@ Both are belief varying with arrival order, which is the one thing it may not do
 and deduplication happens where it is a property of content: `find-or-create-sentex`
 gives one sentex per sentence, `has-justification?` one justification per pair.
 
-The consequence is stated as a test: `(dog Fido)` under `(genl dog animal)` already
-*reaches* `animal` by subsumption, and `(animal Fido)` is minted anyway. That the engine
+The consequence is stated as a test: `(dog Muffet)` under `(genl dog animal)` already
+*reaches* `animal` by subsumption, and `(animal Muffet)` is minted anyway. That the engine
 never materializes a supertype membership for *matching* is a different question —
 matching fans the functor over the spec closure and needs no record. Here the declaration
 makes the claim, and being a record is the whole of what this adds.
@@ -195,7 +202,7 @@ a finite set that never shrinks.
 | no declarations at all | 374–415 ms | 322–364 ms |
 | 20 declarations, none matching the facts | 286–316 ms | 294–340 ms |
 | every predicate declared (one mint per assert) | 317–336 ms | 609–673 ms, **2× the sentexes** |
-| the starter load | 257–299 ms, 749 sentexes | 187–233 ms, 802 sentexes |
+| the starter load | 585–638 ms, 1571 sentexes | 865–962 ms, 1793 sentexes |
 
 With the toggle **off** an assert reads one dynamic var and stops — the default path is
 untouched. With it **on** and nothing to do, on/off straddles parity, which is as precise
@@ -221,13 +228,16 @@ failing set (empty) in all sixteen runs. The disk arms matter here beyond storag
 parity: a minted type is a real record with a real justification, so they are what says
 `recover` rebuilds the same belief over it from the durable store.
 
-The toggle-on runs report **79 fewer assertions**, all of them in two oracles —
-`arg-root-retrieval-test` (49) and `matches-hierarchical-test` (30). Both draw a
-fixed-size sample of stored facts and generate one probe per blanked argument position.
-With the entailment on, the test world holds minted *unary* type facts, which displace
-binary facts from the sample and yield fewer probes each. Same sample size, same
-contract, different composition — and the two retrieval paths agree on both samples. It
-is not a test doing less; it is evidence the feature is putting content in the KB.
+The toggle-on run reports **6 fewer assertions** over the whole suite, and the small
+number hides larger movements that nearly cancel. The sampling oracles fall:
+`arg-root-retrieval-test` by 24 and `matches-hierarchical-test` by 132. Both draw a
+fixed-size sample of stored facts and generate one probe per blanked argument position,
+and with the entailment on the test world holds minted *unary* type facts, which displace
+binary facts from the sample and yield fewer probes each. The rest of the suite gains the
+balance back, for the same reason read the other way: a KB with more in it gives the
+namespaces that count what they find more to find. Same sample size, same contract,
+different composition — and the retrieval paths agree on both samples. It is not a test
+doing less; it is evidence the feature is putting content in the KB.
 
 `backend_parity_test` pins the toggle off inside its scripted session. That namespace's
 question is whether eight storage backends answer hand-written expectations alike, and

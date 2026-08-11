@@ -31,7 +31,8 @@
   path-consistent network can still be globally unsatisfiable outside an algebra's
   tractable subclass.  So a constraint that survives is *possible*, not *satisfiable*,
   and a non-entailment is \"not provable\", never \"provably false\"."
-  (:require [clojure.set :as set])
+  (:require [clojure.set :as set]
+            [vaelii.impl.caches :as caches])
   (:import [java.util ArrayDeque BitSet LinkedHashSet]))
 
 (defn constraint
@@ -219,6 +220,10 @@
          :ops      ops
          :encode   mask
          :decode   decode
+         ;; the atom `decode` closes over, carried out so it can be counted.  A cache
+         ;; reachable only through the closure that reads it is one nothing can report
+         ;; on, and this one is the largest of the three here (8,192 against 64)
+         :decode-cache cache
          :no-op?   (= uni (.compose ops uni uni))}))))
 
 (def ^:private compiled-cache
@@ -730,3 +735,36 @@
     (if-let [pair (::inconsistent outcome)]
       {:inconsistent pair :culprits (or (::culprits outcome) #{})}
       {:network (:net outcome) :support (:support outcome)})))
+
+;; ---- what the algebras hold, declared -----------------------------------
+;;
+;; Both are process-wide and shared by every KB: a calculus holds its algebra as one
+;; stable value, so the compiled form is keyed on that value and two KBs running Allen
+;; share one compilation and one decode table.  Neither offers a clear — dropping either
+;; costs a recompile and buys no measurement, since nothing counts a hit on them.
+
+(caches/register-cache
+ {:cache    :compiled-algebras
+  :label    "Compiled algebras"
+  :scope    :process
+  :unit     "algebras"
+  :limit    compiled-cache-limit
+  :counters nil
+  :note     (str "Each relation algebra's composition and converse tables, in bitmask "
+                 "form, keyed on the algebra itself. One entry per calculus in use, so "
+                 "this fills once and never turns over; the bound is for a caller "
+                 "building algebras on the fly.")
+  :read     (fn [_] {:entries (count @compiled-cache)})})
+
+(caches/register-cache
+ {:cache    :relation-decode
+  :label    "Relation decode tables"
+  :scope    :process
+  :unit     "masks"
+  :limit    decode-cache-limit
+  :counters nil
+  :note     (str "One decoded relation set per bitmask the tightening pass has handed "
+                 "back, held per compiled algebra — so the limit is per algebra and the "
+                 "count here is the total across all of them.")
+  :read     (fn [_] {:entries (reduce + 0 (map #(count @(:decode-cache %))
+                                               (vals @compiled-cache)))})})

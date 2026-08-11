@@ -137,14 +137,14 @@ name somebody by their role before it knows their name.
 It is read in **both** directions, and that is the point: a KB told only one of the two
 spellings can otherwise reason with only that one.
 
-- **value → term.** A believed `(motherOf Fido Mary)` reifies `(MotherFn Fido)` to
+- **value → term.** A believed `(motherOf Muffet Mary)` reifies `(MotherFn Muffet)` to
   `Mary`. The expression names the object the KB already has a name for rather than
   minting a second one beside it, so the correspondence is a *computed* `rewriteOf`
   target — the same seam, looked up through the predicate instead of declared per
   expression. It is consulted before the dedup probe, because a real term outranks a
   placeholder.
 - **term → value.** When no value is known, the mint proceeds and the constant is
-  **projected** back onto the predicate: `(motherOf Fido K)`, asserted with the rest of
+  **projected** back onto the predicate: `(motherOf Muffet K)`, asserted with the rest of
   `K`'s bookkeeping and *after* the result types, since the projected literal is
   argIsa-checked and `K`'s types are what it is checked against. So the placeholder
   answers `motherOf`'s questions instead of being a term nothing says anything about.
@@ -216,11 +216,47 @@ goal-rewrites to the new expression and still resolves to `K`.
 
 **Remove** is retraction. When the last live use of a reified NAT goes, its `termOfUnit` map
 and materialized types would dangle a raw `nat/` symbol — so `remove-orphaned-nats!`
-(run after `retract!`, gated, suppressed while already removing orphans) collects
-every constant whose only remaining believed sentexes are its own bookkeeping, looping
-to a fixpoint since removing a nested reified NAT can orphan another. A **correspondence
-projection** is bookkeeping for this: like a result type it states what the constant
-*is*, and counting it as a use would make every placeholder immortal.
+(run after `retract!` and `edit!`, gated, suppressed while already removing orphans)
+collects every constant whose only remaining believed sentexes are its own bookkeeping. A
+**correspondence projection** is bookkeeping for this: like a result type it states what
+the constant *is*, and counting it as a use would make every placeholder immortal.
+
+**Bookkeeping is decided by authorship, not by shape.** `K`'s own sentexes are its
+`termOfUnit` map plus exactly what `mint-nat!` wrote about it, and `nat/minted-for`
+re-derives that set the way the mint derived it: `(T K)` for each believed `(resultIsa F
+T)`, `(genl K T)` for each `(resultGenl F T)`, `F` being the function of the expression
+`K` maps to, and the correspondence projection. Everything else naming `K` is somebody's
+assertion whatever its arity — `(prime K)` is a claim about `K` exactly as `(noted Author
+K)` is, and a sweep reading arity alone would retract the claim along with the constant.
+The set is computed behind a **delay**, and the `termOfUnit` clause is what makes that
+pay: a constant a teardown collects has its map and nothing else left, so the common
+answer is reached without reading the declarations at all. The one constant this keeps
+alive that a shape test would have collected is one whose `resultIsa` declaration was
+retracted after the mint: the materialized `(T K)` is then a believed sentence no rule
+supports and nobody has withdrawn, and holding `K` for it is the direction to err in.
+
+**The sweep asks about the region the teardown removed, not about the KB.** A constant
+becomes an orphan only when something that referenced it goes, so the candidates are the
+constants the departing sentexes named (`constants-named-by`), and each is settled by one
+inverted-term-index read — `orphan?`, since a constant's uses, its map and its
+materialized types are all sentexes naming it ([indexing.md](indexing.md)). What a
+retraction costs is the size of what it removed, and a KB that has minted a hundred
+thousand NATs the retraction is not about adds nothing to it.
+
+The removals reach the sweep through `integrate/*removed-sink*`, the record the removal
+choke point fills while a teardown runs, because they arrive from three places: the
+dependency-directed sweep; the settle that follows it, where an exception that starts
+holding blocks a justification and what it solely supported is deleted
+([exceptions.md](exceptions.md)); and the orphan sweep's own retractions. The third is
+how **the region grows with the fixpoint** — removing an orphan removes the `termOfUnit`
+sentex holding its expression, so a reified NAT nested in that expression is a candidate
+on the next round. A cascade is therefore found by the rule that found the first orphan,
+and the loop ends on the round that removes nothing.
+
+`preview`'s rollback is the one caller that asks the whole KB instead
+(`orphaned-constants`): the batch it undoes runs with the settle sweep off
+([preview.md](preview.md)) and reaches the orphan sweep at no point, so the claim it owes
+— the KB is as it was found — is about all of it rather than about one teardown's region.
 
 ## Where it lives
 
@@ -229,12 +265,16 @@ projection** is bookkeeping for this: like a result type it states what the cons
   `rewrite-target`, `result-isa-types` / `result-genl-types`,
   `correspondence-of` / `correspondence-value` / `corresponding-literal`),
   `expand-expression`, the shared reify walk in both modes, `mint-nat!`, and the
-  rename / remove / correspondence maintenance. Reads the store, taxonomy and belief
-  directly, and reaches assertion through `wiring/assert-sentence`.
+  rename / remove / correspondence maintenance — the orphan questions among it
+  (`orphan?` per constant, `orphaned-among` over a region, `orphaned-constants` over the
+  KB, `constants-named-by` / `reified-nats-in` for the candidates). Reads the store,
+  taxonomy and belief directly, and reaches assertion through `wiring/assert-sentence`.
 - `vaelii.core` — the reify call sites: the write-path reify at the head of `assert`,
   the read-path reify at the query entries, the post-assert maintenance hooks
   (`merge-colliding-nats!`, `reconcile-correspondence!`), and `remove-orphaned-nats!`
-  on the `retract!` sweep.
+  on the `retract!` and `edit!` sweeps.
+- `vaelii.impl.integrate` — `*removed-sink*`, the removal choke point's record of what a
+  teardown took away, which is the region the orphan sweep runs over.
 - `vaelii.impl.special` — the two function-kind prop marks, the correspondence's
   wff-only entry, and the equality-arm skip for a compound-arg `rewriteOf`.
 - `vaelii.impl.wff` — `function-decl-problems`, `correspondence-problems`, the

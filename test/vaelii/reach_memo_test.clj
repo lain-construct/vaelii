@@ -1,18 +1,27 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.reach-memo-test
-  "The per-query memo for a transitive predicate's closure lookups
-  (`observe/*reach-memo*`).  A rule with two transitive antecedents solves the second
-  once per binding of the join variable; without the memo each solve re-walks the
-  closure over the nodes many seeds share.  The memo — opened once per backward search
-  (`observe/with-search-scope`) — collapses those repeated neighbour lookups to one store hit per node,
-  and (being fresh per query, over a KB a query never mutates) can never go stale."
+  "The two caches over a transitive predicate's closure, which hold different things at
+  different scopes.
+
+  **`observe/*reach-memo*`** holds one node's neighbours for the length of a search step.
+  A rule with two transitive antecedents solves the second once per binding of the join
+  variable; without the memo each solve re-walks the closure over the nodes many seeds
+  share.  Opened once per backward search (`observe/with-search-scope`), it collapses
+  those repeated lookups to one store hit per node, and — being fresh per query, over a
+  KB a query never mutates — can never go stale.
+
+  **`:closure-answers`** holds a whole reach, on the KB, across asks.  That one *can* go
+  stale, so everything able to move an answer has to retire it, and the tests below are
+  mostly about the ways an answer moves: belief, retraction, a later edge, a later
+  sub-predicate, and the vantage a reader stands at."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
-            [vaelii.test-util :as tu]))
+            [vaelii.test-util :as tu])
+  (:import [java.util.concurrent.atomic AtomicLong]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
@@ -71,3 +80,145 @@
               ;; ~11 distinct nodes each probed once; un-memoized is ~66 (11+10+…+1)
               (is (< @calls 25)
                   (str "closure lookups " @calls " should be ~linear, not quadratic")))))))))
+
+;; ---- the closure ANSWER cache (`:closure-answers`) -----------------------
+;;
+;; The memo above holds one node's neighbours for the length of a search step.  This one
+;; holds a whole reach, on the KB, across asks — so everything that can move an answer
+;; has to move it, and every one of those is a clock move rather than an invalidation
+;; this cache knows how to perform.  The belief case is the one that is silent when it is
+;; wrong: a stale closure answers plausibly.
+
+(defn- ancestors-of
+  [kb pred x context]
+  (set (map #(get % '?y) (v/ask kb (list pred x '?y) context))))
+
+(defn- counting-neighbour-probes
+  "A `matches-visible` that tallies only the walk's own neighbour probes — the ones
+  carrying `?rv`.  A second ask that issues none was answered from the closure cache."
+  [^AtomicLong n]
+  (let [orig res/matches-visible]
+    (fn [kb s c]
+      (when (and (sequential? s) (some #(= '?rv %) s)) (.incrementAndGet n))
+      (orig kb s c))))
+
+(tu/deftest-kb a-defeated-edge-moves-the-cached-closure
+  ;; Write this one first: a closure held across a relabel is the failure that reports a
+  ;; plausible answer rather than an error.  A relabel moves the change clock, which is
+  ;; what retires the entry — nothing here looks for the entry the edge was in.
+  (tu/with-terms [before A B C FarmContext]
+    (v/assert kb (list 'genlContext FarmContext 'UniverseContext) 'UniverseContext)
+    (v/assert kb (list 'transitive before) FarmContext)
+    (v/assert kb (list before A B) FarmContext)
+    (v/assert kb (list before B C) FarmContext)
+    (is (= #{B C} (ancestors-of kb before A FarmContext)) "the closure, computed and held")
+    ;; the middle edge is defeated rather than removed: the sentex stays stored and goes
+    ;; OUT, which is the move a cache keyed on the store alone would not see
+    (v/assert kb (list 'not (list before B C)) FarmContext {:strength :monotonic})
+    (is (= #{B} (ancestors-of kb before A FarmContext))
+        "the closure shrinks with belief, and does not answer out of the held set")))
+
+(tu/deftest-kb a-retracted-edge-moves-the-cached-closure
+  (tu/with-terms [before A B C FarmContext]
+    (v/assert kb (list 'transitive before) FarmContext)
+    (v/assert kb (list before A B) FarmContext)
+    (let [h (v/assert kb (list before B C) FarmContext)]
+      (is (= #{B C} (ancestors-of kb before A FarmContext)))
+      (v/retract! kb h)
+      (is (= #{B} (ancestors-of kb before A FarmContext))))))
+
+(tu/deftest-kb a-new-edge-extends-a-closure-already-answered
+  (tu/with-terms [before A B C FarmContext]
+    (v/assert kb (list 'transitive before) FarmContext)
+    (v/assert kb (list before A B) FarmContext)
+    (is (= #{B} (ancestors-of kb before A FarmContext)))
+    (v/assert kb (list before B C) FarmContext)
+    (is (= #{B C} (ancestors-of kb before A FarmContext)) "the held answer did not survive the assert")))
+
+(tu/deftest-kb a-sub-predicate-edge-arriving-later-extends-the-closure
+  ;; The walk fans its functor over the genl spec closure, so an edge stored under a
+  ;; sub-predicate is a hop.  A genl edge is an assert like any other, so the clock moves
+  ;; and the held answer goes with it.
+  (tu/with-terms [before strictlyBefore A B C FarmContext]
+    (v/assert kb (list 'transitive before) FarmContext)
+    (v/assert kb (list before A B) FarmContext)
+    (v/assert kb (list strictlyBefore B C) FarmContext)
+    (is (= #{B} (ancestors-of kb before A FarmContext)))
+    (v/assert kb (list 'genl strictlyBefore before) FarmContext)
+    (is (= #{B C} (ancestors-of kb before A FarmContext))
+        "the sub-predicate's edge is now a hop, and the held closure did not hide it")))
+
+(tu/deftest-kb two-contexts-that-see-different-edges-get-different-closures
+  ;; The vantage is in the key.  Without it the first context asked would answer for the
+  ;; second, which is the quietest possible wrong answer.
+  (tu/with-terms [before A B C BaseContext SideContext]
+    (v/assert kb (list 'genlContext SideContext BaseContext) 'UniverseContext)
+    (v/assert kb (list 'transitive before) BaseContext)
+    (v/assert kb (list before A B) BaseContext)
+    (v/assert kb (list before B C) SideContext)             ; only the narrower view sees it
+    (is (= #{B} (ancestors-of kb before A BaseContext)) "the base sees one hop")
+    (is (= #{B C} (ancestors-of kb before A SideContext)) "and the side context sees two")
+    (is (= #{B} (ancestors-of kb before A BaseContext)) "and asking again does not swap them")))
+
+(tu/deftest-kb a-repeated-closure-ask-walks-nothing
+  (tu/with-terms [before FarmContext]
+    (v/assert kb (list 'transitive before) FarmContext)
+    (let [nodes (vec (repeatedly 8 tu/tmp-ind))]
+      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) FarmContext))
+      (let [n (AtomicLong. 0)]
+        (with-redefs [res/matches-visible (counting-neighbour-probes n)]
+          (let [first-answer (ancestors-of kb before (nodes 0) FarmContext)
+                walked       (.get n)]
+            (.set n 0)
+            (is (= first-answer (ancestors-of kb before (nodes 0) FarmContext))
+                "the same answer")
+            (is (pos? walked) "the first ask walked")
+            (is (zero? (.get n)) "and the second walked nothing at all")))))))
+
+(tu/deftest-kb a-closed-goal-reads-the-cache-without-filling-it
+  ;; The asymmetry: an entry answers a pair by membership, and a closed goal that misses
+  ;; keeps its early exit rather than building the whole extent to store one.
+  (tu/with-terms [before FarmContext]
+    (v/assert kb (list 'transitive before) FarmContext)
+    (let [nodes (vec (repeatedly 8 tu/tmp-ind))]
+      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) FarmContext))
+      (testing "a closed goal alone leaves the cache empty"
+        (v/clear-caches kb)
+        (is (v/ask? kb (list before (nodes 0) (nodes 7)) FarmContext))
+        (is (zero? (count (:entries @(:closures kb))))))
+      (testing "and once an open ask has filled it, a pair from that node is answered from the set"
+        (ancestors-of kb before (nodes 0) FarmContext)
+        (let [n (AtomicLong. 0)
+              stranger (tu/tmp-ind)]                        ; in no edge, so in no reach
+          (with-redefs [res/matches-visible (counting-neighbour-probes n)]
+            (is (v/ask? kb (list before (nodes 0) (nodes 7)) FarmContext))
+            (is (not (v/ask? kb (list before (nodes 0) stranger) FarmContext)))
+            (is (zero? (.get n)) "neither answer walked — both came out of the held set"))))
+      (testing "a pair from a node no ask has filled still walks, and still stops early"
+        (let [n (AtomicLong. 0)]
+          (with-redefs [res/matches-visible (counting-neighbour-probes n)]
+            (is (not (v/ask? kb (list before (nodes 7) (nodes 0)) FarmContext)))
+            (is (pos? (.get n)) "the miss falls through to the walk rather than inventing one")))))))
+
+(tu/deftest-kb a-closure-past-the-bound-is-not-held
+  ;; The bound counts members, because an entry is a whole reach: bounding entries would
+  ;; bound nothing.  A reach bigger than the bound is never stored at all — it is the
+  ;; case the bound exists for.
+  (tu/with-terms [before FarmContext]
+    (v/assert kb (list 'transitive before) FarmContext)
+    (let [nodes (vec (repeatedly 8 tu/tmp-ind))]
+      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) FarmContext))
+      (binding [provers/*closure-answer-limit* 3]
+        (v/clear-caches kb)
+        (is (= 7 (count (ancestors-of kb before (nodes 0) FarmContext)))
+            "the answer is the whole reach whether or not it is held")
+        (is (zero? (count (:entries @(:closures kb))))
+            "and a reach of 7 members is not held under a bound of 3"))
+      (testing "a total that reaches the bound drops the map rather than evicting"
+        (binding [provers/*closure-answer-limit* 5]
+          (v/clear-caches kb)
+          (ancestors-of kb before (nodes 5) FarmContext)     ; 2 members
+          (ancestors-of kb before (nodes 4) FarmContext)     ; 3 more, total 5
+          (is (pos? (count (:entries @(:closures kb)))))
+          (ancestors-of kb before (nodes 3) FarmContext)     ; 4 more, over the bound
+          (is (zero? (count (:entries @(:closures kb))))))))))

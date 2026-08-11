@@ -671,7 +671,11 @@ none. See [canonicalization.md](canonicalization.md).
 **`violations`** ![inference](../.github/badges/cat-inference.svg): The
 accumulating ledger of conclusions *dropped* on the derivation path — a failed
 argIsa / disjoint / functional check, a placement-less firing, or a derived
-cycle through negation — recorded rather than thrown. See [inference.md](inference.md).
+cycle through negation — recorded rather than thrown. Four kinds drop nothing
+and report: a retroactive `:arity` reach, a `:non-confluent` pair of equations,
+and the two that say a bounded sweep did not finish — `:exposure-truncated`
+(clashes went unreported) and `:arbitration-truncated` (content a declaration
+implicates went undecided). See [inference.md](inference.md), [nmtms.md](nmtms.md).
 
 **Visibility (genlContext up-closure)** ![kb](../.github/badges/cat-kb.svg):
 Which sentexes a context can use — those asserted in it or in any context it sees

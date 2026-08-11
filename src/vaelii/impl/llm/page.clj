@@ -30,14 +30,48 @@
   (:require [clojure.string :as str]
             [vaelii.core :as v]
             [vaelii.impl.llm.inventory :as inventory]
-            [vaelii.impl.llm.selection :as selection]))
+            [vaelii.impl.llm.selection :as selection]
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.sentex :as sx]))
 
 ;; ---- what the page already says -----------------------------------------
 
+(defn- scanned
+  "The first `n` sentexes mentioning `term`, **oldest first** — the candidates
+  `stored-lines` sorts by content and cuts to its line bound.
+
+  The term index answers with a *set* of handles, so a scan that took whatever it
+  enumerated first would sample the term's knowledge by hash of handle: an order no reader
+  can name, and one that moves with the index's representation.  Sorting the handles ahead
+  of the fetch makes the sample the term's earliest `n` mentions instead — one answer per
+  knowledge base, on every backend and every read.  The set is materialized by the index
+  either way, so this costs a sort over handles and not one extra record fetch.
+
+  A **compound** term is narrowed by the atoms it holds and each candidate verified against
+  its own sentence, which is `vaelii.core/find-sentexes`' work rather than this
+  namespace's, so one is scanned in the order the index answered.  A page's term is a
+  name."
+  [kb term n]
+  (if (symbol? term)
+    (into [] (comp (map #(p/get-sentex (:records kb) %)) (remove nil?))
+          (take n (sort (p/sentexes-with-term (:index kb) (sx/canon term)))))
+    (into [] (take n) (v/find-sentexes kb term))))
+
+(defn- line-of
+  "The sentence as the one string the prompt shows, deduplicates on, and sorts by.
+
+  Printed with the print bounds released: `*print-length*` or `*print-level*` bound by a
+  caller would elide the tail of a line the model is asked to read as knowledge, and two
+  sentences agreeing up to the elision would collapse into one key."
+  [sentence]
+  (binding [*print-length* nil *print-level* nil]
+    (pr-str sentence)))
+
 (defn stored-lines
-  "What the term page shows, as `[{:handle :sentence :context :line} …]` — every stored
-  sentex mentioning the term, bounded by `:max-lines` (40) and sorted by content so the
-  prompt is a function of the KB rather than of index order.
+  "What the term page shows, as `[{:handle :sentence :context :line} …]` — the stored
+  sentexes mentioning the term, deduped and **sorted by content before `:max-lines` (40)
+  cuts**, so which of what was scanned the model is shown is a function of the KB rather
+  than of the order the knowledge arrived in.
 
   Rendered as **bare sentences**: the context is deliberately absent, because the answer
   shape has no context in it either and showing one invites the model to write one.  A
@@ -46,23 +80,36 @@
   raw handle, which is engine bookkeeping and not something to show a model, let alone ask
   it to imitate.
 
-  The read is the inverted term index walked lazily, so a term mentioned by a million
-  sentexes costs `max-lines` record fetches."
+  **`:max-scan` (4000) is the cost bound, and it is the one thing here that is not a
+  content choice.**  Content order is what a cap has to key on, so the sort must happen
+  over everything the cut chooses between — which means fetching it.  Below the bound the
+  page is therefore a function of the knowledge alone: the same sentences loaded in any
+  order give the same lines.  At the bound it is a **sample**, and `scanned` decides which
+  one — the term's earliest mentions, since what a sentence says cannot be known without
+  fetching it and fetching all of them is the cost the bound refuses.  A page term
+  mentioned more often than that is a term whose page is already a sample, so the scan
+  stops and the answer says so: the metadata carries `:found` (distinct lines within the
+  scan) and `:truncated?`, and `user-turn` writes both into the heading rather than
+  letting 40 lines read as the whole of what is stored.  Ten record fetches per line shown
+  is noise beside the model call this prompt is built for; a million is not."
   ([kb term] (stored-lines kb term {}))
-  ([kb term {:keys [max-lines] :or {max-lines 40}}]
-   (->> (v/find-sentexes kb term)
-        (take (* 4 max-lines))
-        (map (fn [s] {:handle (:id s)
-                      :sentence (selection/wrapped-sentence s)
-                      :context (:context s)}))
-        (remove #(some (fn [f] (= 'sentexHandle f))
-                       (tree-seq sequential? seq (:sentence %))))
-        (map #(assoc % :line (pr-str (:sentence %))))
-        (sort-by :line)
-        (partition-by :line)
-        (map first)
-        (take max-lines)
-        vec)))
+  ([kb term {:keys [max-lines max-scan] :or {max-lines 40 max-scan 4000}}]
+   ;; one past the bound, so the take says both how much was wanted and whether there
+   ;; was more — the same reading `settle`'s budgeted sweeps take of theirs
+   (let [raw   (scanned kb term (inc max-scan))
+         cut?  (> (count raw) max-scan)
+         lines (->> (cond-> raw cut? (subvec 0 max-scan))
+                    (map (fn [s] {:handle (:id s)
+                                  :sentence (selection/wrapped-sentence s)
+                                  :context (:context s)}))
+                    (remove #(some (fn [f] (= 'sentexHandle f))
+                                   (tree-seq sequential? seq (:sentence %))))
+                    (map #(assoc % :line (line-of (:sentence %))))
+                    (sort-by :line)
+                    (partition-by :line)
+                    (map first))]
+     (with-meta (vec (take max-lines lines))
+       {:found (count lines) :truncated? cut?}))))
 
 (defn page-context
   "The context new assertions are filed in: the caller's `:context` when given, else the
@@ -116,6 +163,25 @@
     "notes" {"type" "string"
              "description" "Anything you were unsure of, or vocabulary you had to invent. One or two sentences."}}
    "required" ["assertions"]})
+
+(defn stored-heading
+  "How many of the term's stored lines the prompt is showing — `40`, `40 of 137`, or
+  `40 of more than 137`.
+
+  A bare count of what is on screen reads as the whole of what is stored, and the model
+  is asked in the same breath not to repeat anything already there.  Where the cut or
+  `stored-lines`' scan bound bit, saying so is what keeps that instruction honest: a
+  model shown a sample and told it is one writes about the gaps rather than assuming it
+  has seen them.  Reads `stored-lines`' metadata, and answers the plain count for rows
+  built without it."
+  [rows]
+  (let [{:keys [found truncated?]} (meta rows)
+        shown (count rows)]
+    (cond (nil? found)              (str shown)
+          (and (= shown found)
+               (not truncated?))    (str shown)
+          truncated?                (str shown " of more than " found)
+          :else                     (str shown " of " found))))
 
 ;; ---- the instruction half -----------------------------------------------
 
@@ -172,7 +238,7 @@
    "| role | form | example |\n"
    "|---|---|---|\n"
    "| predicate | camelCase | `livesIn`, `capableOf` |\n"
-   "| individual | CapitalCamelCase | `Antarctica`, `Fido` |\n"
+   "| individual | CapitalCamelCase | `Antarctica`, `Muffet` |\n"
    "| type | snake_case, used as a **unary** predicate | `aquatic_bird`, `physical_object` |\n\n"
    "**Detail belongs in arguments, never in a predicate name.** This is the one rule that "
    "matters most, because breaking it produces answers that look right and are useless: a "
@@ -195,8 +261,11 @@
 
   `opts` is passed through to `vaelii.impl.llm.inventory/inventory` and `render`
   (`:max-predicates`, `:max-types`, `:max-tokens`, …) and to `stored-lines`
-  (`:max-lines`).  `:max-assertions` (24) caps what is asked for, which is what bounds
-  the answer's length and so its latency."
+  (`:max-lines`, `:max-scan`).  `:max-assertions` (24) caps what is asked for, which is
+  what bounds the answer's length and so its latency.
+
+  The stored block's heading is `stored-heading`'s rather than a bare count, so a capped
+  page reads as capped."
   ([kb term rows context instruction] (user-turn kb term rows context instruction {}))
   ([kb term rows context instruction {:keys [max-assertions] :or {max-assertions 24}
                                       :as opts}]
@@ -205,7 +274,7 @@
           " (" (name (or (inventory/term-kind kb term) :unknown)) ")\n\n"
           "New assertions are filed in " (selection/tick context) ".\n\n"
           "## Already stored about " (selection/tick term)
-          " (" (count rows) ")\n\n"
+          " (" (stored-heading rows) ")\n\n"
           (if (seq rows)
             (str/join "\n" (map :line rows))
             "_nothing yet_")

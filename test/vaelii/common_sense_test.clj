@@ -45,7 +45,7 @@
     (is (v/ask? kb '(childOf Ann Bob)))                 ; inverse of parentOf
     (is (v/ask? kb '(siblingOf Carol Ann))))            ; symmetric
   (testing "the mortality default reaches an individual known only by a subtype"
-    (is (seq (v/sentexes-matching kb '(mortal Fido) 'NaturalWorldContext)))))
+    (is (seq (v/sentexes-matching kb '(mortal Muffet) 'NaturalWorldContext)))))
 
 (tu/deftest-kb one-thing-cannot-be-two-kinds-that-exclude-each-other
   ;; Common sense says a dog is not a cat.  The KB says it twice over: once from a
@@ -56,11 +56,11 @@
     (is (v/disjoint? kb 'dog 'cat))
     (is (v/disjoint? kb 'penguin 'dog)))
   (testing "and the KB refuses the membership rather than storing a contradiction"
-    (is (= :disjoint (refusal kb '(cat Fido) N)))
+    (is (= :disjoint (refusal kb '(cat Muffet) N)))
     (is (= :disjoint (refusal kb '(dog Tweety) N))))
   (testing "what nothing rules out stays open — an open world, not a closed one"
     (is (not (v/disjoint? kb 'dog 'food)))
-    (is (not (v/isa? kb 'Fido 'food)))))
+    (is (not (v/isa? kb 'Muffet 'food)))))
 
 (tu/deftest-kb a-size-claim-about-two-kinds-reaches-the-kinds-beneath-them
   ;; (largerThan mammal insect) is stated; nothing is stated about dogs or ants.  The
@@ -89,7 +89,7 @@
 ;; ---- what follows from how a thing is used ------------------------------
 
 (tu/deftest-kb type-inferred-from-how-a-thing-is-used
-  ;; Bone1 is never given a type; it is only ever eaten by Fido. Because
+  ;; Bone1 is never given a type; it is only ever eaten by Muffet. Because
   ;; (argIsa eats 2 food), we can infer Bone1 is food — and, by genl, a
   ;; physical_object and a thing — without ever storing those memberships.
   (testing "the type is not stored, only inferable"
@@ -99,7 +99,7 @@
     (is (v/ask? kb '(physical_object Bone1)))            ; a supertype of food
     (is (not (v/ask? kb '(vehicle Bone1)))))            ; but only what actually follows
   (testing "asking for all of an individual's inferred types"
-    (is (= '#{food physical_object thing}
+    (is (= '#{food physical_object spatial_thing thing}
            (set (map #(get % '?t) (v/ask kb '(?t Bone1) '?ctx)))))))
 
 ;; ---- arithmetic, and the ordering derived from it ------------------------
@@ -137,11 +137,11 @@
   ;; flying ⇒ can travel (strict). An eagle flies by default, so it can travel;
   ;; a penguin's flight is defeated, so the downstream conclusion never holds.
   (testing "the eagle inherits can-travel through the flight default"
-    (is (v/ask? kb '(flies Sam)))
-    (is (seq (v/sentexes-matching kb '(canTravel Sam) 'NaturalWorldContext))))
+    (is (v/ask? kb '(hasCapability Sam flying)))
+    (is (seq (v/sentexes-matching kb '(hasCapability Sam travelling) 'NaturalWorldContext))))
   (testing "the penguin, defeated on flight, does not get can-travel"
-    (is (empty? (v/sentexes-matching kb '(flies Tweety) 'NaturalWorldContext)))
-    (is (empty? (v/sentexes-matching kb '(canTravel Tweety) 'NaturalWorldContext)))))
+    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety flying) 'NaturalWorldContext)))
+    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety travelling) 'NaturalWorldContext)))))
 
 (tu/deftest-kb being-told-an-animal-is-asleep-takes-back-what-was-assumed
   ;; Every animal is awake by default, which is the reading a story assumes without
@@ -159,7 +159,7 @@
     (testing "with no contradiction to report — a defeated default is not a clash"
       (is (empty? (v/conflicts kb))))
     (testing "and the neighbour's default is untouched"
-      (is (seq (v/sentexes-matching kb '(awake Fido) N))))))
+      (is (seq (v/sentexes-matching kb '(awake Muffet) N))))))
 
 (tu/deftest-kb known-true-beats-a-default-and-two-defaults-are-left-standing
   ;; What a KB does when told the opposite of what it assumed depends entirely on how
@@ -246,7 +246,7 @@
         (is (nil? (v/handle-of kb (list 'asleep Rex) (:context r))))
         (is (not (v/provable? kb (list 'not (list 'awake Rex)) N)))))
     (testing "a dead end nothing grants is reported, not assumed"
-      (let [r (v/abduce kb (list 'flies Rex) N)]
+      (let [r (v/abduce kb (list 'hasCapability Rex 'flying) N)]
         (is (empty? (:hypotheses r)))
         (is (= [(list 'bird Rex)] (:refused r)))))))
 
@@ -355,15 +355,15 @@
   ;; Nobody states heavierThan.  It is a backward rule over two weightOf measures, so
   ;; it holds exactly while both weights do — the same shape olderThan has over two
   ;; birth years, one dimension up.
-  (v/assert kb '(weightOf Fido (QuantityFn 20 Kilogram)) N)
+  (v/assert kb '(weightOf Muffet (QuantityFn 20 Kilogram)) N)
   (v/assert kb '(weightOf Whiskers (QuantityFn 4500 Gram)) N)
   (testing "the dog outweighs the cat, in units nobody bothered to match"
-    (is (v/query? kb '(heavierThan Fido Whiskers) N {:max-depth 2}))
-    (is (not (v/query? kb '(heavierThan Whiskers Fido) N {:max-depth 2}))))
+    (is (v/query? kb '(heavierThan Muffet Whiskers) N {:max-depth 2}))
+    (is (not (v/query? kb '(heavierThan Whiskers Muffet) N {:max-depth 2}))))
   (testing "an animal with no weight on record is not ordered against anything"
-    (is (not (v/query? kb '(heavierThan Fido Sam) N {:max-depth 2}))))
+    (is (not (v/query? kb '(heavierThan Muffet Sam) N {:max-depth 2}))))
   (testing "and a second, different weight is a contradiction rather than a second fact"
-    (is (= :functional (refusal kb '(weightOf Fido (QuantityFn 30 Kilogram)) N)))))
+    (is (= :functional (refusal kb '(weightOf Muffet (QuantityFn 30 Kilogram)) N)))))
 
 ;; ---- where a thing is ---------------------------------------------------
 
@@ -406,10 +406,10 @@
   ;; conclusion is a lookup because forward chaining already ran, and an ordering
   ;; nobody stored is a proof.
   (testing "a stored membership, and a default that already fired, are both reads"
-    (is (= 2 (:level (v/escalate kb '(dog Fido) N))))
-    (is (= 2 (:level (v/escalate kb '(mortal Fido) N)))))
+    (is (= 2 (:level (v/escalate kb '(dog Muffet) N))))
+    (is (= 2 (:level (v/escalate kb '(mortal Muffet) N)))))
   (testing "an ordering derived on demand is a backward proof"
     (is (= 7 (:level (v/escalate kb '(olderThan Tom Bob) S)))))
   (testing "and every level agrees about what is true, whatever it costs"
-    (is (v/ask? kb '(mortal Fido)))
-    (is (v/provable? kb '(mortal Fido) N))))
+    (is (v/ask? kb '(mortal Muffet)))
+    (is (v/provable? kb '(mortal Muffet) N))))

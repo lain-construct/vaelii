@@ -158,8 +158,13 @@
   and a candidate is arbitrary text's output — so a sentence too malformed to look up simply
   does not match."
   [kb context sentence]
+  ;; `Throwable`, not `Exception`: canonicalizing recurses a level per level of nesting,
+  ;; so a candidate a few hundred deep — well inside what the reader that produced it
+  ;; reads without complaint — overflows the stack, and an `Exception` catch lets that
+  ;; `StackOverflowError` out of a lookup whose whole answer for a sentence it cannot key
+  ;; on is nil, killing the scoring run instead.
   (try (v/handle-of kb sentence context)
-       (catch Exception _ nil)))
+       (catch Throwable _ nil)))
 
 (defn- counts
   "Precision, recall and F1 from three counts.  `derivable` comes **out of precision's

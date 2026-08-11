@@ -28,11 +28,12 @@
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [vaelii.impl.llm.protocol :as proto])
-  (:import [java.net URI]
+  (:import [java.io BufferedReader InputStream InputStreamReader]
+           [java.net URI]
            [java.net.http HttpClient HttpClient$Builder HttpRequest HttpRequest$Builder
             HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers]
-           [java.time Duration]
-           [java.util.stream Stream]))
+           [java.nio.charset StandardCharsets]
+           [java.time Duration]))
 
 (def default-host
   "The Ollama this backend talks to unless told otherwise — Ollama's own default address,
@@ -188,6 +189,66 @@
   (if-let [e (and (map? m) (get m "error"))]
     (throw (ex-info (str "Ollama error: " e) {:type :llm-api-error :error e}))
     m))
+
+(defn- excerpt
+  "The opening of a body, for an exception's data.  A response can be megabytes and what
+  says *why* it would not parse is its first line, so the bound costs no diagnosis."
+  [^String s]
+  (when s (subs s 0 (min (.length s) 200))))
+
+(defn- decode
+  "A JSON body -> data.  Every refusal in this namespace carries a `:type`, and a 200
+  whose body is not JSON is one: a caller discriminates on the keyword, and the JSON
+  library's own exception is not something to discriminate on.  A proxy in front of the
+  host answering HTML is the case that reaches here.  The text stays out of the message
+  and rides bounded in `:excerpt`."
+  [^String text status]
+  (try
+    (json/parse-string text)
+    (catch Exception e
+      (throw (ex-info (str "the Ollama host answered " status
+                           " with a body that is not JSON")
+                      {:type :llm-bad-response :status status :excerpt (excerpt text)}
+                      e)))))
+
+(defn- watchdog
+  "A daemon thread that runs `on-expiry` once `ms` have passed; interrupt it to cancel.
+  Daemon because a stalled read must never be the reason a JVM cannot exit."
+  ^Thread [ms on-expiry]
+  (doto (Thread. ^Runnable (fn []
+                             (try
+                               (Thread/sleep (long ms))
+                               (on-expiry)
+                               (catch InterruptedException _ nil)
+                               (catch Exception _ nil)))
+                 "vaelii-ollama-deadline")
+    (.setDaemon true)
+    (.start)))
+
+(defn- under-read-deadline
+  "Run `f` under a hard deadline on **reading** a response body: a daemon watchdog runs
+  `on-expiry` — closing the body, which is what makes a blocked read fail — once `ms` have
+  passed, and a failure raised after it fires is reported as `:llm-timeout` rather than as
+  whatever a closed socket happened to raise.
+
+  The request's own `.timeout` bounds the response *arriving*, and a streamed turn is
+  almost entirely what comes after that: the chunks are pulled off the socket once `send`
+  has returned.  This is what stops a host that goes quiet mid-answer — a model evicted
+  under memory pressure is the way that happens locally — from holding the calling thread
+  for as long as it keeps the connection half-open.  `f` consumes its lines eagerly, so
+  returning from it means the body is read."
+  [ms on-expiry f]
+  (let [expired (atom false)
+        ^Thread wd (watchdog ms (fn [] (reset! expired true) (on-expiry)))]
+    (try
+      (f)
+      (catch Exception e
+        (if @expired
+          (throw (ex-info (str "the Ollama host stopped answering while its response "
+                               "was being read")
+                          {:type :llm-timeout :timeout-ms ms}))
+          (throw e)))
+      (finally (.interrupt wd)))))
 
 ;; ---- probes -------------------------------------------------------------
 
@@ -424,7 +485,7 @@
         status (.statusCode resp)
         text   ^String (.body resp)]
     (if (<= 200 status 299)
-      (parse-response (throw-on-error-field (json/parse-string text)))
+      (parse-response (throw-on-error-field (decode text status)))
       (throw (api-error status text)))))
 
 (defn- collect
@@ -462,19 +523,28 @@
   (let [^HttpClient http (:http conn)
         payload (body (merge (select-keys conn [:model :num-ctx :keep-alive]) request)
                       {:stream? true})
+        ;; taken before the send, so `:timeout-ms` bounds the whole turn rather than the
+        ;; headers and then the body for that long again
+        deadline (+ (System/currentTimeMillis) (long (:timeout-ms conn)))
         ^HttpResponse resp (.send http (.build (post-builder conn "/api/chat" payload))
-                                  (HttpResponse$BodyHandlers/ofLines))
+                                  (HttpResponse$BodyHandlers/ofInputStream))
         status (.statusCode resp)
-        lines  (iterator-seq (.iterator ^Stream (.body resp)))]
-    (when-not (<= 200 status 299)
-      (throw (api-error status (str/join "\n" lines))))
-    (on-event {:type :block-start :block {:type :text}})
-    (let [chunks   (->> lines
-                        (remove str/blank?)
-                        (map #(throw-on-error-field (json/parse-string ^String %))))
-          response (collect chunks on-event)]
-      (on-event {:type :done :response response})
-      response)))
+        ^InputStream in (.body resp)]
+    (under-read-deadline
+     (max 1 (- deadline (System/currentTimeMillis)))
+     #(.close ^InputStream in)
+     (fn []
+       (with-open [rdr (BufferedReader. (InputStreamReader. in StandardCharsets/UTF_8))]
+         (let [lines (line-seq rdr)]
+           (when-not (<= 200 status 299)
+             (throw (api-error status (str/join "\n" lines))))
+           (on-event {:type :block-start :block {:type :text}})
+           (let [chunks   (->> lines
+                               (remove str/blank?)
+                               (map #(throw-on-error-field (decode ^String % status))))
+                 response (collect chunks on-event)]
+             (on-event {:type :done :response response})
+             response)))))))
 
 ;; ---- the provider -------------------------------------------------------
 
@@ -486,7 +556,9 @@
     :num-ctx     default `VAELII_OLLAMA_NUM_CTX`, else `default-num-ctx`
     :keep-alive  how long the host holds the model resident (default
                  `configured-keep-alive`, 30 minutes)
-    :timeout-ms  default 300000 — a cold model load on a 14B is tens of seconds
+    :timeout-ms  default 300000 — a cold model load on a 14B is tens of seconds.  Bounds
+                 the whole turn, the streamed body included, so a host that goes quiet
+                 mid-answer releases the thread rather than holding it
 
   `:model` / `:num-ctx` here are defaults a request may override.  Nothing is validated
   at construction: building a provider opens no socket, so a caller that must know the

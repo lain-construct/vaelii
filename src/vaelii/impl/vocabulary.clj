@@ -64,6 +64,7 @@
     genlContext {:enforced "taxonomy/add-genlContext — the visibility closure a context read walks"}
     thing       {:enforced "checks — the hierarchy root the open-world floors test against by name"}
     predicate   {:enforced "generic: the argIsa target CoreContext constrains its own meta-level with"}
+    function    {:enforced "generic: the argIsa target the function-valued positions of resultIsa, resultGenl and functionCorrespondingPredicate name"}
 
     ;; ---- the definitional constraints -------------------------------------
     argIsa      {:enforced "checks/args-problem — refuses on the way in, and entails under *assertive-arg-types?*"}

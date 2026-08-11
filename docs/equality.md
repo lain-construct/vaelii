@@ -175,6 +175,32 @@ rather than relying on the rewrite being a no-op.
 Dropping the equality invalidates the derivations, the dependency-directed sweep
 collects the twins, and un-superseding revives the originals.
 
+**What the reconcile in step 2 costs is a property of the settle, not of the KB's
+merges.** `special/refresh-supersessions` runs on every settle, because the closure also
+changes on a *retraction* — un-merging revives the spelling its twin displaced — and that
+path moves no label for a belief gate to notice. Re-examining an entry is a record fetch,
+a rewrite through the closure and a store probe for the restatement, and the standing
+displaced set is not a small fixed thing: `owl:sameAs` is what an RDF import emits in
+quantity, so a pass over the whole set per settle is one probe per standing merge per
+assert and per retraction.
+
+So the reconcile is narrowed the way the cache reconciles beside it are, to
+`jtms/touched` — the region the settle relabelled, which is also a superset of what it
+removed, since a removal relabels whatever rested on it. Two things can stop an entry
+holding while the closure stands still, the displaced datum leaving and its restatement
+leaving with it, and the region names both. Migration's own output is examined alongside,
+which is what covers a merge arriving: `migrate-class` walks the whole class an edge
+moved, so a class move that came with a migration is already described by what the
+migration handed over.
+
+The closure itself is the other half, and it is compared rather than assumed: the active
+equality edges, the `rewriteOf` preference claims they carry, the believed schematic
+rewrite rules, and the `genlContext` generation. A move in any of those can retire an
+entry that nothing relabelled — an equation leaving re-normalizes every sentence it
+reached, a context edge changes which merges a reader can see — so a settle that moved one
+of them re-examines the whole set. A stamp that cannot be compared, which is a freshly
+opened KB and a recovered one, reads the same way: one full pass, never a wrong answer.
+
 ### Scope, context, and re-election
 
 **An equality applies where it is visible.** A merge asserted in `CoreContext`

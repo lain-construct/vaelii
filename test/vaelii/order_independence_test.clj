@@ -203,6 +203,71 @@
       (is (zero? (:conflicts result))))
     (tu/clear-kb! (tu/test-kb))))
 
+(deftest the-reported-lists-are-content-ordered-not-arrival-ordered
+  ;; The count being stable is not enough, and the two tests above only check counts.
+  ;; `settle` stores both readings in arrival order — they come off a hash set of
+  ;; handle-keyed nogoods — and `settle/ranked`, called by `conflicts` and by
+  ;; `contradictions`, is the whole of what makes the *list* an answer about the
+  ;; knowledge.  A reader that stops calling it puts `(first (contradictions kb))` at
+  ;; the mercy of which pair was typed first, which no count would notice.  So these
+  ;; observe the sequence, not its length.
+  ;;
+  ;; `clash_oracle_test/the-contradictions-list-is-ordered-by-content-not-arrival` makes
+  ;; the same claim for `contradictions` over two hand-written orders; this one covers
+  ;; `conflicts` as well and takes every ordering rather than two.
+  ;;
+  ;; **Three readers call `ranked`, so three arms.**  `preview`'s `:contradictions` is the
+  ;; third and the one a count could never catch: its own test reads the field through a
+  ;; `set`, which is order-blind on purpose, so dropping the call there would have failed
+  ;; nothing.
+  ;;
+  ;; Three independent pairs, one op each: the pairs share no term, so nothing but the
+  ;; ordering rule decides which report leads.  Six orderings.
+  (let [pair    (fn [p strength]
+                  #(do (v/assert % (list p 'OrderedSubject) 'UniverseContext strength)
+                       (v/assert % (list 'not (list p 'OrderedSubject))
+                                 'UniverseContext strength)))
+        ;; the sort key is each side's sentence, so the predicate name is what orders
+        ;; one report against another — named so that content order and any arrival
+        ;; order are different questions
+        preds   '[ordGamma ordAlpha ordBeta]
+        reading (fn [reports]
+                  (mapv #(-> % :sides first :sentence pr-str) reports))]
+    (testing "contradictions — three represented dilemmas at :default"
+      (let [result (one-outcome! "dilemma list ordering"
+                                 (mapv #(pair % {}) preds)
+                                 (fn [kb] {:order (reading (v/contradictions kb))}))]
+        (is (= 3 (count (:order result))) "all three pairs are reported")
+        (is (= (sort (:order result)) (:order result))
+            "the list is in content order, so no ordering can put a different one first")))
+    (testing "conflicts — the same claim for the irreducible :monotonic reading"
+      (let [result (one-outcome! "conflict list ordering"
+                                 (mapv #(pair % {:strength :monotonic}) preds)
+                                 (fn [kb] {:order (reading (v/conflicts kb))}))]
+        (is (= 3 (count (:order result))) "all three pairs are reported")
+        (is (= (sort (:order result)) (:order result))
+            "the list is in content order, so no ordering can put a different one first")))
+    (testing "preview — the dilemmas a batch would open, read the same way"
+      ;; Here the KB carries only the positives, in every order, and one fixed batch
+      ;; opens all three dilemmas at once.  So the batch cannot be what varies: what
+      ;; varies is the arrival order of the facts the reports are built from, which is
+      ;; exactly what the stored vector is in and exactly what `ranked` has to remove.
+      (let [result (one-outcome!
+                    "preview dilemma list ordering"
+                    (mapv (fn [p] #(v/assert % (list p 'OrderedSubject) 'UniverseContext {}))
+                          preds)
+                    (fn [kb]
+                      {:order (reading
+                               (:contradictions
+                                (v/preview kb {:add (mapv (fn [p]
+                                                            [(list 'not (list p 'OrderedSubject))
+                                                             'UniverseContext {}])
+                                                          preds)})))}))]
+        (is (= 3 (count (:order result))) "the batch opens all three")
+        (is (= (sort (:order result)) (:order result))
+            "the previewed list is in content order too, and by the same call")))
+    (tu/clear-kb! (tu/test-kb))))
+
 ;; ---- retraction and revival ---------------------------------------------
 
 (deftest revival-is-order-independent
@@ -239,14 +304,14 @@
   ;; over its spec closure, so a `genl` edge changes which antecedents the *stored*
   ;; facts satisfy.  The arriving datum is the edge, and firing the rules keyed on
   ;; `genl` is not the same thing as re-firing the rules the edge just connected — so
-  ;; without `special/subsumption-seeds` these four sentences derive `(breathes Fido)`
+  ;; without `special/subsumption-seeds` these four sentences derive `(breathes Muffet)`
   ;; in the orders that put the edge before the fact and nothing in the others.
   (let [ops [#(v/assert % '(genl animal_t thing) 'UniverseContext)
              #(v/assert % '(genl dog_t animal_t) 'UniverseContext)
              #(v/assert % '(implies (animal_t ?x) (breathes ?x)) 'UniverseContext)
-             #(v/assert % '(dog_t Fido) 'UniverseContext)]
+             #(v/assert % '(dog_t Muffet) 'UniverseContext)]
         observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(breathes Fido) 'UniverseContext)))})]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(breathes Muffet) 'UniverseContext)))})]
     (is (= {:derived true} (one-outcome! "subsumption firing" ops observe))
         "and the one outcome is the conclusion, not the silence"))
   (tu/clear-kb! (tu/test-kb)))

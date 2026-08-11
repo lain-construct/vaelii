@@ -1,7 +1,8 @@
 # Density — the dense backends
 
 - **Covers:** the dense int-postings, columnar trie, and packed-root backends that replace
-  the default map-based index structures, and what each is measured to cost or save.
+  the default map-based index structures, what each is measured to cost or save in
+  resident bytes, and what a lookup on either trie layout allocates.
 - **Not here:** the index's logical key layout these backends implement →
   [indexing.md](indexing.md); how `open-kb` selects a record/index backend pairing →
   [storage.md](storage.md).
@@ -83,6 +84,15 @@ Interning tokens while keeping an object-per-node map (a fastutil
 A columnar layout — parallel `int` arrays, zero per-node objects — gets **15–20×**. A
 plausible design and a good one differ by an order of magnitude here, which is why the
 bake-off ran before the build.
+
+**Read that 15–20× as what it is: the trie *nodes*, measured against the structure they
+replace.** It is not what a KB weighs. A whole KB is the index plus the records plus the
+TMS, and only the first is what a dense index addresses — so end to end, on 200k ground
+binary facts, `:memory-columnar` holds **1,631 B/fact against `:memory`'s 2,668**, a
+**1.6×**, and loads at 31.8k facts/s against 22.5k. The trie figure is the right one for
+choosing a layout and the wrong one for sizing a machine; the records and the TMS are
+what is left standing once the index is dense, and they are the floor the whole-KB
+number sits on.
 
 ## Phase 1 — tiered int postings (`:memory-dense`)
 
@@ -272,6 +282,87 @@ fixed 511 names:
 The dictionary and the roots are flat in the corpus and bound by the vocabulary. What
 grows is the CSR skeleton, which is path-scaled and deliberately resident.
 
+## What a lookup allocates
+
+Retained heap is what the index *holds*; **allocation** is what a read *writes*, and it is
+structural for the same reason retained heap is — a count of what the code builds, not a
+measurement of how fast the box ran it. So it is the read-path quantity that survives the
+caveat at the bottom of this page, and `lein bench-alloc` is the harness. The instrument is
+`getCurrentThreadAllocatedBytes` on `com.sun.management.ThreadMXBean`, differenced across a
+region bounded by two reads on one thread: no agent, no profiler, and no seam in the
+engine. 20,000 Zipf-skewed binary facts, both layouts over one corpus, every answer set
+compared across the layouts before anything is measured — a walk that quietly found nothing
+allocates almost nothing and would otherwise report as a win.
+
+```
+  pattern shape             probes    B/lookup   B/probe
+  exact       :memory          5.0       4,358       872
+              :columnar                  3,733       747   1.17×
+  after-var   :memory        304.8     247,664       813
+              :columnar                165,339       543   1.50×
+  lead-open   :memory      2,931.4   2,268,179       774
+              :columnar              1,895,732       647   1.20×
+```
+
+`probes` is node probes per walk, off `vaelii.impl.profile`'s `:fan` tally, which counts
+one per frontier node per level. The tally fires on `KvIndexStore` only
+([profile.md](profile.md)), and a probe count is a property of the trie and the pattern
+rather than of the layout, so the flat map's is the denominator for both.
+
+**The layouts separate by 1.2 to 1.5× on a read, against the 15–20× they separate by in
+resident bytes.** Most of a lookup belongs to neither of them: both walks rebuild the
+frontier as one `(into [] (mapcat f) frontier)` per pattern level, measured at **648 B**
+per level over a one-node frontier, and on a narrowing walk that is the largest single
+term in the whole lookup.
+
+What is left is the layout, and it reads as a **marginal** rather than as a ratio. A ratio
+over `B/lookup` divides the shared frontier cost into both arms and reports a difference
+smaller than the one that exists — the trap `bench/vaelii/bench/perf.clj` names as a
+baseline already carrying the cost being measured, arriving here as a denominator instead
+of as a size. The bytes one extra frontier node costs:
+
+```
+  ground probe at width     :memory 812 B    :columnar 539 B    1.51×
+  fanned child edge         :memory 774 B    :columnar 647 B    1.20×
+```
+
+**The columnar advantage is a narrowing step's, and a fan nearly erases it.** A
+`KvIndexStore` ground probe names eight objects: the query token conjed onto the prefix
+twice (the expression is written twice and evaluated twice — once for the count probe, once
+for the surviving frontier entry), a `[:trie :count prefix]` key vector around one of them,
+and a one-element result vector — and two of those arrays are prefix-sized. The columnar
+probe names six, every one of them small: a `Key` wrapper for the token intern, three boxed
+ints (token id, child id, subtree count) and the same one-element result vector. A *fanned*
+step swaps the shapes over, because `-edges` decodes every child edge into a boxed `[token
+child]` pair before `skip-one` throws the token away, which costs about what the flat map's
+conj of the child onto the prefix costs.
+
+The accounting closes on itself, which is what says the derivation is the right one.
+Derived probe bytes plus the measured frontier container account for 84% of a narrowing
+lookup on the flat map and 83% on the columnar trie, the remainder being the seq cells
+`mapcat` builds and the answer set at the terminus. Per *extra* path level the same two
+terms predict 944 B against 930 measured on the flat map, and 976 against 960:
+
+```
+  arity   levels   :memory B/lookup   :columnar B/lookup
+      2        4              4,364                3,710
+      4        6              6,224                5,147
+      8       10             10,064                8,096
+  per extra level          930 → 960            719 → 737
+```
+
+That growth is the prefix showing through. A flat-map probe carries the depth it sits at,
+since it conjes a prefix-sized array twice per level and the fresh vector's `hasheq` cache
+is empty every time, so each level re-hashes what the level above it just hashed; a
+columnar probe is an int intern and a binary search into an edge array, and does not.
+
+Two limits, both in the harness's own docstring. The instrument counts **bytes and not
+objects** — nothing on this JVM counts objects exactly without an agent — so every object
+figure above is derived from the source and is a lower bound on what the walk builds. And
+an allocation the JIT proves non-escaping never reaches a thread's TLAB and is invisible
+here; cold and warm readings differ by under 1% on both layouts, so escape analysis removes
+almost none of this walk.
+
 ## Phase 4 — the record side (`:disk`)
 
 Records already leave the heap on `:disk`; what was unmeasured was what reaching them
@@ -396,7 +487,9 @@ Two caveats the measurements carry, both easy to drop and both load-bearing:
   1.13× all-in: the dictionary row does not carry over, the log row does.
 - **Retained heap (jol) is structural, so it is trusted under contention; wall-clock is
   not.** Every RAM figure here is jol; every timing was taken on an otherwise-quiet box
-  and is indicative.
+  and is indicative. **Allocated bytes are structural too** — a thread's allocation
+  counter records what the code built, not how long it took — which is what makes the
+  read-path comparison above a trusted reading rather than an indicative one.
 
 ## Traps in measuring and writing one
 
@@ -423,6 +516,7 @@ expression is evaluated, so `(doto mono (.clear) (.or (region-classes …)))` wi
 boundary classes `region-classes` is about to read.
 
 Harnesses: `lein bench-postings` (the Phase 1 bake-off), `bench-densetrie` (the index
-decomposition and the trie bake-off), `bench-records` (the record side), `bench-jtms`
-(the truth-maintenance decomposition and the two representations), `bench-scale` (the
-Phase 0 per-component sizing).
+decomposition and the trie bake-off), `bench-alloc` (what a lookup allocates on each trie
+layout), `bench-records` (the record side), `bench-jtms` (the truth-maintenance
+decomposition and the two representations), `bench-scale` (the Phase 0 per-component
+sizing).

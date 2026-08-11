@@ -99,10 +99,21 @@
     ;; the assumption strength lives on the sentex record itself; premises are also
     ;; tracked in a set.  Guard the record update — a handle with no sentex must not
     ;; conjure a phantom map entry.
+    ;;
+    ;; A record already carrying this strength is left alone, which is the ordinary
+    ;; assert: `kb/create-sentex` writes the strength into the record it stores, so the
+    ;; mark that follows asks for the strength it already has.  Re-`assoc`ing it copies
+    ;; a path through a map holding every sentex in the KB, once per fact of a bulk
+    ;; load, to arrive at the value already there.  The durable store guards the same
+    ;; way and pays more for it (`vaelii.impl.disk.record-store`: a second whole frame).
     (swap! state (fn [st]
-                   (cond-> st
-                     (get-in st [:sentexes id]) (assoc-in [:sentexes id :strength] (or strength :default))
-                     :always                    (update :premises (fnil conj #{}) id))))
+                   (let [want (or strength :default)
+                         sx   (get-in st [:sentexes id])]
+                     (cond-> st
+                       (and sx (not= want (:strength sx)))
+                       (assoc-in [:sentexes id :strength] want)
+                       :always
+                       (update :premises (fnil conj #{}) id)))))
     nil)
   (unmark-premise! [_ id]
     (swap! state (fn [st]

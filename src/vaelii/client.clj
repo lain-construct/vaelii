@@ -34,9 +34,10 @@
 (defn call
   "POST `{:op op :args args}` and return the `:result`, or throw `ex-info` on an
   `{:ok false}` reply.  The low-level entry the wrappers below use; reach for it for
-  an op with no wrapper yet — `vaelii.serve/ops` is the reachable set."
-  [conn op args]
-  (c/call conn op args))
+  an op with no wrapper yet — `vaelii.serve/op-names` is the reachable set.  `opts` is
+  `{:timeout-ms n}` for this call alone, which the long `poll` below is what needs."
+  ([conn op args] (c/call conn op args))
+  ([conn op args opts] (c/call conn op args opts)))
 
 (defn health
   "The daemon's liveness reply, `{:ok true}` — a GET, so it needs no op."
@@ -75,7 +76,7 @@
   ([conn sentence context] (c/sentexes-matching conn sentence context)))
 
 (defn query
-  "Solutions for `goal` as binding maps — `({?x Fido})`."
+  "Solutions for `goal` as binding maps — `({?x Muffet})`."
   ([conn goal] (c/query conn goal))
   ([conn goal context] (c/query conn goal context))
   ([conn goal context opts] (c/query conn goal context opts)))
@@ -169,3 +170,50 @@
   "The recorded definitional violations."
   [conn]
   (c/violations conn))
+
+;; ---- the change feed -----------------------------------------------------
+
+(defn watch
+  "Open a change-feed subscription and return `{:token t :cursor 0 :max-events n}`.
+
+  In process `vaelii.core/watch` takes a callback; a callback does not cross an EDN
+  wire, so what a remote caller holds is a subscription the daemon keeps and this client
+  reads forward with a cursor.  With no goal it is every belief change; with one it is
+  the same standing query, and a goal that cannot be answered from a moved region is
+  refused with the same `:not-watchable` it is refused with in process.
+
+      (let [{:keys [token cursor]} (watch conn)]
+        (loop [c cursor]
+          (let [{:keys [events cursor lagged]} (poll conn token c {:wait-ms 20000})]
+            (when (pos? lagged) (resync!))
+            (run! render! events)
+            (recur cursor))))"
+  ([conn] (c/watch conn))
+  ([conn goal context] (c/watch conn goal context)))
+
+(defn poll
+  "Read a subscription forward from `cursor` — `{:events [...] :cursor n :lagged k}`.
+  Each event is `{:believed-added [...] :believed-removed [...]}` in `preview`'s entry
+  shapes, one per settle, oldest first.
+
+  `opts` is `{:wait-ms n}`: the daemon holds the request open that long waiting for the
+  first event, and this client extends its read timeout to cover it.
+
+  **`:lagged` is on every reply and is the one field a caller must read.**  Non-zero, the
+  daemon's ring dropped that many events before this poll reached them, and the caller is
+  behind rather than current — re-read what it cares about rather than trusting the
+  events it did get to be the whole story."
+  ([conn token cursor] (c/poll conn token cursor))
+  ([conn token cursor opts] (c/poll conn token cursor opts)))
+
+(defn unwatch
+  "Drop subscription `token`; true if there was one.  Idempotent."
+  [conn token]
+  (c/unwatch conn token))
+
+(defn watchers
+  "What the daemon is holding open: one entry per subscription with its goal, how many
+  events it has been `:delivered`, and how many are still `:pending` on its ring.  Neither
+  is the reader's own position — that lives here, not there."
+  [conn]
+  (c/watchers conn))

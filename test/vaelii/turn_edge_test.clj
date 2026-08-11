@@ -198,10 +198,10 @@
   ;; documentation rule must NOT copy facts into UniverseContext — forward chaining now
   ;; respects rule direction (a backward/inert rule never forward-fires).
   (tu/with-neutral-kb [kb core-context-kb]
-    (let [dog (tu/tmp-type) fido (tu/tmp-ind)]
-      (v/assert kb (list dog fido) 'CoreContext)
+    (let [dog (tu/tmp-type) muffet (tu/tmp-ind)]
+      (v/assert kb (list dog muffet) 'CoreContext)
       (v/forward-chain kb)
-      (is (empty? (v/sentexes-matching kb (list dog fido) 'UniverseContext)))
+      (is (empty? (v/sentexes-matching kb (list dog muffet) 'UniverseContext)))
       (is (empty? (v/sentexes-matching kb '(forcedDecontextualizedPredicate genlContext) 'UniverseContext))))))
 
 (deftest evaluate-is-error-safe

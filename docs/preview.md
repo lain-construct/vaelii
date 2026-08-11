@@ -78,8 +78,12 @@ sweep able to reach anything that was there before.
 
 ## The answer
 
-`:believed-added` and `:believed-removed` are the two halves of the belief diff, in
-handle order (handles, so the order is a fact about the KB and not about the batch).
+`:believed-added` and `:believed-removed` are the two halves of the belief diff, each in
+**content** order — by sentence, then by context. Not by handle: a handle is allocated in
+assertion order, so ranking on one would make the reading a fact about how the KB was
+loaded rather than about what the batch means. `:max-results` caps both halves, which is
+what makes the order load-bearing rather than cosmetic — it decides *which* entries a
+caller is shown, so the same batch against the same knowledge must show the same ones.
 
 The **removed** half is the interesting one, and the one a naive implementation misses.
 It is where defeat, supersession and the dependency-directed sweep show up, and its
@@ -199,12 +203,12 @@ reads as a complete one.
 about a batch that landed:
 
 ```clojure
-(edit-with-consequences! kb {:add [['(dog Fido) 'StoryContext]]})
+(edit-with-consequences! kb {:add [['(dog Muffet) 'StoryContext]]})
 ;; => {:added [4] :removed {…}
-;;     :believed-added   [{:sentence (dog Fido)    :premise? true  :handle 4 …}
-;;                        {:sentence (mortal Fido) :premise? false :handle 5
+;;     :believed-added   [{:sentence (dog Muffet)    :premise? true  :handle 4 …}
+;;                        {:sentence (mortal Muffet) :premise? false :handle 5
 ;;                         :justification {:rule (implies (dog ?x) (mortal ?x))
-;;                                         :antecedents [(dog Fido)] :informant 3}}]
+;;                                         :antecedents [(dog Muffet)] :informant 3}}]
 ;;     :believed-removed []
 ;;     :bounded?         false}
 ```

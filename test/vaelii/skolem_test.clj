@@ -100,9 +100,8 @@
       (v/assert kb (list pP A) C {:strength :monotonic})
       (let [k1 (witness kb (list qQ A '?w) 2)]
         (is (some? k1) "the rule fired")
-        ;; a *binary* premise about the witness is a real use, so it keeps the
-        ;; constant's termOfUnit alive across the retraction (a unary fact would read
-        ;; as a materialized result type and be swept with it)
+        ;; a premise about the witness is a real use, so it keeps the constant's
+        ;; termOfUnit alive across the retraction
         (v/assert kb (list likes Tom k1) C {:strength :monotonic})
         (v/retract! kb hr)
         (is (nil? (witness kb (list qQ A '?w) 2)) "the derived witness fell with its rule")

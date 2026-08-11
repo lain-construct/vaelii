@@ -69,6 +69,7 @@
   against 87 ms on the flat map — so the op exists to let each backend answer with the
   probe it already has (a hash lookup, a binary search, a bitmap test)."
   (:require [clojure.set :as set]
+            [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]))
 
@@ -316,6 +317,15 @@
                  roster slots
                  ;; the batch seal, last on purpose — `sealed-prefix` says why
                  [[:increment (count-key sealed-prefix)]]))
+      ;; what this assert cost the index, per family, when somebody is asking
+      ;; (`vaelii.impl.profile`).  Guarded rather than passed unconditionally so the
+      ;; counts map is built only while the instrument is on; off, this is a deref.
+      (when (prof/profiling?)
+        (prof/record-index-write sentex {:levels (inc n)
+                                         :terms  (count terms)
+                                         :roots  (count (root-keys sentex))
+                                         :roster (count roster)
+                                         :slots  (count slots)}))
       handle))
 
   ;; Two batches instead of a round trip per trie level: one to drop the leaf handle
@@ -353,11 +363,36 @@
                  roster slots
                  ;; the batch seal, last on purpose — `sealed-prefix` says why
                  [[:decrement (count-key sealed-prefix)]]))
+      ;; the mirror of the assert tally above, and the reason it is a separate one:
+      ;; `dead` is the only quantity here the sentex does not decide.  Every other
+      ;; number is a property of what is being retracted; how many trie nodes empty
+      ;; is a property of what is left behind it (`vaelii.impl.profile`).
+      (when (prof/profiling?)
+        (prof/record-index-retract sentex {:levels (inc n)
+                                           :terms  (count terms)
+                                           :roots  (count (root-keys sentex))
+                                           :roster (count roster)
+                                           :slots  (count slots)
+                                           :dead   (count dead)}))
       handle))
 
-  (count-at [_ prefix] (count-at* backend prefix))
+  ;; Every read below tallies the **family** that answered it (`vaelii.impl.profile`),
+  ;; one entry per protocol call: a deref and a `nil?` check when nobody is asking, and
+  ;; the one measurement that says whether a family a KB pays to maintain is ever read.
+  ;; What a call *cost* is a separate question — the trie's is the fan tally in `lookup`.
+  ;;
+  ;; The trie is two families to a reader even though it is one structure on disk, and
+  ;; the split is the whole reason the tally is worth reading: these three are the
+  ;; **cost model's** probes (`plan`'s selectivity and fan-out divisor), and `lookup`
+  ;; below is **retrieval**.  A run that reads the counts a hundred times per walk is
+  ;; using the trie to plan, not to fetch, and a family roster that added them together
+  ;; would report that as one number meaning neither.
+  (count-at [_ prefix] (prof/record-read :trie-counts) (count-at* backend prefix))
 
-  (children [_ prefix] (vec (kv-members backend (set-key prefix))))
+  (children [_ prefix] (prof/record-read :trie-counts) (vec (kv-members backend (set-key prefix))))
+  ;; the set's cardinality, which every backend answers without building the set —
+  ;; `children` above would materialize it into a vector for the same number
+  (count-children [_ prefix] (prof/record-read :trie-counts) (kv-count backend (set-key prefix)))
 
   ;; The terminus reads the *leaf* key, so an under-long pattern — which stops on an
   ;; interior node — yields nothing instead of that node's child labels, and a full
@@ -379,6 +414,7 @@
   ;; superset filter — `res/unify` is the source of truth — so a markerless (flat)
   ;; key walks exactly as before.
   (lookup [_ pattern]
+    (prof/record-read :trie-lookup)
     (letfn [(child-labels [prefix] (kv-members backend (set-key prefix)))
             (skip-one [prefix]                         ; advance past one complete form
               (mapcat (fn [c]
@@ -390,10 +426,20 @@
               (if (zero? n)
                 [prefix]
                 (mapcat #(skip-n % (dec n)) (skip-one prefix))))]
+      ;; `visits` and `widest` describe the walk itself: one probe per frontier node per
+      ;; level, and how wide the frontier ever got.  A narrowing walk holds the frontier
+      ;; at one node and visits one per level; a walk that got stuck behind a variable
+      ;; visits that level's whole child set, which is the fan the secondary roots exist
+      ;; to avoid.  Two long ops per level whether or not anybody is counting; the tally
+      ;; itself is a deref when the instrument is off.
       (loop [frontier [[]]                             ; node prefixes reached so far
-             qs pattern]
+             qs pattern
+             visits 0
+             widest 1]
         (if (empty? qs)
-          (into #{} (mapcat (fn [prefix] (kv-members backend (leaf-key prefix)))) frontier)
+          (let [hs (into #{} (mapcat (fn [prefix] (kv-members backend (leaf-key prefix)))) frontier)]
+            (prof/record-fan pattern (+ visits (count frontier)) widest (count hs))
+            hs)
           (let [q (first qs)
                 frontier'
                 (into []
@@ -404,26 +450,32 @@
                            (when (pos? (count-at* backend (conj prefix q)))
                              [(conj prefix q)]))))
                       frontier)]
-            (recur frontier' (rest qs)))))))
+            (recur frontier' (rest qs)
+                   (+ visits (count frontier))
+                   (max widest (count frontier'))))))))
 
-  (sentexes-in-context [_ context] (kv-members backend (ctx-key context)))
-  (count-in-context    [_ context] (kv-count    backend (ctx-key context)))
+  (sentexes-in-context [_ context] (prof/record-read :context-root) (kv-members backend (ctx-key context)))
+  (count-in-context    [_ context] (prof/record-read :context-root) (kv-count    backend (ctx-key context)))
 
-  (sentexes-with-functor [_ pred] (kv-members backend (pred-key pred)))
-  (count-with-functor    [_ pred] (kv-count    backend (pred-key pred)))
+  (sentexes-with-functor [_ pred] (prof/record-read :functor-root) (kv-members backend (pred-key pred)))
+  (count-with-functor    [_ pred] (prof/record-read :functor-root) (kv-count    backend (pred-key pred)))
 
   ;; Predicate-agnostic reads, answered as a union over the slot roster's predicates.
   ;; One key in the overwhelmingly common case (a term occupies a given position under
   ;; one predicate); a handful otherwise. The single-predicate case is allocation-free:
   ;; the stored set is handed straight back, never copied into a union.
   (sentexes-with-arg [_ pos term]
+    (prof/record-read :argument-slot)
     (let [preds (kv-members backend (slot-key pos term))]
+      (prof/record-read :argument-root)
       (case (count preds)
         0 #{}
         1 (kv-members backend (arg-key (first preds) pos term))
         (reduce (fn [acc pd] (into acc (kv-members backend (arg-key pd pos term))))
                 #{} preds))))
   (count-with-arg    [_ pos term]
+    (prof/record-read :argument-slot)
+    (prof/record-read :argument-root)
     (reduce (fn [n pd] (+ (long n) (long (kv-count backend (arg-key pd pos term)))))
             0 (kv-members backend (slot-key pos term))))
 
@@ -444,9 +496,10 @@
                   (let [s (p/sentexes-with-arg this pos term)]
                     (if (nil? acc) s (set/intersection acc s))))
                 nil pos-terms))
-      (empty? pos-terms) (kv-members backend (pred-key pred))
+      (empty? pos-terms) (do (prof/record-read :functor-root) (kv-members backend (pred-key pred)))
       :else
       (let [ks (mapv (fn [[pos term]] (arg-key pred pos term)) pos-terms)]
+        (prof/record-read :argument-root)
         (if (= 1 (count ks))
           (kv-members backend (nth ks 0))
           (kv-intersect backend ks)))))
@@ -467,8 +520,8 @@
                 conseq-pred (conj [:remove-from-set (rule-conseq-key conseq-pred) handle])))
     nil)
 
-  (rules-by-antecedent [_ pred] (kv-members backend (rule-ante-key pred)))
-  (rules-by-consequent [_ pred] (kv-members backend (rule-conseq-key pred)))
+  (rules-by-antecedent [_ pred] (prof/record-read :rule-index) (kv-members backend (rule-ante-key pred)))
+  (rules-by-consequent [_ pred] (prof/record-read :rule-index) (kv-members backend (rule-conseq-key pred)))
 
   ;; The exception re-check index.  A rule carrying an `exceptWhen` is posted under
   ;; every predicate its exception query mentions, so asserting or retracting a fact on
@@ -490,21 +543,24 @@
                     [:remove-from-set (exception-rules-key) handle]))
     nil)
 
-  (rules-with-exception-on [_ pred] (kv-members backend (exception-pred-key pred)))
-  (exception-rules [_] (kv-members backend (exception-rules-key)))
+  (rules-with-exception-on [_ pred] (prof/record-read :exception-index)
+    (kv-members backend (exception-pred-key pred)))
+  (exception-rules [_] (prof/record-read :exception-index) (kv-members backend (exception-rules-key)))
   ;; the roster *probe*, not the roster: `kv-member?` so a backend that packs the family
   ;; into int postings tests membership rather than materializing every rule that carries
   ;; an exception, once per candidate rule per new datum
-  (exception-rule? [_ handle] (kv-member? backend (exception-rules-key) handle))
+  (exception-rule? [_ handle] (prof/record-read :exception-index)
+    (kv-member? backend (exception-rules-key) handle))
 
-  (sentexes-with-term [_ term] (kv-members backend (term-key term)))
+  (sentexes-with-term [_ term] (prof/record-read :term-index) (kv-members backend (term-key term)))
   (sentexes-with-terms [_ terms]
+    (prof/record-read :term-index)
     (if (empty? terms) #{} (kv-intersect backend (mapv term-key terms))))
 
   ;; the roster reads: one set fetch and one size read, both O(distinct terms) at worst and
   ;; neither touching a record — the whole point of maintaining the roster.
-  (terms      [_] (kv-members backend roster-key))
-  (term-count [_] (kv-count    backend roster-key))
+  (terms      [_] (prof/record-read :term-roster) (kv-members backend roster-key))
+  (term-count [_] (prof/record-read :term-roster) (kv-count    backend roster-key))
 
   ;; the flat-map index *is* the portable projection, so both directions are the
   ;; backend's own enumeration and install — no key is reshaped on the way through.

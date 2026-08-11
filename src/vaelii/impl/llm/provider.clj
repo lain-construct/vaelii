@@ -61,15 +61,33 @@
                 (try (if (= :ollama kind) (f opts) (f))
                      (catch Throwable _ false)))))))
 
+(defn- call-builder
+  "Call one of a backend's constructors, or nil when the namespace does not load in this
+  build (silent — a backend nobody compiled in is not a fault) or when the constructor
+  throws (**logged**).  Logged, not swallowed: a caller reaches a constructor after
+  `available?` has said yes, so a throw here means the backend is half-present, and
+  falling quietly through to the stub answers with plausible fabricated text instead of
+  a diagnosis.
+
+  `opts` never reaches the log line: it may carry a credential."
+  [kind sym opts]
+  (when-let [f (resolve-fn kind sym)]
+    (try (f opts)
+         (catch Throwable t
+           (trove/log! {:level :warn :id ::provider-build-failed :error t
+                        :msg "backend probed available but would not build; using the stub"
+                        :data {:kind kind}})
+           nil))))
+
 (defn build
   "Build the named backend, or nil when it cannot be built.  `opts` is handed to the
-  backend's own `provider` constructor."
+  backend's own `provider` constructor, and a constructor that throws is logged
+  (`call-builder`) rather than swallowed."
   ([kind] (build kind {}))
   ([kind opts]
    (if (= :stub kind)
      (stub/provider opts)
-     (when-let [f (resolve-fn kind 'provider)]
-       (try (f opts) (catch Throwable _ nil))))))
+     (call-builder kind 'provider opts))))
 
 (defn provider
   "The `Provider` to run a turn against.
@@ -79,6 +97,11 @@
   the point**: an application that cannot reach its model degrades to a provider that
   proposes nothing rather than to an exception, which is how the ASP seam behaves and
   what makes the pipeline testable everywhere.
+
+  Falling back is not the same as falling silent: a backend that probes available and
+  then will not build is a broken backend, and it is logged where it happens
+  (`call-builder`), because from the outside that is indistinguishable from a model that
+  proposed nothing.
 
   Pass a kind to demand one; it still falls back, so a caller that must know asks
   `available?` first."
@@ -111,16 +134,8 @@
   ([kind] (generation-provider kind {}))
   ([kind opts]
    (or (when (available? kind (select-keys opts [:host]))
-         (if-let [f (resolve-fn kind 'generation-provider)]
-           ;; Logged, not swallowed: `available?` already said yes, so a throw here
-           ;; means the backend is half-present — and falling silently through to the
-           ;; stub answers the caller with plausible fabricated text instead.
-           (try (f opts)
-                (catch Throwable t
-                  (trove/log! {:level :warn :id ::provider-build-failed :error t
-                               :msg "backend probed available but would not build; using the stub"
-                               :data {:kind kind}})
-                  nil))
+         (if (resolve-fn kind 'generation-provider)
+           (call-builder kind 'generation-provider opts)
            (build kind opts)))
        (stub/provider {}))))
 

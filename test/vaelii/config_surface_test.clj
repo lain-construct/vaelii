@@ -205,13 +205,14 @@
 
 (def ^:private unpinned
   "Switches `docs/operations.md` documents that this scan cannot reach, each with the
-  reason.  All three are shell-only and unprefixed, which is exactly what puts them out
+  reason.  All four are shell-only and unprefixed, which is exactly what puts them out
   of range: `${VAELII_…}` is name-shaped enough for one regex, `${GATE_JOBS}` is not,
   and a regex for every `${CAPS}` collects each script's own locals.  A rename of one of
   these is caught by review rather than by this test."
   {"GATE_JOBS"         "scripts/gate.sh, the test stage's shard count"
    "PERF_TOLERANCE"    "scripts/gate.sh, passed through to `lein perf --tolerance`"
-   "TEST_BACKENDS_OUT" "scripts/test-backends.sh, its log directory"})
+   "TEST_BACKENDS_OUT" "scripts/test-backends.sh, its log directory"
+   "TEST_SWEEPS_OUT"   "scripts/test-sweeps.sh, its log directory"})
 
 (def ^:private undocumented-by-design
   "Switches the scan finds that the table deliberately has no row for.

@@ -30,8 +30,11 @@ Every prover here is **opt-in**; none of the vocabulary is.
 
 The unit is an **interval**, not an instant. A meeting, a reign, a journey — something
 with a start and an end — so two of them can meet, overlap or nest, which is exactly the
-structure a point calculus throws away. Intervals are ordinary individuals: nothing
-declares them, and nothing here is about clocks or calendars. Only order and containment.
+structure a point calculus throws away. The interval relations are declared `(argIsa …
+temporal_thing)` and the instant relations `(argIsa … time_point)`, `time_point` sitting
+under `temporal_thing`, so `startOf` and `endOf` bridge the two by declaration as well as
+by meaning. A temporal relation between two predicates is refused rather than stored.
+Nothing here is about clocks or calendars — only order and containment.
 
 How *long* an interval is, and how long two of them overlap, is the quantitative half:
 [duration.md](duration.md), which consumes the relation sets this page produces.

@@ -50,6 +50,7 @@
   closure.  The vocabulary ships in `kb/upper/TimeContext.txt` either way.  See
   docs/stp.md."
   (:require [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.interval :as iv]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.provers :as provers]
@@ -682,3 +683,22 @@
   "The metric temporal prover, to register with `vaelii.core/add-prover`."
   []
   (->TemporalDistanceProver))
+
+;; ---- what the metric side holds, declared -------------------------------
+;;
+;; Registered here rather than in a central list, so a process that never loaded the
+;; metric-time reasoner reports no row for it — which is the honest answer, and better
+;; than a row of zeroes for a cache that does not exist.
+
+(caches/register-cache
+ {:cache    :metric-closures
+  :label    "Metric closures"
+  :scope    :process
+  :unit     "networks"
+  :limit    closure-cache-limit
+  :counters nil
+  :note     (str "The all-pairs shortest-path closure of a metric network, keyed on the "
+                 "network value — so two contexts stating the same durations share one "
+                 "closure, and any change to the believed facts is a different key.")
+  :read     (fn [_] {:entries (count @closure-cache)})
+  :clear    (fn [_] (let [n (count @closure-cache)] (reset! closure-cache {}) n))})

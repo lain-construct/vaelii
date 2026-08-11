@@ -70,6 +70,15 @@
 ;; `:cache-support` count.  Bare integer handles again — the belief question is the
 ;; same wherever they came from.
 
+(defn- transpose-cache-support
+  "`:cache-support` read the other way: which `[kind key]` entries each handle supports.
+  What `:cache-handle-keys` must equal after every edit, since that index is what scopes
+  the flat-cache reconcile to the region a settle relabelled."
+  [t]
+  (reduce-kv (fn [m k supporters]
+               (reduce (fn [m h] (update m h (fnil conj #{}) k)) m (keys supporters)))
+             {} (:cache-support @t)))
+
 (deftest disjoint-follows-belief
   (let [t (tax/create-taxonomy)]
     (tax/add-disjoint t 'dog 'cat 1)
@@ -139,25 +148,68 @@
 
 (deftest unmarking-a-metatype-takes-its-members-handles-with-it
   ;; Unmarking is the one teardown that drops `:cache-support` entries without going
-  ;; through `support-drop`, so it is the one that can leave `:cache-support-handles`
-  ;; holding a handle whose entry is gone.  That set is not decoration: `refresh-beliefs`
-  ;; reads it to skip the flat-cache reconcile when no supporter moved, so a stale handle
-  ;; makes every settle that relabels *that* sentex walk the whole vocabulary to find
-  ;; nothing — for the life of the KB, since nothing ever removes it.
+  ;; through `support-drop`, so it is the one that can leave `:cache-handle-keys` holding
+  ;; a handle whose entry is gone.  That index is not decoration: `refresh-beliefs` reads
+  ;; it forward to decide which flat-cache entries a settle has to reconcile, so a stale
+  ;; handle puts a key nothing supports into the scope of every settle that relabels
+  ;; *that* sentex — for the life of the KB, since nothing ever removes it.
   (let [t       (tax/create-taxonomy)
-        handles #(:cache-support-handles @t)]
+        handles #(:cache-handle-keys @t)
+        dirty   #(:cache-dirty @t)]
     (tax/mark-disjoint-metatype t 'species 1)
     (doseq [[h ty] (map vector [2 3 4] '[dog cat fish])]
       (tax/add-metatype-member t 'species ty h))
     (tax/add-disjoint t 'plant 'mineral 5)
-    (is (= #{1 2 3 4 5} (handles)))
+    ;; a second supporter for one member, so the entry is *shared* — which is the only
+    ;; shape a belief-blind writer marks dirty, and so the only shape whose mark this
+    ;; teardown can strand
+    (tax/add-metatype-member t 'species 'dog 6)
+    (is (= '{1 #{[:metatype species]} 2 #{[:member species dog]}
+             3 #{[:member species cat]} 4 #{[:member species fish]}
+             5 #{[:disjoint #{plant mineral}]} 6 #{[:member species dog]}}
+           (handles)))
+    (is (contains? (dirty) '[:member species dog])
+        "the shared entry owes a reconcile before the teardown")
     (tax/unmark-disjoint-metatype! t 'species 1)
     (testing "the mark, the members, and every handle behind them are gone"
       (is (empty? (tax/disjoint-metatypes t)))
       (is (empty? (tax/metatype-members t 'species)))
-      (is (= #{5} (handles)) "and only the unrelated declaration's handle is left"))
-    (testing "the invariant behind the gate: the set is the live support map's handles"
-      (is (= (handles) (into #{} (mapcat keys) (vals (:cache-support @t))))))))
+      (is (= '{5 #{[:disjoint #{plant mineral}]}} (handles))
+          "and only the unrelated declaration's handle is left"))
+    (testing "and the dirty mark goes with them, not just the handles"
+      ;; `:cache-dirty` is the other index keyed off `:cache-support`, and a mark left on
+      ;; a key nothing supports is worse than a stranded handle: a stranded handle only
+      ;; widens the scope of a settle that relabels *that* sentex, where a stranded mark
+      ;; widens **every** settle, moved or not, for the life of the KB.
+      (is (not (contains? (dirty) '[:member species dog])))
+      (is (empty? (dirty))))
+    (testing "the invariant behind the scope: the index is the support map, transposed"
+      (is (= (handles) (transpose-cache-support t))))))
+
+(deftest the-last-supporter-of-an-entry-takes-its-dirty-mark-with-it
+  ;; The `support-drop` half of the claim above.  A shared entry is marked dirty by the
+  ;; belief-blind writers, and the mark is discharged by a reconcile — but an entry whose
+  ;; last supporter is retracted is never reconciled again, because `refresh-cache-support`
+  ;; guards on the key still being in `:cache-support`.  So the drop has to clear the mark
+  ;; itself; left behind, it is in the scope of every settle from then on and nothing ever
+  ;; takes it out.  Costs work rather than answers, which is exactly why no other test
+  ;; would notice.
+  (let [t     (tax/create-taxonomy)
+        dirty #(:cache-dirty @t)
+        k     '[:disjoint #{dog cat}]]
+    (tax/add-disjoint t 'dog 'cat 1 'AContext)
+    (is (empty? (dirty)) "one supporter is exact, so nothing is owed")
+    (tax/add-disjoint t 'dog 'cat 2 'BContext)
+    (is (= #{k} (dirty)) "a second supporter makes the recorded contexts a superset")
+    (testing "dropping one of two leaves the entry standing, and still owing"
+      (tax/del-disjoint! t 'dog 'cat 1)
+      (is (= #{k} (dirty)))
+      (is (tax/disjoint? t 'dog 'cat)))
+    (testing "dropping the last takes the entry, and the mark with it"
+      (tax/del-disjoint! t 'dog 'cat 2)
+      (is (not (tax/disjoint? t 'dog 'cat)))
+      (is (nil? (get-in @t [:cache-support k])) "the entry is gone")
+      (is (empty? (dirty)) "so nothing is left owing a reconcile it can never get"))))
 
 ;; ---- the incremental closure, checked against the reference ---------------
 
@@ -495,6 +547,99 @@
                (get-in @t [:genl :edges]))
             ":edge-ctxs keys are exactly the active edges")))))
 
+(deftest the-handle-index-is-the-exact-reverse-of-support
+  ;; `:handle-edge` is what scopes the belief reconcile to the moved region, and it is
+  ;; only sound while it is *exact*: a supporter missing from it is an edge a settle
+  ;; would skip, which reads as a stale closure and not as a crash.  A handle asserts
+  ;; one edge, so the index is the transpose of `:support` after every edit — including
+  ;; the two that are easy to get wrong, a shared edge losing one of its supporters and
+  ;; a supporter re-asserting an edge it already holds.
+  (let [transpose (fn [t] (into {} (for [[e hs] (get-in @t [:genl :support]), h (keys hs)]
+                                     [h e])))
+        exact?    (fn [t] (= (transpose t) (get-in @t [:genl :handle-edge])))
+        t         (tax/create-taxonomy)]
+    (tax/add-genl t 'p 'q 1)
+    (tax/add-genl t 'q 'r 2)
+    (tax/add-genl t 'p 'q 3)                            ; a second supporter for p->q
+    (is (exact? t))
+    (testing "a redundant re-assert of an edge a handle already supports"
+      (tax/add-genl t 'p 'q 3)
+      (is (exact? t)))
+    (testing "the shared edge loses one supporter and keeps the other"
+      (tax/del-genl! t 'p 'q 1)
+      (is (exact? t))
+      (is (tax/genl? t 'p 'r)))
+    (testing "and the last supporter of an edge takes its entry with it"
+      (tax/del-genl! t 'p 'q 3)
+      (is (exact? t))
+      (is (nil? (get-in @t [:genl :handle-edge 3]))))
+    (testing "a delete naming a handle that never supported the edge changes nothing"
+      (tax/del-genl! t 'q 'r 99)
+      (is (exact? t))
+      (is (tax/genl? t 'q 'r)))))
+
+(deftest a-scoped-reconcile-answers-as-an-unconditional-one-does
+  ;; `refresh-beliefs` is handed the region a settle relabelled and reconciles only the
+  ;; edges a handle in it supports — an edge no moved handle touches cannot have changed
+  ;; which of its supporters are believed, so it is left alone.  That is the locality
+  ;; claim for this cache, and the way it fails is silent: a stale edge answers `isa?`
+  ;; for a type nothing believes any more.
+  ;;
+  ;; So drive the *scoped* arity, which the oracles above do not — they pass no moved set
+  ;; and take the unconditional pass — and check the same two references after every
+  ;; step: the believed recompute of `:edge-ctxs`, and the from-scratch closure over
+  ;; whatever edge set survived.  `moved` is the honest flip set, computed as a diff
+  ;; against the previous belief, and a handle joins it on the edit that creates it —
+  ;; which is what `settle` hands over, an assert being believed as it integrates.
+  (let [nodes  (mapv #(symbol (str "s_" %)) (range 9))
+        ctxs   ['AContext 'BContext nil]
+        rnd    (java.util.Random. 1234)]                ; fixed seed: a failure reproduces
+    (dotimes [trial 30]
+      (let [t        (tax/create-taxonomy)
+            live     (atom {})                          ; handle -> [sub super]
+            believed (atom #{})
+            next-h   (atom 0)]
+        (dotimes [_ 120]
+          (let [op (.nextInt rnd 4)]
+            (cond
+              ;; a fresh supporter arrives believed, and says so
+              (or (zero? op) (empty? @live))
+              (let [i (.nextInt rnd (dec (count nodes)))
+                    j (+ i 1 (.nextInt rnd (- (count nodes) i 1)))
+                    h (swap! next-h inc)
+                    c (nth ctxs (.nextInt rnd (count ctxs)))]
+                (tax/add-genl t (nth nodes i) (nth nodes j) h c)
+                (swap! live assoc h [(nth nodes i) (nth nodes j)])
+                (swap! believed conj h)
+                (tax/refresh-beliefs t @believed #{h}))
+
+              ;; ...and a retraction takes its support out from under the edge
+              (= 1 op)
+              (let [[h [x y]] (nth (sort-by key @live) (.nextInt rnd (count @live)))]
+                (tax/del-genl! t x y h)
+                (swap! live dissoc h)
+                (swap! believed disj h))
+
+              ;; the case this test exists for: some supporters flip, most do not
+              :else
+              (let [ks      (sort (keys @live))
+                    flipped (into #{} (filter (fn [_] (< (.nextInt rnd 4) 1))) ks)
+                    now     (reduce (fn [b h] (if (b h) (disj b h) (conj b h)))
+                                    @believed flipped)]
+                (reset! believed now)
+                (tax/refresh-beliefs t now flipped)
+                (is (= (edge-ctxs-oracle t :genl now)
+                       (get-in @t [:genl :edge-ctxs]))
+                    (str "trial " trial ": a scoped refresh left :edge-ctxs stale"
+                         "\n  flipped: " (pr-str flipped)
+                         "\n  believed: " (pr-str now)))))
+            (tax/restore-depths t)
+            (is (agrees? t :genl)
+                (str "trial " trial ": the closure disagreed with a rebuild after op " op))
+            (is (= (set (keys (get-in @t [:genl :edge-ctxs])))
+                   (get-in @t [:genl :edges]))
+                ":edge-ctxs keys are exactly the active edges")))))))
+
 (deftest cache-contexts-track-supporters-and-belief
   ;; the flat-cache twin: same discipline, point lookups instead of closures.
   (let [t (tax/create-taxonomy)
@@ -516,6 +661,130 @@
       (tax/del-disjoint! t 'dog 'cat 2)
       (is (= #{} (tax/cache-contexts t k)))
       (is (nil? (get-in @t [:cache-ctxs k]))))))
+
+;; ---- the flat caches, scoped to the moved region -------------------------
+
+(def ^:private flat-decls
+  "A pool of flat-cache declarations, deliberately overlapping: the driver below draws
+  from it with repeats, so an entry routinely carries two or three supporters.  That is
+  the shape the belief-blind writers read as a superset, and the only shape `:cache-dirty`
+  is about — a single-supporter entry is exact without it."
+  '[[:disjoint d_a d_b]
+    [:disjoint d_a d_c]
+    [:disjoint d_b d_c]
+    [:prop :symmetric relP]
+    [:prop :transitive relP]
+    [:prop :symmetric relQ]
+    ;; two partners for one predicate, which nothing refuses: `:inverse` is many-to-many,
+    ;; so defeating one of them must leave the other standing rather than clear `relP`
+    [:inverse relP relQ]
+    [:inverse relP relR]
+    [:arity relP 2]
+    [:arity relQ 3]
+    [:metatype meta_m]
+    [:member meta_m d_a]
+    [:member meta_m d_b]])
+
+(defn- decl-add [t [kind a b] h ctx]
+  (case kind
+    :disjoint (tax/add-disjoint t a b h ctx)
+    :prop     (tax/mark-prop t a b h ctx)
+    :inverse  (tax/add-inverse t a b h ctx)
+    :arity    (tax/add-arity t a b h ctx)
+    :metatype (tax/mark-disjoint-metatype t a h ctx)
+    :member   (tax/add-metatype-member t a b h ctx)))
+
+(defn- decl-del [t [kind a b] h]
+  (case kind
+    :disjoint (tax/del-disjoint! t a b h)
+    :prop     (tax/unmark-prop! t a b h)
+    :inverse  (tax/del-inverse! t a b h)
+    :arity    (tax/del-arity! t a b h)
+    :metatype (tax/unmark-disjoint-metatype! t a h)
+    :member   (tax/del-metatype-member! t a b h)))
+
+(def ^:private flat-cache-fields
+  "Every answer the flat caches give, so the oracle compares the whole derived surface
+  rather than the one entry a driver step happened to touch."
+  [:disjoint :disjoint-index :disjoint-metatypes :metatype-members
+   :props :inverse :arity :cache-ctxs])
+
+(defn- flat-cache-oracle
+  "What the flat caches must hold under `believed`: the **unconditional** reconcile of
+  the very same `:cache-support`, run on a detached copy so the live taxonomy learns
+  nothing of it.  That arm walks every entry and evaluates belief for each, which is the
+  reference the scoped arm has to agree with entry for entry."
+  [t believed]
+  (let [ref (tax/detached-copy t)]
+    (tax/refresh-beliefs ref believed nil)
+    (select-keys @ref flat-cache-fields)))
+
+(deftest a-scoped-flat-cache-reconcile-answers-as-an-unconditional-one-does
+  ;; `refresh-beliefs` is handed the region a settle relabelled and reconciles only the
+  ;; flat-cache entries a handle in it supports — an entry no moved handle supports cannot
+  ;; have changed which of its supporters are believed, so it is left alone.  That is the
+  ;; locality claim for these caches, and the way it fails is silent: a defeated
+  ;; `(disjoint dog cat)` keeps refusing a membership, or a defeated `(inverse P Q)` keeps
+  ;; answering the swapped goal.
+  ;;
+  ;; So drive the *scoped* arity, which the flat-cache tests above do not — they pass no
+  ;; moved set and take the unconditional pass — and check the whole derived surface after
+  ;; every reconcile against that same unconditional pass over a detached copy.  `moved`
+  ;; is the honest flip set, computed as a diff against the previous belief, and a handle
+  ;; joins it on the edit that creates it: what `settle` hands over, an assert being
+  ;; believed as it integrates.  A *retraction* names nothing, which is the case
+  ;; `:cache-dirty` exists for and the one this fails without.
+  (let [ctxs ['AContext 'BContext nil]
+        rnd  (java.util.Random. 90210)]                 ; fixed seed: a failure reproduces
+    (dotimes [trial 25]
+      (let [t        (tax/create-taxonomy)
+            live     (atom {})                          ; handle -> declaration
+            believed (atom #{})
+            next-h   (atom 0)
+            check!   (fn [step]
+                       (is (= (flat-cache-oracle t @believed)
+                              (select-keys @t flat-cache-fields))
+                           (str "trial " trial ": a scoped reconcile left a flat cache "
+                                "stale after " step "\n  believed: " (pr-str @believed))))]
+        (dotimes [_ 100]
+          (let [op (.nextInt rnd 4)]
+            (cond
+              ;; a fresh supporter arrives believed, and the settle that stores it says so
+              (or (zero? op) (empty? @live))
+              (let [d (nth flat-decls (.nextInt rnd (count flat-decls)))
+                    h (swap! next-h inc)
+                    c (nth ctxs (.nextInt rnd (count ctxs)))]
+                (decl-add t d h c)
+                (swap! live assoc h d)
+                (swap! believed conj h)
+                (tax/refresh-beliefs t @believed #{h})
+                (check! "an assert"))
+
+              ;; ...and a retraction takes its support out from under the entry, with no
+              ;; reconcile of its own — exactly as the retract path leaves it
+              (= 1 op)
+              (let [[h d] (nth (sort-by key @live) (.nextInt rnd (count @live)))]
+                (decl-del t d h)
+                ;; Whatever is left supporting something is read back off the taxonomy
+                ;; rather than tracked: unmarking the *last* supporter of a metatype drops
+                ;; its members' entries wholesale, so handles the driver never named stop
+                ;; being supporters in the same call.
+                (let [alive (into #{} (keys (transpose-cache-support t)))]
+                  (swap! live #(into {} (filter (comp alive key)) %))
+                  (swap! believed #(into #{} (filter alive) %))))
+
+              ;; the case this test exists for: some supporters flip, most do not
+              :else
+              (let [ks      (sort (keys @live))
+                    flipped (into #{} (filter (fn [_] (< (.nextInt rnd 4) 1))) ks)
+                    now     (reduce (fn [b h] (if (b h) (disj b h) (conj b h)))
+                                    @believed flipped)]
+                (reset! believed now)
+                (tax/refresh-beliefs t now flipped)
+                (check! (str "a flip of " (pr-str flipped)))))
+            (is (= (transpose-cache-support t) (:cache-handle-keys @t))
+                (str "trial " trial ": :cache-handle-keys is not the transpose of "
+                     ":cache-support after op " op))))))))
 
 (deftest genlContext-visibility
   (let [t (tax/create-taxonomy)]

@@ -20,11 +20,21 @@
   names, which are the stable contract, independent of how the implementation is
   split across `vaelii.impl.*`.
 
-  Coverage is the whole shape-carrying surface: every entry point that takes a
-  handle, a context, a level, a strength/direction, or one of the option / budget
-  maps.  The pure taxonomy reads (`genls`, `context-up`, …) are specced too, since a
-  wrong-arity call to one of them is exactly the kind of mistake instrumentation
-  should surface early."
+  Coverage is the **single-item** shape-carrying surface: every entry point that
+  takes a handle, a context, a level or a strength/direction, together with the
+  option and budget maps those entry points carry.  The pure taxonomy reads
+  (`genls`, `context-up`, …) are specced too, since a wrong-arity call to one of
+  them is exactly the kind of mistake instrumentation should surface early.
+
+  **Eleven publics that take an option map are outside it**, and instrumenting says
+  nothing about their arguments: the batch writes (`assert-many`,
+  `bulk-assert-facts!`), the fork and the two consequence readers over it (`fork`,
+  `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`),
+  and `check`, `abduce`, `kb-quality`, `clear-caches`.  A roster test in
+  `vaelii.spec-test` holds that list against `vaelii.core`'s own arglists, so the
+  gap is a set somebody has to edit rather than a claim that goes stale in silence:
+  a public that grows an option map, or arrives with one, fails that test until it
+  is either specced here or named there."
   (:require [clojure.spec.alpha :as s]
             [vaelii.impl.strength :as strength]))
 
@@ -90,8 +100,13 @@
 
 ;; ---- predicate-metadata property kinds (has-prop? / props) --------------
 
-(s/def ::prop-kind #{:transitive :symmetric :reflexive :functional
-                     :decontextualized :forced-decontextualized})
+;; Every kind the special table marks, and `special-table-test` holds the two together:
+;; a kind the engine records and this set omits is a legal `has-prop?` call that
+;; instrumentation refuses.  The last two are a *function*'s kind rather than a
+;; predicate's, which `::term` admits either way.
+(s/def ::prop-kind #{:transitive :symmetric :asymmetric :reflexive :functional
+                     :decontextualized :forced-decontextualized
+                     :abducible :reifiable :unreifiable})
 
 ;; ---- the sentex-map return contract -------------------------------------
 ;; `query` / `sentex` / the extent readers return sentex records, which are maps.
@@ -321,9 +336,11 @@
 
 (def public-syms
   "The fully-qualified symbols the `s/fdef`s above cover — pass to
-  `clojure.spec.test.alpha/instrument` / `unstrument`.  This is the shape-carrying
-  public surface: everything that takes a handle, context, level, strength,
-  direction, or an option / budget map, plus the taxonomy and equality reads."
+  `clojure.spec.test.alpha/instrument` / `unstrument`.  This is the single-item
+  shape-carrying surface: everything that takes a handle, context, level, strength
+  or direction, the option and budget maps those carry, plus the taxonomy and
+  equality reads.  The eleven opts-taking publics it does **not** reach are named in
+  this namespace's docstring and pinned by `vaelii.spec-test`."
   '[vaelii.core/open-kb
     vaelii.core/assert
     vaelii.core/assert-rule

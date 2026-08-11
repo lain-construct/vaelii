@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.5.0"
+(defproject com.vaelii/vaelii "0.5.1"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -104,7 +104,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.5.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.5.1"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -237,7 +237,7 @@
             "lint-drift"      ["shell" "python3" "scripts/check-doc-drift.py"]
             "lint-kondo"      ["shell" "clj-kondo" "--lint" "src" "test" "bench"]
             "lint-cljfmt"     ["cljfmt" "check"]
-            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/lint-versions.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/gate.sh" "scripts/update-badges.sh" "scripts/link-checkouts.sh" "scripts/check-reflection.sh"]
+            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/lint-versions.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/test-sweeps.sh" "scripts/lib/suite-marks.sh" "scripts/gate.sh" "scripts/update-badges.sh" "scripts/link-checkouts.sh" "scripts/check-reflection.sh"]
             ;; the two ratchets: a compile pass whose warnings fail, and a public var
             ;; nothing references.  Both are in scripts/lint.sh too, so `lein gate`
             ;; picks them up inside the suite's wall clock; these are the one-offs.
@@ -255,6 +255,11 @@
             ;; the whole suite once per backend — seven record×index pairs plus the
             ;; overlay decorator (scripts/test-backends.sh)
             "test-backends"   ["shell" "bash" "scripts/test-backends.sh"]
+            ;; and once per alternative implementation — the dense TMS, the sweep
+            ;; chainer, the node engine, one of its tacticians, the reference
+            ;; context retrieval (scripts/test-sweeps.sh).  The other axis, and
+            ;; together with the line above it is what `deep.yml` runs
+            "test-sweeps"     ["shell" "bash" "scripts/test-sweeps.sh"]
             "fix"             ["cljfmt" "fix"]
             "bench-memory"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.memory"]
             "bench-memconjoin" ["with-profile" "+bench" "run" "-m" "vaelii.bench.memconjoin"]
@@ -263,10 +268,23 @@
             "bench-survey"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.survey"]
             "bench-densetrie" ["with-profile" "+bench" "run" "-m" "vaelii.bench.densetrie"]
             "bench-records"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.records"]
+            "bench-walk"      ["with-profile" "+bench" "run" "-m" "vaelii.bench.walk"]
             "bench-jtms"      ["with-profile" "+bench" "run" "-m" "vaelii.bench.jtms"]
             "bench-backward"  ["with-profile" "+bench" "run" "-m" "vaelii.bench.backward"]
             "bench-forward"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.forward"]
             "bench-plan"      ["with-profile" "+bench" "run" "-m" "vaelii.bench.plan"]
+            ;; what shape of question a KB is asked, and what its index does with each
+            ;; shape.  `+with-foreign` so the `corpus` arm resolves the `:cyc-corpus`
+            ;; reader through the plugin, as bench-caches does.
+            "bench-profile"   ["with-profile" "+bench,+with-foreign" "run" "-m" "vaelii.bench.profile"]
+            ;; the index bake-off — one corpus, one workload, N layouts, and the access
+            ;; path each goal took beside how long it took.  `+with-foreign` for the same
+            ;; reason bench-profile has it: the `corpus` arm resolves the `:cyc-corpus`
+            ;; reader through the plugin.
+            "bench-index"     ["with-profile" "+bench,+with-foreign" "run" "-m" "vaelii.bench.index"]
+            ;; the bake-off's structural counterpart — objects and bytes on the walk,
+            ;; counted rather than timed, over the same layout table.
+            "bench-alloc"     ["with-profile" "+bench,+with-foreign" "run" "-m" "vaelii.bench.alloc"]
             "bench-qcn"       ["with-profile" "+bench" "run" "-m" "vaelii.bench.qcn"]
             "bench-qcnchain"  ["with-profile" "+bench" "run" "-m" "vaelii.bench.qcnchain"]
             "bench-aggchain"  ["with-profile" "+bench" "run" "-m" "vaelii.bench.aggchain"]
@@ -277,6 +295,9 @@
             "bench-checks"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.checks"]
             "bench-inherit"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.inherit"]
             "bench-tactics"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.tactics"]
+            ;; where a bulk load's wall clock goes, phase by phase — a cumulative peel,
+            ;; so the deltas sum to the baseline (docs/storage.md, "What a bulk load costs")
+            "bench-loadphase" ["with-profile" "+bench" "run" "-m" "vaelii.bench.loadphase"]
             ;; the rebuildable caches' resident bytes and the KB-quality readings, in one
             ;; JVM because both sit behind the same expensive corpus load.  `+with-foreign`
             ;; too: a corpus run resolves the `:cyc-corpus` reader through the plugin.

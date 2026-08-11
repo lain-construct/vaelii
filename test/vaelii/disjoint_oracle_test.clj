@@ -219,6 +219,31 @@
       (is (empty? (answers kb (list 'disjoint dog '?t) '?t MetaContext)))
       (is (empty? (pairs-of kb (list 'disjoint '?a '?b) MetaContext))))))
 
+(tu/deftest-kb a-membership-defeated-before-the-metatype-is-declared-revives-with-it
+  ;; The retroactive sweep records **supporters**, so it must read what is *stored*.
+  ;; Reading belief instead would skip a membership that is defeated at the moment the
+  ;; declaration lands — and then that handle is in no `:cache-handle-keys` entry, so
+  ;; clearing the defeat could never revive it: `moved-cache-keys` has no key to find.
+  ;; Belief would depend on whether the defeat or the declaration arrived first, and
+  ;; permanently.  Assert in this order — defeat, then declare — since it is the order
+  ;; a belief-filtered sweep cannot answer.
+  (tu/with-terms [species dog cat MetaContext]
+    (v/assert kb (list 'genlContext MetaContext 'UniverseContext) 'UniverseContext)
+    (v/assert kb (list species dog) MetaContext)
+    (v/assert kb (list species cat) MetaContext)
+    ;; defeat the membership *before* the declaration: stored, disbelieved
+    (let [beaten (v/assert kb (list 'not (list species dog)) MetaContext
+                           {:strength :monotonic})]
+      (v/assert kb (list 'disjointMetatype species) MetaContext)
+      (testing "while the membership is defeated it separates nothing"
+        (is (not (v/ask? kb (list 'disjoint dog cat) MetaContext))))
+      (testing "and clearing the defeat revives it, the supporter having been recorded"
+        (v/retract! kb beaten)
+        (is (v/ask? kb (list species dog) MetaContext) "the membership is believed again")
+        (is (v/ask? kb (list 'disjoint dog cat) MetaContext)
+            (str "so the metatype separates its members — a belief-filtered sweep would "
+                 "have dropped this supporter for good"))))))
+
 (tu/deftest-kb a-type-below-both-sides-of-a-separation-is-disjoint-from-itself
   ;; `(disjoint ?x ?x)` — one variable in both places, so one binding rather than two.
   ;; A type below both sides of one declaration can have no instances, and that is

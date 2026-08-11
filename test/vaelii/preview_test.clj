@@ -168,17 +168,17 @@
 (tu/deftest-kb a-conclusion-the-derivation-path-would-drop-is-reported-as-a-violation
   ;; an `argIsa` conviction has no opposing sentex to weigh against, so the derivation
   ;; path drops it — and a preview says so before the write happens
-  (tu/with-terms [person rock parentOf looksLike Boulder Fido StoryContext]
+  (tu/with-terms [person rock parentOf looksLike Boulder Muffet StoryContext]
     (v/assert kb (list 'genl person 'thing) StoryContext)
     (v/assert kb (list 'genl rock 'thing) StoryContext)
     (v/assert kb (list 'argIsa parentOf 1 person) StoryContext)
     (v/assert kb (list rock Boulder) StoryContext)
-    (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Fido)) StoryContext)
+    (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) StoryContext)
     (let [before (content kb)
           r      (v/preview kb {:add [[(list looksLike Boulder) StoryContext]]})]
       (testing "the drop is reported where a real run would report it"
         (is (= [:arg-type] (mapv :violation (:violations r))))
-        (is (= [(list parentOf Boulder Fido)] (mapv :sentence (:violations r)))))
+        (is (= [(list parentOf Boulder Muffet)] (mapv :sentence (:violations r)))))
       (testing "only the admissible half of the batch is believed"
         (is (= [(list looksLike Boulder)] (sentences (:believed-added r)))))
       (testing "the KB's own ledger is left as it was found"
@@ -267,6 +267,26 @@
 (tu/deftest-kb an-unbounded-run-says-it-was-unbounded
   (tu/with-terms [dog Rex StoryContext]
     (is (false? (:bounded? (v/preview kb {:add [[(list dog Rex) StoryContext]]}))))))
+
+(tu/deftest-kb the-cap-takes-the-content-first-entries-not-the-first-stored
+  ;; The cap is what makes the diff's order load-bearing: it decides *which* entries the
+  ;; caller sees, and the browser's proposal panel caps at 50.  Ranked by handle — which
+  ;; is assertion order — the same batch against the same knowledge would show a
+  ;; different sample depending on how the KB was loaded.
+  ;;
+  ;; The batch lists its facts in the **reverse** of their content order, so the two
+  ;; rankings disagree: by handle the first line reported is the first one written, by
+  ;; content it is the one whose sentence sorts first.
+  (tu/with-terms [likes Subject StoryContext]
+    (let [objs (mapv #(tu/tmp-ind %) ["Alpha" "Beta" "Gamma"])
+          fact (fn [o] [(list likes Subject o) StoryContext])
+          r    (v/preview kb {:add (mapv fact (reverse objs))} {:max-results 1})]
+      (is (= 1 (count (:believed-added r))))
+      (is (true? (:bounded? r)))
+      (is (= (list likes Subject (first objs))
+             (:sentence (first (:believed-added r))))
+          (str "the content-first line is the one shown — written last, so a handle "
+               "ranking would have shown the other end of the batch")))))
 
 ;; ---- 9. an empty batch --------------------------------------------------
 
@@ -432,8 +452,8 @@
   ;; silent-default failure is a cap silently off: `{:max-result 5}` reads as no key at
   ;; all, the diff comes back uncapped, and `:bounded?` says false as though the whole
   ;; answer had been asked for.
-  (tu/with-terms [dog Fido CapContext]
-    (let [batch {:add [[(list dog Fido) CapContext]]}]
+  (tu/with-terms [dog Muffet CapContext]
+    (let [batch {:add [[(list dog Muffet) CapContext]]}]
       (testing "preview refuses the singular typo, naming its roster"
         (let [e (is (thrown? clojure.lang.ExceptionInfo
                              (v/preview kb batch {:max-result 5})))]

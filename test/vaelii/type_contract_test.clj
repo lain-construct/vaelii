@@ -116,25 +116,27 @@
   with a changelog entry, since callers discriminate on it (CONTRIBUTING.md §3.8)."
   #{:already-loaded :arg-constraint-kind :arg-genl :arg-position
     :arg-type :arity :asymmetric :bad-arg
-    :bad-args :bad-foreign-manifest :bad-handle :bad-host
+    :bad-args :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
     :bad-level :bad-registrant :bad-reply
-    :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :busy
+    :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large
     :context-escape :cross-origin :daemon-error :damaged-dictionary
     :disjoint :disk-locked :duplicate-handle :error
     :exception-not-closed :export-busy :frozen-base :functional
-    :incomplete-racer :inter-arg-type :internal-error :labeling-inconsistent
-    :llm-api-error :llm-encode :llm-no-credential :llm-not-applicable
+    :incomplete-racer :inter-arg-type :internal-error :job-busy :labeling-inconsistent
+    :llm-api-error :llm-bad-credential :llm-bad-response :llm-encode
+    :llm-no-credential :llm-not-applicable :llm-timeout
     :malformed-entry :malformed-record :missing-resource :naf-not-closed
     :naming :no-base :no-depth-bound :no-destination
     :no-dump :no-foreign-reader :not-a-directory :not-assertible
     :not-checkable :not-defeasible :not-edn :not-empty :not-indexable
-    :not-found :not-ground :not-in-process :not-range-restricted :not-stratified
+    :not-a-report :not-found :not-ground :not-in-process :not-range-restricted :not-stratified
     :not-watchable :not-well-formed :quantifier-not-local :report-only
     :reset :shape :solver-failed :solver-unavailable
     :stacked-fork :stale-index-layout :still-loading :still-stopping
+    :too-many-subscriptions :too-many-waiters
     :torn-snapshot :unauthorized :unbound-deferred :unforkable-index :unknown-backend
     :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
-    :unknown-op :unknown-option :unknown-source :unknown-tactician
+    :unknown-op :unknown-option :unknown-source :unknown-subscription :unknown-tactician
     :unparseable :unreadable :unreadable-store :unsupported-compression
     :unsupported-format :unsupported-platform :unsupported-variant :unsupported-version})
 

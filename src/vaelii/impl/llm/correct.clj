@@ -49,23 +49,54 @@
 
 (defn- instance-position?
   "Does position `n` of `pred` want an *instance* rather than a type?  True when an
-  `argIsa` constrains it: `(argIsa eats 1 animal)` asks for an animal, and a type is not
-  an animal — `genl penguin animal` holds while `isa? penguin animal` does not, which is
-  exactly the distinction the constraint is about.  A position with no constraint is left
-  alone, since an unconstrained argument may legitimately be a type (`(comment penguin
-  \"…\")`, `(disjoint penguin fish)`)."
+  `argIsa` constrains it to something **narrower than the root**: `(argIsa eats 1 animal)`
+  asks for an animal, and a type is not an animal — `genl penguin animal` holds while
+  `isa? penguin animal` does not, which is exactly the distinction the constraint is about.
+
+  A position with no constraint is left alone, since an unconstrained argument may
+  legitimately be a type.  So is one constrained to `thing`, and for the same reason: the
+  root is what every term reaches, so a constraint on it separates no term from any other
+  and is evidence of nothing.  `comment` is the case that needs this — its first argument
+  is any term at all, an individual or a type or a predicate, and `thing` is the honest
+  declaration for it, so a type there is correct and rewriting `(comment penguin \"…\")`
+  would be the bug.
+
+  A position holding a **kind** is a different matter and is not this test's business:
+  it is declared with `argGenl`, which this never reads.  That is why `(argIsa eats 1
+  animal)` passes — `animal` sits at `argIsa`'s third position, declared `(argGenl argIsa
+  3 thing)` — rather than because the root is being ignored there."
   [kb pred n]
-  (boolean (seq (v/sentexes-matching kb (list 'argIsa pred n '?t) '?ctx))))
+  (boolean (seq (for [sx (v/sentexes-matching kb (list 'argIsa pred n '?t) '?ctx)
+                      :when (not= 'thing (nth (:sentence sx) 3))]
+                  sx))))
 
 (defn- arg-type
-  "The type `argIsa` constrains position `n` of `pred` to, or nil when unconstrained."
+  "The type `argIsa` constrains position `n` of `pred` to — the **narrowest** one, or nil
+  when unconstrained.
+
+  Two contexts each declaring one position is the usual shape, and `sentexes-matching`
+  promises the set and not an order, so which declaration answers has to be a content
+  choice: `same-type?` reads this to decide whether the reversed argument order is offered
+  at all and whether the card reads `:low` or `:medium`, and neither may turn on the order
+  the index happened to hand back.  `inventory/specificity` is that choice — most specific
+  first, the type name breaking a tie — and it is the ranking the vocabulary card's own
+  signatures use, so a position reads the same in both places.  Narrowest is also the
+  honest reading of two constraints: a term must satisfy both to stand there."
   [kb pred n]
-  (some-> (first (v/sentexes-matching kb (list 'argIsa pred n '?t) '?ctx)) :sentence (nth 3)))
+  (first (sort-by (partial inv/specificity kb)
+                  (for [{:keys [sentence]} (v/sentexes-matching kb (list 'argIsa pred n '?t) '?ctx)]
+                    (nth sentence 3)))))
 
 (defn- structural?
-  "Is this a predicate whose arguments are *supposed* to be types?  `genl`, `disjoint`,
-  `argIsa`, `comment` and the rest of the vocabulary head talk about types by design, so
-  a type in their arguments is correct and not a mistake to rewrite."
+  "Is this **frame** rather than vocabulary — a connective or meta-form the engine
+  interprets (`implies`, `and`, `not`, `ist`, …)?  `inventory/structural-functors` is the
+  roster, and it holds the connectives only.
+
+  The vocabulary head is *not* on it and does not need to be.  `genl` and `disjoint` take
+  types by declaration — they are `typeRelationPredicate`s constrained with `argGenl`,
+  which `instance-position?` never reads — and `comment` takes anything, which is what its
+  `thing` constraint says.  Each is left alone by the declaration it carries rather than by
+  being named here, so there is one place to look when one of them is rewritten in error."
   [pred]
   (inv/structural-functor? pred))
 

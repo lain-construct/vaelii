@@ -18,13 +18,14 @@
   therefore changes nothing here."
   (:require [clojure.edn :as edn]
             [clojure.set :as set]
-            [clojure.test :refer [is testing use-fixtures]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.catalog :as catalog]
             [vaelii.impl.client :as client]
             [vaelii.impl.guard :as guard]
             [vaelii.impl.serve :as serve]
+            [vaelii.impl.subscribe :as sub]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream File]
            [java.nio.file Files]
@@ -88,10 +89,10 @@
 ;; ---- the handler, no socket ---------------------------------------------
 
 (tu/deftest-kb app-dispatches-ops-and-refuses-bad-input
-  (tu/with-terms [dog animal Fido ServeContext]
+  (tu/with-terms [dog animal Muffet ServeContext]
     (let [handler (open-app kb)]
       (testing "an assert op stores and returns the handle"
-        (let [r (post-op handler :assert [(list dog Fido) ServeContext {:strength :monotonic}])]
+        (let [r (post-op handler :assert [(list dog Muffet) ServeContext {:strength :monotonic}])]
           (is (:ok r))
           (is (nat-int? (:result r)))))
       (testing "a query op returns sentex maps — plain, not records"
@@ -100,19 +101,19 @@
           (let [sx (first (:result r))]
             (is (map? sx))
             (is (not (record? sx)) "a record must be projected to a plain map on the wire")
-            (is (= (list dog Fido) (:sentence sx))))))
+            (is (= (list dog Muffet) (:sentence sx))))))
       (testing "an ask op returns binding maps"
         (v/assert kb (list 'genl dog animal) ServeContext)
         (let [r (post-op handler :ask [(list animal '?x) ServeContext])]
           (is (:ok r))
-          (is (some #(= Fido (get % '?x)) (:result r))
-              "specificity: (dog Fido) answers the (animal ?x) goal")))
+          (is (some #(= Muffet (get % '?x)) (:result r))
+              "specificity: (dog Muffet) answers the (animal ?x) goal")))
       (testing "why returns a proof-tree map"
-        (let [h (v/handle-of kb (list dog Fido) ServeContext)
+        (let [h (v/handle-of kb (list dog Muffet) ServeContext)
               r (post-op handler :why [h])]
           (is (:ok r))
           (is (map? (:result r)))
-          (is (= (list dog Fido) (:sentence (:result r))))))
+          (is (= (list dog Muffet) (:sentence (:result r))))))
       (testing "preview answers what a batch would believe, and stores nothing"
         ;; served with the writes because it applies the batch and rolls it back — the
         ;; daemon is the single writer, which is exactly the condition it needs
@@ -149,11 +150,11 @@
   ;; the CSRF gate: `application/edn` is not a CORS-*simple* type, so a browser must
   ;; preflight it and this daemon answers no preflight — demanding it is what keeps a
   ;; page the operator merely visits from driving the write route
-  (tu/with-terms [dog Fido ServeContext]
+  (tu/with-terms [dog Muffet ServeContext]
     (let [handler (open-app kb)
           before  (tu/sentex-ids kb)
           refused (fn [headers]
-                    (post-op* handler headers :assert [(list dog Fido) ServeContext]))]
+                    (post-op* handler headers :assert [(list dog Muffet) ServeContext]))]
       (testing "no content-type at all is a 415 in the daemon's structured error shape"
         (let [r (refused {})]
           (is (= 415 (:status r)))
@@ -169,19 +170,19 @@
             (is (= :not-edn (:type r)) ct))))
       (testing "and the refusal runs nothing — the op is never executed"
         (is (= before (tu/sentex-ids kb)))
-        (is (nil? (v/handle-of kb (list dog Fido) ServeContext)))))))
+        (is (nil? (v/handle-of kb (list dog Muffet) ServeContext)))))))
 
 (tu/deftest-kb post-op-refuses-a-cross-origin-caller
   ;; the other CSRF gate, and the one that bites when a browser *does* stamp an origin:
   ;; `edn-body?` forces a preflight this daemon will not answer, and this refuses the
   ;; page that got one anyway.  A `:type` on the wire because a client discriminating on
   ;; the message string is discriminating on prose.
-  (tu/with-terms [dog Fido ServeContext]
+  (tu/with-terms [dog Muffet ServeContext]
     (let [handler (open-app kb)
           before  (tu/sentex-ids kb)
           from    (fn [hdrs]
                     (post-op* handler (merge {"content-type" "application/edn"} hdrs)
-                              :assert [(list dog Fido) ServeContext]))]
+                              :assert [(list dog Muffet) ServeContext]))]
       (doseq [[label hdrs] [["another site" {"host" "localhost:4200"
                                              "origin" "http://evil.example"}]
                             ;; a sandboxed frame sends `Origin: null` — an origin claim
@@ -203,17 +204,17 @@
 (tu/deftest-kb post-op-accepts-edn-however-legally-spelled
   ;; `guard/edn-body?` trims, lower-cases and prefix-matches, so a parameterized or
   ;; case-varied header is still the declaration the gate requires
-  (tu/with-terms [dog Fido ServeContext]
+  (tu/with-terms [dog Muffet ServeContext]
     (let [handler (open-app kb)]
       (doseq [ct ["application/edn; charset=utf-8"
                   "Application/EDN"
                   "APPLICATION/EDN; CHARSET=UTF-8"
                   "  application/edn  "]]
         (let [r (post-op* handler {"content-type" ct} :assert
-                          [(list dog Fido) ServeContext])]
+                          [(list dog Muffet) ServeContext])]
           (is (= 200 (:status r)) ct)
           (is (:ok r) ct)))
-      (is (some? (v/handle-of kb (list dog Fido) ServeContext))
+      (is (some? (v/handle-of kb (list dog Muffet) ServeContext))
           "the accepted spelling reached the op — the fact is stored"))))
 
 (tu/deftest-kb the-daemon-refuses-a-rebound-host-on-every-route
@@ -221,19 +222,19 @@
   ;; `Origin` and `Host` (a domain re-resolving to 127.0.0.1), so `host-allowed?` is
   ;; the check that has to hold — and it wraps the whole server, because a rebound
   ;; page reads the KB as happily as it writes to it
-  (tu/with-terms [dog Fido ServeContext]
+  (tu/with-terms [dog Muffet ServeContext]
     (let [handler (open-app kb)
           before  (tu/sentex-ids kb)]
       (testing "a write op under a rebound Host is a 400 before anything runs"
         (let [r (post-op* handler {"content-type" "application/edn"
                                    "host"   "evil.example.com"
                                    "origin" "http://evil.example.com"}
-                          :assert [(list dog Fido) ServeContext])]
+                          :assert [(list dog Muffet) ServeContext])]
           (is (= 400 (:status r)))
           (is (false? (:ok r)))
           (is (= :bad-host (:type r)))
           (is (= before (tu/sentex-ids kb)) "the refused op stored nothing")
-          (is (nil? (v/handle-of kb (list dog Fido) ServeContext)))))
+          (is (nil? (v/handle-of kb (list dog Muffet) ServeContext)))))
       (testing "a read route is refused too — the KB is what a rebound page came for"
         (let [r (handler {:request-method :get :uri "/health"
                           :headers {"host" "evil.example.com:4200"}})]
@@ -246,20 +247,20 @@
       (testing "a write under the daemon's own Host still lands"
         (let [r (post-op* handler {"content-type" "application/edn"
                                    "host" "127.0.0.1:4200"}
-                          :assert [(list dog Fido) ServeContext])]
+                          :assert [(list dog Muffet) ServeContext])]
           (is (:ok r))
           (is (nat-int? (:result r)))))
       (testing "and a Host-less request (curl, every other test here) passes by design"
         (is (= 200 (:status (handler {:request-method :get :uri "/health"}))))))))
 
 (tu/deftest-kb export-over-the-wire-writes-on-the-daemons-own-host
-  (tu/with-terms [dog Fido ServeContext]
+  (tu/with-terms [dog Muffet ServeContext]
     (let [handler (open-app kb)
           root (.toFile (Files/createTempDirectory "vaelii-serve-export-"
                                                    (into-array FileAttribute [])))
           dump (java.io.File. root "a-dump")]
       (try
-        (v/assert kb (list dog Fido) ServeContext)
+        (v/assert kb (list dog Muffet) ServeContext)
         (testing "the op answers with the writer's summary — every value already EDN, so
                   nothing about it needs the sentex-map projection"
           (let [r (post-op handler :export [(.getPath dump) {:compression :none}])]
@@ -294,7 +295,7 @@
   ;; indistinguishable: a 401 that said *which* — "malformed header" against "wrong
   ;; token", or a different message for a right prefix — is an oracle a caller walks a
   ;; byte at a time.  Same status, same body, same challenge, whatever went wrong.
-  (tu/with-terms [dog Fido ServeContext]
+  (tu/with-terms [dog Muffet ServeContext]
     (let [handler (authed-app kb)
           before  (tu/sentex-ids kb)
           bodies  (atom #{})]
@@ -328,14 +329,17 @@
   ;; The one carve-out, and the reason for it: a daemon only its token-holder can probe
   ;; is one no orchestrator, load balancer or shell script can watch, and `{:ok true}`
   ;; reveals nothing a caller did not learn by connecting.  The other side is driven off
-  ;; `serve/ops` itself, so an op added later is covered by construction.
+  ;; `serve/op-names` itself, so an op added to either table later is covered by
+  ;; construction.
   (let [handler (authed-app kb)]
     (testing "GET /health answers with no credential"
       (let [resp (handler {:request-method :get :uri "/health"})]
         (is (= 200 (:status resp)))
         (is (:ok (edn/read-string (:body resp))))))
-    (testing "and every op in the table is refused without one"
-      (doseq [op (sort (keys serve/ops))]
+    (testing "and every op the daemon answers is refused without one — both tables, so
+              a feed subscription is no more allocatable by an anonymous caller than a
+              read is answerable to one"
+      (doseq [op serve/op-names]
         (let [body (pr-str {:op op :args []})
               resp (handler {:request-method :post :uri "/op"
                              :headers {"content-type" "application/edn"}
@@ -434,11 +438,11 @@
 ;; behind it.
 
 (tu/deftest-kb an-oversized-post-is-a-413-that-runs-no-op
-  (tu/with-terms [dog Fido ServeContext]
+  (tu/with-terms [dog Muffet ServeContext]
     (let [handler (open-app kb)
           before  (tu/sentex-ids kb)
           body    (.getBytes ^String (pr-str {:op :assert
-                                              :args [(list dog Fido) ServeContext]})
+                                              :args [(list dog Muffet) ServeContext]})
                              "UTF-8")
           resp    (with-redefs [guard/max-body-bytes 8]
                     (handler {:request-method :post :uri "/op"
@@ -451,7 +455,7 @@
       (is (re-find #"exceeds" (:error r)))
       (testing "and the op never ran — the refusal is before the dispatch, not after"
         (is (= before (tu/sentex-ids kb)))
-        (is (nil? (v/handle-of kb (list dog Fido) ServeContext))))
+        (is (nil? (v/handle-of kb (list dog Muffet) ServeContext))))
       (testing "the same call under the shipped ceiling lands, so the 413 above is the
                 ceiling's doing and not the request's"
         (let [r2 (edn/read-string
@@ -576,3 +580,23 @@
     (let [e (is (thrown? clojure.lang.ExceptionInfo
                          (#'serve/positional-args ["4200" "/var/lib" "stray"])))]
       (is (= :unknown-option (:type (ex-data e)))))))
+
+(deftest the-parked-poll-ceiling-stays-under-the-thread-pool
+  ;; Two numbers that have to stay related, and were not.  A parked long poll holds one
+  ;; HTTP worker for the length of its wait, so with the pool implicit at ring's default
+  ;; 50 and the subscription ceiling at 64, a caller doing exactly what the feature is
+  ;; for could saturate the daemon: 55 parked polls took `/health` from 62 ms to 26 s,
+  ;; and one subscription was enough, since nothing bounded polls per token.
+  (testing "the pool is stated rather than defaulted, so the pair can be checked at all"
+    (is (pos-int? serve/http-threads)))
+  (testing "and the parked ceiling leaves the daemon threads to answer everything else"
+    (is (< sub/max-parked (quot serve/http-threads 2))
+        (str "max-parked " sub/max-parked " must stay well under http-threads "
+             serve/http-threads " — a parked poll holds one of them"))))
+
+(deftest the-client-mirrors-the-daemons-wait-ceiling
+  ;; `vaelii.impl.client` carries its own copy rather than requiring the daemon's, which
+  ;; would pull the whole engine onto the classpath of a client whose point is not
+  ;; needing it.  A mirrored constant drifts unless something says otherwise.
+  (is (= sub/max-wait-ms @(resolve 'vaelii.impl.client/max-wait-ms))
+      "the client extends its read timeout by what the daemon will actually wait"))

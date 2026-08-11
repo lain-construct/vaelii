@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# scripts/lint-versions.sh — the version strings this tree states twice must agree.
+# scripts/lint-versions.sh — the version strings this tree states more than once
+# must agree.
 #
-# Two coordinates are written in two places each, with a "keep in sync" comment
-# and nothing enforcing it.  A comment is not a check: both pairs have drifted,
-# and each drift reads as something other than what it is.
+# `defproject`'s version is written in four places and lein-cloverage's in two,
+# each with a "keep in sync" comment and nothing enforcing it.  A comment is not
+# a check: these drift, and each drift reads as something other than what it is.
 #
 #   1. The sibling pin.  `defproject com.vaelii/vaelii "V"` and the
 #      `:with-foreign` profile's `com.vaelii/vaelii-foreign "V"` are cut
@@ -32,7 +33,17 @@
 #      for editor tooling.  Two versions means the report and the declaration
 #      describe different runs.
 #
-# Exit 0 when both agree; prints each disagreement and the fix, and exits 1.
+#   4. The release badge.  `.github/badges/release.svg` is *generated* from
+#      `defproject` by `scripts/update-badges.sh`, and being generated is what
+#      makes it drift: bumping the version does not run that script, and the
+#      badge is a picture at the top of the README — a reader has no way to
+#      tell `v0.5.0` painted there apart from the version the tree
+#      actually builds.  Held to `agrees` rather than to equality, for the
+#      reason the pin is: on `develop` the badge names the release that
+#      shipped, and the drift being looked for leaves a *snapshot* behind.
+#
+# Exit 0 when every pair agrees; prints each disagreement and the fix, and
+# exits 1.
 set -euo pipefail
 export LC_ALL=C
 
@@ -124,8 +135,35 @@ elif [[ "$declared" != "$injected" ]]; then
   echo "        → make both $declared, or both whatever the newer one should be" >&2
 fi
 
+# ---- 4: the release badge reads defproject's version ----
+# Off the `<title>`, which carries the version once; the `<text>` runs beside it
+# repeat it for the badge's shadow and blur layers, so the first match there would
+# be one of three spellings of the same thing and a partial rewrite would still
+# parse.  The badge is generated, so the fix is to re-run the generator: editing
+# the SVG by hand leaves the next `update-badges.sh` run to undo it.
+BADGE=${BADGE_FILE:-.github/badges/release.svg}
+
+# The existence test is its own arm rather than left to the read: `read_version`
+# pipes, `pipefail` is on, and a missing file would abort the whole script from
+# inside a command substitution — exiting non-zero with nothing said, which is the
+# one way a check can fail and teach nobody anything.
+if [[ ! -f "$BADGE" ]]; then
+  err "no release badge at $BADGE"
+  echo "        → generate it with scripts/update-badges.sh" >&2
+else
+  badge=$(read_version '.*<title>release: v\([^<]*\)<\/title>.*' "$BADGE")
+  if [[ -z "$badge" ]]; then
+    err "cannot read the release version from $BADGE"
+    echo "        → regenerate it with scripts/update-badges.sh" >&2
+  elif ! agrees "$engine" "$badge"; then
+    err "badge drift: $BADGE reads v$badge, defproject is $engine"
+    echo "        → run scripts/update-badges.sh; the badge is generated from" >&2
+    echo "          defproject and is not edited by hand" >&2
+  fi
+fi
+
 if (( FAILS > 0 )); then
   echo "lint-versions: $FAILS disagreement(s)" >&2
   exit 1
 fi
-echo "lint-versions: OK (vaelii/vaelii-foreign $engine in project.clj and $README, lein-cloverage $declared)"
+echo "lint-versions: OK (vaelii/vaelii-foreign $engine in project.clj, $README and $BADGE, lein-cloverage $declared)"

@@ -45,7 +45,9 @@
        `lein bench-caches <corpus-dir>`     — a converted corpus (`:cyc-corpus`)
        `lein bench-caches <corpus-dir> full`— the same at the `:full` profile
 
-  A corpus run wants a heap: `JVM_OPTS=-Xmx32g lein bench-caches …`."
+  A corpus run wants a heap, and `:bench` pins `-Xmx6g` that an environment `JVM_OPTS`
+  loses to outright.  `scripts/run-bench-caches.sh` is the driver: it edits the option
+  vector on the way past and logs the run."
   (:require [vaelii.bench.postings :as postings]
             [vaelii.core :as v]
             [vaelii.impl.foreign :as foreign]

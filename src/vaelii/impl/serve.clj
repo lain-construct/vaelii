@@ -5,7 +5,7 @@
   (`vaelii.impl.client`).  A thin reitit-ring + jetty layer over `vaelii.core`, the
   network dual of the in-process API.
 
-  **Wire format is EDN.**  A sentence is a symbol s-expression — `(dog Fido)`, `?x`,
+  **Wire format is EDN.**  A sentence is a symbol s-expression — `(dog Muffet)`, `?x`,
   `(genl dog animal)` — which EDN round-trips losslessly; JSON would mangle the symbols.
   The body of every call is `{:op <keyword> :args [...]}`, and the reply is
   `{:ok true :result …}` or `{:ok false :error \"…\"}`.  EDN is read with
@@ -31,6 +31,13 @@
   plain maps before they hit the wire (the `sentex`-map contract), so the client reads
   them back without the `impl` record class.
 
+  **The change feed is the one thing that is not a `vaelii.core` fn** (`feed-ops`), and
+  it is a table of its own for that reason: `core/watch` takes a callback, so what a
+  remote caller holds open instead is a subscription with a **cursor** — `:watch`,
+  `:poll`, `:unwatch`, `:watchers`, over the per-handler registry `app` builds
+  (`vaelii.impl.subscribe`, docs/feed.md).  A `:poll` that waits runs **outside** the
+  monitor; everything else about them is an ordinary EDN op.
+
   **One shared bearer token authenticates the caller.**  With `VAELII_API_TOKEN` set
   (`guard/api-token`), every request presents `Authorization: Bearer <token>` or is
   answered 401 with a `WWW-Authenticate: Bearer` challenge; `GET /health` is the one
@@ -52,7 +59,8 @@
             [ring.adapter.jetty :as jetty]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
-            [vaelii.impl.guard :as guard])
+            [vaelii.impl.guard :as guard]
+            [vaelii.impl.subscribe :as sub])
   (:import [org.eclipse.jetty.server Server ServerConnector]))
 
 ;; ---- the op table: the allowlisted vaelii.core surface -------------------
@@ -162,13 +170,85 @@
    :qualitative-network   (op v/qualitative-network)
    :possible-relations    (op v/possible-relations)
    :qualitative-scenario  (op v/qualitative-scenario)
-   :qualitative-scenarios (op v/qualitative-scenarios)})
+   :qualitative-scenarios (op v/qualitative-scenarios)
+   ;; what this process is holding beside the store, and the one control that drops it.
+   ;; The clear is a write in the HTTP sense and in no other: it destroys no knowledge,
+   ;; moves no belief, and is the instrument that makes a hit rate mean something
+   :caches       (op v/caches)
+   :clear-caches (op v/clear-caches)})
+
+;; ---- the daemon's own ops: the change feed, held open with a cursor ------
+;;
+;; `ops` above is an allowlist of `vaelii.core` fns with the KB supplied, and the feed
+;; cannot be one of them: `core/watch` takes a **function**, and a function does not
+;; cross an EDN wire — the same wall `:export`'s `:on-progress` hits.  What crosses is
+;; state with a cursor, which is state *this daemon* holds rather than anything the
+;; engine has, so these three take the handler's subscription registry as well as its
+;; KB (`vaelii.impl.subscribe`, docs/feed.md).
+;;
+;; A second table rather than a second value shape in the first one, because the
+;; difference is worth being able to state: `ops` is the surface a caller could also
+;; reach in process, and `vaelii.impl.access` dispatches through it for exactly that
+;; reason; `feed-ops` is the daemon's own, and a local caller holding a KB uses
+;; `core/watch` instead.  `vaelii.impl.llm.tools` derives the model's tool set from
+;; `ops` alone, so a subscription is not something a model can allocate.
+
+(defn- feed-args!
+  "The args a feed op takes, or a `:bad-args` refusal naming what it wanted.  The
+  engine ops get this from `apply` and an `ArityException`; these take an args vector
+  whole, so the arity check has to be written."
+  [op args shapes]
+  (or (some #(when (= (count args) (count %)) args) shapes)
+      (throw (ex-info (str "op " (pr-str op) " takes " (str/join " or " (map pr-str shapes))
+                           ", got " (count args) " argument"
+                           (when (not= 1 (count args)) "s"))
+                      {:type :bad-args :op op}))))
+
+(def feed-ops
+  "The change-feed operations, keyed by op keyword — `(fn [ctx args])` over a `ctx` of
+  `{:kb :registry :monitor}`.
+
+  Each says its own relationship to the daemon's write monitor, which is the one thing
+  about them that is not like an engine op.  `:watch` and `:unwatch` take it: they are
+  instantaneous, and taking it makes the boundary exact — every settle that finished
+  before a `:watch` returned is outside the subscription's feed, and every one that
+  starts after it is inside.  `:poll` **must not**, because a long poll parks: inside
+  the monitor it would block every writer for the duration of its wait, turning a
+  feature about liveness into a global stall.  `:watchers` does not either — it reads
+  the registry and expires what has expired, and a listing that had to queue behind a
+  bulk load is a listing an operator asks for while the daemon is busy."
+  {:watch
+   (fn [{:keys [kb registry monitor]} args]
+     (let [[goal context] (feed-args! :watch args [[] '[goal context]])]
+       (locking monitor (sub/watch registry kb goal context))))
+
+   :poll
+   (fn [{:keys [kb registry]} args]
+     (let [[token cursor opts] (feed-args! :poll args ['[token cursor]
+                                                       '[token cursor opts]])]
+       (sub/poll registry kb token cursor opts)))
+
+   :unwatch
+   (fn [{:keys [kb registry monitor]} args]
+     (let [[token] (feed-args! :unwatch args ['[token]])]
+       (locking monitor (sub/unwatch registry kb token))))
+
+   :watchers
+   (fn [{:keys [kb registry]} args]
+     (feed-args! :watchers args [[]])
+     (sub/subscriptions registry kb))})
+
+(def op-names
+  "Every op keyword this daemon answers, sorted — the `vaelii.core` allowlist and the
+  daemon's own together.  What an `:unknown-op` refusal hands back, so a caller
+  discovering the surface sees one roster rather than the larger half of two."
+  (vec (sort (concat (keys ops) (keys feed-ops)))))
 
 (defn- wire-safe
   "Make a result EDN-clean for a client that lacks the `impl` record classes: project
   every sentex/record to a plain map (the `sentex`-map contract).  `clojure.walk/walk`
   `doall`s each seq, so a lazy answer stream is realized before the response closes;
-  a **list stays a list** (a sentence `(dog Fido)` must not become `[dog Fido]`, or it
+  a **list stays a list** (a sentence `(dog Muffet)` must not become `[dog Muffet]`, or it
   would `pr-str` differently on the far side)."
   [x]
   (walk/postwalk (fn [y] (if (record? y) (into {} y) y)) x))
@@ -188,7 +268,14 @@
     :disjoint :functional :asymmetric :unknown-option :bad-handle
     :unknown-handle :bad-level :exception-not-closed :not-stratified :naf-not-closed
     :quantifier-not-local :not-watchable :not-checkable :not-assertible
-    :bad-table-entry})
+    :bad-table-entry
+    ;; the feed's four (docs/feed.md).  The two ceilings are the odd ones and are here
+    ;; on purpose: the daemon is at capacity rather than the request being malformed,
+    ;; but the caller is who can fix it — by dropping a subscription, or by polling on a
+    ;; timer instead of asking to wait — and inventing a status for either would break
+    ;; the promise that a client discriminates on `:type` with the code as the coarse
+    ;; client/server split
+    :unknown-subscription :bad-cursor :too-many-subscriptions :too-many-waiters})
 
 (defn- handle-op
   "Run one `{:op :args}` request under the write lock and answer with EDN.
@@ -198,8 +285,13 @@
   caller, so a page the operator merely *visits* must not be able to drive it:
   `guard/edn-body?` forces a CORS preflight this daemon cannot answer, and
   `guard/same-origin?` refuses a browser that stamped someone else's origin.  See
-  `vaelii.impl.guard`."
-  [kb monitor req]
+  `vaelii.impl.guard`.
+
+  Two tables are looked up, in order: the `vaelii.core` allowlist (`ops`, run under the
+  monitor), then the daemon's own change-feed ops (`feed-ops`, which take the handler's
+  subscription registry and decide about the monitor themselves — a long poll parks, and
+  a parked poll holding it would block every writer)."
+  [kb registry monitor req]
   (let [edn-reply (fn [status m]
                     {:status status
                      :headers {"content-type" "application/edn"}
@@ -234,8 +326,9 @@
               _ (when-not (or (nil? args) (sequential? args))
                   (throw (ex-info (str "op :args must be a sequence, got " (pr-str args))
                                   {:type :bad-args :op op})))
-              f (ops op)]
-          (if f
+              f (ops op)
+              g (when-not f (feed-ops op))]
+          (cond
             ;; `wire-safe` inside the monitor, not after it: the walk is what *realizes*
             ;; a lazy answer stream, so releasing the lock around the call alone would
             ;; let a `:query` read its matches while a concurrent `:assert` is settling
@@ -243,15 +336,29 @@
             ;; pay the same lock, and the read is not over until its seq is.
             ;; an arity mismatch is the caller naming the wrong number of args, so it is
             ;; a 400 like the unknown op beside it rather than a server fault
+            f
             (let [result (try (locking monitor (wire-safe (f kb (vec args))))
                               (catch clojure.lang.ArityException t
                                 (throw (ex-info (str "wrong number of arguments for op "
                                                      (pr-str op) ": " (.getMessage t))
                                                 {:type :bad-args :op op}))))]
               (edn-reply 200 {:ok true :result result}))
+
+            ;; the feed's own, **outside** the monitor here — each takes it for itself
+            ;; where it needs it, and `:poll` must not, since a parked long poll holding
+            ;; the daemon's one lock would stall every writer for the length of its wait.
+            ;; Nothing a feed op answers is a lazy stream over the store, so realizing it
+            ;; out here straddles no state: the events were built at settle time and are
+            ;; already values.
+            g
+            (edn-reply 200 {:ok true
+                            :result (wire-safe (g {:kb kb :registry registry :monitor monitor}
+                                                  (vec args)))})
+
+            :else
             (edn-reply 400 {:ok false :error (str "unknown op: " (pr-str op))
                             :type :unknown-op
-                            :ops (vec (sort (keys ops)))}))))
+                            :ops op-names}))))
       (catch clojure.lang.ExceptionInfo e
         (let [ty (:type (ex-data e))]
           (cond
@@ -338,6 +445,17 @@
          :body (pr-str {:ok false :type :unauthorized
                         :error "this daemon requires Authorization: Bearer <token>"})}))))
 
+(def http-threads
+  "How many worker threads the daemon's HTTP server runs.
+
+  Stated rather than defaulted, because it is one half of a pair: a parked long poll
+  holds one of these for the length of its wait, so `subscribe/max-parked` has to stay
+  well under it or the feature that exists for liveness becomes the thing that stalls
+  the daemon.  Left implicit the two numbers were 50 and 64, the wrong way round, and
+  nothing said so — 55 parked polls took `/health` from 62 ms to 26 s.  `serve_test`
+  pins the relationship."
+  50)
+
 (def ^:private loopback
   "The interface the daemon binds unless told otherwise.  `POST /op` is the **write**
   route of the single writer, so it answers only the machine it runs on; exposing it is
@@ -367,6 +485,11 @@
   ([kb] (app kb {}))
   ([kb {:keys [host] :or {host loopback} :as opts}]
    (let [monitor (Object.)
+         ;; per handler, beside the monitor and for the same reason: a feed token names
+         ;; a subscription *on this daemon*, so it is state the handler owns rather than
+         ;; state the KB does — two handlers over one KB are two daemons, and a token
+         ;; from one means nothing to the other
+         registry (sub/registry)
          token   (if (contains? opts :token) (:token opts) (guard/api-token))
          allowed (guard/allowed-hosts host)]
      (wrap-bearer-auth
@@ -376,7 +499,7 @@
          [["/health" {:get (fn [_] {:status 200
                                     :headers {"content-type" "application/edn"}
                                     :body (pr-str {:ok true})})}]
-          ["/op" {:post (fn [req] (handle-op kb monitor req))}]])
+          ["/op" {:post (fn [req] (handle-op kb registry monitor req))}]])
         (ring/create-default-handler
          {:not-found (fn [_] {:status 404 :headers {"content-type" "application/edn"}
                               ;; typed like every other {:ok false} — the migration
@@ -402,7 +525,7 @@
   explicit nil still serves open."
   ^Server [kb {:keys [port host] :or {port 4200 host loopback} :as opts}]
   (jetty/run-jetty (app kb (assoc (select-keys opts [:token]) :host host))
-                   {:port port :host host :join? false}))
+                   {:port port :host host :join? false :max-threads http-threads}))
 
 (defn port
   "The actual TCP port a started `Server` is listening on — the ephemeral one when it

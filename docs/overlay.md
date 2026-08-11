@@ -100,11 +100,12 @@ reserved namespaced keys that no index key can collide with, which means it is e
 durable as the fork is and a remount needs no separate recovery step.
 
 **`kv-count` answers the merged cardinality**, never the overlay's. The count-aware trie
-is a selectivity structure — `plan/order` costs every conjunct off `count-at` and
-`provers/est-bindings` off the functor root — so a base-blind count would not be a wrong
-answer, it would be a silently wrong *plan* for every query touching inherited content.
-`kv-intersect` merges for the same reason: `sentexes-with-args` intersects the
-predicate-scoped argument roots, and it has to see the base's postings.
+is a selectivity structure — `plan/order` costs every conjunct off `count-at`, divides by
+the fan-out at a position off `count-children`, and `provers/est-bindings` reads the
+functor root — so a base-blind count would not be a wrong answer, it would be a silently
+wrong *plan* for every query touching inherited content. `kv-intersect` merges for the
+same reason: `sentexes-with-args` intersects the predicate-scoped argument roots, and it
+has to see the base's postings.
 
 **Merging is not the same as building the merged set**, and on a fork the difference is
 what every query plan costs. Read the rule backwards: `(base ∪ overlay) − removed`
@@ -122,6 +123,14 @@ a 100,000-handle root — a selectivity read, per conjunct, on a key the fork ha
 written to. `lein perf --only overlay-selectivity` is the gate. `kv-member?` is the same
 observation at member granularity: it probes both sides rather than merging them, which is
 what keeps the `exception-rule?` gate O(1) across the seam.
+
+So the two roads cost differently and must answer alike, and that is what
+`overlay_test`'s `count-children-answers-the-same-on-both-roads-through-the-merge` holds:
+a prefix the fork has added a child under, removed one from, or both, is counted off the
+merged set and reads what the child set there reads — including at the depths the merge is
+most likely to confuse, a whole sentence (whose children are the contexts it is stored in)
+and the leaf below it. A fork that counted a fan-out its own matcher does not see would
+plan every query touching its own writes against the wrong number.
 
 `kv-get` is the scalar/counter read and does **not** merge set values. No key in the index
 is read both ways (the trie's counters go through `kv-get`, its handle sets through

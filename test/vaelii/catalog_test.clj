@@ -10,6 +10,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.catalog :as cat]
+            [vaelii.impl.jobs :as jobs]
             [vaelii.test-util :as tu]))
 
 ;; The catalog is process-global (one registry, one active KB), so every test starts and
@@ -70,7 +71,7 @@
     (is (some #(= key (:key %)) (cat/entries)))
     (is (wait-for))
     (let [e (first (filter #(= key (:key %)) (cat/entries)))]
-      (is (= :ready (:status e)))
+      (is (= :done (:status e)))
       (is (= :done (get-in e [:progress :phase])))
       (testing "the entry carries the counts the page shows"
         (is (pos? (:sentexes (:stats e))))
@@ -83,11 +84,36 @@
   (cat/load-source "core")
   (wait-for)
   (let [e (first (cat/entries))]
-    (testing "the KB itself, the thread, and the cancel flag stay out of the view"
+    (testing "the KB itself stays out of the view, and the thread and the cancel flag are
+              not the entry's to hold in the first place — they belong to its job"
       (is (not (contains? e :kb)))
       (is (not (contains? e :future)))
       (is (not (contains? e :cancel))))
+    (testing "the status, the progress and the elapsed time are read off that job, so the
+              panel and the loader cannot tell two stories"
+      (is (string? (:job e)))
+      (is (= :done (:status e)))
+      (is (= :done (:status (jobs/job (:job e))))))
     (is (number? (:elapsed-ms e)))))
+
+(deftest an-entry-outlives-its-jobs-report-and-still-says-what-became-of-it
+  ;; A settled job ages out of the registry after an hour, and the entry stays — so the
+  ;; status the entry keeps *of its own* has to be the settled one.  While it was still the
+  ;; placeholder a load registered with, an hour was all it took for a finished KB to become
+  ;; permanently unwritable (`write-blocked?`) and permanently un-unloadable
+  ;; (`:still-stopping`), with nothing running and no job to point at.
+  (let [key (cat/load-source "core")]
+    (is (wait-for))
+    (let [kb (:kb (cat/entry key))]
+      ;; the sweep, without the hour: the registry forgets, the entry does not
+      (jobs/reset-registry!)
+      (is (nil? (jobs/job (:job (cat/entry key)))) "the job's report is gone")
+      (let [e (cat/entry key)]
+        (is (= :done (:status e)) "and the entry answers for itself")
+        (is (= :done (get-in e [:progress :phase])))
+        (is (number? (:finished e)) "so elapsed time stops growing"))
+      (is (false? (cat/write-blocked? kb)) "the KB is writable, as it was an hour ago")
+      (is (true? (cat/unload! key)) "and it can still be taken down"))))
 
 (deftest ^:slow one-load-at-a-time
   (cat/load-source "generated" {:types 200 :individuals 4000 :facts 20000 :rules 100})
@@ -153,7 +179,7 @@
         (is (= (:kb (cat/entry key)) @holder)))
       (testing "and the reader is told, rather than the catalog refusing"
         (let [c (cat/active-caveat)]
-          (is (= :loading (:status c)))
+          (is (= :running (:status c)))
           (is (= key (:key c)))
           (is (some? (:progress c)))))
       (finally
@@ -177,12 +203,12 @@
   (let [spaces {:backend :memory :space 60 :recover? false}
         built  (v/open-kb spaces)]
     (try
-      (v/assert built '(dog Fido) 'UniverseContext {})
+      (v/assert built '(dog Muffet) 'UniverseContext {})
       (let [reopened (v/open-kb spaces)]
         (cat/register! "beliefless" "Reopened without recover" reopened)
         (is (cat/activate "beliefless"))
         (let [c (cat/active-caveat)]
-          (is (= :ready (:status c)) "it is not loading — that is what makes it a trap")
+          (is (= :done (:status c)) "it is not loading — that is what makes it a trap")
           (is (false? (:belief? c)))))
       (finally (v/clear! built)))))
 
@@ -207,7 +233,7 @@
       (cat/load-source "core" {:dir dir})
       (is (wait-for))
       (let [e (first (cat/entries))]
-        (is (= :ready (:status e)))
+        (is (= :done (:status e)))
         (is (= :disk (get-in e [:where :backend])))
         ;; The claim is that closing *removes* nothing a reopen needs — not that the
         ;; directory is byte-identical.  A clean close legitimately writes: `counters.nippy`
@@ -265,6 +291,12 @@
         (let [e (cat/entry key)]
           (is (= :failed (:status e)))
           (is (string? (:error e)))
+          (testing "and it still says so once the job's report has aged out — a load files
+                    its terminal status onto the entry from both of its ends, or the
+                    fallback an hour later is the `:running` it registered with"
+            (jobs/reset-registry!)
+            (is (= :failed (:status (cat/entry key))))
+            (is (string? (:error (cat/entry key)))))
           (testing "the KB it opened before failing is still on the entry, so unloading
                     releases it rather than stranding a space"
             (is (some? (:where e)))
@@ -381,11 +413,14 @@
         (testing "the job runs on its own thread and reports where it went"
           (is (= :running (:status (cat/export-entry! "mine" (.getPath dump) {:compression :none}))))
           (is (wait-for-export))
-          (let [j (cat/export-job)]
+          (let [j (jobs/latest :export)]
             (is (= :done (:status j)))
             (is (= "My KB" (:name j)))
             (is (pos? (:sentexes (:summary j))))
             (is (pos? (:bytes (:summary j))))
+            (is (false? (:writes? j))
+                "a dump is written to the filesystem, so it claims no writer and a load
+                 may run beside it")
             (is (nil? (:cancel j)) "the cancel flag is not something to render")
             (is (nil? (:future j)))))
         (testing "and what it wrote is a source this catalog offers — the loop, closed
@@ -428,7 +463,7 @@
                             (cat/export-entry! "daemon" "/tmp/vaelii-nowhere" {}))))
     (testing "none of that started anything"
       (is (false? (cat/exporting?)))
-      (is (nil? (cat/export-job))))
+      (is (nil? (jobs/latest :export))))
     (cat/unload! "mine")
     (cat/unload! "daemon")))
 
@@ -436,7 +471,7 @@
   (tu/with-cleared-kb [kb tu/fresh]
     (cat/register! "mine" "My KB" kb {:source (cat/source "starter")})
     (let [e (cat/entry "mine")]
-      (is (= :ready (:status e)))
+      (is (= :done (:status e)))
       (is (= "mine" (cat/active)))
       (testing "it is not this catalog's to release — unloading forgets it and leaves the
                 KB alone"

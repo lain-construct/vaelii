@@ -25,13 +25,13 @@
 
 (tu/deftest-kb prove-uses-type-transitivity
   (let [dog (tu/tmp-type) animal (tu/tmp-type) rock (tu/tmp-type)
-        breathes (tu/tmp-pred) fido (tu/tmp-ind) boulder (tu/tmp-ind)]
+        breathes (tu/tmp-pred) muffet (tu/tmp-ind) boulder (tu/tmp-ind)]
     (v/assert kb (list 'genl dog animal) 'UniverseContext)
     (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'UniverseContext)
-    (v/assert kb (list dog fido) 'UniverseContext)
+    (v/assert kb (list dog muffet) 'UniverseContext)
     (v/assert kb (list rock boulder) 'UniverseContext)          ; not an animal
     (testing "a rule about animals is provable for a dog (subtype), not a rock"
-      (is (v/provable? kb (list breathes fido) 'UniverseContext))
+      (is (v/provable? kb (list breathes muffet) 'UniverseContext))
       (is (not (v/provable? kb (list breathes boulder) 'UniverseContext))))))
 
 (tu/deftest-kb prove-is-context-aware

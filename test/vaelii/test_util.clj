@@ -254,7 +254,7 @@
 
 (defn fresh-term
   "A gensym'd temporary term of `role`, naming it after `base` so a failure reads
-  `tmpdog17` / `TmpFido17` rather than an anonymous `tmp_t17`.  The generated name
+  `tmpdog17` / `TmpMuffet17` rather than an anonymous `tmp_t17`.  The generated name
   satisfies the naming invariant for its role by construction.
 
   A `:type` temp keeps the **base's own spelling**: a base already carrying an
@@ -294,9 +294,9 @@
   "Bind each symbol to a gensym'd temporary term, hiding the gensym plumbing.  The
   *role* is inferred from the symbol's own shape, and the generated name embeds it:
 
-    (with-terms [dog Fido parentOf StoryContext]
-      (v/assert kb (list dog Fido) StoryContext))
-    ;; dog -> tmpdog17   Fido -> TmpFido18
+    (with-terms [dog Muffet parentOf StoryContext]
+      (v/assert kb (list dog Muffet) StoryContext))
+    ;; dog -> tmpdog17   Muffet -> TmpMuffet18
     ;; parentOf -> tmpParentOf19   StoryContext -> TmpStory20Context
 
   So the test reads like the ontology it is about, while every term stays unique and
@@ -395,17 +395,37 @@
 (defmacro with-kb
   "Bind `sym` to the KB under test:
 
-    (with-kb [kb] (v/assert kb …))"
-  [[sym] & body]
-  `(let [~sym *kb*] ~@body))
+    (with-kb [kb] (v/assert kb …))
+
+  **The binding vector takes the symbol and nothing else**, and an init form is refused
+  at macroexpansion rather than ignored.  The shape that reads like a `let` and is not one
+  is `(with-kb [k (fresh)] …)`: it binds the fixture's KB, and whatever the init says it
+  never runs — so a helper called twice in one test runs its second arm over everything
+  the first left, and a test comparing two arrangements compares the second against the
+  first instead of against the same baseline.  Nothing in the reading says so, which is
+  why this refuses the spelling instead of quietly honouring half of it.
+
+  Evaluating the init is not the fix, which is worth stating so nobody re-derives it: a
+  `fresh` **mid-test** clears the store the `:each` fixture recorded its baseline against,
+  and the net-neutrality check then reports a leak for content the clear removed.  A test
+  wanting a genuinely separate KB gives each arm its own gensym'd terms (`with-terms`
+  inside the arm), or builds over a cleared store with `with-cleared-kb`."
+  [binding & body]
+  (when-not (and (vector? binding) (= 1 (count binding)))
+    (throw (ex-info (str "with-kb takes a one-symbol binding vector [sym], got "
+                         (pr-str binding)
+                         " — an init form here would never be evaluated; give each arm its"
+                         " own with-terms, or use with-cleared-kb")
+                    {:type :bad-binding :binding binding})))
+  `(let [~(first binding) *kb*] ~@body))
 
 (defmacro deftest-kb
   "A `deftest` whose body has **`kb`** already bound to the KB under test — the
   fixture plumbing stays out of the test:
 
     (deftest-kb a-dog-is-an-animal
-      (with-terms [dog Fido]
-        (v/assert kb (list dog Fido) 'UniverseContext)))"
+      (with-terms [dog Muffet]
+        (v/assert kb (list dog Muffet) 'UniverseContext)))"
   [name & body]
   `(clojure.test/deftest ~name (let [~'kb *kb*] ~@body)))
 

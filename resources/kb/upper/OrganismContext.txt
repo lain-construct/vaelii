@@ -29,7 +29,7 @@
 (comment bee "An insect that gathers nectar and pollinates flowers.")
 (genl bee insect)
 
-(comment bird "An animal with feathers; flies by default, though some (penguins) do not.")
+(comment bird "An animal with feathers. Flight is a capability of the kind, held by default and denied of penguins, rather than a property of each bird.")
 (genl bird animal)
 (vertebrateClass bird)
 

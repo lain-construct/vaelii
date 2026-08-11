@@ -125,100 +125,13 @@ fi
 OUT_DIR="${TEST_BACKENDS_OUT:-target/test-backends}"
 mkdir -p "$OUT_DIR"
 
-# Colour only when someone is watching; a redirected run stays greppable.
-if [[ -t 1 ]]; then
-  GREEN=$'\033[32m'; RED=$'\033[31m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; OFF=$'\033[0m'
-else
-  GREEN=""; RED=""; DIM=""; BOLD=""; OFF=""
-fi
-TICK="${GREEN}✔${OFF}"
-CROSS="${RED}✘${OFF}"
+# The colours, the marks and the log readers, shared with `test-sweeps.sh` — the
+# other script that runs the whole suite more than once, and which would otherwise
+# carry a second copy of them to drift against this one.
+# shellcheck source=scripts/lib/suite-marks.sh
+. scripts/lib/suite-marks.sh
 
-hms() { printf '%dm%02ds' $(($1 / 60)) $(($1 % 60)); }
-
-# what `lein test` compiles before it can run the first namespace — the number the
-# wait below is proportional to, and NOT the number of marks a run will print: the
-# selector narrows what RUNS, never what is loaded, so every run pays this in full.
-NS_COUNT=$(find test -name '*_test.clj' | wc -l | tr -d ' ')
-
-# …and how many of them the selector will actually run, which is the denominator the
-# marks count towards.  Leiningen prints one `lein test <ns>` header per namespace
-# holding at least one SELECTED test, so a namespace whose every test is `^:slow`
-# emits nothing under `:default` and would otherwise leave the count short.  Read off
-# the source: the three forms that define a test all sit at column 0, and a `^:slow`
-# on the `ns` form marks the whole file (which is what leiningen's metadata merge
-# means).
-TEST_FORM='^\((tu/deftest-kb|deftest|defspec) '
-selected_ns_count() {
-  local sel="$1" f slow plain count=0
-  while IFS= read -r f; do
-    if grep -qE '^\(ns +\^:slow' "$f"; then
-      slow=1; plain=0
-    else
-      slow=$(grep -cE "$TEST_FORM\\^:slow" "$f")
-      plain=$(grep -cE "${TEST_FORM}[^^]" "$f")
-    fi
-    case "$sel" in
-      :slow)    (( slow  > 0 )) && count=$((count + 1)) ;;
-      :default) (( plain > 0 )) && count=$((count + 1)) ;;
-      *)        count=$((count + 1)) ;;
-    esac
-  done < <(find test -name '*_test.clj')
-  echo "$count"
-}
 RUN_NS_COUNT=$(selected_ns_count "$SELECTOR")
-
-# How wide a row of marks is: as many groups of ten as the terminal has room
-# for, keeping the right-hand column free for the running count.  Ten to a group
-# because the point of grouping is to be countable at a glance.
-COLS=$(tput cols 2>/dev/null)
-[[ "$COLS" =~ ^[0-9]+$ ]] && (( COLS >= 40 )) || COLS=80   # a pty can report 0
-ROW_GROUPS=$(( (COLS - 13 + 1) / 11 ))
-(( ROW_GROUPS < 1 )) && ROW_GROUPS=1
-MARKS_PER_ROW=$(( ROW_GROUPS * 10 ))
-
-# One mark per test namespace, printed while the suite runs — the marks alone,
-# in rows, which is a progress bar whose bricks each mean something.  A name per
-# namespace is 165 lines a backend and 1300 a matrix, and reading them is not
-# how anybody uses this; where the ✘ falls in the row is.  Names come back after
-# a failing run, which is when they answer a question.
-#
-# `lein test` prints `lein test <ns>` BEFORE running that namespace and
-# `lein test :only <ns>/<test>` above every failure inside one, so a namespace's
-# verdict is known when the next header (or the closing `Ran N tests`) arrives —
-# one namespace of lag, and nothing waits for the run to end.  The failure lines
-# name their own namespace, so a report that lands late is still attributed to
-# the right one.  `fflush` because the mark is the progress: buffered, it would
-# arrive with the summary it exists to precede.
-ns_marks() {
-  awk -v tick="$TICK" -v cross="$CROSS" -v total="$RUN_NS_COUNT" -v per="$MARKS_PER_ROW" '
-    BEGIN { width = per + int((per - 1) / 10); digits = length(total) }
-    function blanks(n,   s) { s = ""; while (n-- > 0) s = s " "; return s }
-    function emit(   mark) {
-      if (ns == "") return
-      mark = (ns in bad) ? cross : tick
-      if (col == 0) printf("  ")                  # the row indent
-      else if (col % 10 == 0) printf(" ")         # the group gap
-      printf("%s", mark)
-      col++; count++
-      if (col == per) endrow(); else fflush()
-      ns = ""
-    }
-    # the count sits in a fixed column, so a partial row is padded to the width
-    # a full one would have had rather than left where it happened to stop
-    function endrow(   used) {
-      if (col == 0) return
-      used = col + int((col - 1) / 10)
-      printf("%s  %*d/%d\n", blanks(width - used), digits, count, total)
-      col = 0
-      fflush()
-    }
-    /^lein test :only / { split($4, part, "/"); bad[part[1]] = 1; next }
-    /^lein test [A-Za-z0-9._-]+$/ { emit(); ns = $3; next }
-    /^Ran [0-9]+ tests/ { emit(); endrow() }
-    END { emit(); endrow() }
-  '
-}
 
 # ^C stops the run in progress AND the script.  Neither half is automatic.
 #
@@ -334,7 +247,11 @@ for backend in "${BACKENDS[@]}"; do
   # whole group STOPS: 0% CPU, an empty log, no output ever, indistinguishable
   # from a hang until `ps` shows the state as `T`.  `lein test` has no use for
   # stdin, so give it none.
-  env "${envv[@]}" lein test "$SELECTOR" < /dev/null 2>&1 | tee "$log" | ns_marks &
+  # the stamp first, then append: a log has to say what it was run *against*, or a
+  # count that moved because the tree moved is indistinguishable from one that moved
+  # because a run skipped something
+  revision_stamp > "$log"
+  env "${envv[@]}" lein test "$SELECTOR" < /dev/null 2>&1 | tee -a "$log" | ns_marks &
   child_pid=$!
   child_pgid=$(ps -o pgid= -p "$child_pid" 2>/dev/null | tr -d ' ')
   child_pgid="${child_pgid:-$child_pid}"
@@ -347,9 +264,8 @@ for backend in "${BACKENDS[@]}"; do
 
   # the two lines clojure.test prints last, tightened into one column; absent
   # when the run died before reaching them
-  summary=$(grep -aE '^Ran [0-9]+ tests' "$log" | tail -1 \
-              | sed -E 's/^Ran ([0-9]+) tests containing ([0-9]+) assertions\.?$/\1 tests, \2 assertions/')
-  counts=$(grep -aE '^[0-9]+ failures, [0-9]+ errors' "$log" | tail -1 | sed 's/\.$//')
+  summary=$(run_summary "$log")
+  counts=$(run_counts "$log")
 
   if [[ $code -eq 0 ]]; then mark="$TICK"; else mark="$CROSS"; FAILED+=("$backend"); fi
   printf '  %s %-16s %-52s %s\n' \
@@ -361,8 +277,7 @@ for backend in "${BACKENDS[@]}"; do
     while read -r ns; do
       [[ -z "$ns" ]] && continue
       printf '      %s %s\n' "$CROSS" "$ns"
-    done < <(grep -aoE '^lein test :only [a-zA-Z0-9._-]+/' "$log" \
-               | sed -E 's|^lein test :only ||; s|/$||' | sort -u)
+    done < <(failing_namespaces "$log")
   fi
 
   [[ $KEEP -eq 1 || -z "$diskdir" ]] || rm -rf "$diskdir"

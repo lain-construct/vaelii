@@ -44,7 +44,7 @@ oracle.clj     the other direction: the KB's conclusions judged by a model (docs
 |---|---|---|---|---|
 | unit of work | the KB | a set of handles | one term's page | a document |
 | the turn is | "record this" | "rewrite these lines" | "flesh this out" | "what does this text claim?" |
-| how the model reads | 55 generated tool schemas | the selection + its vocabulary | the page + the KB's vocabulary inventory | the numbered text + the vocabulary its own words resolved to |
+| how the model reads | 57 generated tool schemas | the selection + its vocabulary | the page + the KB's vocabulary inventory | the numbered text + the vocabulary its own words resolved to |
 | how the model answers | a fenced `edn` block | the editor's `[sentence context]` lines | bare sentences under a JSON schema | sentences + the sentence each came from, under a JSON schema |
 | the context is | the model's to write | the model's to write | the **caller's**, never written | the **caller's**, never written |
 | needs | a tool-capable model | any model that can complete text | a model that writes s-expressions | a model that writes s-expressions |
@@ -76,8 +76,8 @@ is the argument for it and the measurement against `phi4:14b`, control group inc
 surface the daemon and the browser reach a KB through. `tools/schemas` derives the
 model's tools from its **read subset** rather than transcribing them: parameter names
 and arities come from each `vaelii.core` var's own `:arglists`, descriptions from its
-docstring. Of its 63 entries seven are writes and one more resolves to a `!` var, so
-the model sees 55. A read added to `serve/ops` becomes a tool with no edit here; a
+docstring. Of its 65 entries seven are writes and one more resolves to a `!` var, so
+the model sees 57. A read added to `serve/ops` becomes a tool with no edit here; a
 signature change is picked up on the next build.
 
 Names are munged to the provider's identifier grammar — `:find-sentexes` becomes
@@ -128,7 +128,7 @@ every request.
 The final answer is one fenced `edn` block:
 
 ```edn
-{:add    [[(dog Fido) WellContext]
+{:add    [[(dog Muffet) WellContext]
           [(parentOf Tom Ann) WellContext {:strength :monotonic}]]
  :remove [4211]}
 ```
@@ -138,6 +138,25 @@ The final answer is one fenced `edn` block:
 a proposal the critic rejected unless `{:force? true}` overrides. So there is exactly
 one place storage is reached, it is not on the model's path, and a test can assert
 (and does) that proposing leaves the sentex set untouched.
+
+**Applying is not a transaction, and `apply-proposal!` reports what landed.** `edit!`
+asserts the adds in order, retracts after, and settles once at the end — a throw part-way
+through leaves the prefix stored and skips that settle. The critic cannot rule the throw
+out: `check-batch` grades every add against the KB **as it stands**, so two adds that are
+each admissible and jointly are not both pass and the batch is `:ok`. So the throw is
+caught, belief is **settled by hand**, and the result says what happened:
+
+```clojure
+{:result    {…}   ; edit!'s own result — nil when the batch threw part-way
+ :applied   3     ; how many of :add the KB now stores: all of them, or the prefix
+ :failed-at 3     ; the index in :add the throw came from (nil ⇒ a retraction threw)
+ :error     {:type :disjoint :message "…" :exception #error{…}}
+ :violations […] :contradictions […]}
+```
+
+A partial apply that settles and reports is recoverable — the stored prefix is real
+knowledge, correctly believed, and `:failed-at` names the entry to fix. All-or-nothing is
+not on offer, because the door underneath does not have it.
 
 ### 4. The well-formedness checker is the critic
 
@@ -228,24 +247,34 @@ Two things about where it comes from, both measured and both counter-intuitive:
   meta-predicate (`genl`, `argIsa`, `comment`, `disjoint`, …) and not one a domain relation.
   The schema is schema-only: `bird`, `parentOf` and `flies` appear only as *arguments* of
   declarations and inside rules. So types come from `types` and relations from the
-  `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships, which covers 128
-  relations where `argIsa` constrains 42 of them.
+  `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships, which covers 127
+  domain relations — and `argIsa` then supplies argument *types* for 118 of the 120 a page
+  renders.
 - **Arity is never inferred from `argIsa`.** `argIsa` constrains an argument to a *type* and
-  is deliberately partial — you may `likes` anything, and a `birthYearOf` value is a number,
-  not a type. Its highest declared position disagrees with the declared arity for 8 of those
-  42 (`likes`, `birthYearOf` and `arity` among those reading unary against a declared
-  2), so an inventory built that way would print `likes/1` and *cause* the arity errors it
+  is deliberately partial: `hasCapability/2` and `resultIsa/2` each constrain only their
+  first argument, and `interArgIsa/5` constrains one position of five. Its highest declared
+  position disagrees with the declared arity for 6 of the 145 predicates it constrains, so
+  an inventory built that way would print `interArgIsa/1` and *cause* the arity errors it
   exists to prevent. Arity comes from the declarations, else from a stored fact, else it is
   not printed.
 
-The card is bounded, not complete. A type page's inventory renders 196 terms — 120
-relations, 72 type names and the structural handful — and states the 8 relations
-`:max-relations` cut as a count rather than dropping them silently; with signatures and
-clipped documentation that is about 7,700 tokens — a **type** page, which carries the
-widest inventory there is; a term page's whole prompt is well under that (below). There
-is no retrieval path and no top-K:
-relevance ordering (the page term's neighbourhood first, then everything else declared)
-exists so that the **token cap cuts the least useful first**.
+The card is bounded, not complete. An inventory renders 204 terms — 120 relations, 80 type
+names and the four structural ones — and `:dropped` counts all three of its cuts, because a
+card that cuts silently reads as the whole vocabulary. Both count bounds are stated as a
+number left out (`:relations` 7 here, `:types` 0), and `:unscanned` is the third: the stored
+**facts** `:max-scan` never read, which the relation block states as *"this card did not
+read N further facts about this term; a relation used only there is not listed above."*
+That cut is the one that loses rather than demotes. A predicate the KB has *declared* is
+offered under a later tier whether or not the scan reached it, but a predicate used with
+the term and never declared and never `argIsa`'d is on the card because the scan found it,
+and nothing else looks for it.
+
+Both blocks are vocabulary-sized rather than term-sized, so what differs between two pages
+is the order and not the size. With signatures and clipped documentation that is about
+8,900 tokens uncapped, against the 4,800 a whole page prompt measures (below) — so on the
+shipped schema the **token** cap is the one that does the cutting. There is no retrieval
+path and no top-K: relevance ordering (the page term's neighbourhood first, then everything
+else declared) exists so that the **token cap cuts the least useful first**.
 
 Measured effect, same model and same instruction, with
 `:prompt-opts {:max-relations 0 :max-types 0}` as the control:
@@ -301,6 +330,7 @@ report it either.
 propose ──▶ provider turn
               │
               ├─ refusal?       ──▶ :refused        (checked before :content is read)
+              ├─ truncated?     ──▶ :truncated      (the host stopped at the token limit)
               ├─ tool_use?      ──▶ run reads, feed results back, next turn
               └─ final text     ──▶ parse batch
                                      ├─ unparseable ──▶ feed the parse error back
@@ -308,6 +338,17 @@ propose ──▶ provider turn
                                           ├─ clean   ──▶ :ok
                                           └─ rejected ─▶ feed the typed rejections back
 ```
+
+**Two stop reasons are read before the content, not after.** A refusal is the well-known
+one; `max_tokens` is the other, and what it costs depends on how the path reads an answer.
+Where the answer is **diffed or carries a `:remove`** (`propose`, `propose-edit`), absence
+means intent — on the selection path every line the model never reached comes back as a
+proposed retraction — so a cut-off turn is `:status :truncated` and carries no batch, lines
+or summary at all. Where the answer is **additive** (`propose-page`, `propose-text`), what
+did arrive stands, so the turn keeps its batch and carries `:answer-truncated? true` beside
+it: a status there would make `apply-proposal!` refuse a partial generation that is
+perfectly applicable. The check runs ahead of the tool-use arm too, since a tool call cut in
+half is an argument map nobody finished writing.
 
 Two independent bounds, both reported rather than thrown, and each defaulted per path:
 
@@ -323,7 +364,15 @@ Two independent bounds, both reported rather than thrown, and each defaulted per
 A repair turn hands back the checker's verdict verbatim — entry, `:type`, message —
 and tells the model to drop an entry it cannot make well-formed rather than guess.
 
-`:status` is one of `:ok`, `:invalid`, `:unparseable`, `:refused`, `:exhausted`.
+Every read of a model's output catches **`Throwable`**, not `Exception`: a deeply nested
+form overflows the reader's stack, and an unreadable answer is the ordinary outcome these
+arms exist to report rather than one that should leave the loop. A parse failure is named
+by its exception class where the failure carries no message, since a `StackOverflowError`
+carries none and a nil marker reads as an empty batch — a crash that looks like a model
+proposing nothing.
+
+`:status` is one of `:ok`, `:invalid`, `:unparseable`, `:refused`, `:truncated`,
+`:exhausted`.
 
 ## What an application calls
 
@@ -331,17 +380,18 @@ and tells the model to drop an entry it cannot make well-formed rather than gues
 (require '[vaelii.impl.llm.session :as llm]
          '[vaelii.impl.llm.anthropic :as anthropic])
 
-(llm/propose kb {:message  "Fido is a dog and Ann is his owner"
+(llm/propose kb {:message  "Muffet is a dog and Ann is his owner"
                  :provider (anthropic/provider)          ; omit for the offline stub
                  :on-event (fn [ev] …)})                 ; omit for non-streaming
 ;; => {:status :ok
-;;     :batch  {:add [[(dog Fido) WellContext] …] :remove []}
-;;     :edn    "{:add [[(dog Fido) WellContext]] :remove []}"
+;;     :batch  {:add [[(dog Muffet) WellContext] …] :remove []}
+;;     :edn    "{:add [[(dog Muffet) WellContext]] :remove []}"
 ;;     :rejections [] :text "…" :attempts 1 :turns 2 :tool-calls 1
 ;;     :messages [ … the conversation, for a follow-up turn … ]}
 
 (llm/apply-proposal! kb proposal)
-;; => {:result {:added […] :removed {…}} :violations […] :contradictions […]}
+;; => {:result {:added […] :removed {…}} :applied 2 :failed-at nil
+;;     :violations […] :contradictions […]}      ; :error too, when one threw
 ```
 
 `:edn` is the batch ready to drop into the editor. Passing `:on-event` switches the
@@ -366,10 +416,10 @@ keeps the prompt bounded as the KB grows.
 ### Why the whole-KB path does not fit a small local model
 
 Measured against the **schema-only starter** (no individuals, no facts): the generated
-system prompt is 25,597 characters and the 55 tool schemas another 31,192 — about
-**16,000 tokens before the user has said anything**. On a 16,384-token model that is
-the whole window, spent on a KB with nothing in it but its schema, and the real target
-is millions of sentexes.
+system prompt is 27,503 characters and the 57 tool schemas another 32,448 — about
+**17,000 tokens before the user has said anything**. On a 16,384-token model that is
+the whole window and past it, spent on a KB with nothing in it but its schema, and the
+real target is millions of sentexes.
 
 Worse, it is unusable rather than merely expensive on the model this was built for.
 `phi4:14b` declares `capabilities: ["completion"]` — no `tools` — so its chat template
@@ -502,21 +552,21 @@ well under phi4's native 16,384, small enough that prefill is cheap and an overs
 selection surfaces as a refusal rather than a truncation, and large enough for a
 selection bigger than anyone drags out by hand.
 
-For contrast, the same three-fact edit on the whole-KB path would start at ~16,000 tokens
-of fixed overhead — more than four times the whole 60-sentex selection-scoped request, on
+For contrast, the same three-fact edit on the whole-KB path would start at ~17,000 tokens
+of fixed overhead — nearly five times the whole 60-sentex selection-scoped request, on
 a KB with no facts in it.
 
 ### What `phi4:14b` is and is not good at
 
 It is the default, and it is very good at the case this path is for: **transforming
 lines it can see**. Told that three selected facts are about male parents, it rewrote
-the two `parentOf` lines to `fatherOf`, left the unrelated `(dog Fido)` alone, and did
+the two `parentOf` lines to `fatherOf`, left the unrelated `(dog Muffet)` alone, and did
 it in under half a second. Told to change nothing across 60 lines, it returned all 60
 unaltered.
 
 It is measurably weaker at **coining content about vocabulary the selection does not
-contain**. Asked to record that Ann is a veterinarian who treats Fido, it produced
-`(veterinarian Ann)` and `(professional Ann)` correctly but wrote `(treatsAnn Fido)` —
+contain**. Asked to record that Ann is a veterinarian who treats Muffet, it produced
+`(veterinarian Ann)` and `(professional Ann)` correctly but wrote `(treatsAnn Muffet)` —
 folding a binary predicate's first argument into its name. That entry is *well-formed*:
 `treatsAnn` is a legal predicate name and the result is a legal unary fact, so the critic
 has no grounds to reject it and a reviewer is the only thing that catches it. The
@@ -539,7 +589,7 @@ reliability at 20.2 s. Both are per-call `:model` overrides.
                       :provider (provider/provider :ollama)
                       :num-ctx  8192})
 ;; => {:status  :ok
-;;     :lines   "[(fatherOf Tom Ann) WellContext]\n[(dog Fido) WellContext]"
+;;     :lines   "[(fatherOf Tom Ann) WellContext]\n[(dog Muffet) WellContext]"
 ;;     :batch   {:add [[(fatherOf Tom Ann) WellContext]] :remove [4211]}
 ;;     :edn     "{:add [...] :remove [4211]}"
 ;;     :summary {:selected 3 :returned 3 :unchanged 2 :removed 1 :added 1}
@@ -557,9 +607,11 @@ understands, so the panel drops it into the open editor and the reader reviews i
 hits Save — which goes through the existing `/edit` POST, the existing content diff, and
 the existing single settle. The LLM adds no write path: it rewrites a textarea.
 
-`:status` is `:ok`, `:invalid`, `:unparseable`, `:refused`, `:exhausted`, `:too-large`
-(with the numbers, nothing sent) or `:empty-selection` (no handle still names a stored
-sentex). Applying stays the separate explicit `apply-proposal!`.
+`:status` is `:ok`, `:invalid`, `:unparseable`, `:refused`, `:exhausted`, `:truncated`
+(the host stopped at the token limit — no batch, because a prefix diffed against the
+selection is a set of retractions nobody asked for), `:too-large` (with the numbers,
+nothing sent) or `:empty-selection` (no handle still names a stored sentex). Applying stays
+the separate explicit `apply-proposal!`.
 
 ## Fleshing out a page
 
@@ -587,6 +639,7 @@ answer is knowledge the KB does not have yet. `session/propose-page` is that tur
 ;;     :vocabulary {:literals 47 :reused 37 :coined 10 :coined-types 0 :coined-relations 10}
 ;;     :term penguin :context OrganismContext
 ;;     :page [{:handle 12 :line "(genl penguin bird)"} …]
+;;     :page-found 6 :page-truncated? false :answer-truncated? false
 ;;     :first-assertion-ms 470 :elapsed-ms 3590
 ;;     :rejections [] :problems [] :notes nil :attempts 1 :turns 1
 ;;     :budget {…} :usage {…} :messages […]}
@@ -595,7 +648,11 @@ answer is knowledge the KB does not have yet. `session/propose-page` is that tur
 The result shape is `propose-edit`'s, so **one panel handles both**: `:lines` is textarea
 content, `:batch` is what `apply-proposal!` applies, `:rejections` and `:coined` are what a
 reviewer reads. Generation never removes, so `:remove` is always empty and `:summary`
-counts what is new instead of what was diffed.
+counts what is new instead of what was diffed. `:status` adds `:no-term` — a page turn
+asked for something that is not a term symbol, reported with nothing sent — and drops
+`:truncated`, which on an additive path is the `:answer-truncated?` flag beside a batch
+that is short rather than wrong. `:page-found` and `:page-truncated?` say whether `:page`
+is the whole of what is stored about the term or a sample of it.
 
 ### Three things the page path does differently
 
@@ -624,8 +681,27 @@ rejects) and *a card predicate under a new name is still a coined predicate*.
 
 ### The page shows what the page shows — minus the bookkeeping
 
-`page/stored-lines` renders the term's own sentexes as bare sentences, sorted, bounded by
-`:max-lines`. Two things are deliberately not sent:
+`page/stored-lines` renders the term's own sentexes as bare sentences, **sorted by content
+before `:max-lines` (40) cuts**, over a walk bounded separately by `:max-scan` (4,000
+mentions). The two bounds mean different things and the split is the whole of it:
+
+- **Below the scan bound the page is a function of the knowledge alone** — the same
+  sentences loaded in any order give the same 40 lines, because the sort spans everything
+  the cut chooses between.
+- **At the bound it is a sample of the term's earliest mentions.** No bounded scan can make
+  that cut content-keyed: ranking sentences by content means fetching all of them, which is
+  the cost `:max-scan` exists to refuse. What it *can* be is nameable and stable, so the
+  handles are sorted before they are fetched — the term index answers with a set, and a
+  scan that took whatever it enumerated first would sample by hash of handle, differently
+  per backend.
+
+Either way the answer says which it is: the heading over the block reads `40`, `40 of 137`,
+or `40 of more than 137` where the scan bound bit, and `propose-page` lifts the same two
+out as `:page-found` and `:page-truncated?` so the reviewer reading those 40 lines is told
+what the model was told. The prompt asks the model not to repeat anything already stored,
+and that instruction is only honest if a sample says it is one.
+
+Two things are deliberately not sent:
 
 - an `exceptWhen` **meta-sentex**, which names the rule it qualifies by raw handle
   (`(exceptWhen (penguin ?var0) (sentexHandle 463))`) — meaningless to a model, unusable,
@@ -751,15 +827,18 @@ neither hermetic nor reproducible, which is why an ordinary run — and `lein ga
 `llm_test/a-test-that-can-reach-a-model-carries-the-llm-mark` scans the test sources and
 holds the two in agreement **both ways**: a test that consults the live gate must carry
 the mark (or it would run in `:default`), and a marked test must consult the gate (or a
-selector alone would be enough to call a host). A second test names the six outright, so
-adding a live test is a visible change rather than a quiet one.
+selector alone would be enough to call a host). Consulting it means a **path** to
+`live-llm?` — the call in the test's own body, or a call to a helper in the same file
+whose source reaches it — so what proves consent is the gate and never a helper's name.
+A second test names the six outright, so adding a live test is a visible change rather
+than a quiet one.
 
 It is scriptable, so a test drives the loop exactly. `:script` is the turns to hand
 back, one per call; each is a full response map or a shorthand:
 
 ```clojure
-(stub/provider {:script [{:tool "kb_types_of" :input {"x" "Fido"}}
-                         {:batch {:add [[(dog Fido) WellContext]] :remove []}}
+(stub/provider {:script [{:tool "kb_types_of" :input {"x" "Muffet"}}
+                         {:batch {:add [[(dog Muffet) WellContext]] :remove []}}
                          {:lines [[(fatherOf Tom Ann) WellContext]]}   ; the selection path
                          "plain prose"]})
 ```
@@ -836,7 +915,7 @@ already resident the *first* real turn still took 6.4 s to its first assertion a
 turn after it took 0.40 s. Bare, not `warm!` — it destroys nothing.
 
 `capabilities` is worth reading before choosing a path: a model without `:tools` cannot
-tool-call, and sending it 55 schemas spends the window on something it will never emit.
+tool-call, and sending it 57 schemas spends the window on something it will never emit.
 `supports-tools?` answers false for an unreachable host too — the conservative direction,
 since the cost of guessing yes is a wasted context window.
 

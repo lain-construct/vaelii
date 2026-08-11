@@ -18,6 +18,7 @@
             [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.llm.ollama :as ollama]
@@ -43,7 +44,7 @@
         father (tu/fresh-term :predicate :fatherOf)
         tom    (tu/fresh-term :individual :Tom)
         ann    (tu/fresh-term :individual :Ann)
-        fido   (tu/fresh-term :individual :Fido)
+        muffet   (tu/fresh-term :individual :Muffet)
         ctx    (tu/fresh-term :context :Story)]
     (v/assert kb (list 'genlContext ctx 'CoreContext) 'UniverseContext)
     (v/assert kb (list 'genl father parent) 'CoreContext)
@@ -51,9 +52,9 @@
                        (str "(" parent " ?parent ?child) means that ?parent is a parent of ?child."))
               'CoreContext)
     {:dog dog :parentOf parent :fatherOf father :ctx ctx
-     :Tom tom :Ann ann :Fido fido
+     :Tom tom :Ann ann :Muffet muffet
      :h-parent (v/assert kb (list parent tom ann) ctx)
-     :h-dog    (v/assert kb (list dog fido) ctx {:strength :monotonic})}))
+     :h-dog    (v/assert kb (list dog muffet) ctx {:strength :monotonic})}))
 
 ;; ---- the editor's line format -------------------------------------------
 
@@ -144,11 +145,11 @@
 
 (tu/deftest-kb the-contract-is-the-editors-line-format
   (let [{:keys [rows]} (session/parse-lines
-                        (str "[(dog Fido) WellContext]\n"
+                        (str "[(dog Muffet) WellContext]\n"
                              "[(parentOf Tom Ann) WellContext {:strength :monotonic}]"))]
     (is (= 2 (count rows)))
-    (is (= ['(dog Fido) 'WellContext] (:key (first rows))))
-    (is (= ['(dog Fido) 'WellContext] (:entry (first rows))))
+    (is (= ['(dog Muffet) 'WellContext] (:key (first rows))))
+    (is (= ['(dog Muffet) 'WellContext] (:entry (first rows))))
     (testing "strength rides across, so a known-true line is not silently downgraded"
       (is (= ['(parentOf Tom Ann) 'WellContext {:strength :monotonic}] (:entry (second rows)))))
     (testing "and it is not part of the key, so re-strengthening is not a rewrite"
@@ -157,22 +158,22 @@
 (tu/deftest-kb a-markdown-fence-is-stripped
   (testing "models fence unprompted — even while decoding under a schema that cannot express one"
     (let [{:keys [rows]} (session/parse-lines
-                          "Here you go:\n```\n[(dog Fido) WellContext]\n```")]
+                          "Here you go:\n```\n[(dog Muffet) WellContext]\n```")]
       (is (= 1 (count rows)))
-      (is (= ['(dog Fido) 'WellContext] (:entry (first rows))))))
+      (is (= ['(dog Muffet) 'WellContext] (:entry (first rows))))))
   (testing "including a ```json fence around the other shape"
     (let [{:keys [rows]} (session/parse-lines
                           (str "```json\n"
                                (json/generate-string
-                                {"lines" [{"sentence" "(dog Fido)" "context" "WellContext"}]})
+                                {"lines" [{"sentence" "(dog Muffet)" "context" "WellContext"}]})
                                "\n```"))]
-      (is (= ['(dog Fido) 'WellContext] (:entry (first rows)))))))
+      (is (= ['(dog Muffet) 'WellContext] (:entry (first rows)))))))
 
 (tu/deftest-kb a-json-envelope-is-tolerated-not-required
   (let [{:keys [rows notes]}
         (session/parse-lines
          (json/generate-string
-          {"lines" [{"sentence" "(dog Fido)" "context" "WellContext"}
+          {"lines" [{"sentence" "(dog Muffet)" "context" "WellContext"}
                     {"sentence" "(parentOf Tom Ann)" "context" "WellContext"
                      "strength" "monotonic"}]
            "notes" "unsure about Ann"}))]
@@ -184,7 +185,7 @@
   (let [{:keys [rows notes]} (session/parse-lines
                               (str "I have rewritten the first line.\n\n"
                                    "[(fatherOf Tom Ann) WellContext]\n"
-                                   "[(dog Fido) WellContext]\n\n"
+                                   "[(dog Muffet) WellContext]\n\n"
                                    "Let me know if that is right."))]
     (is (= 2 (count rows)))
     (testing "prose is the only commentary channel the line format has, so it is kept"
@@ -195,9 +196,9 @@
   (testing "prose and nothing else is an error, not an empty line set — an empty line set is a mass retraction"
     (is (seq (:errors (session/parse-lines "Ann is a veterinarian.")))))
   (testing "a line that starts like an entry and is not one is an error, never a silent drop"
-    (is (seq (:errors (session/parse-lines "[(dog Fido) WellContext]\n[(dog"))))
-    (is (seq (:errors (session/parse-lines "[(dog Fido)]"))))
-    (is (seq (:errors (session/parse-lines "[(dog Fido) \"WellContext\"]")))))
+    (is (seq (:errors (session/parse-lines "[(dog Muffet) WellContext]\n[(dog"))))
+    (is (seq (:errors (session/parse-lines "[(dog Muffet)]"))))
+    (is (seq (:errors (session/parse-lines "[(dog Muffet) \"WellContext\"]")))))
   (testing "and so is a JSON envelope whose entries do not read"
     (is (seq (:errors (session/parse-lines
                        (json/generate-string
@@ -217,7 +218,7 @@
 (tu/deftest-kb the-prompt-demonstrates-the-formalism
   (testing "a small model coins new content in the shape it was shown, not the one it was told"
     (is (str/includes? sel/system-prompt "[(fatherOf Tom Ann) WellContext]"))
-    (is (str/includes? sel/system-prompt "[(ownedBy Fido Ann) WellContext]")
+    (is (str/includes? sel/system-prompt "[(ownedBy Muffet Ann) WellContext]")
         "including a line invented from nothing, which is the weak case")))
 
 ;; ---- the content diff ---------------------------------------------------
@@ -278,7 +279,7 @@
 
 (tu/deftest-kb the-critic-runs-on-the-selection-path-too
   (let [{:keys [h-dog ctx]} (world kb)
-        bad (list 'NotAPredicate 'Fido)
+        bad (list 'NotAPredicate 'Muffet)
         p (stub/provider {:script (repeat 3 {:lines [[bad ctx]]})})
         r (session/propose-edit kb {:handles [h-dog] :message "break it" :provider p})]
     (is (= :invalid (:status r)))
@@ -313,8 +314,8 @@
     (is (empty? (stub/requests p)))))
 
 (tu/deftest-kb the-request-carries-no-tools-and-no-schema-by-default
-  (let [{:keys [h-dog ctx dog Fido]} (world kb)
-        p (stub/provider {:script [{:lines [[(list dog Fido) ctx]]}]})
+  (let [{:keys [h-dog ctx dog Muffet]} (world kb)
+        p (stub/provider {:script [{:lines [[(list dog Muffet) ctx]]}]})
         _ (session/propose-edit kb {:handles [h-dog] :message "x" :provider p :num-ctx 4096})
         req (first (stub/requests p))]
     (is (empty? (:tools req)) "a completion-only model cannot use a tool schema")
@@ -326,8 +327,8 @@
       (is (str/includes? (:content (first (:messages req))) "Vocabulary")))))
 
 (tu/deftest-kb a-schema-is-sent-only-when-a-caller-asks-for-it
-  (let [{:keys [h-dog ctx dog Fido]} (world kb)
-        p (stub/provider {:script [{:lines [[(list dog Fido) ctx]] :json? true}]})
+  (let [{:keys [h-dog ctx dog Muffet]} (world kb)
+        p (stub/provider {:script [{:lines [[(list dog Muffet) ctx]] :json? true}]})
         r (session/propose-edit kb {:handles [h-dog] :message "x" :provider p
                                     :format sel/output-schema})]
     (is (= sel/output-schema (:format (first (stub/requests p)))))
@@ -376,6 +377,36 @@
     (is (false? (provider/available? :nonesuch)))
     (is (satisfies? proto/Provider (provider/provider :nonesuch)))))
 
+(tu/deftest-kb a-backend-that-probes-available-and-then-throws-is-logged
+  ;; The fallback is right and the silence is not: from the caller's side a broken
+  ;; backend and a model that proposed nothing are the same empty answer, so the one
+  ;; place that knows the difference says so.  `available?` said yes, which is what makes
+  ;; a throw from the constructor a fault rather than an absence.
+  (let [logged (atom [])
+        run!   (fn [f]
+                 (reset! logged [])
+                 (binding [trove/*log-fn* (fn [_ns _coords level id payload]
+                                            ;; trove may hand the payload as a delay
+                                            (swap! logged conj [level id (:data (force payload))])
+                                            nil)]
+                   (f))
+                 @logged)]
+    (testing "every seam that builds one logs it, and hands back the stub anyway"
+      (doseq [[what build] [["provider" #(provider/provider :ollama)]
+                            ["generation-provider" #(provider/generation-provider :ollama)]]]
+        (let [lines (run! (fn []
+                            (with-redefs [provider/available? (constantly true)
+                                          provider/resolve-fn
+                                          (fn [_ _] (fn [_] (throw (Exception. "half-present"))))]
+                              (is (satisfies? proto/Provider (build))
+                                  (str what " still degrades to a Provider")))))]
+          (is (= [[:warn :vaelii.impl.llm.provider/provider-build-failed {:kind :ollama}]]
+                 lines)
+              (str what " logged the build failure once, naming the backend")))))
+    (testing "a backend this build simply does not carry is an absence, not a fault,
+              and says nothing"
+      (is (empty? (run! #(provider/provider :nonesuch)))))))
+
 ;; ---- the Ollama backend, offline ----------------------------------------
 
 (tu/deftest-kb a-host-is-normalized-not-guessed
@@ -418,7 +449,7 @@
              {"done_reason" "stop"
               "message" {"content" ""
                          "tool_calls" [{"function" {"name" "kb_types_of"
-                                                    "arguments" {"x" "Fido"}}}]}})]
+                                                    "arguments" {"x" "Muffet"}}}]}})]
       (is (= "tool_use" (:stop-reason r)))
       (is (= "kb_types_of" (:name (first (proto/tool-uses r))))))))
 
@@ -457,7 +488,7 @@
 
 (tu/deftest-kb ^:llm a-live-model-edits-a-selection
   (when-let [model (live-model)]
-    (let [{:keys [h-parent h-dog fatherOf dog Fido]} (world kb)
+    (let [{:keys [h-parent h-dog fatherOf dog Muffet]} (world kb)
           p (ollama/provider {:model model :keep-alive "5m"})
           r (session/propose-edit
              kb {:handles [h-parent h-dog] :provider p :num-ctx 8192
@@ -473,7 +504,7 @@
         (testing "it reached for the sub-predicate the card offered"
           (is (str/includes? (:lines r) (str fatherOf))))
         (testing "and left the unrelated line alone"
-          (is (str/includes? (:lines r) (pr-str (list dog Fido)))))
+          (is (str/includes? (:lines r) (pr-str (list dog Muffet)))))
         (testing "proposing still writes nothing"
           (is (some? (v/sentex kb h-parent)))
           (is (some? (v/sentex kb h-dog))))))))

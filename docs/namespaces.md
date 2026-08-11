@@ -65,9 +65,12 @@ src/vaelii/impl/
   plan.clj          conjunctive query planning: selectivity cost model + sideways information passing, with the cartesian factors (literals sharing no variable with the rest, and matching more than once, so they multiply it) held to the back on structure rather than on an estimate
   literal_cache.clj per-KB cache of matches-visible answers, keyed by the α-renamed (repetition-preserving) literal + context + retrieval strategy, stamped with the change clock; stores only what ran dry, so a bounded run leaves no prefix behind
   observe.clj       leaf seam (no require cycle): store add/remove hooks an incremental matcher installs into, and the coarse change clock a resident derived structure stamps itself with — plus the pin that holds one fixpoint step's reads still
+  caches.clj        the other leaf with no requires at all: the register every cache-holding namespace declares itself in at load, and the one read over it — entries, bound, unit, hit rate, and separately what the entries are about and what the counters are.  A cache in a namespace this process never loaded has no row, which is the honest answer rather than a zero
   feed.clj          the same seam one altitude up, for **belief** rather than storage: the KB's listener registry, the region a settle accumulates for them, the reentrancy claim that keeps listeners from nesting, and the two dynamics a preview and a teardown suppress it with.  `core` installs the renderer; a KB nobody watches pays one deref (docs/feed.md)
   wiring.clj        the other leaf seam, and the whole inventory of it: the two calls that run *up* the layering — the assert path (for `nat` and `skolem`) and the prover registry (for `resolution`) — plus `import-dump`, a layering inversion rather than a recursion, and the `*defer-settle?*` flag both sides read.  Each entry, and why the set is collected here instead of left at the call sites, is "The layering" at the foot of this file
   violations.clj    the dropped-conclusion ledger, below its two writers: the chainer files a conclusion it refused, the prover registry an aggregate's numeric error, and the chainer is built *on* the registry — so the ledger reads neither and both reach down to it.  A report, not a throw: it is written from inside a fixpoint that must not abort
+  quality.clj       the four readings about the **knowledge** rather than the engine — unfired rules (off the JTMS adjacency that already exists for retraction, never a scan of the justifications), extent skew, SCC-condensed chain depth over the rule graph, taxonomy coverage — plus the Markdown emitter over the map it returns.  Nothing here is a gate ([quality.md](quality.md))
+  profile.clj       the workload instrument, and the third leaf: four tallies behind one atom that is nil when off — the shape of every retrieval decision and the access path it took, every index read by family, every trie walk's node probes, and what one assert wrote each family.  Off, each seam is a deref and a `nil?` check ([profile.md](profile.md))
   skolem.clj        head existentials: the deterministic `(SkolemFn <rule-handle> <i> <frontier…>)` witness a rule head `(exists ?y C)` fires to, reified through `nat` so re-firing on one binding resolves to one constant.  Its own namespace because two layers call it — the assert path declares the reifiable function when such a rule is stored, the forward chainer mints at each firing ([skolem.md](skolem.md))
   rete.clj          opt-in TREAT alpha network: RAM alpha memories indexed by arg value; the `chain/*matcher*` swap
   levels.clj        the lookup-to-query stack: 8 levels raw-index → backchaining; escalate/explain-levels
@@ -100,6 +103,7 @@ src/vaelii/impl/
   io/fingerprint.clj  what makes a dumped index and its records provably the same KB: a commutative sum of per-record hashes over exactly what the index is a function of, accumulated in the storing pass rather than by a second walk
   foreign.clj       THE SEAM for the formats we read and do not write, and the whole of them here: no reader ships in this tree, and a plugin declares `kind -> reader var` in one edn resource on the classpath, resolved by `requiring-resolve` so no compile-time reference to one exists ([foreign.md](foreign.md))
   catalog.clj       the KB catalog: sources (shipped / generated / corpus / dump / on-disk store, found on a search path), the background load with progress + cancel, and which loaded KB is active ([catalog.md](catalog.md))
+  jobs.clj          the registry every long operation runs in — a load, an export, a chaining run: one status vocabulary, one progress reading, one cancel, and the claim that only one job writes at a time ([web.md](web.md))
   sandbox.clj       a scratch context per browser session, below WellContext: sees everything shipped, nothing shipped sees it; created on the first write, discarded whole
   examples.clj      the worked examples `/reasoning` renders: a table of questions, each naming the stored sentexes it reasons from and what the ontology should answer, plus the one fn that runs one
   svg.clj           the concept graph's drawing layer: a node, an edge, an arrowhead, and the arithmetic for a row / column / ring — pure, no KB, no graph library
@@ -108,6 +112,7 @@ src/vaelii/impl/
   serve.clj         headless EDN-over-HTTP daemon over vaelii.core: {:op :args}, allowlisted ops, single writer, sentex→map on the wire ([operations.md](operations.md))
   cli.clj           command-line driver: lein cli <cmd> … (assert/match/ask/prove/why/retract/load/repl); --dir disk, --starter schema
   client.clj        thin java.net.http client for the daemon (zero-dep), conn threaded explicitly — the network mirror of the explicit-kb API
+  subscribe.clj     the change feed with a cursor where the in-process one has a callback: the daemon's per-handler subscription registry, one bounded ring apiece, the lag count a reader that fell off it is told, and the park a long poll waits in — outside the write monitor, which is the whole constraint (docs/feed.md)
 ```
 
 The **operational surface** (`serve` / `cli` / `client`, alongside the `web` browser)
@@ -127,7 +132,7 @@ resources/
 
 ## Not glossed above
 
-The map covers 86 of the 119 namespaces under `src/`. The rest are listed here by
+The map covers 88 of the 121 namespaces under `src/`. The rest are listed here by
 name rather than left out — the engine's write path (`integrate`, `special`,
 `checks`, `chain`, `settle`), the store seam (`kb`, `access`, `reindex`), the term
 layer (`nat`, `rewrite`, `inherit`, `gloss`, `spec`), the roster saying which of the

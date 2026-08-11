@@ -336,6 +336,127 @@
             (is (= si se) (str "step " i " " (pr-str op) ": " (pr-str (diff si se)))))))
       (finally (tu/clear-kb! inc-kb) (tu/clear-kb! exh-kb)))))
 
+;; ---- oracle 4: a genl edge, weighed per pair ----------------------------
+;;
+;; The vocabulary above is compared as a value; the `genl` relation is not, and cannot be
+;; — it is the one part of what decides a clash that is too big to compare.  So the carry
+;; is abandoned per pair instead, on what the pair's own types read through that closure
+;; (`settle/genl-view`), and the three claims that reading makes are each its own case.
+;; Oracle 3 reaches none of them: its edge is under a type its standing pair names, so any
+;; test at all — a counter included — gets it right.
+
+(defn- directed-stream
+  "A fixed op sequence into both KBs, compared after every write.  The randomized stream
+  above draws from one vocabulary; these draw the shape they are about."
+  [ops]
+  (let [inc-kb (tu/fresh)
+        exh-kb (tu/isolated-fresh)]
+    (try
+      (binding [checks/*arbitrate-constraints?* true]
+        (binding [settle/*incremental-clashes* true]  (build-ontology! inc-kb))
+        (binding [settle/*incremental-clashes* false] (build-ontology! exh-kb))
+        (doseq [[i op] (map-indexed vector ops)]
+          (let [ri (binding [settle/*incremental-clashes* true]  (apply-op! inc-kb op))
+                re (binding [settle/*incremental-clashes* false] (apply-op! exh-kb op))
+                si (snapshot inc-kb)
+                se (snapshot exh-kb)]
+            (is (= ri re) (str "step " i " " (pr-str op) ": refusal differs"))
+            (is (= si se) (str "step " i " " (pr-str op) ": " (pr-str (diff si se))))))
+        (v/contradictions inc-kb))
+      (finally (tu/clear-kb! inc-kb) (tu/clear-kb! exh-kb)))))
+
+(deftest a-genl-edge-elsewhere-leaves-a-standing-pair-alone
+  ;; Edges arriving and leaving under types the standing pair does not name.  Nothing it
+  ;; reads has moved, so nothing about it may move — and the pair is still there at the
+  ;; end, which is the half a memo that silently dropped everything would also pass.
+  (let [cs (directed-stream
+            [;; a standing pair on `mammal` / `reptile`, and nothing about it moves again
+             [:assert '(mammal CI0)  'ClashBaseContext {}]
+             [:assert '(reptile CI0) 'ClashBaseContext {}]
+             ;; edges arriving and leaving under types the pair does not name
+             [:assert '(genl snake reptile) 'ClashBaseContext {:strength :monotonic}]
+             [:assert '(genl plant thing)   'ClashBaseContext {:strength :monotonic}]
+             [:assert '(cat CI3) 'ClashBaseContext {}]
+             [:retract '(genl plant thing) 'ClashBaseContext]
+             [:retract '(genl snake reptile) 'ClashBaseContext]
+             [:assert '(cat CI4) 'ClashBaseContext {}]])]
+    (is (= 1 (count cs))
+        "the pair the edges were never about is still the one standing dilemma")))
+
+(deftest a-genl-edge-the-pair-rests-on-withdraws-it-when-it-goes
+  ;; `(disjoint animal plant)` separates nothing about `dog` until `dog` is under
+  ;; `animal` — which it is, two edges up.  So the clash between `(dog CI0)` and
+  ;; `(plant CI0)` rests on `(genl mammal animal)`, a type **neither sentence names**, and
+  ;; retracting it must withdraw the pair with nothing stored, removed or relabelled on
+  ;; either member.  A per-pair reading that stopped at the two functors rather than at
+  ;; their closures would carry it for the rest of the KB's life.
+  (directed-stream
+   [[:assert '(dog CI0)   'ClashBaseContext {}]
+    [:assert '(plant CI0) 'ClashBaseContext {}]
+    ;; a settle that touches neither, so the pair is standing rather than arriving
+    [:assert '(cat CI3) 'ClashBaseContext {}]
+    ;; ...and the edge the separation reaches `dog` through goes
+    [:retract '(genl mammal animal) 'ClashBaseContext]
+    [:assert '(cat CI4) 'ClashBaseContext {}]
+    ;; and comes back, so the pair has to be found a second time
+    [:assert '(genl mammal animal) 'ClashBaseContext {:strength :monotonic}]
+    [:assert '(cat CI5) 'ClashBaseContext {}]]))
+
+(deftest an-edge-two-contexts-support-is-read-from-each-of-them
+  ;; The scoped half of the same reading.  `(genl mammal animal)` is asserted from
+  ;; `ClashSubContext` as well, so one edge has two supporters and two asserting
+  ;; contexts; retracting the base one leaves the edge **active** and visible from
+  ;; `ClashSubContext` alone.  So the relation as a whole did not move, while a pair in
+  ;; the base context has stopped being separated through it and one in the sub context
+  ;; has not — a reading taken globally and never checked against the asking context
+  ;; would keep both.
+  (directed-stream
+   [[:assert '(genl mammal animal) 'ClashSubContext {:strength :monotonic}]
+    [:assert '(dog CI0)   'ClashBaseContext {}]
+    [:assert '(plant CI0) 'ClashBaseContext {}]
+    [:assert '(dog CI1)   'ClashSubContext {}]
+    [:assert '(plant CI1) 'ClashSubContext {}]
+    [:assert '(cat CI3) 'ClashBaseContext {}]
+    ;; the base supporter goes; the sub one keeps the edge alive
+    [:retract '(genl mammal animal) 'ClashBaseContext]
+    [:assert '(cat CI4) 'ClashBaseContext {}]]))
+
+(deftest a-metatype-member-leaving-withdraws-what-it-was-separating
+  ;; The one ingredient of a separation that is neither a declaration nor a closure.
+  ;; `(disjointMetatype M)` separates M's members by being **consulted** — no `(disjoint
+  ;; a b)` is ever written — so `(M b_t)` leaving stops separating `a_t` from `b_t` while
+  ;; the mark is still there, the two closures still read the same, and neither member of
+  ;; the standing pair is in the region.  Nothing else in the KB moves, which is exactly
+  ;; what makes it the case a staleness test can miss.
+  ;;
+  ;; A member *arriving* is its own sentex and reaches its pairs through the retroactive
+  ;; sweep, so the two directions do not check the same thing and both are here.
+  (let [kb  (tu/fresh)
+        exh (tu/isolated-fresh)
+        ops [[:assert '(disjointMetatype clsh_kind_t) 'ClashBaseContext {:strength :monotonic}]
+             [:assert '(clsh_kind_t clsh_a_t) 'ClashBaseContext {:strength :monotonic}]
+             [:assert '(clsh_a_t CI0) 'ClashBaseContext {}]
+             [:assert '(clsh_b_t CI0) 'ClashBaseContext {}]
+             ;; the member arrives over content already stored, and must reach it
+             [:assert '(clsh_kind_t clsh_b_t) 'ClashBaseContext {:strength :monotonic}]
+             ;; a settle that touches neither member of the pair
+             [:assert '(plant CI4) 'ClashBaseContext {}]
+             ;; ...and the member goes again, with the mark still standing
+             [:retract '(clsh_kind_t clsh_b_t) 'ClashBaseContext]
+             [:assert '(plant CI5) 'ClashBaseContext {}]]]
+    (try
+      (binding [checks/*arbitrate-constraints?* true]
+        (doseq [[i op] (map-indexed vector ops)]
+          (let [ri (binding [settle/*incremental-clashes* true]  (apply-op! kb op))
+                re (binding [settle/*incremental-clashes* false] (apply-op! exh op))]
+            (is (= ri re) (str "step " i " " (pr-str op) ": refusal differs"))
+            (is (= (snapshot kb) (snapshot exh))
+                (str "step " i " " (pr-str op) ": "
+                     (pr-str (diff (snapshot kb) (snapshot exh)))))))
+        (is (zero? (count (v/contradictions kb)))
+            "with the member gone the two types are separated by nothing"))
+      (finally (tu/clear-kb! kb) (tu/clear-kb! exh)))))
+
 (deftest the-contradictions-list-is-ordered-by-content-not-arrival
   ;; `clash-report` orders the sides *inside* a report by content; the list one level
   ;; up came off a hash set of handle-keyed nogoods, so `(first (contradictions kb))`

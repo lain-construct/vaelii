@@ -16,9 +16,11 @@ name: lint
 #
 # Nothing here needs a KB, a backend or a network call, so this is the cheap gate
 # — it answers "is the tree well-formed" while test.yml answers "is it right".
-# Keep it the required check that a doc-only change still has to pass: test.yml
-# skips doc-only changes and this workflow does not, so the doc gates are exactly
-# the thing a README edit is still gated on.
+# Both are required on `develop` and both run on every pull request, so a README
+# edit is gated on the doc checks here rather than on anything the suite asserts
+# — with one seam worth knowing: check-doc-drift.py exempts docs/operations.md
+# from W1 because config_surface_test resolves those citations instead, so that
+# file is the one the suite gates and this workflow does not.
 #
 # EVERY `uses:` IN THIS REPO'S WORKFLOWS IS A COMMIT SHA, with the version in a
 # trailing comment — here, in test.yml and in deep.yml. A tag is a mutable ref
@@ -49,6 +51,9 @@ concurrency:
 jobs:
   lint:
     name: lint
+    # A scheduled run does work only where Actions minutes are free. deep.yml
+    # carries the long form of the argument.
+    if: github.event_name != 'schedule' || github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

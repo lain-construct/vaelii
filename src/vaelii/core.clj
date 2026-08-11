@@ -28,6 +28,7 @@
             [taoensso.trove :as trove]
             [vaelii.impl.abduce :as abduce]
             [vaelii.impl.budget :as budget]
+            [vaelii.impl.caches :as caches-impl]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.disk.backend :as disk]
@@ -49,6 +50,7 @@
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
+            [vaelii.impl.quality :as quality]
             [vaelii.impl.reindex :as reindex]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
@@ -521,7 +523,7 @@
 (defn specs
   "The subtypes of type `t`, reflexively — `t` itself plus everything that reaches
   it by `genl`.  A set; `#{t}` when `t` is not a node in the type hierarchy.  This
-  is the fan-out that lets an antecedent `(animal ?x)` match a stored `(dog Fido)`.
+  is the fan-out that lets an antecedent `(animal ?x)` match a stored `(dog Muffet)`.
   With a `context`, only edges visible from it are walked."
   ([kb t] (tax/specs (:taxonomy kb) t))
   ([kb t context] (tax/specs (:taxonomy kb) t context)))
@@ -558,10 +560,14 @@
   [kb k y] (tax/sees? (:taxonomy kb) k y))
 
 (defn has-prop?
-  "Does predicate `pred` carry the metadata property `kind` — one of `:transitive`,
+  "Does `pred` carry the metadata property `kind` — one of `:transitive`,
   `:symmetric`, `:asymmetric`, `:reflexive`, `:functional`, `:decontextualized`,
-  `:forced-decontextualized`?  Declared by the corresponding sentex, e.g.
-  `(symmetric siblingOf)`.
+  `:forced-decontextualized`, `:abducible`, `:reifiable`, `:unreifiable`?  Declared
+  by the corresponding sentex, e.g. `(symmetric siblingOf)`.
+
+  A predicate carries all but the last two: `:reifiable` / `:unreifiable` are a
+  *function*'s kind, declared by `(reifiableFunction F)`, and read by the reify pass
+  (`vaelii.impl.nat`).
 
   Argument-position *preservation* is not here: `(argPreserving P n R)` is per
   position, so like `argIsa` it is an ordinary stored sentex read through
@@ -627,6 +633,76 @@
 
   Empty in all three on the shipped ontology, and a test holds it there."
   [kb] (vocab/audit kb))
+
+;; ---- the knowledge, as against the engine -------------------------------
+;; `settle-stats`, `chain-stats` and `violations` all report on a *run*: how many
+;; iterations, how many conclusions, what was dropped.  None of them is a reading about
+;; the KB, so an author of a large one has no answer to "is any of this any good" — and
+;; the four questions below are the ones they actually ask.
+
+(defn kb-quality
+  "Four readings about the **knowledge** — one map, four keys, each a distribution rather
+  than a number:
+
+    :rules     {:total n :never [{:handle :sentence :context} …] :never-count n
+                :all-defeated […] :all-defeated-count n :fired n :firings n :truncated? b}
+               ; :firings is every recorded firing in the KB, the defeated ones included —
+               ; not the live rules' share of them
+    :extents   {:predicates n :with-extent n :stored n :gini d :buckets {k n}
+                :heaviest [[pred n] …]}
+    :chains    {:functors n :components n :cyclic n :largest n :rules n
+                :depths {depth n} :at-least {depth fraction}}
+    :taxonomy  {:names n :edged n :root term :rooted n :islands n}
+
+  Data, not a printer: `quality-report` renders this same map, so nothing can print a
+  figure the data does not hold.  **Not a gate either** — a threshold on somebody's
+  ontology is not a build failure.
+
+  `opts`: `:limit` caps each listed set (default 25 — the counts are the headline, and a
+  30,000-entry list is not one); `:on-progress` is called with `{:phase :done :total}` as
+  each phase advances and may **throw to cancel**, the reading being of current state so a
+  half-finished one is discarded rather than repaired.  An unknown option is refused
+  (`:unknown-option`), like every other bound on a run.
+
+  Three things to know before comparing the numbers with anything:
+
+  - **A firing is a *currently supported* one.**  The census reads live justifications, so
+    a rule that fired and whose conclusion was then retracted has none and counts as never
+    fired.  Firings-ever is a different question and nothing here answers it.
+  - **\"Fired, every conclusion defeated\" is its own category**, and the more interesting
+    one: such a rule runs, contributes nothing, and would read as working from a firing
+    count alone.
+  - **Extents are counts of what is stored** (`count-with-functor`, O(1) each), never of
+    what is believed — a believed extent is O(n) per predicate, which would turn an
+    O(predicates) report into an O(sentexes) one.
+
+  Rules are enumerated from the rule index, so a rule the index cannot key by any
+  predicate — an `:inert` one written with a variable functor throughout — is outside the
+  census.  Cost is `O(terms + rules + firings + genl edges)`: the **vocabulary**, walked
+  once, and never the KB.  `vaelii.impl.quality` says how.
+
+  **Read without a snapshot**, like every other reader here: a write landing mid-report can
+  leave a count and a list disagreeing by one (a rule enumerated and then retracted is
+  dropped from the listed set and stays in the total).  A reading of a moving KB, not a
+  transaction over a still one."
+  ([kb] (kb-quality kb nil))
+  ([kb opts]
+   (check-bound-opts! opts #{:limit :on-progress} "kb-quality")
+   (when-some [n (:limit opts)]
+     (when-not (pos-int? n)
+       (throw (ex-info (str "kb-quality :limit must be a positive integer, got " (pr-str n))
+                       {:type :unknown-option :limit n}))))
+   (quality/census kb opts)))
+
+(defn quality-report
+  "A `kb-quality` map as Markdown — the counts first and the capped lists after.  Takes the
+  **map**, not the KB, so a caller reports on a reading it already holds (and a stored one
+  renders the same a year later).
+
+  A map that is not one of `kb-quality`'s answers is refused (`:not-a-report`).  The
+  alternative is a page of zeros and dashes, which is a report a caller who passed the
+  wrong map has no way to tell from a report of an empty KB."
+  [quality] (quality/report quality))
 
 ;; ---- the equality closure, read -----------------------------------------
 ;; `genl` has `genls` / `specs` / `genl?` and `genlContext` has `context-up` /
@@ -1943,16 +2019,49 @@
   have missed).  Use plain `assert` / `assert-many` when either is in doubt.
 
   `opts` flows to each `assert` (e.g. `:strength :monotonic`); `:chain?` is forced
-  false — a rule/consequent that needs forward firing is not a bulk-fact load."
+  false — a rule/consequent that needs forward firing is not a bulk-fact load.
+
+  **`:on-progress` is the load's rate, and it is the only thing this door reports.**
+  The callback is handed `{:phase :loading :done n :elapsed-ms ms :facts-per-sec r}`
+  every 100,000 facts and `{:phase :done :total n :elapsed-ms ms :facts-per-sec r}`
+  once the closing settle has run — so the last event covers the whole load, settle
+  included, and is the number to compare across runs.  The key is `assert`'s own
+  (`assert-opt-keys`), where it names the *chaining* callback; here it cannot mean that,
+  since `:chain? false` is forced and no chaining runs, so it is read at this door and
+  not passed down.  What one fact costs, phase by phase: docs/storage.md, \"What a bulk
+  load costs\"."
   ([kb facts context] (bulk-assert-facts! kb facts context nil))
   ([kb facts context opts]
    ;; the `assoc` waits for `assert`'s own opts guard: run on a non-map it threw a
    ;; bare cast error where every other door answers `:unknown-option`
    (check-assert-opts! opts)
-   (let [opts (assoc opts :chain? false)]
-     (binding [*bulk-load?* true]
-       (with-deferred-settle kb
-         (mapv #(assert kb % context opts) facts))))))
+   (let [on-progress (:on-progress opts)
+         opts        (-> opts (dissoc :on-progress) (assoc :chain? false))
+         t0          (System/nanoTime)
+         event       (fn [m done]
+                       (let [ms (/ (- (System/nanoTime) t0) 1e6)]
+                         (on-progress (assoc m :elapsed-ms ms
+                                             :facts-per-sec (if (pos? ms)
+                                                              (/ (double done) (/ ms 1000.0))
+                                                              0.0)))))
+         hs          (binding [*bulk-load?* true]
+                       (with-deferred-settle kb
+                         ;; the counting arm only when somebody is listening: a load with
+                         ;; no callback pays nothing for the option it did not pass
+                         (if on-progress
+                           (let [n (volatile! 0)]
+                             (mapv (fn [f]
+                                     (let [h (assert kb f context opts)
+                                           i (vswap! n inc)]
+                                       (when (zero? (rem i 100000))
+                                         (event {:phase :loading :done i} i))
+                                       h))
+                                   facts))
+                           (mapv #(assert kb % context opts) facts))))]
+     ;; after `with-deferred-settle` returns, so the closing reconciliation is inside
+     ;; the rate rather than outside it
+     (when on-progress (event {:phase :done :total (count hs)} (count hs)))
+     hs)))
 
 ;; ---- non-atomic terms: orphan removal on retract -------------------------
 ;; The rename collision-merge (`nat/merge-colliding-nats!`) lives with the rest of the
@@ -1967,14 +2076,39 @@
 (defn- remove-orphaned-nats!
   "Remove every reified constant no live use references any more — its `termOfUnit`
   map and materialized result types would otherwise dangle a raw `nat/` symbol.
-  Loops to a fixpoint, since removing one orphan (a nested reified NAT) can orphan another."
-  [kb]
+
+  `sink` is the teardown's removal record (`integrate/*removed-sink*`), or nil to ask
+  the whole KB.  With one, each round's candidates are the constants the sentexes
+  removed since the last round named, and the cost is the region's rather than the KB's
+  whole `termOfUnit` population's.
+
+  **A removal is what makes a candidate, and belief is what settles one** — the two are
+  not the same question and this arm does not treat them as one.  A use that merely stops
+  being *believed* is not a use that went: a defeated premise is still in the store, still
+  names its constant, and a relabel can restore it.  Collecting on that reading would
+  delete the map while a stored sentence names the constant, and the restoring relabel
+  would dangle the very `nat/` symbol the sweep exists to prevent — so a constant no
+  removal named is not a candidate however its uses are labelled.  `orphan?` still reads
+  belief, because that is the right question about a candidate: whether what is *left*
+  referencing it is only its own bookkeeping.
+
+  Loops to a fixpoint either way, since removing one orphan can orphan a nested one —
+  the constant standing in the removed expression.  **The region grows with the loop**:
+  the retractions below append to the same sink, so what one round's removals stopped
+  referencing is exactly the next round's candidate set, and a cascade is found by the
+  same rule that found the first orphan.  The guard bounds a pathological chain; the
+  empty round is what normally ends it."
+  [kb sink]
   (binding [*in-orphan-removal?* true]
-    (loop [guard 0]
-      (let [handles (mapcat #(nat/bookkeeping-handles kb %) (nat/orphaned-constants kb))]
+    (loop [mark 0 guard 0]
+      (let [removed (when sink @sink)
+            orphans (if sink
+                      (nat/orphaned-among kb (nat/constants-named-by (subvec removed mark)))
+                      (nat/orphaned-constants kb))
+            handles (distinct (mapcat #(nat/bookkeeping-handles kb %) orphans))]
         (when (and (seq handles) (< guard 64))
-          (doseq [h (distinct handles)] (retract! kb h))
-          (recur (inc guard)))))))
+          (doseq [h handles] (retract! kb h))
+          (recur (count removed) (inc guard)))))))
 
 (def ^:private forward-chain-opt-keys
   "Every key `forward-chain` hands the chaining fixpoint (`chain/chain-all`'s
@@ -2531,13 +2665,22 @@
   rather than merely visible.
 
   A **vector** — the conjunctive query `prove` takes — gives the *join plan* instead:
-  the conjuncts in the order they will actually run, each with the fan-out it was
-  estimated at, the variables already bound when it starts, and **what decided its
-  position** — cost, an operational pin (`:deferred?` / `:recursive?`), or being a
-  cartesian factor (`:isolated?`, sharing no variable with the rest *and* able to
-  multiply it, so it is held to the back on structure and the estimate beside it is
-  not what placed it — a literal matching at most once leads instead).  So a
-  surprising plan is diagnosable rather than merely observable:
+  the conjuncts in the order they will actually run, the variables already bound when
+  each starts, and **what decided its position**.
+
+  Three numbers, because the decision turns on three.  `:est-matches` is the sound
+  upper bound on this literal's own fan-out under the bindings in hand — what proves a
+  literal cannot multiply.  `:est-rows` is the expected size of the relation it
+  denotes, on its own.  `:est-prefix` is the expected size of the whole plan up to and
+  including it, which is the number a join was actually costed in: a literal placed
+  early on a small `:est-matches` whose `:est-prefix` then jumps is the cost model
+  being wrong about a *join* rather than about a literal.
+
+  And the flags: an operational pin (`:deferred?` / `:recursive?`), being a cartesian
+  factor held to the back (`:isolated?` — sharing no variable with the rest *and* able
+  to multiply it; a literal matching at most once leads instead), and `:block`, the
+  group of literals it moved with.  Literals sharing a variable are one block and run
+  together, and a whole block can be held back the way a single literal is.
 
     (query-plan kb '[(dog ?y) (parentOf Tom ?y)] 'MantleContext)
     ;; => ({:goal (parentOf Tom ?y) :est-matches 2 :bound-before #{}    ...}
@@ -2894,9 +3037,13 @@
   justifications — the two readings differ in *why* the pair was left standing, not in
   what a caller needs in order to act on it, and this is the case where there is most
   to do.  Nothing here is stored: a clash is recomputed from current belief each settle
-  and `(contradicts X Y)` is a report form, never a sentex."
+  and `(contradicts X Y)` is a report form, never a sentex.
+
+  **The list is ordered by content** — each entry by its sides' sentences and contexts,
+  the same rule that orders the sides within one entry — so `(first (conflicts kb))` is
+  an answer about the knowledge and not about which pair was typed first."
   [kb]
-  @(:conflicts kb))
+  (settle/ranked @(:conflicts kb)))
 
 (defn contradictions
   "The coexisting pairs the last settle left standing — **represented dilemmas**, not
@@ -2921,9 +3068,13 @@
 
   A dilemma is what *rebutting* defeat leaves behind.  **Undercutting** — \"this rule
   does not apply here\" — is written as an `exceptWhen` on the rule, which blocks
-  rather than rebuts and produces no pair at all (see docs/exceptions.md)."
+  rather than rebuts and produces no pair at all (see docs/exceptions.md).
+
+  **The list is ordered by content** — each entry by its sides' sentences and contexts,
+  the same rule that orders the sides within one entry — so `(first (contradictions kb))`
+  is an answer about the knowledge and not about which pair was typed first."
   [kb]
-  @(:contradictions kb))
+  (settle/ranked @(:contradictions kb)))
 
 ;; Classifying a dilemma is an opt-in solve producing *persistent* inert contexts:
 ;; `(do/label DilemmaCtx Into)` then `(do/classify Into)` (docs/solving.md).  Do not
@@ -2951,15 +3102,82 @@
   [kb]
   (reset! (:settle-stats kb) {:iterations 0 :passes 0 :histogram {}}) kb)
 
+(defn caches
+  "What this process is holding beside the stores — every derived structure the engine
+  caches, ranked by entries.  One row apiece:
+
+    {:cache :literal-matches :label \"Literal matches\" :scope :kb
+     :entries 3841 :limit 4096 :unit \"literals\"
+     :hits 91204 :misses 12038 :hit-rate 0.883 :counters :process
+     :clearable? true :note \"…\"}
+
+  **`:scope` and `:counters` say what a number is about, separately.**  `:scope` is
+  `:kb` for a cache hanging off this KB and `:process` for a static one every KB in the
+  JVM shares; `:counters` says the same of `:hits` / `:misses`, and they genuinely
+  differ — the literal cache's entries are this KB's and its counters are global, since
+  they measure the mechanism rather than a store.  Reading a process figure as a per-KB
+  one would attribute another KB's work to this one.
+
+  **`:unit` is load-bearing too.**  One cache counts literals, another networks, another
+  symbols, so the entry columns are not comparable and a page that lines them up without
+  saying so compares nothing.
+
+  A nil `:entries` is a cache that cannot be counted from outside — the scope-bound ones,
+  bound for the length of one chaining run or one search step — and `:note` says which.
+  They are listed rather than omitted, so the answer is complete rather than merely
+  finite.  A cache in a namespace this process never loaded is absent: no metric-time
+  reasoner, no metric-closure row.
+
+  An `:error` on a row is a cache whose own read threw, reported as one that could not
+  answer rather than as one that is empty.  It costs that row and no other: a diagnostic
+  is worth most while something is already wrong, so it must not be the next thing to
+  break.
+
+  Every read is O(1) — a count off a map the engine already holds, never a walk of the
+  KB — so this is safe to poll.  `clear-caches` empties the ones that offer it."
+  [kb]
+  (caches-impl/rows kb))
+
+(defn clear-caches
+  "Drop every cache that offers a clear, and say what went:
+  `{:cleared [{:cache :label :entries}…] :entries total}`.
+
+  **Not `!`, and that is the point of it.**  Every entry is derived, the next read
+  recomputes it, and no belief moves — so this is a measuring instrument rather than an
+  edit: clear, ask the same question again, and watch the miss the second ask no longer
+  gets to skip.  It is safe beside a running load for the same reason.
+
+  **Scoped to `kb`.**  Every entry dropped is one of this KB's, and no other KB in the
+  process loses an entry, a counter or a belief.
+
+  `opts` is `{:counters? true}`, and it is the one thing here that reaches wider than
+  `kb`: a cache whose `:counters` are `:process` counts the mechanism rather than a
+  store, so zeroing its hit and miss counters zeroes the rate every KB in this JVM
+  reports — a measurement two readers may be in the middle of.  It is off by default,
+  and the reply then carries `:counters-reset` naming what was zeroed and what it held.
+  Ask for it when you are about to re-run the question and want the rate read off zero;
+  leave it alone when you only want the entries gone.  `caches`' `:counters` column says
+  which rows the option is about.
+
+  The structural caches are left alone — the symbol pool, the compiled relation algebras
+  — because dropping those costs the sharing they exist for and buys no measurement.
+  `caches`' `:clearable?` says which rows this touches, and a `:cleared` entry carrying
+  `:error` is one whose clear threw, which costs that cache and no other."
+  ([kb] (clear-caches kb nil))
+  ([kb opts]
+   (check-bound-opts! opts #{:counters?} "clear-caches")
+   (caches-impl/clear-caches kb opts)))
+
 (defn violations
   "The definitional constraints a *derived* conclusion would have broken during the
   last forward-chaining run.  Each is
 
     {:violation :arg-type|:disjoint|:functional|:not-stratified|:arity|:non-confluent
+                |:exposure-truncated|:arbitration-truncated
      :sentence S :context C :rule handle :run n :detail {…}}
 
-  Three of those are ordinary dropped conclusions.  The other three report something
-  that was *not* dropped, and the `:detail` is what distinguishes them:
+  Three of those are ordinary dropped conclusions.  The others report something that was
+  *not* dropped, and the `:detail` is what distinguishes them:
 
   | entry | means | detail |
   |---|---|---|
@@ -2968,7 +3186,16 @@
   | `:disjoint` + `:visible-from` | two memberships each admissible where stated, jointly visible as disjoint | `:exposure-truncated` |
   | `:non-confluent` | two schematic equations disagree about a shared term; nothing dropped | `:rule` `:with` |
 
-  Why a retroactive `:arity` reach reports rather than decides, why an exposure is one
+  Two entries say a **bounded sweep did not finish**, so bounded work never reads as
+  full coverage — and they are separate because a reader acts on them differently.
+  `:exposure-truncated` means clashes went unreported; `:arbitration-truncated` means
+  content a declaration implicates went **undecided**, so a pair that would have been
+  defeated stands believed until a later settle surfaces it.  They do not cover the same
+  triggers either: `functional` and `asymmetric` reach back on the deciding path and on
+  no other.  Both carry `:triggers` `:sample` `:budget` `:message`, and both are one
+  entry per settle rather than one per trigger.
+
+  Why a retroactive `:arity` reach reports rather than decides, why a truncation is one
   entry per settle rather than per trigger, and what the instance budget bounds:
   docs/taxonomy.md and docs/exceptions.md.
 
@@ -3114,11 +3341,33 @@
 
 (defn- collect-orphaned-nats!
   "Sweep a reified NAT orphaned by a teardown — its termOfUnit map and materialized types
-  would dangle a raw `nat/` symbol (docs/nat.md).  Gated, and suppressed while already
-  removing orphans."
-  [kb]
-  (when (and (not *in-orphan-removal?*) (nat/any-reifiable-functions? kb))
-    (remove-orphaned-nats! kb)))
+  would dangle a raw `nat/` symbol (docs/nat.md).  Gated on the KB declaring a reifiable
+  function at all, and suppressed while already removing orphans.
+
+  Two arms, and which one a caller takes turns on whether it can name the region the
+  teardown touched:
+
+  * **`retract!` and `edit!` pass their removal record** — every sentex that left the
+    store while they ran, collected at the removal choke point
+    (`integrate/*removed-sink*`), the settle's own sweep included.  A constant no removal
+    named is not a candidate, at the cost of the region instead of the cost of the KB's
+    whole NAT population; `remove-orphaned-nats!` says why a merely *defeated* use is not
+    a use that went, and why collecting on one would be the dangling symbol rather than
+    the fix for it.
+  * **`preview-rollback!` passes nothing and asks the whole KB.**  It is putting a KB
+    back rather than taking something out of one: the batch it undoes ran with the settle
+    sweep off (`settle/*sweep?*`) and reached this sweep at no point, so what the rollback
+    faces is a KB shaped by a suppressed pass rather than one teardown's region, and the
+    claim it owes — the KB is as it was found — is about all of it.  A preview is a
+    diagnostic run once per batch, so the whole-KB cost is one it can carry.
+
+  **The two arms therefore ask different questions, not one question at two costs.**  The
+  region arm asks what a teardown's removals orphaned; the whole-KB arm asks which
+  constants are orphaned *now*, which is the stronger reading and the one a restore owes."
+  ([kb] (collect-orphaned-nats! kb nil))
+  ([kb sink]
+   (when (and (not *in-orphan-removal?*) (nat/any-reifiable-functions? kb))
+     (remove-orphaned-nats! kb sink))))
 
 (defn retract!
   "Retract premise support for a handle, tear down solely-supported sentexes and
@@ -3137,12 +3386,18 @@
   ;; an addition, when the retraction's net effect on it was nothing.  So the whole
   ;; operation is one event (`feed/with-one-event`).
   (feed/with-one-event kb
-    (let [handle (the-handle handle "retract!")
-          {:keys [datum? seeds] :as result} (retract-storage! kb handle)]
-      (when datum?
-        (settle-after-teardown! kb (vec (keys @(:recheck kb))) seeds))
-      (collect-orphaned-nats! kb)
-      (dissoc result :datum? :seeds))))
+    ;; the orphan sweep is scoped to what this teardown removed, so the removals are
+    ;; recorded as they happen — the dependency sweep's, the settle's, and the sweep's own.
+    ;; Gated on the same reifiable-function read the sweep itself is: with none declared
+    ;; the sweep is a no-op, and recording a cascade for it to not read is pure retention
+    (let [sink (integrate/removal-sink (nat/any-reifiable-functions? kb))]
+      (binding [integrate/*removed-sink* sink]
+        (let [handle (the-handle handle "retract!")
+              {:keys [datum? seeds] :as result} (retract-storage! kb handle)]
+          (when datum?
+            (settle-after-teardown! kb (vec (keys @(:recheck kb))) seeds))
+          (collect-orphaned-nats! kb sink)
+          (dissoc result :datum? :seeds))))))
 
 (defn edit!
   "Apply a batch of assertions and retractions in **one settle**.
@@ -3195,20 +3450,31 @@
     ;; one event for the batch, for `retract!`'s reason: the teardown settles twice and
     ;; a feed reports what the batch changed, not what it did on the way
     (feed/with-one-event kb
-      (let [[added removed]
-            (binding [*defer-settle?* true]
-              [(mapv (fn [[sentence context opts]] (assert kb sentence context (or opts {}))) add)
-               (reduce (fn [acc h]
-                         (let [r (retract-storage! kb (the-handle h "edit"))]
-                           (-> acc
-                               (update :removed-sentexes   + (:removed-sentexes r))
-                               (update :removed-justifications + (:removed-justifications r))
-                               (update :seeds into (:seeds r)))))
-                       {:removed-sentexes 0 :removed-justifications 0 :seeds []}
-                       remove)])]
-        (settle-after-teardown! kb (vec (keys @(:recheck kb))) (distinct (:seeds removed)))
-        (collect-orphaned-nats! kb)
-        {:added added :removed (dissoc removed :seeds)}))))
+      ;; and one removal record for the batch, for `retract!`'s reason: the orphan sweep
+      ;; asks about the constants this batch stopped referencing, and nothing else — and
+      ;; is gated the same way, so a KB that reifies nothing records nothing.
+      ;;
+      ;; Read **before** the adds, and a batch may declare the KB's first reifiable
+      ;; function among them: the gate is then false here and true at the sweep, which
+      ;; leaves a nil sink and sends it down the whole-KB arm.  That is the stricter
+      ;; question and the right one — a batch that has just made reification possible has
+      ;; no region-scoped claim to make — and it costs the batch that does it one sweep.
+      (let [sink (integrate/removal-sink (nat/any-reifiable-functions? kb))]
+        (binding [integrate/*removed-sink* sink]
+          (let [[added removed]
+                (binding [*defer-settle?* true]
+                  [(mapv (fn [[sentence context opts]] (assert kb sentence context (or opts {}))) add)
+                   (reduce (fn [acc h]
+                             (let [r (retract-storage! kb (the-handle h "edit"))]
+                               (-> acc
+                                   (update :removed-sentexes   + (:removed-sentexes r))
+                                   (update :removed-justifications + (:removed-justifications r))
+                                   (update :seeds into (:seeds r)))))
+                           {:removed-sentexes 0 :removed-justifications 0 :seeds []}
+                           remove)])]
+            (settle-after-teardown! kb (vec (keys @(:recheck kb))) (distinct (:seeds removed)))
+            (collect-orphaned-nats! kb sink)
+            {:added added :removed (dissoc removed :seeds)}))))))
 
 (defn in?
   "Is the sentex handle currently believed (JTMS IN)?"
@@ -3559,6 +3825,19 @@
                                     rule? (clojure.core/remove #(= inf %))))}
         rule? (assoc :rule (readable-sentence (sentex kb inf)))))))
 
+(defn- diff-order
+  "One belief-diff entry's place in a reading, as content: its sentence then its context
+  — `settle/report-order`'s key, and here for the same reason.
+
+  **A handle is not a place in a reading.**  Handles are allocated in assertion order, so
+  ordering either half of a diff by one makes the reading a fact about how the KB was
+  loaded; and both halves are **capped** (`:max-results`), which turns that from a
+  cosmetic ordering into *which entries the caller is shown*.  The browser's proposal
+  panel caps at 50, so the same batch against the same knowledge would show a different
+  fifty depending on the order the KB arrived in."
+  [e]
+  [(pr-str (:sentence e)) (pr-str (:context e))])
+
 (defn- preview-added-entry [kb handle]
   (let [sx (sentex kb handle)]
     {:handle        handle
@@ -3612,6 +3891,8 @@
     ;; created — at handles the audit can no longer take back.
     (binding [feed/*enabled?* false]
       (settle-after-teardown! kb (vec (keys @(:recheck kb))) nil)
+      ;; the whole-KB arm, not a region: the batch ran with the settle sweep off and
+      ;; reached the orphan sweep at no point, so the baseline claim is about all of it
       (collect-orphaned-nats! kb))
     (reset! (:violations kb) violations)
     (reset! (:program kb) program)
@@ -3753,8 +4034,9 @@
                     ;; `:default` and the pair is represented (docs/nmtms.md) — so a
                     ;; caller reading only the two diff halves would be told the line
                     ;; simply arrived, which is the one thing that did not happen.
-                    :contradictions   (into [] (clojure.core/remove (set standing))
-                                            @(:contradictions kb))
+                    :contradictions   (settle/ranked
+                                       (clojure.core/remove (set standing)
+                                                            @(:contradictions kb)))
                     :bounded?         @truncated?})))
        (finally
          (preview-rollback! kb {:audit audit :suspended @suspended
@@ -3766,7 +4048,11 @@
      ;; rollback took away reads as not believed, which is exactly right: it did not
      ;; exist before.
      (let [believed-before? #(jtms/in? (:tms kb) (:handle %))
-           cap (fn [xs] (cond->> xs (pos-int? limit) (take limit)))
+           ;; content order before the cap, never after: the cap is what makes the order
+           ;; decide *which* entries the caller sees (`diff-order`).  Sorting the built
+           ;; entries rather than the region costs no extra read — every entry in the
+           ;; region is built above, the rollback having taken away the KB they describe
+           cap (fn [xs] (cond->> (sort-by diff-order xs) (pos-int? limit) (take limit)))
            added   (into [] (clojure.core/remove believed-before?) (:believed-added @result))
            removed (into [] (filter believed-before?) (:believed-removed @result))]
        (assoc @result
@@ -3779,7 +4065,15 @@
 
 (defn- moved-handles
   "Which of a relabelled `region` gained belief and which lost it — `[added removed]`,
-  each in handle order.
+  each in **content** order (`diff-order`).
+
+  Not handle order: handles are allocated in assertion order, and both halves are capped
+  by the callers, so ordering on one would decide *which* entries a caller is shown from
+  how the KB happened to be loaded.  The rank is taken here rather than after the entries
+  are built because the cap is applied to these handles — ranking downstream would leave
+  the cap picking from an arrival-ordered list.  It costs no extra read: the liveness test
+  fetches every record already, so the key is taken off the record it was going to
+  discard.
 
   `was-in` is the part of the region that was already believed when a relabel first
   touched it (`jtms/touched-in`), so region + before-labels + belief-now **is** the
@@ -3794,11 +4088,16 @@
   the same question about the same region, and an application that got different answers
   from them would have no way to tell which was the KB's."
   [kb region was-in]
-  (let [live?  #(some? (p/get-sentex (:records kb) %))
-        region (filter live? (sort region))
-        in-now #(jtms/in? (:tms kb) %)]
-    [(into [] (clojure.core/remove was-in) (filter in-now region))
-     (into [] (filter was-in) (clojure.core/remove in-now region))]))
+  (let [keyed   (into [] (keep (fn [h]
+                                 (when-let [sx (p/get-sentex (:records kb) h)]
+                                   {:handle h
+                                    :order  [(pr-str (readable-sentence sx))
+                                             (pr-str (:context sx))]})))
+                      region)
+        ordered (mapv :handle (sort-by :order keyed))
+        in-now  #(jtms/in? (:tms kb) %)]
+    [(into [] (clojure.core/remove was-in) (filter in-now ordered))
+     (into [] (filter was-in) (clojure.core/remove in-now ordered))]))
 
 (defn edit-with-consequences!
   "`edit`, plus what the batch turned out to **mean** — the belief it added and the
@@ -3879,7 +4178,7 @@
   "The bindings `goal` takes on the sentex at `handle`, or nil when it does not answer.
 
   Matched with `res/match1`, which is the same subsumption a rule antecedent gets: a
-  goal `(animal ?x)` is answered by a stored `(dog Fido)` through the `genl` closure,
+  goal `(animal ?x)` is answered by a stored `(dog Muffet)` through the `genl` closure,
   and a goal `(parentOf ?x ?y)` by a stored `(fatherOf Tom Bob)`.  One cached closure
   lookup, so this stays a *filter over the region* rather than the re-run of a query
   that would make every mutation cost a query per listener.
@@ -4239,6 +4538,11 @@
   ;; rule handle and retired at the rule's own departure, which a wholesale wipe of the
   ;; stores never reaches.  Every entry names handles this call just deleted.
   (some-> (:refused kb) (reset! {}))
+  ;; ...and the stamp the supersession reconcile narrows against, for the third form of
+  ;; the same reason: it describes an equality closure over records this call just
+  ;; deleted, and a stamp that still compares equal would carry entries naming them.
+  ;; Clearing it says "reconcile everything", which is the answer for a wiped store.
+  (some-> (:supersessions kb) (reset! nil))
   kb)
 
 (defn close!

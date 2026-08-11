@@ -71,6 +71,40 @@
         (is (= #{AContext BContext}
                (tax/edge-contexts (:taxonomy kb) :genl [sub_t super_t])))))))
 
+(tu/deftest-kb retracting-the-last-believed-supporter-of-a-shared-edge-drops-it
+  ;; The retract twin of the test above, and the shape a belief-blind writer gets wrong on
+  ;; its own.  `del-edge` runs on the retract path with no `believed?` in hand: it sees a
+  ;; surviving supporter, keeps the edge, and recomputes its contexts from every
+  ;; *recorded* one — so between the write and the settle the edge reads as live, asserted
+  ;; from the very context whose supporter is defeated.  Losing the last *believed*
+  ;; supporter of a still-supported edge is a deactivation only a `believed?` can make, so
+  ;; the reconcile is the whole of what fixes it, and this is the end-to-end claim that it
+  ;; does.  (What puts the edge in the reconcile's scope is `refresh-relation`'s `:dirty`;
+  ;; it is not what makes *this* test pass, since the retraction's own region turns out to
+  ;; name the surviving supporter anyway.  The synthetic driver in `taxonomy_test` is
+  ;; where `:dirty` is load-bearing, because it passes the honest flip set rather than
+  ;; `jtms/touched`'s superset.)
+  (tu/with-terms [sub_t super_t Ind1 AContext BContext]
+    (v/assert kb (list 'genl sub_t super_t) AContext)
+    (v/assert kb (list 'genl sub_t super_t) BContext)
+    (v/assert kb (list sub_t Ind1) AContext)
+    (v/assert kb (list 'not (list 'genl sub_t super_t)) BContext {:strength :monotonic})
+    (let [ha (v/handle-of kb (list 'genl sub_t super_t) AContext)]
+      (testing "A's supporter is believed, so the edge stands and entails membership"
+        (is (tax/genl? (:taxonomy kb) sub_t super_t))
+        (is (= #{AContext} (tax/edge-contexts (:taxonomy kb) :genl [sub_t super_t])))
+        (is (v/isa? kb Ind1 super_t)))
+      (v/retract! kb ha)
+      (testing "with it gone, B's supporter is stored but defeated — nothing believes it"
+        (is (not (tax/genl? (:taxonomy kb) sub_t super_t)))
+        (is (= #{} (tax/edge-contexts (:taxonomy kb) :genl [sub_t super_t])))
+        (is (not (v/isa? kb Ind1 super_t))))
+      (testing "and retracting the defeater revives it on the supporter that survived"
+        (v/retract! kb (v/handle-of kb (list 'not (list 'genl sub_t super_t)) BContext))
+        (is (tax/genl? (:taxonomy kb) sub_t super_t))
+        (is (= #{BContext} (tax/edge-contexts (:taxonomy kb) :genl [sub_t super_t])))
+        (is (v/isa? kb Ind1 super_t))))))
+
 (tu/deftest-kb a-forward-derived-genl-reaches-the-taxonomy
   (tu/with-terms [marker foo_t bar_t Trigger1 StoryContext]
     (v/assert-rule kb [(list marker '?x)] (list 'genl foo_t bar_t) StoryContext {:chain? false})
@@ -88,6 +122,25 @@
       (v/recover kb)
       (testing "a restart does not change what the KB entails"
         (is (= before (tax/genl? (:taxonomy kb) foo_t bar_t)))))))
+
+(tu/deftest-kb recover-does-not-revive-a-defeated-edge
+  ;; `rebuild-taxonomy` replays **stored** declarations, so it activates a defeated `genl`
+  ;; exactly as it activates a believed one, and the closing `settle` is what tells them
+  ;; apart.  That settle reconciles the region it relabelled, which makes this a claim
+  ;; about what the rebuild relabels: it installs the JTMS from nothing, so every datum is
+  ;; labelled and the region is the whole KB.  Nothing narrows the reconcile there, and
+  ;; this is the test that says so — the failure if something ever did is silent in the
+  ;; worst way, the running KB right and only a restart answering `isa?` through a type
+  ;; nothing believes.
+  (tu/with-terms [sub_t super_t Ind1 StoryContext]
+    (v/assert kb (list 'genl sub_t super_t) StoryContext)
+    (v/assert kb (list sub_t Ind1) StoryContext)
+    (v/assert kb (list 'not (list 'genl sub_t super_t)) StoryContext {:strength :monotonic})
+    (is (not (tax/genl? (:taxonomy kb) sub_t super_t)) "defeated before the restart")
+    (v/recover kb)
+    (testing "and defeated after it — the rebuild replayed the edge, belief took it back"
+      (is (not (tax/genl? (:taxonomy kb) sub_t super_t)))
+      (is (not (v/isa? kb Ind1 super_t))))))
 
 (tu/deftest-kb recover-ignores-a-negated-declaration
   ;; `sentexes-with-functor` returns both polarities, and a `(not (genl a b))`

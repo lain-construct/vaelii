@@ -139,17 +139,17 @@
 
 (tu/deftest-kb spec-fact-in-spec-context-triggers-a-general-rule
   (let [dog (tu/tmp-type) mammal (tu/tmp-type) animal (tu/tmp-type)
-        fido (tu/tmp-ind) rex (tu/tmp-ind)
+        muffet (tu/tmp-ind) rex (tu/tmp-ind)
         breathes (tu/tmp-pred) hasFur (tu/tmp-pred)]
     (v/assert kb (list 'genlContext 'SpecContext 'GenContext) 'GenContext)
     (v/assert kb (list 'genl mammal animal) 'GenContext)
     (v/assert kb (list 'genl dog mammal) 'GenContext)
     (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'GenContext)   ; general type, general context
-    (v/assert kb (list dog fido) 'SpecContext)                               ; spec type, spec context
+    (v/assert kb (list dog muffet) 'SpecContext)                               ; spec type, spec context
     (testing "genl (subtype) and genlContext (subcontext) combine to fire the rule"
-      (is (seq (v/sentexes-matching kb (list breathes fido) 'SpecContext))))
+      (is (seq (v/sentexes-matching kb (list breathes muffet) 'SpecContext))))
     (testing "and the conclusion is placed in the spec context"
-      (is (= '(SpecContext) (v/contexts-of kb (list breathes fido)))))
+      (is (= '(SpecContext) (v/contexts-of kb (list breathes muffet)))))
     (testing "it fires regardless of assertion order (rule after fact)"
       (v/assert kb (list dog rex) 'SpecContext)
       (v/assert-rule kb [(list mammal '?y)] (list hasFur '?y) 'GenContext)
@@ -158,21 +158,21 @@
 (tu/deftest-kb a-join-rule-fires-over-spec-facts-with-a-common-viewpoint
   ;; The requirement's join case: two antecedents, spec-type facts, genl + genlContext.
   (let [dog (tu/tmp-type) cat (tu/tmp-type) animal (tu/tmp-type)
-        fido (tu/tmp-ind) tom (tu/tmp-ind) whiskers (tu/tmp-ind)
+        muffet (tu/tmp-ind) tom (tu/tmp-ind) whiskers (tu/tmp-ind)
         coexist (tu/tmp-pred)]
     (v/assert kb (list 'genlContext 'AContext 'TopContext) 'TopContext)
     (v/assert kb (list 'genlContext 'BContext 'TopContext) 'TopContext)        ; AContext, BContext are sibling subs of TopContext
     (v/assert kb (list 'genl dog animal) 'TopContext)
     (v/assert kb (list 'genl cat animal) 'TopContext)
     (v/assert-rule kb [(list animal '?x) (list animal '?y)] (list coexist '?x '?y) 'TopContext)  ; join on animal
-    (v/assert kb (list dog fido) 'AContext)
+    (v/assert kb (list dog muffet) 'AContext)
     (v/assert kb (list cat tom) 'TopContext)
     (testing "a spec fact in a sub joins a fact in the shared super, placed in the sub"
-      (is (seq (v/sentexes-matching kb (list coexist fido tom) 'AContext))))
+      (is (seq (v/sentexes-matching kb (list coexist muffet tom) 'AContext))))
     (testing "two facts in sibling subs (no common viewpoint) derive nothing"
       (v/assert kb (list cat whiskers) 'BContext)
-      (is (empty? (v/sentexes-matching kb (list coexist fido whiskers) '?ctx)))
-      (is (empty? (v/sentexes-matching kb (list coexist whiskers fido) '?ctx))))))
+      (is (empty? (v/sentexes-matching kb (list coexist muffet whiskers) '?ctx)))
+      (is (empty? (v/sentexes-matching kb (list coexist whiskers muffet) '?ctx))))))
 
 ;; ---- the fixes surfaced by review: soundness of assert ------------------
 
@@ -212,9 +212,9 @@
 
 (tu/deftest-kb a-positive-wildcard-query-does-not-match-negations
   (let [dog (tu/tmp-type) animal (tu/tmp-type)
-        fido (tu/tmp-ind) rex (tu/tmp-ind)]
+        muffet (tu/tmp-ind) rex (tu/tmp-ind)]
     (v/assert kb (list 'genl dog animal) 'UContext)
-    (v/assert kb (list dog fido) 'UContext)
+    (v/assert kb (list dog muffet) 'UContext)
     (v/assert kb (list 'not (list dog rex)) 'UContext)
     (testing "(?p ?x) binds ?p only to real predicates, never to `not` via a negation"
       (let [preds (set (map #(get % '?p) (v/prove kb '(?p ?x) '?ctx)))]
@@ -299,16 +299,16 @@
 
 (tu/deftest-kb strength-is-carried-by-sentexes-and-justifications
   (let [bird (tu/tmp-type) animal (tu/tmp-type) dog (tu/tmp-type)
-        fido (tu/tmp-ind) tweety (tu/tmp-ind) flies (tu/tmp-pred)]
+        muffet (tu/tmp-ind) tweety (tu/tmp-ind) flies (tu/tmp-pred)]
     (v/assert kb (list 'genl bird animal) 'UContext)
-    (v/assert kb (list dog fido) 'UContext {:strength :monotonic})
+    (v/assert kb (list dog muffet) 'UContext {:strength :monotonic})
     (v/assert kb (list bird tweety) 'UContext)                       ; default strength
     (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) 'UContext)
     (testing "a premise sentex carries its assumption strength"
-      (is (= :monotonic (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list dog fido) 'UContext)))))))
+      (is (= :monotonic (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list dog muffet) 'UContext)))))))
       (is (= :default   (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list bird tweety) 'UContext))))))))
     (testing "and its effective defeat-class after settling"
-      (is (= :monotonic (v/defeat-class kb (:id (first (v/sentexes-matching kb (list dog fido) 'UContext)))))))
+      (is (= :monotonic (v/defeat-class kb (:id (first (v/sentexes-matching kb (list dog muffet) 'UContext)))))))
     (testing "a justification carries its strength — a default rule confers :default"
       (let [flies-id (:id (first (v/sentexes-matching kb (list flies tweety) 'UContext)))
             d        (first (v/supporting-justifications kb flies-id))]
@@ -327,7 +327,7 @@
       (is (= '(implies (p ?who ?whom) (q ?whom ?who))
              (sx/originalize (:sentence s) (:varmap s))))))
   (testing "a fact carries no varmap — canonical variables are a rule concern"
-    (is (nil? (:varmap (sx/sentex '(dog Fido) 'AContext))))))
+    (is (nil? (:varmap (sx/sentex '(dog Muffet) 'AContext))))))
 
 (tu/deftest-kb literal-order-is-structural-not-lexical
   (testing "a smaller-arity literal sorts first, even when its name is lexically later"
@@ -734,7 +734,7 @@
     (testing "facts, negation, rules, and derivations all survive"
       (is (seq (v/sentexes-matching kb '(grandparentOf Tom Ann) 'NaturalWorldContext)))
       (is (empty? (v/sentexes-matching kb '(flies Tweety) 'NaturalWorldContext)))
-      (is (seq (v/sentexes-matching kb '(not (flies Tweety)) 'NaturalWorldContext)))
+      (is (seq (v/sentexes-matching kb '(not (hasCapability Tweety flying)) 'NaturalWorldContext)))
       (is (v/ask? kb '(ancestorOf Tom Ann)))
       (is (empty? (v/conflicts kb))))))
 

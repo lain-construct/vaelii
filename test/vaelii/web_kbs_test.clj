@@ -43,7 +43,7 @@
     (is (= 200 (:status (GET "/kbs"))))
     (testing "the loaded KB, with the counts and the active marker"
       (is (re-find #"Base KB" body))
-      (is (re-find #"tag-ready" body))
+      (is (re-find #"tag-done" body))
       (is (re-find #"active" body)))
     (testing "and every source the catalog offers, each with its own controls"
       (is (re-find #"Starter ontology" body))

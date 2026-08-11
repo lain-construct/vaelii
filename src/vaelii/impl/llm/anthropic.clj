@@ -33,14 +33,15 @@
   **Credentials are resolved from the environment, never hardcoded and never logged**
   — see `credentials`."
   (:require [cheshire.core :as json]
-            [clojure.java.shell :as shell]
             [clojure.string :as str]
             [vaelii.impl.llm.protocol :as proto])
-  (:import [java.net URI]
+  (:import [java.io BufferedReader InputStream InputStreamReader]
+           [java.lang ProcessBuilder$Redirect]
+           [java.net URI]
            [java.net.http HttpClient HttpClient$Builder HttpRequest HttpRequest$Builder
             HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers]
-           [java.time Duration]
-           [java.util.stream Stream]))
+           [java.nio.charset StandardCharsets]
+           [java.time Duration]))
 
 (def default-model
   "The model this backend talks to unless told otherwise."
@@ -53,18 +54,56 @@
   Anthropic's recommended substitute model by refusal category."
   "server-side-fallback-2026-07-01")
 
+;; ---- deadlines ----------------------------------------------------------
+
+(defn- watchdog
+  "A daemon thread that runs `on-expiry` once `ms` have passed; interrupt it to cancel.
+  Daemon because a probe or a stalled read must never be the reason a JVM cannot exit."
+  ^Thread [ms on-expiry]
+  (doto (Thread. ^Runnable (fn []
+                             (try
+                               (Thread/sleep (long ms))
+                               (on-expiry)
+                               (catch InterruptedException _ nil)
+                               (catch Exception _ nil)))
+                 "vaelii-anthropic-deadline")
+    (.setDaemon true)
+    (.start)))
+
 ;; ---- credentials --------------------------------------------------------
 
-(defn- blank->nil [s] (when-not (str/blank? s) s))
+(def ^:private cli-timeout-ms
+  "How long `ant auth print-credentials` gets before it is killed.  `available?` reaches
+  it and a request thread calls `available?` to choose between this backend and the stub,
+  so a CLI that wedges must not wedge the request.  Killed rather than abandoned: the
+  answer is then \"no credential\", which is what an absent CLI already answers."
+  5000)
+
+(defn- clean
+  "A credential as read from the environment: trimmed, and nil when it holds nothing.
+  A `.env` file ending in CRLF and a `$(cat key)` in a shell that keeps the newline are
+  the two ways a stray character rides in.  Trimming is **not** the guarantee — a control
+  character mid-string still reaches the JDK, and `request-builder` is what refuses that —
+  it keeps the ordinary case from getting there at all."
+  [s]
+  (not-empty (str/trim (str s))))
 
 (defn- ant-cli-token
   "A short-lived access token from an `ant auth login` profile, or nil.  Shelling out
   is the documented way to hand an OAuth profile to a raw-HTTP caller; the token is
-  returned, never printed."
+  returned, never printed, and a CLI that has not answered within `cli-timeout-ms` is
+  killed rather than waited on — this runs on a request thread."
   []
   (try
-    (let [{:keys [exit out]} (shell/sh "ant" "auth" "print-credentials" "--access-token")]
-      (when (zero? exit) (blank->nil (str/trim out))))
+    (let [^java.util.List argv ["ant" "auth" "print-credentials" "--access-token"]
+          ^ProcessBuilder pb (ProcessBuilder. argv)
+          _ (.redirectError pb ProcessBuilder$Redirect/DISCARD)
+          ^Process proc (.start pb)
+          ^Thread killer (watchdog cli-timeout-ms #(.destroyForcibly ^Process proc))
+          out (slurp (.getInputStream proc))
+          exit (.waitFor proc)]
+      (.interrupt killer)
+      (when (zero? exit) (clean out)))
     (catch Exception _ nil)))
 
 (defn credentials
@@ -78,11 +117,12 @@
   beta header rather than `x-api-key`.
 
   The value is a secret: it is returned for the caller to hand straight to a header
-  and is never logged, printed, or put in an exception message."
+  and is never logged, printed, or put in an exception message.  `request-builder` is
+  what holds that last clause where the JDK would not."
   []
-  (or (when-let [k (blank->nil (System/getenv "ANTHROPIC_API_KEY"))]
+  (or (when-let [k (clean (System/getenv "ANTHROPIC_API_KEY"))]
         {:kind :api-key :value k})
-      (when-let [t (blank->nil (System/getenv "ANTHROPIC_AUTH_TOKEN"))]
+      (when-let [t (clean (System/getenv "ANTHROPIC_AUTH_TOKEN"))]
         {:kind :bearer :value t})
       (when-let [t (ant-cli-token)]
         {:kind :bearer :value t})))
@@ -175,14 +215,48 @@
       (seq betas)       (assoc "anthropic-beta" (str/join "," (distinct betas))))))
 
 (defn- request-builder
+  "The request to send, headers and all.
+
+  One of those header values is the credential, and the JDK **quotes a rejected value
+  verbatim** in the `IllegalArgumentException` it raises for a CR, LF, control or
+  non-ASCII character.  That exception travels: the browser puts an error message on the
+  page.  So the throw is replaced here by one that names the header and never the value,
+  which is what makes `credentials`' promise a guarantee rather than an intention."
   ^HttpRequest$Builder [conn payload betas]
   (let [^HttpRequest$Builder rb (HttpRequest/newBuilder
                                  (URI/create (str (:base-url conn) "/v1/messages")))]
     (.timeout rb (Duration/ofMillis (long (:timeout-ms conn))))
     (doseq [[k v] (headers (:credential conn) betas)]
-      (.header rb ^String k ^String v))
+      (try
+        (.header rb ^String k ^String v)
+        (catch Exception _
+          (throw (ex-info (str "the " k " header holds a character an HTTP header cannot "
+                               "carry — a credential read from the environment with a "
+                               "trailing newline or a control character in it is the "
+                               "usual cause")
+                          {:type :llm-bad-credential :header k})))))
     (.POST rb (HttpRequest$BodyPublishers/ofString ^String (json/generate-string payload)))
     rb))
+
+(defn- excerpt
+  "The opening of a body, for an exception's data.  A response can be megabytes and what
+  says *why* it would not parse is its first line, so the bound costs no diagnosis."
+  [^String s]
+  (when s (subs s 0 (min (.length s) 200))))
+
+(defn- decode
+  "A JSON body -> data.  Every refusal in this namespace carries a `:type`, and a 200
+  whose body is not JSON is one: a caller discriminates on the keyword, and the JSON
+  library's own exception is not something to discriminate on.  The text stays out of the
+  message and rides bounded in `:excerpt`."
+  [^String text status]
+  (try
+    (json/parse-string text)
+    (catch Exception e
+      (throw (ex-info (str "the Anthropic API answered " status
+                           " with a body that is not JSON")
+                      {:type :llm-bad-response :status status :excerpt (excerpt text)}
+                      e)))))
 
 (defn- api-error [status ^String body-text]
   (let [parsed (try (json/parse-string body-text) (catch Exception _ nil))]
@@ -203,7 +277,7 @@
         status (.statusCode resp)
         text   ^String (.body resp)]
     (if (<= 200 status 299)
-      (parse-response (json/parse-string text))
+      (parse-response (decode text status))
       (throw (api-error status text)))))
 
 ;; ---- SSE ----------------------------------------------------------------
@@ -280,21 +354,54 @@
      :usage        (:usage acc)
      :content      (mapv finish-block (vals (:blocks acc)))}))
 
+(defn- under-read-deadline
+  "Run `f` under a hard deadline on **reading** a response body: a daemon watchdog runs
+  `on-expiry` — closing the body, which is what makes a blocked read fail — once `ms` have
+  passed, and a failure raised after it fires is reported as `:llm-timeout` rather than as
+  whatever a closed socket happened to raise.
+
+  The request's own `.timeout` bounds the response *arriving*, and a streamed turn is
+  almost entirely what comes after that: the lines are pulled off the socket once `send`
+  has returned.  This is what stops a host that goes quiet mid-answer from holding the
+  calling thread for as long as it keeps the connection half-open.  `f` consumes its lines
+  eagerly, so returning from it means the body is read."
+  [ms on-expiry f]
+  (let [expired (atom false)
+        ^Thread wd (watchdog ms (fn [] (reset! expired true) (on-expiry)))]
+    (try
+      (f)
+      (catch Exception e
+        (if @expired
+          (throw (ex-info (str "the Anthropic API stopped answering while its response "
+                               "was being read")
+                          {:type :llm-timeout :timeout-ms ms}))
+          (throw e)))
+      (finally (.interrupt wd)))))
+
 (defn- do-stream [conn request on-event]
   (let [^HttpClient http (:http conn)
         payload (body request {:stream? true})
+        ;; taken before the send, so `:timeout-ms` bounds the whole turn rather than the
+        ;; headers and then the body for that long again
+        deadline (+ (System/currentTimeMillis) (long (:timeout-ms conn)))
         ^HttpResponse resp (.send http (.build (request-builder conn payload (betas-for request)))
-                                  (HttpResponse$BodyHandlers/ofLines))
+                                  (HttpResponse$BodyHandlers/ofInputStream))
         status (.statusCode resp)
-        lines  (iterator-seq (.iterator ^Stream (.body resp)))]
-    (when-not (<= 200 status 299)
-      (throw (api-error status (str/join "\n" lines))))
-    (let [events (->> lines
-                      (filter #(str/starts-with? ^String % "data: "))
-                      (map #(json/parse-string (subs ^String % 6))))
-          response (collect events on-event)]
-      (on-event {:type :done :response response})
-      response)))
+        ^InputStream in (.body resp)]
+    (under-read-deadline
+     (max 1 (- deadline (System/currentTimeMillis)))
+     #(.close ^InputStream in)
+     (fn []
+       (with-open [rdr (BufferedReader. (InputStreamReader. in StandardCharsets/UTF_8))]
+         (let [lines (line-seq rdr)]
+           (when-not (<= 200 status 299)
+             (throw (api-error status (str/join "\n" lines))))
+           (let [events (->> lines
+                             (filter #(str/starts-with? ^String % "data: "))
+                             (map #(decode (subs ^String % 6) status)))
+                 response (collect events on-event)]
+             (on-event {:type :done :response response})
+             response)))))))
 
 ;; ---- the provider -------------------------------------------------------
 
@@ -306,7 +413,9 @@
     :credential  `{:kind :api-key|:bearer :value \"…\"}` — resolved from the
                  environment by `credentials` when absent
     :base-url    default `https://api.anthropic.com` (or `ANTHROPIC_BASE_URL`)
-    :timeout-ms  default 600000 — a high-effort turn on a hard task runs for minutes
+    :timeout-ms  default 600000 — a high-effort turn on a hard task runs for minutes.
+                 Bounds the whole turn, the streamed body included, so a host that goes
+                 quiet mid-answer releases the thread rather than holding it
 
   Throws when no credential is reachable, so a caller that may run without one should
   gate on `available?` and fall back to `vaelii.impl.llm.stub/provider`."

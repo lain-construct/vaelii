@@ -45,6 +45,29 @@ on:
     - cron: '0 4 * * 0'
   workflow_dispatch:
 
+# Every job below repeats one condition, spelled out rather than named once,
+# because a job-level `if` cannot read `env:` and there is nowhere else to put
+# it. What it says: **this workflow does work only where Actions minutes are
+# free.** GitHub bills private repositories and does not bill public ones, this
+# file is identical in every repository that holds it, and one run of this
+# workflow is 209 job-minutes against a 2,000-minute monthly allowance — so an
+# unguarded run is most of a month's budget spent re-answering, on a copy
+# nobody reads, what the free copy answers for nothing.
+#
+# **Every trigger is gated, dispatch included**, and that is the part worth
+# being deliberate about: a dispatch is somebody asking, but asking on a billed
+# copy spends the allowance the same way the cron would, and the ask is nearly
+# always for an answer the free copy can give. Dispatch this workflow in the
+# public repository; the two matrices it runs are `lein test-backends` and
+# `lein test-sweeps` locally, which is where .claude/rules/workflow.md puts the
+# gate anyway — this job is the confirmation, and a confirmation is not worth a
+# month of minutes.
+#
+# The skip is silent by construction: a job whose `if` is false reports success,
+# so a run started on a billed copy goes green having done nothing. That is the
+# intended reading — "nothing to see here, ask the free copy" — and it is why
+# the condition is on every job rather than on the workflow.
+
 permissions:
   contents: read
 
@@ -56,6 +79,8 @@ concurrency:
 jobs:
   backends:
     name: ${{ matrix.backend }} (:all)
+    # this workflow does work only where the minutes are free (see above `jobs:`)
+    if: github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -154,6 +179,8 @@ jobs:
   # re-answer what 5 and 8 already answer separately.
   sweeps:
     name: ${{ matrix.name }} (:all)
+    # this workflow does work only where the minutes are free (see above `jobs:`)
+    if: github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -210,6 +237,8 @@ jobs:
 
   perf:
     name: perf
+    # this workflow does work only where the minutes are free (see above `jobs:`)
+    if: github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

@@ -69,6 +69,7 @@
   (:require [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.dense-roots :as dense-roots]
             [vaelii.impl.kv :as kv]
+            [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.tokens :as tok])
@@ -110,9 +111,10 @@
 (defprotocol PTrie
   ;; public trie ops (the IndexStore trie families bottom out here)
   (t-insert!   [t path handle] "Insert a sentex handle at the leaf of `path` (a token seq).")
-  (t-remove!   [t path handle] "Remove `handle` from `path`'s leaf, pruning nodes that empty.")
+  (t-remove!   [t path handle] "Remove `handle` from `path`'s leaf, pruning nodes that empty; answers how many of the path's own nodes emptied.")
   (t-count-at  [t prefix]      "Subtree leaf count at a path prefix (0 if absent).")
   (t-children  [t prefix]      "Decoded child edge tokens at a prefix (a vector, [] if absent).")
+  (t-child-count [t prefix]    "How many child edges sit at a prefix — the width, without decoding it.")
   (t-leaves-at [t prefix]      "Leaf handles exactly at a prefix (a set, #{} if absent).")
   (t-lookup    [t pattern]     "Handles whose full path matches `pattern` (variables fan out; markers skip).")
   (t-clear!    [t]             "Reset to a single empty root (the dict is wiped by the store).")
@@ -418,6 +420,11 @@
           (dense/padd! lp handle))))
     nil)
 
+  ;; Answers the count of this path's own nodes that emptied, which the workload
+  ;; instrument prices as `:dead` (`vaelii.impl.profile`).  Counted from `t` — the
+  ;; topmost node whose count reached zero — rather than from `cut`, so the number means
+  ;; the same here as the flat store's, which counts the path prefixes that emptied and
+  ;; has no dead-root special case to work around.
   (t-remove! [this path handle]
     (when frozen? (-thaw! this))                                        ; a write reverts to mutable
     (let [pv (vec path)
@@ -426,7 +433,8 @@
         (if (< i n)
           (let [tid (tok/token-id dict (nth pv i))
                 c   (long (if (neg? tid) -1 (-get-child this node tid)))]
-            (when-not (neg? c)                                   ; absent path ⇒ nothing to remove
+            (if (neg? c)
+              0                                                  ; absent path ⇒ nothing to remove
               (recur c (inc i) (conj! nodes c) (conj! tids tid))))
           (let [nodes (persistent! nodes)                        ; n+1 entries: root..terminus
                 tids  (persistent! tids)]                        ; n entries: edge token-ids
@@ -440,12 +448,13 @@
                       (cond (> k n) -1
                             (<= (-count-of this (nth nodes k)) 0) k
                             :else (recur (inc k))))]
-              (when (>= t 0)
+              (if (neg? t)
+                0
                 (let [cut (if (zero? t) 1 t)]
                   (when (<= cut n)
                     (-detach! this (nth nodes (dec cut)) (nth tids (dec cut)))
-                    (-free-subtree! this (nth nodes cut))))))))))
-    nil)
+                    (-free-subtree! this (nth nodes cut)))
+                  (- (inc n) t)))))))))
 
   (t-count-at [this prefix]
     (let [nd (-node-at this prefix)] (if (neg? nd) 0 (-count-of this nd))))
@@ -453,6 +462,22 @@
   (t-children [this prefix]
     (let [nd (-node-at this prefix)]
       (if (neg? nd) [] (mapv first (-edges this nd)))))
+
+  ;; The width off each representation's own shape, decoding nothing: an edge-array span
+  ;; in the frozen sections, the map's size or the token array's length while mutable.
+  ;; `(count (t-children …))` would be the same number for O(width) work and one vector
+  ;; per call, and the planner asks this once per literal per plan.
+  (t-child-count [this prefix]
+    (let [nd (int (-node-at this prefix))]
+      (if (neg? nd)
+        0
+        (if frozen?
+          (- (aget ^ints foffsets (inc nd)) (aget ^ints foffsets nd))
+          (let [ch (aget ^objects toks nd)]
+            (cond
+              (nil? ch)                          0
+              (instance? Int2IntOpenHashMap ch)  (.size ^Int2IntOpenHashMap ch)
+              :else                              (alength ^ints ch)))))))
 
   (t-leaves-at [this prefix]
     (let [nd (-node-at this prefix)] (if (neg? nd) #{} (-leaves-of this nd))))
@@ -686,21 +711,43 @@
       (kv/kv-batch roots
                    (concat (map (fn [t] [:add-to-set (kv/term-key t) handle]) terms)
                            (map (fn [k] [:add-to-set k handle]) (kv/root-keys sentex))
-                           roster slots)))
+                           roster slots))
+      ;; the same tally `KvIndexStore` keeps, because this store writes the index itself
+      ;; rather than through it — an instrument that went quiet on the backend the
+      ;; density work exists for would report a KB that never writes an index
+      (when (prof/profiling?)
+        (prof/record-index-write sentex {:levels (inc (count (sx/path sentex)))
+                                         :terms  (count terms)
+                                         :roots  (count (kv/root-keys sentex))
+                                         :roster (count roster)
+                                         :slots  (count slots)})))
     handle)
   (unindex-sentex! [_ sentex handle]
-    (t-remove! trie (sx/path sentex) handle)
-    (let [terms  (kv/sentex-terms sentex)
+    (let [dead   (long (t-remove! trie (sx/path sentex) handle))
+          terms  (kv/sentex-terms sentex)
           roster (kv/roster-retires roots terms handle) ; reads the pre-write postings
           slots  (kv/slot-retires roots sentex handle)] ; likewise
       (kv/kv-batch roots
                    (concat (map (fn [t] [:remove-from-set (kv/term-key t) handle]) terms)
                            (map (fn [k] [:remove-from-set k handle]) (kv/root-keys sentex))
-                           roster slots)))
+                           roster slots))
+      (when (prof/profiling?)
+        (prof/record-index-retract sentex {:levels (inc (count (sx/path sentex)))
+                                           :terms  (count terms)
+                                           :roots  (count (kv/root-keys sentex))
+                                           :roster (count roster)
+                                           :slots  (count slots)
+                                           :dead   dead})))
     handle)
-  (count-at [_ prefix]  (t-count-at trie prefix))
-  (children [_ prefix]  (t-children trie prefix))
-  (lookup   [_ pattern] (t-lookup   trie pattern))
+  ;; the same family labels `KvIndexStore` records, for the same reason: the split
+  ;; between a retrieval walk and the planner's selectivity probes is the reading that
+  ;; says whether a KB uses its trie to fetch or to plan, and it must not depend on
+  ;; which index is underneath.  `:fan` is the one tally this store does not keep — the
+  ;; walk below is native and counts no node probes (docs/profile.md).
+  (count-at [_ prefix]  (prof/record-read :trie-counts) (t-count-at trie prefix))
+  (children [_ prefix]  (prof/record-read :trie-counts) (t-children trie prefix))
+  (count-children [_ prefix] (prof/record-read :trie-counts) (t-child-count trie prefix))
+  (lookup   [_ pattern] (prof/record-read :trie-lookup) (t-lookup   trie pattern))
 
   ;; the non-trie families — flat key→handle-set maps — read/write the shared backend
   (sentexes-in-context   [_ c]        (p/sentexes-in-context   embedded c))

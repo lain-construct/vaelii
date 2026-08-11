@@ -327,6 +327,27 @@ Two boundaries, both deliberate:
   a predicate with a large extent is a long assert. Declare before loading where you
   can.
 
+### What the shipped ontology declares it of
+
+Every shipped declaration is a claim about a **predicate** rather than about a world.
+`functional`, `inverse`, `reflexive`, `symmetric`, `asymmetric` and `transitive` carry
+the mark — so a `(symmetric P)` stated in one theory is the KB's claim about `P` and not
+that theory's — and `genlContext` carries the forced variant below. **No domain relation
+carries either**, and two things hold that line:
+
+- **A domain fact is what a theory is for.** A marriage, an ownership, a location holds
+  in the context that states it, and a story, a jurisdiction or a hypothesis is entitled
+  to state one the rest of the KB does not share. A mark on `marriedTo` makes every
+  fiction's marriage a claim of the whole KB.
+- **The mark travels down the rules.** A conclusion drawn from a lifted copy is lifted
+  in turn (above), so a mark on one predicate reaches whatever the rules over it
+  conclude: `SocialContext`'s `(implies (and (marriedTo ?x ?y)) (knows ?x ?y))` would put
+  `knows` within reach of every data context without `knows` being declared anything.
+
+`abduciblePredicate` is the near-miss on the other side, and is scoped for the
+converse reason: willingness to assume a `(P …)` is a policy of the context that grants
+it rather than a property of `P` ([abduction.md](abduction.md)).
+
 ## forcedDecontextualizedPredicate: a canonical home in UniverseContext
 
 `(forcedDecontextualizedPredicate P)` is the stronger variant. Instead of leaving the

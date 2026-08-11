@@ -20,20 +20,20 @@
     (is (seq (v/sentexes-matching kb '(grandparentOf Tom Ann) 'NaturalWorldContext)))
     (is (empty? (v/sentexes-matching kb '(grandparentOf Tom Ann) 'UniverseContext))))
   (testing "the genl taxonomy answers isa? queries"
-    (is (v/isa? kb 'Fido 'animal))
+    (is (v/isa? kb 'Muffet 'animal))
     (is (v/isa? kb 'Tom 'thing))
     (is (v/isa? kb 'Tweety 'animal))                  ; penguin -> bird -> animal
     (is (not (v/isa? kb 'Tom 'dog)))))
 
 (tu/deftest-kb starter-common-sense-reasoning
   (testing "defeasible flight: eagles fly by default, penguins (flightless birds) do not"
-    (is (seq   (v/sentexes-matching kb '(flies Sam) 'NaturalWorldContext)))
-    (is (empty? (v/sentexes-matching kb '(flies Tweety) 'NaturalWorldContext)))
-    (is (seq   (v/sentexes-matching kb '(not (flies Tweety)) 'NaturalWorldContext)))
+    (is (seq   (v/sentexes-matching kb '(hasCapability Sam flying) 'NaturalWorldContext)))
+    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety flying) 'NaturalWorldContext)))
+    (is (seq   (v/sentexes-matching kb '(not (hasCapability Tweety flying)) 'NaturalWorldContext)))
     (is (empty? (v/conflicts kb))))                   ; the strict exception resolves cleanly
   (testing "the mortality default reaches every living individual"
     (is (seq (v/sentexes-matching kb '(mortal Tom) 'NaturalWorldContext)))
-    (is (seq (v/sentexes-matching kb '(mortal Fido) 'NaturalWorldContext))))
+    (is (seq (v/sentexes-matching kb '(mortal Muffet) 'NaturalWorldContext))))
   (testing "predicate metadata answers via the generic provers"
     (is (v/ask? kb '(ancestorOf Tom Ann)))            ; transitive closure of parentOf
     (is (v/ask? kb '(childOf Bob Tom)))               ; inverse of parentOf
@@ -68,7 +68,7 @@
   (testing "every domain relation is documented"
     (doseq [p '[parentOf grandparentOf childOf ancestorOf siblingOf marriedTo
                 motherOf fatherOf
-                likes eats owns partOf locatedIn flies canTravel mortal birthYearOf olderThan
+                likes eats owns partOf locatedIn hasCapability mortal birthYearOf olderThan
                 weightOf heightOf heavierThan tallerThan]]
       (is (seq (core-context/comment-of kb p)) (str "relation " p)))))
 

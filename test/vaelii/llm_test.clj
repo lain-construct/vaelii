@@ -14,6 +14,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.llm.anthropic :as anthropic]
+            [vaelii.impl.llm.ollama :as ollama]
             [vaelii.impl.llm.prompt :as prompt]
             [vaelii.impl.llm.protocol :as proto]
             [vaelii.impl.llm.session :as session]
@@ -45,7 +46,7 @@
           (str (tools/tool-name w) " must not resolve to an op"))))
   (testing "and a made-up write tool is simply unknown"
     (is (nil? (tools/op-of "kb_assert")))
-    (is (= false (:ok (tools/call (tu/fresh) "kb_assert" {"sentence" "(dog Fido)"}))))))
+    (is (= false (:ok (tools/call (tu/fresh) "kb_assert" {"sentence" "(dog Muffet)"}))))))
 
 (deftest schemas-are-well-formed-and-stable
   (let [ss (tools/schemas)]
@@ -76,20 +77,20 @@
     (is (not= (tools/tool-name :ask) (tools/tool-name :ask?)))))
 
 (tu/deftest-kb tool-calls-reach-the-kb
-  (tu/with-terms [dog animal Fido]
+  (tu/with-terms [dog animal Muffet]
     (v/assert kb (list 'genl dog animal) 'UniverseContext)
-    (v/assert kb (list dog Fido) 'UniverseContext)
+    (v/assert kb (list dog Muffet) 'UniverseContext)
     (testing "a query returns the stored sentence"
       (let [{:keys [ok result]} (tools/call kb "kb_sentexes_matching" {"sentence" (pr-str (list dog '?x))})]
         (is ok)
-        (is (str/includes? result (str Fido)))))
+        (is (str/includes? result (str Muffet)))))
     (testing "an integer parameter arrives as an integer"
-      (let [h (v/handle-of kb (list dog Fido) 'UniverseContext)
+      (let [h (v/handle-of kb (list dog Muffet) 'UniverseContext)
             {:keys [ok result]} (tools/call kb "kb_in_p" {"handle" h})]
         (is ok)
         (is (= "true" result))))
     (testing "a taxonomic read"
-      (let [{:keys [ok result]} (tools/call kb "kb_isa_p" {"x" (str Fido) "t" (str animal)})]
+      (let [{:keys [ok result]} (tools/call kb "kb_isa_p" {"x" (str Muffet) "t" (str animal)})]
         (is ok)
         (is (= "true" result))))
     (testing "a failing call is reported, not thrown"
@@ -103,12 +104,12 @@
 ;; ---- the system prompt is generated from the KB -------------------------
 
 (tu/deftest-kb system-prompt-reads-the-live-kb
-  (tu/with-terms [dog animal Fido StoryContext]
+  (tu/with-terms [dog animal Muffet StoryContext]
     (let [before (prompt/system-prompt kb)]
       (is (not (str/includes? before (str dog))))
       (v/assert kb (list 'genl dog animal) 'UniverseContext)
       (v/assert kb (list 'genlContext StoryContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list dog Fido) StoryContext)
+      (v/assert kb (list dog Muffet) StoryContext)
       (let [after (prompt/system-prompt kb)]
         (is (str/includes? after (str dog)) "a new type reaches the prompt")
         (is (str/includes? after (str StoryContext)) "a new context reaches the prompt")
@@ -118,7 +119,7 @@
         (is (not= before after))))))
 
 (tu/deftest-kb system-prompt-carries-argisa-and-disjointness
-  (tu/with-terms [dog cat parentOf Fido]
+  (tu/with-terms [dog cat parentOf Muffet]
     (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
     (v/assert kb (list 'argIsa parentOf 1 dog) 'UniverseContext)
     (let [p (prompt/system-prompt kb)]
@@ -134,10 +135,10 @@
     (is (= {:add [] :remove []}
            (:batch (session/parse-batch "here you go\n\n```edn\n{:add [] :remove []}\n```")))))
   (testing "the last block wins — a model often shows a draft first"
-    (is (= {:add [['(dog Fido) 'WellContext]] :remove []}
+    (is (= {:add [['(dog Muffet) 'WellContext]] :remove []}
            (:batch (session/parse-batch
                     (str "draft:\n```edn\n{:add [] :remove []}\n```\n"
-                         "final:\n```edn\n{:add [[(dog Fido) WellContext]]}\n```"))))))
+                         "final:\n```edn\n{:add [[(dog Muffet) WellContext]]}\n```"))))))
   (testing "an unfenced map still parses"
     (is (= {:add [] :remove [7]} (:batch (session/parse-batch "{:remove [7]}")))))
   (testing "failures are reported, never thrown"
@@ -153,8 +154,8 @@
 ;; ---- the deterministic critic: typed rejections -------------------------
 
 (tu/deftest-kb a-bad-predicate-name-is-a-naming-rejection
-  (tu/with-terms [Fido]
-    (let [rs (session/check-batch kb {:add [[(list 'BadFunctor Fido) 'UniverseContext]]
+  (tu/with-terms [Muffet]
+    (let [rs (session/check-batch kb {:add [[(list 'BadFunctor Muffet) 'UniverseContext]]
                                       :remove []})]
       (is (= 1 (count rs)))
       (is (= :naming (:type (first rs))))
@@ -168,70 +169,70 @@
       (is (= :not-ground (:type (first rs)))))))
 
 (tu/deftest-kb a-disjoint-clash-is-a-disjoint-rejection
-  (tu/with-terms [dog cat Fido]
+  (tu/with-terms [dog cat Muffet]
     (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-    (v/assert kb (list dog Fido) 'UniverseContext)
-    (let [rs (session/check-batch kb {:add [[(list cat Fido) 'UniverseContext]] :remove []})]
+    (v/assert kb (list dog Muffet) 'UniverseContext)
+    (let [rs (session/check-batch kb {:add [[(list cat Muffet) 'UniverseContext]] :remove []})]
       (is (= 1 (count rs)))
       (is (= :disjoint (:type (first rs))))))
   (testing "the critic did not store the entry it rejected"
-    (tu/with-terms [dog cat Fido]
+    (tu/with-terms [dog cat Muffet]
       (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-      (session/check-batch kb {:add [[(list cat Fido) 'UniverseContext]] :remove []})
-      (is (nil? (v/handle-of kb (list cat Fido) 'UniverseContext))
+      (session/check-batch kb {:add [[(list cat Muffet) 'UniverseContext]] :remove []})
+      (is (nil? (v/handle-of kb (list cat Muffet) 'UniverseContext))
           "checking must not write"))))
 
 (tu/deftest-kb an-argisa-clash-is-an-arg-type-rejection
-  (tu/with-terms [dog cat likes Fido Whiskers]
+  (tu/with-terms [dog cat likes Muffet Whiskers]
     (v/assert kb (list 'genl dog 'thing) 'UniverseContext)
     (v/assert kb (list 'genl cat 'thing) 'UniverseContext)
     (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
     (v/assert kb (list 'argIsa likes 1 dog) 'UniverseContext)
     (v/assert kb (list cat Whiskers) 'UniverseContext)
-    (let [rs (session/check-batch kb {:add [[(list likes Whiskers Fido) 'UniverseContext]]
+    (let [rs (session/check-batch kb {:add [[(list likes Whiskers Muffet) 'UniverseContext]]
                                       :remove []})]
       (is (= 1 (count rs)))
       (is (= :arg-type (:type (first rs)))))))
 
 (tu/deftest-kb malformed-entries-and-handles-are-rejected
   (testing "an entry that is not [sentence context]"
-    (is (= :shape (:type (first (session/check-batch kb {:add ['(dog Fido)] :remove []}))))))
+    (is (= :shape (:type (first (session/check-batch kb {:add ['(dog Muffet)] :remove []}))))))
   (testing "a context that is not a symbol"
     (is (= :shape (:type (first (session/check-batch
-                                 kb {:add [['(dog Fido) "WellContext"]] :remove []}))))))
+                                 kb {:add [['(dog Muffet) "WellContext"]] :remove []}))))))
   (testing "a removal naming no stored sentex"
     (let [rs (session/check-batch kb {:add [] :remove [999999]})]
       (is (= :unknown-handle (:type (first rs))))
       (is (= :remove (:in (first rs))))))
   (testing "a removal naming a stored one is fine"
-    (tu/with-terms [dog Fido]
-      (let [h (v/assert kb (list dog Fido) 'UniverseContext)]
+    (tu/with-terms [dog Muffet]
+      (let [h (v/assert kb (list dog Muffet) 'UniverseContext)]
         (is (empty? (session/check-batch kb {:add [] :remove [h]})))))))
 
 (tu/deftest-kb a-well-formed-batch-has-no-rejections
-  (tu/with-terms [dog animal Fido]
+  (tu/with-terms [dog animal Muffet]
     (v/assert kb (list 'genl dog animal) 'UniverseContext)
-    (is (empty? (session/check-batch kb {:add [[(list dog Fido) 'UniverseContext]]
+    (is (empty? (session/check-batch kb {:add [[(list dog Muffet) 'UniverseContext]]
                                          :remove []})))))
 
 ;; ---- the repair loop ----------------------------------------------------
 
 (tu/deftest-kb the-loop-repairs-a-rejected-batch
-  (tu/with-terms [dog Fido]
+  (tu/with-terms [dog Muffet]
     (let [p (stub/provider
-             {:script [{:batch {:add [[(list 'BadFunctor Fido) 'UniverseContext]] :remove []}}
-                       {:batch {:add [[(list dog Fido) 'UniverseContext]] :remove []}}]})
-          result (session/propose kb {:message "add Fido as a dog" :provider p})]
+             {:script [{:batch {:add [[(list 'BadFunctor Muffet) 'UniverseContext]] :remove []}}
+                       {:batch {:add [[(list dog Muffet) 'UniverseContext]] :remove []}}]})
+          result (session/propose kb {:message "add Muffet as a dog" :provider p})]
       (is (= :ok (:status result)))
       (is (= 2 (:attempts result)) "one rejected batch, one accepted")
-      (is (= {:add [[(list dog Fido) 'UniverseContext]] :remove []} (:batch result)))
+      (is (= {:add [[(list dog Muffet) 'UniverseContext]] :remove []} (:batch result)))
       (testing "the critic's typed verdict is what was fed back"
         (is (str/includes? (stub/last-user-text p) ":naming"))
         (is (str/includes? (stub/last-user-text p) "BadFunctor"))))))
 
 (tu/deftest-kb the-loop-gives-up-cleanly-when-repair-fails
-  (tu/with-terms [Fido]
-    (let [bad {:batch {:add [[(list 'BadFunctor Fido) 'UniverseContext]] :remove []}}
+  (tu/with-terms [Muffet]
+    (let [bad {:batch {:add [[(list 'BadFunctor Muffet) 'UniverseContext]] :remove []}}
           p (stub/provider {:script [bad bad bad bad bad] :default (:batch bad)})
           result (session/propose kb {:message "break it" :provider p :max-repairs 2})]
       (is (= :invalid (:status result)) "a stubborn model ends in a report, not a throw")
@@ -257,12 +258,12 @@
     (is (nil? (:batch result)) "no batch is invented out of an empty content array")))
 
 (tu/deftest-kb the-loop-runs-read-tools-then-answers
-  (tu/with-terms [dog Fido]
-    (v/assert kb (list dog Fido) 'UniverseContext)
+  (tu/with-terms [dog Muffet]
+    (v/assert kb (list dog Muffet) 'UniverseContext)
     (let [p (stub/provider
-             {:script [{:tool "kb_types_of" :input {"x" (str Fido)} :prose "checking first"}
+             {:script [{:tool "kb_types_of" :input {"x" (str Muffet)} :prose "checking first"}
                        {:batch {:add [] :remove []}}]})
-          result (session/propose kb {:message "what is Fido?" :provider p})]
+          result (session/propose kb {:message "what is Muffet?" :provider p})]
       (is (= :ok (:status result)))
       (is (= 1 (:tool-calls result)))
       (is (= 2 (:turns result)))
@@ -285,9 +286,9 @@
 ;; ---- streaming ----------------------------------------------------------
 
 (tu/deftest-kb streaming-yields-deltas-and-the-same-result
-  (tu/with-terms [dog Fido]
+  (tu/with-terms [dog Muffet]
     (let [events (atom [])
-          batch {:add [[(list dog Fido) 'UniverseContext]] :remove []}
+          batch {:add [[(list dog Muffet) 'UniverseContext]] :remove []}
           p (stub/provider {:script [{:batch batch}]})
           result (session/propose kb {:message "add it" :provider p
                                       :on-event #(swap! events conj %)})]
@@ -299,24 +300,24 @@
 ;; ---- the write boundary -------------------------------------------------
 
 (tu/deftest-kb a-proposal-is-never-applied-without-an-explicit-apply
-  (tu/with-terms [dog Fido]
+  (tu/with-terms [dog Muffet]
     (let [before (tu/sentex-ids kb)
-          batch {:add [[(list dog Fido) 'UniverseContext]] :remove []}
+          batch {:add [[(list dog Muffet) 'UniverseContext]] :remove []}
           p (stub/provider {:script [{:batch batch}]})
-          proposal (session/propose kb {:message "add Fido" :provider p})]
+          proposal (session/propose kb {:message "add Muffet" :provider p})]
       (is (= :ok (:status proposal)))
       (is (= before (tu/sentex-ids kb))
           "proposing stored nothing — the model has no write path")
-      (is (nil? (v/handle-of kb (list dog Fido) 'UniverseContext)))
+      (is (nil? (v/handle-of kb (list dog Muffet) 'UniverseContext)))
       (testing "the explicit apply is what writes"
         (let [applied (session/apply-proposal! kb proposal)]
           (is (= 1 (count (:added (:result applied)))))
-          (is (some? (v/handle-of kb (list dog Fido) 'UniverseContext)))
+          (is (some? (v/handle-of kb (list dog Muffet) 'UniverseContext)))
           (is (empty? (:violations applied))))))))
 
 (tu/deftest-kb apply-refuses-a-proposal-the-critic-rejected
-  (tu/with-terms [Fido]
-    (let [bad {:batch {:add [[(list 'BadFunctor Fido) 'UniverseContext]] :remove []}}
+  (tu/with-terms [Muffet]
+    (let [bad {:batch {:add [[(list 'BadFunctor Muffet) 'UniverseContext]] :remove []}}
           p (stub/provider {:script [bad bad bad] :default (:batch bad)})
           proposal (session/propose kb {:message "x" :provider p :max-repairs 1})]
       (is (= :invalid (:status proposal)))
@@ -326,14 +327,14 @@
                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))))
 
 (tu/deftest-kb apply-round-trips-a-removal
-  (tu/with-terms [dog Fido]
-    (let [h (v/assert kb (list dog Fido) 'UniverseContext)
+  (tu/with-terms [dog Muffet]
+    (let [h (v/assert kb (list dog Muffet) 'UniverseContext)
           p (stub/provider {:script [{:batch {:add [] :remove [h]}}]})
           proposal (session/propose kb {:message "drop it" :provider p})]
       (is (= :ok (:status proposal)))
-      (is (some? (v/handle-of kb (list dog Fido) 'UniverseContext)) "still there after proposing")
+      (is (some? (v/handle-of kb (list dog Muffet) 'UniverseContext)) "still there after proposing")
       (session/apply-proposal! kb proposal)
-      (is (nil? (v/handle-of kb (list dog Fido) 'UniverseContext))))))
+      (is (nil? (v/handle-of kb (list dog Muffet) 'UniverseContext))))))
 
 ;; ---- the default provider is offline ------------------------------------
 
@@ -433,13 +434,13 @@
             {"type" "content_block_delta" "index" 2
              "delta" {"type" "input_json_delta" "partial_json" "{\"x\":"}}
             {"type" "content_block_delta" "index" 2
-             "delta" {"type" "input_json_delta" "partial_json" "\"Fido\"}"}}
+             "delta" {"type" "input_json_delta" "partial_json" "\"Muffet\"}"}}
             {"type" "content_block_stop" "index" 2}
             {"type" "message_delta" "delta" {"stop_reason" "tool_use"} "usage" {"output_tokens" 30}}]
            #(swap! events conj %))]
     (is (= "one two" (proto/text r)))
     (is (= "tool_use" (:stop-reason r)))
-    (is (= {"x" "Fido"} (:input (first (proto/tool-uses r)))) "partial json reassembles")
+    (is (= {"x" "Muffet"} (:input (first (proto/tool-uses r)))) "partial json reassembles")
     (testing "the signature arrives as its own delta and must ride back out"
       (is (= "sig-abc" (get-in (:content r) [0 :raw "signature"])))
       (is (= "weighing it" (get-in (:content r) [0 :raw "thinking"]))))
@@ -454,6 +455,83 @@
     ;; a reachable credential builds a provider, an absent one is a typed refusal
     ;; a caller can branch on, never a NullPointerException from a header.
     (is (= (if (anthropic/available?) :built :llm-no-credential) outcome))))
+
+;; ---- what the two transports refuse, and how ----------------------------
+;; Both backends are checked in one place because what is under test is the vocabulary
+;; they share: a credential that cannot ride in a header, a 200 whose body is not JSON,
+;; and a host that goes quiet with the body half-read.  None of it opens a socket — a
+;; request is *built* rather than sent, and the deadline is exercised with the read
+;; stubbed.
+
+(deftest a-credential-that-cannot-ride-in-a-header-is-refused-without-quoting-it
+  (let [conn (fn [v] {:base-url "http://127.0.0.1:1" :timeout-ms 1000
+                      :credential {:kind :api-key :value v}})]
+    (doseq [[what value] [["a trailing CRLF, which is what a .env file leaves"
+                           "sk-ant-SUPERSECRET\r\n"]
+                          ["a control character mid-string, which no trim removes"
+                           (str "sk-ant-" (char 7) "SUPERSECRET")]]]
+      (testing what
+        (let [e (try (#'anthropic/request-builder (conn value) {"model" "m"} [])
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? e) "the JDK rejects the value, and the rejection does not escape raw")
+          (is (= :llm-bad-credential (:type (ex-data e))))
+          (is (= "x-api-key" (:header (ex-data e))) "the header is named")
+          (testing "and the value is in neither the message nor the data: the JDK's own
+                    exception quotes it verbatim, and an error message reaches the page"
+            (is (not (str/includes? (str (ex-message e) " " (pr-str (ex-data e)))
+                                    "SUPERSECRET")))))))
+    (testing "a credential with nothing wrong with it still builds a request"
+      (is (some? (#'anthropic/request-builder (conn "sk-ant-ordinary") {"model" "m"} []))))))
+
+(deftest an-environment-credential-is-trimmed
+  (testing "the whitespace a shell or a .env file leaves is not part of the value"
+    (is (= "sk-ant-x" (#'anthropic/clean "  sk-ant-x \r\n")))
+    (is (nil? (#'anthropic/clean "   ")))
+    (is (nil? (#'anthropic/clean nil)))))
+
+(deftest a-body-that-is-not-json-carries-a-type-like-every-other-refusal
+  (doseq [[backend decode] [["anthropic" #'anthropic/decode] ["ollama" #'ollama/decode]]]
+    (testing backend
+      (let [e (try (decode "<html>a proxy answered</html>" 200) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? e))
+        (is (= :llm-bad-response (:type (ex-data e))) "a caller discriminates on the keyword")
+        (is (= 200 (:status (ex-data e)))))
+      (testing "and the excerpt is bounded, because a response can be megabytes"
+        (let [e (try (decode (apply str (repeat 5000 "x")) 200) nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (>= 200 (count (:excerpt (ex-data e)))))
+          (is (not (str/includes? (ex-message e) "xxxx"))
+              "the body is data, not the message"))))))
+
+(deftest a-host-that-goes-quiet-mid-body-releases-the-thread
+  ;; The request's own `.timeout` bounds the response *arriving*; a streamed turn is read
+  ;; off the socket after that, and the browser's page path always streams.  So the body
+  ;; read carries its own deadline, and this is that deadline: the watchdog closes the
+  ;; body, and the failure which follows is a typed timeout rather than whatever I/O
+  ;; error a closed socket raises.
+  (doseq [[backend under] [["anthropic" #'anthropic/under-read-deadline]
+                           ["ollama" #'ollama/under-read-deadline]]]
+    (testing backend
+      (let [closed (promise)
+            e (try (under 20 #(deliver closed true)
+                          ;; stands in for a read blocked on a socket nobody is writing
+                          ;; to: it ends when the watchdog closes the body under it
+                          (fn []
+                            (deref closed 5000 :never)
+                            (throw (java.io.IOException. "stream closed"))))
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (realized? closed) "the watchdog fired and closed the body")
+        (is (= :llm-timeout (:type (ex-data e))))
+        (is (= 20 (:timeout-ms (ex-data e)))))
+      (testing "a failure with the deadline unspent belongs to the caller and is rethrown"
+        (is (thrown? java.io.IOException
+                     (under 60000 (fn [] nil)
+                            (fn [] (throw (java.io.IOException. "connection reset")))))))
+      (testing "and a read that finishes hands back what it read"
+        (is (= :read-it (under 60000 (fn [] nil) (fn [] :read-it))))))))
 
 (deftest the-protocol-reads-stop-reason-before-content
   (is (proto/refused? {:stop-reason "refusal" :content []}))
@@ -471,21 +549,15 @@
 ;; consent to make the call at all.  Neither is worth much without the other, so this
 ;; checks they agree — over the source, because that is where a new test gets it wrong.
 
-(def ^:private live-marker
-  "What a test consulting the live gate looks like: `live-llm?` under any alias, or a
-  namespace-local `live-model` helper that wraps it.
+(def ^:private gate-call
+  "What consulting the consent gate looks like in a source file: a **call** to
+  `live-llm?` under any alias.
 
-  The second half is a **convention this check depends on**: a helper sits between two
-  tests, so a test that reaches the gate through one does not mention the gate in its own
-  body.  A new live test must therefore either consult it directly or route through a
-  helper called `live-model` — the roster test below is what makes a new marked test a
-  visible change if it does neither.
-
-  Anchored on the shape of a **call** — an open paren, then the name, then a close — and
-  not on the bare name, so this does not match the prose around it or its own failure
+  Anchored on the shape of a call — an open paren, then the name, then a close — and not
+  on the bare name, so this does not match the prose around it or its own failure
   messages.  A scanner that flags its own source is worse than no scanner, since the way
   to make it green is to stop saying what it checks."
-  #"\([\w.-]*/?live-llm\?\)|\(live-model\)")
+  #"\([\w.-]*/?live-llm\?\)")
 
 (defn- top-level-starts
   "The index of every top-level form in a source file — a `(` in column zero."
@@ -494,29 +566,64 @@
                                  i))
                      src)))
 
-(defn- test-forms
-  "Every top-level `deftest` / `tu/deftest-kb` in a test file, as
-  `[{:file :name :marked? :body} …]`.
+(defn- top-level-forms
+  "Every top-level form in a source file, as the source text of each.
 
   Split on column-zero openers rather than read, since what is under test is the **source**
   a reader edits: a mark dropped from the text is the failure mode, and `read`ing the file
-  would resolve it away.  A body runs to the next **top-level form**, not to the next
-  `deftest` — a helper defined between two tests belongs to neither, and taking it as part
-  of the one before it is how this check first reported two tests that dial out and do not."
+  would resolve it away.  A form runs to the next **top-level form**, so a helper defined
+  between two tests belongs to neither — taking it as part of the one before it is how this
+  check first reported two tests that dial out and do not."
   [path]
   (let [src    (slurp path)
-        starts (top-level-starts src)
-        next-start (fn [at] (or (first (drop-while #(<= % at) starts)) (count src)))]
-    (for [at starts
-          :let [head (subs src at (min (count src) (+ at 200)))
-                m (re-find #"^\((?:clojure\.test/)?(?:tu/)?deftest(?:-kb)?\s+((?:\^:\S+\s+)*)([^\s()]+)"
-                           head)]
+        starts (top-level-starts src)]
+    (mapv #(subs src %1 %2) starts (concat (rest starts) [(count src)]))))
+
+(defn- bound-name
+  "The name a top-level `def…` form binds, or nil for a form that binds nothing."
+  [form]
+  (second (re-find #"^\(def\S*\s+(?:\^\S+\s+)*([^\s()]+)" form)))
+
+(defn- call-of
+  "A pattern matching a call to `nm`: the name in functor position, never in prose."
+  [nm]
+  (re-pattern (str "\\(" (java.util.regex.Pattern/quote nm) "[\\s)]")))
+
+(defn- consenting-names
+  "The names a file defines whose own source **reaches** the consent gate — a `live-llm?`
+  call in the body, or a call to another name in this set.
+
+  A helper is what sits between a live test and the gate, so a test routing through one
+  never mentions the gate in its own body and the check has to follow the call.  Following
+  it is the whole point: proof of consent is a **path to `live-llm?`**, so a helper that
+  merely reads like a gated one proves nothing, and a bare provider constructor cannot be
+  mistaken for the gate however it is named.  Closed to a fixpoint, so a helper two hops
+  out counts too."
+  [forms]
+  (let [defs (into {} (keep (fn [f] (when-let [nm (bound-name f)] [nm f]))) forms)]
+    (loop [ok (set (keep (fn [[nm f]] (when (re-find gate-call f) nm)) defs))]
+      (let [grown (into ok
+                        (keep (fn [[nm f]] (when (some #(re-find (call-of %) f) ok) nm)))
+                        defs)]
+        (if (= grown ok) ok (recur grown))))))
+
+(defn- test-forms
+  "Every top-level test in a test file — `deftest`, `tu/deftest-kb` or `defspec` under any
+  alias — as `[{:file :name :marked? :consents?} …]`.  `:consents?` says the body reaches
+  `tu/live-llm?`, directly or through a helper the same file defines."
+  [path]
+  (let [forms      (top-level-forms path)
+        consenting (consenting-names forms)]
+    (for [f forms
+          :let [m (re-find #"^\((?:[\w.-]+/)?(?:deftest(?:-kb)?|defspec)\s+((?:\^:\S+\s+)*)([^\s()]+)"
+                           f)]
           :when m]
       (let [[_ marks nm] m]
         {:file path
          :name nm
          :marked? (boolean (re-find #"\^:llm\b" (str marks)))
-         :body (subs src at (next-start at))}))))
+         :consents? (boolean (or (re-find gate-call f)
+                                 (some #(re-find (call-of %) f) consenting)))}))))
 
 (def ^:private all-tests
   (delay (mapcat test-forms
@@ -530,15 +637,16 @@
   (is (seq @all-tests) "the scan found the test sources")
   (testing "a test consulting the live gate is one that would otherwise dial out, so it
             must be excluded from :default and :all by its mark"
-    (doseq [{:keys [file name marked? body]} @all-tests
-            :when (re-find live-marker body)]
+    (doseq [{:keys [file name marked? consents?]} @all-tests
+            :when consents?]
       (is marked? (str file " / " name " reaches a live model without ^:llm"))))
   (testing "and the converse — a marked test that never consults the gate would run
             against a host on nothing but a selector, which is not consent"
-    (doseq [{:keys [file name marked? body]} @all-tests
+    (doseq [{:keys [file name marked? consents?]} @all-tests
             :when marked?]
-      (is (re-find live-marker body)
-          (str file " / " name " is ^:llm but never checks tu/live-llm?")))))
+      (is consents?
+          (str file " / " name " is ^:llm but no path from its body reaches the "
+               "live-llm? gate")))))
 
 (deftest the-marked-tests-are-the-ones-we-think-they-are
   (testing "a roster, so adding a live test is a visible change rather than a quiet one"

@@ -335,7 +335,7 @@ header.site {
 
 /* term roles (vaelii.naming) */
 a.t-type    { color: var(--t-type); font-weight: 600; }  /* dog, physical_object */
-a.t-ind     { color: var(--t-ind); }                     /* Fido, Tom            */
+a.t-ind     { color: var(--t-ind); }                     /* Muffet, Tom            */
 a.t-pred    { color: var(--t-pred); }                    /* parentOf, genl       */
 a.t-context { color: var(--t-context); }                 /* CoreContext          */
 a.t-num     { color: var(--t-num); }                     /* 1970                 */
@@ -702,6 +702,7 @@ ul.why summary:focus-visible { outline: 2px solid var(--accent); outline-offset:
 }
 .kb-card.kb-on      { border-color: var(--sel-edge); background: var(--sel-bg); }
 .kb-card.kb-failed  { border-color: var(--err-ink); }
+.kb-card.kb-running { border-color: var(--accent); }
 .kb-card p          { margin: .3rem 0; }
 .kb-head            { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
 .kb-name            { font-family: var(--prose); font-size: 1.05em; }
@@ -717,14 +718,34 @@ ul.why summary:focus-visible { outline: 2px solid var(--accent); outline-offset:
   background: var(--btn-bg); color: var(--ink); cursor: pointer;
 }
 .kb-actions button:hover, .kb-load button:hover { background: var(--btn-hover); }
+/* a link that acts like one of those buttons — a finished job's way to its result */
+.kb-actions .button {
+  font-size: .9rem; padding: .3em .9em;
+  border: 1px solid var(--field-edge); border-radius: 999px;
+  background: var(--btn-bg); color: var(--ink); text-decoration: none;
+}
+.kb-actions .button:hover { background: var(--btn-hover); }
 .kb-load button[disabled] { opacity: .5; cursor: not-allowed; }
 button.primary      { border-color: var(--accent); }
 
-/* the state pills reuse the belief-tag shapes; these are the states a load has */
-.tag-loading   { background: var(--accent); color: var(--on-accent); }
-.tag-ready     { background: #0a7d5a; }
-.tag-failed    { background: var(--err-ink); }
-.tag-cancelled { background: #999; }
+/* the state pills reuse the belief-tag shapes; these are the five states a job has,
+   and an entry wears its load's (docs/web.md, "Long work as jobs") */
+.tag-running    { background: var(--accent); color: var(--on-accent); }
+.tag-cancelling { background: var(--accent); color: var(--on-accent); opacity: .7; }
+.tag-done       { background: #0a7d5a; }
+.tag-failed     { background: var(--err-ink); }
+.tag-cancelled  { background: #999; }
+
+/* the running count beside the header's Jobs link: nothing when nothing runs, so it
+   is painted only when it has a number in it */
+.job-count-on {
+  font-family: var(--mono); font-size: .8em;
+  padding: 0 .35em; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent);
+}
+/* an entry card's link to the job that filled it — the key sits at the right margin,
+   so this rides beside it rather than taking a second one */
+.kb-job { font-family: var(--mono); font-size: .8em; }
 
 /* a load in flight: a real bar when the source knows its own total, a striped
    indeterminate one when it does not (a corpus reports its count, a generated KB

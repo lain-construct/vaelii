@@ -399,10 +399,28 @@ an answer differently.
 
 - A **`genl`** edge `[sub super]` moves reachability only along paths through it, so the
   spec closure of an exception predicate `pe` changes iff `pe` is `super` or above it:
-  `genls(super)` is the roster, plus the handful of functors a `genl` edge can flip
-  without either endpoint appearing near the registered predicate (`genl` itself, whose
-  conjunct the transitivity prover answers from the very closure that moved; `disjoint`,
-  which is closed under `genl` on both sides; and `not`).
+  `genls(super)` is the roster, plus the two functors a `genl` edge can flip without
+  either endpoint appearing near the registered predicate — `genl` itself, whose conjunct
+  the transitivity prover answers from the very closure that moved, and `disjoint`, which
+  is closed under `genl` on both sides. Both are answered *across arguments*, so neither
+  can be keyed on a predicate and both take `:all`.
+
+  A **negated** conjunct is the third case, and it is keyed at the edge's other end. It
+  registers under the functor `not` — that is what `(exceptWhen (not (hasWings ?x)) …)`
+  puts in the index — so the registration hides the predicate the conjunct is about and
+  the `genls(super)` walk has nothing to decide it with. A ground negation is answered
+  from stored negative sentexes with no `genl` fan-out, so no edge flips one; the roster
+  is kept anyway, against a contravariant negative match, which would read
+  `(not (dog X))` off a stored `(not (animal X))` by walking the **up**-closure of the
+  conjunct's own predicate. An edge `[sub super]` moves that closure for exactly the
+  predicates at or below `sub`, so `specs(sub)` is the keying — the contravariant twin of
+  the covariant walk above it, on the one functor whose registration says nothing about
+  its subject. Reading the conjunct costs one record fetch per rule carrying a negated
+  condition and nothing at all for a KB carrying none, and anything it cannot read — a
+  body whose functor is a variable, a compound, or a connective frame — answers keep.
+  What the keying is worth is the alternative: queued on the functor alone, such a rule
+  takes `:all`, which is one level-6 query per firing it ever made, on every `genl` edge
+  written anywhere in the KB.
 - A **`genlContext`** edge `[sub super]` moves what contexts *see*, and an exception is
   evaluated in its conclusion's placement context — so an exception is affected iff one
   of its rule's firings is placed in `context-down(sub)`. Each excepted rule's firings
@@ -600,7 +618,7 @@ deliberately left alone — `stratification_test` pins both directions, because 
 check that rejected recursion would be worse than no check at all.
 
 **Predicate dependence is not literal.** An antecedent `(animal ?x)` is satisfied by
-a stored `(dog Fido)`, and an exception on `flightless` by a stored `(penguin Opus)`
+a stored `(dog Muffet)`, and an exception on `flightless` by a stored `(penguin Opus)`
 when `(genl penguin flightless)` — so both kinds of outgoing edge fan out over the
 genl **spec** closure, which is the fan-out matching does and the one
 `special/recheck-on-predicate` keys the exception trigger on, read in the same

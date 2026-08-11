@@ -47,7 +47,8 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
 (bulk-assert-facts! kb facts context opts?)     ; a trusted corpus's ground facts on the fast path:
                                                 ; no per-fact checks, no dedup, no provenance, no
                                                 ; chaining, one settle.  The caller owns the two
-                                                ; preconditions — well-formed, pairwise-distinct
+                                                ; preconditions — well-formed, pairwise-distinct.
+                                                ; `:on-progress` reports the load's facts/sec
 (edit! kb {:add [[sentence context opts?] ...] :remove [handle ...]}) ; add-then-remove, one settle
 (check kb sentence context opts)                ; would assert succeed? -> [] or [{:type :message …}]
 (check-edit kb {:add […] :remove […]})          ; the same over an edit batch, each problem naming its entry
@@ -64,9 +65,26 @@ default-chain-opts                              ; the bounds a chain run takes w
 (contradictions kb)                            ; coexisting pairs at :default — represented dilemmas:
                                                ; a rebuttal (P/not-P), or a definitional clash
                                                ; (:kind :disjoint|:functional|:asymmetric)
+                                               ; both lists are ordered by CONTENT, entries and sides
+                                               ; alike, so (first (contradictions kb)) is stable
 (settle-stats kb) / (reset-settle-stats! kb)     ; the exceptWhen fixpoint's iteration instrumentation
 (chain-stats kb)                               ; {:runs n :last {:derived n :truncated? bool}} — a capped run is visible
 (violations kb) / (clear-violations! kb)         ; accumulating ledger of dropped derived conclusions (run-stamped, capped)
+(kb-quality kb opts)                            ; the four readings about the *knowledge* —
+                                                ; {:rules :extents :chains :taxonomy}, opts :limit
+                                                ; / :on-progress (which may throw to cancel)
+(quality-report quality)                        ; that map as Markdown; takes the map, not the KB
+(caches kb)                                     ; what the *process* holds beside the stores: one row per
+                                                ; cache — :entries :limit :unit :hits :misses :hit-rate,
+                                                ; :scope for what the entries count and :counters for what
+                                                ; the rates do (they differ), :note for what retires one,
+                                                ; :error where a row's own read threw. O(1) per row, so it
+                                                ; can be polled
+(clear-caches kb)                               ; drop the derived ones and say what went. Bare, not `!`:
+                                                ; every entry is derived and no belief moves, which is what
+                                                ; makes it a measuring instrument. Reaches past `kb` where a
+                                                ; row's :counters are :process — those rates reset for every
+                                                ; KB, and no other KB loses an entry or a belief
 (exposed-clashes kb)                            ; the standing cross-context disjointness clashes, asked
                                                 ; of the whole KB — settle files what a change newly
                                                 ; exposes, this answers what the KB holds now
@@ -98,7 +116,11 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; unless {:keep? true}; only (abduciblePredicate P)
                                                ; makes a predicate assumable (docs/abduction.md)
 (abduce-discard! kb result)                     ; discard a kept abduction's context and everything in it
-(query-plan kb goal context)                    ; applicable provers: est-bindings + cost tier + completeness
+(query-plan kb goal context)                    ; a sentence -> applicable provers: est-bindings + cost
+                                               ; tier + completeness.  A VECTOR -> the join plan: the
+                                               ; conjuncts in the order they run, each with :est-matches
+                                               ; (the sound bound) :est-rows :est-prefix :block and why
+                                               ; it sits there (docs/inference.md)
 (add-prover kb prover)                         ; register a custom prover
 (add-reasoner kb :allen :rcc8)                 ; register shipped ones by name -> kb
 (reasoners)                                    ; the roster: the six algebras + :duration :metric-time
@@ -286,6 +308,15 @@ batch that **throws** leaves belief unsettled — that is the documented state, 
 re-running or settling by hand recovers it — but the depth potential is repaired on
 the way out, since nothing else would ever repair it and every later reachability read
 would pay for that.
+
+**`bulk-assert-facts!`** is `assert-many` with the machinery a *trusted* corpus does not
+need turned off as well: the per-fact definitional checks (the `argIsa` store query
+above all), the dedup trie-walk, provenance, and forward chaining. What is left is the
+write path itself, and the door reports what it costs — `:on-progress` is handed
+`{:phase :loading :done n :elapsed-ms ms :facts-per-sec r}` every 100,000 facts and
+`{:phase :done :total n …}` once the closing settle has run, so the last event is a rate
+for the whole load and is comparable between runs and between corpus sizes. Where that
+time goes, phase by phase: [storage.md](storage.md), "What a bulk load costs".
 
 `edit!` batches assertions **and** retractions into one settle — `{:add [[sentence
 context opts?] …] :remove [handle …]}`.  The adds land **before** the removes, so a

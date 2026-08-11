@@ -19,11 +19,20 @@
 (comment building "An artifact that is a fixed structure enclosing space.")
 (genl building artifact)
 
+(comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
+(genl capability intangible)
+
+(comment character_string "A run of text. The type is stated so a text-valued argument position can name what it holds; no string carries a type membership, so nothing is ever checked against it.")
+(genl character_string intangible)
+
 (comment clothing "An artifact worn on the body.")
 (genl clothing artifact)
 
 (comment container "An artifact whose function is to hold other objects — a cup, a box, a bag.")
 (genl container artifact)
+
+(comment context "A context: the second half of a sentex, and what a sentence holds in.")
+(genl context intangible)
 
 (comment feather "A light keratin body part covering a bird.")
 (genl feather body_part)
@@ -45,6 +54,9 @@
 
 (comment intangible "Something with no mass or location: an attribute, a relation, a time.")
 (genl intangible thing)
+
+(comment integer "A whole number. Stated for the same reason as character_string, and inert for the same reason.")
+(genl integer intangible)
 
 (comment language "A system of signs a person speaks, writes or signs in.")
 (genl language intangible)
@@ -118,13 +130,16 @@
 (genl petal body_part)
 
 (comment physical_object "Something with mass and a location in space.")
-(genl physical_object thing)
+(genl physical_object spatial_thing)
 
 (comment relation_type "A type whose instances are relations between things.")
 (genl relation_type intangible)
 
 (comment root "The body part a plant anchors itself and draws water with.")
 (genl root body_part)
+
+(comment spatial_thing "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
+(genl spatial_thing thing)
 
 (comment stone "A hard mineral substance.")
 (genl stone substance)
@@ -134,6 +149,9 @@
 
 (comment temporal_thing "Something that happens or exists in time (an event, an interval).")
 (genl temporal_thing intangible)
+
+(comment time_point "A moment rather than a stretch — one of the two instants bounding an interval. What the point algebra relates, and what startOf and endOf reach from an interval.")
+(genl time_point temporal_thing)
 
 (comment tool "An artifact used to perform work.")
 (genl tool artifact)

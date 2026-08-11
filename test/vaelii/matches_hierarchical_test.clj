@@ -66,7 +66,7 @@
              (for [i (range n)] (blank #{i}))
              [(blank (set (range n)))]
              (when (pos? n) [(cons pred (cons 'ZzzNoSuch (rest args)))])
-             ;; the functor blanked — `(?type Fido)`.  There is no predicate hierarchy
+             ;; the functor blanked — `(?type Muffet)`.  There is no predicate hierarchy
              ;; to filter by, so the set-algebra path must reach the identical set from
              ;; the argument root alone, and must bind the functor variable.
              [(cons '?fn args)]
@@ -104,11 +104,11 @@
 ;; claim about the predicate rather than about the two paths agreeing.
 (deftest negative-literal-falls-back
   (tu/with-kb [kb]
-    (doseq [pat '[(not (parentOf ?x Ann)) (not (flies Tweety)) (not (dog ?x))]]
+    (doseq [pat '[(not (parentOf ?x Ann)) (not (hasCapability Tweety flying)) (not (dog ?x))]]
       (is (not (#'res/hierarchical-literal? pat))
           (str "a negative literal must not take the set-algebra path: " (pr-str pat))))
     (probed "negative-literal-falls-back"
-            (for [pat '[(not (parentOf ?x Ann)) (not (flies Tweety)) (not (dog ?x))]
+            (for [pat '[(not (parentOf ?x Ann)) (not (hasCapability Tweety flying)) (not (dog ?x))]
                   ctx ctxs]
               (let [[off on :as both] (both-ways #(res/matches-visible kb pat ctx))]
                 (is (= off on) (str "negative diverged on " (pr-str pat) " @ " ctx))

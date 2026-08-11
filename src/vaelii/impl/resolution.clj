@@ -4,7 +4,7 @@
   "Unification, pattern matching against the indexed store, and backward chaining.
 
   Matching is *type-aware*: a unary type predicate is matched over the subtype
-  closure, so an antecedent `(animal ?x)` is satisfied by a stored `(dog Fido)`.
+  closure, so an antecedent `(animal ?x)` is satisfied by a stored `(dog Muffet)`.
   This is how increasing an individual's specificity never loses the reasoning
   that applied to its more general types — we consult the genl closure at match
   time rather than materializing supertype facts."
@@ -13,6 +13,7 @@
             [vaelii.impl.literal-cache :as lc]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.plan :as plan]
+            [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
@@ -203,13 +204,13 @@
   column and deferring the rest to a per-record filter.  So knowing more of the
   sentence buys a tighter candidate set, not just the same one.
 
-  **The functor is a position too.**  `(?type Fido)` — what types does Fido hold —
+  **The functor is a position too.**  `(?type Muffet)` — what types does Muffet hold —
   is the same shape at level 0: the variable is the *first* path token, so every
   ground argument sits behind it and the trie can only fan out over the whole root
   child set, i.e. every functor in the KB.  That fan is linear in the vocabulary,
   which is the largest thing in a broad ontology.  The predicate-agnostic read spans
   every functor by construction — a union of the scoped roots over the slot roster —
-  so one `sentexes-with-arg` read of position 1, `Fido` answers it flat; with no
+  so one `sentexes-with-arg` read of position 1, `Muffet` answers it flat; with no
   predicate to scope by, `sentexes-with-args` takes a `nil` `pred` and intersects
   those predicate-agnostic reads.
 
@@ -224,12 +225,18 @@
   after-a-variable selectivity is a **non-indexable** token (a number/string the
   roots do not key), where the trie's own token narrowing beats a functor-root scan.
   Zero-regression by construction — the diverted case is the one the trie answers
-  with a full fan-out."
+  with a full fan-out.
+
+  **The decision is named before it is taken.**  The `cond` below yields one of six
+  keywords and the `case` under it does the read, so the access path a shape chose is a
+  value: `vaelii.impl.profile` tallies it, and a reader has a word for each branch rather
+  than a position in a `cond`."
   [kb pat]
   (let [ix   (:index kb)
         body (sx/body pat)]
     (if (or (not (sequential? body)) (empty? body))
-      (p/lookup ix (sx/path pat))
+      (do (prof/record-goal pat :trie)
+          (p/lookup ix (sx/path pat)))
       (let [f       (first body)
             args    (vec (rest body))
             pred    (when (and (symbol? f) (not (sx/variable? f))) f)
@@ -237,56 +244,61 @@
             var-idx (first (keep-indexed (fn [i a] (when-not (sx/ground-term? a) i)) args))
             ground  (keep-indexed (fn [i a] (when (sx/indexable-term? a) [(inc i) a])) args)
             ;; something is still open and a ground root sits past it — the functor
-            ;; being open (`(?type Fido)`) puts *every* argument behind it, and with
+            ;; being open (`(?type Muffet)`) puts *every* argument behind it, and with
             ;; nothing indexable to lead with there is no root to read, so the trie
             ;; keeps that case
             stuck?  (and (seq ground)
                          (or var-fn?
                              (and var-idx
-                                  (some (fn [[pos _]] (> (dec pos) var-idx)) ground))))]
-        (cond
-          ;; **A negative key holds its whole body as one token**, so the trie can match
-          ;; a negative only *exactly* — `[:false (dog ?0) c]` is a different key from
-          ;; `[:false (dog Tom) c]`, and no amount of the body being ground narrows it,
-          ;; because none of it is a level.  So `p/lookup` answers `#{}` for every open
-          ;; negative, and this is correctness rather than cost: the matches are not
-          ;; merely reached slowly, they are not reached at all.
-          ;;
-          ;; The secondary indexes are the only ones that see inside a negative: the
-          ;; functor root spans both polarities (a negative roots under its positive
-          ;; body's functor) and so do the argument roots.  With neither pinned — an
-          ;; open functor over open arguments — the `:false` node's own children are
-          ;; the negative analogue of the root child fan a fully-open positive gets,
-          ;; and they are exactly the distinct negative bodies stored.
-          ;;
-          ;; Ungated, unlike the cost refinements below: `*arg-root-retrieval*` false is
-          ;; meant to give the trie as a *reference*, and for this shape the trie has no
-          ;; answer to be a reference for.
-          (and (= :false (:truth pat)) (not (sx/ground-term? body)))
-          (if (or pred (seq ground))
-            (p/sentexes-with-args ix pred ground)
-            (let [pth (sx/path pat)]
-              (into #{} (mapcat #(p/lookup ix (assoc pth 1 %))) (p/children ix [:false]))))
+                                  (some (fn [[pos _]] (> (dec pos) var-idx)) ground))))
+            path
+            (cond
+              ;; **A negative key holds its whole body as one token**, so the trie can match
+              ;; a negative only *exactly* — `[:false (dog ?0) c]` is a different key from
+              ;; `[:false (dog Tom) c]`, and no amount of the body being ground narrows it,
+              ;; because none of it is a level.  So `p/lookup` answers `#{}` for every open
+              ;; negative, and this is correctness rather than cost: the matches are not
+              ;; merely reached slowly, they are not reached at all.
+              ;;
+              ;; The secondary indexes are the only ones that see inside a negative: the
+              ;; functor root spans both polarities (a negative roots under its positive
+              ;; body's functor) and so do the argument roots.  With neither pinned — an
+              ;; open functor over open arguments — the `:false` node's own children are
+              ;; the negative analogue of the root child fan a fully-open positive gets,
+              ;; and they are exactly the distinct negative bodies stored.
+              ;;
+              ;; Ungated, unlike the cost refinements below: `*arg-root-retrieval*` false is
+              ;; meant to give the trie as a *reference*, and for this shape the trie has no
+              ;; answer to be a reference for.
+              (and (= :false (:truth pat)) (not (sx/ground-term? body)))
+              (if (or pred (seq ground)) :negative-roots :negative-fan)
 
-          ;; A ground argument sitting **after** a variable, which the trie can reach
-          ;; only by fanning out over the intervening variable.  This wins over the
-          ;; structural walk below even when the stuck argument is a compound: the
-          ;; argument root keys the compound *whole*, so it pins in one read what the
-          ;; linearized trie key still has to fan out to reach.
-          (and *arg-root-retrieval* stuck?)
-          (p/sentexes-with-args ix pred ground)           ; intersect the scoped arg roots
+              ;; A ground argument sitting **after** a variable, which the trie can reach
+              ;; only by fanning out over the intervening variable.  This wins over the
+              ;; structural walk below even when the stuck argument is a compound: the
+              ;; argument root keys the compound *whole*, so it pins in one read what the
+              ;; linearized trie key still has to fan out to reach.
+              (and *arg-root-retrieval* stuck?) :arg-roots
 
-          ;; a positive pattern with a nested compound argument — the structural case.
-          ;; The trie key linearizes the compound, so `p/lookup` narrows on its interior;
-          ;; off, the functor extent is the correct fallback superset.  A variable functor
-          ;; roots nothing, so it always takes the trie.
-          (and (= :true (:truth pat)) (some sequential? args))
-          (if (or *structural-index* (nil? pred))
-            (p/lookup ix (sx/path pat))
-            (p/sentexes-with-functor ix pred))
+              ;; a positive pattern with a nested compound argument — the structural case.
+              ;; The trie key linearizes the compound, so `p/lookup` narrows on its interior;
+              ;; off, the functor extent is the correct fallback superset.  A variable functor
+              ;; roots nothing, so it always takes the trie.
+              (and (= :true (:truth pat)) (some sequential? args))
+              (if (or *structural-index* (nil? pred)) :structural :functor-extent)
 
-          :else
-          (p/lookup ix (sx/path pat)))))))                ; trie: left-prefix, test, or number-only
+              ;; trie: left-prefix, test, or number-only
+              :else :trie)]
+        (prof/record-goal pat path)
+        (case path
+          :negative-roots (p/sentexes-with-args ix pred ground)
+          :negative-fan   (let [pth (sx/path pat)]
+                            (into #{} (mapcat #(p/lookup ix (assoc pth 1 %)))
+                                  (p/children ix [:false])))
+          :arg-roots      (p/sentexes-with-args ix pred ground)  ; intersect the scoped arg roots
+          :structural     (p/lookup ix (sx/path pat))
+          :functor-extent (p/sentexes-with-functor ix pred)
+          :trie           (p/lookup ix (sx/path pat)))))))
 
 (defn match1
   "Unify a single antecedent pattern against a ground fact sentence, honoring
@@ -294,7 +306,7 @@
   genl closure) of the antecedent's functor satisfies it, with the arguments unified.
 
   For a unary type antecedent this is the ordinary subtype rule — `(animal ?x)` is met
-  by `(dog Fido)`.  Generalized to n-ary predicates, `(parentOf ?x ?y)` is met by
+  by `(dog Muffet)`.  Generalized to n-ary predicates, `(parentOf ?x ?y)` is met by
   `(fatherOf Tom Bob)` once `(genl fatherOf parentOf)` holds — the same subsumption the
   type hierarchy gives, applied to the predicate hierarchy.  When the functors are
   equal (the common case) or the antecedent's functor has no sub-predicates, this is a
@@ -495,7 +507,7 @@
   "Seq of [handle bindings] for stored sentexes matching `sentence` within
   `context` (default the wildcard ?ctx).  The **functor fans out over its sub-predicate
   (genl spec) closure**, so a unary type predicate is met by its subtypes
-  (`(animal ?x)` ← `(dog Fido)`) and — with predicate-genl edges — an n-ary predicate
+  (`(animal ?x)` ← `(dog Muffet)`) and — with predicate-genl edges — an n-ary predicate
   by its sub-predicates (`(parentOf a ?x)` ← `(fatherOf a v)`).  A functor with no
   sub-predicates has a singleton closure, so this is a no-op for it (the overwhelming
   common case — one cached set lookup, no fan).
@@ -560,7 +572,7 @@
 
 (defn- hierarchical-literal?
   "A plain positive literal the set-algebra path handles: a concrete predicate symbol,
-  or a **variable functor with something indexable to lead with** (`(?type Fido)`).
+  or a **variable functor with something indexable to lead with** (`(?type Muffet)`).
   The two differ only in which dimensions are pinned — a variable functor names no
   predicate, so there is no predicate hierarchy to filter by and every candidate's
   functor is admissible, while the argument root and the context cone still narrow
@@ -685,6 +697,15 @@
                         (let [p (kb-sentex kb (cons pf (if rev? (reverse args) args)) pctx)]
                           (vswap! pats assoc k p)
                           p))))]
+      ;; the second retrieval decision in this namespace, and the one `candidate-handles`
+      ;; never sees: `lead-candidates` picks its source from the same three facts, so the
+      ;; label is computed from them here rather than plumbed back out of it.
+      (when (prof/profiling?)
+        (prof/record-literal sentence
+                             (cond
+                               (not (some sx/indexable-term? args)) :hier-functor-extent
+                               (seq specs)                          :hier-scoped-roots
+                               :else                                :hier-agnostic-roots)))
       (keep (fn [h]
               (when (and (not (contains? @seen h)) (jtms/in? (:tms kb) h))
                 (when-let [stored (p/get-sentex (:records kb) h)]

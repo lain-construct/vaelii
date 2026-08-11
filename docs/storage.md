@@ -1,7 +1,8 @@
 # Storage
 
 - **Covers:** the `RecordStore` / `IndexStore` protocols, the seven legal record×index
-  backend pairings, nippy serialization, and the single-writer contract.
+  backend pairings, nippy serialization, what one fact of a bulk load costs phase by
+  phase, and the single-writer contract.
 - **Not here:** the six index families' key layout and retrieval →
   [indexing.md](indexing.md); the dense/columnar backends that replace the default
   map-based structures → [density.md](density.md).
@@ -306,6 +307,36 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   snapshot cadence — it bounds replay length and reclaims the delta frames, triggered
   off a delta-accumulation ratio (`dead-ratio` = frames beyond one-per-live-key).
 
+**A bulk sweep claims recency like any other read.**  `export!`, `reindex`, and the
+`recover` a `fork` runs over a live base each fetch every record through `get-sentex`,
+so a sweep of a store larger than the cache leaves the LRU holding the last handles it
+happened to visit rather than whatever the query workload had warmed.  (The `recover` at
+*open* is the one that costs nothing: the cache is empty, so there is nothing to
+displace.)
+
+What that displacement costs the queries after it is bounded, and the bound is why it
+stays small.  Refilling costs at most one miss per entry the sweep displaced —
+`capacity` misses, whatever the store's size — and where the sweep itself pays a read
+per record, that is `capacity / records` of the sweep's own cost, a ratio the per-miss
+cost cancels out of, so a store too large for the page cache does not change it.
+Measured on an 800,000-record store at the 65,536 default: a skewed stream holding 83.6%
+hit and 0.97 µs/query drops to 69.3% over the 25,000 queries following a full sweep and
+is back inside a point five windows later — **22 ms of added latency in all, against a
+sweep that itself took 2.6 s**.  At 200,000 records, three times the cache and where
+that ratio is at its worst, 27 ms against 0.6 s.  A skewed stream's head is much smaller
+than the cache, which is why the refill lands well inside one window: the sweep displaces
+65,536 entries, of which a few thousand are ones anything asks for again.
+
+**A closure sweep is the reader with no reuse inside it.**  A transitive-predicate walk
+fetches one record per edge it crosses and visits each node once, so nothing it reads it
+reads twice — the skew the cache is sized for is absent by construction.  Under the
+capacity that costs nothing (a walk over 20,000 records is 1% fetch, and the `:disk`
+fetch beats the `:memory` one, a `LinkedHashMap` hit against a nested-map lookup); past
+it the fetch is a real page-in at ~3 µs and rises to a fifth of the hop.  The other four
+fifths are the retrieval and walk machinery both mounts pay alike, so the fetch is a
+minority of the walk at every size measured — `lein bench-walk`, and
+[taxonomy.md](taxonomy.md), "What one hop costs".
+
 **Durability + crash-safety.**  A daemon (`disk.durability`) fsyncs every store on a
 tick and a JVM shutdown hook closes them.  Logs are recovered on open: finish an
 interrupted compaction, truncate a torn tail, tombstone any slot now past EOF.
@@ -604,6 +635,114 @@ checks) runs *before* any write, so a rejected assert leaves no trace (tested).
 Cross-store atomicity is bounded by the two-store design: each side commits as a
 single unit, and `reindex` rebuilds the index from the records to repair a torn
 write.
+
+## What a bulk load costs
+
+`bulk-assert-facts!` is the write path with everything a *trusted* corpus does not need
+already off — the definitional checks (the `argIsa` store query above all), the dedup
+trie-walk, provenance, forward chaining, and N−1 settles. What remains is storing,
+indexing and believing, and this is where that time goes.
+
+`lein bench-loadphase [n] [repeats] [full|guard]` (`bench/vaelii/bench/loadphase.clj`) is
+the instrument. It loads one corpus repeatedly through the same door, each run with one more
+phase stubbed out from the outside in, so the difference between two consecutive runs is
+that phase's cost and the deltas **sum to the baseline by construction** — there is no
+unattributed residue. The peel order puts a phase before anything it reads: the
+coincidence probe reads the index, so it is peeled before the index write, which is
+peeled before the record write, which is peeled before canonicalization.
+
+**1,000,000 distinct binary ground facts, `:memory` pair, one context, no rules.**
+
+| phase | µs/fact | share |
+|---|---:|---:|
+| index write — key streams, postings, counts | 24.64 | 56.8% |
+| JTMS node + the premise mark on the record store | 9.32 | 21.5% |
+| the special-predicate suite + the violation ledger | 4.55 | 10.5% |
+| the public `assert` prelude — shape checks, NAT gate, rule dispatch | 2.92 | 6.7% |
+| record store `put-sentex` | 1.52 | 3.5% |
+| the P/¬P coincidence set | 1.13 | 2.6% |
+| canonicalization (`res/kb-sentex`) | 0.85 | 2.0% |
+| the observation seams — alpha memories, change clock, handle cache | 0.63 | 1.4% |
+| the one deferred settle | under the floor | — |
+| **total** | **43.4** | **23,100 facts/s** |
+
+Two things to read with it. The **settle** row measures at or below zero: one settle over
+a million-fact positive corpus is free within the measurement, and because the baseline
+runs first its rung also absorbs the run-to-run drift — which is why the rows above sum
+to slightly more than the total. And a rung delta is a difference of two whole runs, so
+**±1 µs/fact is the floor at 1M** (wider at 100k, where the runs are ten times shorter);
+the rows under that are named rather than ranked.
+
+**Across sizes the shape holds and the cost creeps.** The same ladder at 100,000 facts
+reads 38.8 µs/fact against 43.4 at a million — a 10× corpus for a 1.12× per-fact cost —
+and the index write is 56.5% of it at the small size against 56.8% at the large one. So
+no phase changes character with N. What creeps is the depth of the structures being
+written: a HAMT gains a level, and the roots' sets are ten times longer. The one row far
+enough apart to be more than the floor is the **JTMS**, at 5.2 µs/fact against 9.3 — a
+node into a map and a handle into a set, both of which the corpus size reaches.
+
+**The index write is the load**, and splitting it says which part. Two `KvBackend`
+decorators over the real one leave `index-sentex` computing every key and change only how
+much of the batch it produced lands — one drops the `:increment` ops, the other drops the
+batch entirely:
+
+| component of the index write | µs/fact | of the load |
+|---|---:|---:|
+| postings — trie child edges and leaves, term index, secondary roots, roster, slots | 15.6–16.8 | 35–39% |
+| key streams, the op list, and the pre-write roster/slot reads | 4.6–6.7 | 11–15% |
+| count maintenance — one `:increment` per trie level per fact, plus the batch seal | 2.5–4.6 | 6–10% |
+
+The ranges are two independent runs; the split arms are whole loads too, so their
+difference carries the same ±1 µs/fact.
+
+Postings dominate because two of them are `conj` into sets that grow with the corpus: the
+functor root holds every fact with that predicate and the context root every fact in that
+context, which is exactly what makes `count-with-functor` and `sentexes-in-context` O(1)
+reads. **The load rate is the price of those roots plus the trie**, and it is not a
+defect: the alternative to a write per family is a scan per read.
+
+**Count maintenance is priced and it is not the lever.** Recomputing every prefix counter
+once at the end instead of incrementing per level per fact can save 6–10% at most, and it
+buys that by making `count-with-functor` answer a *stale* number for the length of a
+load — a different contract from answering a slow one, and the query planner orders
+conjuncts by those counts. The counts stay where they are.
+
+**Two write-side tricks measured worse and are not on this path.** Accumulating the
+in-memory index's map on a transient for the whole load
+(`vaelii.impl.memory/with-bulk-writes`) ran **5–7% slower** than the plain path at 1M: it
+removes the per-fact HAMT path copy of the *map*, which is not where the time is, and its
+batch arm allocates an aligned reply vector per fact that the plain arm does not. Sorting
+the corpus by trie key before inserting is unpriced here for a reason rather than an
+oversight — its benefit is locality, and the in-memory trie is a hash map keyed by whole
+path vectors, where there is no contiguity to hit.
+
+**A facts/s figure is per writer thread.** This path is single-threaded, and by the
+single-writer contract below it has to be. So a rate is only comparable against another
+rate taken at the same writer count, and a wall-clock load comparison between two engines
+is a comparison of thread counts until both are pinned to one.
+
+### Why the coincidence post is guarded
+
+One thing on the path is not a per-fact constant at all, and it is guarded rather than
+paid. A store posts its sentence's body to the negation memo's `:dirty` set so the next
+settle knows the body's pairing may have moved — but an unguarded post is one `conj` per
+fact into a set that ends a load holding **one entry per fact of the corpus**, and on a
+corpus with no negations the first settle then drops the whole thing. So `kb/note-opposed!`
+writes the memo only for a body opposed before the store or after it, which is the only
+case whose pairing can have changed. Both readers of `:dirty` filter it by `:opposed`
+(`settle/moved-bodies` and `settle/note-supersession-flips!`), so a post for a body
+opposed at neither end is written and dropped unread.
+
+**What that buys is the set, not the clock.** Alternating the two arms inside one JVM in
+**A-B-B-A order** — so the drift a JVM accumulates over a dozen loads lands on both arms
+instead of on whichever runs second — measures **0.994× at 250,000 facts, five pairs
+spread 0.95–1.04**: the guard does not move the wall clock at this size, and the spread
+is the honest width of the answer. A fixed A-then-B order reports the same comparison as
+a 20% win, which is the drift and not the guard, and is why the harness alternates. What
+is really removed is a structure proportional to the corpus — a claim about a ten-million-
+fact load's heap rather than about a quarter-million-fact one's seconds. `lein
+bench-loadphase <n> <pairs> guard` re-checks it and prints every pair, because the spread
+is what decides whether a median means anything.
 
 ## The single-writer contract
 

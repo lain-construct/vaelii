@@ -58,6 +58,28 @@
       (is (some #(= '(partOfType wing penguin) %) (:alternatives c))))
     (is (re-find #"check the direction" (:why c)))))
 
+(tu/deftest-kb a-position-two-contexts-declare-is-read-by-content
+  ;; two contexts each declaring one argument position is the ordinary shape, and
+  ;; `sentexes-matching` promises the set and not an order — so reading one declaration off
+  ;; the front of the answer would make the card depend on the index.  The narrower
+  ;; declaration speaks for the position, and here it is what says both positions want the
+  ;; same type: whether the reversed argument order is offered at all turns on that, and so
+  ;; does whether the correction reads `:low` or `:medium`.
+  (tu/with-terms [chases OneContext TwoContext]
+    (v/assert kb (list 'genlContext OneContext 'CoreContext) 'UniverseContext)
+    (v/assert kb (list 'genlContext TwoContext 'CoreContext) 'UniverseContext)
+    (v/assert kb (list 'binaryPredicate chases) OneContext)
+    (v/assert kb (list 'argIsa chases 1 'thing) OneContext)
+    (v/assert kb (list 'argIsa chases 1 'animal) TwoContext)
+    (v/assert kb (list 'argIsa chases 2 'animal) OneContext)
+    (let [c    (for-sentence kb (list chases 'penguin 'fish))
+          lift (symbol (str chases "Type"))]
+      (is (= :relation-on-types (:rule c)))
+      (is (= :low (:confidence c))
+          "both positions want animal, so the argument order carries no constraint")
+      (is (some #(= (list lift 'fish 'penguin) %) (:alternatives c))
+          "the reversed reading is offered — the root declared beside animal cannot hide it"))))
+
 (tu/deftest-kb a-declared-inverse-names-the-other-direction
   (let [c (for-sentence kb '(parentOf person person))]
     (when c

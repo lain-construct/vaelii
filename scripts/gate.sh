@@ -59,7 +59,7 @@
 # safe because the in-memory registry isolates separate JVMs — see that script.
 #
 # Env:
-#   GATE_OUT        log directory (default target/gate)
+#   GATE_OUT        log directory (default target/gate/run-<pid>)
 #   GATE_JOBS       default shard count for the test stage
 #   PERF_TOLERANCE  passed to `lein perf --tolerance` — raise it on a loaded box
 #
@@ -67,13 +67,32 @@
 # tailable while it goes.  A failing stage prints the tail of its log inline;
 # the whole log is always on disk.
 #
+# **A run owns its log directory**, and must: several agents share one working tree here,
+# so two gates run in it at once.  Sharing one `test.log`, `perf.log` or shard log hands
+# the reader the other run's verdict with nothing to say so, and a gate whose verdict may
+# belong to someone else is not a gate.  Do not collapse these back to a single
+# directory.  The logs and the shard scratch go under `target/gate/run-<pid>`, and
+# `target/gate/latest` points at the newest, which is what to tail.
+#
+# The **timings** deliberately do not move with them: they are feedback for the next run
+# rather than output of this one, so they stay at `target/gate/test-timings.tsv` and
+# every run in the checkout shares them (`scripts/test-parallel.sh`).  That split is the
+# whole fix — a per-run directory that swallowed the timings would leave every gate
+# sharding blind, which costs wall clock and reports nothing.
+#
 # Exit: 0 when every stage passed, 1 when one failed, 130 when interrupted.
 set -uo pipefail   # NOT -e: every stage must run even after one fails.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
-OUT="${GATE_OUT:-target/gate}"
+GATE_ROOT="${GATE_ROOT:-target/gate}"
+OUT="${GATE_OUT:-$GATE_ROOT/run-$$}"
+# the test stage reads this, and reading a *different* variable is how the two halves of
+# one directory drift apart — set it here rather than letting `test-parallel.sh` default
+# on its own, or `GATE_OUT` moves the four stage logs and leaves the shard logs behind
+export VAELII_GATE_OUT="$OUT"
+export VAELII_GATE_TIMINGS="${VAELII_GATE_TIMINGS:-$GATE_ROOT/test-timings.tsv}"
 TAIL_LINES=40
 
 fail_fast=0; quick=0; all=0; sequential=0; jobs="${GATE_JOBS:-}"; skip=(); only=()
@@ -131,6 +150,9 @@ wanted () {                    # is stage $1 in this run?
 }
 
 mkdir -p "$OUT" || exit 1
+# `latest` is a convenience and never a source of truth: it is repointed per run, so a
+# concurrent gate moves it under you.  Tail it to watch; cite `$OUT` when reporting.
+ln -sfn "$(basename "$OUT")" "$GATE_ROOT/latest" 2>/dev/null || true
 pass=0; fail=0; failed=(); skipped=()
 
 announce () {                  # announce <name> <blurb>

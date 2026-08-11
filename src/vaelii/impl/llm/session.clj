@@ -23,7 +23,17 @@
   **The loop is bounded twice.**  `:max-repairs` caps how many times a rejected batch
   is fed back, and `:max-turns` caps total provider turns including tool calls, so
   neither a stubborn model nor a tool-calling one can spin.  Running out of repairs is
-  a reported outcome (`:status :invalid` with the rejections), not an exception."
+  a reported outcome (`:status :invalid` with the rejections), not an exception.
+
+  **Two `:stop-reason`s are read before the content, not one.**  A refusal
+  (`proto/refused?`) is the well-known one; the other is `max_tokens` (`truncated?`),
+  where the host cut the turn and what arrived is a *prefix* of the answer.  A prefix
+  parses, so nothing downstream can tell it from a whole answer — and where the answer is
+  **diffed against what was sent** (`propose-edit`), absence is read as intent, so the
+  rows the model never reached would come back as proposed retractions.  Hence
+  `:status :truncated` on the two paths that diff or carry a `:remove`, and an
+  `:answer-truncated?` flag on the two additive ones, where a short answer costs
+  assertions and proposes nothing."
   (:require [cheshire.core :as json]
             [clojure.edn :as edn]
             [clojure.string :as str]
@@ -37,9 +47,17 @@
             [vaelii.impl.llm.stub :as stub]
             [vaelii.impl.llm.text :as text]
             [vaelii.impl.llm.tools :as tools]
-            [vaelii.impl.sentex :as sx]))
+            [vaelii.impl.sentex :as sx]
+            [vaelii.impl.settle :as settle]))
 
 ;; ---- parsing the proposal ----------------------------------------------
+;; Every read of model text in this namespace catches **`Throwable`**, not `Exception`.
+;; A deeply nested form overflows the reader's stack with a `StackOverflowError`, which
+;; an `Exception` catch lets past — and it then escapes the turn loop entirely, where an
+;; answer that cannot be read is the *ordinary* outcome these arms exist to report as a
+;; status.  The model's output is untrusted input on every path here, so the depth of a
+;; form is not something the parser gets to assume.  `vaelii.impl.web` reads its textarea
+;; the same way and says so at the site.
 
 (def ^:private fence
   #"(?s)```(?:edn|clojure|clj)?\s*\n(.*?)```")
@@ -56,8 +74,12 @@
         src    (or (last blocks) text)]
     (if (str/blank? src)
       {:error "no edit batch found: answer with one fenced `edn` block holding {:add [...] :remove [...]}"}
+      ;; the class name when there is no message, because a `StackOverflowError` carries
+      ;; none and the marker has to be truthy — a nil there would read as a map with
+      ;; neither key, which is an *empty batch*
       (let [form (try (edn/read-string src)
-                      (catch Exception e {::unreadable (.getMessage e)}))]
+                      (catch Throwable e {::unreadable (or (ex-message e)
+                                                           (.getName (class e)))}))]
         (cond
           (::unreadable form) {:error (str "the edn block does not parse: " (::unreadable form))}
           (not (map? form))   {:error (str "the edn block must be a map with :add and/or :remove, got "
@@ -166,6 +188,25 @@
 
 ;; ---- the loop -----------------------------------------------------------
 
+(defn truncated?
+  "Did the host stop this turn at the **token limit**?
+
+  `proto/refused?`'s sibling, and the other `:stop-reason` that has to be read before
+  anything reads the content.  A turn cut at `max_tokens` carries a *prefix* of the
+  answer, and a prefix of a well-formed answer is often itself well-formed — so nothing
+  downstream can tell it from a complete one.
+
+  On the selection path that is not a cosmetic loss.  `diff-batch` reads the lines that
+  came back as the whole of what the model kept, so **every selected row the stream never
+  reached becomes a proposed retraction**: a transport artifact rendered to a reviewer as
+  a deliberate deletion.  Hence a status of its own, decided before the diff runs.
+
+  Repairing is not the answer either, and none of the loops feeds one back: the model did
+  not get the answer wrong, it ran out of room, so the same turn re-asked returns the same
+  prefix until `:max-tokens` moves."
+  [response]
+  (= "max_tokens" (:stop-reason response)))
+
 (defn- run-turn
   [provider request on-event]
   (if on-event
@@ -204,13 +245,14 @@
 
   Returns:
 
-    {:status     :ok | :invalid | :unparseable | :refused | :exhausted
+    {:status     :ok | :invalid | :unparseable | :refused | :truncated | :exhausted
      :batch      {:add […] :remove […]}   ; present on :ok and :invalid
      :edn        \"…\"                    ; the batch pretty-printed, for the editor
      :rejections [{:in :index :entry :type :message} …]
      :coined     [{:predicate :arity :role :in :index} …]  ; vocabulary it invented
      :vocabulary {:literals :reused :coined :coined-types :coined-relations}
      :text       the model's final prose
+     :stop-reason why the host stopped the turn      ; on :truncated
      :attempts   how many batches it proposed
      :turns      how many provider turns it took
      :tool-calls how many read tools it ran
@@ -218,8 +260,9 @@
 
   `:ok` means every entry passed the same checks `assert` runs — not that a human
   agreed with it.  `:refused` means the provider's safety classifiers declined and the
-  content is empty or partial; `:exhausted` means the turn cap was reached with no
-  final answer."
+  content is empty or partial; `:truncated` means the host stopped at the token limit,
+  so what arrived is a prefix and is reported rather than parsed (`truncated?`);
+  `:exhausted` means the turn cap was reached with no final answer."
   [kb {:keys [message provider system prompt-opts tool-opts model max-tokens effort
               thinking-display max-repairs max-turns on-event]
        :or {max-repairs 2 max-turns 24}}]
@@ -248,6 +291,15 @@
             ;; it is checked before anything reads the content.
             (proto/refused? response)
             {:status :refused :stop-details (:stop-details response)
+             :messages messages :turns turns :attempts attempts :tool-calls tool-runs
+             :text (proto/text response)}
+
+            ;; And truncation for the same reason: the batch in a cut-off answer is a
+            ;; prefix of one, so it is reported rather than read.  Ahead of the tool-use
+            ;; arm too — a tool call cut in half is an argument map the model never
+            ;; finished writing, and running it is worse than not answering.
+            (truncated? response)
+            {:status :truncated :stop-reason (:stop-reason response)
              :messages messages :turns turns :attempts attempts :tool-calls tool-runs
              :text (proto/text response)}
 
@@ -327,7 +379,7 @@
   because a model decoding under `output-schema` answers this way — the contract is the
   line format, but an answer that arrives in the other shape is still an answer."
   [text]
-  (let [parsed (try (json/parse-string text) (catch Exception _ nil))]
+  (let [parsed (try (json/parse-string text) (catch Throwable _ nil))]
     (when (and (map? parsed) (sequential? (get parsed "lines")))
       (let [read (map-indexed
                   (fn [i line]
@@ -336,7 +388,7 @@
                       (let [s (str (get line "sentence"))
                             c (str (get line "context"))
                             v (try [(edn/read-string s) (edn/read-string c)]
-                                   (catch Exception _ nil))]
+                                   (catch Throwable _ nil))]
                         (if (nil? v)
                           {:error (str "line " (inc i) " does not parse: " (pr-str line))}
                           (entry-of (cond-> v
@@ -367,7 +419,7 @@
         notes (not-empty (str/join " " (remove entry-line? all)))
         read (map-indexed
               (fn [i line]
-                (let [v (try (edn/read-string line) (catch Exception _ ::unreadable))]
+                (let [v (try (edn/read-string line) (catch Throwable _ ::unreadable))]
                   (if (= ::unreadable v)
                     {:error (str "line " (inc i) " does not parse: " line)}
                     (entry-of v (str "line " (inc i))))))
@@ -467,7 +519,7 @@
 
   Returns:
 
-    {:status     :ok | :invalid | :unparseable | :refused | :exhausted
+    {:status     :ok | :invalid | :unparseable | :refused | :truncated | :exhausted
                  | :too-large | :empty-selection
      :batch      {:add […] :remove […]}   ; present on :ok and :invalid
      :edn        \"…\"                    ; the batch, for `apply-proposal!`
@@ -478,6 +530,7 @@
      :vocabulary {:literals :reused :coined :coined-types :coined-relations}
      :notes      what the model was unsure of
      :selection  [{:handle :line} …]      ; what it was actually shown
+     :stop-reason why the host stopped the turn                  ; on :truncated
      :budget     {:prompt :reserved :total :num-ctx :headroom}   ; estimated tokens
      :usage      {:input-tokens :output-tokens …}                ; measured, by the host
      :elapsed-ms wall clock for the whole loop
@@ -487,7 +540,13 @@
   and **nothing sent**, because the alternative is the host silently truncating the
   reader's own selection.  It is checked before the first turn *and before every repair
   turn*, since a repair carries the whole conversation back.  `:empty-selection` means
-  no handle still names a stored sentex."
+  no handle still names a stored sentex.
+
+  `:truncated` is the same failure on the way back, and this is the path it costs the
+  most: the answer is diffed **against the selection**, so a row the host cut off before
+  the model reached it is a row the diff proposes to retract.  There is no batch on that
+  status — a partial line set is not a proposal, and the one shown to a reviewer would be
+  a deletion nobody asked for."
   [kb {:keys [handles message provider num-ctx max-repairs max-turns prompt-opts
               model max-tokens on-event]
        fmt :format
@@ -545,9 +604,19 @@
                   usage    (or (:usage response) usage)
                   messages (conj messages {:role "assistant" :content (:content response)})
                   out      (assoc base :messages messages :turns turns :usage usage)]
-              (if (proto/refused? response)
+              (cond
+                (proto/refused? response)
                 (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
                        :stop-details (:stop-details response) :text (proto/text response))
+
+                ;; Before the diff, which is the whole point: `diff-batch` reads absence
+                ;; as intent, so a cut-off line set would propose retracting every row
+                ;; the model never got to.
+                (truncated? response)
+                (assoc out :status :truncated :attempts attempts :elapsed-ms (elapsed)
+                       :stop-reason (:stop-reason response) :text (proto/text response))
+
+                :else
                 (let [text (proto/text response)
                       {proposed :rows :keys [errors notes]} (parse-lines text)
                       attempts (inc attempts)
@@ -610,7 +679,7 @@
   and retried unescaped for text lifted out of a JSON string."
   [text]
   (let [try-read #(try (let [v (edn/read-string %)] (when (sequential? v) v))
-                       (catch Exception _ nil))]
+                       (catch Throwable _ nil))]
     (or (try-read (str text)) (try-read (unescape text)))))
 
 (def scan-init
@@ -650,7 +719,7 @@
   too, and so is a plain string element, because a model under a schema still occasionally
   flattens one level."
   [text]
-  (let [parsed (try (json/parse-string text) (catch Exception _ nil))
+  (let [parsed (try (json/parse-string text) (catch Throwable _ nil))
         items  (cond
                  (and (map? parsed) (sequential? (get parsed "assertions"))) (get parsed "assertions")
                  (sequential? parsed) parsed)]
@@ -713,7 +782,7 @@
   is arbitrary, so a sentence too malformed to even look up is simply not stored."
   [kb sentence context]
   (try (some? (v/handle-of kb sentence context))
-       (catch Exception _ false)))
+       (catch Throwable _ false)))
 
 (defn new-assertions
   "The read sentences -> `{:entries [[sentence context opts?] …] :known […] :duplicates […]}`.
@@ -834,6 +903,9 @@
      :notes      what the model was unsure of
      :term :context                       ; what it wrote about, and where it lands
      :page       [{:handle :line} …]      ; the page content it was shown
+     :page-found      how many distinct lines the term has (a floor when the scan was cut)
+     :page-truncated? did the scan bound cut, so :page-found is that floor
+     :answer-truncated?  did the host stop the turn at the token limit
      :budget     {:prompt :reserved :total :num-ctx :headroom}   ; estimated tokens
      :usage      {:input-tokens :output-tokens …}                ; measured, by the host
      :first-assertion-ms                  ; time to the model's first complete assertion
@@ -841,7 +913,19 @@
 
   `:coined` is the one report that matters most here and the only guard against
   vocabulary fragmentation, since the check chain admits a coined unary predicate by
-  design — see `vaelii.impl.llm.inventory`."
+  design — see `vaelii.impl.llm.inventory`.
+
+  **`:page` is a sample whenever `:page-found` exceeds its length**, and the two flags
+  beside it are how a caller learns that.  The prompt already says so in its heading
+  (`page/stored-heading`), so the model is told; carrying the same fact out as ordinary
+  keys is what lets the *reviewer* be told too — a reviewer shown 40 lines and no flag
+  reads them as the whole of what is stored, which is the reading the heading exists to
+  prevent.  `stored-lines` reports it as metadata, and metadata does not survive the
+  `select-keys` that builds `:page`, so it is lifted here rather than carried.
+
+  `:answer-truncated?` is the other half: the generation is additive, so a cut-off turn
+  costs assertions the model never wrote rather than proposing a retraction — the batch
+  that did arrive stands, and the flag says it is a prefix (`truncated?`)."
   [kb {:keys [term context message provider num-ctx max-repairs max-turns max-assertions
               prompt-opts model max-tokens on-event]
        :or {max-repairs 1 max-turns 4 num-ctx 8192 max-assertions 24}
@@ -861,7 +945,9 @@
             user    (page/user-turn kb term rows ctx message popts)
             bdg     (selection/budget system user max-assertions num-ctx)
             base    {:term term :context ctx :budget bdg
-                     :page (mapv #(select-keys % [:handle :line]) rows)}
+                     :page (mapv #(select-keys % [:handle :line]) rows)
+                     :page-found (:found (meta rows))
+                     :page-truncated? (boolean (:truncated? (meta rows)))}
             request (cond-> {:system [{:text system}] :num-ctx num-ctx}
                       fmt        (assoc :format fmt)
                       model      (assoc :model model)
@@ -899,8 +985,13 @@
                     turns    (inc turns)
                     usage    (or (:usage response) usage)
                     messages (conj messages {:role "assistant" :content (:content response)})
+                    ;; a flag rather than a status, unlike the two paths that diff: an
+                    ;; additive answer cut at the token limit is short, not wrong, so the
+                    ;; assertions that did arrive stay applicable and the caller is told
+                    ;; they are a prefix
                     out      (assoc base :messages messages :turns turns :usage usage
-                                    :first-assertion-ms @first-ms)]
+                                    :first-assertion-ms @first-ms
+                                    :answer-truncated? (truncated? response))]
                 (if (proto/refused? response)
                   (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
                          :stop-details (:stop-details response) :text (proto/text response))
@@ -972,11 +1063,11 @@
   the parser cannot read is a **problem, not a failure**, as on the page path: this answer
   only adds, so the readable candidates stand on their own."
   [text]
-  (let [parsed (try (json/parse-string (unfence text)) (catch Exception _ nil))
+  (let [parsed (try (json/parse-string (unfence text)) (catch Throwable _ nil))
         items  (when (map? parsed) (get parsed "candidates"))]
     (if-not (sequential? items)
       {:errors [(str "no candidates found — answer with a JSON object like "
-                     "{\"candidates\": [{\"sentence\": \"(dog Fido)\", \"segment\": 0}]}")]}
+                     "{\"candidates\": [{\"sentence\": \"(dog Muffet)\", \"segment\": 0}]}")]}
       (let [read (map-indexed
                   (fn [i item]
                     (let [src (str (when (map? item) (get item "sentence")))]
@@ -1075,6 +1166,7 @@
      :segments    [{:text :span} …]                  ; what the spans point into
      :resolved    [{:surface :term :segment :span} …] ; words that already named something
      :summary     {:proposed :new :known :duplicate :applicable :repairs :corrections}
+     :answer-truncated?  did the host stop the turn at the token limit
      :lines :edn :rejections :coined :vocabulary :notes :problems
      :budget :usage :elapsed-ms :attempts :turns :messages}
 
@@ -1141,7 +1233,11 @@
                     turns    (inc turns)
                     usage    (or (:usage response) usage)
                     messages (conj messages {:role "assistant" :content (:content response)})
-                    out      (assoc base :messages messages :turns turns :usage usage)]
+                    ;; a flag, for the page path's reason: the reading is additive, so a
+                    ;; turn cut at the token limit costs candidates rather than proposing
+                    ;; a retraction — and the document's uncovered spans then say where
+                    out      (assoc base :messages messages :turns turns :usage usage
+                                    :answer-truncated? (truncated? response))]
                 (if (proto/refused? response)
                   (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
                          :stop-details (:stop-details response) :text (proto/text response))
@@ -1199,6 +1295,16 @@
 
 ;; ---- the explicit apply step -------------------------------------------
 
+(defn- add-prefix-stored
+  "How many of `add`'s entries the KB stores, counting from the front until one it does
+  not.  `edit!` applies the adds **in order**, so that count is where a throw stopped it:
+  everything before is in, the entry at the count is the one that was refused.
+
+  Asked of the store rather than of the return value, because a batch that throws has no
+  return value — which is the whole reason this exists."
+  [kb add]
+  (count (take-while (fn [[sentence context]] (stored? kb sentence context)) add)))
+
 (defn apply-proposal!
   "Apply a proposal's batch through `vaelii.core/edit!` — **the only thing in this
   namespace that writes**, and it is never reached from `propose`.
@@ -1207,9 +1313,33 @@
   batch the critic rejected cannot be applied by accident.  `!` because the batch's
   `:remove` retracts stored knowledge.
 
-  Returns `{:result <edit result> :violations […] :contradictions […]}` — the
-  post-settle signal, with `:violations` narrowed to what *this* edit added to the
-  accumulating ledger (a derived conclusion the definitional checks dropped)."
+  Returns
+
+    {:result    <edit! result>   ; nil when the batch threw part-way
+     :applied   how many of :add the KB now stores — the whole batch on success, the
+                prefix that landed on a throw (an entry the KB already held counts,
+                since an add is find-or-create)
+     :failed-at the index in :add the throw came from, or nil (nil with an :error
+                means the retractions threw, which `edit!` runs after every add)
+     :error     {:type :message :exception}, absent when the whole batch applied
+     :violations […] :contradictions […]}
+
+  **`edit!` is not a transaction, and this is where that shows.**  The critic grades each
+  add against the KB *as it stands* (`check-edit`), so two adds that are each admissible
+  and jointly are not — the second contradicting what the first just stored — both pass
+  and the batch is `:ok`.  The apply then throws at the second, with the first already
+  stored and the closing settle skipped: a KB holding new knowledge whose belief has not
+  been reconciled, which nothing later repairs on its own.
+
+  So a throw is caught, belief is **settled by hand**, and what landed is *reported*
+  rather than raised.  That is the recoverable state — the stored prefix is real
+  knowledge, correctly believed, and `:failed-at` names the entry to fix — where a bare
+  exception leaves the caller holding a partial write it cannot see.  A caller that wants
+  the throw back has `:error`'s `:exception`; a caller that wants all-or-nothing has no
+  such thing to want, because the door underneath does not offer one.
+
+  `:violations` is narrowed to what *this* edit added to the accumulating ledger (a
+  derived conclusion the definitional checks dropped)."
   ([kb proposal] (apply-proposal! kb proposal {}))
   ([kb {:keys [status batch] :as proposal} {:keys [force?]}]
    (when-not (or force? (= :ok status))
@@ -1218,7 +1348,23 @@
                      {:type :llm-not-applicable :status status
                       :rejections (:rejections proposal)})))
    (let [before (count (v/violations kb))
-         result (v/edit! kb {:add (:add batch) :remove (:remove batch)})]
-     {:result result
-      :violations (vec (drop before (v/violations kb)))
-      :contradictions (vec (v/contradictions kb))})))
+         add    (vec (:add batch))
+         edit   (try {:result (v/edit! kb {:add add :remove (:remove batch)})}
+                     (catch Throwable t
+                       ;; The settle `edit!` would have run at the end of the batch did
+                       ;; not, and belief is computed from current state — so running one
+                       ;; here reconciles exactly what landed.  It cannot throw for the
+                       ;; batch's reason: the entry that was refused is not stored.
+                       (settle/settle kb)
+                       {:error t}))
+         landed (if (:error edit) (add-prefix-stored kb add) (count add))]
+     (cond-> {:result (:result edit)
+              :applied landed
+              :failed-at nil
+              :violations (vec (drop before (v/violations kb)))
+              :contradictions (vec (v/contradictions kb))}
+       (:error edit)
+       (assoc :failed-at (when (< landed (count add)) landed)
+              :error {:type (:type (ex-data (:error edit)))
+                      :message (ex-message (:error edit))
+                      :exception (:error edit)})))))

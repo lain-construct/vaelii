@@ -172,23 +172,33 @@
   minted reified NAT whose function is `head` (its output is a *subtype* of T)."
   [kb head] (result-targets kb 'resultGenl head))
 
+(defn any-result-declarations?
+  "Cheap gate: does the KB declare any `resultIsa` or `resultGenl`?  False ⇒ no mint has
+  materialized a result type, so the orphan sweep's question about them is answered
+  without a probe.  Two O(1) functor counts, the same shape as
+  `any-corresponding-predicates?`."
+  [kb]
+  (let [ix (:index kb)]
+    (or (pos? (p/count-with-functor ix 'resultIsa))
+        (pos? (p/count-with-functor ix 'resultGenl)))))
+
 ;; ---- the corresponding predicate -----------------------------------------
 ;; `(functionCorrespondingPredicate F P N)` states that a function and a predicate say
 ;; the same thing: `F` maps `a₁ … a_M` to `V` exactly when `(P a₁ … a_{N-1} V a_N …
 ;; a_M)` holds.  `N` is 1-based over `P`'s arguments, and omitting it puts the value
 ;; **last** — `(functionCorrespondingPredicate MotherFn motherOf)` makes `(MotherFn
-;; Fido)` the `?v` of `(motherOf Fido ?v)`, which is the shape nearly every
+;; Muffet)` the `?v` of `(motherOf Muffet ?v)`, which is the shape nearly every
 ;; correspondence has.
 ;;
 ;; It is read in **both** directions, and that is the whole of its point: an ontology
 ;; that reifies a function and its predicate separately otherwise says one thing twice
 ;; and can reason with only whichever half it was told.
 ;;
-;;   value → term   a believed `(motherOf Fido Mary)` reifies `(MotherFn Fido)` to
+;;   value → term   a believed `(motherOf Muffet Mary)` reifies `(MotherFn Muffet)` to
 ;;                  `Mary`, so the expression names the object the KB already has a
 ;;                  name for instead of minting a second one beside it.
 ;;   term → value   a constant minted because no value was known yet is *projected*
-;;                  back onto the predicate — `(motherOf Fido K)` — so the placeholder
+;;                  back onto the predicate — `(motherOf Muffet K)` — so the placeholder
 ;;                  answers that predicate's questions rather than being a term
 ;;                  nothing says anything about.
 ;;
@@ -406,50 +416,128 @@
          (map :sentence)
          group-collisions)))
 
-(defn- nat-bookkeeping-of?
-  "Is `sx` one of constant `k`'s own bookkeeping sentexes — its `termOfUnit` map, a
-  materialized result type (`(T k)` / `(genl k T)`), or the correspondence
-  `projection` minted alongside it — as opposed to a real use `(p k …)` that keeps it
-  alive?
+(defn- minted-for
+  "The sentences `mint-nat!` writes **about** the constant `k` it minted for expression
+  `E`: the materialized result types — `(T k)` per believed `(resultIsa F T)` and
+  `(genl k T)` per `(resultGenl F T)`, `F` being `E`'s function — and the correspondence
+  projection.  All of them land in `universal-context`, which is where the mint puts
+  them.
 
-  The projection counts for the same reason a result type does: it states what `k`
-  *is*, not something anybody claimed about it, so a constant whose only remaining
-  sentex is its own projection is as orphaned as one with no sentex at all."
-  [k projection sx]
-  (let [s (:sentence sx)
-        f (nm/functor s)
-        a (vec (nm/args s))]
-    (or (and (= f 'termOfUnit) (= k (first a)))
-        (and (= 1 (count a))   (= k (first a)))        ; (T k)
-        (and (= f 'genl)       (= k (first a)))        ; (genl k T)
-        (and (some? projection) (= s projection)))))
+  This is what the orphan sweep discriminates by, and the question it asks is
+  **authorship**, not shape: the engine wrote these, so it re-reads the declarations the
+  mint read to find out which sentences those were.  Reading shape instead makes a
+  user's own unary claim about a reified NAT — `(prime K)`, `(genl K SomeType)` — look
+  like a materialized type, and the sweep then retracts the claim along with the
+  constant."
+  [kb k E]
+  (into (if-let [lit (corresponding-literal kb E k)] #{lit} #{})
+        (when (any-result-declarations? kb)
+          (let [head (first E)]
+            (concat (map #(list % k) (result-isa-types kb head))
+                    (map #(list 'genl k %) (result-genl-types kb head)))))))
+
+(defn- nat-bookkeeping-of?
+  "Is `sx` one of constant `k`'s own bookkeeping sentexes — its `termOfUnit` map, or one
+  of the sentences `minted-for` says the mint wrote about it — as opposed to a real use
+  `(p k …)` that keeps it alive?
+
+  A minted sentence counts because it states what `k` *is*, not something anybody
+  claimed about it, so a constant whose only remaining sentexes are its map, its result
+  types and its own projection is as orphaned as one with no sentex at all.  Anything
+  else naming `k` is somebody's assertion whatever its arity: `(prime K)` is a claim
+  about `K` exactly as `(noted Author K)` is.
+
+  `minted` is a **delay**, and the map clause is what makes that pay: the constant a
+  teardown collects has its `termOfUnit` and nothing else left, so the common answer is
+  reached without asking the declarations what the mint wrote."
+  [k minted sx]
+  (let [s (:sentence sx)]
+    (or (and (= 'termOfUnit (nm/functor s)) (= k (first (nm/args s))))
+        (and (= universal-context (:context sx)) (contains? @minted s)))))
+
+(defn- mapped-expressions
+  "The expressions `k`'s own `termOfUnit` sentexes map it to, read off `sentexes` — the
+  term-index answer for `k`, which holds its map beside its uses.  Normally one; a
+  collision the 1:1 invariant has yet to be restored on has several."
+  [k sentexes]
+  (keep (fn [sx]
+          (let [s (:sentence sx)]
+            (when (and (= universal-context (:context sx))
+                       (= 'termOfUnit (nm/functor s))
+                       (= k (second s)))
+              (nth s 2 nil))))
+        sentexes))
+
+(defn orphan?
+  "Is the reified constant `k` orphaned — is every believed sentex naming it one of `k`'s
+  own bookkeeping sentexes?  False when nothing maps it: a constant with no believed
+  `termOfUnit` names no expression, so there is no map left to dangle.
+
+  **One term-index read answers the whole question.**  `k`'s uses, its map and its
+  materialized types are all sentexes naming `k`, so the inverted term index
+  (docs/indexing.md) hands back the lot in the size of `k`'s own footprint, and nothing
+  here is a function of how many other constants the KB has minted."
+  [kb k]
+  (let [live (filterv #(jtms/in? (:tms kb) (:id %)) (kb/find-sentexes kb k))]
+    (boolean
+     (some (fn [E]
+             (let [minted (delay (minted-for kb k E))]
+               (every? #(nat-bookkeeping-of? k minted %) live)))
+           (mapped-expressions k live)))))
 
 (defn orphaned-constants
-  "Reified constants no live use references any more: every believed sentex naming
-  `k` is one of `k`'s own bookkeeping sentexes.  Removing the fact that used a reified NAT
-  leaves it an orphan — its `termOfUnit` and materialized types would dangle a raw
-  `nat/` symbol — so those are collected and removed."
+  "Every reified constant in the KB that no live use references any more.  Removing the
+  fact that used a reified NAT leaves it an orphan — its `termOfUnit` and materialized
+  types would dangle a raw `nat/` symbol — so those are collected and removed.
+
+  Reads the whole map, so this is the answer *about the KB*, and its cost is the KB's
+  whole `termOfUnit` population; the maintenance after a teardown asks the narrower
+  `orphaned-among` instead."
   [kb]
   (->> (kb/sentexes-matching kb '(termOfUnit ?k ?e) universal-context)
-       (map (fn [{[_ k E] :sentence}] [k E]))
+       (map (fn [{[_ k _] :sentence}] k))
        distinct
-       (filter (fn [[k E]]
-                 (let [projection (corresponding-literal kb E k)]
-                   (every? #(nat-bookkeeping-of? k projection %)
-                           (filter #(jtms/in? (:tms kb) (:id %)) (kb/find-sentexes kb k))))))
-       (map first)
-       distinct))
+       (filterv #(orphan? kb %))))
+
+(defn orphaned-among
+  "The orphans among `candidates` — `orphaned-constants`' question asked of named
+  constants rather than of every constant in the KB.
+
+  This is the question a teardown has: a constant becomes an orphan only when something
+  that referenced it goes, so the constants the departing sentexes named
+  (`constants-named-by`) are the whole of what can have become one, and a KB's other NATs
+  cannot answer differently for having been counted.  Cost is the candidate set's, not
+  the map's.
+
+  A candidate that is not a `nat/` constant is dropped rather than probed — a removed
+  sentence names ordinary terms too, and none of them has a map to orphan."
+  [kb candidates]
+  (into [] (comp (filter reified-nat-symbol?) (distinct) (filter #(orphan? kb %))) candidates))
+
+(defn reified-nats-in
+  "Every reified-NAT constant `form` names, at any nesting.
+
+  Descends a vector as well as a list, since a vector in a sentence is a *list of forms*
+  — an `exceptWhen`'s conjuncts, a `thereExists`'s binders — and a constant standing in
+  one is as much a reference as a constant in a literal."
+  [form]
+  (into #{} (filter reified-nat-symbol?) (tree-seq sequential? seq form)))
+
+(defn constants-named-by
+  "Every reified-NAT constant the sentences of `sentexes` name — the candidate set a
+  region-scoped orphan sweep asks `orphaned-among` about, given what a teardown removed."
+  [sentexes]
+  (into #{} (mapcat #(reified-nats-in (:sentence %))) sentexes))
 
 (defn bookkeeping-handles
   "The believed bookkeeping sentex handles of constant `k` — its `termOfUnit` and
   materialized result-type premises, plus its correspondence projection — the ones to
   retract when `k` is orphaned."
   [kb k]
-  (let [E          (nat-expression kb k)
-        projection (when E (corresponding-literal kb E k))]
+  (let [minted (delay (if-let [E (nat-expression kb k)] (minted-for kb k E) #{}))]
     (->> (kb/find-sentexes kb k)
          (filter #(jtms/in? (:tms kb) (:id %)))
-         (filter #(nat-bookkeeping-of? k projection %))
+         (filter #(nat-bookkeeping-of? k minted %))
          (map :id)
          distinct)))
 
@@ -570,7 +658,7 @@
 
 (defn- merge-corresponding-nat!
   "Equate the constant minted for an application with the value a just-asserted
-  corresponding fact gives it.  `(motherOf Fido Mary)` arriving after `(MotherFn Fido)`
+  corresponding fact gives it.  `(motherOf Muffet Mary)` arriving after `(MotherFn Muffet)`
   minted `K` leaves the KB holding two values for one application; the declaration says
   they are one object, so the equality says so too and the migration folds `K`'s uses
   onto `Mary`."

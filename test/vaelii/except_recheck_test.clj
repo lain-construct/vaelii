@@ -281,9 +281,13 @@
 ;; makes taxonomy churn re-evaluate (and re-chain) whole extents of rules whose
 ;; exceptions the edge could not possibly move.  The genl trigger is therefore
 ;; keyed by the edge's supertype closure: only rules whose exception is registered
-;; at or above the edge's supertype — plus the closure-reading functors `genl` /
-;; `disjoint` / `not` — are queued.  (`genlContext` keeps the blanket: a visibility
-;; edge changes what every exception can see, which no predicate key can narrow.)
+;; at or above the edge's supertype — plus the closure-reading functors `genl` and
+;; `disjoint`, whose provers answer across arguments and so cannot be keyed on a
+;; predicate at all — are queued.  A **negated** conjunct registers under `not`, which
+;; hides the predicate it is about, and is keyed on the edge's *subtype* closure
+;; instead (`special/recheck-negated-exceptions`).  (`genlContext` keeps the blanket: a
+;; visibility edge changes what every exception can see, which no predicate key can
+;; narrow.)
 
 (deftest a-genl-edge-re-checks-only-what-its-closure-touches
   (testing "the touched rule's conclusion is swept; the untouched rule's firings are
@@ -309,6 +313,76 @@
         (is (< n 10)
             (str "the edge caused " n " exception evaluations; the untouched rule's "
                  "20 firings must not be among them (the blanket trigger paid 40+)"))))))
+
+;; ---- and the negated conjunct, which registers under a functor that hides it ----
+;;
+;; `(exceptWhen (not (hasWings ?x)) …)` is ordinary common-sense content, and it
+;; registers in the re-check index under the functor `not` rather than under
+;; `hasWings` — so the supertype keying above cannot see which predicate it is about
+;; and cannot decide it.  Waving every such rule through costs `:all`, which is one
+;; level-6 query per firing the rule ever made, on every `genl` edge written anywhere.
+;;
+;; A ground negation is answered from stored negative sentexes with no genl fan-out, so
+;; no edge flips one today.  The wave-through is kept anyway, against contravariant
+;; negative matching: reading `(not (dog X))` off a stored `(not (animal X))` walks the
+;; **up**-closure of the conjunct's own predicate, and an edge `[sub super]` moves that
+;; closure for exactly the predicates at or below `sub`.  So the keying is the edge's
+;; subtype closure — the contravariant twin of the supertype walk beside it.  The two
+;; tests are the two halves of that claim: outside the moved closure it costs nothing,
+;; inside it the rule is still queued.
+
+(defn- negated-exception-cost
+  "Level-6 evaluations caused by asserting `(genl <sub> negsuper_t)` on a KB whose one
+  excepted rule has fired `firings` times, excepted when `(not (<pred> ?x))` holds."
+  [firings sub pred]
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (v/assert kb (list 'exceptWhen (list 'not (list pred '?x))
+                       '(set/defaultRule (implies (and (negProbe ?x)) (negSeen ?x))))
+              ctx)
+    (dotimes [i firings] (v/assert kb (list 'negProbe (symbol (str "NG" i))) ctx))
+    (counting-evaluations
+     #(v/assert kb (list 'genl sub 'negsuper_t) ctx {:strength :monotonic}))))
+
+(deftest a-genl-edge-does-not-re-check-a-negation-whose-closure-it-left-alone
+  (testing "an edge under a subtype no negated conjunct names re-checks none of that
+            rule's firings, however many it made"
+    ;; The edge's `sub` is a fresh type; the negated conjunct is about `negskip`, whose
+    ;; up-closure the edge did not move.  Nothing the level-6 stack can read about
+    ;; `(not (negskip X))` changed, so nothing is queued — and, crucially, the cost does
+    ;; not track the rule's firing history.
+    (let [few  (negated-exception-cost 8  'negvictim_t 'negskip)
+          many (negated-exception-cost 32 'negvictim_t 'negskip)]
+      (is (= 0 few many)
+          (str "an unrelated genl edge re-evaluated a negated exception's firings: "
+               few " (8 firings) / " many " (32 firings)")))))
+
+(deftest a-genl-edge-under-a-negations-own-predicate-still-re-checks-it
+  (testing "the wave-through is kept where a contravariant reading could reach: an
+            edge whose subtype *is* the negated conjunct's predicate queues the rule"
+    ;; The half the narrowing must not trade.  `(genl negskip negsuper_t)` moves
+    ;; `genls(negskip)`, which is the closure a contravariant negative match would read
+    ;; to answer `(not (negskip X))` off a stored negative sentex at a supertype.  The
+    ;; rule is queued, and queued unconditionally, so every firing is re-decided.
+    (let [n (negated-exception-cost 8 'negskip 'negskip)]
+      (is (= 8 n)
+          (str "an edge on the negated conjunct's own predicate re-checked " n
+               " of 8 firings; the defensive wave-through must keep all of them")))))
+
+(deftest a-negated-exception-still-blocks-and-releases
+  (testing "narrowing the edge trigger changes nothing about what a negation excepts"
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (v/assert kb '(exceptWhen (not (negskip ?x))
+                                (set/defaultRule (implies (and (negProbe ?x)) (negSeen ?x))))
+                ctx)
+      (v/assert kb '(negProbe NG0) ctx)
+      (is (seq (v/sentexes-matching kb '(negSeen NG0) '?ctx))
+          "nothing denies negskip of NG0, so the exception does not hold")
+      (let [h (v/assert kb '(not (negskip NG0)) ctx)]
+        (is (empty? (v/sentexes-matching kb '(negSeen NG0) '?ctx))
+            "the stored negation satisfies the exception and the conclusion is swept")
+        (v/retract! kb h)
+        (is (seq (v/sentexes-matching kb '(negSeen NG0) '?ctx))
+            "and its departure releases the rule")))))
 
 ;; ---- the two channels a fact reaches an exception through sideways -------
 ;;
@@ -372,14 +446,14 @@
     ;; index's own keying cannot reach the rule.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(argIsa amotherOf 1 amammal) ctx)
-      (v/assert kb '(exceptWhen (amammal AFido)
+      (v/assert kb '(exceptWhen (amammal AMuffet)
                                 (set/defaultRule (implies (and (amark ?x)) (aseen ?x))))
                 ctx)
       (v/assert kb '(amark AM1) ctx)
       (is (seq (v/sentexes-matching kb '(aseen AM1) '?ctx))
           "fires while nothing excepts it")
-      (v/assert kb '(amotherOf AFido ARex) ctx)
-      (is (v/ask? kb '(amammal AFido) ctx)
+      (v/assert kb '(amotherOf AMuffet ARex) ctx)
+      (is (v/ask? kb '(amammal AMuffet) ctx)
           "the usage types the individual")
       (is (empty? (v/sentexes-matching kb '(aseen AM1) '?ctx))
           "so the exception holds and the conclusion is swept"))))
@@ -387,15 +461,15 @@
 (deftest an-argisa-declaration-arriving-after-the-facts-still-withdraws
   (testing "the other arrival order: the facts first, then the declaration that types them"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      (v/assert kb '(exceptWhen (amammal AFido)
+      (v/assert kb '(exceptWhen (amammal AMuffet)
                                 (set/defaultRule (implies (and (amark ?x)) (aseen ?x))))
                 ctx)
-      (v/assert kb '(amotherOf AFido ARex) ctx)
+      (v/assert kb '(amotherOf AMuffet ARex) ctx)
       (v/assert kb '(amark AM1) ctx)
       (is (seq (v/sentexes-matching kb '(aseen AM1) '?ctx))
-          "nothing types AFido yet")
+          "nothing types AMuffet yet")
       (v/assert kb '(argIsa amotherOf 1 amammal) ctx)
-      (is (v/ask? kb '(amammal AFido) ctx))
+      (is (v/ask? kb '(amammal AMuffet) ctx))
       (is (empty? (v/sentexes-matching kb '(aseen AM1) '?ctx))
           "the declaration reaches the fact that was already stored"))))
 
@@ -403,16 +477,16 @@
   (testing "and retracting the typing fact releases the exception"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(argIsa amotherOf 1 amammal) ctx)
-      (v/assert kb '(exceptWhen (amammal AFido)
+      (v/assert kb '(exceptWhen (amammal AMuffet)
                                 (set/defaultRule (implies (and (amark ?x)) (aseen ?x))))
                 ctx)
-      (v/assert kb '(amotherOf AFido ARex) ctx)
+      (v/assert kb '(amotherOf AMuffet ARex) ctx)
       (v/assert kb '(amark AM1) ctx)
       (is (empty? (v/sentexes-matching kb '(aseen AM1) '?ctx)))
-      (v/retract! kb (v/handle-of kb '(amotherOf AFido ARex) ctx))
-      (is (not (v/ask? kb '(amammal AFido) ctx)))
+      (v/retract! kb (v/handle-of kb '(amotherOf AMuffet ARex) ctx))
+      (is (not (v/ask? kb '(amammal AMuffet) ctx)))
       (is (seq (v/sentexes-matching kb '(aseen AM1) '?ctx))
-          "nothing types AFido any more, so the conclusion is re-derived"))))
+          "nothing types AMuffet any more, so the conclusion is re-derived"))))
 
 ;; ---- the third channel: a declaration, not a fact -----------------------
 ;;

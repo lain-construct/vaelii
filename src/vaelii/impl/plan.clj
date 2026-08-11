@@ -10,43 +10,113 @@
   selective literal is the whole game, and on a measured three-literal join it ran
   7x faster than leading with the general one.
 
-  Three mechanisms, the first two of which the KB already had lying around unused:
+  ## Two estimators, two contracts
+
+  Both read the count-aware trie and neither fetches a record, but they answer
+  different questions and are not interchangeable:
+
+  - **`est-matches`** is a sound *upper bound* on how many facts one literal matches.
+    Its one-sided guarantee is load-bearing — an estimate of 1 is a **proof** that a
+    literal matches at most once, and therefore cannot fan the plan out — and that
+    proof is what the placement rules below rest on.  It says nothing usable about
+    how two literals combine: maxima of products do not factor.
+  - **`est-rows`** is an *expected* cardinality, with the distinct-value count of each
+    variable beside it, and is explicitly allowed to be wrong in both directions.
+    That is the property that makes it compose — expectations of products do factor
+    under independence — so it is the quantity a join is costed in.
+
+  A **summary** is what `est-rows` returns and what the planner threads through its
+  fold: `{:rows 400 :vars #{?x ?y} :distinct {?x 20}}`.  A variable in `:vars` and
+  absent from `:distinct` is one the index cannot count, which the join formula reads
+  as 1 — so `max(d_A(v), d_B(v))` defers to whichever side of the join *can* count it.
+
+  ## Three mechanisms
 
   **Selectivity** — the count-aware trie answers \"how many facts are under this
-  path prefix\" in O(1) (`count-at`), and the secondary argument roots answer \"how
-  many facts have this term at position n\" (`count-with-arg`) for the ground
-  arguments the trie cannot reach.  `est-matches` reads both.
+  path prefix\" in O(1) (`count-at`), \"how many distinct values sit at the next
+  level\" in O(1) too (`count-children`, which is its own read rather than
+  `(count (children …))` — that one materializes the child set, so asking it once per
+  literal makes planning a fixed conjunction scale with the KB), and the secondary
+  argument roots answer \"how many facts
+  have this term at position n\" (`count-with-arg`) for the ground arguments the trie
+  cannot reach.  Both estimators read those and nothing else: there is **no statistics
+  table**, and there is not to be one, because a second source of truth about
+  cardinality would need maintaining on every write.
+
+  Every one of those counts **spans all contexts**, since the trie key ends with the
+  context and no prefix the walk builds reaches past the arguments.  A read is scoped to
+  one context and the `genlContext` cone above it, so the counts are an over-estimate by
+  a sentence's context multiplicity — which leaves `est-matches` sound (a cone is a
+  subset of what is stored, so the bound can only be too large) and puts the error on
+  `est-rows`'s `:rows` alone, `:distinct` sitting a level above the contexts.  A ground
+  literal is clamped to one row and never sees it.  `docs/inference.md` states the size
+  of it; `context` reaches the estimators only for the subtype fan below.
 
   **Sideways information passing** — a literal's cost is not fixed, it depends on
   what is already bound when it runs.  `(parentOf ?x ?y)` is the whole extent of
-  `parentOf`; the same literal after `?x` is bound is one person's children.  So no
-  literal is costed once and for all: an estimate is always taken under the variables
-  bound at the point the literal would run.
+  `parentOf`; the same literal after `?x` is bound is one person's children.  In the
+  summary algebra that is not a special case: the variables already bound are a
+  one-row relation, and joining a literal onto it divides its extent by the literal's
+  own distinct count at that position — which is exactly the average branch a
+  per-literal model charges, reached by the general rule instead of by a rule of its
+  own.
 
-  **The cartesian factors last, on structure rather than on cost** — a literal
-  sharing no variable with anything else in the conjunction narrows nothing and is
-  narrowed by nothing, so wherever it runs it multiplies the row count of everything
-  after it.  Its own extent is then the wrong thing to rank it by, and rank it the
-  wrong way: a *selective* isolated literal is the worst kind, because taking the
-  cheapest available literal puts exactly that one first, where its factor is applied
-  to the whole rest of the plan.  `deferring-isolated-order` holds them to the back.
+  **Blocks, on structure rather than on cost** — two literals sharing a variable
+  constrain each other; two that share none do not, and no ordering *within* one
+  group changes what the other costs.  So the generators are split into connected
+  components (`components`), the split is exact and free because it is read off the
+  conjunction, and the estimate is then asked only the two questions it can answer:
+  which literal to take next *inside* a block, and which block to run first.
 
-  Sharing no variable is what makes such a literal *unconstrained*; it is not on its
-  own what makes it a multiplier.  A literal matching at most once multiplies by at
-  most one, so it can only prune and belongs first — and the ground literal, which
-  both chaining paths produce by substituting a rule's bindings before planning, has
-  no variables to share and so satisfies the structural test vacuously.  Both
-  conditions are therefore checked, and `cartesian-factors` is where.
+  ## Ordering the blocks
 
-  That placement is deliberately made on **structure and not on an estimate**.
-  Whether a literal shares a variable is read off the conjunction; how big a join
-  comes out is a guess the index can only bound from above, and those bounds do not
-  compose — a plan chosen by minimizing estimated cost end to end multiplies the
-  bound's error once per literal, and lands wide of one that never trusted it that
-  far.  So the estimate decides the order *within* each group, where it is compared
-  once and locally, and structure decides which group a literal is in.  The one thing
-  an upper bound *can* settle is that a literal will not fan out at all — a bound of 1
-  is a proof of it — which is the only load the estimate carries in that decision.
+  A block that produces `n` rows at internal intermediate cost `s`, placed after a
+  prefix of `P` rows, costs `P·s`; run before another block it also multiplies that
+  one by `n`.  Two blocks therefore compare by adjacent transposition —
+
+      cost[i,j] = P·(sᵢ + nᵢ·sⱼ)   against   cost[j,i] = P·(sⱼ + nⱼ·sᵢ)
+      i first  ⟺  sᵢ/(nᵢ−1) ≥ sⱼ/(nⱼ−1)
+
+  — so a **descending sort on `s/(n−1)`** is optimal, in O(k log k) and with no
+  search.  It degenerates correctly, which is the check that it is the right law: a
+  single-literal block has `s = n`, so its ratio `n/(n−1)` decreases in `n` and the
+  law reduces to taking the smallest extent first; a block of one row ranks `+∞` and
+  leads; a block of none would make the ratio change sign, so `n ≤ 1` is ranked first
+  structurally rather than by the formula.
+
+  A block's literals run consecutively, which is an assumption rather than a theorem —
+  interleaving two blocks is a legal plan the law does not consider — and it is measured
+  rather than asserted: on a conjunction of two disconnected pairs the contiguous plan is
+  the cheapest of all twenty-four permutations, interleaved ones included.
+
+  Two placements sit outside the law, and both are claims the estimate cannot make:
+
+  - **A block that cannot multiply runs first.**  `est-matches` bounds each literal
+    from above, so a block whose literals each bound to 1 is *proved* to match at most
+    once: it can only prune, never fan out, and belongs wherever it is cheapest, which
+    is first.  The case that makes this load-bearing is the **ground** literal —
+    `(dog Bob)` once a rule's bindings are substituted in, the shape both chaining
+    paths hand the planner.  It has no variables, so it is a block of its own with
+    nothing to share; held back, a false one costs the entire join to reach a test
+    that refutes it in one lookup.
+  - **The anchored block runs before the rest.**  Every component touching the
+    already-bound variables, a deferred (evaluable) literal or the recursive literal
+    is fused into one component, and that one leads.  It is the only block the pins
+    reach: its literals feed the evaluables, which prune, and are narrowed by bindings
+    the caller already has — neither of which the summary algebra models, since an
+    evaluable's selectivity is a function of values rather than of counts.  Running it
+    first is what makes those prunes land before another block multiplies them.
+
+  ## Why a sort and not a search
+
+  Costing whole orders — the sum of a plan's intermediate row counts, minimized by a
+  subset search — is refuted over `est-matches`, and measurably: on randomized joins
+  it ran a mean 2.31× the best permutation's actual rows against cheapest-first's
+  1.19×, losing 3 trials of 9 and winning none.  The reason is not that a search is
+  the wrong shape but that it was minimizing a sum of incomparable quantities — a
+  bound for some literals and an average for others.  `est-rows` exists to fix
+  that, and once the numbers compose the ordering does not need a search at all: the
+  transposition law sorts.
 
   ## What is never reordered
 
@@ -75,10 +145,11 @@
 
   ## Determinism
 
-  Ties break on the literal's original position, so a plan is a function of the
-  conjunction and the KB's counts, never of iteration order.  Same knowledge, same
-  plan — the order-independence the rest of the engine holds to (see
-  `vaelii.impl.jtms`) applied to execution rather than belief."
+  Every number in the decision is derived from the conjunction and the KB's counts,
+  and ties break on the literal's original position — so a plan is a function of
+  content, never of iteration order.  Same knowledge, same plan: the order
+  independence the rest of the engine holds to (see `vaelii.impl.jtms`) applied to
+  execution rather than belief."
   (:require [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]))
@@ -125,10 +196,10 @@
         :else                    (first goal)))
 
 (defn- variable-functor?
-  "A literal whose *functor* is open — `(?type Fido)`.  It names no predicate, so
+  "A literal whose *functor* is open — `(?type Muffet)`.  It names no predicate, so
   neither of the two functor-keyed models below means anything for it: there is no
   subtype closure to fan over and no functor root to count.  The argument roots are
-  what is left — and for the plain `(?type Fido)` shape they are exactly what the
+  what is left — and for the plain `(?type Muffet)` shape they are exactly what the
   matcher reads for it (`res/candidate-handles`), so the estimate is the candidate
   set.  A dotted rest has not even those."
   [goal]
@@ -189,12 +260,12 @@
     estimate, for everything matching that prefix.
   - **bound but unknown** — the token will have exactly one value at run time, we
     just do not know which.  Charge the *average* branch under the prefix:
-    `count-at(prefix) / |children(prefix)|`.  This is what makes sideways
+    `count-at(prefix) / count-children(prefix)`.  This is what makes sideways
     information passing pay: the trie's own fan-out is the distinct-value count that
     a textbook N/V selectivity formula wants, and it is already stored.
   - **free** — nothing constrains this position or any after it; the prefix count
     stands."
-  [ix goal bound count-at* children*]
+  [ix goal bound count-at* kids*]
   (loop [toks (sx/key-stream goal), prefix []]
     (if (empty? toks)
       (count-at* ix prefix)
@@ -202,7 +273,7 @@
         (cond
           (known? t)       (recur (rest toks) (conj prefix t))
           (closed? t bound) (let [total    (count-at* ix prefix)
-                                  branches (max 1 (count (children* ix prefix)))]
+                                  branches (max 1 (kids* ix prefix))]
                               (max 1 (quot total branches)))
           :else            (count-at* ix prefix))))))
 
@@ -226,14 +297,19 @@
 (defn est-matches
   "Estimated number of stored facts a literal matches, given the variables already
   `bound`.  This is the literal's fan-out — the number by which it multiplies the
-  cost of everything sequenced after it — which is what join ordering turns on.
+  cost of everything sequenced after it.
 
   Every input is an *upper* bound on the true match count, so the minimum of them is
-  the tightest bound available without touching a record."
+  the tightest bound available without touching a record.  That one-sidedness is the
+  contract: this number may be far too large and may never be too small, so a reading
+  of 1 **proves** the literal cannot fan out, which is the only claim the placement
+  rules take from it.  For how much a literal fans out — a quantity that has to
+  compose across a join — see `est-rows`, which is the other estimator and is not a
+  bound."
   ([kb goal bound] (est-matches kb goal bound {}))
-  ([kb goal bound {:keys [count-at children count-with-arg count-with-functor context]
+  ([kb goal bound {:keys [count-at count-children count-with-arg count-with-functor context]
                    :or   {count-at           p/count-at
-                          children           p/children
+                          count-children     p/count-children
                           count-with-arg     p/count-with-arg
                           count-with-functor p/count-with-functor}}]
    (let [ix (:index kb)]
@@ -265,7 +341,7 @@
          (count-with-functor ix (functor-of goal)))
 
        ;; A unary type literal fans out over its subtype closure at match time —
-       ;; `(animal ?x)` is answered by every stored `(dog Fido)`.  Costing it by
+       ;; `(animal ?x)` is answered by every stored `(dog Muffet)`.  Costing it by
        ;; `animal`'s own extent would rank the most expensive kind of literal in the
        ;; KB as the cheapest, since a type high in the hierarchy usually has no direct
        ;; instances at all.  A non-type predicate has a singleton closure, so this
@@ -276,13 +352,257 @@
          ;; invisible subtype contributes no matches, so it must contribute no cost
          (min unbounded
               (reduce (fn [acc t']
-                        (+ acc (prefix-estimate ix (list t' a) bound count-at children)))
+                        (+ acc (prefix-estimate ix (list t' a) bound count-at count-children)))
                       0
                       (tax/specs (:taxonomy kb) t context))))
 
        :else
-       (min (prefix-estimate ix goal bound count-at children)
+       (min (prefix-estimate ix goal bound count-at count-children)
             (or (arg-root-estimate ix goal count-with-arg) unbounded))))))
+
+;; ---- the join model: summaries, and how two of them compose -------------
+;;
+;; Rows and distinct counts are carried as **doubles** throughout the algebra, and the
+;; reason is the divisions rather than overflow — a product of two unbounded literals
+;; is 1e18, which a long holds.  A divisor is a ratio and not a count, and truncating
+;; one collapses exactly the small cases the ordering law turns on: `s/(n−1)` reads 2
+;; for a two-row block and 1.5 for a three-row one, and in integers both read 1.
+;; `est-rows` rounds at the boundary, so nothing outside this section sees a float.
+
+(def ^:private empty-prefix
+  "The empty plan prefix: one row of nothing.  Joining a literal onto it shares no
+  variable and divides by nothing, so it yields the literal — which is what makes the
+  first pick of a block a special case of the general rule rather than one of its
+  own."
+  {:rows 1.0 :vars #{} :distinct {}})
+
+(defn- bound-prefix
+  "The variables a conjunction starts with, as a summary: one row, each of them
+  taking exactly one known value.  Joining a literal onto *this* divides its extent
+  by its own distinct count at that variable's position, which is precisely the
+  average branch `prefix-estimate` charges for a bound-but-unknown token — so
+  sideways information passing needs no rule of its own here."
+  [bound]
+  {:rows 1.0 :vars (set bound) :distinct (zipmap bound (repeat 1.0))})
+
+(defn- cap-distinct
+  "No column has more distinct values than its relation has rows."
+  [dist rows]
+  (reduce-kv (fn [m v d] (assoc m v (min (double d) rows))) {} dist))
+
+(defn- proxy-distinct
+  "A relation's own reading of its most duplicated column, or nil if it has none.
+
+  Used only where a join variable is counted on *neither* side, and used as the
+  smaller of the two relations' — see `join-summary`."
+  [s]
+  (let [ds (vals (:distinct s))]
+    (when (seq ds) (double (reduce min ds)))))
+
+(defn- join-summary
+  "The summary of `a ⋈ b`, joined on every variable the two have in common.
+
+      rows(A ⋈ B) = rows(A) · rows(B) ÷ Π d(v)    over shared v
+             d(v) = max(d_A(v), d_B(v))           over whichever are read
+
+  **A count the trie read beats one inferred**, and that two-tier rule is what makes
+  the model work on a chain.  `d(v)` is the larger of the counts the two sides
+  actually read — larger, because a join cannot group more finely than the coarser
+  side allows — and in `(p ?a ?b) ⋈ (q ?b ?c)` only `q` can read `?b`, since on `p`
+  it sits behind a free position the trie walk stops at.  Taking the maximum over
+  *read* counts alone is what lets the side that knows decide.
+
+  Where **neither** side read the variable the model would otherwise divide by
+  nothing and call a join a cartesian product, which is the error that compounds
+  fastest with depth: a chain joined on a trailing position at both ends hits it at
+  every step.  So it falls back on a proxy — the smaller of the two relations' own
+  most-duplicated readings (`proxy-distinct`), and 1 where neither has one.  The
+  smaller, because a proxy is a guess and an over-large divisor understates a join,
+  which is the direction that puts an exploding literal early.
+
+  The distinct counts are propagated, and that step is what makes a *second* join
+  possible rather than a product:
+
+      d(v) = min(d_A(v), d_B(v))       for a shared v, over whichever are read
+      d(u) = min(d_A(u), rows(A ⋈ B))  otherwise — a column cannot have more distinct
+                                       values than its relation has rows
+
+  A variable neither side read stays unread rather than being invented at `rows`: a
+  fabricated count would rank as a reading in the next join and throw away the one
+  the other side actually has."
+  [a b]
+  (let [va (:vars a), vb (:vars b)
+        da (:distinct a), db (:distinct b)
+        pa (proxy-distinct a), pb (proxy-distinct b)
+        guess   (max 1.0 (cond (and pa pb) (min pa pb) pa pa pb pb :else 1.0))
+        shared  (filter vb va)
+        divisor (reduce (fn [acc v]
+                          (let [ka (get da v), kb (get db v)]
+                            (* acc (max 1.0 (double (cond (and ka kb) (max ka kb)
+                                                          ka ka
+                                                          kb kb
+                                                          :else guess))))))
+                        1.0 shared)
+        rows    (max 0.0 (/ (* (:rows a) (:rows b)) divisor))
+        vars    (into (set va) vb)
+        dist    (reduce (fn [m v]
+                          (let [ka (get da v), kb (get db v)
+                                k  (cond (and ka kb) (min ka kb) ka ka :else kb)]
+                            (if k (assoc m v (min (double k) rows)) m)))
+                        {} vars)]
+    {:rows rows :vars vars :distinct dist}))
+
+(defn- clamped-join
+  "`prefix ⋈ literal`, with the sound per-literal bound applied on top.
+
+  The two estimators say different things here and both are worth keeping.  The join
+  formula assumes the literal's arguments are independent of the prefix's, which for
+  a literal every one of whose variables the prefix already binds is simply false —
+  it is a *test*, matching at most once per row, and `est-matches` proves that where
+  the formula would still be dividing extents.  So the expected model composes and
+  the bound clamps it, and the clamp can only ever shrink a reading."
+  [prefix summary bound]
+  (let [j   (join-summary prefix summary)
+        cap (* (:rows prefix) (double bound))]
+    (if (< cap (:rows j))
+      (assoc j :rows cap :distinct (cap-distinct (:distinct j) cap))
+      j)))
+
+(defn- prefix-summary
+  "Walk the literal against the trie exactly as `prefix-estimate` does, but return the
+  relation's shape rather than one number: the row count under the deepest known
+  prefix, and the distinct-value count of the variable sitting at the first position
+  the walk cannot extend past.
+
+  That variable is the only one the trie can count.  Past it the walk has stopped —
+  the trie narrows left to right and cannot skip a level — so every later variable is
+  left uncounted rather than guessed at, which `join-summary` reads as \"ask the other
+  side\"."
+  [ix goal count-at* kids*]
+  (loop [toks (sx/key-stream goal), prefix []]
+    (if (empty? toks)
+      {:rows (double (count-at* ix prefix)) :distinct {}}
+      (let [t (first toks)]
+        (if (known? t)
+          (recur (rest toks) (conj prefix t))
+          ;; the trie narrows left to right, so the first token that is not a value is
+          ;; where the walk ends — and it is a variable, since a marker carries none
+          (let [rows (double (count-at* ix prefix))
+                d    (double (kids* ix prefix))]
+            {:rows rows
+             :distinct (if (and (sx/variable? t) (pos? d)) {t (min d rows)} {})}))))))
+
+(defn- self-join-factor
+  "How much a variable repeated *inside* one literal narrows it.
+
+  `(marriedTo ?x ?x)` is not the extent of `marriedTo`: the second occurrence is an
+  equality between two positions, which is a join the literal makes with itself and
+  the same formula prices.  Each occurrence past the first divides by the variable's
+  distinct count — the trie's reading where it has one, and the literal's own
+  most-duplicated reading as the proxy where it does not, exactly as `join-summary`
+  falls back.  Without this a reflexive literal is costed at its whole relation, which
+  is the single largest over-estimate the walk can make, since the true count is
+  usually a handful of rows."
+  [goal dist]
+  (let [freq  (frequencies (filter sx/variable? (sx/key-stream goal)))
+        proxy (or (some->> (vals dist) seq (reduce min) double) 1.0)]
+    (reduce-kv (fn [acc v n]
+                 (if (> n 1)
+                   (* acc (Math/pow (max 1.0 (double (get dist v proxy))) (dec n)))
+                   acc))
+               1.0 freq)))
+
+(defn- summary
+  "`est-rows` in the algebra's own units — doubles, and `:vars` present."
+  [kb goal {:keys [count-at count-children count-with-arg count-with-functor context]
+            :or   {count-at           p/count-at
+                   count-children     p/count-children
+                   count-with-arg     p/count-with-arg
+                   count-with-functor p/count-with-functor}}]
+  (let [ix   (:index kb)
+        ;; A deferred literal is computed from bindings, not looked up: it produces no
+        ;; rows of its own, joins on nothing, and multiplies nothing.  How much it
+        ;; *prunes* is a function of values rather than of counts, so the model
+        ;; declines to guess and reads it as transparent — one row over no columns,
+        ;; which any prefix joins with unchanged.  That is also why the block feeding
+        ;; one is placed by the anchor rule and not by the transposition law: the law
+        ;; would be ranking it on a selectivity the model has just declined to state.
+        vs   (if (sx/deferred-literal? goal) #{} (vars-of goal))
+        base (cond
+               (not (sequential? goal)) {:rows 1.0 :distinct {}}
+
+               (sx/deferred-literal? goal) {:rows 1.0 :distinct {}}
+
+               ;; The three shapes the trie cannot walk at all — a negative literal
+               ;; (keyed under [:false …]), a dotted rest (no fixed positions), an open
+               ;; functor (no functor root).  `est-matches`'s fallbacks give the row
+               ;; count; no column is counted, so a join with one of these divides by
+               ;; whatever the other side knows and by nothing otherwise.
+               (or (negative? goal) (dotted? goal) (variable-functor? goal))
+               {:rows (double (est-matches kb goal #{}
+                                           {:count-at count-at :count-children count-children
+                                            :count-with-arg count-with-arg
+                                            :count-with-functor count-with-functor
+                                            :context context}))
+                :distinct {}}
+
+               ;; A unary type literal is the union of its subtype closure's extents,
+               ;; so the rows sum; the distinct counts sum too and are then capped,
+               ;; since two subtypes may share an instance but cannot have more between
+               ;; them than the union has rows.
+               (unary-literal? goal)
+               (let [[t a] goal
+                     parts (mapv #(prefix-summary ix (list % a) count-at count-children)
+                                 (tax/specs (:taxonomy kb) t context))
+                     rows  (min (double unbounded) (reduce + 0.0 (map :rows parts)))]
+                 {:rows rows
+                  :distinct (cap-distinct (apply merge-with + {} (map :distinct parts)) rows)})
+
+               :else
+               (let [p    (prefix-summary ix goal count-at count-children)
+                     a    (arg-root-estimate ix goal count-with-arg)
+                     rows (if a (min (:rows p) (double a)) (:rows p))
+                     f    (self-join-factor goal (:distinct p))
+                     rows (if (and (> f 1.0) (>= rows 1.0)) (max 1.0 (/ rows f)) rows)]
+                 {:rows rows :distinct (cap-distinct (:distinct p) rows)}))
+        ;; A literal with no variables yields one solution or none, whatever the trie
+        ;; counts under it — the same sentence may be stored in several contexts, and
+        ;; a read is scoped to one.
+        rows (if (seq vs) (:rows base) (min 1.0 (:rows base)))]
+    {:rows rows :vars vs :distinct (cap-distinct (:distinct base) rows)}))
+
+(defn est-rows
+  "The expected shape of the relation a literal denotes: how many rows it produces,
+  and how many distinct values each of its variables takes over them.
+
+      (est-rows kb '(parentOf ?x ?y))
+      ;; => {:rows 400 :vars #{?x ?y} :distinct {?x 20}}
+
+  This is the **other** estimator, and it is not `est-matches`.  That one is a sound
+  upper bound and this one is a point estimate, wrong in both directions by design —
+  which is the property that lets it compose, since expectations of products factor
+  under independence where maxima of products do not.  Use `est-matches` to prove a
+  literal cannot fan out; use this to say how much it does.
+
+  `:distinct` holds only what the index can **count**.  The trie narrows left to
+  right, so the one variable it counts exactly is the one at the first position the
+  known prefix cannot extend past — `(parentOf Tom ?y)` counts `?y`, `(parentOf ?x ?y)`
+  counts `?x` and leaves `?y` out.  A variable in `:vars` and absent from `:distinct`
+  is uncounted, not zero, and the join formula reads it as the neutral 1 so that
+  whichever side of a join *can* count a variable is the side that decides.
+
+  There is deliberately no `bound` argument, and the asymmetry with `est-matches` is
+  the point: a literal's own shape does not depend on what the plan has bound, and the
+  narrowing that binding buys is what the join formula computes.  A planner seeds its
+  prefix with the bound variables as a one-row relation and gets the same number the
+  per-literal model charged for them, by the general rule."
+  ([kb goal] (est-rows kb goal {}))
+  ([kb goal opts]
+   (let [s     (summary kb goal opts)
+         round (fn [^double d] (long (Math/round d)))]
+     {:rows     (round (:rows s))
+      :vars     (:vars s)
+      :distinct (reduce-kv (fn [m v d] (assoc m v (round (double d)))) {} (:distinct s))})))
 
 ;; ---- ordering -----------------------------------------------------------
 
@@ -294,90 +614,150 @@
   [l consequent-pred]
   (and consequent-pred (sequential? l) (= (first l) consequent-pred)))
 
-;; ---- placing the literals no estimate can rank --------------------------
+;; ---- blocks: the components a conjunction falls into --------------------
 
-(defn- greedy-order
-  "Order generators by repeatedly taking the cheapest under the bindings in hand."
-  [gens bound0 cost]
-  (loop [remaining gens, bound bound0, acc []]
+(defn- reachable
+  "Every literal index connected to `start` through a chain of shared variables."
+  [start by-idx by-var]
+  (loop [stack [start], seen #{}]
+    (if-let [i (peek stack)]
+      (if (seen i)
+        (recur (pop stack) seen)
+        (recur (into (pop stack) (mapcat by-var) (by-idx i)) (conj seen i)))
+      seen)))
+
+(defn- components
+  "The generators split into connected components — two literals are in one component
+  when they share a variable, transitively — with every component touching
+  `anchor-vars` fused into a single **anchored** one.
+
+  The split is structural: read off the conjunction, exact, and costing nothing,
+  which is why it is made here rather than left to an estimate.  What it buys is the
+  claim the cost model most needs and least deserves to be trusted with — that no
+  ordering *inside* one component changes what another component costs — so the
+  estimate is only ever asked to compare within a block, or to rank two whole blocks
+  by the transposition law.
+
+  A literal with no variables at all is a component of its own: it shares nothing with
+  anything, including with the anchor, and being alone is what lets the \"cannot
+  multiply\" rule take it to the front.
+
+  Returns `[{:pairs [[i literal] …] :anchored? bool} …]` in written order, each
+  block's pairs in written order too."
+  [gens anchor-vars]
+  (let [by-idx (into {} (map (fn [[i l]] [i (vars-of l)])) gens)
+        by-var (reduce (fn [m [i vs]]
+                         (reduce #(update %1 %2 (fnil conj #{}) i) m vs))
+                       {} by-idx)
+        touches? (fn [i] (boolean (some anchor-vars (by-idx i))))
+        anchor   (reduce (fn [s [i _]]
+                           (if (and (touches? i) (not (s i)))
+                             (into s (reachable i by-idx by-var))
+                             s))
+                         #{} gens)
+        block-of (fn [seen [i _]]
+                   (cond (seen i)   nil
+                         (anchor i) anchor
+                         :else      (reachable i by-idx by-var)))]
+    (loop [pending gens, seen #{}, out []]
+      (if-let [[pr & more] (seq pending)]
+        (if-let [idx (block-of seen pr)]
+          (recur more (into seen idx)
+                 (conj out {:pairs (filterv (comp idx first) gens)
+                            :anchored? (= idx anchor)}))
+          (recur more seen out))
+        out))))
+
+(defn- greedy-block
+  "Order one block's literals by repeatedly taking the one whose join onto the prefix
+  is smallest, and report what the block costs.
+
+  Two numbers come back beside the order, and they are what the transposition law
+  ranks blocks on: **`:n`**, the rows the block produces, and **`:s`**, the
+  intermediate rows it passes through getting there — the sum of every prefix, which
+  is what running it actually costs.  **`:prune?`** is the separate, *sound* claim
+  that the block cannot multiply at all: every literal in it bounded to at most one
+  match by `est-matches`, which the estimate cannot say and the bound can."
+  [pairs prefix0 bound0 cost summary-of]
+  (loop [remaining pairs, prefix prefix0, bound bound0, acc [], s 0.0, prune? true]
     (if (empty? remaining)
-      acc
-      ;; sort-by is stable, and the original index is the second key, so a cost tie
-      ;; resolves to the literal the caller wrote first
-      (let [[_ l :as pick] (first (sort-by (fn [[i g]] [(cost g bound) i]) remaining))]
+      {:pairs acc :n (:rows prefix) :s s :prune? prune?}
+      (let [scored (map (fn [[i l :as pr]]
+                          (let [b      (cost l bound)
+                                joined (clamped-join prefix (summary-of pr) b)]
+                            [(:rows joined) i pr joined b]))
+                        remaining)
+            ;; ties resolve to the literal the caller wrote first
+            [rows _ pick joined b] (first (sort-by (fn [[r i]] [r i]) scored))]
         (recur (filterv #(not= (first %) (first pick)) remaining)
-               (into bound (vars-of l))
-               (conj acc pick))))))
+               joined
+               (into bound (vars-of (second pick)))
+               (conj acc pick)
+               (+ s rows)
+               (and prune? (<= b 1)))))))
 
-(defn- cartesian-factors
-  "The generators held to the back, by index.  Two conditions, and the second is not a
-  refinement of the first — it is a different claim, and the pair of them is what
-  \"multiplies the rest of the plan\" actually means.
+(defn- rank-blocks
+  "The blocks in execution order, and the rule is three-tiered because three different
+  kinds of claim decide a block's place.
 
-  **Shares no variable** with anything else the conjunction will run.  Nothing it binds
-  narrows another literal and nothing another binds narrows it, so wherever it is placed
-  it multiplies the row count of everything sequenced after it.  Its extent is therefore
-  not what decides where it belongs — a selective one is the worst kind, because taking
-  the cheapest literal available puts precisely that one first, where the multiplication
-  is applied to the whole rest of the plan.  Sharing is judged against every other
-  literal the caller wrote — the other generators, the deferred literals, the recursive
-  one — and against the variables already bound, so a literal feeding an evaluable is
-  not one of these, and this stays a claim about the conjunction rather than about the
-  generators alone.
+  1. **A block that cannot multiply, first.**  `:prune?` is a proof off `est-matches`,
+     not an estimate: every literal in the block matches at most once, so the block can
+     only shrink what follows it and costs one lookup to do so.  A false ground literal
+     belongs here and this is the tier that puts it there.
+  2. **The anchored block next.**  It holds every literal the pins and the caller's
+     bindings reach, and both are selectivity the summary algebra does not model — an
+     evaluable prunes on values, and a bound variable narrows a literal the block's own
+     `n` already accounts for but a rival block's does not.
+  3. **Everything else by the transposition law**, `s/(n−1)` descending, with `n ≤ 1`
+     ranked `+∞` so it leads (and `n = 0`, where the formula would change sign, with
+     it).
 
-  **And can multiply at all.**  A literal matching at most once multiplies by at most
-  one: it cannot fan the plan out, only prune it, so it belongs wherever it is cheapest
-  and that is first.  The case to keep in view is the *ground* literal — `(dog Bob)`
-  once a rule's bindings are substituted in, which is the shape both chaining paths
-  hand the planner.  It has no variables at all, so the sharing test above passes it
-  vacuously; hold it to the back and a conjunction runs its whole join before reaching
-  the one-lookup test that would have refuted it.
+  Ties inside every tier break on the block's earliest literal, so the whole ranking
+  is a function of the conjunction and the counts."
+  [planned]
+  (let [ratio (fn [{:keys [n s]}]
+                (if (<= n 1.0) Double/POSITIVE_INFINITY (/ s (- n 1.0))))]
+    (concat (->> planned (filter #(and (not (:anchored? %)) (:prune? %)))
+                 (sort-by (juxt :n :at)))
+            (filter :anchored? planned)
+            (->> planned (remove :anchored?) (remove :prune?)
+                 (sort-by (fn [b] [(- (ratio b)) (:at b)]))))))
 
-  `est-matches` bounds a literal from *above*, so an estimate of 1 is a proof that it
-  matches at most once.  That is the one direction the bound is sound in and the only
-  one this uses it for — it decides nothing about which of two multipliers is larger,
-  which is the comparison upper bounds cannot make (see `deferring-isolated-order`)."
-  [gens others bound0 cost]
-  (let [elsewhere (into (set bound0) (mapcat vars-of) others)
-        var-count (reduce (fn [m [_ l]]
-                            (reduce (fn [m v] (update m v (fnil inc 0))) m (vars-of l)))
-                          {} gens)]
-    (set (keep (fn [[i l]]
-                 (when (and (every? (fn [v] (and (not (elsewhere v))
-                                                 (= 1 (var-count v))))
-                                    (vars-of l))
-                            ;; only now, and only for the few literals that got this
-                            ;; far, is the index asked anything
-                            (> (cost l bound0) 1))
-                   i))
-               gens))))
+(defn- block-order
+  "Order the generators: split them into blocks, order each block internally, rank the
+  blocks, and concatenate.
 
-(defn- deferring-isolated-order
-  "Order generators cheapest-first, but with every cartesian factor held to the back.
-
-  This is the one ordering decision the cost model cannot be trusted to make and does
-  not have to be.  Whether a literal shares a variable is **structural** — read off
-  the conjunction, not off an estimate — while how large a join comes out is a
-  guess the index can only bound from above.  A plan built by minimizing estimated
-  cost end to end compounds that bound k times over and can land wide of a plan that
-  never trusted it that far; the placement below compounds nothing, because it rests
-  on no estimate at all.
-
-  Among the connected literals the cheapest-first pick stands, and it is estimated
-  under the bindings in hand as ever.  Among the isolated tail the order is cheapest
-  first too, and there it is not a heuristic: a run of pure multiplications sums to
-  least when the smallest factor is applied first."
-  [gens bound0 cost others]
-  (let [iso     (cartesian-factors gens others bound0 cost)
-        connect (filterv (fn [[i _]] (not (iso i))) gens)
-        loose   (filterv (fn [[i _]] (iso i)) gens)]
-    (if (empty? connect)
-      ;; nothing constrains anything: the whole conjunction is one product, and
-      ;; ascending order is optimal for it rather than merely cheap to compute
-      (greedy-order gens bound0 cost)
-      (let [head  (greedy-order connect bound0 cost)
-            bound (into bound0 (mapcat (comp vars-of second)) head)]
-        (into head (greedy-order loose bound cost))))))
+  Returns `{:pairs [[i literal] …] :info {i {:block n :anchored? bool :isolated? bool}}}`
+  — the order to run, and why each literal is where it is, so `explain` reports the
+  decision that was made rather than one recomputed beside it."
+  [gens bound0 cost summary-of anchor-vars]
+  (let [blocks  (components gens anchor-vars)
+        planned (mapv (fn [{:keys [pairs anchored?]}]
+                        (assoc (greedy-block pairs
+                                             (if anchored? (bound-prefix bound0) empty-prefix)
+                                             (if anchored? bound0 #{})
+                                             cost summary-of)
+                               :anchored? anchored?
+                               :at (reduce min (map first pairs))))
+                      blocks)
+        ranked  (rank-blocks planned)]
+    {:pairs (into [] (mapcat :pairs) ranked)
+     :info  (into {} (map-indexed
+                      (fn [b {:keys [pairs anchored? prune?]}]
+                        (into {} (map (fn [[i _]]
+                                        [i {:block b
+                                            :anchored? anchored?
+                                            ;; the answer to "why is this last": a
+                                            ;; literal sharing no variable with
+                                            ;; anything else, ranked behind a block
+                                            ;; that does.  A block that leads was not
+                                            ;; held back, so it is not flagged.
+                                            :isolated? (and (not anchored?)
+                                                            (not prune?)
+                                                            (= 1 (count pairs))
+                                                            (pos? b))}]))
+                              pairs)))
+                  ranked)}))
 
 ;; Literals are carried as [index literal] pairs throughout, never as bare literals.
 ;; A conjunction may legitimately repeat one — `[(lessThan ?a ?b) (lessThan ?a ?b)]`
@@ -405,6 +785,69 @@
 
 (defn- lits [pairs] (mapv second pairs))
 
+(defn- plan-pairs
+  "The whole ordering decision, once: the conjunction's literals in execution order as
+  `[index literal]` pairs, beside the per-generator record of which block placed each
+  one.  `order` takes the literals off it and `explain` reports the rest, so the two
+  cannot drift — a flag computed beside the plan rather than with it can claim a
+  literal was placed by a rule that did not run."
+  [kb goals context {:keys [bound consequent-pred est-override] :or {bound #{}}}]
+  (let [goals (vec goals)]
+    (if (or (not *enabled*) (< (count goals) 2))
+      {:pairs (vec (map-indexed vector goals)) :info {}}
+      (let [{:keys [gens recs defs]} (partition-literals goals consequent-pred)
+            drop-i (fn [pending taken]
+                     (let [taken (set (map first taken))]
+                       (filterv (fn [[i _]] (not (taken i))) pending)))]
+        (if (< (count gens) 2)
+          ;; Nothing to choose between, but the deferred literals can still be
+          ;; pulled forward past the recursive one.
+          (let [bound' (into bound (mapcat (comp vars-of second) gens))
+                early  (ready defs bound')]
+            {:pairs (vec (concat gens early recs (drop-i defs early))) :info {}})
+          (let [count-at*  (memoizing p/count-at)
+                kids*      (memoizing p/count-children)
+                with-arg*  (memoizing p/count-with-arg)
+                functor*   (memoizing p/count-with-functor)
+                opts       {:count-at count-at* :count-children kids*
+                            :count-with-arg with-arg* :count-with-functor functor*
+                            :context context}
+                cost       (fn [g bnd]
+                             (or (when est-override (est-override g bnd))
+                                 (est-matches kb g bnd opts)))
+                ;; A literal's own shape does not depend on the bindings in hand, so
+                ;; unlike `cost` it is computed once per literal rather than once per
+                ;; pick — which is what keeps a richer estimate off the O(k²) path.
+                ;; An override reports a row count and nothing about columns, so its
+                ;; summary counts none of them and every join with it defers to the
+                ;; other side, which is the fan-out the override exists to report.
+                summaries  (volatile! {})
+                summary-of (fn [[i l]]
+                             (or (get @summaries i)
+                                 (let [s (if-let [e (when est-override (est-override l bound))]
+                                           {:rows (double e) :vars (vars-of l) :distinct {}}
+                                           (summary kb l opts))]
+                                   (vswap! summaries assoc i s)
+                                   s)))
+                {:keys [pairs info]} (block-order gens bound cost summary-of
+                                                  (into (set bound)
+                                                        (mapcat (comp vars-of second))
+                                                        (concat recs defs)))]
+            (loop [remaining pairs
+                   bound     bound
+                   pending   defs
+                   acc       []]
+              (if (empty? remaining)
+                (let [early (ready pending bound)]
+                  {:pairs (vec (concat acc early recs (drop-i pending early))) :info info})
+                (let [[_ l :as pick] (first remaining)
+                      bound'         (into bound (vars-of l))
+                      early          (ready pending bound')]
+                  (recur (rest remaining)
+                         bound'
+                         (drop-i pending early)
+                         (into (conj acc pick) early)))))))))))
+
 (defn order
   "Order `goals` — a conjunction — for execution, and return the reordered vector.
 
@@ -425,92 +868,90 @@
   without reading the index at all: the overwhelmingly common `prove` call is a
   single goal and must not pay for a planner it cannot use."
   ([kb goals context] (order kb goals context {}))
-  ([kb goals context {:keys [bound consequent-pred est-override]
-                      :or   {bound #{}}}]
-   (let [goals (vec goals)]
-     (if (or (not *enabled*) (< (count goals) 2))
-       goals
-       (let [{:keys [gens recs defs]} (partition-literals goals consequent-pred)
-             drop-i (fn [pending taken]
-                      (let [taken (set (map first taken))]
-                        (filterv (fn [[i _]] (not (taken i))) pending)))]
-         (if (< (count gens) 2)
-           ;; Nothing to choose between, but the deferred literals can still be
-           ;; pulled forward past the recursive one.
-           (let [bound' (into bound (mapcat (comp vars-of second) gens))
-                 early  (ready defs bound')]
-             (lits (concat gens early recs (drop-i defs early))))
-           (let [count-at*  (memoizing p/count-at)
-                 children*  (memoizing p/children)
-                 with-arg*  (memoizing p/count-with-arg)
-                 functor*   (memoizing p/count-with-functor)
-                 opts       {:count-at count-at* :children children*
-                             :count-with-arg with-arg* :count-with-functor functor*
-                             :context context}
-                 cost       (fn [g bnd]
-                              (or (when est-override (est-override g bnd))
-                                  (est-matches kb g bnd opts)))
-                 ;; the generators, cheapest first with the cartesian factors held to
-                 ;; the back; the deferred literals are threaded back through that
-                 ;; order below, each at the point it becomes ready
-                 ordered    (deferring-isolated-order
-                             gens bound cost
-                             (concat (lits recs) (lits defs)))]
-             (loop [remaining ordered
-                    bound     bound
-                    pending   defs
-                    acc       []]
-               (if (empty? remaining)
-                 (let [early (ready pending bound)]
-                   (lits (concat acc early recs (drop-i pending early))))
-                 (let [[_ l :as pick] (first remaining)
-                       bound'         (into bound (vars-of l))
-                       early          (ready pending bound')]
-                   (recur (rest remaining)
-                          bound'
-                          (drop-i pending early)
-                          (into (conj acc pick) early))))))))))))
+  ([kb goals context opts]
+   (lits (:pairs (plan-pairs kb goals context opts)))))
 
 (defn explain
-  "The plan as data: each literal in execution order with the estimate it was chosen
-  on and the variables bound when it runs.  What `core/query-plan` reports for a
-  conjunction, and the way to see *why* an order was chosen rather than just what it
-  was.
+  "The plan as data: each literal in execution order with what it was costed at, the
+  variables bound when it runs, and the reason it is where it is.  What
+  `core/query-plan` reports for a conjunction, and the way to see *why* an order was
+  chosen rather than just what it was.
 
-  Three flags, because a literal's position is decided by one of three different
+  Three numbers, because the decision turns on three:
+
+  - **`:est-matches`** — the sound upper bound on this literal's own fan-out, under
+    the bindings in hand.  What proves a literal cannot multiply.
+  - **`:est-rows`** — the expected size of the relation the literal denotes, on its
+    own and irrespective of the plan.  What a join is costed in.
+  - **`:est-prefix`** — the model's expected row count for the whole plan up to and
+    including this literal.  This is the number the ordering actually turned on, and
+    the one to read a surprising plan against: a literal placed early on a small
+    `:est-matches` whose `:est-prefix` then jumps is the cost model being wrong about
+    a join rather than about a literal.
+
+  And three flags, because a literal's position is decided by one of three different
   things and a plan is only diagnosable if it says which.  `:deferred?` and
   `:recursive?` mark the operational pins.  **`:isolated?` marks a cartesian factor
   that was held to the back** for being one — read it as the answer to \"why is this
   last\", not as a structural property of the literal.  Without it a selective one
   reads as a small number sitting last, which looks like the planner erred; it is the
   one position the estimate beside it does not account for.  A literal sharing no
-  variable but matching at most once is *not* flagged, because it is not held back:
-  `cartesian-factors` says why, and a flag that disagreed with the order it explains
-  would be worse than no flag.
+  variable but matching at most once is *not* flagged, because it is not held back,
+  and neither is one whose block the ranking put first.
 
-  The flag is computed under the same guards `order` plans under, so a conjunction
-  short enough to be returned untouched reports nothing as held back — there being
-  nowhere to hold it."
+  **`:block`** is the rest of that answer, and the part `:isolated?` cannot give: the
+  index of the block the literal was placed in, blocks running in the order shown. Two
+  literals sharing a variable with each other and with nothing else are a cartesian
+  block just as much as one literal is, and neither is `:isolated?`; the block number
+  is what says they moved together.  It is nil wherever no block ranking ran — planning
+  off, or fewer than two *reorderable* literals, which a two-literal conjunction reaches
+  whenever one of them is an evaluable.  The deferred literal is still pulled forward
+  there; what is absent is blocks for it to be pulled forward through.
+
+  The flags are read off the plan that ran rather than recomputed beside it, so a
+  conjunction returned untouched reports nothing as held back — there being nowhere to
+  hold it — and none of them can name a rule that did not fire.  The three numbers are
+  recomputed, since the plan keeps only the block-local prefixes it ranked on and these
+  are threaded across the whole execution order; they are computed by the same two calls
+  `plan-pairs` costs with, `:est-override` included, so a reported number and the number
+  that chose the order are one cost model rather than two."
   ([kb goals context] (explain kb goals context {}))
   ([kb goals context opts]
-   (let [ordered  (order kb goals context opts)
+   (let [{:keys [pairs info]} (plan-pairs kb goals context opts)
          bound0   (or (:bound opts) #{})
-         override (:est-override opts)
-         cost     (fn [g bnd] (or (when override (override g bnd))
-                                  (est-matches kb g bnd {:context context})))
-         {:keys [gens recs defs]} (partition-literals goals (:consequent-pred opts))
-         iso     (if (and *enabled* (>= (count goals) 2) (>= (count gens) 2))
-                   (cartesian-factors gens (lits (concat recs defs)) bound0 cost)
-                   #{})
-         iso?    (set (keep (fn [[i l]] (when (iso i) l)) gens))]
+         est-opts {:context context}
+         ;; A deferred literal is not a generator, so `plan-pairs` never costs one and
+         ;; never asks the override about one — and neither does this, or a literal the
+         ;; model reads as transparent would report a fan-out it never has.
+         override (when-let [f (:est-override opts)]
+                    (fn [g bnd] (when-not (deferred? g) (f g bnd))))
+         ;; otherwise mirroring `plan-pairs`: the bound is taken under the bindings in
+         ;; hand and the summary under the caller's, and an override reports rows and
+         ;; nothing about columns — so every join with it defers to the other side
+         bound-of (fn [g bnd] (long (or (when override (override g bnd))
+                                        (est-matches kb g bnd est-opts))))
+         sum-of   (fn [g] (if-let [e (when override (override g bound0))]
+                            {:rows (double e) :vars (vars-of g) :distinct {}}
+                            (summary kb g est-opts)))]
      (first
-      (reduce (fn [[acc bound] g]
-                [(conj acc {:goal         g
-                            :est-matches  (est-matches kb g bound {:context context})
-                            :bound-before bound
-                            :deferred?    (boolean (deferred? g))
-                            :recursive?   (boolean (recursive-in? g (:consequent-pred opts)))
-                            :isolated?    (contains? iso? g)})
-                 (into bound (vars-of g))])
-              [[] bound0]
-              ordered)))))
+      (reduce (fn [[acc bound prefix] [i g]]
+                (let [s      (sum-of g)
+                      bnd    (bound-of g bound)
+                      ;; a deferred literal is a test on the rows in hand, never a
+                      ;; source of them, so it clamps the prefix to itself — reading
+                      ;; the trie for `lessThan` would zero it
+                      joined (clamped-join prefix s (if (deferred? g) 1 bnd))
+                      flag   (get info i)]
+                  [(conj acc {:goal         g
+                              :est-matches  bnd
+                              :est-rows     (long (Math/round ^double (:rows s)))
+                              :est-prefix   (long (Math/round ^double (:rows joined)))
+                              :bound-before bound
+                              :block        (:block flag)
+                              :deferred?    (boolean (deferred? g))
+                              :recursive?   (boolean (recursive-in? g (:consequent-pred opts)))
+                              :isolated?    (boolean (:isolated? flag))})
+                   (into bound (vars-of g))
+                   joined]))
+              [[] bound0 (bound-prefix bound0)]
+              pairs)))))

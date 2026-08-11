@@ -51,6 +51,7 @@
   re-join and nothing else."
   (:require [clojure.set :as set]
             [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
@@ -62,26 +63,40 @@
 
 (def ^:private pc-cache-limit 256)
 
+;; `{name calculus}` for every calculus value built in this process — what the two cache
+;; rows at the bottom of this file sum over.  Keyed by name so reloading a calculus's
+;; namespace replaces its entry rather than doubling it, and a `defonce` so reloading
+;; *this* one does not forget the calculi already built against it.
+(defonce ^:private built-calculi (atom {}))
+
 (defn calculus
   "Bundle an algebra and its vocabulary into the value every function here takes.
   `denotation` maps each stored predicate to the set of base relations it denotes, so its
-  keys are the predicates the prover claims."
+  keys are the predicates the prover claims.
+
+  The value carries the two caches its passes fill, so it is also registered in
+  `built-calculi` on the way out — that is how a reader can be told what they hold
+  without every calculus namespace having to say so itself."
   [nm algebra denotation]
-  {:name       nm
-   ;; the algebra is carried exactly as written — a plain value a test can reason about.
-   ;; `qcn` compiles it to bitmasks on first use and caches that by the algebra itself, so
-   ;; composition is a table read without the calculus arranging for anything.
-   :algebra    algebra
-   :denotation denotation
-   :predicates (set (keys denotation))
-   :pc-cache   (atom {})
-   ;; a **separate** cache for the support-carrying pass, keyed on the same network
-   ;; value.  Not a second field of one entry: `tighten` is on every query's hot path
-   ;; and support is asked for rarely, so sharing an entry would make every query pay to
-   ;; propagate support nobody reads.  Two caches, each filled only when its own question
-   ;; is asked, and both sound for the same reason — the network is derived from the
-   ;; believed facts, so any change to them is a different key.
-   :support-cache (atom {})})
+  (let [c {:name       nm
+           ;; the algebra is carried exactly as written — a plain value a test can reason
+           ;; about.  `qcn` compiles it to bitmasks on first use and caches that by the
+           ;; algebra itself, so composition is a table read without the calculus
+           ;; arranging for anything.
+           :algebra    algebra
+           :denotation denotation
+           :predicates (set (keys denotation))
+           :pc-cache   (atom {})
+           ;; a **separate** cache for the support-carrying pass, keyed on the same
+           ;; network value.  Not a second field of one entry: `tighten` is on every
+           ;; query's hot path and support is asked for rarely, so sharing an entry would
+           ;; make every query pay to propagate support nobody reads.  Two caches, each
+           ;; filled only when its own question is asked, and both sound for the same
+           ;; reason — the network is derived from the believed facts, so any change to
+           ;; them is a different key.
+           :support-cache (atom {})}]
+    (swap! built-calculi assoc nm c)
+    c))
 
 ;; ---- reading the KB into a network --------------------------------------
 
@@ -759,3 +774,46 @@
                  sup (support calc kb context x y)]
            :when (seq sup)]
        [bnd sup]))))
+
+;; ---- what the passes hold, declared -------------------------------------
+;;
+;; Both caches hang off the **calculus value**, and a shipped calculus is one `def` — so
+;; two KBs registering Allen share one cache and these are process rows, not per-KB ones.
+;; That sharing is deliberate (a pass keyed on the network value is one caller's answer
+;; and another's), and it is exactly the case a per-KB row would misattribute.  The limit
+;; is per calculus; the count is across all of them.
+
+(defn- calculus-cache-total [k]
+  (reduce + 0 (map #(count @(get % k)) (vals @built-calculi))))
+
+(defn- clear-calculus-cache [k]
+  (let [n (calculus-cache-total k)]
+    (doseq [c (vals @built-calculi)] (reset! (get c k) {}))
+    n))
+
+(caches/register-cache
+ {:cache    :path-consistency
+  :label    "Path-consistency passes"
+  :scope    :process
+  :unit     "networks"
+  :limit    pc-cache-limit
+  :counters nil
+  :note     (str "One tightened network per network value a calculus has been asked "
+                 "about. Keyed on the value rather than on the KB or the context, so a "
+                 "change to the believed facts is a different key and never a stale "
+                 "answer.")
+  :read     (fn [_] {:entries (calculus-cache-total :pc-cache)})
+  :clear    (fn [_] (clear-calculus-cache :pc-cache))})
+
+(caches/register-cache
+ {:cache    :network-support
+  :label    "Network support passes"
+  :scope    :process
+  :unit     "networks"
+  :limit    pc-cache-limit
+  :counters nil
+  :note     (str "The same pass carrying the stored facts each entailment rests on — a "
+                 "separate cache because support is asked for rarely and every query "
+                 "would otherwise pay to propagate what nothing reads.")
+  :read     (fn [_] {:entries (calculus-cache-total :support-cache)})
+  :clear    (fn [_] (clear-calculus-cache :support-cache))})

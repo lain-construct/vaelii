@@ -37,7 +37,8 @@
   out of the very facts `FactProver` would return and out of the derivations a rule
   contributes, and a calculus reads both into its network — converse and composition
   included — before entailing anything."
-  (:require [vaelii.impl.inherit :as inherit]
+  (:require [vaelii.impl.caches :as caches]
+            [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
@@ -332,13 +333,44 @@
 
 ;; ---- generic relation reasoners (predicate metadata) --------------------
 
+(defn- hop-patterns
+  "The one-hop lookup patterns for `node` under `pred`, each binding `?rv` to the
+  neighbour.  `dir` is `:succ` (node in argument 1) or `:pred` (node in argument 2).
+
+  **One probe per visible `(inverse P Q)`, plus the direct one.**  `(P x y)` and `(Q y x)`
+  are one edge recorded two ways, so a chain whose middle hop was written on a partner
+  is on the graph the walk sees rather than a break in it.  `inverses-of` answers the
+  empty set for nearly every predicate, so the ordinary walk pays one map read per node —
+  and where a KB declares two partners both are probed, since answering off one of them
+  would put a hop's visibility at the mercy of which declaration landed last.
+
+  The partner is probed with `matches-visible` on the swapped literal, **not** by
+  delegating a goal to the registry.  That keeps the step relation a function of the KB
+  alone — the property `vaelii.impl.literal-cache`'s docstring argues for at length, and
+  the reason the cache under this walk can exist — and it is why a mutual `(inverse P Q)`
+  + `(inverse Q P)` pair cannot cycle here the way `solve-inverted` has to guard against.
+  A `P` declared its own inverse yields the two probes of a symmetric predicate, which is
+  what such a declaration says."
+  [kb dir pred node context]
+  (let [qs (sort (tax/inverses-of (:taxonomy kb) pred context))]
+    (if (= dir :succ)
+      (into [(list pred node '?rv)] (map #(list % '?rv node)) qs)
+      (into [(list pred '?rv node)] (map #(list % node '?rv)) qs))))
+
 (defn- memo-neighbours
   "`matches-visible` neighbours of `node` under `pred`, realized to a set and cached in
   `observe/*reach-memo*` when one is bound.  `dir` is `:succ` (node in argument 1) or `:pred`
-  (node in argument 2); `pat-fn` builds the lookup pattern for that direction."
-  [kb dir pred node context pat-fn]
-  (let [compute #(into #{} (keep (fn [m] (get (second m) '?rv)))
-                       (res/matches-visible kb (pat-fn) context))]
+  (node in argument 2).
+
+  The key stays `[dir pred node context]` and covers everything the step relation reads:
+  `inverses-of` is a function of exactly `pred` and `context`, both already in it.  The
+  neighbours are a set of **terms**, so an edge recorded in both spellings — or reached
+  through both probes of a self-inverse predicate — contributes one member, not two."
+  [kb dir pred node context]
+  (let [compute #(into #{}
+                       (comp (mapcat (fn [pat] (res/matches-visible kb pat context)))
+                             (keep (fn [m] (get (second m) '?rv))))
+                       (hop-patterns kb dir pred node context))]
     (if-let [m observe/*reach-memo*]
       (let [k [dir pred node context]]
         (if (contains? @m k) (get @m k) (let [v (compute)] (swap! m assoc k v) v)))
@@ -347,12 +379,25 @@
 (defn- succs
   "y such that (pred x y) is believed, visible from context (memoized per query)."
   [kb pred x context]
-  (memo-neighbours kb :succ pred x context #(list pred x '?rv)))
+  (memo-neighbours kb :succ pred x context))
 
 (defn- preds-of
   "x such that (pred x y) is believed, visible from context (memoized per query)."
   [kb pred y context]
-  (memo-neighbours kb :pred pred y context #(list pred '?rv y)))
+  (memo-neighbours kb :pred pred y context))
+
+(defn- walk-sources
+  "Every term the closure can start from: argument 1 of a believed `pred` fact, and
+  argument 2 of a believed partner fact for each visible `(inverse P Q)`.  A node with no
+  outgoing edge reaches nothing and contributes no pair, so this is the whole closure's
+  seed set and not an enumeration of the vocabulary — bounded by the extent, the way
+  `DisjointnessProver`'s open goal is bounded by the declarations."
+  [kb pred context]
+  (let [qs   (sort (tax/inverses-of (:taxonomy kb) pred context))
+        ends (fn [pat k] (keep #(get (second %) k) (res/matches-visible kb pat context)))]
+    (distinct (apply concat
+                     (ends (list pred '?lv '?rv) '?lv)
+                     (map #(ends (list % '?lv '?rv) '?rv) qs)))))
 
 (defn- reach [seed step]
   (loop [result #{}, frontier (vec seed)]
@@ -362,6 +407,150 @@
         (if (result x)
           (recur result frontier)
           (recur (conj result x) (into frontier (step x))))))))
+
+(defn- on-a-cycle
+  "The nodes reachable from themselves under `step`, starting from `sources` — the answer
+  to `(P ?x ?x)` for a declared-transitive `P`.
+
+  **One pass over the graph, not one closure per source.**  Asking `reaches?` per source
+  walks that source's whole reach to fail, so an acyclic chain of *n* nodes costs O(n²) to
+  answer nothing — the shape a temporal or part-of chain actually has, and the shape this
+  arm is most often asked about.  A node lies on a cycle exactly when its strongly
+  connected component has more than one member, or when it has a self-edge, so Tarjan
+  answers every source at once in O(V+E).
+
+  Iterative rather than recursive: a component's depth is a chain's length, and a 100k-node
+  `before` chain would take the JVM stack down.  The stack frames are `[node
+  successors-still-to-visit]`, which is the recursion made explicit."
+  [sources step]
+  (let [index   (java.util.HashMap.)          ; node -> discovery index
+        low     (java.util.HashMap.)          ; node -> lowlink
+        on      (java.util.HashSet.)          ; nodes on the tarjan stack
+        stack   (java.util.ArrayDeque.)       ; the tarjan stack itself
+        cyclic  (volatile! (transient #{}))
+        counter (volatile! 0)]
+    (letfn [(component! [root]
+              ;; pop one SCC; it is cyclic when it has a second member — a singleton is
+              ;; cyclic only through a self-edge, which is tested at the source
+              (let [members (loop [acc []]
+                              (let [w (.pop stack)]
+                                (.remove on w)
+                                (if (= w root) (conj acc w) (recur (conj acc w)))))]
+                (when (> (count members) 1)
+                  (vswap! cyclic #(reduce conj! % members)))))
+            (visit! [v0]
+              (let [frames (java.util.ArrayDeque.)]
+                (letfn [(push! [v]
+                          (let [i (vswap! counter inc)]
+                            (.put index v i) (.put low v i)
+                            (.push stack v) (.add on v)
+                            (.push frames (object-array [v (java.util.ArrayDeque.
+                                                            ^java.util.Collection
+                                                            (vec (step v)))]))))]
+                  (push! v0)
+                  (while (not (.isEmpty frames))
+                    (let [^objects f (.peek frames)
+                          v          (aget f 0)
+                          ^java.util.ArrayDeque todo (aget f 1)]
+                      (if (.isEmpty todo)
+                        (do (.pop frames)
+                            (when (= (.get low v) (.get index v)) (component! v))
+                            (when-not (.isEmpty frames)
+                              (let [^objects p (.peek frames)
+                                    u          (aget p 0)]
+                                (.put low u (min (long (.get low u)) (long (.get low v)))))))
+                        (let [w (.poll todo)]
+                          (cond
+                            (not (.containsKey index w)) (push! w)
+                            (.contains on w)             (.put low v (min (long (.get low v))
+                                                                          (long (.get index w))))
+                            :else                        nil))))))))]
+      (doseq [s sources]
+        ;; a self-edge makes a singleton component cyclic, and Tarjan does not see it
+        (when (contains? (set (step s)) s) (vswap! cyclic conj! s))
+        (when-not (.containsKey index s) (visit! s)))
+      (persistent! @cyclic))))
+
+;; ---- the closure answer cache ------------------------------------------
+;;
+;; `reach` is a fixpoint, and asking for one twice over an unmutated KB is the same
+;; question twice.  The layer below removes the *store* reads — `matches-visible` is
+;; cached per literal and stamped with the change clock, so a repeat re-fetches no record
+;; — and leaves the walk.  The walk is the majority: over a 40-member class it is 127 µs
+;; against the 15 µs of per-ask dispatch a closed one-hop goal pays too, and holding the
+;; answer puts a repeat at 52 µs, which is that dispatch plus the projection and nothing
+;; else (`lein bench-walk`).  On a chain longer than the per-literal cache's entry bound
+;; the layer below cannot help at all, and a repeat there is 0.12× (`docs/taxonomy.md`).
+;;
+;; **Why this can be cached where a `solve-goal` answer cannot.**  `literal-cache`'s
+;; docstring gives the two properties a cached answer needs and `solve-goal` lacks: it
+;; must not be **tier**-dependent (`ask-capped` drops provers above a cost tier) and must
+;; not be **scope**-dependent (a pinned scope freezes what `observe/cached` returns).  A
+;; reach set is neither.  Dropping this prover means `solve` is never called, so the
+;; entry is never consulted rather than served across a tier it was not computed under;
+;; and the walk reads `matches-visible` and the taxonomy's own generation-stamped memos,
+;; never `observe/cached`, so no pin can hand it a frozen view.  The entry is an answer of
+;; *this prover*, not of the registry.
+
+(def ^:dynamic *closure-answer-limit*
+  "The most reach **members** one KB's closure cache holds before it is dropped
+  wholesale.  Members, not entries, and that is the whole of the design: an entry here is
+  a whole reach set, so ten entries can be ten members or a million, and a bound counting
+  entries would bound nothing.  A single reach larger than this is never stored — it is
+  the case the bound exists for — and a total that reaches it drops the map rather than
+  evicting entry by entry, the wholesale clearing `literal-cache` and `observe` take and
+  for the reason they give.
+
+  Dynamic so a test can drive the bound rather than build a corpus large enough to reach
+  it — the bound is a decision, and one nothing exercises is one nothing checks."
+  100000)
+
+(defn- closure-hit
+  "The cached reach at `k`, or nil — only under `clock`, since one clock move retires
+  every entry at once and the stamp is therefore the map's rather than the entry's.  A KB
+  with no cache atom answers nil, which is a miss and costs an extra walk rather than a
+  wrong answer."
+  [kb k ^long clock]
+  (when-let [a (:closures kb)]
+    (let [c @a]
+      (when (== clock (long (:clock c -1)))
+        (get (:entries c) k)))))
+
+(defn- hold-closure
+  "Hold `v` at `k`, under `clock`.  No `!`: it destroys nothing and every entry is
+  derived, so the next ask recomputes whatever the drop below took."
+  [kb k v ^long clock]
+  (when (and (:closures kb) (<= (count v) (long *closure-answer-limit*)))
+    (swap! (:closures kb)
+           (fn [c]
+             (let [c (if (== clock (long (:clock c -1)))
+                       c
+                       {:clock clock :members 0 :entries {}})
+                   m (+ (long (:members c 0)) (count v))]
+               (cond
+                 (contains? (:entries c) k) c
+                 (> m (long *closure-answer-limit*)) {:clock clock :members 0 :entries {}}
+                 :else (assoc c :members m :entries (assoc (:entries c) k v))))))))
+
+(defn- cached-reach
+  "The reach of `node` under `pred` in `dir`, from the KB's cache when it holds one, else
+  walked and held.
+
+  The clock is read **before** the walk and the answer kept only if it has not moved by
+  the time the walk finishes — `literal-cache/lookup`'s discipline, and the same two
+  reasons.  Stamping afterwards would claim the set describes a state it was never
+  computed from; and a caller that *writes while it reads* — forward chaining, whose own
+  conclusions move the clock under it — fills this with nothing rather than with
+  something stale.  Belief is covered by the same stamp: a relabel moves the clock, so a
+  defeated edge retires the closure that crossed it without anything here knowing which
+  entry to look for."
+  [kb dir pred node context step]
+  (let [k     [dir pred node context]
+        clock (observe/change-clock)]
+    (or (closure-hit kb k clock)
+        (let [v (reach (step node) step)]
+          (when (== (observe/change-clock) clock) (hold-closure kb k v clock))
+          v))))
 
 (defn- reaches?
   "Is `tgt` in the transitive reach of `seed` under `step`?  Stops at the first
@@ -394,17 +583,62 @@
   ;; inverse, so union with those provers rather than running alone.
   (completeness [_ _ _ _] 70)
   (solve [_ kb goal context]
-    (let [[pred a b] goal]
+    (let [[pred a b] goal
+          fwd  #(succs kb pred % context)
+          back #(preds-of kb pred % context)]
       (cond
-        ;; a closed goal asks about *one* pair, so it stops at the answer
+        ;; A closed goal asks about *one* pair, so it stops at the answer — and it
+        ;; **consults** the closure cache without filling it, which is the whole of the
+        ;; asymmetry: an entry answers the pair by membership, while computing one to
+        ;; store would charge a two-hop question for the entire extent, the early exit
+        ;; `reaches?` exists for.
         (and (ground? a) (ground? b))
-        (if (reaches? (succs kb pred a context) #(succs kb pred % context) b) [{}] [])
+        (let [clock (observe/change-clock)
+              from  (closure-hit kb [:succ pred a context] clock)
+              into' (closure-hit kb [:pred pred b context] clock)]
+          (cond
+            from  (if (contains? from b) [{}] [])
+            into' (if (contains? into' a) [{}] [])
+            :else (if (reaches? (fwd a) fwd b) [{}] [])))
         ;; an open argument enumerates, and `reach` is a fixpoint — computing *any* of
         ;; the closure computes all of it, so only the wrapping is lazy here.  That is
         ;; inherent to a closure, not a missed optimization.
-        (ground? a) (map (fn [y] {b y}) (reach (succs kb pred a context) #(succs kb pred % context)))
-        (ground? b) (map (fn [x] {a x}) (reach (preds-of kb pred b context) #(preds-of kb pred % context)))
-        :else []))))                             ; both-var closure: left to facts/rules
+        (ground? a) (map (fn [y] {b y}) (cached-reach kb :succ pred a context fwd))
+        (ground? b) (map (fn [x] {a x}) (cached-reach kb :pred pred b context back))
+        ;; One variable in **both** places — `(P ?x ?x)` — asks which nodes lie on a
+        ;; cycle, and binds one variable rather than two.  Stated rather than left to
+        ;; fall through, for the `Duplicate key` reason `TransitivityProver` gives above.
+        ;;
+        ;; Answered by one condensation rather than one closure per source: `reaches? x x`
+        ;; walks x's whole reach to *fail*, so the acyclic case — the ordinary one for a
+        ;; `before` or `partOf` chain — would cost O(n²) to answer nothing.
+        ;; `sort-by pr-str`, never bare `sort`: these are **terms**, and a term need not
+        ;; be `Comparable` — an unreifiable function application stays structural in
+        ;; argument position, so a binding can be a list, and a bare sort throws
+        ;; `ClassCastException` on a KB whose cycle relates two of them.  Printed form is
+        ;; the content key the rest of this file already ranks terms by.
+        (= a b) (map (fn [x] {a x})
+                     (sort-by pr-str (on-a-cycle (walk-sources kb pred context) fwd)))
+        ;; Both open: **nothing from here**, so the extent answers — the stored `pred`
+        ;; facts and those of its `genl` sub-predicates, through the ordinary match path
+        ;; like any other predicate.  `completeness` 70 is what makes that work: this is
+        ;; not the sole complete method, so the registry unions rather than running it
+        ;; alone, and an empty seq here is a contribution of none rather than an answer
+        ;; of none.
+        ;;
+        ;; The asymmetry with the arms above is deliberate and is the whole reason this
+        ;; arm is written out rather than left to fall through.  Those bound one end, so
+        ;; the work and the answer are both bounded by one node's reach.  This one is
+        ;; bounded by neither: the closure of a transitive relation is **quadratic** in a
+        ;; chain's length, so enumerating it for a 1M-node chain offers half a trillion
+        ;; pairs — not an answer a caller asked for but a process that does not come
+        ;; back.  Laziness does not rescue it either, since `reach` is a fixpoint and one
+        ;; pair costs a whole node's closure.  So the closure is computed for membership
+        ;; and for one bound end, and is never stored and never enumerated whole.
+        ;;
+        ;; A caller who does want it asks for it: `(P ?x ?x)` above for the cycle
+        ;; question, or one bound end per source term.
+        :else []))))
 
 (defrecord ArgPreservingProver []       ; (argPreserving P n R) / (argPreservingInverse P n R)
   Prover
@@ -1057,7 +1291,7 @@
   "Types an individual `x` must have because it fills an argIsa-constrained argument
   of a believed relation: for each believed `(P .. x@n ..)` with `(argIsa P n T')`,
   `x` is a `T'` and, by genl, every supertype of `T'`.  This is argIsa read the
-  other way — as an inference, not only a constraint (e.g. Fido eats Bone1 and eat's
+  other way — as an inference, not only a constraint (e.g. Muffet eats Bone1 and eat's
   2nd argument is food, so Bone1 is food).
 
   **Lazy and deduped.**  `distinct` over a lazy `for` returns a lazy, duplicate-free
@@ -1198,11 +1432,19 @@
     cannot re-enter P-via-Q-via-P;
   Rules concluding the partner predicate are reached when a backward search expands
   them; what the delegation buys is composition with the *other* metadata provers
-  (transitive, symmetric, reflexive) and facts."
+  (transitive, symmetric, reflexive) and facts.
+
+  **Every declared partner, not one.**  Nothing refuses a second `(inverse P R)` beside
+  a standing `(inverse P Q)`, and answering off whichever the taxonomy happened to hold
+  would make a goal's answer a function of declaration order — so each partner is asked
+  and the solutions are unioned, deduped like any other multi-prover union."
   [kb pred a b context]
-  (let [q  (tax/inverse-of (:taxonomy kb) pred context)
+  (let [qs (tax/inverses-of (:taxonomy kb) pred context)
         pv (remove #(instance? InverseProver %) (registry kb))]
-    (solve-goal-with kb pv (list q b a) context)))
+    (->> qs
+         (sort)                                  ; content-keyed, so the order is stable
+         (res/lazy-mapcat #(solve-goal-with kb pv (list % b a) context))
+         distinct)))
 
 (defn est-goal
   "How many bindings the registry expects to produce for `goal`, or **nil** when it
@@ -1429,3 +1671,25 @@
         (cond-> (assoc e :runs? true)
           (and (seq channels) (>= (:completeness e) 100))
           (assoc :guarded-by channels))))))
+
+;; ---- what this namespace holds ------------------------------------------
+
+(caches/register-cache
+ {:cache    :closure-answers
+  :label    "Closure answers"
+  :scope    :kb
+  :unit     "closures"
+  :limit    (fn [] *closure-answer-limit*)
+  :counters nil
+  :note     (str "One declared-transitive predicate's reach from one node, in one "
+                 "direction, seen from one context — the answer an open-argument ask "
+                 "computes. The whole map carries one change clock, so any mutation "
+                 "(a relabel included, which is what makes it follow belief) retires "
+                 "every entry at once. Bounded by total MEMBERS rather than entries, "
+                 "since an entry is a whole reach set: a reach larger than the bound is "
+                 "never stored, and a total that reaches it drops the map wholesale.")
+  :read     (fn [kb] {:entries (some-> (:closures kb) deref :entries count)})
+  :clear    (fn [kb] (let [a (:closures kb)
+                           n (if a (count (:entries @a)) 0)]
+                       (some-> a (reset! {}))
+                       n))})

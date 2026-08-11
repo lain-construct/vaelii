@@ -213,22 +213,28 @@
       (is (tax/genl? t 'cd_t 'ce_t) "through the whole component")
       (is (not (tax/genl? t 'ce_t 'ca_t))))))
 
-(deftest a-belief-move-remakes-a-component-and-surrenders-the-potential
+(deftest a-belief-move-remakes-a-component
   ;; `refresh-beliefs` is the one path that changes the active edge set with no sentex
-  ;; added or removed, and it can move a component both ways: an edge leaving one
-  ;; dissolves it, an edge revived into a cycle closes a new one.  Either way the
-  ;; relation goes loose and the repair is owed — which is why `settle` cannot repair
-  ;; only *before* it reconciles belief (the KB test at the end of this file).
+  ;; added or removed, and it moves a component both ways: an edge leaving one splits
+  ;; it, an edge revived into a cycle closes a new one.  The two are not symmetric.  A
+  ;; split is answered where it happens — the component's own members are all that can
+  ;; have changed — so the relation stays ranked.  A merge is a question about the
+  ;; whole graph, so it surrenders the potential and owes a repair, which is why
+  ;; `settle` cannot repair only *before* it reconciles belief (the KB test at the end
+  ;; of this file).
   (let [t   (tax/create-taxonomy)
         scc #(:scc (rel t :genlContext))]
     (tax/add-genlContext t 'CyAContext 'CyBContext 1)
     (tax/add-genlContext t 'CyBContext 'CyAContext 2)
     (tax/restore-depths t)
     (is (= 1 (count (distinct (map (scc) '[CyAContext CyBContext])))))
-    (testing "the edge leaving dissolves the component"
+    (testing "the edge leaving splits the component, and the split is repaired in place"
       (tax/refresh-beliefs t #(not= % 2))
-      (is (loose? t :genlContext))
       (is (empty? (scc)) "not trusted: a split is the one staleness that answers true")
+      (is (not (loose? t :genlContext)) "and the rest of the relation was never in doubt")
+      (is (sound? t :genlContext) "the two are ranked against each other again")
+      (is (tax/sees? t 'CyAContext 'CyBContext))
+      (is (not (tax/sees? t 'CyBContext 'CyAContext)))
       (tax/restore-depths t)
       (is (empty? (scc)) "and there is genuinely no component to find"))
     (testing "and it coming back closes one again"
@@ -238,6 +244,92 @@
       (is (sound? t :genlContext))
       (is (= 1 (count (distinct (map (scc) '[CyAContext CyBContext]))))
           "one component again, and one name for it"))))
+
+;; ---- a lift out of a component ------------------------------------------
+
+(defn- within?
+  "Run `f` on a daemon thread and wait `ms` for it; true if it finished.  The one
+  operation here that can fail by **not returning at all** is bounded rather than
+  trusted, because a suite that hangs reports nothing — and the thread is a daemon so
+  the JVM can still exit out from under a runaway one."
+  [ms f]
+  (let [th (doto (Thread. ^Runnable f) (.setDaemon true) (.start))]
+    (.join th (long ms))
+    (not (.isAlive th))))
+
+(deftest an-edge-out-of-a-cycle-lifts-the-whole-component
+  ;; The potential ranks the **condensation**, so a lift is a claim about a component
+  ;; rather than about a node: raising one member alone would leave it above its own
+  ;; mates, each of which then forces the next one round the cycle, and the lift never
+  ;; comes back.  The whole component moves together, which both terminates and stays
+  ;; sound.
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genlContext t 'LfAContext 'LfBContext 1)
+    (tax/add-genlContext t 'LfBContext 'LfAContext 2)
+    (tax/restore-depths t)
+    (is (within? 10000 #(tax/add-genlContext t 'LfAContext 'LfZContext 3))
+        "the lift terminates")
+    (is (sound? t :genlContext))
+    (is (not (loose? t :genlContext)))
+    (testing "both members sit above what one of them points at"
+      (let [{:keys [depth]} (rel t :genlContext)]
+        (is (= (depth 'LfAContext) (depth 'LfBContext)) "level, as one component")
+        (is (> (depth 'LfAContext) (depth 'LfZContext)))))
+    (testing "and the pruned reads answer through the component"
+      (is (tax/sees? t 'LfAContext 'LfZContext))
+      (is (tax/sees? t 'LfBContext 'LfZContext))
+      (is (not (tax/sees? t 'LfZContext 'LfAContext))))))
+
+(deftest a-deletion-that-cannot-split-a-component-leaves-it-alone
+  ;; A component's strong connectivity is a property of its own induced subgraph, so an
+  ;; edge with an endpoint outside it is not a member of that subgraph and cannot break
+  ;; it.  Neither the component nor the ranking is touched, which is what keeps the
+  ;; cost of a deletion the size of what it removed rather than the size of the
+  ;; relation.
+  (let [t   (tax/create-taxonomy)
+        scc #(:scc (rel t :genlContext))]
+    (tax/add-genlContext t 'DsAContext 'DsBContext 1)
+    (tax/add-genlContext t 'DsBContext 'DsAContext 2)
+    (tax/add-genlContext t 'DsAContext 'DsTopContext 3)     ; out of the component
+    (tax/add-genlContext t 'DsLowContext 'DsAContext 4)     ; into it
+    (tax/restore-depths t)
+    (let [before (scc)]
+      (doseq [[a b h] '[[DsAContext DsTopContext 3] [DsLowContext DsAContext 4]]]
+        (tax/del-genlContext! t a b h))
+      (is (= before (scc)) "the component is exactly the one it was")
+      (is (not (loose? t :genlContext)))
+      (is (sound? t :genlContext))
+      (is (tax/sees? t 'DsAContext 'DsBContext))
+      (is (tax/sees? t 'DsBContext 'DsAContext))
+      (is (not (tax/sees? t 'DsAContext 'DsTopContext))))))
+
+(deftest a-split-ranks-the-pieces-against-each-other-without-going-loose
+  ;; The measured case: a three-context ring, one edge of it retracted.  What is left
+  ;; is a chain, and the chain has to be ranked — the members were level as one
+  ;; component and a level pair reads as mutually reachable.  The repair is scoped to
+  ;; the component that split, so the relation keeps its pruning and every unrelated
+  ;; context is untouched.
+  (let [t   (tax/create-taxonomy)
+        scc #(:scc (rel t :genlContext))]
+    (tax/add-genlContext t 'SpAContext 'SpBContext 1)
+    (tax/add-genlContext t 'SpBContext 'SpCContext 2)
+    (tax/add-genlContext t 'SpCContext 'SpAContext 3)
+    (tax/add-genlContext t 'SpAContext 'SpTopContext 4)
+    (dotimes [i 20] (tax/add-genlContext t (ctx (+ 100 i)) 'SpTopContext (+ 200 i)))
+    (tax/restore-depths t)
+    (is (= 1 (count (distinct (map (scc) '[SpAContext SpBContext SpCContext])))))
+    (tax/del-genlContext! t 'SpCContext 'SpAContext 3)
+    (testing "the ring is a chain now, and nothing claims a component"
+      (is (empty? (scc)))
+      (is (not (loose? t :genlContext)))
+      (is (sound? t :genlContext)))
+    (testing "and the chain reads one way only"
+      (is (tax/sees? t 'SpAContext 'SpCContext))
+      (is (not (tax/sees? t 'SpCContext 'SpAContext)))
+      (is (tax/sees? t 'SpAContext 'SpTopContext))
+      (is (not (tax/sees? t 'SpCContext 'SpTopContext))
+          "the ring was what carried SpC up to the top")
+      (is (not (tax/sees? t 'SpTopContext 'SpAContext))))))
 
 ;; ---- the same thing through the KB ---------------------------------------
 

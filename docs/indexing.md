@@ -23,7 +23,7 @@ logged, nippy-framed so ints and keywords keep their type. The whole layout:
 | Key | Value | Answers |
 |-----|-------|---------|
 | `[:trie :count prefix]` | integer | how many sentexes under this path prefix |
-| `[:trie :children prefix]` | set | the next token labels (a node's child edges) |
+| `[:trie :children prefix]` | set | the next token labels (a node's child edges), and — through its cardinality alone, never by building it — how many there are |
 | `[:trie :handles prefix]` | set | the sentex handles ending exactly at this node |
 | `[:context-root ctx]` | set | the extent of a context (its size is the set's own) |
 | `[:functor-root pred]` | set | facts by functor, any arity, either polarity |
@@ -55,7 +55,7 @@ sentex's decomposition:
 - a **positive fact** — its body **linearized** in preorder (`sentex/key-stream`):
   the functor at the top level, then each argument, with a nested compound expanded
   into an arity marker `[::subterm k]` (k = element count) followed by its elements.
-  `(dog Fido)` in `default` → `[dog Fido default]` (flat, unchanged), and
+  `(dog Muffet)` in `default` → `[dog Muffet default]` (flat, unchanged), and
   `(mass Obj (QuantityFn 5 Kilogram))` → `[mass Obj [::subterm 3] QuantityFn 5
   Kilogram default]`, so `QuantityFn` and `Kilogram` are their own matchable,
   selective trie levels instead of one opaque token (see *Structural subterms* below);
@@ -166,6 +166,22 @@ structural: handles live under `[:trie :handles prefix]`, tokens under `[:trie :
 handle; `p/children` reads only the child set, so it is correct at such a node and
 `plan/prefix-estimate`'s fan-out carries no phantom branches.
 
+**How many children is its own read**, not `(count (children …))`. `p/count-children`
+answers the width off a cardinality — the set's own count in the KV family, an edge-array
+span or a map's size in the columnar trie — where `children` *materializes* the child set
+to answer at all. That is the distinct-value count the query planner's cost model divides
+by, and it is asked once per literal per plan (`docs/inference.md`), so answering it by
+building the children makes planning one fixed conjunction scale with the KB: 32× the
+facts read 25× the planning cost, on a conjunction that never changed. `lein perf`'s
+`plan-scaling` holds it flat.
+
+The O(1) has one exception, and it is the overlay's merge rule rather than this read:
+a fork answers a cardinality off the base's own `kv-count` only where the key is
+*inherited*, and a prefix the fork has itself written under is counted off the merged
+set, since a union minus a removal set has no cardinality shortcut (docs/overlay.md).
+A fork inherits almost all of its content and writes a little, so that is a small set
+of prefixes — but planning against one of them costs what the width there is.
+
 The node layout means an index written by another layout answers nothing rather than
 answering wrongly (it fails safe), which is why the layout is stamped and gated at open —
 section 7 below.
@@ -235,13 +251,13 @@ so `res/match-one` consults them for exactly that case, gated by
   flat-map index folds `clojure.set/intersection` over sets it already holds, and a dense
   one narrows in the postings' own representation so a rare argument pinned on a hot
   predicate costs the rare side ([density.md](density.md)).
-- **An open functor is the same shape at level 0.** `(?type Fido)` — what types does
-  Fido hold, as a *pattern* rather than a `types-of` call — puts the variable at the
+- **An open functor is the same shape at level 0.** `(?type Muffet)` — what types does
+  Muffet hold, as a *pattern* rather than a `types-of` call — puts the variable at the
   first path token, so every ground argument is stuck behind it and the trie can only
   fan out over its whole root child set, i.e. **every functor in the KB**. That fan is
   linear in the vocabulary, which in a broad ontology is the largest thing there is.
   The predicate-agnostic read spans every functor by construction — a union of the
-  scoped roots over `[:argument-slot 1 Fido]` — so it answers in a read per predicate
+  scoped roots over `[:argument-slot 1 Muffet]` — so it answers in a read per predicate
   present at that slot (usually one, a handful when several predicates share it),
   with a `nil` functor to intersect: **flat in the vocabulary** where the trie fan is
   linear in it. A pattern with nothing indexable to lead with (`(?type ?x)`,
@@ -271,6 +287,11 @@ matches, so the argument-root superset would be wrong there.
 
 The roots also underwrite the incremental forward-chain matcher's RAM alpha memories
 ([inference.md](inference.md), "Incremental rule matching").
+
+Which of these paths a given KB's traffic actually takes, and which families it reads at
+all, is a question about a workload rather than about the index:
+[profile.md](profile.md) is the instrument that answers it, and it names each path above
+so a tally can count it.
 
 ## 3. The rule index
 
@@ -436,6 +457,13 @@ KB. `term-count` is a set-size read and does not move at all.
 The write side pays for it: one posting read per name on `index-sentex`, ~7% of the
 index write (2.7µs a sentex), which is why the term set is computed once and handed to
 the roster rather than rebuilt.
+
+Every family on this page is a tax of that kind, and the tax is **counted rather than
+timed**: `test/vaelii/assert_cost_test.clj` pins the exact number of index reads and
+`index-sentex` / `unindex-sentex!` batch ops ten fixed workloads cost, so a family that
+starts writing one more posting fails the suite rather than the stopwatch. That is the gate `lein perf`
+cannot be — a constant added to every assert moves both of a ratio's readings and divides
+out — and [profile.md](profile.md) has the demonstration.
 
 ## 7. The index as a value: `index-entries` / `index-load`
 

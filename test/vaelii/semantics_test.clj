@@ -20,41 +20,41 @@
 (tu/deftest-kb isa-via-genl
   (let [animal (tu/tmp-type) thing 'thing physical-object (tu/tmp-type)
         person (tu/tmp-type) dog (tu/tmp-type)
-        fido (tu/tmp-ind) tom (tu/tmp-ind)]
+        muffet (tu/tmp-ind) tom (tu/tmp-ind)]
     (type-hierarchy kb {:animal animal :thing thing :physical-object physical-object
                         :person person :dog dog})
-    (v/assert kb (list dog fido) 'NaturalWorldContext)
+    (v/assert kb (list dog muffet) 'NaturalWorldContext)
     (v/assert kb (list person tom) 'NaturalWorldContext)
     (testing "transitive type membership"
-      (is (v/isa? kb fido animal))
-      (is (v/isa? kb fido thing))
+      (is (v/isa? kb muffet animal))
+      (is (v/isa? kb muffet thing))
       (is (v/isa? kb tom thing))
       (is (not (v/isa? kb tom dog)))
-      (is (not (v/isa? kb fido person))))))
+      (is (not (v/isa? kb muffet person))))))
 
 (tu/deftest-kb arg-constraints-use-transitivity
   (let [animal (tu/tmp-type) thing 'thing physical-object (tu/tmp-type)
         person (tu/tmp-type) dog (tu/tmp-type)
-        likesPet (tu/tmp-pred) tom (tu/tmp-ind) fido (tu/tmp-ind)]
+        likesPet (tu/tmp-pred) tom (tu/tmp-ind) muffet (tu/tmp-ind)]
     (type-hierarchy kb {:animal animal :thing thing :physical-object physical-object
                         :person person :dog dog})
     (v/assert kb (list 'argIsa likesPet 1 person) 'UniverseContext)
     (v/assert kb (list person tom) 'NaturalWorldContext)
-    (v/assert kb (list dog fido) 'NaturalWorldContext)
+    (v/assert kb (list dog muffet) 'NaturalWorldContext)
     (testing "a person satisfies the arg-1 person constraint"
-      (is (v/assert kb (list likesPet tom fido) 'NaturalWorldContext)))
+      (is (v/assert kb (list likesPet tom muffet) 'NaturalWorldContext)))
     (testing "a dog in arg 1 violates it (dog is-a thing but not is-a person)"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list likesPet fido tom) 'NaturalWorldContext))))))
+                   (v/assert kb (list likesPet muffet tom) 'NaturalWorldContext))))))
 
 (tu/deftest-kb specificity-in-matching
-  (let [dog (tu/tmp-type) animal (tu/tmp-type) breathes (tu/tmp-pred) fido (tu/tmp-ind)]
+  (let [dog (tu/tmp-type) animal (tu/tmp-type) breathes (tu/tmp-pred) muffet (tu/tmp-ind)]
     (v/assert kb (list 'genl dog animal) 'UniverseContext)
     (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'UniverseContext)
-    (v/assert kb (list dog fido) 'UniverseContext)
-    (testing "a rule about animals fires on a dog (subtype), without materializing (animal Fido)"
-      (is (seq (v/sentexes-matching kb (list breathes fido) 'UniverseContext)))
-      (is (empty? (v/sentexes-matching kb (list animal fido) 'UniverseContext))))))
+    (v/assert kb (list dog muffet) 'UniverseContext)
+    (testing "a rule about animals fires on a dog (subtype), without materializing (animal Muffet)"
+      (is (seq (v/sentexes-matching kb (list breathes muffet) 'UniverseContext)))
+      (is (empty? (v/sentexes-matching kb (list animal muffet) 'UniverseContext))))))
 
 (tu/deftest-kb context-placement-in-forward-inference
   (let [parentOf (tu/tmp-pred) grandparentOf (tu/tmp-pred)
@@ -70,14 +70,14 @@
       (is (empty? (v/sentexes-matching kb (list grandparentOf tom ann) 'UniverseContext))))))
 
 (tu/deftest-kb forward-combines-specificity-and-context
-  (let [dog (tu/tmp-type) animal (tu/tmp-type) breathes (tu/tmp-pred) fido (tu/tmp-ind)]
+  (let [dog (tu/tmp-type) animal (tu/tmp-type) breathes (tu/tmp-pred) muffet (tu/tmp-ind)]
     (v/assert kb (list 'genl dog animal) 'UniverseContext)
     (v/assert kb (list 'genlContext 'BioContext 'UniverseContext) 'UniverseContext)
     (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'UniverseContext {:chain? false})  ; universal rule
-    (v/assert kb (list dog fido) 'BioContext)                    ; specific, subtype fact
+    (v/assert kb (list dog muffet) 'BioContext)                    ; specific, subtype fact
     (testing "the dog (subtype) fires the animal rule, and the justification lands in BioContext"
-      (is (seq   (v/sentexes-matching kb (list breathes fido) 'BioContext)))
-      (is (empty? (v/sentexes-matching kb (list breathes fido) 'UniverseContext))))))
+      (is (seq   (v/sentexes-matching kb (list breathes muffet) 'BioContext)))
+      (is (empty? (v/sentexes-matching kb (list breathes muffet) 'UniverseContext))))))
 
 (tu/deftest-kb retracting-a-rule-removes-its-justifications
   (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred) tom (tu/tmp-ind) bob (tu/tmp-ind)

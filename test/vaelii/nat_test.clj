@@ -123,6 +123,113 @@
         (is (empty? (kb/find-sentexes kb k)))
         (is (empty? (nat/orphaned-constants kb)))))))
 
+;; The sweep separates a use from bookkeeping by **what the mint wrote**, not by what a
+;; sentence looks like.  The two are not the same question: a user's own unary claim about
+;; a reified NAT has a materialized result type's shape — `(T K)`, and `(genl K T)` for the
+;; subtype half — so a sweep reading shape retracts the claim along with the constant, in
+;; silence and with nothing to read afterwards that says it happened.
+
+(tu/deftest-kb a-users-unary-claim-about-a-reified-nat-is-a-use-not-bookkeeping
+  (tu/with-terms [FruitFn AppleTree prime noted Author]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
+    (let [h  (v/assert kb (list noted Author (list FruitFn AppleTree)) 'UniverseContext)
+          k  (nth (:sentence (v/sentex kb h)) 2)
+          hu (v/assert kb (list prime (list FruitFn AppleTree)) 'UniverseContext)]
+      (testing "both facts stand on one constant, and neither is a declared result type"
+        (is (nat/reified-nat-symbol? k))
+        (is (= (list prime k) (:sentence (v/sentex kb hu))))
+        (is (false? (nat/orphan? kb k))))
+      (v/retract! kb h)
+      (testing "the binary use goes and the unary claim survives, holding the constant"
+        (is (seq (v/sentexes-matching kb (list prime k) 'UniverseContext)))
+        (is (= (list FruitFn AppleTree) (nat/nat-expression kb k)))
+        (is (false? (nat/orphan? kb k))))
+      (v/retract! kb hu)
+      (testing "and once the claim is withdrawn the constant is collected after all"
+        (is (empty? (kb/find-sentexes kb k)))
+        (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
+        (is (empty? (nat/orphaned-constants kb)))))))
+
+(tu/deftest-kb the-declaration-is-what-separates-a-materialized-type-from-a-claim
+  (tu/with-terms [FruitFn AppleTree fruit ripe color]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
+    (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext)
+    (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'UniverseContext)
+          k  (k-of kb h)
+          hr (v/assert kb (list ripe k) 'UniverseContext)]
+      (testing "two unary sentexes of one shape stand on the constant"
+        (is (seq (v/sentexes-matching kb (list fruit k) 'UniverseContext)))
+        (is (seq (v/sentexes-matching kb (list ripe k) 'UniverseContext))))
+      (v/retract! kb h)
+      (testing "the undeclared one is a use, so the constant outlives its other use"
+        (is (= (list FruitFn AppleTree) (nat/nat-expression kb k)))
+        (is (seq (v/sentexes-matching kb (list ripe k) 'UniverseContext))))
+      (v/retract! kb hr)
+      (testing "the declared one is collected with the constant — no dangling nat/ symbol"
+        (is (empty? (kb/find-sentexes kb k)))
+        (is (empty? (v/sentexes-matching kb (list fruit k) 'UniverseContext)))
+        (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
+        (is (empty? (nat/orphaned-constants kb)))))))
+
+;; The sweep asks about the constants the teardown's removals named, so a nested NAT —
+;; whose only reference is the expression the *outer* constant's map holds — is reached
+;; only on the round after the outer one goes.  Its collection is what says the region
+;; grows with the fixpoint rather than being fixed at the seed.
+
+(tu/deftest-kb collecting-an-orphan-cascades-to-the-nat-nested-in-its-expression
+  (tu/with-terms [FruitFn BestTreeIn Orchard1]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction BestTreeIn) 'UniverseContext)
+    (let [h       (v/assert kb (list 'color (list FruitFn (list BestTreeIn Orchard1)) 'Green)
+                            'UniverseContext)
+          outer-k (k-of kb h)
+          inner-k (nat/dedup-constant kb (list BestTreeIn Orchard1))]
+      (testing "the inner constant is referenced only by the outer one's expression"
+        (is (nat/reified-nat-symbol? inner-k))
+        (is (= (list FruitFn inner-k) (nat/nat-expression kb outer-k)))
+        (is (false? (nat/orphan? kb inner-k))))
+      (v/retract! kb h)
+      (testing "the outer constant goes with its last use"
+        (is (empty? (kb/find-sentexes kb outer-k)))
+        (is (nil? (nat/dedup-constant kb (list FruitFn inner-k)))))
+      (testing "and the inner one goes with the expression that was naming it"
+        (is (empty? (kb/find-sentexes kb inner-k)))
+        (is (nil? (nat/dedup-constant kb (list BestTreeIn Orchard1)))))
+      (is (empty? (nat/orphaned-constants kb))))))
+
+;; A use does not always leave by the retraction's own dependency sweep: an exception
+;; that starts holding blocks a justification, and the settle that follows deletes what
+;; it was solely supporting (docs/exceptions.md).  Nothing is retracted here at all, so
+;; the constant is reachable only through what the *settle* removed.
+
+(tu/deftest-kb a-nat-whose-use-the-settle-swept-is-collected-too
+  (tu/with-terms [FruitFn AppleTree fruity brightAs weather overcast Sunny Sun]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
+    ;; `fruity` is the function's declared result type, so the sentence that mints the
+    ;; constant is the constant's own materialized type — one sentex, and bookkeeping.
+    ;; The exception is about the weather rather than about the fruit, so the rule's
+    ;; conclusion is the only sentence in the whole test that names the constant.
+    (v/assert kb (list 'resultIsa FruitFn fruity) 'UniverseContext)
+    (let [h (v/assert kb (list fruity (list FruitFn AppleTree)) 'UniverseContext)
+          k (k-of kb h)]
+      (v/assert kb (list weather Sunny) 'UniverseContext)
+      (v/assert kb (list 'exceptWhen (list overcast '?w)
+                         (list 'set/defaultRule
+                               (list 'implies (list 'and (list fruity '?x) (list weather '?w))
+                                     (list brightAs '?x Sun))))
+                'UniverseContext)
+      (testing "the rule's conclusion is the constant's one live use"
+        (is (nat/reified-nat-symbol? k))
+        (is (seq (v/sentexes-matching kb (list brightAs k Sun) 'UniverseContext)))
+        (is (false? (nat/orphan? kb k))))
+      (v/edit! kb {:add [[(list overcast Sunny) 'UniverseContext]]})
+      (testing "the exception blocks the rule and the settle sweeps the conclusion"
+        (is (empty? (v/sentexes-matching kb (list brightAs k Sun) 'UniverseContext))))
+      (testing "and the constant it was the last use of goes with it"
+        (is (nil? (nat/nat-expression kb k)))
+        (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
+        (is (empty? (nat/orphaned-constants kb)))))))
+
 ;; ---- 6. unreifiable gate -------------------------------------------------
 
 (tu/deftest-kb an-unreifiable-nat-stays-structural
@@ -257,46 +364,46 @@
 ;; ends up holding one term for one application.
 
 (tu/deftest-kb a-corresponding-fact-names-the-term-an-application-reifies-to
-  (tu/with-terms [MotherFn motherOf Fido Mary Bob caresFor]
+  (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (v/assert kb (list motherOf Fido Mary) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Fido)) 'UniverseContext)]
+    (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)]
       (testing "the application resolves to the value, and mints nothing beside it"
         (is (= (list caresFor Bob Mary) (:sentence (v/sentex kb h))))
-        (is (empty? (v/sentexes-matching kb (list 'termOfUnit '?k (list MotherFn Fido))
+        (is (empty? (v/sentexes-matching kb (list 'termOfUnit '?k (list MotherFn Muffet))
                                          'UniverseContext))))
       (testing "a query written with the application still finds it"
-        (is (= [{'?w Bob}] (v/ask kb (list caresFor '?w (list MotherFn Fido)) '?ctx)))))))
+        (is (= [{'?w Bob}] (v/ask kb (list caresFor '?w (list MotherFn Muffet)) '?ctx)))))))
 
 (tu/deftest-kb an-application-with-no-value-mints-a-constant-that-answers-the-predicate
-  (tu/with-terms [MotherFn motherOf Fido Bob caresFor]
+  (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Fido)) 'UniverseContext)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (testing "no value is known, so the expression mints a placeholder"
         (is (nat/reified-nat-symbol? k)))
       (testing "and the placeholder is projected onto the corresponding predicate"
-        (is (= [{'?m k}] (v/ask kb (list motherOf Fido '?m) '?ctx)))))))
+        (is (= [{'?m k}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))))))
 
 (tu/deftest-kb a-value-arriving-after-the-mint-retires-the-placeholder
   ;; the order-independence case.  The fact and the application say the same thing, so
   ;; whichever lands second must not leave the KB with two values for one application.
-  (tu/with-terms [MotherFn motherOf Fido Mary Bob caresFor]
+  (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Fido)) 'UniverseContext)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat/reified-nat-symbol? k))
-      (v/assert kb (list motherOf Fido Mary) 'UniverseContext)
+      (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
       (testing "one value, and it is the one somebody named"
-        (is (= [{'?m Mary}] (v/ask kb (list motherOf Fido '?m) '?ctx))))
+        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) '?ctx))))
       (testing "the use of the placeholder migrated onto it"
         (is (seq (v/sentexes-matching kb (list caresFor Bob Mary) '?ctx))))
       (testing "and the expression still resolves — to the real term now"
-        (is (= Mary (nat/dedup-constant kb (list MotherFn Fido))))
-        (is (= Mary (nat/correspondence-value kb (list MotherFn Fido))))))))
+        (is (= Mary (nat/dedup-constant kb (list MotherFn Muffet))))
+        (is (= Mary (nat/correspondence-value kb (list MotherFn Muffet))))))))
 
 (tu/deftest-kb a-declared-position-puts-the-value-where-it-says
   ;; Cyc's own example: (StreetCornerFn XING DIRECTION) = LOT exactly when
@@ -310,57 +417,57 @@
       (is (= (list ownedBy Lot7 Alice) (:sentence (v/sentex kb h)))))))
 
 (tu/deftest-kb a-declaration-arriving-last-reconciles-what-was-already-minted
-  (tu/with-terms [MotherFn motherOf Fido Mary Bob caresFor]
+  (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Fido)) 'UniverseContext)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat/reified-nat-symbol? k))
-      (v/assert kb (list motherOf Fido Mary) 'UniverseContext)
+      (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
       (testing "before the declaration the two terms are unrelated"
-        (is (= k (nat/dedup-constant kb (list MotherFn Fido)))))
+        (is (= k (nat/dedup-constant kb (list MotherFn Muffet)))))
       (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
       (testing "declaring it last reaches the state declaring it first would have"
-        (is (= [{'?m Mary}] (v/ask kb (list motherOf Fido '?m) '?ctx)))
+        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))
         (is (seq (v/sentexes-matching kb (list caresFor Bob Mary) '?ctx)))
-        (is (= Mary (nat/dedup-constant kb (list MotherFn Fido))))))))
+        (is (= Mary (nat/dedup-constant kb (list MotherFn Muffet))))))))
 
 (tu/deftest-kb a-declaration-arriving-last-projects-a-placeholder-that-has-no-value
-  (tu/with-terms [MotherFn motherOf Fido Bob caresFor]
+  (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Fido)) 'UniverseContext)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
           k (nth (:sentence (v/sentex kb h)) 2)]
-      (is (empty? (v/ask kb (list motherOf Fido '?m) '?ctx)))
+      (is (empty? (v/ask kb (list motherOf Muffet '?m) '?ctx)))
       (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
       (testing "the constant minted before the declaration is projected by it"
-        (is (= [{'?m k}] (v/ask kb (list motherOf Fido '?m) '?ctx)))))))
+        (is (= [{'?m k}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))))))
 
 (tu/deftest-kb two-declarations-for-one-function-decide-nothing
   ;; Two correspondences are two different claims about what `(F a…)` denotes.  Choosing
   ;; between them would have to key on a handle, which is the one thing belief may never
   ;; do — so neither is read, and the application mints as if none were declared.
-  (tu/with-terms [MotherFn motherOf parentOf Fido Mary Bob caresFor]
+  (tu/with-terms [MotherFn motherOf parentOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn parentOf) 'UniverseContext)
-    (v/assert kb (list motherOf Fido Mary) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Fido)) 'UniverseContext)
+    (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat/reified-nat-symbol? k))
       (is (not= Mary k))
       (testing "and neither predicate is projected onto"
-        (is (empty? (v/ask kb (list parentOf Fido '?m) '?ctx)))
-        (is (= [{'?m Mary}] (v/ask kb (list motherOf Fido '?m) '?ctx)))))))
+        (is (empty? (v/ask kb (list parentOf Muffet '?m) '?ctx)))
+        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))))))
 
 (tu/deftest-kb retracting-the-declaration-stops-the-application-resolving
-  (tu/with-terms [MotherFn motherOf Fido Mary Bob caresFor sees]
+  (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor sees]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
     (let [d (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)]
-      (v/assert kb (list motherOf Fido Mary) 'UniverseContext)
-      (is (= Mary (nat/correspondence-value kb (list MotherFn Fido))))
+      (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
+      (is (= Mary (nat/correspondence-value kb (list MotherFn Muffet))))
       (v/retract! kb d)
       (testing "the declaration is belief-following, so the reify stops reading it"
-        (is (nil? (nat/correspondence-value kb (list MotherFn Fido))))
-        (let [h (v/assert kb (list sees Bob (list MotherFn Fido)) 'UniverseContext)]
+        (is (nil? (nat/correspondence-value kb (list MotherFn Muffet))))
+        (let [h (v/assert kb (list sees Bob (list MotherFn Muffet)) 'UniverseContext)]
           (is (nat/reified-nat-symbol? (nth (:sentence (v/sentex kb h)) 2))))))))
 
 (tu/deftest-kb an-ill-formed-correspondence-is-refused
@@ -380,28 +487,28 @@
   ;; rebuild has nothing to reconstruct — which is the claim worth pinning, since a
   ;; recovered KB that stopped resolving applications would be a restart changing an
   ;; answer.
-  (tu/with-terms [MotherFn motherOf Fido Mary Bob caresFor]
+  (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (v/assert kb (list motherOf Fido Mary) 'UniverseContext)
+    (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
     (v/recover kb)
-    (is (= Mary (nat/correspondence-value kb (list MotherFn Fido))))
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Fido)) 'UniverseContext)]
+    (is (= Mary (nat/correspondence-value kb (list MotherFn Muffet))))
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)]
       (is (= (list caresFor Bob Mary) (:sentence (v/sentex kb h)))))))
 
 (tu/deftest-kb a-projection-does-not-keep-an-orphaned-placeholder-alive
   ;; the projection states what the constant *is*, so it is bookkeeping like a result
   ;; type — a constant whose only remaining sentex is its own projection has no live
   ;; use, and treating one as a use would make every placeholder immortal.
-  (tu/with-terms [MotherFn motherOf Fido Bob caresFor]
+  (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
     (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Fido)) 'UniverseContext)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
           k (nth (:sentence (v/sentex kb h)) 2)]
-      (is (seq (v/ask kb (list motherOf Fido '?m) '?ctx)))
+      (is (seq (v/ask kb (list motherOf Muffet '?m) '?ctx)))
       (v/retract! kb h)
       (testing "the placeholder, its map and its projection all go"
-        (is (nil? (nat/dedup-constant kb (list MotherFn Fido))))
+        (is (nil? (nat/dedup-constant kb (list MotherFn Muffet))))
         (is (empty? (kb/find-sentexes kb k)))
-        (is (empty? (v/ask kb (list motherOf Fido '?m) '?ctx)))
+        (is (empty? (v/ask kb (list motherOf Muffet '?m) '?ctx)))
         (is (empty? (nat/orphaned-constants kb)))))))

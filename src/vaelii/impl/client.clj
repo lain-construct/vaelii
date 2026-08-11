@@ -72,33 +72,42 @@
                       {:type :bad-reply :reply form})))))
 
 (defn- send-edn
-  "POST `body` (an EDN string) to `path` and return the parsed EDN reply map."
-  [conn path body]
-  (let [^HttpClient http (:http conn)
-        ^HttpRequest$Builder rb (HttpRequest/newBuilder (URI/create (str (:base-url conn) path)))]
-    (.timeout rb (Duration/ofMillis (long (:timeout-ms conn))))
-    (.header rb "content-type" "application/edn")
-    (with-token rb conn)
-    (.POST rb (HttpRequest$BodyPublishers/ofString ^String body))
-    (let [^HttpResponse resp (.send http (.build rb) (HttpResponse$BodyHandlers/ofString))]
-      (read-reply (.body resp)))))
+  "POST `body` (an EDN string) to `path` and return the parsed EDN reply map.
+  `timeout-ms` overrides the `conn`'s, which is what a long `:poll` needs: the daemon
+  holds the request open for its wait, and a read timeout shorter than that would fail
+  every poll that had nothing to report."
+  ([conn path body] (send-edn conn path body (:timeout-ms conn)))
+  ([conn path body timeout-ms]
+   (let [^HttpClient http (:http conn)
+         ^HttpRequest$Builder rb (HttpRequest/newBuilder (URI/create (str (:base-url conn) path)))]
+     (.timeout rb (Duration/ofMillis (long timeout-ms)))
+     (.header rb "content-type" "application/edn")
+     (with-token rb conn)
+     (.POST rb (HttpRequest$BodyPublishers/ofString ^String body))
+     (let [^HttpResponse resp (.send http (.build rb) (HttpResponse$BodyHandlers/ofString))]
+       (read-reply (.body resp))))))
 
 (defn call
   "POST `{:op op :args args}` and return the `:result`, or throw `ex-info` on an
   `{:ok false}` reply.  The low-level entry the convenience fns wrap; use it for an op
-  with no wrapper yet."
-  [conn op args]
-  (let [reply (send-edn conn "/op" (pr-str {:op op :args (vec args)}))]
-    (if (:ok reply)
-      (:result reply)
-      ;; the daemon's own `:type` when it sent one, so a caller discriminates on the one
-      ;; vocabulary `docs/operations.md` promises; `:daemon-error` when it did not, since
-      ;; this was the one `ex-info` in the tree that could carry no `:type` at all.
-      ;; `or` rather than `merge` defaults: a reply carrying `:type nil` — the key
-      ;; present, the value useless — must not defeat the fallback.
-      (throw (ex-info (str "vaelii daemon: " (:error reply))
-                      (-> (merge reply {:op op :args (vec args)})
-                          (update :type #(or % :daemon-error))))))))
+  with no wrapper yet.
+
+  `opts` is `{:timeout-ms n}` for this call alone, which only the long `:poll` needs —
+  everything else answers inside the `conn`'s own timeout."
+  ([conn op args] (call conn op args nil))
+  ([conn op args {:keys [timeout-ms]}]
+   (let [reply (send-edn conn "/op" (pr-str {:op op :args (vec args)})
+                         (or timeout-ms (:timeout-ms conn)))]
+     (if (:ok reply)
+       (:result reply)
+       ;; the daemon's own `:type` when it sent one, so a caller discriminates on the one
+       ;; vocabulary `docs/operations.md` promises; `:daemon-error` when it did not, since
+       ;; this is the one `ex-info` in the tree that could carry no `:type` at all.
+       ;; `or` rather than `merge` defaults: a reply carrying `:type nil` — the key
+       ;; present, the value useless — must not defeat the fallback.
+       (throw (ex-info (str "vaelii daemon: " (:error reply))
+                       (-> (merge reply {:op op :args (vec args)})
+                           (update :type #(or % :daemon-error)))))))))
 
 (defn health
   "The daemon's liveness reply, `{:ok true}` — a GET, so it needs no op, and the one
@@ -182,3 +191,62 @@
 (defn conflicts [conn] (call conn :conflicts []))
 (defn contradictions [conn] (call conn :contradictions []))
 (defn violations [conn] (call conn :violations []))
+
+;; ---- the change feed, held open with a cursor ----------------------------
+;; `core/watch` takes a callback and a callback does not cross an EDN wire, so what a
+;; remote caller holds is a subscription the daemon keeps and reads forward with a
+;; cursor.  Three calls, the same `{:op :args}` envelope as everything above, and no
+;; second wire format — docs/feed.md, "Across the wire".
+
+(def ^:private max-wait-ms
+  "The longest the daemon parks a long poll, whatever `:wait-ms` asks for.
+
+  Mirrored here rather than required from `vaelii.impl.subscribe`, which would pull the
+  whole engine onto the classpath of a client whose whole point is not needing it.  A
+  mirrored constant is a constant that drifts, so `client_test` asserts the two agree —
+  the coupling is checked rather than assumed."
+  30000)
+
+(defn watch
+  "Open a change-feed subscription — `{:token t :cursor 0 :max-events n}`.  With no
+  goal it is every belief change; with one it is the standing query `core/watch` takes,
+  refused identically (`:not-watchable`) when the goal is not answerable from a moved
+  region."
+  ([conn] (call conn :watch []))
+  ([conn goal context] (call conn :watch [goal context])))
+
+(defn poll
+  "Read a subscription forward from `cursor` — `{:events [...] :cursor n :lagged k}`.
+
+  `opts` is `{:wait-ms n}`, the long poll: the daemon holds the request open that long
+  waiting for the first event.  The read timeout is extended to cover it, which is the
+  whole of what a long poll costs this client — no second protocol, no held socket of
+  its own, and nothing about the reply changes.
+
+  **`:lagged` is on every reply and is the one field a caller must read**: non-zero, the
+  ring dropped that many events before this poll reached them."
+  ([conn token cursor] (poll conn token cursor nil))
+  ([conn token cursor opts]
+   (let [w (:wait-ms opts 0)]
+     ;; refused here as well as at the daemon, so a bad value names the option instead of
+     ;; reaching `long` as a bare cast error on the way out
+     (when-not (nat-int? w)
+       (throw (ex-info (str "poll :wait-ms must be a whole number of milliseconds, got "
+                            (pr-str w))
+                       {:type :unknown-option :options [:wait-ms]})))
+     ;; extended by what the daemon will actually wait, not by what was asked for: the
+     ;; wait is capped there, so a caller asking for ten minutes would otherwise hold its
+     ;; own socket open for ten minutes against a reply that came in thirty seconds
+     (call conn :poll (if opts [token cursor opts] [token cursor])
+           {:timeout-ms (+ (long (:timeout-ms conn)) (long (min max-wait-ms w)))}))))
+
+(defn unwatch
+  "Drop subscription `token`; true if there was one.  Idempotent."
+  [conn token] (call conn :unwatch [token]))
+
+(defn watchers
+  "What the daemon is holding open — one entry per subscription, with its goal, how many
+  events it has been `:delivered`, and how many are still `:pending` on its ring.
+  Neither is the *reader's* position, which lives on the client and is a thing the daemon
+  has no way to know."
+  [conn] (call conn :watchers []))

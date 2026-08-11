@@ -51,6 +51,10 @@
             [vaelii.impl.gloss :as gloss]
             ;; the origin/Host checks this page and the daemon both hold to
             [vaelii.impl.guard :as guard]
+            ;; the registry every long operation runs in — a load, an export, a chaining
+            ;; run.  Process state rather than a KB read, so it is not a hole in the ledger
+            ;; below: it reads no KB and writes none.
+            [vaelii.impl.jobs :as jobs]
             ;; the proposal panel on a term page.  `llm` is an application over the
             ;; engine exactly as this namespace is — a peer, not an internal — so
             ;; reaching it is not a hole in the ledger below; it never writes, and it
@@ -149,6 +153,20 @@
   []
   (or (:name (catalog/active-entry)) "in-process"))
 
+(defn- jobs-badge
+  "How many jobs are running, for the header.  Its own element with an id because the
+  header sits outside the region a swap replaces: `/jobs/rows` ships a fresh copy out of
+  band, exactly as the entries list does for the active KB's name.  The element is rendered
+  whether or not anything is running, since an absent element is a swap with nowhere to
+  land."
+  ([] (jobs-badge false))
+  ([oob?]
+   (let [n (count (jobs/running))]
+     [:span#job-count (cond-> {}
+                        oob?     (assoc :hx-swap-oob "true")
+                        (pos? n) (assoc :class "job-count-on"))
+      (when (pos? n) (str " " n))])))
+
 (defn- header
   "The site header: the vaelii logo and wordmark (a home link) at the left, a
   term-search box, and the colour controls at the right.  The search is an htmx
@@ -176,6 +194,10 @@
     [:a {:href "/assert"} "Sandbox"]
     [:a {:href "/network"} "Network"]
     [:a {:href "/stats"} "Stats"]
+    ;; long work runs on its own thread, so the way to it has to be in the chrome rather
+    ;; than on the page that started it — the reader who wants it navigated away
+    [:a {:href "/jobs" :title "long work: what is running, and how to stop it"}
+     "Jobs" (jobs-badge)]
     ;; which KB every other page is about, and the way to change it
     ;; the label is its own element with an id because it changes without the header
     ;; being re-rendered: switching KBs swaps it out of band (`entries-panel`)
@@ -380,17 +402,17 @@
   outlive the load that explains it (a store opened without `:recover?`)."
   []
   (let [{:keys [name status progress belief?]} (catalog/active-caveat)
-        loading? (= :loading status)]
+        loading? (= :running status)]
     [:div#kb-caveat
      (cond-> {}
        loading? (merge (polling "/kbs/banner" "2s")))
      (when status
        (let [[lead tail] (case status
-                           :loading    ["Loading "     " — you are reading it as it arrives."]
+                           :running    ["Loading "     " — you are reading it as it arrives."]
                            :cancelling ["Stopping "    " — you are reading what has landed."]
                            :cancelled  ["Stopped part-way: " " — you are reading what had landed."]
                            :failed     ["Load failed: " " — you are reading what had landed."]
-                           ;; :ready reaches here only for the beliefless case, where the
+                           ;; :done reaches here only for the beliefless case, where the
                            ;; load is not the story and the bullet below it is — but the
                            ;; line still has to say which KB, and a bare name is not a
                            ;; sentence
@@ -401,7 +423,7 @@
            [:a {:href "/kbs"} name] tail]
           (when loading? (progress-bar progress))
           [:ul.kb-caveat-why
-           (when-not (= :ready status)
+           (when-not (= :done status)
              [:li "Everything below is drawn from what is stored " [:i "now"] ", so a term "
               "or a rule that has not arrived yet reads as absent — which is what an "
               "absent fact always means here, and never as false."])
@@ -1682,8 +1704,8 @@
 ;;
 ;;   - a **rule fired**.  There is a real derived sentex with a real justification, so it
 ;;     is believed in the JTMS sense, has a handle, and its whole proof is a click away.
-;;   - a **type subsumes**.  `(genl dog animal)` plus `(dog Fido)` makes Fido an animal,
-;;     and the engine deliberately never materializes `(animal Fido)`: matching fans a
+;;   - a **type subsumes**.  `(genl dog animal)` plus `(dog Muffet)` makes Muffet an animal,
+;;     and the engine deliberately never materializes `(animal Muffet)`: matching fans a
 ;;     functor out over its genl spec closure instead, which is what lets a hundred
 ;;     million facts avoid a hundred million more (docs/taxonomy.md).  So there is no
 ;;     record, no justification and nothing to link — the claim is answered on demand by
@@ -2282,6 +2304,11 @@
               (stat-card "Contradictions" (count contras))
               (stat-card "Conflicts" (count confs))
               (stat-card "Violations" (count viols))]
+             ;; the counts above are about the knowledge; a reader who arrived here asking
+             ;; why something is slow wants the process instead, and this is the way there
+             [:p.muted "These count the knowledge. What this process is "
+              [:i "holding"] " — the caches, the heap and the profiler — is on "
+              [:a {:href "/caches"} "the caches page"] "."]
              ;; what the rules have actually done, and the one control that makes them
              ;; do more.  A load's derivations and its drops are the two halves of the
              ;; same answer, so the trigger sits beside the ledgers it fills.
@@ -2291,11 +2318,20 @@
               (when (:truncated? (:last chain)) " and was truncated at the depth bound")
               ". " (count viols) " conclusion" (when (not= 1 (count viols)) "s")
               " dropped for a definitional breach (below)."]
+             ;; a run over a corpus is minutes long, so it is a job: the cap is what bounds
+             ;; it (a fixpoint's agenda grows as it derives, so nothing else does), and a
+             ;; run that outlasts the fast path answers with the jobs screen instead
              [:form.chain-form {:method "post" :action "/chain"
                                 :hx-post "/chain" :hx-target "#main" :hx-select "#main"
                                 :hx-swap "outerHTML"}
               [:button.primary {:type "submit"} "Run forward chaining"]
-              [:span.muted " — join every rule over everything stored, to a fixpoint."]]
+              [:label.kb-opt [:span " up to "]
+               [:input {:type "number" :name "max-derivations" :value 100000
+                        :min 1000 :max 100000000 :step 1000}]
+               [:span " derivations"]]
+              [:span.muted " — join every rule over everything stored, to a fixpoint. It "
+               "runs as a job, so you can watch it, stop it, and browse while it goes; a "
+               "stopped run leaves the conclusions it had already placed."]]
              [:h3 "Contexts by size " [:span.muted "(stored sentexes per context)"]]
              (if-let [ranked (contexts-by-size kb)]
                [:table.stats-table
@@ -3151,25 +3187,32 @@
                [:span.muted "shadowed by " shadowed-by])]])]]))
 
 (defn- join-plan
-  "The order a conjunction's literals will actually run in, with the fan-out each was
-  estimated at.  Each estimate is made *under the bindings the ones before it produce*,
-  which is why the list does not read as a sorted column of independent costs — that
-  is sideways information passing, and it is the thing worth showing."
+  "The order a conjunction's literals will actually run in, with the three numbers the
+  order was decided on.  `est. matches` is the sound upper bound on one literal's
+  fan-out under the bindings the rows above produce — sideways information passing, and
+  why the column does not read as sorted.  `rows` is the literal's own expected size,
+  and `plan rows` the expected size of everything up to and including it, which is the
+  number a join was actually costed in and the one to read a surprising order against."
   [view rows]
   (list
    [:p.muted "Solved left to right, so the first literal's fan-out multiplies everything "
     "after it. Each row is costed under the bindings the rows above it produce, which is "
     "why the estimates are not a sorted column."]
    [:table.stats-table
-    [:thead [:tr [:th.num "#"] [:th "literal"] [:th.num "est. matches"]
+    [:thead [:tr [:th.num "#"] [:th "literal"] [:th.num "est. matches"] [:th.num "rows"]
+             [:th.num "plan rows"] [:th.num "block"]
              [:th "bound before"] [:th "position"]]]
     [:tbody
-     (for [[i {:keys [goal est-matches bound-before deferred? recursive? isolated?]}]
+     (for [[i {:keys [goal est-matches est-rows est-prefix block bound-before
+                      deferred? recursive? isolated?]}]
            (map-indexed vector rows)]
        [:tr
         [:td.num (inc i)]
         [:td (render-form view goal)]
         [:td.num est-matches]
+        [:td.num est-rows]
+        [:td.num est-prefix]
+        [:td.num (if block (inc (long block)) [:span.muted "—"])]
         [:td (if (seq bound-before)
                (interpose ", " (for [b (sort-by str bound-before)] (render-form view b)))
                [:span.muted "—"])]
@@ -3186,9 +3229,15 @@
     "binds it, and a recursive rule's recursive literal stays last so right-recursion "
     "survives.  A " [:b "cartesian"] " literal shares no variable with the rest, so "
     "nothing narrows it and it narrows nothing — wherever it runs it multiplies the "
-    "row count of everything after it, and it is held to the back on that structure "
-    "rather than on the estimate beside it.  One that matches at most once multiplies "
-    "by at most one, so it leads like any cheap literal and carries no tag."]))
+    "row count of everything after it.  One that matches at most once multiplies "
+    "by at most one, so it leads like any cheap literal and carries no tag."]
+   [:p.legend "The " [:b "block"] " column is the rest of that answer.  Literals sharing "
+    "a variable are one block and run together; blocks are ranked against each other by "
+    "how much each multiplies what follows, so a whole block can be held back the way a "
+    "single cartesian literal is — two literals sharing a variable with each other and "
+    "with nothing else are a cartesian factor just as much, and neither carries the tag. "
+    "A block number that jumps back and forth down the table is the pins threading "
+    "evaluables in where they became ready."]))
 
 (defn- plan-section
   "How the engine would answer this goal — the join plan for a conjunction, the prover
@@ -3228,7 +3277,7 @@
               [:div
                (when goal [:p.muted "A goal is a sentence, e.g. " [:code "(animal ?x)"]
                            " — or a vector of them, e.g. "
-                           [:code "[(bird ?x) (flies ?x)]"] ", which is a conjunctive "
+                           [:code "[(bird ?x) (hasCapability ?x flying)]"] ", which is a conjunctive "
                            "query and gets a join plan."])
                [:h3 "The levels"]
                [:ul (for [{lvl :level nm :name adds :adds} table]
@@ -3504,7 +3553,7 @@
 
 ;; ---- the non-monotonicity demo ------------------------------------------
 ;;
-;; The one thing here that no database does, in three clicks.  `(flies Pingu)` is
+;; The one thing here that no database does, in three clicks.  `(hasCapability Pingu flying)` is
 ;; believed; the KB then learns `(penguin Pingu)` and stops believing it — nobody
 ;; deleted anything and nobody overrode anything, the flight rule's own exception simply
 ;; stopped licensing the conclusion — and retracting the penguin claim brings it back.
@@ -3530,6 +3579,12 @@
   "`(<pred> Pingu)` — a sentence the demo makes, or asks about."
   [pred] (list pred demo-subject))
 
+(defn- demo-cap
+  "`(hasCapability Pingu <capability>)` — what the walkthrough's conclusion is about.
+  Flight is a capability rather than a one-place property, so the conclusion under test is
+  a binary sentence and the demo builds it apart from `demo-claim`."
+  [capability] (list 'hasCapability demo-subject capability))
+
 (def ^:private demo-script
   "The three steps.  `:from` is the state the KB has to be in for a step to be the next
   one, so which button the page offers is a fact about the KB rather than a counter the
@@ -3537,15 +3592,15 @@
   [{:n 1 :from :before   :op "start"
     :button "Assert (bird Pingu)"
     :does   "Tell the KB that Pingu is a bird. Say nothing whatever about flying."
-    :then   "(flies Pingu) becomes believed"}
+    :then   "(hasCapability Pingu flying) becomes believed"}
    {:n 2 :from :believed :op "except"
     :button "Assert (penguin Pingu)"
     :does   "Tell it Pingu is a penguin. Retract nothing, delete nothing, override nothing."
-    :then   "(flies Pingu) stops being believed"}
+    :then   "(hasCapability Pingu flying) stops being believed"}
    {:n 3 :from :blocked  :op "restore"
     :button "Retract (penguin Pingu)"
     :does   "Take the penguin claim back."
-    :then   "(flies Pingu) is believed again — as a new record"}])
+    :then   "(hasCapability Pingu flying) is believed again — as a new record"}])
 
 (def ^:private demo-watched
   "The five sentences the walkthrough touches, in the order they make sense in: the two
@@ -3558,16 +3613,16 @@
     :note "asserted — step 1"}
    {:form (demo-claim 'penguin)
     :note "asserted — step 2, taken back in step 3"}
-   {:form (demo-claim 'flies)
+   {:form (demo-cap 'flying)
     :note "derived — the conclusion under test"}
-   {:form (demo-claim 'canTravel)
-    :note "derived from (flies Pingu) — it goes when that goes"}
-   {:form (list 'not (demo-claim 'flies))
+   {:form (demo-cap 'travelling)
+    :note "derived from the flight — it goes when that goes"}
+   {:form (list 'not (demo-cap 'flying))
     :note "derived from (penguin Pingu) — a positive claim, not the absence of one"}])
 
 (defn- demo-state
   "Where the walkthrough stands, read off the KB rather than remembered.  `first-h` is
-  the handle `(flies Pingu)` carried the first time round, threaded through the step
+  the handle the flight conclusion carried the first time round, threaded through the step
   forms: it is the one thing the KB cannot answer, because by the time it matters the
   record it names has been swept."
   [{:keys [kb sandbox] :as view} first-h]
@@ -3575,15 +3630,15 @@
         at      #(when live? (v/handle-of kb % sandbox))
         bird    (at (demo-claim 'bird))
         penguin (at (demo-claim 'penguin))
-        flies   (at (demo-claim 'flies))
+        flight  (at (demo-cap 'flying))
         stage   (cond (nil? bird)                        :before
                       penguin                            :blocked
-                      (and first-h (not= first-h flies)) :returned
+                      (and first-h (not= first-h flight)) :returned
                       :else                              :believed)]
-    {:bird bird :penguin penguin :flies flies :stage stage
+    {:bird bird :penguin penguin :flight flight :stage stage
      ;; carried forward: at :believed we adopt whatever handle is visible, so a reader
      ;; who arrives part-way through still gets step 3's comparison
-     :first (if (= :believed stage) (or first-h flies) first-h)}))
+     :first (if (= :believed stage) (or first-h flight) first-h)}))
 
 (def ^:private demo-done
   "How many steps are behind you in each stage."
@@ -3605,18 +3660,18 @@
         [:span.demo-does does " " [:span.muted "⇒ " then]]])]))
 
 (defn- demo-verdict
-  "What `(flies Pingu)` is at this moment, with the evidence.  Believed: the proof tree,
+  "What the flight conclusion is at this moment, with the evidence.  Believed: the proof tree,
   so the rule that concluded it is on the page and every node links to its record.
   Blocked: `why-not`'s sentence arity — the arity that exists precisely because a blocked
   conclusion has no handle left to ask about."
-  [{:keys [kb sandbox] :as view} {:keys [stage flies first]}]
+  [{:keys [kb sandbox] :as view} {:keys [stage flight first]}]
   (case stage
     :before
     [:div.belief
      [:p [:b "Not stored, not believed."] " Your sandbox holds nothing about Pingu yet."]]
 
     :blocked
-    (let [{:keys [reason rule exception via]} (v/why-not kb (demo-claim 'flies) sandbox)]
+    (let [{:keys [reason rule exception via]} (v/why-not kb (demo-cap 'flying) sandbox)]
       [:div.belief
        [:p [:b "Not believed"] " — and nobody said so. "
         (if (= :excepted reason)
@@ -3635,23 +3690,23 @@
         ", and took what rested on it along."]])
 
     ;; :believed / :returned
-    (let [tree (v/why kb flies)]
+    (let [tree (v/why kb flight)]
       [:div.belief
-       [:p [:b "Believed"] " — and nobody asserted it. " (handle-ref view flies)
+       [:p [:b "Believed"] " — and nobody asserted it. " (handle-ref view flight)
         " is a conclusion; the rule that reached it is one line down."]
        [:ul.why (why-node view 0 tree)]
        (when (= :returned stage)
          [:p.demo-point
           [:b "Look at the handle."] " Step 1 concluded " [:code (str "#" first)]
-          "; this is " [:code (str "#" flies)] ". Reviving a blocked conclusion is a "
+          "; this is " [:code (str "#" flight)] ". Reviving a blocked conclusion is a "
           [:i "re-derivation"] ", not a flag being flipped: the old record was swept and "
           "is gone" (when first
                       (list " (" [:a {:href (str "/sentex/" first)} (str "#" first)]
                             " resolves to nothing)")) ", and the rule earned this one "
           "again from scratch. Identical proof, different record — which is the part a "
           "slideshow could not fake."])
-       [:p.muted [:a {:href (str "/why/" flies)} "The whole proof"] " · "
-        [:a {:href (str "/sentex/" flies)} "the record"]]])))
+       [:p.muted [:a {:href (str "/why/" flight)} "The whole proof"] " · "
+        [:a {:href (str "/sentex/" flight)} "the record"]]])))
 
 (defn- demo-fact-row
   "One watched sentence and what the KB says about it right now: the record and its
@@ -3705,7 +3760,7 @@
               "thing brings it back. Each step below is a real write to "
               [:a {:href "/assert"} "your own sandbox"] "."]
              (demo-ledger st)
-             [:h3 "The conclusion under test " [:span.muted "(flies Pingu)"]]
+             [:h3 "The conclusion under test " [:span.muted "(hasCapability Pingu flying)"]]
              (demo-verdict view st)
              (demo-controls st)
              [:h3 "Everything about Pingu " [:span.muted "as the KB holds it right now"]]
@@ -3729,7 +3784,7 @@
   (case op
     "start"   (do (sandbox/open kb sandbox)
                   (v/edit! kb {:add [[(demo-claim 'bird) sandbox]]})
-                  (v/handle-of kb (demo-claim 'flies) sandbox))
+                  (v/handle-of kb (demo-cap 'flying) sandbox))
     "except"  (do (sandbox/open kb sandbox)
                   (v/edit! kb {:add [[(demo-claim 'penguin) sandbox]]})
                   first-h)
@@ -3763,7 +3818,7 @@
      [:ul.edit-errors (map problem-line problems)])
    [:label {:for "assert-text"} "Sentences " [:span.muted "(one per line)"]]
    [:textarea#assert-text {:name "text" :rows 6 :spellcheck "false"
-                           :placeholder "(dog Fido)"} text]
+                           :placeholder "(dog Muffet)"} text]
    [:div.assert-row
     [:label {:for "assert-ctx"} "Context"]
     [:input#assert-ctx {:type "text" :name "ctx" :size 24 :autocomplete "off"
@@ -3774,7 +3829,7 @@
      [:input#assert-mono (cond-> {:type "checkbox" :name "strength" :value "monotonic"}
                            monotonic? (assoc :checked "checked"))]
      " known-true " [:code "{:strength :monotonic}"]]]
-   [:p.hint "A fact is ground — " [:code "(dog Fido)"] ". A universal is a rule — "
+   [:p.hint "A fact is ground — " [:code "(dog Muffet)"] ". A universal is a rule — "
     [:code "(implies (dog ?x) (animal ?x))"] " — optionally wrapped in "
     [:code "set/forwardRule"] " / " [:code "set/defaultRule"] ". Every line is checked "
     "before anything is written, and the whole form is one settle."]
@@ -4083,6 +4138,48 @@
    (when truncated? " — and hit the depth bound, so the run was truncated")
    "."])
 
+(defn- chain-job
+  "Forward chaining as a job, and return its id.  A fixpoint over a corpus is minutes of
+  this process's one writer with nothing on screen, which is what makes it a job rather
+  than a request: `forward-chain` reports `{:derived :pending}` about four times a second,
+  and a report is where a cancel lands.
+
+  **Cancelling one is safe, and the page says so.**  The conclusions are placed as they
+  are made, so an aborted fixpoint leaves a KB holding a *prefix* of the run rather than a
+  corrupt one — the same open-world condition a cancelled load leaves.
+
+  `cap` bounds it (`:max-derivations`).  `in-monitor` runs the work inside this process's
+  write monitor, on the job's own thread.
+
+  **A daemon's fixpoint reports nothing, and the bar says so** rather than pretending: an
+  `:on-progress` is a function and functions do not cross an EDN wire (`serve.clj` says the
+  same of the export's), so a remote target gets the bound and no callback.  The job is
+  still a job — it runs off the request, it is on the screen, and it settles with the
+  daemon's own answer — it just cannot be watched arriving."
+  [kb label cap in-monitor]
+  (let [note   (fn [pending] (if pending
+                               (format "%,d on the agenda" (long pending))
+                               "forward chaining to a fixpoint"))
+        local? (some? (v/local-kb kb))]
+    (jobs/submit
+     {:label      (str "Chain " label)
+      :kind       :chain
+      :writes     kb
+      :result-url "/stats"
+      :progress   {:phase :chaining :done 0
+                   :note (if local? (note nil) "on the daemon, which reports no progress")}}
+     (fn [progress!]
+       (in-monitor
+        (fn []
+          (v/forward-chain
+           kb (cond-> {}
+                cap    (assoc :max-derivations cap)
+                local? (assoc :on-progress
+                              (fn [{:keys [derived pending]}]
+                                (progress! {:phase :chaining :total nil
+                                            :done (or derived 0)
+                                            :note (note pending)})))))))))))
+
 ;; ---- multi-sentex editing (drag-select → textarea → one settle) ---------
 ;; Selection is client-side (select.js, the one bit of JS); the server renders the
 ;; editable text for a set of handles and applies the save.  Save is `vaelii.core/edit!`
@@ -4094,7 +4191,7 @@
 (defn- ->form
   "Read a `?q=` / `?ctx=` query param as EDN, or nil when it is not readable.  Every
   route that takes a term or a goal parses through this: the value is whatever a URL
-  carried, so `(` is as likely as `(dog Fido)` and an unguarded read throws a 500
+  carried, so `(` is as likely as `(dog Muffet)` and an unguarded read throws a 500
   rather than rendering a page.
 
   `Throwable`, not `Exception`, for the reason the daemon's reader carries: a deeply
@@ -4515,7 +4612,7 @@
   entry's load-time stats, so it tracks a KB that has been asserted into since — and a
   KB still loading, whose bar is then two readings of the same thing: how far the load has
   got, and what it is costing."
-  [{:keys [key name status stats progress error elapsed-ms summary kb?]} active?]
+  [{:keys [key name status stats progress error elapsed-ms summary kb? job]} active?]
   (let [fp (catalog/footprint key)]
     [:div.kb-card {:class (str "kb-" (clojure.core/name status) (when active? " kb-on"))}
      [:div.kb-head
@@ -4523,10 +4620,13 @@
       [:span.tag {:class (str "tag-" (clojure.core/name status))} (clojure.core/name status)]
       (when active? [:span.tag.tag-in "active"])
       (when fp [:span.tag.tag-est (est-bytes (:total fp))])
-      [:span.muted.kb-key key]]
-     (when (= :loading status) (progress-bar progress))
+      [:span.muted.kb-key key]
+      ;; the load is a job like any other, so the card links to it rather than restating
+      ;; what the jobs screen says about it
+      (when job [:a.muted.kb-job {:href "/jobs"} "job " job])]
+     (when (#{:running :cancelling} status) (progress-bar progress))
      (when error [:p.kb-error error])
-     (when (and stats (= :ready status))
+     (when (and stats (= :done status))
        [:p.muted (commas (:sentexes stats)) " sentexes · " (commas (:terms stats)) " terms · "
         (commas (:types stats)) " types · " (commas (:contexts stats)) " contexts"
         (when (pos? (:derived summary 0)) (str " · " (commas (:derived summary)) " derived"))
@@ -4544,13 +4644,14 @@
       ;; way and only the answer differs
       (when (and kb? (not active?))
         (kb-action (case status
-                     :ready               "Switch to"
-                     :loading             "Browse as it loads"
-                     (:cancelled :failed) "Browse what landed"
+                     :done                     "Switch to"
+                     (:running :cancelling)    "Browse as it loads"
+                     (:cancelled :failed)      "Browse what landed"
                      "Switch to")
-                   "/kbs/activate" {:key key} (when (= :ready status) "primary")))
-      (when (= :loading status) (kb-action "Cancel" "/kbs/unload" {:key key}))
-      (when (not= :loading status) (kb-action "Unload" "/kbs/unload" {:key key}))]]))
+                   "/kbs/activate" {:key key} (when (= :done status) "primary")))
+      (if (= :running status)
+        (kb-action "Cancel" "/kbs/unload" {:key key})
+        (kb-action "Unload" "/kbs/unload" {:key key}))]]))
 
 (defn- source-card
   "One loadable source, with the form that loads it.  A source already loaded and not
@@ -4622,7 +4723,7 @@
   (list
    [:p [:span.tag {:class (str "tag-" (clojure.core/name status))} (clojure.core/name status)]
     " " [:b name] " → " [:span.kb-path dir]]
-   (when (= :running status) (progress-bar progress))
+   (when (#{:running :cancelling} status) (progress-bar progress))
    (when error [:p.kb-error error])
    (when summary
      [:p.muted (commas (:sentexes summary)) " sentexes · "
@@ -4667,9 +4768,13 @@
 (defn- export-panel
   "Writing the active KB out, as the fragment that refreshes itself.  Like the entries
   list and the memory strip it polls only while there is something to watch — the trigger
-  is the server's to include, so a finished export stops asking on its own."
+  is the server's to include, so a finished export stops asking on its own.
+
+  The report it shows is the **registry's** newest export job, not a slot of its own: one
+  export at a time and the last report worth keeping, which is what lets the panel say
+  where the dump went after the job has finished."
   []
-  (let [job    (catalog/export-job)
+  (let [job    (jobs/latest :export)
         key    (catalog/active)
         e      (catalog/active-entry)
         busy?  (catalog/exporting?)]
@@ -4706,6 +4811,12 @@
               "finished says so at the top of every page."]
              [:h3 "Loaded"]
              (memory-panel false)
+             ;; the heap is half the cost question and the derived structures beside it
+             ;; are the other half, so the strip that measures one points at the page
+             ;; that measures the other
+             [:p.muted "Heap is what the stores cost. What the engine holds "
+              [:i "beside"] " them — the caches, their bounds and their hit rates — is on "
+              [:a {:href "/caches"} "the caches page"] "."]
              (entries-panel (:fragment? view))
              [:h3 "Export"]
              (export-panel)
@@ -4720,6 +4831,309 @@
                    [:code dir] " — " passed-over " more are not shown. Name one in the "
                    "catalog file to list it regardless."])
                 (for [s srcs] (source-card s (contains? loaded (:id s)) busy?))))))))
+
+;; ---- long work, watched: the jobs screen --------------------------------
+;;
+;; Three operations here take minutes rather than milliseconds — a load, an export, and a
+;; chaining run — and they are one mechanism (`vaelii.impl.jobs`) with one status
+;; vocabulary.  This screen is that registry rendered: every job this process has run
+;; recently, what it is doing, and the one control that stops it.  The `/kbs` panels are
+;; the same registry filtered to the two kinds that belong beside a KB, which is why
+;; nothing here is a second list of anything.
+;;
+;; A job **outlives the request that started it**, and that is the point: closing the tab
+;; cancels nothing, and reopening this page finds the run still going.  The poll is the
+;; self-terminating htmx one every other watching panel uses — it survives a reload, which
+;; a socket does not.
+
+(defn- job-card
+  "One job: what it is, where it has got to, and what it left behind.  A running one offers
+  the cancel; a finished one offers the page its result is on, since a job that ran while
+  the reader was elsewhere is exactly the case a result link is for."
+  [{:keys [id label kind status progress error elapsed-ms summary result-url writes?]}]
+  [:div.kb-card {:class (str "kb-" (clojure.core/name status))}
+   [:div.kb-head
+    [:span.kb-name label]
+    [:span.tag {:class (str "tag-" (clojure.core/name status))} (clojure.core/name status)]
+    (when kind [:span.muted.kb-key (clojure.core/name kind)])
+    [:span.muted.kb-key "job " id]]
+   (when (#{:running :cancelling} status) (progress-bar progress))
+   (when error [:p.kb-error error])
+   ;; A stopped job has **no summary** — it never reached its return value — so its last
+   ;; progress reading is the only account of what landed, and a reader who cancelled is
+   ;; owed exactly that.  It is what a stopped run left in the KB, not a fraction of a
+   ;; run that is still going, so it is said in the past tense and not as a bar.
+   (when (and (#{:cancelled :failed} status) (pos? (:done progress 0)))
+     [:p.muted "Reached " [:b (commas (:done progress))]
+      (when-let [t (:total progress)] (list " of " (commas t)))
+      (when-let [p (:phase progress)] (str " at " (clojure.core/name p)))
+      " before it stopped — that much is in the KB."])
+   ;; whichever of these the job's own summary carries — a load counts sentexes, a chaining
+   ;; run counts derivations, an export counts bytes — and nothing where it carries none
+   (let [parts (cond-> []
+                 (:sentexes summary)       (conj (str (commas (:sentexes summary)) " sentexes"))
+                 (:derived summary)        (conj (str (commas (:derived summary)) " derived"))
+                 (:truncated? summary)     (conj "truncated at its bound")
+                 (:justifications summary) (conj (str (commas (:justifications summary))
+                                                      " justifications"))
+                 (:bytes summary)          (conj (catalog/human-bytes (:bytes summary)))
+                 elapsed-ms                (conj (str (format "%.1f" (/ elapsed-ms 1000.0)) "s")))]
+     (when (seq parts) [:p.muted (str/join " · " parts)]))
+   [:div.kb-actions
+    (when (= :running status) (kb-action "Cancel" "/jobs/cancel" {:id id}))
+    (when (and (= :cancelling status) writes?)
+      [:span.muted "Stopping at its next progress report — a job that writes a KB is never "
+       "interrupted, since an interrupt mid-write tears what it lands in."])
+    (when (and result-url (not= :running status))
+      [:a.button {:href result-url} "See the result"])]])
+
+(defn- jobs-panel
+  "The job list, as the fragment that refreshes itself — and, when it *is* a fragment, the
+  header's running count out of band beside it.  Polls only while something is running, so
+  an idle page stops asking; a whole document carries a freshly rendered header already,
+  so shipping the out-of-band copy in one would put a second `#job-count` in the page."
+  [fragment?]
+  (let [js (jobs/jobs)]
+    [:div#jobs
+     (cond-> {}
+       (seq (jobs/running)) (merge (polling "/jobs/rows" "1s")))
+     (when fragment? (jobs-badge true))
+     (if (seq js)
+       (for [j js] (job-card j))
+       [:p.muted "Nothing has run yet."])]))
+
+(defn- jobs-page
+  "The jobs screen.  `note` is what the registry said about the action that led here — a
+  cancel of a job that has already finished is a state to report, not an error."
+  ([view] (jobs-page view nil))
+  ([view note]
+   (render view "jobs"
+           [:h2 "Jobs"]
+           (when note [:p.problem note])
+           [:p.muted "Loading a KB, writing one out and running the rules to a fixpoint all "
+            "take longer than a request should, so each runs as a job. Closing this tab "
+            "does not stop one — come back and it is still here. A finished job's report "
+            "stays for an hour."]
+           [:p.muted "One job writes at a time. A load and a chaining run each hold this "
+            "process's one writer, so the second of them is refused rather than queued; an "
+            "export writes the filesystem and runs beside either."]
+           [:p.muted "Watching one and wondering what it costs: "
+            [:a {:href "/caches"} "the caches page"] " says what this process is holding "
+            "while it runs, and its numbers move as the job does."]
+           (jobs-panel (:fragment? view)))))
+
+;; ---- what this process is holding: caches, heap, and the profiler -------
+;;
+;; This is the **programmer's** screen, and the one page here about the process rather
+;; than about the knowledge.  `/kbs` measures heap honestly and says so; nothing measured
+;; what the engine holds *beside* the store — a dozen derived structures whose whole
+;; purpose is that a repeated question is not recomputed, and no way to see whether that
+;; is happening.  A hit rate is the cost model's report card: "the second query was fast"
+;; is a demo, and "the second query was fast because it was served from a cache, and here
+;; is the rate" is evidence.
+;;
+;; The reads are `v/caches`, which is O(1) per row by construction — a count off a map
+;; the engine already holds, never a walk of the KB — so the panel polls like every other
+;; watching panel here.  It reuses the heap strip rather than redrawing one, and inherits
+;; that strip's distinction between a measurement and an estimate along with it.
+
+(defn- profiler-serve-ui
+  "`clj-async-profiler.core/serve-ui`, or nil when the dependency is not on the
+  classpath.  `requiring-resolve` is what lets the call site exist without the
+  dependency: it ships in the `:repl` profile, so `lein browser` has it and `lein run -m
+  vaelii.web` does not, and a page that rendered a dead link for the second case would be
+  worse than one that says so."
+  []
+  (try (requiring-resolve 'clj-async-profiler.core/serve-ui)
+       (catch Throwable _ nil)))
+
+;; `{:port n}` once the profiler UI is up, else nil.  A `defonce` so a namespace reload
+;; does not forget a server that is still listening — and so `start-profiler` cannot
+;; start a second one on a port the first still holds.
+(defonce ^:private profiler-state (atom nil))
+
+(defn start-profiler
+  "Start the sampling profiler's UI when the operator asked for one (`VAELII_PROFILER`)
+  and the class resolves.  A no-op otherwise, and a logged line when the operator asked
+  and it is absent — a switch that reads as set and does nothing is the failure the
+  `config` namespace exists to prevent.
+
+  Bare, not `!`: it starts a server and destroys nothing.  Called by both entry points,
+  so the variable means the same thing to `lein browser` as to `lein run -m
+  vaelii.impl.web`; only the first has the dependency, which is what the second one's
+  log line says."
+  []
+  (when (and (config/profiler?) (nil? @profiler-state))
+    (if-let [serve-ui (profiler-serve-ui)]
+      (let [port (config/profiler-port)]
+        (try
+          (serve-ui port)
+          (reset! profiler-state {:port port})
+          (trove/log! {:level :info :id ::profiler
+                       :msg (str "profiler UI on http://localhost:" port)})
+          (catch Throwable t
+            (trove/log! {:level :warn :id ::profiler
+                         :msg (str "profiler UI would not start on port "
+                                   (config/profiler-port) ": " (.getMessage t))}))))
+      (trove/log! {:level :warn :id ::profiler
+                   :msg (str "VAELII_PROFILER is set and clj-async-profiler is not on "
+                             "the classpath — it ships in the :repl profile, which "
+                             "`lein browser` activates and `lein run` does not")}))))
+
+(defn- profiler-section
+  "What the profiler is doing, in one of three states, and never a link to a port nothing
+  is listening on."
+  []
+  (let [{:keys [port]} @profiler-state]
+    (list
+     [:h3 "Profiler"]
+     (cond
+       port
+       [:p "Sampling profiler UI on "
+        [:a {:href (str "http://localhost:" port)} "localhost:" port]
+        [:span.muted " — flamegraphs of this JVM, on this machine. It attaches an agent "
+         "and serves on a port of its own with no authentication, which is why it is "
+         "started only when asked for."]]
+
+       (profiler-serve-ui)
+       [:p.muted "On the classpath, not started. Set " [:code "VAELII_PROFILER=1"]
+        " before starting the browser (and " [:code "VAELII_PROFILER_PORT"]
+        " to move it off 8080)."]
+
+       :else
+       [:p.muted "Not on the classpath. It ships in the " [:code ":repl"] " profile, so "
+        [:code "lein browser"] " has it and " [:code "lein run -m vaelii.web"]
+        " does not."]))))
+
+(defn- cache-scope
+  "Which thing a row's numbers are about — and, where the entries and the counters
+  disagree, both.  The literal cache is exactly that case: its entries are this KB's and
+  its hit counters are global `AtomicLong`s across every KB in the process, since they
+  measure the mechanism rather than a store. Rendering the second as though it were the
+  first is how a page attributes another KB's work to this one."
+  [scope counters]
+  (let [word {:kb "this KB" :process "this process"}]
+    (list [:span (word scope)]
+          (when (and counters (not= counters scope))
+            [:div.muted "rates: " (word counters)]))))
+
+(defn- cache-row
+  "One cache: the counts on a row, and what it holds on the muted line under it. The
+  note is not decoration — a column of bare integers over caches that count literals,
+  networks, symbols and records compares nothing, and the unit column alone does not say
+  what retires an entry."
+  [{:keys [label entries limit unit hits misses hit-rate scope counters note error]}]
+  (let [dash [:span.muted "—"]]
+    (list
+     [:tr
+      [:td label]
+      [:td.num (if entries (commas entries) dash)]
+      [:td.num (if limit (commas limit) [:span.muted "none"])]
+      [:td unit]
+      [:td.num (if hits (commas hits) dash)]
+      [:td.num (if misses (commas misses) dash)]
+      [:td.num (if hit-rate (format "%.1f%%" (* 100.0 (double hit-rate))) dash)]
+      [:td (cache-scope scope counters)]]
+     ;; an errored row keeps its place and says what happened, rather than reading as a
+     ;; cache that is empty — the two look identical in a column of dashes
+     [:tr.cache-note [:td.muted {:colspan "8"}
+                      (when error [:b.problem "Could not be read (" error "). "])
+                      note]])))
+
+(defn- caches-panel
+  "The cache table, as the fragment that refreshes itself.  It polls only while a job is
+  running — a load or a chaining run is exactly when these numbers move, and an idle page
+  has nothing to watch — which is the same self-terminating trigger the KB panels use."
+  [rows]
+  [:div#caches
+   (cond-> {}
+     (seq (jobs/running)) (merge (polling "/caches/rows" "2s")))
+   [:table.stats-table
+    [:thead [:tr [:th "Cache"] [:th.num "Entries"] [:th.num "Limit"] [:th "Unit"]
+             [:th.num "Hits"] [:th.num "Misses"] [:th.num "Hit rate"] [:th "Counts"]]]
+    [:tbody (map cache-row rows)]]
+   [:p.muted "Ranked by entries. A blank entry count is a cache bound to one chaining "
+    "run or one search step — it is built and dropped inside the operation, so there is "
+    "nothing for a page to read between them; the row is here rather than left off, so "
+    "the list is complete rather than merely finite. A cache in a namespace this "
+    "process never loaded has no row at all: no metric-time reasoner, no metric-closure "
+    "cache."]
+   [:p.muted "Every limit is a " [:b "wholesale"] " clear rather than an eviction: past "
+    "it the cache is emptied and refilled by demand, because evicting exactly the right "
+    "entry costs more bookkeeping than the entry saves. That is worth watching — a "
+    "workload oscillating around a limit pays a full rebuild every time it crosses."]
+   ;; The other half of "say what this does not cover".  A KB carries more derived state
+   ;; than this — but a cache is a structure whose entries the engine could recompute,
+   ;; and these are not that: dropping one changes an answer.
+   [:p.muted "A KB holds derived state that is " [:i "not"] " on this list, because it is "
+    "not a cache: the memory of a firing that was refused, the set awaiting a re-check, "
+    "the disjointness and negation ledgers, and the reference counts that keep the rule "
+    "index O(1). Each is bookkeeping the engine needs rather than an answer it could "
+    "recompute from what is stored, so nothing here counts it and nothing here drops it."]])
+
+(defn- caches-clear-note
+  "What a clear turned out to drop, for the line above the table it changed."
+  [{:keys [cleared entries]}]
+  (let [named  (->> cleared (filter (comp pos? :entries)) (map :label))
+        failed (->> cleared (filter :error) (map :label))]
+    (str "Dropped " (commas entries) " entr" (if (= 1 entries) "y" "ies")
+         (if (seq named)
+           (str " — " (str/join ", " named) ". ")
+           " — everything clearable was already empty. ")
+         "No belief moved: every entry was derived, and the next read recomputes it."
+         (when (seq failed)
+           (str " " (str/join ", " failed) " would not clear and "
+                (if (= 1 (count failed)) "was" "were") " left as "
+                (if (= 1 (count failed)) "it was" "they were") ".")))))
+
+(defn- caches-page
+  "The cache screen.  `note` is what a clear reported, above the numbers it changed."
+  ([view] (caches-page view nil))
+  ([{:keys [kb] :as view} note]
+   (let [rows      (v/caches kb)
+         permanent (->> rows (remove :clearable?) (map :label) sort)
+         ;; the rows whose *rates* are the process's: clearing one of those from here
+         ;; zeroes what every other KB's page is reading, which a control offered as a
+         ;; per-KB one has to say before it is pressed rather than after
+         shared    (->> rows
+                        (filter #(and (:clearable? %) (= :process (:counters %))))
+                        (map :label) sort)]
+     (render view "caches"
+             [:h2 "Caches"]
+             (when note [:p.problem note])
+             [:p.muted "What this process is holding beside the stores. Every row is a "
+              "structure the engine keeps so a repeated question is not recomputed, and "
+              "the hit rate is the only evidence that it is working. The reads here are "
+              "O(1) apiece — a count off a map the engine already holds — so this page "
+              "costs nothing to leave open."]
+             (memory-panel false)
+             [:p.muted "The heap figure above is a measurement of the whole JVM and the "
+              "per-KB sizes under it are estimates; the two are kept apart there for the "
+              "reason they are kept apart here — attributing heap to one of several "
+              "resident KBs would mean unloading it and diffing. Nothing on this page is "
+              "an estimate: an entry count is a count."]
+             [:h3 "What is cached"]
+             (caches-panel rows)
+             [:h3 "Clearing"]
+             [:p.muted "A clear is a measuring instrument, not an edit: clear, ask the "
+              "same question again, and watch the miss the second ask no longer gets to "
+              "skip. Nothing is destroyed — every entry is derived — so it is safe while "
+              "a load runs, and it is the one control here that does not hold the writer."]
+             (when (seq permanent)
+               [:p.muted "Left alone: " (str/join ", " permanent)
+                ". Those are structural rather than derived-per-question — dropping them "
+                "costs the sharing they exist for and buys no measurement, since nothing "
+                "counts a hit on them."])
+             (when (seq shared)
+               [:p.muted "Wider than this KB: " (str/join ", " shared)
+                (str (if (= 1 (count shared)) " keeps its rates" " keep their rates")
+                     " for the whole process, so clearing here zeroes the hit and miss "
+                     "counters every other KB's page is reading. The entries dropped are "
+                     "this KB's alone — no other KB loses one, and none loses a belief. "
+                     "What a second reader loses is the measurement they were partway "
+                     "through.")])
+             (kb-action "Clear the derived caches" "/caches/clear" {} "primary")
+             (profiler-section)))))
 
 (defn- option-params
   "The load parameters for `source`, read out of the submitted form under the option
@@ -4804,44 +5218,92 @@
   ;; something the monitor could see.  The daemon holds its own (`serve.clj`).
   (Object.))
 
-(defn- writing
-  "The guard every write to a KB's *content* goes through: the origin check, whether
-  this process's one writer is free, and the monitor that makes it one.
+(defn- write-refusal
+  "Nil when this request may write `target`'s KB, and the **page** saying why not when it
+  may not: the origin check, and whether a job holds this process's writer.
 
-  A KB can be read while a loader fills it, which is what makes an arriving corpus
-  browsable — but it cannot be *written* while one does.  A store mutation lands
-  atomically so a reader beside the loader sees a consistent prefix; two interleaved
-  writers are not serializable at all (docs/storage.md, the single-writer contract), and
-  the loader is already this process's writer.  So the reads stay open and the writes
-  wait, which is the whole of what activating a half-loaded KB costs.
+  A KB can be read while a job fills it, which is what makes an arriving corpus browsable
+  — but it cannot be *written* while one does.  A store mutation lands atomically so a
+  reader beside the job sees a consistent prefix; two interleaved writers are not
+  serializable at all (docs/storage.md, the single-writer contract), and the job is
+  already this process's writer.  So the reads stay open and the writes are refused.
 
-  The refusal is rendered as a **page**, not as an error status, for the reason
-  `kbs-page` renders one: the reader is still somewhere sensible and is owed a sentence
-  about why nothing happened.  An error status would leave htmx not swapping at all,
-  which is a silent no-op — the worst possible answer to \"why did my assert vanish?\".
-
-  Not for `/kbs/load` `/kbs/unload` `/kbs/activate`: those write this process's registry
-  rather than a KB, and cancelling a load has to stay reachable *because* one is running.
+  The refusal is a page, not an error status, for the reason `kbs-page` renders one: the
+  reader is still somewhere sensible and is owed a sentence about why nothing happened.
+  An error status would leave htmx not swapping at all, which is a silent no-op — the
+  worst possible answer to \"why did my assert vanish?\".  It **names the job that holds
+  the writer** and links to it, because \"something else is writing\" is not an answer a
+  reader can act on.
 
   The question is asked of the KB this request would actually write, not of whichever
   entry is active — so a second KB loading in the background never blocks a write to the
   one on screen, and a browser serving a KB the catalog never heard of is never blocked
   at all."
-  [target req f]
+  [target req]
   (cond
     (not (same-origin? req))
     (cross-origin-refusal)
 
     (catalog/write-blocked? (current target))
-    (render (view (current target) req) "still loading"
-            [:h2 "Nothing was written"]
-            [:p [:b (active-kb-name)] " is still loading, and a load is this process's one "
-             "writer — so it can be read while it fills up, but not changed."]
-            [:p.muted "Wait for it to finish, cancel it, or switch to another KB on the "
-             [:a {:href "/kbs"} "knowledge bases"] " page."])
+    (let [holder (jobs/writer)]
+      (render (view (current target) req) "still writing"
+              [:h2 "Nothing was written"]
+              [:p [:b (active-kb-name)] " is being written by "
+               (if holder
+                 (list [:a {:href "/jobs"} (:label holder) " (job " (:id holder) ")"])
+                 "a job")
+               ", and that job is this process's one writer — so this KB can be read while "
+               "it changes, but not changed."]
+              [:p.muted "Wait for it to finish, cancel it on the "
+               [:a {:href "/jobs"} "jobs"] " page, or switch to another KB on the "
+               [:a {:href "/kbs"} "knowledge bases"] " page."]))))
 
-    :else
-    (locking write-monitor (f))))
+(defn- writing
+  "The guard every synchronous write to a KB's *content* goes through: `write-refusal`,
+  and the monitor that makes this process's own writes one at a time.
+
+  Not for `/kbs/load` `/kbs/unload` `/kbs/activate`: those write this process's registry
+  rather than a KB, and cancelling a load has to stay reachable *because* one is running.
+  Not for a **job** either, which is `writing-job` below — a job takes the monitor on its
+  own thread, and a request that waited for it inside the monitor would hold the very lock
+  the job needs and time out every time."
+  [target req f]
+  (or (write-refusal target req)
+      (locking write-monitor (f))))
+
+(defn- writing-job
+  "The same guard for a write that runs as a **job**: refuse for the same reasons, then
+  hand `f` a wrapper it runs the work in.  The wrapper is the write monitor, taken on the
+  job's own thread — so a synchronous write that slipped past the refusal in the moment
+  before the job claimed the writer waits for it rather than interleaving with it.
+
+  The refusal is what stops two writing jobs; this is what stops a job and a request."
+  [target req f]
+  (or (write-refusal target req)
+      (f (fn [work] (locking write-monitor (work))))))
+
+(defn- job-answer
+  "Start a job (`start`, returning its id) and answer for it.
+
+  **The 250 ms fast path**, which is the whole reason a job is not always a progress page:
+  a job that settles inside `jobs/fast-path-ms` is answered with its result (`done`, given
+  the finished job), and only one still running is answered with the jobs screen.  Without
+  it every small operation acquires a spinner and a second round trip, and the tool feels
+  slower than the thing it replaced.  A job that settled by *failing* goes to the screen
+  too, since that is where its error is written down.
+
+  And when the registry **refuses** the job — another job holds this process's writer —
+  the answer is that screen carrying the refusal as a note, naming the job that holds it.
+  A refusal is a state to show rather than an error status, exactly as `kbs-post` treats
+  the catalog's."
+  [view start done]
+  (try
+    (let [j (jobs/wait (start) jobs/fast-path-ms)]
+      (if (= :done (:status j))
+        (done j)
+        (jobs-page view)))
+    (catch clojure.lang.ExceptionInfo e
+      (jobs-page view (.getMessage e)))))
 
 (defn- cached
   "Stamp a static asset's answer with the cache policy `dev?` chose.  A miss (nil) is
@@ -4895,12 +5357,49 @@
                                 (stats-page (view (current target) req) nil
                                             (some? (get-in req [:query-params "clashes"]))))}]
          ;; forward chaining is a *write* (it derives and places conclusions), so it is
-         ;; POST-only and goes through `writing`, and answers with the stats page it changed
+         ;; POST-only and guarded like any other; it runs as a **job**, so a fixpoint over
+         ;; a corpus is watchable and stoppable rather than a request nobody can see
+         ;; inside.  A run that settles inside the fast path answers with the stats page it
+         ;; changed, exactly as it did when it was synchronous.
          ["/chain"      {:post (fn [req]
-                                 (writing target req
-                                          #(let [kb (current target)]
-                                             (stats-page (view kb req)
-                                                         (chain-note (v/forward-chain kb {}))))))}]
+                                 (writing-job
+                                  target req
+                                  (fn [in-monitor]
+                                    (let [kb (current target)]
+                                      (job-answer
+                                       (view kb req)
+                                       #(chain-job kb (active-kb-name)
+                                                   (->long (get-in req [:params "max-derivations"]))
+                                                   in-monitor)
+                                       #(stats-page (view (current target) req)
+                                                    (chain-note (:summary %))))))))}]
+         ;; what this process is holding beside the store: the caches, the heap strip
+         ;; `/kbs` already draws, and the profiler.  The clear is origin-checked like
+         ;; every other POST and is deliberately **not** behind `writing`: it changes no
+         ;; belief, holds no writer, and a reader most wants it while a load runs
+         ["/caches"       {:get (fn [req] (caches-page (view (current target) req)))}]
+         ["/caches/rows"  {:get (fn [_] (frag (caches-panel (v/caches (current target)))))}]
+         ["/caches/clear" {:post (fn [req]
+                                   (if (same-origin? req)
+                                     (let [r (v/clear-caches (current target))]
+                                       (caches-page (view (current target) req)
+                                                    (caches-clear-note r)))
+                                     (cross-origin-refusal)))}]
+         ;; the jobs screen: every long run this process has made recently, and the one
+         ;; control that stops one.  The list is a self-terminating poll like the KB panels
+         ;; — it stops asking the moment nothing is running — and the cancel is a write to
+         ;; this process's registry rather than to a KB, so it is origin-checked and not
+         ;; behind `writing` (cancelling a job has to stay reachable *because* one runs)
+         ["/jobs"        {:get (fn [req] (jobs-page (view (current target) req)))}]
+         ["/jobs/rows"   {:get (fn [_] (frag (jobs-panel true)))}]
+         ["/jobs/cancel" {:post (fn [req]
+                                  (if (same-origin? req)
+                                    (let [id (get-in req [:params "id"])]
+                                      (jobs-page (view (current target) req)
+                                                 (when-not (jobs/cancel! id)
+                                                   (str "No job " id " — it has finished and "
+                                                        "its report has aged out."))))
+                                    (cross-origin-refusal)))}]
          ;; the knowledge bases themselves: what is loaded, what can be, and which one
          ;; every other page is reading.  The three writes change this process's state
          ;; rather than a KB's content, and are origin-checked like any other write; the
@@ -5393,6 +5892,10 @@
   (let [port (default-port)
         {:keys [target]} (opening-kb nil)]
     (warm-model)
+    ;; the profiler ships in the `:repl` profile, which is the one `lein browser`
+    ;; activates — so this is the entry point where `VAELII_PROFILER` can actually find
+    ;; the class, and the caches page links to whatever it started
+    (start-profiler)
     (try
       (reset! dev-instance (start target {:port port :reload? true}))
       (println (str "\n  vaelii browser  http://" loopback ":" port
@@ -5459,4 +5962,8 @@
                      :data {:host host :hosts (if open? :open :allowlisted)}})))
     ;; the proposal panel's model, loaded while the reader is still finding a term page
     (warm-model)
+    ;; the same call `dev-repl` makes, so the variable means one thing to both entry
+    ;; points.  Here the class is normally absent — it ships in the `:repl` profile — and
+    ;; `start-profiler` says so in the log rather than failing the start
+    (start-profiler)
     (jetty/run-jetty (with-host (app target) host) {:port port :host host :join? true})))

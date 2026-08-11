@@ -35,10 +35,13 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | build a type hierarchy that behaves | [taxonomy.md](taxonomy.md) | [argtypes.md](argtypes.md), [inherit.md](inherit.md) |
 | reason about time, space or distance | [qcn.md](qcn.md) | [time.md](time.md), [space.md](space.md), [stp.md](stp.md) |
 | drive a KB from a shell or over a network | [operations.md](operations.md) | [api.md](api.md) |
+| judge whether a KB's knowledge is any good | [quality.md](quality.md) | [taxonomy.md](taxonomy.md), [inference.md](inference.md) |
 | read another system's KB in | [foreign.md](foreign.md) | [kbs.md](kbs.md) |
 | turn English into sentexes | [reading.md](reading.md) | [llm.md](llm.md) |
 | find the code behind a subsystem | [namespaces.md](namespaces.md) | [dependencies.md](dependencies.md) |
 | understand what a query costs | [indexing.md](indexing.md) | [density.md](density.md), [anytime.md](anytime.md) |
+| find out what shape of question my KB is asked | [profile.md](profile.md) | [indexing.md](indexing.md) |
+| know what a change cost the index, per assert | [profile.md](profile.md) | [indexing.md](indexing.md) |
 | see what this KB is *for* | [commonsense.md](commonsense.md) | |
 
 Every page opens with three bullets — **Covers**, **Not here**, **Assumes** — so a wrong
@@ -102,6 +105,8 @@ page costs a sentence rather than a section.
 
 - [feed.md](feed.md) — `watch`: an application told that belief moved instead of asking again, off the settle that already computed it — one settle one event, standing queries as a filter over the moved region rather than a re-run, and what is refused because the region cannot answer it.
 - [operations.md](operations.md) — the operational surface: the `cli` driver, the headless EDN-over-HTTP daemon that is the single writer, and the zero-dep client threading an explicit connection.
+- [quality.md](quality.md) — `kb-quality`: four readings about the knowledge rather than the engine — which rules never fire, how skewed the predicate extents are, how deep the rule graph's chains reach, how much of the taxonomy reaches a root — each off state that already exists, and none of them a gate.
+- [profile.md](profile.md) — the workload instrument: which shapes of question a KB is asked, which index families answer them, what a trie walk costs in node probes, and what one assert or one retraction costs each family — off by default and a deref when off. Also the count-based gate built on it, which fails the suite when a change adds an index operation to either write path, the class `lein perf`'s ratios cannot see.
 - [web.md](web.md) — the reitit-ring browser for terms, sentexes, and justifications;
   a term page opens with its shape drawn, server-side and inside a read budget.
 - [catalog.md](catalog.md) — the KB catalog: what a process can load (shipped, generated, corpus, dump, on-disk store), loading one in the background with progress and cancellation, and switching which one every page reads.

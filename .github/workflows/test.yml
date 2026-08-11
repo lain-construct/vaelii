@@ -30,7 +30,6 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    paths-ignore: ["docs/**", "**.md", ".github/badges/**"]
   schedule:
     - cron: "0 8 * * 1"
   workflow_dispatch:
@@ -53,14 +52,24 @@ jobs:
     # `disk` — the `test / memory` spelling is the pull-request UI's, and typing
     # that into a required-checks list names a check that never reports.
     #
-    # DO NOT make `memory` or `disk` a required check while the released copy of
-    # this workflow carries a `paths-ignore` for docs/ and **.md. A workflow
-    # skipped by a path filter never reports at all — not as passed, not as
-    # skipped — so a required check that names it leaves every doc-only pull
-    # request unmergeable forever. Require `lint` instead: it runs on every
-    # change by design, and it holds the doc gates. If the suite must be
-    # required too, drop the paths-ignore first and let it run and pass cheaply.
+    # `memory` and `disk` are REQUIRED checks on `develop`, and what makes that
+    # safe is that this workflow carries no path filter: it runs on every pull
+    # request, so both jobs always report. DO NOT ADD A `paths-ignore` here. A
+    # workflow skipped by a path filter never reports at all — not as passed,
+    # not as skipped — so a required check that names it leaves every pull
+    # request the filter matched unmergeable forever. The two are one decision.
+    #
+    # A doc-only change runs the suite and passes it, and that is the price of
+    # the two being a gate rather than a reading. `docs/**` is not inert with
+    # respect to the suite anyway: config_surface_test reads docs/operations.md
+    # and holds its configuration table to every switch the tree reads, and
+    # scripts/check-doc-drift.py stands aside on that one file because the test
+    # covers it.
     name: ${{ matrix.backend }}
+    # A scheduled run does work only where Actions minutes are free. Push and
+    # pull_request are untouched: this job is the gate, and a gate that skips is
+    # not one. deep.yml carries the long form of the argument.
+    if: github.event_name != 'schedule' || github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -181,6 +190,8 @@ jobs:
   # robust to that.
   asp:
     name: asp
+    # as `suite` above: scheduled runs only where the minutes are free
+    if: github.event_name != 'schedule' || github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

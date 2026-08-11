@@ -38,6 +38,7 @@
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rewrite :as rewrite]
@@ -358,11 +359,14 @@
               closure the edge just moved
     disjoint  disjointness is closed under genl (both up-closures are walked), so
               any edge can connect a pair a declaration separates
-    not       a negated conjunct registers under `not` (its functor).  Today a
-              ground negation is answered from stored negative sentexes with no
-              genl fan-out, so no edge can flip it — this is defensive, priced at
-              one set-read on a rare path, against contravariant negative matching
-              ever arriving.
+
+  Both are answered across *arguments* — the conjunct's own arguments say nothing
+  about which edge can move it — so neither can be keyed on a predicate and neither
+  can be narrowed to a subset of the rule's firings.  They are queued `:all`.
+
+  A negated conjunct registers under `not` (its functor) and is **not** here: it is
+  keyed on the closure the edge actually moved, by `recheck-negated-exceptions`
+  below.
 
   Everything else the level-6 stack can reach a `genl` edge reaches *through the
   spec closure of the registered predicate* — the fact fan-out, the argIsa type
@@ -373,13 +377,90 @@
   anywhere near it.  Which predicates those are is a property of the KB rather than
   of the code, so they cannot be listed here — `recheck-preserving-along` reads them
   per KB and this set is unioned with what it finds."
-  '#{genl disjoint not})
+  '#{genl disjoint})
+
+(def ^:private opaque-negated-body-functors
+  "Functors under a `not` that `recheck-negated-exceptions` cannot key on, because the
+  negation is over a *frame* rather than over a literal and the predicates that decide
+  it are the frame's, at whatever depth.  A rule carrying one is queued rather than
+  reasoned about."
+  '#{and or implies exceptWhen thereExists forAll ist unknown})
+
+(defn- negated-block-literals
+  "The `not`-headed literals among rule `rh`'s re-check conditions — its believed
+  `exceptWhen` conjuncts, its `unknown` antecedents' queries and its aggregate bodies.
+
+  The same three sources `settle/exception-candidates` narrows a firing by, for the
+  same reason: all three are read at firing time rather than named by the
+  justification, and all three register the rule in the exception index under the
+  functor of what they mention.  A negation registers under `not`, which is what makes
+  this list the whole of what a rule is queued for on that key."
+  [kb rh]
+  (let [rsx (p/get-sentex (:records kb) rh)]
+    (filterv #(and (sequential? %) (= 'not (nm/functor %)))
+             (concat (apply concat (provers/rule-exceptions kb rh))
+                     (when rsx (rules/naf-queries rsx))
+                     (when rsx (rules/aggregate-queries rsx))))))
+
+(defn- negation-under-moved-closure?
+  "Could a `genl` edge whose subtype's spec closure is `below` flip one of rule `rh`'s
+  negated re-check conditions?
+
+  A ground negation is answered from stored negative sentexes with no genl fan-out, so
+  today no edge flips one at all and the honest answer is always false.  The wave-through
+  is kept anyway, against contravariant negative matching: reading `(not (dog X))` off a
+  stored `(not (animal X))` walks the **up**-closure of the conjunct's own predicate, and
+  an edge `[sub super]` moves `genls(P)` for exactly the predicates `P` at or below
+  `sub`.  So that is the keying — the contravariant twin of the covariant
+  `genls(super)` walk beside it, on the one functor whose registration hides the
+  predicate it is about.
+
+  `below` is read after the mutation for `genls(super)`'s reason: an edge putting `sub`
+  above `super` is a cycle, refused, so `specs(sub)` is the same set on both sides of
+  the change.
+
+  Answers **keep** wherever it cannot read the conjunct: a body whose functor is a
+  variable or a compound, a connective frame (`opaque-negated-body-functors`), or a
+  rule registered under `not` whose conditions this cannot find at all."
+  [kb rh below]
+  (let [lits (negated-block-literals kb rh)]
+    (or (empty? lits)
+        (boolean (some (fn [lit]
+                         (let [f (nm/functor (sx/underlying-body lit))]
+                           (or (not (symbol? f))
+                               (contains? opaque-negated-body-functors f)
+                               (contains? below f))))
+                       lits)))))
+
+(defn- recheck-negated-exceptions
+  "Queue the rules whose **negated** re-check condition the moved `genl` edge can reach,
+  where `sub` is the edge's subtype.
+
+  Its own price is what makes it a separate walk from the wave-through above.  Queueing
+  a rule is `:all`, and `:all` is the arm of `settle/exception-candidates` that skips
+  the firing narrowing and re-evaluates every firing the rule ever made — one level-6
+  query apiece.  A negated exception conjunct is ordinary common-sense content
+  (`(exceptWhen (not (hasWings ?x)) …)`), so keying it on the functor alone puts the
+  whole firing history of every such rule in front of the prover on every `genl` edge
+  written anywhere, which is a cost proportional to the rule's history rather than to
+  the edge.
+
+  One record read per rule carrying a negated condition, and none at all for a KB that
+  has none — the same shape and the same gate `recheck-genlContext-edge` uses on its
+  own cone test."
+  [kb sub]
+  (let [idx (:index kb)]
+    (when-let [rules (seq (p/rules-with-exception-on idx 'not))]
+      (let [below (tax/specs (:taxonomy kb) sub)]
+        (doseq [rh rules
+                :when (negation-under-moved-closure? kb rh below)]
+          (mark-recheck kb [rh] :all))))))
 
 (defn- recheck-genl-edge
-  "A `genl` edge under `super` was added or removed: queue the rules whose exception
+  "A `genl` edge `(genl sub super)` was added or removed: queue the rules whose exception
   the moved closure can actually reach, instead of every excepted rule.
 
-  The edge is `[sub super]`; only `super`'s up-closure matters.  Every reachability
+  Only `super`'s up-closure matters for the predicate keying.  Every reachability
   pair the edge adds or removes runs `x -> … -> sub -> super -> … -> y`, so the spec
   closure `specs(pe)` of an exception predicate `pe` changes **iff `pe` is `super`
   or a supertype of it** — a predicate above `sub` but not above `super` already
@@ -391,13 +472,17 @@
   put `sub` above `super` is a cycle, refused by wff on the assert path and dropped
   as a violation on the derivation path — so reading it after the mutation is safe.
 
-  The waved-through functors above cover the provers that read the closure across
-  arguments, and `recheck-preserving-along` covers the one set of them the code
-  cannot name in advance.  Sound by construction: every channel a genl edge can reach
-  a level-6 answer through is either predicate-addressed here or waved through; when
-  a future channel is in doubt, the answer is to queue, not to skip — the sin this
-  replaces was queueing everything always, not queueing conservatively."
-  [kb super]
+  Three channels the predicate keying cannot see are covered beside it: the two
+  waved-through functors above, whose provers read the closure across arguments;
+  `recheck-preserving-along`, for the declared preserved positions the code cannot name
+  in advance; and `recheck-negated-exceptions`, keyed at the edge's **subtype** because
+  a negation is the one condition read against its own predicate's up-closure.
+
+  Sound by construction: every channel a genl edge can reach a level-6 answer through is
+  either predicate-addressed here or covered by one of those three; when a future channel
+  is in doubt, the answer is to queue, not to skip — the sin this replaces was queueing
+  everything always, not queueing conservatively."
+  [kb sub super]
   (let [tx (:taxonomy kb) idx (:index kb)]
     ;; No excepted rule anywhere ⇒ nothing to re-check, and computing `genls(super)`
     ;; just to iterate an empty rule set would make a deep `genl` load quadratic —
@@ -409,6 +494,7 @@
       ;; trigger that under-selects is a missed withdrawal
       (doseq [pe (into (tax/genls tx super) closure-answered-exception-functors)]
         (mark-recheck kb (p/rules-with-exception-on idx pe) :all))
+      (recheck-negated-exceptions kb sub)
       (recheck-preserving-along kb 'genl))))
 
 (defn- aggregate-rule?
@@ -1055,7 +1141,7 @@
   seeds — the taxonomy twin of `lift-existing`, and there for exactly the same reason.
 
   Matching fans an antecedent's functor over its `genl` **spec** closure, so an edge
-  arriving after the facts changes which antecedents they satisfy: `(dog Fido)` stored,
+  arriving after the facts changes which antecedents they satisfy: `(dog Muffet)` stored,
   then `(genl dog animal)`, and a rule on `(animal ?x)` should fire.  The semi-naive
   agenda never sees it — the arriving datum is the *edge*, and firing the rules keyed on
   `genl` is not the same thing as re-firing the rules the edge just connected.  Without
@@ -1582,16 +1668,9 @@
     (update (migrate-matching kb (first lhs))
             :violations into (confluence-violations kb sentex handle lhs rhs))))
 
-(defn- supersession-map
-  "The `datum -> representative` map of spellings the equality closure currently
-  displaces, recomputed from the taxonomy.
-
-  Derived state, like `defeated` and `blocked`: it is recomputed rather than
-  accumulated, so a supersession cannot outlive the merge that caused it and a
-  retracted equality gives the caller's premise back with no un-supersede path of its
-  own.  Only the *current* entries are re-examined (plus whatever migration just
-  added), which keeps this proportional to what has actually merged rather than to
-  the KB.
+(defn- displacement
+  "The supersession entry for datum `d` — `[d {displaced-term representative}]` — or nil
+  when `d`'s spelling is not displaced, or `d` is no longer stored at all.
 
   **Read from the sentex's own context**, the way migration writes it.  A datum lives in
   one context, and the question a supersession answers is whether *that* context has
@@ -1600,33 +1679,129 @@
   one (`migrate-sentex`).  Asking globally instead would take a premise away from the
   context that asserted it on the strength of a merge stated somewhere it cannot see.
 
-  **One visibility predicate per context, not per entry.**  Scoping the read costs a
-  record fetch per equality supporter, and this walks every displaced datum on each
-  merging assert — so a fresh predicate per entry would re-fetch the same supporter
-  records once per entry, which is the whole reconcile squared.  The entries cluster
-  hard by context (they are the sentexes one merge displaced), so memoizing across the
-  walk collapses that to one fetch per supporter."
-  [kb extra]
-  (let [tms (:tms kb)
-        vis (memoize #(res/visible-supporter-fn kb %))]
-    (into {}
-          (keep (fn [[d _]]
-                  (when-let [sx (p/get-sentex (:records kb) d)]
-                    (let [ctx       (:context sx)
-                          visible?  (vis ctx)
-                          rewritten (sx/canon (kb/rewrite-term* kb (:sentence sx) visible?))]
-                      ;; still displaced only if its own terms still rewrite to
-                      ;; something else *and* the restatement is actually stored
-                      (when (and (not= rewritten (sx/canon (:sentence sx)))
-                                 (kb/find-sentex-handle kb rewritten ctx))
-                        [d (kb/displaced-terms* kb (:sentence sx) visible?)])))))
-          (into (jtms/superseded tms) extra))))
+  `visible-for` is the caller's memo from context to visibility predicate.  **One
+  visibility predicate per context, not per entry**: scoping the read costs a record
+  fetch per equality supporter, and a merging assert examines every entry the migration
+  produced — so a fresh predicate per entry would re-fetch the same supporter records
+  once per entry, which is the whole reconcile squared.  The entries cluster hard by
+  context (they are the sentexes one merge displaced), so memoizing across the walk
+  collapses that to one fetch per supporter."
+  [kb visible-for d]
+  (when-let [sx (p/get-sentex (:records kb) d)]
+    (let [ctx       (:context sx)
+          visible?  (visible-for ctx)
+          rewritten (sx/canon (kb/rewrite-term* kb (:sentence sx) visible?))]
+      ;; still displaced only if its own terms still rewrite to something else *and*
+      ;; the restatement is actually stored
+      (when (and (not= rewritten (sx/canon (:sentence sx)))
+                 (kb/find-sentex-handle kb rewritten ctx))
+        [d (kb/displaced-terms* kb (:sentence sx) visible?)]))))
+
+(defn- supersession-stamp
+  "Everything a supersession answer reads besides the datum's own record: the active
+  equality edges and the `rewriteOf` preference claims they carry — which between them
+  decide every class and every representative — the believed schematic rewrite rules,
+  which decide the rest of a normal form, and the `genlContext` generation, which
+  decides which merges a sentex's own context can see.
+
+  Cheap to take and cheap to compare.  Three of the four are structures the taxonomy
+  hands back as the *same object* while nothing has moved, so the comparison stops on
+  identity; the fourth is a counter.  It is a stamp of the derived state, not of the KB:
+  a store holding a hundred million facts and no merge stamps as the empty set."
+  [kb]
+  (let [tax (:taxonomy kb)]
+    {:equality (tax/equality-edges tax)
+     :prefs    (tax/equality-prefs tax)
+     :rewrites (tax/rewrite-rules tax)
+     :ctx-gen  (tax/relation-gen tax :genlContext)}))
+
+(defn- region-suffices?
+  "Can this reconcile be narrowed to the moved region, or must every standing entry be
+  re-examined?
+
+  An entry's answer reads four things: the datum's own record, the class its terms
+  belong to, the rewrite rules, and whether the restatement is still stored.  Hold the
+  last three still and the only entries that can have moved are the ones the region
+  names — so the question here is whether the stamp says they held.
+
+  * **The rewrite rules and the `genlContext` generation must be unchanged.**  Neither
+    leaves a trace on the entries: a schematic rule leaving re-normalizes every sentence
+    it reached, and a context edge changes which merges a reader can see, and in both
+    cases the entry that stops holding is one nothing relabelled.
+
+  * **The equality edges and preferences must be unchanged, *or* `extra` must be
+    non-empty.**  `extra` is migration's own output, and migration walks the whole class
+    a merge moved (`migrate-class`) — every stored sentex naming any member, superseded
+    ones included, and every entry already in the set is one `kb/rewritable-sentex?`
+    admits and goes on admitting while the merge that displaced it stands.  So a class
+    move that arrived with a migration is described by what the migration handed over,
+    and a class move that arrived without one (an equality retracted, defeated or
+    revived) is described by nothing and takes the full pass.
+
+    The one thing that escape does not carry is a restatement migration **refused** —
+    a rewritten form the constraint or `wff` checks reject, which is filed as a violation
+    and leaves the sentex out of `extra`.  A spelling already displaced by an earlier
+    merge then keeps that supersession rather than being handed back, and the KB is one
+    with a reported violation in it either way.
+
+  Answers **no** when there is no previous stamp at all, which is a freshly opened KB, a
+  recovered one, and anything that wiped the derived state: a stamp that cannot be
+  compared costs one full reconcile and never a wrong answer."
+  [stamp prev extra]
+  (and (some? prev)
+       (= (:rewrites stamp) (:rewrites prev))
+       (= (:ctx-gen stamp) (:ctx-gen prev))
+       (or (and (= (:equality stamp) (:equality prev))
+                (= (:prefs stamp) (:prefs prev)))
+           (boolean (seq extra)))))
+
+(defn- supersession-map
+  "The `datum -> displaced-terms` map of spellings the equality closure currently
+  displaces, reconciled against the taxonomy.
+
+  Derived state, like `defeated` and `blocked`: it is recomputed rather than
+  accumulated, so a supersession cannot outlive the merge that caused it and a
+  retracted equality gives the caller's premise back with no un-supersede path of its
+  own.  Entries are only ever dropped or restated here — a spelling *starts* being
+  displaced when migration says so, and arrives as `extra`.
+
+  **Narrowed to the region, the way every other reconcile in `settle-finish` is.**  A
+  standing merge is not small: `sameAs` is one of three relations feeding the closure,
+  `owl:sameAs` is what an RDF import emits in quantity, and re-examining every displaced
+  datum on every settle would make loading n merges quadratic in n.  So the walk is over
+  `extra` plus the entries the moved region names, and `region-suffices?` decides
+  whether that is the whole answer.  Each examined entry costs a record fetch, a rewrite
+  through the closure and a store probe; each carried one costs a set membership test.
+
+  `region` is `jtms/touched`, a superset of every datum whose belief moved — which is
+  also a superset of every datum *removed*, since a removal relabels what rested on it.
+  That is what covers the two ways an entry can stop holding while the closure stands
+  still: the displaced datum itself leaving, and its restatement leaving with it.  Pass
+  nil to force the full pass."
+  [kb extra region]
+  (let [tms   (:tms kb)
+        held  (jtms/superseded tms)
+        stamp (supersession-stamp kb)
+        prev  (some-> (:supersessions kb) deref)
+        vis   (memoize #(res/visible-supporter-fn kb %))]
+    (some-> (:supersessions kb) (reset! stamp))
+    (if (and (some? region) (region-suffices? stamp prev extra))
+      (reduce (fn [m d] (if-let [e (displacement kb vis d)] (conj m e) (dissoc m d)))
+              (into held extra)
+              (into (mapv first extra) (filter #(contains? held %)) region))
+      (into {} (keep #(displacement kb vis (first %))) (into held extra)))))
 
 (defn refresh-supersessions
   "Reconcile the superseded set with the equality closure — the equality analogue of
-  `tax/refresh-beliefs`, and called from the same place for the same reason."
+  `tax/refresh-beliefs`, and called from the same place for the same reason.
+
+  It reads the moved region itself rather than being handed it, because it is called
+  from three places (an assert that merged, the end of a settle, and `recover`) and the
+  window each of them wants is the same one: everything the TMS has relabelled since the
+  last settle finished."
   ([kb] (refresh-supersessions kb nil))
-  ([kb extra] (jtms/supersede (:tms kb) (supersession-map kb extra))))
+  ([kb extra]
+   (jtms/supersede (:tms kb) (supersession-map kb extra (jtms/touched (:tms kb))))))
 
 (defn- derive-equality
   "Store `(equals x y)` in `context` as a **derivation** from `antes` and merge with
@@ -1672,21 +1847,41 @@
   stores the declaration and replayed by `recover`, so it holds exactly when the query
   finds something; the unscoped arity is what keeps that equivalence, since the query
   under it names no context either.  The handle comes from the store, because a
-  justification needs the declaring sentex itself, and only the true branch pays for it."
+  justification needs the declaring sentex itself, and only the true branch pays for it.
+
+  **One justification per declaring sentex, not one off an arbitrary declaration.**  A
+  KB may state `(functional P)` in two contexts, which is two sentexes and two handles
+  and is refused by nothing; taking `first` of them put an assertion-ordered handle into
+  the justification's antecedents, so retracting *that* declaration withdrew the merge
+  while the other still stood — and which of the two it was depended on the order they
+  arrived in.  `tax/prop-supporters` is the whole set, defeated members included (its
+  docstring says why: a derivation revives by itself when its supporter does), and the
+  equality takes a justification from each — the shape `deduce-lift` already uses for the
+  same reason, so retracting one of two declarations leaves the merge standing on the
+  other.  Sorted only to make each antecedent list stable to read; the *set* of
+  justifications is what carries the meaning, and a set has no order to depend on."
   [kb sentence context handle]
-  (let [pred (nm/functor sentence)
+  (let [tax  (:taxonomy kb)
+        pred (nm/functor sentence)
         b    (second (nm/args sentence))
-        fh   (when (tax/has-prop? (:taxonomy kb) :functional pred)
-               (:id (first (kb/sentexes-matching kb (list 'functional pred) '?ctx))))]
-    (when fh
+        fhs  (when (tax/has-prop? tax :functional pred)
+               (sort (tax/prop-supporters tax :functional pred)))]
+    (when (seq fhs)
       (reduce (fn [acc [oh v]]
                 (if-not (and (checks/mergeable-values? v b)
-                             (not (tax/same-class? (:taxonomy kb) v b)))
+                             (not (tax/same-class? tax v b)))
                   acc
-                  (merge-with into acc
-                              (derive-equality kb v b context 'functional [handle oh fh]))))
+                  (reduce (fn [acc fh]
+                            (merge-with into acc
+                                        (derive-equality kb v b context 'functional
+                                                         [handle oh fh])))
+                          acc fhs)))
               {:new [] :superseded [] :violations []}
-              (checks/functional-clashes kb sentence context)))))
+              ;; content-ordered, so which pair gets the explicit equality is a function
+              ;; of the values rather than of which filler was written first — it shows
+              ;; when a standing merge among the fillers is later retracted
+              (sort-by (comp pr-str second)
+                       (checks/functional-clashes kb sentence context))))))
 
 (defn equate-existing
   "When a `(functional P)` declaration arrives, derive the equalities P's **already
@@ -1727,6 +1922,36 @@
                 (vec (keep #(p/get-sentex (:records kb) %)
                            (p/sentexes-with-functor (:index kb) pred))))))))
 
+(defn- stored-declarations
+  "Every **stored** sentex whose functor is `f`, believed or not.
+
+  Read by the two passes that sweep what is *already there* — `rebuild-taxonomy`'s
+  replay, and the `disjointMetatype` arm picking up memberships asserted before the
+  declaration — because both are recording supporters rather than deciding belief, and
+  a supporter omitted here is one no later reconcile can find.
+
+  Reading a belief-filtered store would quietly change what recovery means.
+  Every cache follows the same discipline now: `:support` (genl/genlContext/equality)
+  and `:cache-support` (disjoint, metatypes + members, props, inverse) are meant to
+  record *every* asserting sentex, with `refresh-beliefs` deciding which entries are
+  active.  Omit a disbelieved supporter and its handle is gone from the count, so
+  clearing its defeat could never revive the entry — a defeated `(disjoint dog cat)`
+  would then answer differently either side of a restart, and a disbelieved genl
+  supporter's edge would be lost for good.
+
+  So the taxonomy is rebuilt from what is stored, and belief is applied afterwards
+  by the `settle` at the end of `recover`, exactly as it is during normal operation.
+
+  Stored, not believed — but **positive**: `sentexes-with-functor` returns both
+  polarities, and a `(not (genl a b))` *opposes* the edge rather than asserting it.
+  The rebuild arms read the positive shape positionally, so a negation would bind
+  its inner sentence as a taxonomy node and nil as the other — and the assert path
+  never routes one here either, since its dispatch reads the functor `not`."
+  [kb f]
+  (->> (p/sentexes-with-functor (:index kb) f)
+       (keep #(p/get-sentex (:records kb) %))
+       (filter #(and (= :true (:truth %)) (nil? (:antecedent %))))))
+
 ;; ---- the table -----------------------------------------------------------
 
 (defn- prop-entry
@@ -1742,7 +1967,8 @@
   functor either way, so the live KB and the recovered one disagreed about the same
   store — a restart changed the answer."
   [kind]
-  {:integrate    (fn [kb sx h] (tax/mark-prop (:taxonomy kb) kind (second (:sentence sx)) h (:context sx)))
+  {:prop         kind                       ; the roster `has-prop?`'s spec is held to
+   :integrate    (fn [kb sx h] (tax/mark-prop (:taxonomy kb) kind (second (:sentence sx)) h (:context sx)))
    :disintegrate (fn [kb sx] (tax/unmark-prop! (:taxonomy kb) kind (second (:sentence sx)) (:id sx)))
    :rebuild      (fn [tax {[_ pred] :sentence id :id ctx :context}] (tax/mark-prop tax kind pred id ctx))
    :wff          wff/prop-problems
@@ -1852,11 +2078,11 @@
       ['genl {:integrate    (fn [kb sx h]
                               (let [[_ a b] (:sentence sx)]
                                 (tax/add-genl (:taxonomy kb) a b h (:context sx))
-                                (recheck-genl-edge kb b)))
+                                (recheck-genl-edge kb a b)))
               :disintegrate (fn [kb sx]
                               (let [[_ a b] (:sentence sx)]
                                 (tax/del-genl! (:taxonomy kb) a b (:id sx))
-                                (recheck-genl-edge kb b)))
+                                (recheck-genl-edge kb a b)))
               :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
                               (tax/add-genl tax a b id ctx))
               :wff          wff/genl-problems
@@ -1903,8 +2129,24 @@
                           ;; `tax/disjoint?` consults the membership directly.  A
                           ;; member asserted later is picked up by the structural
                           ;; member arm in `integrate-sentex`.
+                          ;;
+                          ;; **Stored, not believed**, which is the discipline every
+                          ;; other retroactive sweep here follows (`lift-existing`,
+                          ;; `equate-existing`, `entail-existing`) and for a sharper
+                          ;; reason: this one records a *supporter*.  The structural
+                          ;; member arm is belief-blind, so a membership asserted after
+                          ;; the declaration is counted whatever its label — and a
+                          ;; belief-filtered sweep here would skip a defeated membership
+                          ;; asserted *before* it, leaving that handle out of
+                          ;; `:cache-handle-keys` entirely.  Clearing the defeat could
+                          ;; then never revive the entry, since `moved-cache-keys` has no
+                          ;; key to find: belief depending on the order the defeat and
+                          ;; the declaration arrived in, and permanently.  It would also
+                          ;; put the live KB and the recovered one at odds over one
+                          ;; store, `rebuild-taxonomy`'s second pass reading what is
+                          ;; stored through this very function.
                           (doseq [{[_ t] :sentence id :id mctx :context}
-                                  (kb/sentexes-matching kb (list m '?t) '?ctx)]
+                                  (stored-declarations kb m)]
                             (tax/add-metatype-member (:taxonomy kb) m t id mctx))))
         :disintegrate (fn [kb sx]
                         (let [[_ m] (:sentence sx)]
@@ -2202,31 +2444,6 @@
   (recheck-on-sentence kb (:sentence sentex)))
 
 ;; ---- rebuild: recover's replay of the table ------------------------------
-
-(defn- stored-declarations
-  "Every **stored** sentex whose functor is `f`, believed or not.
-
-  Rebuilding from a belief-filtered read would quietly change what recovery means.
-  Every cache follows the same discipline now: `:support` (genl/genlContext/equality)
-  and `:cache-support` (disjoint, metatypes + members, props, inverse) are meant to
-  record *every* asserting sentex, with `refresh-beliefs` deciding which entries are
-  active.  Omit a disbelieved supporter and its handle is gone from the count, so
-  clearing its defeat could never revive the entry — a defeated `(disjoint dog cat)`
-  would then answer differently either side of a restart, and a disbelieved genl
-  supporter's edge would be lost for good.
-
-  So the taxonomy is rebuilt from what is stored, and belief is applied afterwards
-  by the `settle` at the end of `recover`, exactly as it is during normal operation.
-
-  Stored, not believed — but **positive**: `sentexes-with-functor` returns both
-  polarities, and a `(not (genl a b))` *opposes* the edge rather than asserting it.
-  The rebuild arms read the positive shape positionally, so a negation would bind
-  its inner sentence as a taxonomy node and nil as the other — and the assert path
-  never routes one here either, since its dispatch reads the functor `not`."
-  [kb f]
-  (->> (p/sentexes-with-functor (:index kb) f)
-       (keep #(p/get-sentex (:records kb) %))
-       (filter #(and (= :true (:truth %)) (nil? (:antecedent %))))))
 
 (defn rebuild-taxonomy
   "Rebuild the in-memory taxonomy from the durable store: the `:rebuild` column of

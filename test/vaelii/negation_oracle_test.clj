@@ -43,9 +43,10 @@
     region is empty.  `note-opposed!` posts the body as dirty.
   * **a relabel** — a defeat or a revival changes which pairs are believed while nothing
     is stored.  `jtms/touched` carries it.
-  * **a genlContext edge** — joint visibility is read through that closure for every pair
-    at once, so an edge can make a pair visible that neither side's handle went near.
-    The relation's generation retires the whole memo.
+  * **a genlContext edge** — joint visibility is read through that closure rather than
+    through either side's handles, so an edge can make a pair visible that neither side
+    went near.  Each entry records the visibility verdict for the contexts it crosses,
+    and the entries whose verdicts moved are the ones re-derived.
 
   And one that is none of the three: a **supersession flip**, which subtracts a spelling
   from belief with no relabel to record it (docs/equality.md).  `settle-finish` hands
@@ -55,8 +56,8 @@
 
   Each of the three inputs above has a directed test that goes red when that input alone
   is removed — dropping `:dirty` reddens the retraction case, dropping `jtms/touched` the
-  revival case, dropping the genlContext generation the exposure case — and the randomized
-  oracle catches all three as well.
+  revival case, dropping the visibility verdicts the exposure and withdrawal cases — and
+  the randomized oracle catches all three as well.
 
   The supersession hand-off is the one mechanism here that **nothing below reaches**, and
   the reason is worth stating rather than leaving as a gap.  Displacing a body normally
@@ -264,7 +265,8 @@
 ;;
 ;; Two incomparable contexts each holding one polarity: no context sees both, so there is
 ;; no clash.  A context inheriting both then makes every such pair visible at once — with
-;; nothing stored about them and no label moved.  Only the genlContext generation says so.
+;; nothing stored about them and no label moved.  Only the joint-visibility verdict the
+;; memo recorded for the two contexts says so.
 
 (deftest a-genlContext-edge-exposes-standing-pairs
   (let [[step op si se]
@@ -279,6 +281,35 @@
            [:assert '(genlContext NegJoinContext NegRightContext) 'UniverseContext
             {:strength :monotonic}]
            [:assert '(nswims NB) (nth ctxs 1) {}]]))]
+    (is (nil? step)
+        (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
+
+(deftest a-genlContext-edge-leaving-withdraws-the-pairs-it-exposed
+  ;; The other direction of the same claim, and one the exposure case does not imply.  A
+  ;; memo told what to re-derive by the verdicts it recorded has to notice a verdict going
+  ;; from true back to *false*: a pair that was jointly visible and is not any more must
+  ;; stop being reported, with nothing stored, removed or relabelled on either side of it.
+  ;; Retracting one of the two edges is enough — it makes left and right incomparable
+  ;; again, and every pair the join exposed goes with it.
+  (let [[step op si se]
+        (run-stream
+         (concat
+          (for [p preds] [:assert (list p 'NA) (nth ctxs 1) {}])
+          (for [p preds] [:assert (list 'not (list p 'NA)) (nth ctxs 2) {}])
+          [[:assert '(genlContext NegJoinContext NegLeftContext) 'UniverseContext
+            {:strength :monotonic}]
+           [:assert '(genlContext NegJoinContext NegRightContext) 'UniverseContext
+            {:strength :monotonic}]
+           ;; a settle in between, so the pairs are standing rather than arriving
+           [:assert '(nswims NB) (nth ctxs 1) {}]
+           [:retract '(genlContext NegJoinContext NegRightContext) 'UniverseContext]
+           ;; one more settle, which is where a pair still carried would keep showing up
+           [:assert '(nsings NC) (nth ctxs 1) {}]
+           ;; ...and back, since a verdict that has moved twice is the one a stamp
+           ;; comparing the wrong thing gets right by accident
+           [:assert '(genlContext NegJoinContext NegRightContext) 'UniverseContext
+            {:strength :monotonic}]
+           [:assert '(nflies NB) (nth ctxs 1) {}]]))]
     (is (nil? step)
         (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 

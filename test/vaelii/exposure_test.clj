@@ -15,6 +15,7 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.rules :as vr]
             [vaelii.impl.settle :as settle]
             [vaelii.test-util :as tu]))
 
@@ -386,7 +387,7 @@
   ;; budget spent on enumeration rather than on terms that convict nobody.
   (binding [checks/*arbitrate-constraints?* true
             settle/*exposure-instance-budget* 4]
-    (tu/with-kb [kb (tu/fresh)]
+    (tu/with-kb [kb]
       (tu/with-terms [dog_t cat_t Rex]
         (v/assert kb (list 'genl dog_t 'thing) 'UniverseContext)
         (v/assert kb (list 'genl cat_t 'thing) 'UniverseContext)
@@ -422,3 +423,256 @@
             "only the term that also holds a second member is a candidate")
         (is (empty? (filter #(= :exposure-truncated (:violation %)) vs))
             "and the cheaper side is walked — cat_t's one instance, not dog_t's 21")))))
+
+(tu/deftest-kb a-budgeted-sweep-decides-the-same-pair-in-either-arrival-order
+  ;; **Two** separations in one moved region, because one cannot show this: each `v/assert`
+  ;; settles, so a single declaration makes the region one element and `content-order` over
+  ;; it is a no-op.  Deferred into one settle with a budget covering one reach and not the
+  ;; other, the trigger order decides which pair is arbitrated at all — and reversing the
+  ;; write order must not move it.
+  ;;
+  ;; The budget is exactly one reach, so the second trigger arrives with nothing left: this
+  ;; is also what covers the spent-budget branch, which files on the probe rather than on
+  ;; the arithmetic.  Asserted on *which* separation was decided rather than on the `:kind`,
+  ;; since every disjointness clash has the same kind and a different pair would read
+  ;; identically.
+  ;;
+  ;; **Each arm invents its own terms**, and that is what makes the two comparable.  The
+  ;; arms share one KB — `with-kb` binds the fixture's, and a `fresh` mid-test would clear
+  ;; the store the net-neutrality check recorded its baseline against — so an arm reusing
+  ;; the other's vocabulary would sweep a reach the first arm had already doubled, and read
+  ;; as an arrival-order effect when it was a leftover.  Its own terms make the second
+  ;; arm's reach the same size as the first's, whatever is still standing beside it.
+  (binding [checks/*arbitrate-constraints?* true
+            settle/*exposure-instance-budget* 11]
+    (let [run (fn [backwards?]
+                (tu/with-kb [k]
+                  (tu/with-terms [aa_t bb_t cc_t dd_t Pip Quo]
+                    (doseq [t [aa_t bb_t cc_t dd_t]]
+                      (v/assert k (list 'genl t 'thing) 'UniverseContext))
+                    (doseq [t [aa_t bb_t cc_t dd_t]]
+                      (dotimes [_ 10] (v/assert k (list t (tu/tmp-ind "Pad")) 'UniverseContext)))
+                    (v/assert k (list aa_t Pip) 'UniverseContext)
+                    (v/assert k (list bb_t Pip) 'UniverseContext)
+                    (v/assert k (list cc_t Quo) 'UniverseContext)
+                    (v/assert k (list dd_t Quo) 'UniverseContext)
+                    (v/clear-violations! k)
+                    (v/with-deferred-settle k
+                      (doseq [d (cond-> [(list 'disjoint aa_t bb_t) (list 'disjoint cc_t dd_t)]
+                                  backwards? reverse)]
+                        (v/assert k d 'UniverseContext)))
+                    ;; normalized to *which* separation, since the two arms name different
+                    ;; terms and the sentences are therefore never `=`
+                    {:decided (into #{}
+                                    (keep (fn [s]
+                                            (let [ts (set (flatten s))]
+                                              (cond (contains? ts aa_t) :head
+                                                    (contains? ts cc_t) :tail))))
+                                    (map :sentence (v/contradictions k)))
+                     :cut     (->> (v/violations k)
+                                   (filter #(= :arbitration-truncated (:violation %)))
+                                   (mapv #(get-in % [:detail :triggers])))})))
+          fwd (run false)
+          rev (run true)]
+      (testing "the content-first trigger gets the budget, whichever was written first"
+        (is (contains? (:decided fwd) :head))
+        (is (contains? (:decided rev) :head)
+            "written second, and still the one the budget was spent on"))
+      (testing "and the trigger it could not reach is reported rather than passed over"
+        (is (seq (:cut fwd)))
+        (is (seq (:cut rev))))
+      ;; And the **tail** agrees too, which is the half a weaker reading misses.  The
+      ;; budget is one reach, so exactly one of the two separations can be swept and the
+      ;; other is cut — and *which* must be decided by `content-order` over the region
+      ;; rather than by which was written first.  A reading that only checked the head
+      ;; pair would pass while the tail moved with arrival order, which is the shape this
+      ;; whole file is about (docs/nmtms.md).
+      (is (= (:decided fwd) (:decided rev))
+          "the same pairs decided, not merely the same head pair")
+      (is (= (:cut fwd) (:cut rev))
+          "and the same triggers reported unswept"))))
+
+(tu/deftest-kb an-enumeration-that-exactly-fills-the-budget-is-not-a-cut
+  ;; The whole reason the probe takes one past the budget.  A reach of exactly N terms was
+  ;; swept in full, and filing it would inflate the number a reader acts on — which is the
+  ;; failure `exposure-candidates` measured at 183,397 against a true 41,500.
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-terms [t1 t2 Pip]
+      ;; built per run and nowhere else: `tu/fresh` clears the scratch space these share,
+      ;; so a second copy in the enclosing KB is a second copy in *this* one
+      (let [cut-at (fn [budget]
+                     (tu/with-kb [k]
+                       (doseq [t [t1 t2]] (v/assert k (list 'genl t 'thing) 'UniverseContext))
+                       ;; t1's extent is exactly five and is the cheaper side, so it is
+                       ;; what `two-sided-reach` enumerates
+                       (dotimes [_ 4] (v/assert k (list t1 (tu/tmp-ind "Pad")) 'UniverseContext))
+                       (v/assert k (list t1 Pip) 'UniverseContext)
+                       (dotimes [_ 9] (v/assert k (list t2 (tu/tmp-ind "Other")) 'UniverseContext))
+                       (v/assert k (list t2 Pip) 'UniverseContext)
+                       (v/clear-violations! k)
+                       (binding [settle/*exposure-instance-budget* budget]
+                         (v/assert k (list 'disjoint t1 t2) 'UniverseContext))
+                       {:cut     (seq (filter #(= :arbitration-truncated (:violation %))
+                                              (v/violations k)))
+                        :decided (seq (v/contradictions k))}))]
+        (testing "exactly the extent: swept in full, so nothing is filed"
+          (let [{:keys [cut decided]} (cut-at 5)]
+            (is (nil? cut) "a reach of exactly the budget is not a cut")
+            (is (seq decided) "and the pair inside it is decided")))
+        (testing "one short: the same reach is a cut, which is what makes the line a line"
+          (is (seq (:cut (cut-at 4)))))))))
+
+;;; ── the deciding pass says when it was cut short too ──────────────────
+;;
+;; `expose-clashes!` files `:exposure-truncated` when the budget stops it, so bounded
+;; work never reads as full coverage.  The arbitration sweep spends the same budget
+;; before anything is *decided* rather than before anything is reported, which is the
+;; half a reader most needs, so it files its own — and its own kind, because a reader
+;; acts differently on "went unreported" than on "went undecided", and because
+;; `functional` / `asymmetric` reach back here and nowhere else.
+
+(tu/deftest-kb an-arbitration-sweep-cut-short-says-so
+  (binding [checks/*arbitrate-constraints?* true
+            settle/*exposure-instance-budget* 2]
+    (tu/with-terms [t1 t2 Pip]
+      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
+      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
+      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Filler")) 'UniverseContext))
+      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Other")) 'UniverseContext))
+      (v/assert kb (list t1 Pip) 'UniverseContext)
+      (v/assert kb (list t2 Pip) 'UniverseContext)
+      (v/clear-violations! kb)
+      (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
+      (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
+        ;; One entry, and this settle takes one pass — so what the entry's `:triggers`
+        ;; counts is not separated here from what the passes counted.  That is the test
+        ;; below, over a settle that iterates.
+        (is (= 1 (count cut))
+            "one entry for the settle")
+        (is (= 2 (get-in (first cut) [:detail :budget])))
+        (is (<= (count (get-in (first cut) [:detail :sample])) 3)
+            "a sample rather than the whole list")
+        (is (re-find #"undecided" (get-in (first cut) [:detail :message]))
+            "and it says what was left undone, not merely that a bound was hit")))))
+
+(tu/deftest-kb a-settle-of-several-passes-files-one-trigger-per-declaration
+  ;; What `report-arbitration-cut!`'s `distinct` is for, over a settle that can show it.
+  ;;
+  ;; The sweep runs once per settle **pass** — `constraint-nogoods` re-derives the
+  ;; definitional clashes per pass, over a region that accumulates until `settle-finish`
+  ;; clears it — so a declaration the budget cut short is noted again on every pass that
+  ;; re-reaches it.  `:triggers` is a count a reader acts on ("how many declarations went
+  ;; unswept"), so counting the notes instead of the declarations would report two
+  ;; unswept declarations where there is one, and the number would move with a fixpoint
+  ;; the reader has no way to see.
+  ;;
+  ;; A one-pass settle cannot separate the two, which is why the test above does not: it
+  ;; files one note and reads one trigger whether or not anything dedups.  The
+  ;; `exceptWhen` is what makes this settle iterate, and the **write order inside the
+  ;; batch** is what makes the exception block rather than refuse: each assertion still
+  ;; forward-chains as it lands, so the rule fires on a bird nothing yet excepts, and the
+  ;; membership that excepts it arrives after the conclusion is believed.  The first pass
+  ;; then moves the blocked set and a second runs to confirm.  (Both facts written before
+  ;; the batch, or the excepting one written first, and the firing is refused at derive
+  ;; time instead — nothing is blocked, the queue drains empty, and the settle converges
+  ;; in a single pass.)  The whole batch is one `with-deferred-settle`, since the cut
+  ;; sweep and the extra pass have to be the same settle.
+  (binding [checks/*arbitrate-constraints?* true
+            settle/*exposure-instance-budget* 2]
+    (tu/with-terms [t1 t2 Pip bird penguin flies Opus]
+      ;; the separation, with a reach the budget cannot finish
+      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
+      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
+      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Filler")) 'UniverseContext))
+      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Other")) 'UniverseContext))
+      (v/assert kb (list t1 Pip) 'UniverseContext)
+      (v/assert kb (list t2 Pip) 'UniverseContext)
+      ;; ...and the excepted rule, over vocabulary the separation does not reach
+      (v/assert kb (list 'exceptWhen (list penguin '?x)
+                         (list 'set/defaultRule
+                               (vr/rule-sentence [(list bird '?x)] (list flies '?x))))
+                'UniverseContext)
+      (v/clear-violations! kb)
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
+        (v/assert kb (list bird Opus) 'UniverseContext)
+        (v/assert kb (list penguin Opus) 'UniverseContext))
+      (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
+        (is (<= 2 (:passes (v/settle-stats kb)))
+            "the premise of the test: a settle of one pass sweeps once and dedups nothing")
+        (is (= 1 (count cut)) "one entry for the settle")
+        (is (= 1 (get-in (first cut) [:detail :triggers]))
+            "one declaration went unswept — not one per pass that swept it short")
+        (is (= 1 (count (get-in (first cut) [:detail :sample])))
+            "and the sample names it once")
+        (testing "the exception that made the settle iterate did its own job"
+          (is (empty? (v/sentexes-matching kb (list flies Opus) 'UniverseContext))))))))
+
+(tu/deftest-kb a-functional-declaration-swept-short-is-reported-by-nothing-else
+  ;; `functional` implicates stored content on the deciding path and on no other, so a
+  ;; reader watching only `:exposure-truncated` would never learn its sweep was cut.
+  (binding [checks/*arbitrate-constraints?* true
+            settle/*exposure-instance-budget* 2]
+    (tu/with-terms [ownerOf]
+      (v/assert kb (list 'binaryPredicate ownerOf) 'UniverseContext)
+      (dotimes [_ 20]
+        (v/assert kb (list ownerOf (tu/tmp-ind "Thing") (tu/tmp-ind "Who")) 'UniverseContext))
+      (v/clear-violations! kb)
+      (v/assert kb (list 'functional ownerOf) 'UniverseContext)
+      (let [vs (v/violations kb)]
+        (is (seq (filter #(= :arbitration-truncated (:violation %)) vs))
+            "the deciding pass reports it")
+        (is (empty? (filter #(= :exposure-truncated (:violation %)) vs))
+            "and the exposure pass has no arm that would")))))
+
+(tu/deftest-kb a-sweep-that-finished-reports-nothing
+  (binding [checks/*arbitrate-constraints?* true
+            settle/*exposure-instance-budget* 4096]
+    (tu/with-terms [t1 t2 Pip]
+      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
+      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
+      (v/assert kb (list t1 Pip) 'UniverseContext)
+      (v/assert kb (list t2 Pip) 'UniverseContext)
+      (v/clear-violations! kb)
+      (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
+      (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations kb)))
+          "a bound nothing reached is not a truncation")
+      (is (seq (v/contradictions kb)) "and the pair it did reach is decided"))))
+
+(tu/deftest-kb a-rebuild-still-sweeps-but-files-no-cut
+  ;; Two claims at two budgets, because one budget cannot show both.  The *report* is off
+  ;; on a rebuild, like the exposure pass beside it: that settle's region is the whole KB,
+  ;; so every declaration in it is cut the moment the budget is spent, and a notice per
+  ;; recover would say nothing about the KB and everything about its size.
+  ;;
+  ;; The *sweep* is not gated the same way.  `recover` binds the flag around two settles
+  ;; and the second one's region is only what re-recording the refusals moved — so a
+  ;; declaration there still needs its sweep, and a KB that came up without it would
+  ;; disagree with one that never restarted.
+  (binding [checks/*arbitrate-constraints?* true]
+    (let [build (fn [k t1 t2 Pip]
+                  (v/assert k (list 'genl t1 'thing) 'UniverseContext)
+                  (v/assert k (list 'genl t2 'thing) 'UniverseContext)
+                  (dotimes [_ 20] (v/assert k (list t1 (tu/tmp-ind "Filler")) 'UniverseContext))
+                  (dotimes [_ 20] (v/assert k (list t2 (tu/tmp-ind "Other")) 'UniverseContext))
+                  (v/assert k (list t1 Pip) 'UniverseContext)
+                  (v/assert k (list t2 Pip) 'UniverseContext)
+                  (v/clear-violations! k))]
+      (testing "a budget too small to finish files no notice, because it is a rebuild"
+        (tu/with-terms [t1 t2 Pip]
+          (tu/with-kb [k]
+            (build k t1 t2 Pip)
+            (binding [settle/*exposure-instance-budget* 2
+                      settle/*rebuilding?* true]
+              (v/assert k (list 'disjoint t1 t2) 'UniverseContext))
+            (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations k)))
+                "off, as it is for the exposure pass"))))
+      (testing "and a budget that can finish still decides the pair, rebuilding or not —
+                the sweep itself is not gated on the flag"
+        (tu/with-terms [t1 t2 Pip]
+          (tu/with-kb [k]
+            (build k t1 t2 Pip)
+            (binding [settle/*exposure-instance-budget* 4096
+                      settle/*rebuilding?* true]
+              (v/assert k (list 'disjoint t1 t2) 'UniverseContext))
+            (is (= [:disjoint] (mapv :kind (v/contradictions k))))))))))

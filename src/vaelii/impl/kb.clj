@@ -112,7 +112,7 @@
 ;; reopen it elsewhere, until the JVM exited.
 (defrecord KB [records index tms taxonomy provers solver conflicts program violations
                contradictions recheck refused settle-stats chain-stats opposed negations
-               clashes reports qcn matches naming constraints feed dir])
+               clashes supersessions reports qcn matches closures naming constraints feed dir])
 
 ;; ---- storage selection: two independent axes ------------------------------
 ;;
@@ -671,9 +671,20 @@
                      :rule-contexts (atom {})
                      :negations (atom {})
                      :clashes   (atom {})
+                     ;; the equality state `special/refresh-supersessions` last
+                     ;; reconciled the superseded set against (`special/supersession-stamp`).
+                     ;; nil means "not reconciled yet", which reads as *reconcile
+                     ;; everything* — the same shape `:closures` uses, and the same
+                     ;; direction: a stamp that cannot be compared costs a full pass and
+                     ;; never a wrong answer
+                     :supersessions (atom nil)
                      :reports   (atom {})
                      :qcn       (atom {})
                      :matches   (atom {})
+                     ;; one shape, not a map of stamped entries: every entry in it is
+                     ;; retired by the same clock move, so the stamp belongs to the map
+                     ;; (`provers/closure-answers`)
+                     :closures  (atom {})
                      :feed      (feed/create-feed)
                      ;; a plain value, not an atom: which conventions the front door
                      ;; holds content to is settled when the KB is opened, and a store
@@ -933,7 +944,7 @@
   argument root.  Scoped to memberships visible from `context` (default: any context).
 
   `x` is any term, not only an individual: a predicate carries the meta-ontology's
-  types (`binaryPredicate`, `instanceRelationPredicate`, …) the same way `Fido`
+  types (`binaryPredicate`, `instanceRelationPredicate`, …) the same way `Muffet`
   carries `dog`.
 
   The same three filters `matches-visible` applies, since this *is* the retrieval
@@ -1124,13 +1135,26 @@
   a pair between two sentexes that were both already believed — so the settle's other
   input, the relabelled region, cannot see it.  Posting it here means the two inputs
   together cover every way the answer moves, and it costs one `dissoc` and one `conj` at a
-  choke point that was already being paid for."
+  choke point that was already being paid for.
+
+  **Both writes are skipped for a body that is opposed neither before this store nor
+  after it**, which on a positive corpus is every fact of it.  Such a body's pairing has
+  not moved: it had none and it has none.  Nothing can read the post either — the two
+  readers of `:dirty` (`settle/moved-bodies` and `settle/note-supersession-flips!`)
+  filter it by `:opposed` — and `:by-body` cannot hold an entry for it, since entries are
+  only ever derived for bodies that were opposed at some settle and the arm below drops
+  one the moment a body stops being opposed.  Without the guard a bulk load conj's every
+  fact's body into a `:dirty` set that grows to the size of the corpus and is then
+  dropped whole by the first settle, which is the one phase of a load whose per-fact cost
+  **grows** with the corpus (docs/storage.md, \"What a bulk load costs\")."
   [kb sentence]
-  (let [b (sx/canon (body-under-not sentence))]
-    (swap! (:opposed kb) (if (opposed? (:index kb) b) conj disj) b)
-    (swap! (:negations kb) (fn [m] (-> m
-                                       (update :by-body dissoc b)
-                                       (update :dirty (fnil conj #{}) b))))))
+  (let [b   (sx/canon (body-under-not sentence))
+        now (opposed? (:index kb) b)]
+    (when (or now (contains? @(:opposed kb) b))
+      (swap! (:opposed kb) (if now conj disj) b)
+      (swap! (:negations kb) (fn [m] (-> m
+                                         (update :by-body dissoc b)
+                                         (update :dirty (fnil conj #{}) b)))))))
 
 (defn rebuild-opposed!
   "Recompute `:opposed` from storage — the scan `recover` needs, since the set is

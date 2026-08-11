@@ -106,7 +106,10 @@
   qualitative-network possible-relations qualitative-scenario qualitative-scenarios
   ;; the dry run of the write path: `check` writes nothing, so it is a read like any
   ;; other and the editor validates a line before it is saved
-  check check-edit)
+  check check-edit
+  ;; what the process is holding beside the store — the caches, their bounds and the
+  ;; hit rate.  O(1) per row by construction, so the page that renders it can poll
+  caches)
 
 ;; ---- the writes ---------------------------------------------------------
 
@@ -142,6 +145,16 @@
   crosses the wire like any read."
   ([target batch] (dispatch :preview target [batch]))
   ([target batch opts] (dispatch :preview target [batch opts])))
+
+(defn clear-caches
+  "Drop the target's derived caches and say what went (`vaelii.core/clear-caches`).
+
+  Filed here rather than with the reads because it mutates, and *not* with the writes
+  above because what it mutates is not knowledge: no belief moves, every entry it drops
+  the next read recomputes, and it holds no writer. So it is the one control on this
+  facade that is safe to use while a load runs — which is when a reader most wants it,
+  since a hit rate means nothing until you can watch a miss."
+  [target] (dispatch :clear-caches target []))
 
 ;; ---- pure display + bootstrap: no target, straight delegation ------------
 

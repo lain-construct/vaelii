@@ -276,8 +276,12 @@ calculi are *about* space: CoreContext holds only the grammar they are stated in
 (`binaryPredicate`, `comment`), which every domain shares. So the vocabulary is separable —
 a KB built from CoreContext plus the layers it wants carries regions only if it reasons
 about them (the starter, which loads every upper context it finds, takes them). Regions,
-places, and the things a frame or a distance is about are all **ordinary individuals** —
-nothing declares them, and nothing about them is special.
+places, and the things a frame or a distance is about are all **ordinary individuals**:
+every argument position is declared `(argIsa … spatial_thing)`, the type a location is
+what makes something an instance of. `physical_object` sits under it, so every animal,
+artifact and substance qualifies without a further declaration, while a region or a frame
+of reference — which occupy space without being made of anything — is declared into it
+directly. A spatial relation between two predicates is refused rather than stored.
 
 Each prover is **opt-in**: register it by name with `vaelii.core/add-reasoner`
 (`:rcc8`, `:cardinal`, `:relative`, `:distance`), and until then a KB stores and

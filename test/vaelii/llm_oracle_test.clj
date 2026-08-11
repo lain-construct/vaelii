@@ -92,10 +92,10 @@
 (tu/deftest-kb a-sentence-the-kb-documents-nothing-about-is-not-put-to-a-judge
   ;; Asking about a `:named` gloss measures the prompt, not the KB — the model would be
   ;; judging our spacing of an s-expression.
-  (tu/with-terms [zorks Fido2]
-    (v/assert kb (list 'dog Fido2) N)
-    (v/assert kb (list zorks Fido2) N)
-    (let [handle (v/handle-of kb (list zorks Fido2) N)
+  (tu/with-terms [zorks Muffet2]
+    (v/assert kb (list 'dog Muffet2) N)
+    (v/assert kb (list zorks Muffet2) N)
+    (let [handle (v/handle-of kb (list zorks Muffet2) N)
           claim (first (oracle/claims kb [handle]))]
       (is (= :named (:source claim)))
       (is (not (oracle/judgeable? claim)))
@@ -190,8 +190,8 @@
     ;; has to be built.
     (tu/with-terms [Rex]
       (v/assert kb (list 'dog Rex) N {:strength :monotonic})
-      (v/assert kb '(implies (and (dog ?x)) (canTravel ?x)) N {:strength :monotonic})
-      (let [travels (first (oracle/claims kb [(v/handle-of kb (list 'canTravel Rex) N)]))]
+      (v/assert kb '(implies (and (dog ?x)) (hasCapability ?x travelling)) N {:strength :monotonic})
+      (let [travels (first (oracle/claims kb [(v/handle-of kb (list 'hasCapability Rex 'travelling) N)]))]
         (is (= :monotonic (:strength travels)))
         (is (str/includes? (oracle/report (judged [travels] [[0 :false]])) "[monotonic]"))))))
 
@@ -218,10 +218,14 @@
 
 ;; ---- the live tier: the agreement in docs/commonsense.md ----------------
 
-(defn- live-model
+(defn- judging-provider
   "The judging provider: **phi4:14b at the window the host is already serving**.  Both are
   pinned rather than defaulted — a different model or a different `num_ctx` makes Ollama
-  evict and reload, which on a shared host costs whoever else is using it."
+  evict and reload, which on a shared host costs whoever else is using it.
+
+  A constructor and nothing else: it holds no opt-in check, and is named so it cannot be
+  read as the helper that does.  Consent is the caller's, and the one caller below asks
+  for it first."
   []
   (ollama/provider {:model "phi4:14b" :num-ctx 4096 :timeout-ms 600000}))
 
@@ -239,7 +243,7 @@
     (partType bird fin)
     (partType tree feather)
     (not (mortal Rex99))
-    (eats Kibble Fido)])
+    (eats Kibble Muffet)])
 
 (defn- controls!
   "Assert the control claims into a scratch context beneath the world and return their
@@ -266,7 +270,7 @@
       (let [planted (set (controls! kb))
             cs (oracle/claims kb (into (score/derived-handles kb N) planted))
             t0 (System/currentTimeMillis)
-            r (oracle/judge cs {:provider (live-model) :num-ctx 4096 :batch-size 20})
+            r (oracle/judge cs {:provider (judging-provider) :num-ctx 4096 :batch-size 20})
             elapsed (- (System/currentTimeMillis) t0)
             {sound false control true} (group-by #(contains? planted (:handle %)) (:judged r))
             a (oracle/agreement (assoc r :judged sound))

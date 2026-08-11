@@ -42,7 +42,7 @@
   (testing "unary — every type, and one-place properties"
     (is (v/isa? kb 'dog 'unaryPredicate))
     (is (v/isa? kb 'thing 'unaryPredicate))
-    (is (v/isa? kb 'flies 'unaryPredicate)))
+    (is (v/isa? kb 'awake 'unaryPredicate)))
   (testing "binary and ternary"
     (is (v/isa? kb 'parentOf 'binaryPredicate))
     (is (v/isa? kb 'genl 'binaryPredicate))
@@ -62,7 +62,7 @@
     (is (v/isa? kb 'arity 'binaryPredicate)))
   (testing "an asserted predicate-type concludes the arity, in the declaration's context"
     (is (seq (v/sentexes-matching kb '(arity dog 1) 'CoreContext)))        ; a type is unary
-    (is (seq (v/sentexes-matching kb '(arity flies 1) 'LifeContext)))      ; a one-place property
+    (is (seq (v/sentexes-matching kb '(arity awake 1) 'LifeContext)))      ; a one-place property
     (is (seq (v/sentexes-matching kb '(arity parentOf 2) 'LifeContext)))
     (is (seq (v/sentexes-matching kb '(arity siblingOf 2) 'LifeContext)))  ; symmetric -> binary -> arity 2
     (is (seq (v/sentexes-matching kb '(arity argIsa 3) 'CoreContext))))
@@ -165,25 +165,53 @@
     (is (seq (v/sentexes-matching kb '(implies (?pred . ?args) (ist UniverseContext (?pred . ?args))) 'CoreContext)))))
 
 (tu/deftest-kb a-decontextualized-fact-reaches-the-universe
-  ;; marriedTo is decontextualized; a marriage asserted in SocialWorldContext is also
-  ;; deduced into UniverseContext, and so visible from a sibling context that only sees
-  ;; UniverseContext (not SocialWorldContext).
-  (testing "the fact is copied into UniverseContext"
-    (is (seq (v/sentexes-matching kb '(marriedTo Bob Nancy) 'UniverseContext))))
-  (testing "visible from a sibling context (via UniverseContext), unlike a plain social fact"
-    (is (v/ask? kb '(marriedTo Bob Nancy) 'NaturalWorldContext))
-    (is (not (v/ask? kb '(owns Tom Car1) 'NaturalWorldContext))))   ; owns is not lifted
-  (testing "the copy is justified by the placement sentex and the declaration"
-    (let [u (:id (first (v/sentexes-matching kb '(marriedTo Bob Nancy) 'UniverseContext)))
-          d (first (v/supporting-justifications kb u))]
-      (is (= 'decontextualizedPredicate (:informant d)))
-      (is (= 2 (count (:antecedents d))))
-      (is (some #(= '(decontextualizedPredicate marriedTo) (:sentence (v/sentex kb %)))
-                (:antecedents d)))))
-  (testing "and the declaration reads back as predicate metadata"
-    (is (v/has-prop? kb :decontextualized 'marriedTo))
-    (is (not (v/has-prop? kb :decontextualized 'owns)))
-    (is (contains? (v/props kb :decontextualized) 'marriedTo))))
+  ;; Declaration first, then the fact — the forward path, where the lift runs as the
+  ;; fact is stored (the retroactive half is the next test).  The demonstration builds
+  ;; its own predicate: the shipped ontology declares the *metadata* marks and
+  ;; genlContext and nothing else, every one of them a claim about a predicate rather
+  ;; than about a world, so there is no shipped fact to lift.
+  (tu/with-terms [rulesOver ridesWith Ann Bob AlphaContext BetaContext]
+    (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)
+    (v/assert kb (list 'genlContext BetaContext 'UniverseContext) 'UniverseContext)
+    (v/assert kb (list 'decontextualizedPredicate rulesOver) 'UniverseContext)
+    (v/assert kb (list rulesOver Ann Bob) AlphaContext)
+    (v/assert kb (list ridesWith Ann Bob) AlphaContext)
+
+    (testing "the fact is copied into UniverseContext"
+      (is (seq (v/sentexes-matching kb (list rulesOver Ann Bob) 'UniverseContext))))
+    (testing "visible from a sibling context (via UniverseContext), unlike an undeclared one"
+      (is (v/ask? kb (list rulesOver Ann Bob) BetaContext))
+      (is (not (v/ask? kb (list ridesWith Ann Bob) BetaContext))))
+    (testing "the copy is justified by the placement sentex and the declaration"
+      (let [u (:id (first (v/sentexes-matching kb (list rulesOver Ann Bob) 'UniverseContext)))
+            d (first (v/supporting-justifications kb u))]
+        (is (= 'decontextualizedPredicate (:informant d)))
+        (is (= 2 (count (:antecedents d))))
+        (is (some #(= (list 'decontextualizedPredicate rulesOver) (:sentence (v/sentex kb %)))
+                  (:antecedents d)))))
+    (testing "and the declaration reads back as predicate metadata"
+      (is (v/has-prop? kb :decontextualized rulesOver))
+      (is (not (v/has-prop? kb :decontextualized ridesWith)))
+      (is (contains? (v/props kb :decontextualized) rulesOver)))))
+
+(tu/deftest-kb the-shipped-ontology-decontextualizes-predicate-metadata-and-nothing-else
+  ;; What carries the mark is a claim about a *predicate* — its algebra — plus
+  ;; genlContext by force.  A domain relation carrying it would make one theory's fact
+  ;; a claim of the whole KB, and would take a rule's conclusions out with it: a
+  ;; decontextualized marriage lifts (knows ?x ?y) through SocialContext's rule into a
+  ;; context every data context sees, decontextualizing a predicate nothing declared.
+  (testing "the roster is the algebraic marks, the inverse declaration, and genlContext"
+    (is (= '#{functional inverse reflexive symmetric asymmetric transitive}
+           (v/props kb :decontextualized)))
+    (is (= '#{genlContext} (v/props kb :forced-decontextualized))))
+  (testing "so a social fact stays in the theory that states it"
+    (is (not (v/has-prop? kb :decontextualized 'marriedTo)))
+    (is (empty? (v/sentexes-matching kb '(marriedTo Bob Nancy) 'UniverseContext)))
+    (is (not (v/ask? kb '(marriedTo Bob Nancy) 'NaturalWorldContext)))
+    (is (not (v/ask? kb '(owns Tom Car1) 'NaturalWorldContext))))
+  (testing "and the knows-fact its rule concludes stays there with it"
+    (is (v/ask? kb '(knows Bob Nancy) 'SocialWorldContext))
+    (is (not (v/ask? kb '(knows Bob Nancy) 'NaturalWorldContext)))))
 
 (tu/deftest-kb declaring-it-lifts-facts-already-asserted
   ;; The retroactive sweep, the half a declaration-then-facts test never exercises: a

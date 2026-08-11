@@ -14,6 +14,7 @@
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.impl.guard :as guard]
             [vaelii.impl.serve :as serve]
+            [vaelii.impl.subscribe :as sub]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream]))
 
@@ -65,6 +66,35 @@
             (post-raw handler edn-headers (pr-str {:op :assert :args 5}))]
            ["a body over the ceiling" 413 :body-too-large
             oversized]
+           ;; the change feed's three, which are refusals about a *subscription* rather
+           ;; than about a sentence — 400 like the rest, because the caller is who can
+           ;; act on each, and a status of their own would break the promise that a
+           ;; client discriminates on `:type` (docs/operations.md)
+           ["a feed token naming no subscription" 400 :unknown-subscription
+            (post-raw handler edn-headers (op-body :poll [4200 0]))]
+           ["a feed cursor that is not one" 400 :bad-cursor
+            (post-raw handler edn-headers
+                      (op-body :poll [(:token (:result (post-raw handler edn-headers
+                                                                 (op-body :watch []))))
+                                      :soon]))]
+           ["more subscriptions than the daemon holds" 400 :too-many-subscriptions
+            (with-redefs [sub/max-subscriptions 0]
+              (post-raw handler edn-headers (op-body :watch [])))]
+           ;; the daemon is at capacity rather than the request being wrong, and it is
+           ;; still a 400: the caller is the one who can fix it, by polling on a timer
+           ["more parked long polls than the daemon's threads allow" 400 :too-many-waiters
+            (with-redefs [sub/max-parked 0]
+              (post-raw handler edn-headers
+                        (op-body :poll [(:token (:result (post-raw handler edn-headers
+                                                                   (op-body :watch []))))
+                                        0 {:wait-ms 10000}])))]
+           ;; a well-formed request whose option value no long holds: it reached `long`
+           ;; and answered 500 with the cast error on it
+           ["a :wait-ms larger than a long" 400 :unknown-option
+            (post-raw handler edn-headers
+                      (op-body :poll [(:token (:result (post-raw handler edn-headers
+                                                                 (op-body :watch []))))
+                                      0 {:wait-ms 1e300}]))]
            ;; the outermost door, and the only one whose refusal is deliberately
            ;; uninformative: same body for a missing, wrong or malformed credential
            ["no bearer token, to a daemon holding one" 401 :unauthorized

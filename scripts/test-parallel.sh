@@ -34,8 +34,15 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 
+# Logs and scratch are **per run**; the timings are **per checkout**, and the split is
+# the point.  `gate.sh` hands this a fresh `target/gate/run-<pid>` so two gates in one
+# working tree cannot read each other's shard logs — but the timings are feedback for
+# the *next* run rather than output of this one, so they live above the run directory
+# and every run in this checkout shares the one file.  Put them inside `$OUT` and each
+# run starts blind, silently falling back to round-robin sharding: a slower gate whose
+# only symptom is being slower.
 OUT="${VAELII_GATE_OUT:-target/gate}"
-TIMINGS="$OUT/test-timings.tsv"
+TIMINGS="${VAELII_GATE_TIMINGS:-target/gate/test-timings.tsv}"
 
 selector=":default"
 jobs=""
@@ -64,6 +71,9 @@ if [[ -z "$jobs" ]]; then
 fi
 
 mkdir -p "$OUT" || exit 1
+# the timings sit above `$OUT` when the gate hands us a per-run directory, so their own
+# parent may not exist yet on a fresh checkout
+mkdir -p "$(dirname "$TIMINGS")" || exit 1
 
 # ---- the namespaces ---------------------------------------------------------
 # `_test.clj` only: `world.clj`, `test_util.clj` and friends are support code that
@@ -159,7 +169,7 @@ elapsed=$((SECONDS - t0))
     awk -F'\t' 'NR>1 { printf "%s\t%d\n", prev_ns, $1 - prev_t } { prev_t=$1; prev_ns=$2 }' "$OUT/.timing-$b.tsv"
   done
 } | awk -F'\t' '$1 != "" { secs[$1] = $2 } END { for (k in secs) printf "%s\t%s\n", k, secs[k] }' \
-  | sort > "$TIMINGS.new" && mv "$TIMINGS.new" "$TIMINGS"
+  | sort > "$TIMINGS.$$.new" && mv "$TIMINGS.$$.new" "$TIMINGS"
 rm -f "$OUT"/.timing-*.tsv "$assign_out"
 
 # ---- aggregate --------------------------------------------------------------

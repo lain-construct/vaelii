@@ -40,8 +40,8 @@ enforces it with a fail-fast file lock. That shapes how the interfaces coexist:
 ## CLI — `vaelii.cli`
 
 ```sh
-lein cli assert  '(dog Fido)' NaturalWorldContext --dir /var/lib/vaelii
-lein cli match   '(dog ?x)'   NaturalWorldContext --dir /var/lib/vaelii   # => [(dog Fido)]
+lein cli assert  '(dog Muffet)' NaturalWorldContext --dir /var/lib/vaelii
+lein cli match   '(dog ?x)'   NaturalWorldContext --dir /var/lib/vaelii   # => [(dog Muffet)]
 lein cli why     3                                --dir /var/lib/vaelii
 lein cli export  /var/backups/vaelii-2026-07     --dir /var/lib/vaelii     # back it up
 lein cli repl --starter                                                    # interactive
@@ -50,14 +50,17 @@ lein cli repl --starter                                                    # int
 - **Commands:** `assert`, `assert-rule`, `match` (`sentexes-matching`, sentences only),
   `query`, `query?`, `ask`, `prove`, `provable?`, `retract`, `why`, `why-not`, `in`,
   `isa`, `types-of`, `handle-of`, `types`, `contexts`, `conflicts`, `contradictions`,
-  `load`, `export`, `repl`. `--depth n` is how the line says how far to expand rules,
+  `quality`, `load`, `export`, `repl`. `--depth n` is how the line says how far to expand rules,
   and `query` without one expands none. A sentence is
-  written as an EDN string (`'(dog Fido)'`), a context as a symbol, a handle as an
+  written as an EDN string (`'(dog Muffet)'`), a context as a symbol, a handle as an
   integer, and a path as itself — an argument that reads as no EDN form is kept as the
   string it already was, which is what `/var/lib/vaelii` is.
 - **`load <file>`** reads an EDN vector of `[sentence context]` (or `[sentence context
   opts]`) entries and asserts them in one batch (`with-deferred-settle` — one settle for
   the whole file).
+- **`quality`** prints the report on the *knowledge* — unfired rules, extent skew, chain
+  depth, taxonomy coverage — as Markdown rather than as data, because four distributions
+  pretty-printed are not a reading anybody takes ([quality.md](quality.md)).
 - **`export <dir>`** writes the KB out as a portable dump (`vaelii.core/export!`) and
   prints the writer's summary. `--variant
   records|records+index`, `--compression gzip|xz|none`. The destination must be empty or
@@ -113,7 +116,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   loopback daemon is drivable by every process on the machine. Either way the daemon
   logs which posture it started in, since that is the line to grep for after an incident.
   Put a reverse proxy in front for TLS and rate limiting; the wire is plaintext.
-- **Wire format is EDN.** A sentence is a symbol s-expression — `(dog Fido)`, `?x` —
+- **Wire format is EDN.** A sentence is a symbol s-expression — `(dog Muffet)`, `?x` —
   which EDN round-trips losslessly; JSON would mangle the symbols. Bodies are read with
   `clojure.edn/read-string`, which has no reader-eval, so an untrusted body cannot run
   code.
@@ -121,7 +124,10 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   `{:ok true :result …}` or `{:ok false :error "…" :type <keyword>}`. `GET /health`
   returns `{:ok true}`. The op is looked up in an **allowlist** (`serve/ops`) of
   `vaelii.core` fns — the KB is supplied by the daemon, so the client sends only the op
-  and the remaining args, and no client can reach an arbitrary var.
+  and the remaining args, and no client can reach an arbitrary var. Four ops are not in
+  that table and are looked up in a second one (`serve/feed-ops`, below);
+  `serve/op-names` is the two together, which is the roster an `:unknown-op` refusal
+  hands back.
 - **`POST /op` requires `Content-Type: application/edn`** — parameters and case are
   tolerated (`application/edn;charset=utf-8` passes), anything else is refused with 415
   in the same `{:ok false :error … :type …}` shape every refusal carries. The
@@ -156,6 +162,19 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   what realizes a lazy result, so it runs *inside* the lock the daemon serializes ops
   with; run after it, a `:query` could straddle a concurrent `:assert` and report a
   KB that never existed.
+- **The change feed crosses the wire as a subscription with a cursor** (`:watch`,
+  `:poll`, `:unwatch`, `:watchers` — [feed.md](feed.md), "Across the wire"). These are
+  the one thing on the wire that is *not* a `vaelii.core` fn with the KB supplied, which
+  is why they are a table of their own: `core/watch` takes a callback, and a callback
+  does not cross an EDN wire any more than `:export`'s `:on-progress` does. What crosses
+  instead is state the daemon holds — one bounded ring per subscription, read forward
+  with an integer. `:poll` takes `{:wait-ms n}` to park until the first event arrives,
+  which buys the latency without a second wire format or a second thing to authenticate;
+  the wait runs **outside** the write monitor, so a parked poll never blocks a writer.
+  A subscription is heap a caller can allocate, so it is bounded three ways — 64 per
+  daemon, 256 events on each ring, and one nobody has polled in five minutes is reaped —
+  and every drop is reported as `:lagged` rather than left silent. The registry is per
+  handler, so a token means nothing to a daemon that did not issue it.
 - **Nine refusals are the daemon's own**, and each carries a plain `:type` keyword —
   unqualified, like every other `:type` the tree throws (docs/api.md): `:unauthorized`
   (401, the token), `:not-edn`
@@ -171,6 +190,18 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   it is the caller's mistake, and anything outside that roster at 500 — so a client
   discriminates on the one `:type` vocabulary, with the status as the coarse
   client-fault/server-fault split.
+- **The feed adds four refusals to that roster**, all at 400: `:unknown-subscription`
+  (a token dropped, timed out, or issued by another daemon), `:bad-cursor` (not a whole
+  number, or ahead of what the subscription has delivered), `:too-many-subscriptions`
+  (the daemon holds all it will) and `:too-many-waiters` (it has as many long polls
+  parked as its thread pool allows — poll on a timer instead). The last two are the odd
+  ones and are 400 on purpose: the request is well formed and the daemon is at capacity,
+  but the caller is who can act on it — by dropping a subscription, or by not asking to
+  wait — and a status of its own would break the promise that a client discriminates on
+  `:type`. The first two are refusals
+  where an empty answer was the tempting alternative, and that is exactly what makes
+  them refusals: a feed that has stopped and says `{:events []}` is one its reader
+  believes.
 - **Sentex records are projected to plain maps** before they hit the wire (the
   `sentex`-map contract, docs/api.md), so a client needs no `impl` record class.
 - **The vocabulary is served** (`:terms`, `:term-count`, `:find-terms`): a remote client
@@ -212,9 +243,9 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
 ```clojure
 (require '[vaelii.client :as c])
 (def conn (c/client "localhost" 4200))
-(c/assert conn '(dog Fido) 'NaturalWorldContext)    ; => 1
-(c/query  conn '(dog ?x)   'NaturalWorldContext)    ; => ({?x Fido})
-(c/ask?   conn '(animal Fido) 'NaturalWorldContext)
+(c/assert conn '(dog Muffet) 'NaturalWorldContext)    ; => 1
+(c/query  conn '(dog ?x)   'NaturalWorldContext)    ; => ({?x Muffet})
+(c/ask?   conn '(animal Muffet) 'NaturalWorldContext)
 (c/why    conn 1)
 ```
 
@@ -237,7 +268,25 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   as something other than a map — a proxy's HTML error page, a truncated body).
 - The convenience wrappers (`assert`, `assert-rule`, `sentexes-matching`, `ask`, `prove`,
   `why`, `retract!`, …) mirror the `vaelii.core` surface, bare and `!`-marked exactly as
-  it spells them; `call` reaches any allowlisted op directly.
+  it spells them; `call` reaches any op in `serve/op-names` directly.
+- **`watch` / `poll` / `unwatch` / `watchers` are the change feed** ([feed.md](feed.md)),
+  and the one place the client's shape differs from `vaelii.core`'s: in process `watch`
+  takes a callback, and here it returns a token a caller reads forward with a cursor.
+
+  ```clojure
+  (let [{:keys [token cursor]} (c/watch conn)]          ; or (c/watch conn goal ctx)
+    (loop [c cursor]
+      (let [{:keys [events cursor lagged]} (c/poll conn token c {:wait-ms 20000})]
+        (when (pos? lagged) (resync!))                  ; the ring outran this reader
+        (run! render! events)
+        (recur cursor))))
+  ```
+
+  `:wait-ms` is the long poll, and the only thing it costs this client is a read timeout
+  extended by the wait it asked for — one more `Duration` on the request builder, no
+  second protocol and no dependency. `:lagged` is on every reply and is the one field a
+  caller must read: non-zero, the daemon's ring dropped that many events before this
+  poll reached them.
 
 ## Browsing a live daemon — `vaelii.impl.access`
 
@@ -334,7 +383,7 @@ A client reaches it with the same token from its own environment:
 (require '[vaelii.client :as c])
 (def conn (c/client "127.0.0.1" 4200))                   ; VAELII_API_TOKEN, or :token
 (c/health conn)                                          ; => {:ok true}
-(c/assert conn '(dog Fido) 'NaturalWorldContext)
+(c/assert conn '(dog Muffet) 'NaturalWorldContext)
 ```
 
 ## Logging — a dial, and what is behind it
@@ -451,10 +500,12 @@ so where they sit.
 | `VAELII_API_TOKEN` | `src/vaelii/impl/guard.clj:157` | any string; blank or whitespace-only is unset | unset | The one shared bearer token: with it set every daemon request carries `Authorization: Bearer …` or is answered 401, and a client and an attached browser present it from their own environment. |
 | `VAELII_ALLOWED_HOSTS` | `src/vaelii/impl/guard.clj:55` | comma-separated host names | unset | The `Host` headers a server answers, overriding the list the bind address implies. |
 | `VAELII_MAX_BODY_BYTES` | `src/vaelii/impl/guard.clj:176` | a positive whole number of bytes | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
-| `VAELII_WEB_PORT` | `src/vaelii/impl/web.clj:5308` | a port number | `3000` | The port the browser binds. An unparseable value falls through to the property rather than failing the start. |
-| `vaelii.web.port` | `src/vaelii/impl/web.clj:5309` | a port number | `3000` | The same port, read after the variable. |
+| `VAELII_WEB_PORT` | `src/vaelii/impl/web.clj:5807` | a port number | `3000` | The port the browser binds. An unparseable value falls through to the property rather than failing the start. |
+| `vaelii.web.port` | `src/vaelii/impl/web.clj:5808` | a port number | `3000` | The same port, read after the variable. |
 | `VAELII_DEV` | `src/vaelii/impl/config.clj:245` | the boolean vocabulary | `false` | Whether the browser re-reads its stylesheet per request and serves it uncached. |
-| `VAELII_LOG_LEVEL` | `src/vaelii/impl/config.clj:283` | `error` `warn` `info` `debug` `trace`, case-insensitive | unset | The level the engine's own statements print at, installed as the engine loads. Unset installs no backend at all, which is a setting rather than a default. |
+| `VAELII_PROFILER` | `src/vaelii/impl/config.clj:255` | the boolean vocabulary | `false` | Whether the browser starts the sampling profiler's UI. Off unless asked for: it attaches an agent to the JVM and serves on a port of its own with no authentication. The dependency ships in the `:repl` profile, so `lein browser` has it and `lein run -m vaelii.web` does not — with it absent the start logs a line and `/caches` says so rather than linking to nothing. |
+| `VAELII_PROFILER_PORT` | `src/vaelii/impl/config.clj:261` | a port number | `8080` | Where that UI binds. Read only when the switch above says to start one. |
+| `VAELII_LOG_LEVEL` | `src/vaelii/impl/config.clj:299` | `error` `warn` `info` `debug` `trace`, case-insensitive | unset | The level the engine's own statements print at, installed as the engine loads. Unset installs no backend at all, which is a setting rather than a default. |
 
 **The durable store.** All system properties, all read at `open-kb`.
 
@@ -487,10 +538,10 @@ image that only macOS and Linux can swap.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_KB_PATH` | `src/vaelii/impl/catalog.clj:252` | `:`-separated directory list | `./kbs` and `~/.vaelii/kbs` | The directories KB discovery walks. |
-| `vaelii.kb.path` | `src/vaelii/impl/catalog.clj:252` | as above | as above | The same list, read after the variable. |
-| `VAELII_KB_CATALOG` | `src/vaelii/impl/catalog.clj:258` | a file path | `~/.vaelii/catalog.edn` | The file naming KBs that live outside the search path. |
-| `vaelii.kb.catalog` | `src/vaelii/impl/catalog.clj:259` | a file path | as above | The same file, read after the variable. |
+| `VAELII_KB_PATH` | `src/vaelii/impl/catalog.clj:256` | `:`-separated directory list | `./kbs` and `~/.vaelii/kbs` | The directories KB discovery walks. |
+| `vaelii.kb.path` | `src/vaelii/impl/catalog.clj:256` | as above | as above | The same list, read after the variable. |
+| `VAELII_KB_CATALOG` | `src/vaelii/impl/catalog.clj:262` | a file path | `~/.vaelii/catalog.edn` | The file naming KBs that live outside the search path. |
+| `vaelii.kb.catalog` | `src/vaelii/impl/catalog.clj:263` | a file path | as above | The same file, read after the variable. |
 
 **What the engine reasons with.**
 
@@ -498,9 +549,9 @@ image that only macOS and Linux can swap.
 |---|---|---|---|---|
 | `VAELII_ARBITRATE_CONSTRAINTS` | `src/vaelii/impl/config.clj:233` | the boolean vocabulary | `false` | Whether the process arbitrates a definitional clash rather than refusing it. A KB naming a `:constraints` policy overrides it. |
 | `VAELII_ASSERTIVE_ARG_TYPES` | `src/vaelii/impl/config.clj:239` | the boolean vocabulary | `false` | Whether the argument constraints entail types as well as constrain them ([argtypes.md](argtypes.md)). |
-| `VAELII_ASP_SOLVER` | `src/vaelii/impl/config.clj:261` | `clingo` `clasp` | unset | Which ASP backend solves. Unset is auto: in-process clingo when it loads, else clasp. A name outside the roster is refused rather than read as auto. |
-| `vaelii.asp.solver` | `src/vaelii/impl/config.clj:260` | `clingo` `clasp` | unset | The same choice, and it is read **first**. |
-| `VAELII_CLINGO_MAX_BYTES` | `src/vaelii/impl/config.clj:267` | a whole number of bytes, 0 or more | `3000` | The program size above which auto mode routes a plain-ASP program to clasp even where clingo loads. |
+| `VAELII_ASP_SOLVER` | `src/vaelii/impl/config.clj:277` | `clingo` `clasp` | unset | Which ASP backend solves. Unset is auto: in-process clingo when it loads, else clasp. A name outside the roster is refused rather than read as auto. |
+| `vaelii.asp.solver` | `src/vaelii/impl/config.clj:276` | `clingo` `clasp` | unset | The same choice, and it is read **first**. |
+| `VAELII_CLINGO_MAX_BYTES` | `src/vaelii/impl/config.clj:283` | a whole number of bytes, 0 or more | `3000` | The program size above which auto mode routes a plain-ASP program to clasp even where clingo loads. |
 | `vaelii.clingo.lib` | `src/vaelii/impl/asp/clingo.clj:29` | a library name or an absolute path | `clingo`, resolved through `jna.library.path` | Which libclingo the in-process bridge loads. |
 
 **The model host.**
@@ -509,11 +560,11 @@ image that only macOS and Linux can swap.
 |---|---|---|---|---|
 | `VAELII_LLM_PROVIDER` | `src/vaelii/impl/llm/provider.clj:42` | `ollama` `anthropic` | unset | Which backend the LLM pipeline calls. |
 | `vaelii.llm.provider` | `src/vaelii/impl/llm/provider.clj:41` | `ollama` `anthropic` | unset | The same choice, read **first**. |
-| `VAELII_OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:127` | a base URL | `http://localhost:11434` | Where the Ollama backend connects. |
-| `VAELII_OLLAMA_MODEL` | `src/vaelii/impl/llm/ollama.clj:135` | a model name | `phi4:14b` | The model a turn runs. |
-| `VAELII_OLLAMA_GENERATION_MODEL` | `src/vaelii/impl/llm/ollama.clj:141` | a model name | `qwen3-coder:30b` | The model the page-generation path runs. |
-| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/impl/llm/ollama.clj:148` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value reads as the default. |
-| `VAELII_OLLAMA_KEEP_ALIVE` | `src/vaelii/impl/llm/ollama.clj:156` | an Ollama duration (`30m`, `0`) | `30m` | How long the host is asked to hold the model resident after a turn. |
+| `VAELII_OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:128` | a base URL | `http://localhost:11434` | Where the Ollama backend connects. |
+| `VAELII_OLLAMA_MODEL` | `src/vaelii/impl/llm/ollama.clj:136` | a model name | `phi4:14b` | The model a turn runs. |
+| `VAELII_OLLAMA_GENERATION_MODEL` | `src/vaelii/impl/llm/ollama.clj:142` | a model name | `qwen3-coder:30b` | The model the page-generation path runs. |
+| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/impl/llm/ollama.clj:149` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value reads as the default. |
+| `VAELII_OLLAMA_KEEP_ALIVE` | `src/vaelii/impl/llm/ollama.clj:157` | an Ollama duration (`30m`, `0`) | `30m` | How long the host is asked to hold the model resident after a turn. |
 
 **Read, not ours.** Four names another project defines and the engine reads. An operator
 still sets them, and a rename by Anthropic or Ollama is their change rather than a break
@@ -522,9 +573,9 @@ here.
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
 | `OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:128` | a base URL; a bind address (`0.0.0.0`, `::`, `*`) is ignored | unset | Ollama's own variable, read after `VAELII_OLLAMA_HOST`. A host binds `0.0.0.0`; nothing connects to it. |
-| `ANTHROPIC_API_KEY` | `src/vaelii/impl/llm/anthropic.clj:83` | an API key | unset | The credential sent as `x-api-key`, tried first. |
-| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/impl/llm/anthropic.clj:85` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
-| `ANTHROPIC_BASE_URL` | `src/vaelii/impl/llm/anthropic.clj:323` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
+| `ANTHROPIC_API_KEY` | `src/vaelii/impl/llm/anthropic.clj:123` | an API key | unset | The credential sent as `x-api-key`, tried first. |
+| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/impl/llm/anthropic.clj:125` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
+| `ANTHROPIC_BASE_URL` | `src/vaelii/impl/llm/anthropic.clj:432` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
 
 **The build stamp.**
 
@@ -549,13 +600,15 @@ CI sets these too; nothing in a deployment does.
 | `VAELII_QUERY_ENGINE` | `test/vaelii/test_util.clj:64` | `dfs` `inference` `hybrid` | unset | Runs every `prove` on the engine named rather than the goal-stack DFS. |
 | `VAELII_QUERY_STRATEGY` | `test/vaelii/test_util.clj:93` | a tactician `tactics/tacticians` names, such as `breadth-first` | unset | Which tactician orders the node engine's goals. Only meaningful beside the row above. |
 | `VAELII_CLINGO_LIB` | `project.clj:87` | a directory holding `libclingo` | `/opt/homebrew/lib` | What the `+with-clingo` profile points `jna.library.path` at. |
-| `VAELII_COLOR` | `scripts/gate.sh:104` | `always` `never` | unset | Whether `lein gate` and `lein lint` colour their output; unset asks the terminal. |
-| `VAELII_GATE_OUT` | `scripts/test-parallel.sh:37` | a directory | `target/gate` | Where the parallel test stage writes its per-shard logs. |
-| `GATE_JOBS` | `scripts/gate.sh:79` | a whole number | unset | The test stage's shard count. **Unpinned** — see below. |
-| `PERF_TOLERANCE` | `scripts/gate.sh:203` | a multiplier (`1.5`) | unset | Passed through to `lein perf --tolerance`, for a loaded box. **Unpinned.** |
+| `VAELII_COLOR` | `scripts/gate.sh:123` | `always` `never` | unset | Whether `lein gate` and `lein lint` colour their output; unset asks the terminal. |
+| `VAELII_GATE_OUT` | `scripts/test-parallel.sh:44` | a directory | `target/gate` | Where the parallel test stage writes its per-shard logs. `lein gate` sets it to that run's own directory, so the shard logs land beside the stage logs rather than in a directory two gates share. |
+| `VAELII_GATE_TIMINGS` | `scripts/test-parallel.sh:45` | a file | `target/gate/test-timings.tsv` | The per-namespace timings the test stage bin-packs its shards from. **Per checkout, not per run** — they are feedback for the *next* gate, so they sit above the run directory and every run shares them. Inside a per-run directory each gate starts blind and falls back to round-robin sharding, which is slower and silent. |
+| `GATE_JOBS` | `scripts/gate.sh:98` | a whole number | unset | The test stage's shard count. **Unpinned** — see below. |
+| `PERF_TOLERANCE` | `scripts/gate.sh:225` | a multiplier (`1.5`) | unset | Passed through to `lein perf --tolerance`, for a loaded box. **Unpinned.** |
 | `TEST_BACKENDS_OUT` | `scripts/test-backends.sh:125` | a directory | `target/test-backends` | Where `lein test-backends` writes one log per run. **Unpinned.** |
+| `TEST_SWEEPS_OUT` | `scripts/test-sweeps.sh:119` | a directory | `target/test-sweeps` | Where `lein test-sweeps` writes one log per run. **Unpinned.** |
 
-Those three are the names the contract test does not freeze, and the reason is what a
+Those four are the names the contract test does not freeze, and the reason is what a
 regex can tell apart: `${VAELII_…}` in a shell script is name-shaped enough for one
 pattern, and `${GATE_JOBS}` is indistinguishable from every local variable the script
 has. Three names outside the net, named as such, is a better trade than a test that
@@ -575,12 +628,18 @@ inputs to the colour decision and not knobs of this project's.
 There is no **read replica** — no way to tail a change log and re-derive belief on
 another node. That would need a changelog or event-sourcing layer, and the engine has
 none: a durable store records the records, not the sequence of edits that produced
-them.
+them. The change feed is not that and does not become it: an event names the belief one
+settle moved, in `preview`'s entry shapes, and a reader that missed events is told it
+missed them rather than handed what it would need to reconstruct them.
 
-The **change feed** ([feed.md](feed.md)) is the in-process half of the same idea:
-`watch` calls a listener with the belief every settle moved. It does not
-cross the daemon, and deliberately — this surface is request/response, a listener is a
-function in the writer's own process, and `read-ops` is an allowlist of questions with
-answers. Pushing a feed to a remote client needs a transport that can hold a connection
-open, which is a decision about the daemon rather than about the feed. So a KB behind
-`serve` has exactly the polling an in-process caller no longer needs.
+There is no **server-sent-events route and no websocket**. The feed crosses the wire as a
+long poll ([feed.md](feed.md)), which keeps one endpoint, one content type and one thing
+to authenticate; a streaming transport is a second protocol with a second door on it, and
+the latency it would buy over a parked `POST /op` is the round trip the poll already
+saves.
+
+There is no **per-caller identity**. The bearer token is one shared credential for the
+process, so the daemon can say that a request is authorised and cannot say by whom —
+which is why `:watchers` lists every subscription rather than the asking caller's, and
+why the subscription ceiling is per daemon rather than per client. Per-caller identity is
+a reverse proxy's job, and this is the check that has to exist below it.

@@ -168,8 +168,13 @@ check drift      -- python3 scripts/check-doc-drift.py
 check kondo      -- clj-kondo --lint src test bench
 kondo_version_note
 check cljfmt     -- lein cljfmt check
+# Named one by one rather than globbed, so adding a script is a decision — and so
+# the list has to be kept. A script missing from it is one nothing checks, which is
+# how a `mktemp -t` form that works on BSD and dies on GNU coreutils reached a
+# runner. Add the file here in the same commit that adds the file.
 check shellcheck -- shellcheck scripts/lint.sh scripts/lint-glossary.sh scripts/lint-versions.sh \
                                scripts/coverage.sh scripts/gate.sh scripts/test-backends.sh \
+                               scripts/test-sweeps.sh scripts/lib/suite-marks.sh \
                                scripts/update-badges.sh scripts/link-checkouts.sh \
                                scripts/check-reflection.sh
 check reflect    -- bash scripts/check-reflection.sh

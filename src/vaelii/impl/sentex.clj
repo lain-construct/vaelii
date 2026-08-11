@@ -47,6 +47,7 @@
   not carry the rule-only slots (there are 100M+ of them), and each still round-trips
   through nippy with its type intact."
   (:refer-clojure :exclude [name])
+  (:require [vaelii.impl.caches :as caches])
   (:import [java.util.concurrent ConcurrentHashMap]))
 
 ;; Two records, split so an atomic sentex does not carry the seven rule-only slots
@@ -150,6 +151,27 @@
               (.putIfAbsent p s s)
               (or (.get p s) s))))
     s))
+
+;; No `:clear`, and the pool is the one cache here where that is a decision rather than
+;; an omission: dropping it changes no answer (interning moves identity, never equality)
+;; but throws away the sharing every symbol minted before it was paying for, and buys no
+;; measurement in return — nothing counts a pool hit.  The wholesale clear at the limit
+;; is a footprint ceiling, not an instrument.
+(caches/register-cache
+ {:cache    :symbol-pool
+  :label    "Symbol pool"
+  :scope    :process
+  :unit     "symbols"
+  ;; a thunk, not the value: the var is dynamic precisely so a caller can rebind it, and
+  ;; a bound captured at load would report the root while the pool enforced the binding
+  :limit    (fn [] *symbol-pool-limit*)
+  :counters nil
+  :note     (str "One shared object per distinct predicate, individual, type, context "
+                 "or variable name, across every KB in this process. Bounded by the "
+                 "vocabulary until something mints a symbol per fact — reification, "
+                 "skolemization, an abduction's scratch context — after which it grows "
+                 "with the fact count and nothing hands an entry back.")
+  :read     (fn [_] {:entries (.size ^ConcurrentHashMap symbol-pool)})})
 
 (defn canon
   "Canonicalize a sentence to a single sequential representation (PersistentList,

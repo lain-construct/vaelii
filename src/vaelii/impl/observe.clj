@@ -19,8 +19,13 @@
   once and each keeps its own alpha memories.
 
   **The change clock** is the cheapest possible version of the same idea, for a cache
-  that has to notice a change nobody registered to hear about.  See `note-change`."
+  that has to notice a change nobody registered to hear about.  See `note-change`.
+
+  **The resident caches** the clock exists for are here too (`cached`), and each declares
+  itself to `vaelii.impl.caches` at the bottom of this file so a reader can see what the
+  process is holding."
   (:refer-clojure :exclude [])
+  (:require [vaelii.impl.caches :as caches])
   (:import [java.util.concurrent.atomic AtomicLong]))
 
 (def ^:private on-add
@@ -326,3 +331,66 @@
   [& body]
   `(with-pin (binding [*reach-memo* (or *reach-memo* (atom {}))] ~@body)))
 
+;; ---- what this seam holds, declared -------------------------------------
+;;
+;; One resident cache a reader can count, and three that are bound for the length of a
+;; step and garbage when it returns.  The three are registered all the same: a page
+;; listing only the countable ones would imply the engine holds nothing else, and
+;; "cannot be counted from outside a run" is a fact about the cache rather than a gap in
+;; the list.
+
+(caches/register-cache
+ {:cache    :resident
+  :label    "Resident derived values"
+  :scope    :kb
+  :unit     "networks and passes"
+  :limit    resident-limit
+  :counters nil
+  :note     (str "What this KB's derived structures cost to read out of the store — a "
+                 "qualitative constraint network per calculus and context, the metric "
+                 "problem behind it, and the closures over each. Stamped with the "
+                 "change clock, so one mutation retires every entry; past the limit it "
+                 "is cleared wholesale.")
+  :read     (fn [kb] {:entries (some-> (:qcn kb) deref count)})
+  :clear    (fn [kb] (let [a (:qcn kb)
+                           n (if a (count @a) 0)]
+                       (some-> a (reset! {}))
+                       n))})
+
+(caches/register-cache
+ {:cache    :stored-handles
+  :label    "Stored handles"
+  :scope    :process
+  :unit     "sentences"
+  :limit    nil
+  :counters nil
+  :note     (str "Which handle a sentence already has, for the one caller that asks "
+                 "thousands of times about the same sentence. Bound for the length of "
+                 "one forward-chaining run and garbage when it returns, so a read from "
+                 "anywhere else — this page included — sees nothing to count.")
+  :read     (fn [_] {:entries (some-> ^java.util.Map *handle-cache* .size)})})
+
+(caches/register-cache
+ {:cache    :closure-neighbours
+  :label    "Closure neighbours"
+  :scope    :process
+  :unit     "neighbour sets"
+  :limit    nil
+  :counters nil
+  :note     (str "A transitive predicate's per-node neighbour lookups, so a join over "
+                 "one solves each node once rather than once per binding. Bound per "
+                 "backward-search step, so it is uncountable from outside one for the "
+                 "same reason the stored handles are.")
+  :read     (fn [_] {:entries (some-> *reach-memo* deref count)})})
+
+(caches/register-cache
+ {:cache    :pinned-values
+  :label    "Pinned values"
+  :scope    :process
+  :unit     "resident values"
+  :limit    nil
+  :counters nil
+  :note     (str "The resident values one inference step holds fixed while it writes, "
+                 "so a join reads one state rather than a moving one. A step's scope, "
+                 "and so uncountable between steps.")
+  :read     (fn [_] {:entries (some-> *pin* deref count)})})

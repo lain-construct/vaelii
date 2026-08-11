@@ -240,7 +240,7 @@
 ;; the indicator was wrong, so the lint has to reach it.
 
 (deftest a-page-watching-a-running-load-is-clean
-  (with-redefs [catalog/active-caveat (fn [] {:name "corpus" :status :loading
+  (with-redefs [catalog/active-caveat (fn [] {:name "corpus" :status :running
                                               :progress {:phase :records :done 5}})
                 catalog/loading?      (constantly true)
                 catalog/exporting?    (constantly true)]
@@ -251,7 +251,7 @@
 
 (deftest every-self-refreshing-panel-says-so-the-same-way
   ;; one helper renders all four, so they cannot drift apart
-  (with-redefs [catalog/active-caveat (fn [] {:name "corpus" :status :loading})
+  (with-redefs [catalog/active-caveat (fn [] {:name "corpus" :status :running})
                 catalog/loading?      (constantly true)
                 catalog/exporting?    (constantly true)]
     (let [body  (:body (GET "/kbs"))

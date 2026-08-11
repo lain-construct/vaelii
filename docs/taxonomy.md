@@ -27,8 +27,8 @@ at `thing`. We cache the reflexive-transitive closure both ways:
    `assert` checks arg *n* with `isa?` (does the arg have a type whose `genls`
    reaches the constraint). Open-world: an untyped arg can't violate.
 2. **Specificity.** Matching a unary type predicate fans out over `specs`, so an
-   antecedent `(animal ?x)` is satisfied by a stored `(dog Fido)` — no need to
-   materialize `(animal Fido)`. `isa?` answers membership on demand.
+   antecedent `(animal ?x)` is satisfied by a stored `(dog Muffet)` — no need to
+   materialize `(animal Muffet)`. `isa?` answers membership on demand.
 3. **(genlContext is the sibling relation over contexts — see contexts.md.)**
 
 ## The closures are derived state
@@ -59,8 +59,8 @@ Three properties follow, each of which a cache is easy to get wrong:
   but does not match — so a taxonomy that exempts itself lets `isa?` answer through
   an edge nothing believes. `refresh-beliefs` reconciles at the end of every
   `settle`, which is the only point a supporter's label flips without a sentex being
-  added or removed. It costs ~28µs on the starter, against ~130ms for a chained
-  assert.
+  added or removed, and it costs what *moved* rather than what the taxonomy holds — the
+  next subsection is how.
 - **Reference counting.** The same edge asserted in two contexts is two sentexes.
   Retracting one leaves the edge standing while the other still asserts it.
 - **Derived edges count.** A rule concluding `(genl a b)` reaches the taxonomy via
@@ -77,6 +77,79 @@ applies belief, giving the same answer either side of a restart. Belief-filterin
 replay would drop a disbelieved supporter, and clearing its defeat could never revive
 the entry.
 
+### The belief reconcile is scoped to the moved region
+
+`settle` hands `refresh-beliefs` the region it relabelled (`jtms/touched`, a **superset**
+of every handle whose belief flipped). Belief moves by handle, and a `genl` sentex's
+sentence names exactly one edge, so only an edge some moved handle supports can have
+changed which of its supporters are believed. `:handle-edge` is that map — the transpose
+of `:support`, maintained 1:1 by the same writers — and `refresh-relation` reads its scope
+forward off the moved set through it, never backward off the relation.
+
+The direction is the whole of it. Read backward, both halves of the reconcile are
+O(vocabulary): asking "did anything here move" walks every supporter, and answering
+"which edges are active now" evaluates belief for every edge. Neither is visible to a
+test, because both are merely slow — 176 ms per flip in a 64k-edge relation, and 8 ms
+even to decide the relation was untouched. Read forward, one flip costs ~10µs at any size.
+`perf`'s `taxonomy-belief-flip` is the gate on that: defeat and revive one edge in a
+taxonomy of n, and the per-op cost must not track n. Across an 8× taxonomy the backward
+reading grows 6.9×, the forward one 0.6×.
+
+Two things widen the scope past the moved edges, and both are load-bearing:
+
+- **`nil` means unconditional** — reconcile every edge with a supporter, which is what a
+  caller holding no region gets. Every `settle` path names one: the supersession pass
+  *widens* its region by hand rather than dropping it, because a supersession flip is a
+  belief change with no relabel to record it, and `recover`'s closing settle needs no
+  widening at all — a rebuild labels the JTMS from nothing, so the region is already the
+  whole KB (`taxonomy_belief_test/recover-does-not-revive-a-defeated-edge` is what holds
+  that, since the scoping depends on it).
+- **`:dirty` carries what a belief-blind writer left behind.** `add-edge` / `del-edge` run
+  on the assert and retract paths, where no `believed?` is in hand, so they recompute an
+  edge's `:edge-ctxs` from every recorded supporter rather than the believed ones. On the
+  single-supporter edge that is nearly every edge — and all of a bulk load — that is
+  already exact. On a **shared** edge it is a superset, and losing the last *believed*
+  supporter of an edge two sentexes still assert is a deactivation only a `believed?` can
+  make. So a writer touching a shared edge names it in `:dirty` and the next reconcile
+  takes it whether or not belief moved there. A superset is the safe interim reading: a
+  scoped read sees an edge it should not, rather than missing one it should.
+
+  This holds the reconcile to **its own contract** rather than to the caller's generosity.
+  `moved` is documented as the handles whose belief flipped; `jtms/touched` passes a
+  superset, and today that superset is wide enough that no engine path leaves a stale
+  edge without `:dirty` — a retraction's region names the edge's other supporters, over
+  forty intervening settles as well as none. The oracle in `taxonomy_test` is what fails
+  without it, because it passes the honest flip set. Depending on the width instead would
+  make correctness rest on something nothing states and nothing tests, and the failure is
+  a silent one.
+
+**The flat caches below work the same way, off the same reasoning.** `:cache-handle-keys`
+is the transpose of `:cache-support` and `:cache-dirty` is the twin of `:dirty`, with one
+difference that is about the caches rather than about the scoping: the index is a
+**multimap**, `{handle #{[kind key]}}`. A `genl` sentence names one edge and the writers
+here name one entry per sentence too, but nothing in the structure says so and removal is
+per-(handle, key) — a 1:1 index would have the first `support-drop` take a handle out from
+under an entry the same sentex still supports, which reads as a stale cache rather than as
+a crash. A set per handle costs the single-key case one small set and holds the index to
+`:cache-support`'s own shape.
+
+The reason to scope them is the reason `:cache-support` is one map: it holds every
+disjoint pair, predicate property, `inverse` and declared `arity` in the KB at once, so a
+reconcile drawn over it is drawn over the vocabulary. Read backward it measured 95 ms per
+flip over 32k declarations and 5.0 ms merely to decide nothing had moved; forward, 5 µs
+and 1 µs, and neither moves with the count. `perf`'s `flat-cache-belief-flip` is the gate:
+across an 8× KB the backward reading grows 7.0×, the forward one 1.2×.
+
+Two caches do **not** scope, and gate instead: the equality partition and the rewrite
+rules. Both hold the KB's asserted term-identity claims rather than its vocabulary, and
+the gate reads whichever of the moved region and the supporter set is smaller — so a
+settle that moves neither pays the size of its own region rather than of the cache. A
+settle that *does* move one of them rescans it whole. For the rewrite rules that is a
+handful of schematic equations. For the equality partition it is every `sameAs` / `equals`
+/ `rewriteOf` the KB asserts, and the scan is what recomputes `:out`, the relation-wide
+set of disbelieved supporters, from the current support keys — relation-global state
+rather than per-edge, which is what makes it a different question from the two above.
+
 ### The closure is not materialized — it is answered on demand
 
 A materialized closure is Θ(V²) for a deep hierarchy — a 10k-node `genl` chain holds
@@ -91,8 +164,10 @@ and `genls` / `specs` walk it on demand.
   new child above its parent and pushing that lift to the child's descendants as far as
   it forces them — O(1) for a hierarchy loaded parent-before-child, since a fresh node
   has no descendants, and O(descendants) when it is not (which is what a batch defers;
-  see below). No closure is touched. A redundant re-assert of an already-active edge is
-  a no-op.
+  see below). The lift moves whole **components**, since the potential ranks the
+  condensation: a member raised alone would sit above its own mates, each of which then
+  forces the next one round the cycle. No closure is touched. A redundant re-assert of
+  an already-active edge is a no-op.
 - **Deletion** drops the edge from the adjacency and prunes any node left with no edge
   (so `types` / `contexts` match a from-scratch build). Depths are left as loose upper
   bounds: a deletion only relaxes the ordering, so the `edge ⇒ depth` invariant
@@ -122,14 +197,24 @@ and `genls` / `specs` walk it on demand.
   else exactly as before — a real path between components must descend, so equal depth in
   different components still rejects. `:scc` holds an entry only for a node *in* a cycle,
   so an acyclic relation carries an empty map and reads identically.
-- Maintaining it: an edge that closes a cycle merges two components, which is a question
-  about the whole graph rather than about the edge, so `activate` surrenders the potential
-  (`:loose?`) and `restore-depths` recomputes both parts in one O(V+E) pass — Tarjan for
-  the components, then Kahn for the heights over the condensation. A deletion can *split*
-  a component, and a stale component is the one thing here that would answer **true** for a
-  pair no longer connected, so `deactivate` dissolves the component of either endpoint
-  immediately and goes loose until the repair. Cycles are rare enough that paying a full
-  repair for each is nothing.
+- Maintaining it, and the two directions are not symmetric. An edge that **closes** a
+  cycle merges two components, which is a question about the whole graph rather than
+  about the edge, so `activate` surrenders the potential (`:loose?`) and
+  `restore-depths` recomputes both parts in one O(V+E) pass — Tarjan for the components,
+  then Kahn for the heights over the condensation.
+- A deletion can **split** a component, and a stale component is the one thing here that
+  would answer *true* for a pair no longer connected, so it is never left standing. But a
+  split is a question about the component alone: an edge can only break the strong
+  connectivity of a component whose **induced subgraph it belongs to**, so an edge with
+  an endpoint outside — every deletion in an acyclic relation, and most of them in a
+  cyclic one — changes no component at all and `deactivate` leaves the potential alone.
+  When both endpoints do share one, that component's own induced subgraph is re-run
+  through Tarjan; the new components of the whole graph refine the old ones, so a split
+  produces nothing outside the component that split. The pieces are then ranked against
+  each other and against what they point at, and a piece that lands higher than the
+  component did pushes that lift up through `:rev`. So the relation does **not** go
+  loose, the reads keep their pruning, and the cost is the component's rather than the
+  relation's.
 
 ### Reads are scoped by the asking context
 
@@ -226,9 +311,9 @@ Three consequences worth stating:
 
 - **A settle repairs on both sides of its belief reconcile.** The batch above is not the
   only thing that surrenders the potential: `refresh-beliefs` changes the active edge set
-  with no sentex added or removed, so an edge defeated out of a component dissolves it
-  and one revived into a cycle closes a new one — and the reconcile goes loose either
-  way. Repairing only before it would leave that state standing until the *next* settle,
+  with no sentex added or removed, so an edge revived into a cycle closes a new component
+  and the reconcile goes loose. Repairing only before it would leave that state standing
+  until the *next* settle,
   which for `:scc` is not merely a lost pruning: `placement-rep` reads the component map
   to give a mutually-visible group one name, so a firing in between lands wherever its
   antecedents happened to point (docs/contexts.md). `restore-depths` is idempotent and
@@ -287,15 +372,25 @@ unmarks — each reviving when its defeater is retracted, exactly as a genl edge
 `del-*`/`unmark-*` path; belief-tracking governs the case where a supporter is
 defeated but still stored.)
 
-That reconcile is gated on `:cache-support-handles`, the flat set of every supporter of
-any flat-cache entry: a settle whose moved handles miss it entirely reconciles nothing
-rather than walking the vocabulary. The set is therefore a **contract** — it must hold
-exactly the live `:cache-support` map's handles, or the gate quietly stops gating.
-`support-add` / `support-drop` are the one place it moves, with a single exception:
-unmarking a metatype drops its members' entries wholesale (`forget-metatype`, below), so
-it owes the same removal by hand. A handle left behind after its entry is gone makes
-every settle that relabels *that* sentex scan the whole vocabulary to find nothing, for
-the life of the KB, since nothing ever removes it.
+That reconcile is **scoped** to the moved region exactly as the closures' is, and by the
+same two fields: `:cache-handle-keys`, the `{handle #{[kind key]}}` transpose of
+`:cache-support`, turns a settle's moved handles into the entries it has to look at, and
+`:cache-dirty` carries the entries the belief-blind writers left owing one. "The belief
+reconcile is scoped to the moved region" above is the whole of the reasoning; what is
+particular to these caches is that a *single* map holds every disjoint pair, property,
+`inverse` and declared arity in the KB, so a reconcile drawn over it is drawn over the
+vocabulary — 95 ms per flip over 32k declarations, and 5.0 ms to decide none of them
+moved, against 5 µs and 1 µs read forward.
+
+The index is therefore a **contract** — it must be exactly the live `:cache-support`
+map's transpose, or the scope quietly stops being one. `support-add` / `support-drop` are
+the one place it moves, with a single exception: unmarking a metatype drops its members'
+entries wholesale (`forget-metatype`, below), so it owes both fields the same removal by
+hand. A handle left behind after its entry is gone puts a key nothing supports into the
+scope of every settle that relabels *that* sentex, and a `:cache-dirty` mark left behind
+puts one there on every settle at all — for the life of the KB, since nothing ever removes
+them. The reconcile skips a key `:cache-support` no longer holds, so the cost of getting
+this wrong is work that never stops rather than a wrong answer.
 
 ## Disjointness
 
@@ -323,7 +418,7 @@ Two mechanisms declare that types share no instance; both are closed under `genl
 admits every non-variable symbol, so the predicate meta-ontology is enforced the same
 way the domain is: `(relationKind …)` is a `disjointMetatype` over
 `instanceRelationPredicate` and `typeRelationPredicate`, and a predicate declared both
-is refused exactly as `Fido` being both a `dog` and a `cat` is. The same widening makes
+is refused exactly as `Muffet` being both a `dog` and a `cat` is. The same widening makes
 `argIsa` constrain predicate-valued positions — `(argIsa typeToInstancePred 1
 typeRelationPredicate)` refuses a link whose first argument is not classified
 type-level. Numbers, strings and compounds stay outside both checks, since no type
@@ -428,6 +523,39 @@ picking the empty side, because what makes it true lives two functions away:
 symbol, so a compound-functor membership could not be one end of a pair even if it
 were enumerated.
 
+A bound decides *which* candidates get looked at, so ordering matters — and it is applied
+at the **trigger** level and not below it. The moved region is walked in content order
+(`settle/content-order`), which a region is small enough to afford. The enumerations
+under a trigger — the down-closure (`settle/instances-below`), the context cone
+(`settle/members-in-cone`), a predicate's posting list — are **lazy and unsorted**, so a
+budgeted consumer realizes only its prefix. Sorting to choose that prefix would force the
+whole extent, which is the cost the cap was added to refuse, and the perf gate says so:
+sorting the cone took `retract-context-cycle-scaling` from 0.08 to 0.28 ms/op at 2048
+contexts, since a context cycle makes the cone the whole graph.
+
+So a cut past the budget reaches a prefix the index chose. The `functional` /
+`asymmetric` route is where that is widest, since a declaration there names one predicate
+and its whole reach is one posting list. What it costs is bounded: the pairs not reached
+are **undecided this settle** rather than decided the other way — discovery accumulates in
+`:clashes` and is re-examined every settle after, and the standing whole-KB question
+(`core/exposed-clashes`) takes no budget at all. Arrival order can move *when* a pair is
+arbitrated, not which way it goes.
+
+**Neither cut is silent.** A bounded sweep that read as full coverage is the failure both
+halves guard against, so each files one entry per settle: `:exposure-truncated` from
+`settle/expose-clashes!` and `:arbitration-truncated` from
+`settle/report-arbitration-cut!`, each carrying `:triggers` `:sample` `:budget`
+`:message`. They stay separate kinds because a reader acts differently on *went
+unreported* than on *went undecided*, and because the deciding path reaches back over
+`functional` and `asymmetric` where the reporting one has no arm at all — so a reader
+watching only the exposure entry would never learn that a predicate declared functional
+after its facts was swept short. The arbitration notice accumulates across the settle's
+passes and is filed once, since `settle/constraint-nogoods` re-runs its sweep every pass
+and one declaration cut in nine of them is one fact about the settle. Both notices are off
+while `settle/*rebuilding?*`; the arbitration **sweep** is not, because that flag does not
+promise the region is everything — `core/recover` binds it around two settles and the
+second one's region is only what re-recording the refusals moved.
+
 The **arbitrating** path reads the same rule. `settle/declaration-implicates` — which
 runs under the KB's constraint policy (`checks/arbitrating?`: `open-kb`'s
 `:constraints :arbitrate`, or the process default) and hands `settle` a nogood rather
@@ -505,7 +633,8 @@ maintained by `integrate-sentex`:
   to repair, and nothing an arrival order could make expensive; asserting `(largerThan A
   B)` is an ordinary fact assert. The cost is entirely at query time, where
   `TransitivePredicateProver` walks the believed facts (memoized per search step,
-  `observe/*reach-memo*`). A **closed** goal stops at its answer, so a near pair is
+  `observe/*reach-memo*`, and the answer held per KB — "What is cached", below). A
+  **closed** goal stops at its answer, so a near pair is
   cheap; an **open** one enumerates and needs the whole reach, which is inherent. Both
   guard with a `seen` set, because nothing refuses a cycle in a user-declared transitive
   predicate the way `wff` refuses a `genl` cycle — and a cycle there genuinely entails
@@ -515,13 +644,105 @@ maintained by `integrate-sentex`:
   every match, placement and visibility check, where recomputing a reach per read would
   not survive. That is the whole difference, and it is why only those two carry the
   machinery above.
+
+  #### The step relation: which hops are on the graph
+
+  A closure is a walk, so what it answers is decided by what counts as **one hop**, and
+  that is a narrower thing than what the engine can answer about a pair. A hop is a
+  **believed match** (`res/matches-visible`), which is:
+
+  - a stored believed `(P x y)`, and nothing a defeated one supports — the walk follows
+    belief, like every other read;
+  - a stored `(P' x y)` for a sub-predicate `P'` of `P`, since the matcher fans the
+    functor over its `genl` spec closure;
+  - the **symmetric mirror**, for a `P` also declared symmetric — the mirrored probe
+    `raw-match` makes, so one direction of each edge is enough to read an equivalence
+    class;
+  - a stored `(Q y x)` where `(inverse P Q)` is visible, because that *is* the edge
+    `x → y` written in the partner's spelling. A user declaring both `inverse` and
+    `transitive` of one relation — ordinary temporal modelling — gets a chain that
+    crosses hops recorded either way round.
+
+  Each probe is a `matches-visible` call and never a goal handed back to the prover
+  registry, and that is load-bearing twice over. It keeps the step relation a function
+  of the KB alone rather than of the tier and scope a `solve-goal` answer carries (the
+  argument is `vaelii.impl.literal-cache`'s), and it is why a mutual `(inverse P Q)` +
+  `(inverse Q P)` pair cannot cycle here — a recursion across predicates that the walk's
+  own per-node `seen` set would not close.
+
+  **A rule's conclusion is not a hop, and that is deliberate.** Nothing may start an
+  unbounded proof search from inside a walk a relabel loop can reach — the same sentence
+  [naf.md](naf.md) carries for negation as failure and `provers.clj` carries for
+  aggregates. So a `set/backwardRule` concluding `(P b c)` answers that goal when it is
+  *asked*, and leaves the chain through `b` broken. A calculus entailment
+  ([qcn.md](qcn.md)) and an `argPreserving` conclusion ([inherit.md](inherit.md)) are
+  outside the step relation for the same reason. Materialize the hop with a forward rule
+  and the walk crosses it, because then it is a stored fact.
+
+  **With both arguments open the walk answers nothing, and the extent answers instead** —
+  the stored `P` facts and those of `P`'s `genl` sub-predicates, through the ordinary
+  match path, exactly as for a predicate carrying no marker at all. The prover's
+  `completeness` is 70 rather than 100, so the registry unions it rather than running it
+  alone, and contributing no solutions here is a contribution of none rather than an
+  answer of none.
+
+  The asymmetry with the bounded arms is deliberate. Those fix one end, so both the work
+  and the answer are bounded by one node's reach. A fully-open ask is bounded by neither:
+  a transitive closure is **quadratic** in a chain's length, so returning it for a
+  1M-node chain means offering half a trillion pairs rather than coming back. Laziness
+  does not rescue that — `reach` is a fixpoint, so the first pair costs a whole node's
+  closure. **The closure is computed for membership and for one bound end; it is never
+  stored and never enumerated whole.** A caller who wants it asks for it: `(P ?x ?x)` is
+  the one-variable case and asks which nodes lie on a cycle, and binding one end per
+  source term is the general way.
+
+  So `(P ?x ?y)` and a loop over `(P a ?y)` give different answers, and that is the one
+  place a marker's arms disagree. It is the trade the quadratic buys.
+
+  #### What one hop costs, and where
+
+  Two facts elsewhere in these docs multiply, and the product is worth stating: the walk
+  reads the **believed facts**, and a stored-fact read on `:disk` is a **paged decode**
+  ([storage.md](storage.md)). So a hop that crosses an edge costs one `get-sentex` — the
+  per-candidate fetch in `resolution.clj`, since the neighbour term lives in the record
+  and nowhere else — and a walk of *n* nodes costs *n* of them. `docs/storage.md` takes
+  the same product for `rebuild-taxonomy`; this is the read-side twin of it.
+
+  `lein bench-walk` measures the fetch as a **share** of the hop rather than assuming it
+  is the hop, by timing a direct sweep over the same records on the same mount. What it
+  finds is a threshold rather than a slope, and the threshold is the hot-record LRU's
+  capacity (`docs/density.md`):
+
+  | chain | fetch, `:memory` | fetch, `:disk` | share of the hop, `:disk` | `:disk` walk vs `:memory` |
+  |---|---|---|---|---|
+  | 20,000 nodes | 0.14 µs/edge | 0.06 µs/edge | 1% | 0.92× |
+  | 150,000 nodes | 0.37 µs/edge | 3.03 µs/edge | 21% | 0.61× |
+
+  Under the LRU the fetch is *cheaper* on `:disk` than on `:memory` — a hit is one
+  `LinkedHashMap` read against a nested-map lookup — and the two mounts walk at the same
+  speed. Past it the fetch is a real page-in at 3.03 µs, which is the warm figure
+  `density.md` publishes, and the disk walk falls to 0.61× the memory one. `:disk-memory`
+  (durable records, RAM index) lands with `:disk` at every size, which is what says the
+  **record store** is the whole of the difference and the index half is none of it.
+
+  The rest of a hop — canonicalizing the pattern, the scoped argument-root read, the
+  belief test, the unify, and the walk's own bookkeeping — is the same work on every
+  mount, and it is the majority of the cost at every size measured. That is the number to
+  hold against any scheme for making the fetch cheaper: it bounds one.
 - `(asymmetric P)` — a *constraint*, and the mirror of a claim denies it: `(P a b)` and
   `(P b a)` are contradictory, which makes `P` irreflexive too, so `(P a a)` is refused
   (`ex-info` `:type` `:asymmetric`). A strict order like `largerThan` is the usual case.
   It is also what gives the converse standing to deny a preserved claim, so it decides
   whether `ArgPreservingProver` finds anything *against* one
   ([inherit.md](inherit.md)).
-- `(inverse P Q)` — `P` and `Q` are inverses (a bidirectional map).
+- `(inverse P Q)` — `P` and `Q` are inverses. A predicate may declare **several**, and
+  the cache holds `{predicate #{partners}}` maintained in both directions, so retracting
+  one declaration retires that partner and leaves the rest. `tax/inverses-of` is the set,
+  and it is what the step relation walks and what `solve-inverted` unions over;
+  `tax/inverse-of` answers *a* partner — the lexicographically smallest, so a caller
+  wanting one gets a content-keyed answer rather than an order-keyed one. `P` may be its
+  own inverse, which says `(P a b)` iff `(P b a)` — the same claim `symmetric` makes, and
+  the cache key folds to the one-element set it names.
 - `(arity P n)` — the declared arity, cached rather than re-queried because the
   per-assert arity check reads it on every fact.
 - `(functional P)` — a *constraint*: `assert` rejects a second, different value
@@ -645,19 +866,45 @@ rejects a wrongly-typed argument), and as an *inference* when querying — the
 from the argIsa-constrained position it fills, so a thing's type can follow from
 how it is used, not only from a stored membership.
 
-## What is not cached, and why
+## What is cached, what is not, and why
 
-- **Transitive-predicate closures have no cache beyond one query.** This is distinct
-  from the `genl`/`genlContext` closures above, which *are* cached and incremental.
-  `reach` (in `vaelii.impl.provers`) walks the stored facts, and a ground goal pays for
-  the whole closure with no early exit. `observe/*reach-memo*` holds one closure cache
-  for the life of a search step, so a rule's join does not re-walk it per binding, but
-  two separate `ask` calls share nothing.
+- **A transitive predicate's closure is not held as a *relation*, but the answer is
+  held.** The distinction from the `genl`/`genlContext` closures above is maintenance:
+  those are adjacency the engine keeps current through every edge change, which is what
+  earns them a `:gen` and a repair path. Nothing about a declared-transitive `P` is
+  maintained. `reach` (in `vaelii.impl.provers`) walks the believed facts, and what it
+  finds is **cached per `[direction predicate node context]` on the KB** and dropped —
+  not repaired — the moment anything moves.
 
-  A cache that outlived a query would have to be invalidated on every JTMS relabel, and
-  `settle` relabels the whole moved region — so the invalidation would be as coarse as
-  the thing it protects. Note that genl changes are **not** a dependency here: subtype
-  fan-out applies only to unary goals, and `(P x y)` is binary.
+  Three layers, at three scopes, and they are not alternatives:
+
+  | | holds | scope | retired by |
+  |---|---|---|---|
+  | `literal-cache` | one literal's visible matches | the KB | the change clock |
+  | `observe/*reach-memo*` | one node's neighbours | one search step | going out of scope |
+  | `:closure-answers` | one whole reach | the KB | the change clock |
+
+  The clock is the whole invalidation story, and it is what makes the top layer follow
+  **belief**: a relabel moves it, so a defeated edge retires the closure that crossed it
+  without anything having to know which entry the edge was in. It is also what makes a
+  scope that *writes while it reads* — forward chaining, whose own conclusions move the
+  clock under it — fill the cache with nothing rather than with something stale, the
+  discipline `literal-cache/lookup` spells out.
+
+  The bound counts **members**, not entries, because an entry is a whole reach: ten
+  entries can be ten members or a million, so a bound on entries would be a bound on
+  nothing. A reach larger than the bound is never stored — it is the case the bound
+  exists for — and a total that reaches it drops the map wholesale.
+
+  An **open-argument** ask fills it; a **closed** goal reads it without filling it, since
+  computing a closure to store would charge a two-hop question for the whole extent and
+  lose `reaches?`'s early exit. Measured (`lein bench-walk`): a second identical ask over
+  an unmutated KB costs 0.10–0.14× the first on a 2,000- to 8,000-node chain and fetches
+  no records. The layer below cannot reach that on its own: it bounds itself by **entry**
+  count and a walk spends one entry per node, so a closure with more nodes than that
+  bound clears it as the walk proceeds and leaves nothing for the repeat. Note that genl
+  changes are **not** a dependency of the walk itself: subtype fan-out applies only to
+  unary goals, and `(P x y)` is binary.
 - **Metatype membership is cached rather than stored**, so `disjointness-test` scans
   the marked metatypes once per asking type, intersecting each one's members against
   that type's closure. Metatypes are few and the scan is hoisted out of the

@@ -9,6 +9,7 @@
             [vaelii.impl.access :as acc]
             [vaelii.impl.catalog :as cat]
             [vaelii.impl.guard :as guard]
+            [vaelii.impl.jobs :as jobs]
             [vaelii.impl.starter :as starter]
             [vaelii.impl.svg :as svg]
             [vaelii.impl.web :as web]
@@ -68,8 +69,9 @@
     (testing "the stated root is on the page, open"
       (is (re-find #"<details open=\"open\"><summary><a[^>]*href=\"/term\?q=thing\"" body)))
     (testing "a node with subtypes is a disclosure that fetches its own children"
-      ;; `physical_object` is a direct subtype of `thing`, so it is on the first level
-      (is (re-find #"<details[^>]*hx-get=\"/tree/rows\?rel=genl&amp;node=physical_object" body)))
+      ;; `spatial_thing` is a direct subtype of `thing`, so it is on the first level, and
+      ;; it has `physical_object` under it, so it is a node with children rather than a leaf
+      (is (re-find #"<details[^>]*hx-get=\"/tree/rows\?rel=genl&amp;node=spatial_thing" body)))
     (testing "and it selects nothing out of what it fetches"
       ;; `hx-select="#main"` is on the body and inherited; against a fragment of bare
       ;; rows it selects nothing, so an open would swap in nothing.  This is invisible
@@ -223,21 +225,27 @@
     ;; `contexts` at all — a context nothing names holds sentexes but is not a node
     (v/assert kb (list 'genlContext BiggestContext 'UniverseContext) 'UniverseContext
               {:chain? false})
-    (v/assert-many kb (for [i (range 400)] (list heldBy (symbol (str "TmpBig" i))))
-                   BiggestContext {:chain? false})
-    (let [cap  (ns-resolve 'vaelii.impl.web 'lattice-cap)
-          body (with-redefs-fn {cap 0}                  ; no lattice to draw, at any size
-                 #(:body (GET "/")))
-          seg  (segment body "holding the most" 4000)
-          ns'  (mapv #(Long/parseLong (second %)) (re-seq #" — (\d+) sentexes" seg))]
-      (is (some? seg) "the fallback says what it is showing instead")
-      (is (re-find (re-pattern (str ">" BiggestContext "</a><span class=\"muted\"> — 400 sentexes"))
-                   seg)
-          "the biggest context, named with what it holds")
-      (is (seq ns') "and it is a list of counts, not of names alone")
-      (is (= ns' (vec (reverse (sort ns')))) (str "largest first: " ns'))
-      (is (= 400 (first ns')) "the ranking is the point, not the cap")
-      (is (re-find #"contexts hold something" seg) "and how many there are in all"))))
+    ;; Sized off the largest context already loaded rather than off a constant: the
+    ;; claim is that this context leads the ranking, and a fixed 400 makes that a bet
+    ;; on the shipped ontology staying smaller than it — which CoreContext, carrying an
+    ;; argument declaration for every position of every predicate, does not.
+    (let [n (+ 50 (apply max 0 (map #(v/count-in-context kb %) (v/contexts kb))))]
+      (v/assert-many kb (for [i (range n)] (list heldBy (symbol (str "TmpBig" i))))
+                     BiggestContext {:chain? false})
+      (let [cap  (ns-resolve 'vaelii.impl.web 'lattice-cap)
+            body (with-redefs-fn {cap 0}                ; no lattice to draw, at any size
+                   #(:body (GET "/")))
+            seg  (segment body "holding the most" 4000)
+            ns'  (mapv #(Long/parseLong (second %)) (re-seq #" — (\d+) sentexes" seg))]
+        (is (some? seg) "the fallback says what it is showing instead")
+        (is (re-find (re-pattern (str ">" BiggestContext "</a><span class=\"muted\"> — "
+                                      n " sentexes"))
+                     seg)
+            "the biggest context, named with what it holds")
+        (is (seq ns') "and it is a list of counts, not of names alone")
+        (is (= ns' (vec (reverse (sort ns')))) (str "largest first: " ns'))
+        (is (= n (first ns')) "the ranking is the point, not the cap")
+        (is (re-find #"contexts hold something" seg) "and how many there are in all")))))
 
 (tu/deftest-kb disjointness-too-wide-to-list-is-summarised-by-what-separates-most
   (tu/with-terms [hub_type]
@@ -405,7 +413,7 @@
     (testing "taxonomy info and containing sentexes"
       (is (re-find #"Supertypes" (:body r)))            ; dog is a type
       (is (re-find #"Disjoint with" (:body r)))         ; dog ⊥ cat
-      (is (re-find #"Fido" (:body r)))))                ; (dog Fido)
+      (is (re-find #"Muffet" (:body r)))))                ; (dog Muffet)
   (testing "an individual's sentexes are found by term"
     (is (re-find #"parentOf" (:body (GET "/term" "q=Bob"))))))
 
@@ -414,10 +422,10 @@
     (let [r (GET "/term" "q=dog")]
       (is (= 200 (:status r)))
       (is (re-find #"Sentexes by index" (:body r)))
-      (is (re-find #"As predicate" (:body r)))            ; (dog Fido) is a functor-root fact
+      (is (re-find #"As predicate" (:body r)))            ; (dog Muffet) is a functor-root fact
       (is (re-find #"\[:functor-root dog\]" (:body r)))
       (is (re-find #"stored" (:body r)))                  ; the O(1) stored count is shown
-      (is (re-find #"Fido" (:body r)))))                  ; still reachable, now under a group
+      (is (re-find #"Muffet" (:body r)))))                  ; still reachable, now under a group
   (testing "an individual is grouped by the argument position it fills"
     (let [r (GET "/term" "q=Bob")]
       (is (re-find #"argument position" (:body r)))
@@ -970,7 +978,7 @@
   (let [spaces {:backend :memory :space 62 :recover? false}
         built  (v/open-kb spaces)]
     (try
-      (v/assert built '(dog Fido) 'UniverseContext {})
+      (v/assert built '(dog Muffet) 'UniverseContext {})
       (let [reopened (v/open-kb spaces)]
         (cat/register! "wt-beliefless" "Reopened without recover" reopened)
         (is (cat/activate "wt-beliefless"))
@@ -1010,7 +1018,7 @@
           (is (= 200 (:status (app {:request-method :get :uri "/stats"})))))
         (testing "and the banner says both what it is and what it costs"
           (let [body (:body (app {:request-method :get :uri "/stats"}))]
-            (is (str/includes? body "kb-caveat-loading"))
+            (is (str/includes? body "kb-caveat-running"))
             (is (str/includes? body "Writing is on hold"))))
         (testing "but a write is refused — a loader is already this process's one writer"
           (doseq [[uri params] [["/assert"  {"text" "(dog Rex)" "ctx" "UniverseContext"}]
@@ -1545,12 +1553,12 @@
         (is (= 200 (:status r)))
         (is (re-find #"unreadable" (:body r)))))
     (testing "a context that is not a symbol at all is refused before anything is read"
-      (let [r (POST "/assert" {"text" "(dog Fido)" "ctx" "42"}
+      (let [r (POST "/assert" {"text" "(dog Muffet)" "ctx" "42"}
                 {"host" "localhost:3000" "origin" "http://localhost:3000"})]
         (is (re-find #"shape" (:body r)))
         (is (re-find #"the context must be a bare symbol" (:body r)))))
     (testing "a context that is a symbol but not a context name fails the naming invariant"
-      (let [r (POST "/assert" {"text" "(dog Fido)" "ctx" "wrong"}
+      (let [r (POST "/assert" {"text" "(dog Muffet)" "ctx" "wrong"}
                 {"host" "localhost:3000" "origin" "http://localhost:3000"})]
         (is (re-find #"naming" (:body r)))))))
 
@@ -1661,10 +1669,21 @@
       (is (not (re-find #"href=\"/chain\"" body))))))
 
 (tu/deftest-kb running-forward-chaining-reports-what-it-derived
-  (let [r (POST "/chain" {} {"host" "localhost:3000" "origin" "http://localhost:3000"})]
+  ;; **Which** of the two pages answers is a property of the machine, not of the engine: a
+  ;; run that settles inside the fast path answers with the stats it changed, and one that
+  ;; outlasts it answers with the screen watching it (`jobs/fast-path-ms`, docs/web.md).
+  ;; Asserting the first alone is a race, and one lost only under a loaded box — so what is
+  ;; asserted here is what holds either way, plus the count once the job has settled.
+  (let [before (:runs (v/chain-stats kb) 0)
+        r      (POST "/chain" {} {"host" "localhost:3000" "origin" "http://localhost:3000"})]
     (is (= 200 (:status r)))
-    (is (re-find #"Forward chaining derived" (:body r)))
-    (is (re-find #"Statistics" (:body r)) "and answers with the stats it changed")))
+    (is (re-find #"Forward chaining derived|<h2>Jobs</h2>" (:body r))
+        "the stats it changed, or the screen watching it")
+    (jobs/wait (:id (jobs/latest :chain)) 60000)
+    (is (= (inc before) (:runs (v/chain-stats kb))) "one run, whichever page answered")
+    (let [body (:body (GET "/stats"))]
+      (is (re-find #"Statistics" body) "and the result is on the page it changed")
+      (is (re-find #"runs so far; the last derived" body)))))
 
 (deftest a-cross-origin-chain-is-refused
   (is (= 403 (:status (POST "/chain" {} {"host" "localhost:3000"

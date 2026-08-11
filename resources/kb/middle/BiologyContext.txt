@@ -39,19 +39,53 @@
 (exceptWhen (fish ?x)
   (set/defaultRule (implies (and (animal ?x)) (breathesAir ?x))))
 
-(implies (and (flies ?x)) (canTravel ?x))
-
-;; The exception is written **on the rule it excepts** (exceptWhen), not as a second
-;; rule concluding the opposite literal.  That is undercutting rather than rebutting:
-;; for a penguin the flight rule simply does not conclude, so there is no (flies Pingu)
-;; to defeat, nothing to arbitrate, and no reliance on penguin happening to be the more
-;; specific type.  See docs/exceptions.md.
+;; ---- what a kind can do, and the kind that cannot -----------------------
+;; Flight is a claim about the KIND, so it is stated of bird once and reaches every kind
+;; of bird through (argPreserving hasCapability 1 genl) — crow, eagle and every species
+;; added later, with nothing written about any of them.
 ;;
-;; (not (flies ?x)) stays, and is not the same statement: it is a positive claim that
-;; penguins are flightless, which an application can query and argue from.
-(implies (and (penguin ?x)) (not (flies ?x)))
+;; The exception is a **more specific claim**, not a rule with an exceptWhen: an
+;; inherited default is undercut by a claim about the nearer kind, so stating that
+;; penguins do not fly stops the inheritance at penguin and leaves its siblings flying.
+;; That is the genl-level counterpart of undercutting a rule, and it needs no exceptWhen
+;; because there is no rule to except — the reach is the taxonomy's, not a chainer's.
+;; See docs/inherit.md and docs/exceptions.md.
+;;
+;; The negative is a positive claim that penguins are flightless, which an application
+;; can query and argue from, rather than the mere absence of a flight claim.
+(hasCapability bird flying)
+(not (hasCapability penguin flying))
+
+;; ---- and down to the individuals ----------------------------------------
+;; The claim about the kind does not reach its members on its own: "birds fly" and "this
+;; bird flies" are different claims, and which one licenses the other is a quantifier
+;; reading nothing here fixes (docs/inherit.md, typeToInstancePred).  So the descent is a
+;; rule, written once, and it is defeasible for the same reason the kind-level claim is.
+;;
+;; The exception is written **on the rule** here (exceptWhen), where above it was written
+;; as a more specific claim.  Both are undercutting and the difference is what each has
+;; to bite on: a rule can be blocked before it concludes, while an inherited claim has no
+;; rule to block and is stopped by a nearer claim instead.  For a penguin the rule simply
+;; does not conclude, so there is no flight to defeat and nothing to arbitrate.
+;; See docs/exceptions.md.
 (exceptWhen (penguin ?x)
-  (set/defaultRule (implies (and (bird ?x)) (flies ?x))))
+  (set/defaultRule (implies (and (bird ?x)) (hasCapability ?x flying))))
+
+;; Travelling is concluded by a rule rather than left to the capability hierarchy alone.
+;; (argPreservingInverse hasCapability 2 genl) already ANSWERS it — flying is a kind of
+;; travelling, so whatever flies travels — but preservation is a reach taken at retrieval
+;; and stores nothing, and what rests on a conclusion is only visible as a cascade if it
+;; is a record with a justification. The rule is what makes the consequence go out with
+;; its ground and come back re-derived, which is the whole of what the walkthrough shows.
+(implies (and (hasCapability ?x flying)) (hasCapability ?x travelling))
+
+;; And the negative, which is not the same statement as the blocked default: the rule
+;; above declines to conclude for a penguin, while this concludes something — that this
+;; particular penguin cannot fly — which an application can query and argue from. The
+;; kind-level (not (hasCapability penguin flying)) says it of the kind; this says it of
+;; the member, and neither follows from the other for the reason hasCapability's own
+;; comment gives.
+(implies (and (penguin ?x)) (not (hasCapability ?x flying)))
 
 ;; ---- where an animal lives is where it is, by default --------------------
 ;; A default rather than a bare rule: an animal that lives in a burrow is in it now

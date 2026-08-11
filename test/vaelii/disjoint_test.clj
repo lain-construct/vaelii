@@ -10,43 +10,43 @@
 
 (tu/deftest-kb disjoint-blocks-conflicting-membership
   (let [dog (tu/tmp-type) cat (tu/tmp-type)
-        fido (tu/tmp-ind) whiskers (tu/tmp-ind)]
+        muffet (tu/tmp-ind) whiskers (tu/tmp-ind)]
     ;; the declaration constrains where it is visible, so the asserting context is
     ;; wired below it — the same wiring the starter's spindle gives every real one
     (v/assert kb (list 'genlContext 'NaturalWorldContext 'UniverseContext) 'UniverseContext)
     (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-    (v/assert kb (list dog fido) 'NaturalWorldContext)
+    (v/assert kb (list dog muffet) 'NaturalWorldContext)
     (testing "the same individual can't take a disjoint type"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat fido) 'NaturalWorldContext))))
+                   (v/assert kb (list cat muffet) 'NaturalWorldContext))))
     (testing "a compatible individual is unaffected"
       (is (v/assert kb (list cat whiskers) 'NaturalWorldContext)))))
 
 (tu/deftest-kb disjointness-inherited-through-genl
   (let [dog (tu/tmp-type) mammal (tu/tmp-type)
-        trout (tu/tmp-type) fish (tu/tmp-type) fido (tu/tmp-ind)]
+        trout (tu/tmp-type) fish (tu/tmp-type) muffet (tu/tmp-ind)]
     (v/assert kb (list 'genlContext 'NaturalWorldContext 'UniverseContext) 'UniverseContext)
     (v/assert kb (list 'genl dog mammal) 'UniverseContext)
     (v/assert kb (list 'genl trout fish) 'UniverseContext)
     (v/assert kb (list 'disjoint mammal fish) 'UniverseContext)
-    (v/assert kb (list dog fido) 'NaturalWorldContext)
+    (v/assert kb (list dog muffet) 'NaturalWorldContext)
     (testing "subtypes of disjoint types are disjoint"
       (is (v/disjoint? kb dog trout))
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list trout fido) 'NaturalWorldContext))))))
+                   (v/assert kb (list trout muffet) 'NaturalWorldContext))))))
 
 (tu/deftest-kb disjoint-type-makes-members-disjoint
   (let [animalSpecies (tu/tmp-pred)
-        dog (tu/tmp-type) cat (tu/tmp-type) fish (tu/tmp-type) fido (tu/tmp-ind)]
+        dog (tu/tmp-type) cat (tu/tmp-type) fish (tu/tmp-type) muffet (tu/tmp-ind)]
     (v/assert kb (list 'genlContext 'NaturalWorldContext 'UniverseContext) 'UniverseContext)
     (v/assert kb (list animalSpecies dog) 'UniverseContext)
     (v/assert kb (list animalSpecies cat) 'UniverseContext)
     (v/assert kb (list 'disjointMetatype animalSpecies) 'UniverseContext)   ; members become pairwise disjoint
-    (v/assert kb (list dog fido) 'NaturalWorldContext)
+    (v/assert kb (list dog muffet) 'NaturalWorldContext)
     (testing "members of a disjoint metatype are disjoint"
       (is (v/disjoint? kb dog cat))
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat fido) 'NaturalWorldContext))))
+                   (v/assert kb (list cat muffet) 'NaturalWorldContext))))
     (testing "a member added after the declaration is also disjoint"
       (v/assert kb (list animalSpecies fish) 'UniverseContext)
       (is (v/disjoint? kb dog fish)))))

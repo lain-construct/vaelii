@@ -34,8 +34,10 @@
 (defn- dropping-rule
   "The rule an entry blames, as the sentence its author wrote — variable names restored,
   since a rule is stored canonically numbered.  Nil for an entry that names no rule (an
-  aggregate's numeric refusal, an exposure sweep cut short) and for a rule that has since
-  been retracted, which is itself the answer to why the conclusion stopped arriving."
+  aggregate's numeric refusal, and either bounded sweep cut short — `:exposure-truncated`
+  or `:arbitration-truncated`, which are about a budget rather than about a firing) and
+  for a rule that has since been retracted, which is itself the answer to why the
+  conclusion stopped arriving."
   [kb entry]
   (when-let [h (:rule entry)]
     (let [rsx (p/get-sentex (:records kb) h)]

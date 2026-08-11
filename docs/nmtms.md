@@ -339,8 +339,13 @@ assert / retract / `forward-chain` / `recover`:
      relabel (`jtms/touched` — a revival with no store behind it), a store or a removal
      (`kb/note-opposed!` — and a removal is the case only this covers, since the record
      is gone before a settle could ask the handle what body it was about), and a
-     `genlContext` edge (which can make standing pairs jointly visible without going
-     near either side, so its generation retires the memo whole).
+     `genlContext` edge, which can make standing pairs jointly visible without going near
+     either side. The third is answered by the **verdict** rather than by the relation's
+     generation: joint visibility is `common-descendant?` of one context from each
+     polarity, so each memo entry records that verdict for the contexts it crosses, and a
+     settle whose context edge leaves every recorded verdict standing re-derives nothing.
+     What that costs is the recorded context pairs — one, on a KB whose contradictions
+     share a context — where a generation costs every standing pair.
    - the **definitional clashes** — disjointness, functionality, asymmetry — each of
      which convicts by naming a second believed sentex, which is a nogood in exactly
      the same sense (`constraint-nogoods`). Discovered by re-running the checks over
@@ -354,6 +359,18 @@ assert / retract / `forward-chain` / `recover`:
      That is not an optimization to taste: a settle runs after every mutation, so one
      check per standing pair per settle is quadratic in the clashes a load creates
      (measured at 36ms an assert against 8ms, at 300 standing clashes).
+
+     The separations, the properties and the disjoint metatypes' **membership** are
+     compared as **values**, so an unchanged one abandons nothing. Membership is in there
+     because a metatype separates by being consulted rather than by writing a `disjoint`
+     sentence: a member leaving stops separating what it was separating while the mark
+     itself still stands. The `genl` closure cannot be a value — it is the part of what
+     decides a clash that is too big to compare — so it is weighed **per pair** instead:
+     a pair of unary memberships is decided by `disjoint?` of the two types its sentexes
+     name, so what the memo stamps is those two supertype closures, and an edge that
+     leaves both standing is an edge the pair was not about. A `genlContext` edge still
+     retires the whole carry, since which contexts can convict a pair is a question about
+     the context relation rather than about either half's own reading of it.
 
    The argument constraints (`argIsa` / `argGenl` / `interArgIsa`) are deliberately
    *not* here. One is convicted by the **absence** of a path from the argument's types to
@@ -498,6 +515,18 @@ Two more kinds ride the same path: a completed firing with **no placement contex
 is recorded as `:no-placement`, and a *derived* `genl`/`genlContext` edge that would
 close a cycle through negation is dropped and recorded as `:not-stratified`.
 
+Four kinds in the ledger drop nothing, and report instead. `:arity` is a declaration
+arriving after facts that do not conform to it, and `:non-confluent` two schematic
+equations disagreeing about a shared term. The other two say a **bounded sweep did not
+finish**, so bounded work never reads as full coverage: `:exposure-truncated` means
+clashes went *unreported*, and `:arbitration-truncated` means content a declaration
+implicates went *undecided*, so a pair that would have been defeated stands believed
+until a later settle surfaces it. They do not cover the same triggers —
+`functional` and `asymmetric` reach back over stored content on the deciding path and
+on no other — and both are one entry per settle rather than one per trigger. What
+bounds those sweeps is `settle/*exposure-instance-budget*`
+([taxonomy.md](taxonomy.md)).
+
 `(core/violations kb)` is an **accumulating** ledger, not a per-run snapshot. Each
 entry carries the run id from `(core/chain-stats kb)`, the ledger is capped at the
 newest 1000 entries, and it is emptied only by `(core/clear-violations! kb)` — never
@@ -574,12 +603,25 @@ tell apart regardless. `:handles` is `:sides`' handles in that order, so the two
 and leaving the vector of reports unordered would move the problem out one level rather
 than solve it: the nogoods are held in a hash set keyed by handle, so
 `(first (contradictions kb))` would be an answer about which pair was typed first, on a
-call whose every other reading is order-independent. Both vectors sort by printed
-sentence, then context, then handle — the sides' rule applied to the reports — and the
-sort key rides each report's metadata, so a settle computes it once rather than once per
-comparison. That last part is not a micro-optimization: recomputing the key inside the
-comparator is a 60x regression on `lein perf`'s `clash-arbitration` check, which is what
-holds it.
+call whose every other reading is order-independent. Both readings are ordered by printed
+sentence, then context — the sides' rule applied to the reports.
+
+**The ordering is the read's, not the settle's**, and that is a claim about where the
+guarantee lives rather than about whether it holds. `settle` stores the two vectors in
+arrival order and `settle/ranked` orders a reading at the point it is asked for;
+`conflicts`, `contradictions` and the preview's standing filter each call it, and any
+further reader of `(:conflicts kb)` or `(:contradictions kb)` owes the same call. The
+alternative home is the settle path, which a mutation always runs — so ordering there
+charges every assert O(standing log standing) comparisons for a reading nobody asked for:
+1.60 ms per assert against 800 standing dilemmas, where ordering at the read costs 1.07
+ms. A reading is asked for far more rarely than a KB is written to.
+
+The sort key rides each report's metadata, built once when the report is built and
+carried through the memo, so ordering a reading compares prepared keys instead of
+`pr-str`ing every side per comparison. Nothing inside the engine leans on the stored
+order: the labeling solver re-sorts the dilemmas by priority then content for itself,
+because an earlier choice constrains every later one
+(`vaelii.impl.solve`, and `solve_test/the-result-does-not-depend-on-the-order-the-nogoods-arrive-in`).
 
 ### The reports are rebuilt only where the region moved
 

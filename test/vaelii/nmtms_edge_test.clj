@@ -63,18 +63,18 @@
 (tu/deftest-kb disjoint-and-functional-remain-hard-throws
   ;; Negation is now a soft, arbitrated contradiction — but disjointness and
   ;; functionality are still hard constraints that throw and store nothing.
-  (let [dog (tu/tmp-type) cat (tu/tmp-type) fido (tu/tmp-ind)
+  (let [dog (tu/tmp-type) cat (tu/tmp-type) muffet (tu/tmp-ind)
         birthYearOf (tu/tmp-pred) tom (tu/tmp-ind)]
     (testing "a disjoint type membership still throws (not softened to a contradiction)"
       (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-      (v/assert kb (list dog fido) 'UniverseContext)
+      (v/assert kb (list dog muffet) 'UniverseContext)
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat fido) 'UniverseContext)))
-      (is (empty? (v/sentexes-matching kb (list cat fido) 'UniverseContext)))            ; the reject wrote nothing
+                   (v/assert kb (list cat muffet) 'UniverseContext)))
+      (is (empty? (v/sentexes-matching kb (list cat muffet) 'UniverseContext)))            ; the reject wrote nothing
       (is (empty? (v/conflicts kb))))                              ; and reported no soft conflict
     (testing "even :monotonic strength does not make disjointness a soft contradiction"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat fido) 'UniverseContext {:strength :monotonic}))))
+                   (v/assert kb (list cat muffet) 'UniverseContext {:strength :monotonic}))))
     (testing "a functional clash still throws"
       (v/assert kb (list 'functional birthYearOf) 'NaturalWorldContext)
       (v/assert kb (list birthYearOf tom 1980) 'NaturalWorldContext)

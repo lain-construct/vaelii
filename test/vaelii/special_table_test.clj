@@ -10,7 +10,9 @@
   hand-written conds left to review is now a build failure.  These tests pin the
   validator's teeth and the table's required contents; no KB is involved, so no
   fixture is either."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.spec :as vspec]
             [vaelii.impl.special :as special]))
 
 (deftest an-asymmetric-entry-fails-at-load
@@ -59,3 +61,15 @@
   (testing "the wff-only vocabulary is dispatched through the same table"
     (doseq [f '[argIsa different]]
       (is (contains? special/table f) (str f " missing from the table")))))
+
+(deftest the-property-kinds-marked-and-the-ones-specced-are-the-same-set
+  ;; `has-prop?` and `props` are specced on `::vspec/prop-kind`, and the table is what
+  ;; decides which kinds exist — a mark declares its kind through `prop-entry`'s
+  ;; `:prop`.  Held together in both directions here, because each drift is silent on
+  ;; its own: a kind the table marks and the spec omits is a documented call that
+  ;; instrumentation refuses, and a kind the spec names and nothing marks is a
+  ;; `has-prop?` that can only ever answer false.
+  (let [marked  (into #{} (keep :prop) (vals special/table))
+        specced (set (s/form ::vspec/prop-kind))]
+    (is (contains? marked :transitive) "the table declares its kinds through :prop")
+    (is (= marked specced))))

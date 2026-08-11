@@ -45,7 +45,8 @@
   performs no mutation, so the change clock cannot move while one runs, and every
   repeat a per-query memo would catch is a repeat this cache already serves under an
   unmoved stamp."
-  (:require [vaelii.impl.observe :as observe]
+  (:require [vaelii.impl.caches :as caches]
+            [vaelii.impl.observe :as observe]
             [vaelii.impl.sentex :as sx])
   (:import [java.util.concurrent.atomic AtomicLong]))
 
@@ -215,20 +216,61 @@
                      (compute)))))))
 
 (defn stats
-  "`{:size :hits :misses :clock}` — entries held for `kb`, the hit/miss counters (global,
-  across every KB, since they measure the mechanism rather than a store), and the change
-  clock a fresh lookup would stamp with."
+  "`{:size :limit :hits :misses :clock}` — entries held for `kb`, the bound they are
+  cleared wholesale at, the hit/miss counters (global, across every KB, since they
+  measure the mechanism rather than a store), and the change clock a fresh lookup would
+  stamp with."
   [kb]
   {:size   (count @(:matches kb))
+   :limit  cache-limit
    :hits   (.get hit-count)
    :misses (.get miss-count)
    :clock  (observe/change-clock)})
 
 (defn clear-cache
-  "Drop everything `kb` has cached, and reset the counters.  Not `!`: it destroys no
-  knowledge — every entry is derived, and the next read recomputes it."
+  "Drop everything `kb` has cached; answers how many entries went.  Not `!`: it destroys
+  no knowledge — every entry is derived, and the next read recomputes it.
+
+  **Scoped to `kb`, and only to `kb`.**  The hit and miss counters are process-wide for
+  the reason `stats` gives — they measure the mechanism rather than a store — so they are
+  *not* reset here: a caller asking one KB to drop its entries has not asked to zero the
+  rate every other KB in the process is reporting, and a function whose argument says
+  \"this KB\" must not reach past it.  `reset-counters` is that second, wider control,
+  asked for separately."
   [kb]
-  (reset! (:matches kb) {})
-  (.set hit-count 0)
-  (.set miss-count 0)
-  nil)
+  (let [n (count @(:matches kb))]
+    (reset! (:matches kb) {})
+    n))
+
+(defn reset-counters
+  "Zero the process-wide hit and miss counters, and answer what they held.
+
+  Separate from `clear-cache` because it is a **wider** operation than one: the counters
+  span every KB in this JVM, so this resets a measurement two other readers may be in the
+  middle of.  It is still the thing the one workflow a clear exists for needs — clear,
+  ask again, read the rate off zero — which is why it is offered at all rather than
+  merely possible."
+  []
+  (let [h (.get hit-count) m (.get miss-count)]
+    (.set hit-count 0)
+    (.set miss-count 0)
+    {:hits h :misses m}))
+
+(caches/register-cache
+ {:cache    :literal-matches
+  :label    "Literal matches"
+  :scope    :kb
+  :unit     "literals"
+  :limit    cache-limit
+  :counters :process
+  :note     (str "One literal's visible matches, keyed blind to what the caller named "
+                 "its variables. Every entry carries the change clock it was computed "
+                 "under, so one mutation anywhere retires the whole cache's usefulness "
+                 "at once; past the limit it is cleared wholesale rather than evicted "
+                 "entry by entry. A clear drops this KB's entries; the counters are the "
+                 "mechanism's and span every KB, so they are zeroed only when asked for.")
+  :read     (fn [kb] (let [s (stats kb)] {:entries (:size s)
+                                          :hits    (:hits s)
+                                          :misses  (:misses s)}))
+  :clear    clear-cache
+  :reset-counters (fn [_] (reset-counters))})

@@ -4,7 +4,8 @@
   in the background with progress and cancellation, and what holding one costs in memory.
 - **Not here:** the sequence for getting each shipped, plugin or supplied KB to a first
   load → [kbs.md](kbs.md); the reader map a corpus plugin declares itself with →
-  [foreign.md](foreign.md).
+  [foreign.md](foreign.md); the registry a load runs in, and the screen that watches it →
+  [web.md](web.md), "Long work as jobs".
 - **Assumes:** sentex, context, `genl` / `genlContext` → [glossary.md](glossary.md).
 
 `vaelii.impl.catalog`. Everything else in this repo assumes it is holding *the* KB. The
@@ -15,7 +16,7 @@ loaded ones every other page is about.
 Three parts, in the order a KB moves through them:
 
     a source          a KB you could load, as data      catalog/sources
-      │  load-source  on its own thread, cancellable
+      │  load-source  as a job: watchable, cancellable
       ▼
     an entry          a KB you have loaded              catalog/entries
       │  activate
@@ -95,9 +96,31 @@ decision the catalog makes.
 
 ## Loading
 
-`load-source` registers the entry, starts a thread, and returns immediately. **One load
+`load-source` registers the entry, submits a **job**, and returns immediately. **One load
 runs at a time** — they are minutes long and memory-hungry, and two at once would make
 each other's timings meaningless and each other's memory unpredictable.
+
+The running half is not here. A load is a job like the export beside it and the chaining
+run on `/stats` (`vaelii.impl.jobs`, [web.md](web.md)), which is what gives it the thread,
+the progress reading, the cancel flag and the report — so an entry carries its job's id and
+**reads its status** rather than keeping one of its own, and the panel and the loader cannot
+tell two stories. The status vocabulary is the registry's, whatever the job is doing:
+
+    :running → :cancelling → :done | :cancelled | :failed
+
+"One load at a time" is a consequence rather than a rule of its own: a load claims the
+process's one writer, and the registry refuses a second job that wants it — naming the job
+that holds it. An `:already-loaded` refusal is still the catalog's, since that is a
+question about the entries rather than about the writer.
+
+**The entry outlives the report, so it files the terminal status onto itself.** A settled
+job ages out of the registry after an hour and its entry stays, which makes "reads its
+status" a claim with an end: from that point the entry answers from its own fields, so a
+load writes `:done` / `:cancelled` / `:failed` there as it finishes, from both of its ends.
+Two readers make that load-bearing rather than tidy — `write-blocked?` refuses a write to a
+KB whose entry says `:running`, and `unload!` refuses `:still-stopping` — so an entry left
+holding the placeholder it registered with is a finished KB that is permanently unwritable
+and cannot be taken down, with nothing running and no job to point at.
 
 Progress comes back through the loaders' own `:on-progress` seam, which each of the three
 long loaders takes:
@@ -115,9 +138,12 @@ fixpoint's agenda grows as it derives, so there is no total to count towards, an
 reports instead is what it has concluded and how much agenda is left.
 
 **Cancelling is that same callback throwing.** A loader is a tight assert loop with no
-other point at which stopping is safe, so `cancel!` sets a flag the next progress report
-reads and throws on. What had already landed stays landed — none of the loaders is a
-transaction — and the entry keeps its KB so `unload!` can still release it.
+other point at which stopping is safe, so `cancel!` flags the job and the next progress
+report reads that flag and throws on it. It is never a thread interrupt: one landing
+mid-cascade on a durable store tears the write it lands in, which is why a KB-writing job
+is left to notice however long that takes. What had already landed stays landed — none of
+the loaders is a transaction — and the entry keeps its KB so `unload!` can still release
+it.
 
 That also means a phase reporting **no** progress cannot be cancelled while it runs, and
 one still does: opening a large on-disk store, whose record log is scanned before anything
@@ -170,16 +196,17 @@ is never left pointing at nothing while a KB is sitting right there.
 
 ## And back out again
 
-`export-entry!` writes a loaded KB out as an export dump,
-on the same discipline a load runs on: its own thread, progress recorded where the page
-already looks for it, and cancellation by the progress callback throwing — which
-`export!` calls at each chunk boundary, the only point at which stopping leaves a
-directory rather than a file half-written.
+`export-entry!` writes a loaded KB out as an export dump, as a job on the same discipline a
+load runs on: progress recorded where the page already looks for it, and cancellation by
+the progress callback throwing — which `export!` calls at each chunk boundary, the only
+point at which stopping leaves a directory rather than a file half-written. It claims **no
+writer**, because a dump is bytes on the filesystem rather than a KB, so a load may run
+beside it.
 
 It is deliberately **not** an entry. An export produces no KB, and filing it as one would
-put a second handle on a KB somebody could then unload out from under the writer. One
-slot holds the running job and, after it, the last report — which is what lets the panel
-say where the dump went.
+put a second handle on a KB somebody could then unload out from under the writer. The
+newest export job in the registry is the panel's report — which is what lets it say where
+the dump went after the job has finished.
 
 That closes the loop. `classify` keys on `meta.edn` and `export!` writes it **last**, so
 the moment a dump lands under the search path it is a `:dump` source, and export-then-reload

@@ -79,6 +79,7 @@
   merging, and a defeated `(inverse P Q)` stops answering the swapped goal, the way a
   defeated genl edge leaves the closure.  See docs/taxonomy.md."
   (:require [clojure.set :as set]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.observe :as observe]))
 
 (defn- term-key
@@ -192,10 +193,29 @@
                       {} up)]
     {:edges (set edges) :up up :down down}))
 
-;; `:handles` is the flat set of every sentex handle supporting *any* edge in the
-;; relation (a handle supports exactly one edge, so add/del maintain it 1:1).  It lets
-;; `refresh-beliefs` skip a relation no *moved* supporter touches without scanning every
-;; edge's supporter set.
+;; `:handle-edge {handle [a b]}` is the **reverse** of `:support`: which edge each
+;; supporting sentex asserts.  A handle supports exactly one edge — its sentence names
+;; one — so add/del maintain it 1:1 and the key set is exactly the relation's supporters.
+;;
+;; It exists so `refresh-beliefs` can read the edges a settle could have moved **off the
+;; moved region** rather than off the relation.  Belief moves by handle; only an edge
+;; some moved handle supports can have changed its believed-supporter set, so that
+;; lookup is the whole reconcile's scope.  Without it both halves of the reconcile are
+;; O(vocabulary): the "did anything touch me" gate walks every supporter, and the
+;; reconcile itself evaluates belief for every edge — 176ms per flip in a 64k-edge
+;; relation, against a taxonomy that is the same size in every settle whatever moved.
+;;
+;; `:dirty` is the other half of that scope, and it exists because the edge writers are
+;; **belief-blind**: `add-edge` and `del-edge` run on the assert/retract path, where no
+;; `believed?` is in hand, so they recompute `:edge-ctxs` from every recorded supporter
+;; rather than from the believed ones.  On an edge with a single supporter that is exact.
+;; On a shared edge it is a superset — a disbelieved supporter's context reads as
+;; asserting — and only a reconcile can narrow it.  So a writer leaving a shared edge
+;; behind names it here, and the next reconcile takes it whether or not belief moved
+;; there.  A superset is the safe interim reading (a scoped read sees an edge it should
+;; not, never misses one it should), and the set stays proportional to the edits: the
+;; single-supporter edge that is nearly every edge, and all of a bulk load, never enters
+;; it.
 ;; Beside the edge set, three pieces of **derived context state**, all functions of
 ;; `:support` and belief the way `:edges` is:
 ;;
@@ -218,7 +238,7 @@
 ;; Only a node in a *non-trivial* component has an entry, so an acyclic relation
 ;; carries an empty map and reads exactly as it did.
 (defn- empty-relation []
-  {:support {} :handles #{} :edges #{} :edge-ctxs {} :ctx-counts {} :ctxs-gen 0
+  {:support {} :handle-edge {} :dirty #{} :edges #{} :edge-ctxs {} :ctx-counts {} :ctxs-gen 0
    :fwd {} :rev {} :nodes #{} :depth {} :scc {} :gen 0})
 
 ;; The equality partition, defined here only so `create-taxonomy` can name it; its
@@ -243,7 +263,7 @@
           :equality (empty-equality)
           :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
           :props {} :inverse {} :arity {}
-          :cache-support {} :cache-support-handles #{} :cache-ctxs {}
+          :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
           ;; Oriented schematic rewrite rules (docs/equality.md, symbolic equational
           ;; reasoning).  `:rewrite-support` records every asserted rule keyed by its
           ;; equation handle; `:rewrite-active` is the believed subset `refresh-beliefs`
@@ -500,13 +520,61 @@
 ;; supporting contexts of each entry, maintained by the writers from every supporter
 ;; and refined to the believed ones by `refresh-cache-support`.  No generation rides
 ;; on it — the flat caches are point lookups, never memoized closures.
+;;
+;; `:cache-handle-keys {handle #{[kind key]}}` is the **reverse** of `:cache-support`:
+;; which entries each supporting sentex asserts.  It is the flat-cache twin of a
+;; relation's `:handle-edge` and exists for the same reason — so `refresh-beliefs` can
+;; read the entries a settle could have moved *off the moved region* rather than off the
+;; cache.  Belief moves by handle, so only an entry some moved handle supports can have
+;; changed which of its supporters are believed, and that lookup is the whole reconcile's
+;; scope.  Read backward instead, both halves are O(vocabulary): the "did anything touch
+;; me" gate walks every supporter, and the reconcile then evaluates belief for every
+;; entry — 5.0 ms merely to decide nothing moved, and 95 ms per flip, over 32k
+;; declarations, against a map that holds every disjoint pair, predicate property,
+;; inverse and declared arity in the KB.
+;;
+;; A **multimap**, where `:handle-edge` is 1:1.  Every writer here keys the entry off the
+;; asserting sentence, so today one handle names one `[kind key]` — but nothing in the
+;; structure says so, and removal is per-(handle, key): a 1:1 index would have the first
+;; `support-drop` take the handle out from under an entry the same sentex still supports,
+;; which reads as a stale cache rather than as a crash.  A set per handle costs the
+;; single-key case one small set and makes the index answer to `:cache-support`'s own
+;; shape instead of to an invariant nothing states.
+;;
+;; `:cache-dirty` is the other half of the scope, and it exists because the writers are
+;; **belief-blind** in exactly the way `add-edge` / `del-edge` are: `support-add` and
+;; `support-drop` run on the assert/retract path with no `believed?` in hand, so they
+;; recompute `:cache-ctxs` from every *recorded* supporter, and `supported-del` uninstalls
+;; only when the last supporter is gone.  On an entry with a single supporter both are
+;; exact.  On a **shared** entry they are not — a disbelieved co-supporter's context reads
+;; as asserting, and losing the last *believed* supporter of an entry two sentexes still
+;; assert is an uninstall only a `believed?` can make.  So a writer leaving a shared entry
+;; behind names it here and the next reconcile takes it whether or not belief moved there.
+;; A superset is the safe interim reading (a scoped read sees an entry it should not,
+;; never misses one it should), and the set stays proportional to the edits: the
+;; single-supporter entry that is nearly every entry, and all of a bulk load, never
+;; enters it.
+
+(defn- forget-handle-key
+  "Drop `k` from `handle`'s reverse-index entry, and the handle itself once it supports
+  nothing — an empty set left behind would make the handle read as a live supporter and
+  keep it in the reconcile's scope for the life of the KB."
+  [t handle k]
+  (let [left (disj (get-in t [:cache-handle-keys handle] #{}) k)]
+    (if (seq left)
+      (assoc-in t [:cache-handle-keys handle] left)
+      (update t :cache-handle-keys dissoc handle))))
 
 (defn- support-add [t k handle ctx]
   (let [m (assoc (get-in t [:cache-support k] {}) handle ctx)]
     (-> t
         (assoc-in [:cache-support k] m)
         (assoc-in [:cache-ctxs k] (into #{} (vals m)))
-        (update :cache-support-handles conj handle))))
+        (update-in [:cache-handle-keys handle] (fnil conj #{}) k)
+        ;; belief-blind above: with a co-supporter the context set may be a superset and
+        ;; only a reconcile can narrow it.  Costs the common first-supporter write
+        ;; nothing, which is what keeps a bulk load out of the set entirely.
+        (cond-> (> (count m) 1) (update :cache-dirty conj k)))))
 
 (defn- support-drop
   "Drop `handle`'s support for `k`.  Returns `[state last-supporter-gone?]`."
@@ -515,11 +583,18 @@
     [(-> (if (seq left)
            (-> t
                (assoc-in [:cache-support k] left)
-               (assoc-in [:cache-ctxs k] (into #{} (vals left))))
+               (assoc-in [:cache-ctxs k] (into #{} (vals left)))
+               ;; belief-blind again, and worse than the add: the survivors may include
+               ;; one nothing believes, and the caller uninstalls only when the last
+               ;; supporter is gone
+               (update :cache-dirty conj k))
            (-> t
                (update :cache-support dissoc k)
-               (update :cache-ctxs dissoc k)))
-         (update :cache-support-handles disj handle))
+               (update :cache-ctxs dissoc k)
+               ;; the entry is gone outright, so it owes no reconcile — and reconciling
+               ;; it would write an empty `:cache-ctxs` back under a key nothing supports
+               (update :cache-dirty disj k)))
+         (forget-handle-key handle k))
      (empty? left)]))
 
 (defn- supported-add
@@ -535,12 +610,48 @@
   (let [[t' gone?] (support-drop t k handle)]
     (cond-> t' gone? f)))
 
+(defn- inverse-key
+  "The flat-cache key for an inverse declaration between `p` and `q`.
+
+  `(hash-set p q)`, never the `#{p q}` literal: a self-inverse `(inverse P P)` is a
+  legal declaration — it says `(P a b)` iff `(P b a)`, which is what `symmetric` says —
+  and the literal is the checked `RT.set`, so it throws `Duplicate key` rather than
+  folding to the one-element set the key wants."
+  [p q]
+  [:inverse (hash-set p q)])
+
 (defn- inverse-pair
   "The two predicates a `[:inverse #{p q}]` key names, as `[x y]`.  A self-inverse
-  `(inverse P P)` collapses to `#{p}`, so `y` falls back to `x` — `assoc x x x x`
-  installs `p→p`, `dissoc x x` drops it, both correct."
+  `(inverse P P)` collapses to `#{p}`, so `y` falls back to `x` — both directions of the
+  index write then name the same pair, which is idempotent."
   [s]
   (let [x (first s)] [x (or (second s) x)]))
+
+(defn- index-inverse
+  "Add or drop both directions of a declared inverse pair in `:inverse`,
+  `{predicate -> #{predicates declared inverse to it}}`.
+
+  **A set per predicate, not one partner.**  Nothing refuses a second
+  `(inverse P R)` beside a standing `(inverse P Q)`, so a single-valued entry answers
+  whichever was installed last — which makes the read a function of assertion order, and
+  `inverses-of` decides which hops a transitive walk sees.  Order independence is not
+  negotiable (README, \"The model in one page\"), so the relation is stored as the
+  many-to-many it is and the readers pick from it by content.
+
+  It is also what makes the *drop* correct: retiring `(inverse P R)` while
+  `(inverse P Q)` still holds must leave `P → #{Q}` rather than clearing `P`.  An empty
+  entry is dissoc'd rather than left behind, so `get` returning nil means what it says —
+  `:arity`'s discipline, and `:disjoint-index`'s."
+  [t s add?]
+  (let [[x y] (inverse-pair s)
+        one   (fn [t a b]
+                (if add?
+                  (update-in t [:inverse a] (fnil conj #{}) b)
+                  (let [left (disj (get-in t [:inverse a] #{}) b)]
+                    (if (empty? left)
+                      (update t :inverse dissoc a)
+                      (assoc-in t [:inverse a] left)))))]
+    (-> t (one x y) (one y x))))
 
 (defn- disjoint-pair
   "The two types a `[:disjoint #{x y}]` key names, as `[x y]`.  A self-pair
@@ -583,7 +694,7 @@
     :metatype (update t :disjoint-metatypes conj a)                ; a = m
     :member   (update-in t [:metatype-members a] (fnil conj #{}) b)  ; a = m, b = type
     :prop     (update-in t [:props a] (fnil conj #{}) b)             ; a = prop-kind, b = pred
-    :inverse  (let [[x y] (inverse-pair a)] (update t :inverse assoc x y y x))    ; a = #{p q}
+    :inverse  (index-inverse t a true)                             ; a = #{p q}
     :arity    (update-in t [:arity a] (fnil conj #{}) b)))                        ; a = pred, b = n
 
 (defn- cache-uninstall
@@ -600,7 +711,7 @@
     :metatype (update t :disjoint-metatypes disj a)
     :member   (update-in t [:metatype-members a] (fnil disj #{}) b)
     :prop     (update-in t [:props a] (fnil disj #{}) b)
-    :inverse  (let [[x y] (inverse-pair a)] (update t :inverse dissoc x y))
+    :inverse  (index-inverse t a false)
     :arity    (let [ns' (disj (get-in t [:arity a] #{}) b)]
                 (if (seq ns') (assoc-in t [:arity a] ns') (update t :arity dissoc a)))))
 
@@ -619,32 +730,55 @@
   [rel n]
   (cond-> rel (not (contains? (:depth rel) n)) (assoc-in [:depth n] 0)))
 
+(defn- component-members
+  "The inverse of `:scc`: representative → that component's members.  Read off the
+  component map alone, which holds an entry only for a node in a **non-trivial**
+  component — so an acyclic relation's is `{}` and this costs a `reduce-kv` over
+  nothing."
+  [scc]
+  (reduce-kv (fn [m n r] (update m r (fnil conj #{}) n)) {} scc))
+
+(defn- lift-components
+  "Raise components until every `[node depth]` seed holds — the node's whole component
+  sitting at least that deep — pushing each raise up through `:rev`, since a component
+  with an edge into a raised one has to stay strictly above it.  A component is
+  re-enqueued whenever a deeper one lifts it, so a diamond is handled correctly.
+
+  It moves whole **components** because the potential is one over the condensation:
+  depth is equal inside a component and strict between two, so a member raised alone
+  would break the equality its component's depth is defined by — and, in a cyclic
+  relation, would then raise its own mates forever, each lift forcing the next around
+  the cycle.  Termination is the condensation being a DAG: every step raises a
+  component strictly and climbs an edge of that DAG, so no component can force itself.
+  (Depths are never *capped* — a cap keyed on the node count is unsound once deletion
+  has left depths loose, since a legitimate lift can then legitimately exceed it.)"
+  [rel scc members-of seeds]
+  (loop [rel rel, stack (vec seeds)]
+    (if-let [[y dy] (peek stack)]
+      (let [stack (pop stack)
+            dy    (long dy)]
+        (if (>= (long (get-in rel [:depth y] 0)) dy)
+          (recur rel stack)
+          (let [mem (if-let [r (get scc y)] (get members-of r) #{y})
+                rel (reduce (fn [r m] (assoc-in r [:depth m] dy)) rel mem)
+                up  (into [] (comp (mapcat #(get-in rel [:rev %]))
+                                   (remove mem)
+                                   (map (fn [u] [u (inc dy)])))
+                          mem)]
+            (recur rel (into stack up)))))
+      rel)))
+
 (defn- raise-depth
   "Restore `edge x→y ⇒ depth[x] > depth[y]` after adding edge a→b: lift `a` above `b`
-  if it is not already, then push that lift down to a's descendants (`:rev`) as far as
-  it forces them.  A node is re-enqueued whenever a deeper parent lifts it, so a
-  diamond is handled correctly.
-
-  Termination rests on acyclicity: every bump strictly increases a node's depth, and
-  in an acyclic graph descendant depths are finite, so the propagation converges.
-  `activate` only calls this once it has confirmed the new edge does not close a
-  cycle, so the graph is always acyclic here.  (Depths are never *capped* — a cap
-  keyed on the node count is unsound once deletion has left depths loose, since a
-  legitimate lift can then legitimately exceed it.)"
+  if it is not already, and push that lift up through `:rev` as far as it forces
+  anything.  `lift-components` is the walk, so the lift moves `a`'s whole component
+  when `a` sits in one."
   [rel a b]
-  (if (> (get-in rel [:depth a]) (get-in rel [:depth b]))
+  (if (> (long (get-in rel [:depth a])) (long (get-in rel [:depth b])))
     rel
-    (loop [rel   (assoc-in rel [:depth a] (inc (get-in rel [:depth b])))
-           stack [a]]
-      (if-let [x (peek stack)]
-        (let [dx (get-in rel [:depth x])
-              [rel more] (reduce (fn [[rel more] c]
-                                   (if (<= (get-in rel [:depth c] 0) dx)
-                                     [(assoc-in rel [:depth c] (inc dx)) (conj more c)]
-                                     [rel more]))
-                                 [rel []] (get-in rel [:rev x]))]
-          (recur rel (into (pop stack) more)))
-        rel))))
+    (let [scc (:scc rel)]
+      (lift-components rel scc (component-members scc)
+                       [[a (inc (long (get-in rel [:depth b])))]]))))
 
 (def ^:dynamic *defer-depths?*
   "When true, an edge insert skips `raise-depth` and lifts only the edge's own source
@@ -867,32 +1001,113 @@
     rel
     (-> rel (update :nodes disj n) (update :depth dissoc n) (update :scc dissoc n))))
 
-(defn- dissolve-component
-  "Forget the component either endpoint of a removed edge belonged to, and surrender
-  the potential with it.
+(defn- split-depths
+  "Depths for the members of a component that has just split, given `sub` — the
+  components of its own induced subgraph.  `{node depth}` over `members`.
 
-  A deletion can **split** a component, and a stale `:scc` entry is the one thing in
-  this relation that would answer *true* for a pair no longer connected — worse than a
-  stale depth, which only ever costs a walk.  The split is a question about the whole
-  graph, so the component is dropped whole and `restore-depths` recomputes it; until
-  then the members read unpruned, which is slower and right.  Nothing happens at all
-  when neither endpoint was in a component, which is every deletion in an acyclic
-  relation."
+  Each new sub-component sits one above the highest thing it points at, whether that is
+  another sub-component or a node outside the old component entirely; sinks are settled
+  first, so each is settled once.  Tight rather than merely sound, which is what keeps
+  the answer from drifting upward every time a component splits: the sub-component
+  holding the old component's deepest external edge keeps the depth the whole component
+  had, and only a chain **above** it rises at all."
+  [rel members sub]
+  (let [fwd    (:fwd rel)
+        depth  (:depth rel)
+        cof    #(get sub % %)
+        cnodes (into #{} (map cof) members)
+        ;; the sub-condensation, and per sub-component the highest depth it points at
+        ;; outside the old component — the floor its own depth has to clear
+        [cfwd floor]
+        (reduce (fn [acc x]
+                  (let [cx (cof x)]
+                    (reduce (fn [[cf fl] y]
+                              (if (contains? members y)
+                                (let [cy (cof y)]
+                                  (if (= cx cy) [cf fl] [(update cf cx (fnil conj #{}) cy) fl]))
+                                [cf (update fl cx (fnil max 0) (inc (long (get depth y 0))))]))
+                            acc (get fwd x))))
+                [{} {}] members)
+        crev    (reduce-kv (fn [m x ys]
+                             (reduce (fn [m2 y] (update m2 y (fnil conj #{}) x)) m ys))
+                           {} cfwd)
+        pending (into {} (map (fn [x] [x (count (get cfwd x))])) cnodes)]
+    (loop [cd      (transient {})
+           pending pending
+           ready   (into [] (filter #(zero? (long (pending %)))) cnodes)]
+      (if-let [x (peek ready)]
+        (let [ready (pop ready)
+              dx    (reduce (fn [d y] (max d (inc (long (get cd y 0)))))
+                            (long (get floor x 0)) (get cfwd x))
+              cd    (assoc! cd x dx)
+              [pending ready]
+              (reduce (fn [[p r] u]
+                        (let [n (dec (long (get p u 1)))]
+                          [(assoc p u n) (if (zero? n) (conj r u) r)]))
+                      [pending ready] (get crev x))]
+          (recur cd pending ready))
+        (let [cd (persistent! cd)]
+          (into {} (map (fn [x] [x (long (get cd (cof x) 0))])) members))))))
+
+(defn- repair-component
+  "Repair the component a removed edge sat inside, and the depths its split invalidates.
+  A stale `:scc` entry is the one thing in this relation that would answer *true* for a
+  pair no longer connected, so it is never left standing.
+
+  **Only an edge whose two endpoints share a component can change one.** A component's
+  strong connectivity is a property of its own induced subgraph, and an edge with an
+  endpoint outside — or with none in a component at all — is not in that subgraph. So
+  every other deletion, which is every deletion in an acyclic relation and most of them
+  in a cyclic one, is left alone here: nothing to recompute, and the potential stays
+  sound, since removing an edge only relaxes the ordering it has to satisfy.
+
+  When they do share one, the component's own induced subgraph is re-run through
+  `strong-components` — the new components of the whole graph refine the old ones, so
+  what a split produces is contained in the component that split, and the answer is
+  proportional to it rather than to the relation. A component that survives the deletion
+  intact leaves everything as it was. A split takes new depths from `split-depths`, and
+  a sub-component whose new depth is higher than the one it is replacing pushes that
+  rise up through `lift-components`.
+
+  The relation therefore does **not** go `:loose?`, and reads keep their pruning
+  through a deletion that would otherwise have cost a whole-relation `repair-depths`.
+  The one case that does surrender is a relation **already** loose: there is no sound
+  potential to repair against, so the component is dropped whole and the batch's own
+  `restore-depths` rebuilds it.  Dropping is not optional there — a loose relation
+  still reads `:scc` for the \"same component ⇒ mutually reachable\" answer, which is
+  the one thing an unpruned walk cannot correct."
   [rel a b]
-  (let [scc (:scc rel)]
-    (if-let [reps (seq (keep #(get scc %) [a b]))]
-      (let [gone (set reps)]
-        (-> rel
-            (assoc :scc (into {} (remove (fn [[_ r]] (gone r))) scc))
-            (assoc :loose? true)))
-      rel)))
+  (let [scc (:scc rel)
+        rep (get scc a)]
+    (cond
+      (or (nil? rep) (not= rep (get scc b))) rel
+      (:loose? rel) (assoc rel :scc (into {} (remove (fn [[_ r]] (= r rep))) scc))
+      :else
+      (let [members-of (component-members scc)
+            members    (get members-of rep)
+            fwd        (:fwd rel)
+            sub-fwd    (into {} (map (fn [x] [x (into #{} (filter members) (get fwd x))])) members)
+            sub        (strong-components members sub-fwd)]
+        (if (= 1 (count (into #{} (map #(get sub % %)) members)))
+          rel                                          ; still one component — nothing moved
+          (let [depths (split-depths rel members sub)
+                scc'   (merge (apply dissoc scc members) sub)
+                cof    #(get scc' % %)
+                risen  (filterv #(> (long (depths %)) (long (get-in rel [:depth %] 0))) members)
+                rel    (-> rel (assoc :scc scc') (update :depth merge depths))
+                seeds  (into [] (mapcat (fn [x]
+                                          (let [d (inc (long (depths x)))]
+                                            (keep (fn [u] (when (not= (cof u) (cof x)) [u d]))
+                                                  (get-in rel [:rev x])))))
+                             risen)]
+            (lift-components rel scc' (component-members scc') seeds)))))))
 
 (defn- deactivate
   "Drop [a b] from the active edge set.  Depths are left as loose upper bounds — a
   deletion only relaxes the ordering, so the invariant survives — and a node left
   with no edge is pruned so `types` / `contexts` match a from-scratch build.  A
-  component either endpoint sat in is dissolved rather than trusted (see
-  `dissolve-component`)."
+  component the edge sat inside is recomputed rather than trusted (see
+  `repair-component`)."
   [rel a b]
   (if-not (contains? (:edges rel) [a b])
     rel
@@ -903,7 +1118,7 @@
           (update :edges disj [a b])
           (drop-adj :fwd a b)
           (drop-adj :rev b a)
-          (dissolve-component a b)
+          (repair-component a b)
           (prune-node a) (prune-node b)
           bump-gen))))
 
@@ -939,16 +1154,26 @@
     rel
     (-> rel (assoc-in [:edge-ctxs e] ctxs) bump-gen)))
 
+(defn- mark-dirty
+  "Note that `e`'s `:edge-ctxs` was recomputed belief-blind and owes a reconcile.  Only
+  a **shared** edge does: with one supporter the writers' reading is already the believed
+  one, either because the supporter is believed or because nothing else claims the edge.
+  Costs the common single-supporter write nothing, which is what keeps a bulk load out of
+  the set entirely."
+  [rel e shared?]
+  (cond-> rel shared? (update :dirty conj e)))
+
 (defn- add-edge
   "Record `handle` as asserting [a b] from `ctx`, and activate the edge."
   [rel a b handle ctx]
   (let [support (assoc (get-in rel [:support [a b]] {}) handle ctx)]
     (-> rel
         (assoc-in [:support [a b]] support)
-        (update :handles conj handle)
+        (assoc-in [:handle-edge handle] [a b])
         (ctx-count-inc ctx)
         (activate a b)
-        (set-edge-ctxs [a b] (into #{} (vals support))))))
+        (set-edge-ctxs [a b] (into #{} (vals support)))
+        (mark-dirty [a b] (> (count support) 1)))))
 
 (defn- del-edge
   "Drop `handle`'s support for [a b].  The edge survives while any other sentex
@@ -961,25 +1186,47 @@
             rel  (-> (if (seq left)
                        (assoc-in rel [:support [a b]] left)
                        (update rel :support dissoc [a b]))
-                     (update :handles disj handle)
+                     (update :handle-edge dissoc handle)
                      (ctx-count-dec (get support handle)))]
         (if (seq left)
           ;; retarget only an *active* edge: a refresh may have deactivated this one
           ;; with its (disbelieved) supporters still recorded, and `:edge-ctxs` keys
-          ;; exactly the active set
-          (cond-> rel
-            (contains? (:edges rel) [a b])
-            (set-edge-ctxs [a b] (into #{} (vals left))))
-          (-> rel (deactivate a b) (update :edge-ctxs dissoc [a b])))))))
+          ;; exactly the active set.  Belief-blind either way, so the edge owes a
+          ;; reconcile: the survivors may include one nothing believes, and losing the
+          ;; last *believed* supporter of a still-supported edge is a deactivation only
+          ;; a `believed?` can see.
+          (-> rel
+              (cond-> (contains? (:edges rel) [a b])
+                (set-edge-ctxs [a b] (into #{} (vals left))))
+              (mark-dirty [a b] true))
+          (-> rel (deactivate a b) (update :edge-ctxs dissoc [a b])
+              (update :dirty disj [a b])))))))
 
 (defn- moved-touches?
   "Should a cache be reconciled against belief?  Yes when `moved` is nil — the caller
-  wants an unconditional reconcile (recover, and the supersession path) — or when one
-  of the cache's supporter `handles` is in `moved`, the set of handles whose belief just
-  flipped.  When no supporter moved, the cache's active set cannot have changed, so the
-  O(edges) scan is skipped."
-  [moved handles]
-  (or (nil? moved) (boolean (some moved handles))))
+  holds no region and wants an unconditional reconcile — or when one of the cache's
+  supporters is in `moved`, the set of handles whose belief just flipped.  When no
+  supporter moved, the cache's active set cannot have changed, so the scan is skipped.
+
+  `supporters` is the cache's own record of them: a set of handles, or the map they key.
+  Either answers `contains?` by handle and `count` in O(1), which is what lets the
+  intersection test walk **whichever side is smaller** — the two are independently sized,
+  and a settle relabelling a large region over a cache holding few entries is as ordinary
+  a shape as the reverse.  Walking the cache unconditionally is what made deciding a
+  32k-entry cache was untouched cost 5 ms, in a settle that had nothing to do there.
+
+  A gate, so a hit still pays the whole scan.  That is the right trade only where the
+  scan is small — the equality partition and the rewrite rules, which hold the KB's
+  asserted term-identity claims rather than its vocabulary.  The two transitive relations
+  and the flat caches are the vocabulary's own size, so they do not gate at all:
+  `moved-edges` / `moved-cache-keys` read the affected entries straight off `moved`, and
+  skipping falls out of finding none."
+  [moved supporters]
+  (or (nil? moved)
+      (boolean
+       (if (and (counted? moved) (< (count moved) (count supporters)))
+         (some #(contains? supporters %) moved)
+         (some #(contains? moved %) (if (map? supporters) (keys supporters) supporters))))))
 
 (defn- believed-ctxs
   "The contexts of the believed supporters in map `hs` (`{handle ctx}`), nil kept —
@@ -988,36 +1235,83 @@
   [hs believed?]
   (reduce-kv (fn [s h c] (if (believed? h) (conj s c) s)) #{} hs))
 
+(defn- moved-edges
+  "The edges a supporter in `moved` asserts — the only ones whose believed-supporter set
+  can have changed, and so the whole scope a reconcile owes.  `nil` means every edge with
+  a supporter, which is what a caller holding no region gets: `refresh-beliefs`'s
+  two-arity.  Every `settle` path names one.
+
+  Read forward off `moved` through `:handle-edge`, never backward off the relation.  That
+  is what makes the reconcile proportional to the region a settle relabelled rather than
+  to the vocabulary — and it subsumes the gate, since a settle touching no supporter here
+  yields no edges and the reconcile below returns untouched.  `moved` is a *superset* of
+  the handles whose belief flipped (`jtms/touched`), so a handle in it that did not
+  actually move costs one edge re-examined and never an answer.
+
+  Plus `:dirty`, the edges a belief-blind writer left owing a reconcile.  Belief did not
+  move there, so `moved` cannot name them and they would otherwise never be narrowed.
+
+  Whichever side is **smaller** is the one walked, and that is not a micro-optimization:
+  the two are independently sized, and a settle relabelling a large region over a
+  taxonomy holding few edges is an ordinary shape rather than a corner (arbitrating a
+  standing set of P/¬P dilemmas is one, and `perf`'s `negation-arbitration` measures it).
+  Walking `moved` unconditionally makes that settle pay for a taxonomy it never touches —
+  the very cost this reverse index exists to remove, moved to the other side.  Either arm
+  answers identically; the cost is O(min) rather than O(either)."
+  [rel moved]
+  (if (nil? moved)
+    (keys (:support rel))
+    (let [he (:handle-edge rel)]
+      (if (and (counted? moved) (<= (count moved) (count he)))
+        (into (:dirty rel) (keep he) moved)
+        ;; also the arm an empty relation takes, in O(1) — `he` is the map being reduced
+        (reduce-kv (fn [s h e] (if (moved h) (conj s e) s)) (:dirty rel) he)))))
+
 (defn- refresh-relation
   "Active edges are those with at least one *believed* supporter, carrying the
   believed supporters' contexts.  Applies the difference edge by edge rather than
-  rebuilding: a settle that changed no belief does no work at all.  Skipped outright
-  when no moved supporter touches the relation.
+  rebuilding: a settle that changed no belief does no work at all.
+
+  Scoped to `moved-edges` — an edge no moved handle supports and no writer left dirty is
+  provably unchanged, so belief is never evaluated for it and it cannot enter either
+  difference.  That is the locality invariant for this cache: the reconcile costs what
+  moved, not what is stored.  This is the pass that discharges `:dirty`, so it clears the
+  set on the way in.
 
   Three arms, not two.  An edge can keep its liveness while its *contexts* move —
   supported from A by h1 and from B by h2, h2 defeated: the edge stays active and B
   must leave `:edge-ctxs`, or a scoped read from B would answer through a defeated
   supporter.  Liveness alone cannot see that case, so the still-active edges are
   retargeted explicitly (`set-edge-ctxs` bumps the gen only when a set actually
-  moved, so the arm is free for the common belief-preserving settle)."
+  moved, so the arm is free for the common belief-preserving settle).
+
+  The arms run in that order — deactivate, activate, retarget — rather than edge by
+  edge, and it is not presentation.  `activate` refuses to trust a potential across an
+  edge that would close a cycle, so an activation reading a graph that still holds the
+  edges this same pass is about to drop can surrender `:loose?` where the settled graph
+  is acyclic.  Draining the deactivations first is what keeps the potential's fate a
+  function of the settled edge set rather than of the order two arms happened to run in."
   [rel believed? moved]
-  (if-not (moved-touches? moved (:handles rel))
-    rel
-    (let [want (reduce-kv (fn [m e hs]
-                            (let [cs (believed-ctxs hs believed?)]
-                              (if (seq cs) (assoc m e cs) m)))
-                          {} (:support rel))
-          want-edges (into #{} (keys want))
-          have (:edges rel)]
-      (as-> rel r
-        (reduce (fn [r [a b :as e]]
-                  (-> r (deactivate a b) (update :edge-ctxs dissoc e)))
-                r (set/difference have want-edges))
-        (reduce (fn [r [a b :as e]]
-                  (-> r (activate a b) (set-edge-ctxs e (want e))))
-                r (set/difference want-edges have))
-        (reduce (fn [r e] (set-edge-ctxs r e (want e)))
-                r (set/intersection want-edges have))))))
+  (let [touched (moved-edges rel moved)]
+    (if (empty? touched)
+      rel
+      (let [rel (assoc rel :dirty #{})           ; this pass is what discharges them
+            support (:support rel)
+            want (reduce (fn [m e]
+                           (let [cs (believed-ctxs (get support e) believed?)]
+                             (if (seq cs) (assoc m e cs) m)))
+                         {} touched)
+            want-edges (into #{} (keys want))
+            have (:edges rel)]
+        (as-> rel r
+          (reduce (fn [r [a b :as e]]
+                    (-> r (deactivate a b) (update :edge-ctxs dissoc e)))
+                  r (set/difference (into #{} (filter have) touched) want-edges))
+          (reduce (fn [r [a b :as e]]
+                    (-> r (activate a b) (set-edge-ctxs e (want e))))
+                  r (set/difference want-edges have))
+          (reduce (fn [r e] (set-edge-ctxs r e (want e)))
+                  r (set/intersection want-edges have)))))))
 
 ;; The add writers take the asserting sentex's context; the one-shorter arity is for
 ;; a caller with none to record — a probe, or a test driving the closure math — and
@@ -1459,36 +1753,84 @@
   "Reconcile `:rewrite-active` with belief: a rule is active iff its equation handle is
   believed.  Recomputed rather than diffed — the rule set is tiny."
   [t believed? moved]
-  (if-not (moved-touches? moved (keys (:rewrite-support t)))
+  (if-not (moved-touches? moved (:rewrite-support t))
     t
     (assoc t :rewrite-active
            (into {} (filter (fn [[h _]] (believed? h))) (:rewrite-support t)))))
 
-(defn- refresh-cache-support
-  "Reconcile the four flat caches — `disjoint`, the disjoint metatypes and their
-  members, the predicate properties, and `inverse` — with current belief, the way
-  `refresh-relation` does for genl.  Each `[kind key]` in `:cache-support` is active
-  iff some supporter is believed; install or uninstall its cache entry to match,
-  reusing the very `cache-install` / `cache-uninstall` the assert path uses so the two
-  can never disagree on what an active entry is.
+(defn- moved-cache-keys
+  "The flat-cache entries a supporter in `moved` asserts — the only ones whose believed
+  supporters can have changed, and so the whole scope a reconcile owes.  `nil` means
+  every entry with a supporter, which is what a caller holding no region gets:
+  `refresh-beliefs`'s two-arity.  Every `settle` path names one.
 
-  Every op here is O(1) and idempotent, so it reconciles unconditionally rather than
-  diffing: a settle that defeated nothing simply re-affirms each entry and changes
-  nothing.  (genl's `refresh-relation` diffs only because rebuilding a *closure* is
-  expensive; these entries are a single `conj` / `assoc`.)  The whole walk is skipped
-  when no moved supporter touches any flat cache."
+  The flat-cache twin of `moved-edges`, and the same three claims hold.  Read forward off
+  `moved` through `:cache-handle-keys`, never backward off `:cache-support`, which is what
+  makes the reconcile proportional to the region a settle relabelled rather than to a map
+  holding every disjoint pair, property, inverse and declared arity in the KB — and it
+  subsumes the gate, since a settle touching no declaration yields no keys and the
+  reconcile below returns untouched.  `moved` is a *superset* of the handles whose belief
+  flipped (`jtms/touched`), so a handle in it that did not actually move costs one entry
+  re-examined and never an answer.
+
+  Plus `:cache-dirty`, the entries a belief-blind writer left owing a reconcile.  Belief
+  did not move there, so `moved` cannot name them and they would otherwise never be
+  narrowed.
+
+  And off whichever side is **smaller**, for the reason `moved-edges` states: `moved` and
+  the cache are independently sized, so walking `moved` unconditionally would hand the
+  same O(vocabulary) bill to the settle on the opposite shape — a large relabelled region
+  over a KB that declares few disjointness pairs, which arbitrating a standing set of
+  P/¬P dilemmas is.  Either arm answers identically; the cost is O(min) rather than
+  O(either)."
+  [t moved]
+  (if (nil? moved)
+    (keys (:cache-support t))
+    (let [hk (:cache-handle-keys t)]
+      (if (and (counted? moved) (<= (count moved) (count hk)))
+        (reduce (fn [s h] (if-let [ks (hk h)] (into s ks) s)) (:cache-dirty t) moved)
+        ;; also the arm an empty cache takes, in O(1) — `hk` is the map being reduced
+        (reduce-kv (fn [s h ks] (if (moved h) (into s ks) s)) (:cache-dirty t) hk)))))
+
+(defn- refresh-cache-support
+  "Reconcile the five flat caches — `disjoint`, the disjoint metatypes and their
+  members, the predicate properties, `inverse` and the declared arities — with current
+  belief, the way `refresh-relation` does for genl.  Each `[kind key]` in
+  `:cache-support` is active iff some supporter is believed; install or uninstall its
+  cache entry to match, reusing the very `cache-install` / `cache-uninstall` the assert
+  path uses so the two can never disagree on what an active entry is.
+
+  Every op here is O(1) and idempotent, so a reconciled entry is re-affirmed rather than
+  diffed: there is no closure to rebuild, and `cache-install` on an entry already present
+  changes nothing.  (genl's `refresh-relation` diffs only because rebuilding a *closure*
+  is expensive.)
+
+  Scoped to `moved-cache-keys` — an entry no moved handle supports and no writer left
+  dirty is provably unchanged, so belief is never evaluated for it.  That is the locality
+  invariant for these caches: the reconcile costs what moved, not what the KB declares.
+  This is the pass that discharges `:cache-dirty`, so it clears the set on the way in.
+
+  A key whose `:cache-support` entry has since gone is skipped rather than reconciled.
+  Nothing in scope should name one — `support-drop` retires the handle and the dirty mark
+  with the entry, and `forget-metatype` owes the same by hand — and the guard is what
+  keeps the failure a no-op instead of an empty `:cache-ctxs` written back under a key no
+  sentex supports, which reads as an entry asserted from nowhere."
   [t believed? moved]
-  (if-not (moved-touches? moved (:cache-support-handles t))
-    t
-    (reduce-kv (fn [t k supporters]
-                 (let [cs (believed-ctxs supporters believed?)]
-                   (-> (if (seq cs) (cache-install t k) (cache-uninstall t k))
-                       ;; the flat-cache twin of refresh-relation's third arm: an
-                       ;; entry that stays active can still change contexts when one
-                       ;; of several supporters moves belief
-                       (assoc-in [:cache-ctxs k] cs))))
-               t
-               (:cache-support t))))
+  (let [touched (moved-cache-keys t moved)]
+    (if (empty? touched)
+      t
+      (let [support (:cache-support t)]
+        (reduce (fn [t k]
+                  (if-let [supporters (get support k)]
+                    (let [cs (believed-ctxs supporters believed?)]
+                      (-> (if (seq cs) (cache-install t k) (cache-uninstall t k))
+                          ;; the flat-cache twin of refresh-relation's third arm: an
+                          ;; entry that stays active can still change contexts when one
+                          ;; of several supporters moves belief
+                          (assoc-in [:cache-ctxs k] cs)))
+                    t))
+                (assoc t :cache-dirty #{})    ; this pass is what discharges them
+                touched)))))
 
 (defn refresh-beliefs
   "Reconcile the cached relations with current belief: an edge (or a flat-cache entry)
@@ -1506,12 +1848,23 @@
   predicate properties, `inverse`) — so a defeated declaration stops taking effect the
   moment `settle` relabels, and a revived one takes effect again.
 
-  `moved` is the set of handles whose belief just flipped (`jtms/touched`); a cache
-  none of them supports is left alone, so a defeat/revival/block that touches no
-  taxonomy declaration — the common belief-moving settle — pays O(1) instead of
-  O(vocabulary).  `nil` reconciles every cache unconditionally: the recover path and the
-  supersession pass, where a declaration's belief moved with no relabel to record it
-  with no relabel to record it."
+  `moved` is the set of handles whose belief just flipped (`jtms/touched`, a superset),
+  and the six caches read it two ways.  The two transitive relations and the flat caches
+  **scope** by it — `moved-edges` / `moved-cache-keys` turn the moved handles into the
+  edges and entries they assert, and a settle reconciles those and nothing else, which is
+  what keeps a flip in a 100k-edge taxonomy the price of a flip.  Those five are the
+  vocabulary's own size, so nothing less than scoping them would do.
+
+  The equality partition and the rewrite rules **gate** on it instead: a cache no moved
+  handle supports is left alone, and a hit rescans it.  Both hold the KB's asserted
+  term-identity claims rather than its vocabulary, and the gate reads whichever of the two
+  sides is smaller, so a settle that moves neither pays the size of its own region.
+
+  `nil` reconciles every cache unconditionally, for a caller holding no region.  Every
+  `settle` path names one; the supersession pass widens its region by hand rather than
+  dropping it, because a supersession flip is a belief change with no relabel to record
+  it, and `recover`'s closing settle needs no widening at all — a rebuild labels the JTMS
+  from nothing, so the region is the whole KB."
   ([tax believed?] (refresh-beliefs tax believed? nil))
   ([tax believed? moved]
    (swap! tax (fn [t] (-> t
@@ -1547,7 +1900,7 @@
          :equality (empty-equality)
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
          :props {} :inverse {} :arity {}
-         :cache-support {} :cache-support-handles #{} :cache-ctxs {}
+         :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
          :rewrite-support {} :rewrite-active {})
   ;; The read memo is stamped with each relation's `:gen`, which the fresh
   ;; `empty-relation`s just reset to 0, so drop the memo too — otherwise a lingering
@@ -1921,13 +2274,18 @@
   membership alive after the sentex stating it had gone.
 
   This is the one teardown that drops `:cache-support` entries without going through
-  `support-drop`, so it owes `:cache-support-handles` the same removal by hand.  That
-  set is what `moved-touches?` reads to skip the flat-cache reconcile when no supporter
-  moved; a handle left in it after its entry is gone makes every settle that relabels
-  that sentex scan the whole vocabulary to find nothing, for the life of the KB.  A
-  sentex supports exactly one claim — one sentence shape, one `[kind key]` — so the
-  dropped entries' handles are gone from the caches outright and need no survivor
-  check.
+  `support-drop`, so it owes the two indexes keyed off it — `:cache-handle-keys` and
+  `:cache-dirty` — the same removal by hand.  That is a **contract**, not tidiness.
+  `:cache-handle-keys` is what `moved-cache-keys` reads to turn a settle's moved handles
+  into the entries to reconcile, so a handle left in it after its entry is gone puts a key
+  nothing supports into every later scope, for the life of the KB; and a `:cache-dirty`
+  mark left behind puts it there on *every* settle, moved or not.  Both are then skipped
+  by the reconcile's own guard, so the cost is wasted work rather than a wrong answer —
+  but it is wasted work that never stops.
+
+  A dropped member's handle leaves `:cache-handle-keys` by its `[kind key]`, not
+  wholesale: one sentex names one claim today, and the index is a multimap precisely so
+  nothing here has to depend on that.
 
   Which entries to drop costs **one** scan of `:cache-support` and the removals are
   keyed off what it found, rather than rebuilding each map around a predicate: the map
@@ -1941,14 +2299,15 @@
   [t m]
   (let [member-of-m? (fn [[k _]] (and (vector? k) (= :member (first k)) (= m (second k))))
         dropped      (into {} (filter member-of-m?) (:cache-support t))
-        ks           (keys dropped)
-        gone         (into #{} (mapcat keys) (vals dropped))]
-    (-> t
+        ks           (keys dropped)]
+    (-> (reduce (fn [t [k supporters]]
+                  (reduce (fn [t h] (forget-handle-key t h k)) t (keys supporters)))
+                t dropped)
         (update :disjoint-metatypes disj m)
         (update :metatype-members dissoc m)
         (update :cache-support #(apply dissoc % ks))
         (update :cache-ctxs #(apply dissoc % ks))
-        (update :cache-support-handles #(reduce disj % gone)))))
+        (update :cache-dirty #(reduce disj % ks)))))
 
 (defn mark-disjoint-metatype
   ([tax m handle] (mark-disjoint-metatype tax m handle nil))
@@ -2269,17 +2628,22 @@
 ;; revives by itself when that supporter does.
 (defn- cache-supporters [tax k] (into #{} (keys (get-in @tax [:cache-support k] {}))))
 (defn prop-supporters
-  "The sentexes declaring property `kind` of `pred`."
+  "The **handles** of the sentexes declaring property `kind` of `pred`, as a set —
+  every one of them, defeated members included, which is what lets a derivation resting
+  on one revive by itself when that supporter does.
+
+  Handles, not sentexes: the callers put these straight into a justification's
+  antecedents, and a set has no order for such a list to inherit."
   [tax kind pred] (cache-supporters tax [:prop kind pred]))
 
 (defn add-inverse
   ([tax p q handle] (add-inverse tax p q handle nil))
   ([tax p q handle ctx]
-   (let [k [:inverse #{p q}]]
+   (let [k (inverse-key p q)]
      (swap! tax supported-add k handle ctx #(cache-install % k)))
    tax))
 (defn del-inverse! [tax p q handle]
-  (let [k [:inverse #{p q}]]
+  (let [k (inverse-key p q)]
     (swap! tax supported-del k handle #(cache-uninstall % k)))
   tax)
 (defn add-arity
@@ -2328,14 +2692,116 @@
                 (vec ns'))]
      (when (= 1 (count seen)) (first seen)))))
 
+(defn inverses-of
+  "**Every** predicate declared inverse to `p`, as a set — anywhere, or (with `context`)
+  the ones declared from a context the reader can see.  Empty when none is.
+
+  Nearly every predicate has none, so a caller probing per partner does one map read and
+  no work; the set has more than one member only where a KB declared `(inverse P Q)` and
+  `(inverse P R)`, which nothing refuses.  This is the reader a *step relation* wants —
+  a hop somebody recorded on any declared partner is a hop, and answering off one of them
+  would leave the others silently off the graph."
+  ([tax p] (get-in @tax [:inverse p] #{}))
+  ([tax p context]
+   (let [qs (get-in @tax [:inverse p] #{})]
+     ;; the empty case first, and it is the overwhelmingly common one: a transitive walk
+     ;; asks this per node, so reaching `closure-of` before finding out there is no
+     ;; partner would charge every ordinary walk a genlContext closure lookup per hop for
+     ;; an answer that is empty either way
+     (if (or (empty? qs) (not (scoped-context? context)))
+       qs
+       (let [up (closure-of tax :genlContext :fwd context)]
+         (into #{} (filter #(ctxs-visible? (get-in @tax [:cache-ctxs (inverse-key p %)]) up))
+               qs))))))
+
 (defn inverse-of
   "The declared inverse of `p`, or nil — anywhere, or (with `context`) declared
-  from a context the reader can see."
-  ([tax p] (get-in @tax [:inverse p]))
-  ([tax p context]
-   (when-let [q (get-in @tax [:inverse p])]
-     (if (scoped-context? context)
-       (when (ctxs-visible? (get-in @tax [:cache-ctxs [:inverse #{p q}]])
-                            (closure-of tax :genlContext :fwd context))
-         q)
-       q))))
+  from a context the reader can see.
+
+  **One partner, chosen by content.**  A predicate may carry several declared inverses,
+  and this answers the lexicographically smallest of them so the answer is a function of
+  the knowledge rather than of the order it arrived in — the tie-break every other
+  many-to-one read here takes, and for the reason the README gives.  A caller that must
+  see all of them asks `inverses-of`; this one exists for the callers that want *a*
+  partner (the applicability tests, the vocabulary reports) and are not walking a graph."
+  ([tax p] (first (sort (inverses-of tax p))))
+  ([tax p context] (first (sort (inverses-of tax p context)))))
+
+;; ---- what the taxonomy holds, declared ----------------------------------
+;;
+;; Three structures with three different bounds, which is why they are three rows and
+;; not one.  The unscoped closure level has **no count bound at all** — it is retired by
+;; a `:gen` bump rather than by size, so on a quiescent KB read from everywhere it grows
+;; to the vocabulary and stays there.  The scoped level is capped per relation at
+;; `*scoped-memo-budget*` distinct visibility sets.  The visibility index is bounded by
+;; the context census, never by the read count.  A column of bare integers over the
+;; three would say none of that.
+
+(defn- memo-level
+  "`f` applied to each relation's memo entry and summed — the shape all three counts
+  take.  O(relations), and every `count` inside it is O(1) on a Clojure map, which is
+  what keeps a polling page off the hierarchy itself."
+  [kb f]
+  (when-let [tax (:taxonomy kb)]
+    (reduce + 0 (map (comp f val) @(:closure-memo @tax)))))
+
+(defn- drop-memo-level
+  "Empty one level of every relation's memo, `keys` naming the level's slots, and answer
+  what went.  Safe at any moment: an entry is a memoized read, and the next read of it
+  recomputes exactly what was dropped."
+  [kb f ks]
+  (let [n (or (memo-level kb f) 0)]
+    (when-let [tax (:taxonomy kb)]
+      (swap! (:closure-memo @tax)
+             (fn [m] (reduce-kv (fn [acc rel e]
+                                  (assoc acc rel (reduce #(assoc %1 %2 {}) e ks)))
+                                {} m))))
+    n))
+
+(caches/register-cache
+ {:cache    :taxonomy-closures
+  :label    "Taxonomy closures"
+  :scope    :kb
+  :unit     "reach sets"
+  :limit    nil
+  :counters nil
+  :note     (str "One reflexive-transitive reach set per type or context ever asked "
+                 "about, up and down. Retired by a genl or genlContext edge changing — "
+                 "a generation bump invalidates the level without touching it — and by "
+                 "nothing else, so this is the one cache here with no count bound: it "
+                 "grows to the vocabulary a reader has walked.")
+  :read     (fn [kb] {:entries (memo-level kb #(+ (count (:fwd %)) (count (:rev %))))})
+  :clear    (fn [kb] (drop-memo-level kb #(+ (count (:fwd %)) (count (:rev %)))
+                                      [:fwd :rev]))})
+
+(caches/register-cache
+ {:cache    :taxonomy-scoped-closures
+  :label    "Taxonomy closures, scoped"
+  :scope    :kb
+  :unit     "visibility sets"
+  ;; a thunk for the reason the symbol pool's is: rebinding this var is the only way to
+  ;; exercise the flush, so a bound captured at load would disagree with the one in force
+  :limit    (fn [] *scoped-memo-budget*)
+  :counters nil
+  :note     (str "The same reach sets computed over only the edges one context can see, "
+                 "held a level deeper under the visibility set that induced them. The "
+                 "limit is per relation, and admitting one past it flushes the level "
+                 "rather than growing it.")
+  :read     (fn [kb] {:entries (memo-level kb #(count (:scoped %)))})
+  :clear    (fn [kb] (drop-memo-level kb #(count (:scoped %)) [:scoped]))})
+
+(caches/register-cache
+ {:cache    :taxonomy-visibility
+  :label    "Taxonomy visibility sets"
+  :scope    :kb
+  :unit     "relation/context pairs"
+  :limit    nil
+  :counters nil
+  :note     (str "The interned set of asserting contexts each reader can see, one per "
+                 "relation and context. Bounded by the context census rather than by "
+                 "the read count, and recomputed when its stamp moves.")
+  :read     (fn [kb] {:entries (some-> (:taxonomy kb) deref :vis-index deref count)})
+  :clear    (fn [kb] (let [v (some-> (:taxonomy kb) deref :vis-index)
+                           n (if v (count @v) 0)]
+                       (some-> v (reset! {}))
+                       n))})

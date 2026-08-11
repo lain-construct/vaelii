@@ -29,9 +29,16 @@
   asserts the KB is restored."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.kb :as kb]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
+
+(def ^:private merge-cost-ctx
+  "The context section 9's cost tests work in.  Literal rather than gensym'd, because
+  those tests build their own KB on the isolated pair and wipe it, which is what
+  `tu/with-cleared-kb` is for."
+  'MergeCostContext)
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -506,6 +513,36 @@
       (testing "the derived equality is itself a sentex"
         (is (some? (v/handle-of kb (list 'equals lo hi) FamContext)))))))
 
+(tu/deftest-kb a-merge-rests-on-every-functional-declaration-not-on-one-of-them
+  ;; Nothing refuses `(functional P)` in two contexts, which is two sentexes and two
+  ;; handles.  Resting the derived equality on one of them puts an assertion-ordered
+  ;; handle into the justification's antecedents: retracting *that* declaration would
+  ;; withdraw a merge the other one still licenses, and which of the two it was would
+  ;; depend on the order they arrived in.  One justification per declaration is what
+  ;; makes the merge a function of the knowledge.
+  ;;
+  ;; **Both directions, on independent predicates**, because a single arm cannot tell
+  ;; this apart from luck: resting the merge on one arbitrary handle passes whenever the
+  ;; retracted declaration happens not to be the chosen one.  Retiring the first in one
+  ;; predicate and the second in another, no single choice survives both.
+  (tu/with-terms [Tom FamContext StoryContext]
+    (v/assert kb (list 'genlContext StoryContext 'UniverseContext) 'UniverseContext)
+    (v/assert kb (list 'genlContext FamContext 'UniverseContext) 'UniverseContext)
+    (doseq [retire [:first :second]]
+      (let [motherOf (tu/fresh-term :predicate "motherOf")
+            [lo hi]  (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])
+            h1       (v/assert kb (list 'functional motherOf) FamContext)
+            h2       (v/assert kb (list 'functional motherOf) StoryContext)]
+        (v/assert kb (list motherOf Tom lo) FamContext)
+        (v/assert kb (list motherOf Tom hi) FamContext)
+        (is (v/same-class? kb lo hi)
+            "the merge is derived while both declarations stand")
+        (testing (str "retiring the " (name retire) " declaration leaves the merge")
+          (v/retract! kb (if (= retire :first) h1 h2))
+          (is (v/same-class? kb lo hi)
+              (str "the surviving declaration licenses the same equality, so the merge "
+                   "stands — it never rested on one arbitrary handle")))))))
+
 ;; DECISION (`functional` infers equality instead of throwing): "Making it a real
 ;; justification rather than a side effect is what makes it safe ... the merge is
 ;; justified, `why` names exactly which declaration and which two facts caused it."
@@ -704,3 +741,124 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list 'rewriteOf A A) NameContext)))
       (is (nil? (v/handle-of kb (list 'rewriteOf A A) NameContext))))))
+
+;; ---- 9. what the supersession reconcile costs ----------------------------
+;;
+;; The blocked spelling of section 3 is *derived state*: `special/refresh-supersessions`
+;; recomputes it every settle so that a supersession cannot outlive the merge behind it.
+;; What a standing merge set costs that reconcile is a shape question rather than a
+;; feature one, and it is the reason these tests count instead of asserting: a KB's
+;; merges are not a small fixed population — `owl:sameAs` is what an RDF import emits in
+;; quantity, and re-examining every displaced spelling on every settle makes loading n
+;; merges quadratic in n.
+;;
+;; So the reconcile is narrowed to the region the settle moved plus what migration just
+;; handed it, and the narrowing is a claim about what cannot have changed.  A wrong
+;; claim is a stale supersession — a spelling left hidden after the merge that hid it is
+;; gone, which is the caller's own premise withheld — so the cost gate is followed by
+;; the three cases it must never trade.  The unit counted is `kb/rewrite-term*`, one
+;; call per displaced spelling re-examined.
+
+(defn- counting-rewrites
+  "Run `f`, returning the number of `kb/rewrite-term*` calls it caused."
+  [f]
+  (let [n    (atom 0)
+        orig kb/rewrite-term*]
+    (with-redefs [kb/rewrite-term* (fn [& args] (swap! n inc) (apply orig args))]
+      (f))
+    @n))
+
+(defn- merges!
+  "n `(sameAs …)` merges, each displacing exactly one stored fact: the fact is written
+  under the larger spelling and the smaller one wins the content-keyed election."
+  [kb n]
+  (dotimes [i n]
+    (v/assert kb (list 'eqcBorn (symbol (str "EqcHi" i)) 'EqcPlace) merge-cost-ctx)
+    (v/assert kb (list 'sameAs (symbol (str "EqcAa" i)) (symbol (str "EqcHi" i)))
+              merge-cost-ctx)))
+
+(deftest one-unrelated-retraction-does-not-re-examine-every-standing-merge
+  (testing "a retraction naming no merged term costs the reconcile nothing, at any
+            standing merge count"
+    ;; The region this settle moved is the one plain fact and what rested on it.  No
+    ;; equality edge moved, no rewrite rule moved and no context edge moved, so no
+    ;; standing entry can have stopped holding — and none is re-examined.
+    (let [cost (fn [n]
+                 (tu/with-cleared-kb [kb tu/isolated-fresh]
+                   (merges! kb n)
+                   (let [h (v/assert kb '(eqcPlain EqcTarget) merge-cost-ctx)]
+                     (counting-rewrites #(v/retract! kb h)))))
+          few  (cost 10)
+          many (cost 40)]
+      (is (= 0 few many)
+          (str "an unrelated retraction re-examined the standing merges: " few
+               " (10 merges) / " many " (40 merges) rewrites")))))
+
+(deftest loading-merges-does-not-re-examine-the-merges-already-standing
+  (testing "asserting one more merge re-examines what it displaced, not the whole set"
+    ;; The other half of the same claim, and the one that makes a corpus load linear.
+    ;; Migration walks the class the new edge moved and hands the reconcile its own
+    ;; output; every other entry belongs to a class this edge did not touch.
+    (let [cost (fn [standing]
+                 (tu/with-cleared-kb [kb tu/isolated-fresh]
+                   (merges! kb standing)
+                   (v/assert kb '(eqcBorn EqcHiZ EqcPlace) merge-cost-ctx)
+                   (counting-rewrites
+                    #(v/assert kb '(sameAs EqcAaZ EqcHiZ) merge-cost-ctx))))
+          few  (cost 10)
+          many (cost 40)]
+      (is (= few many)
+          (str "one more merge cost more on a KB with more standing merges: " few
+               " (10 standing) / " many " (40 standing) rewrites")))))
+
+;; The three cases the narrowing must not miss.  Each moves something the region alone
+;; does not describe, and each leaves a spelling hidden that should have come back.
+
+(deftest un-merging-one-pair-revives-it-with-other-merges-standing
+  (testing "retracting one sameAs among many revives exactly its own spelling"
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (merges! kb 20)
+      (let [eq (v/handle-of kb '(sameAs EqcAa7 EqcHi7) merge-cost-ctx)
+            f7 (v/handle-of kb '(eqcBorn EqcHi7 EqcPlace) merge-cost-ctx)
+            f8 (v/handle-of kb '(eqcBorn EqcHi8 EqcPlace) merge-cost-ctx)]
+        (is (false? (v/in? kb f7)) "displaced while the merge stands")
+        (v/retract! kb eq)
+        (is (true? (v/in? kb f7))
+            "the un-merged spelling is believed again: the entry was re-examined")
+        (is (false? (v/in? kb f8))
+            "and the pair beside it, whose merge still stands, is still displaced")))))
+
+(deftest un-merging-a-derived-equality-revives-its-spelling-too
+  (testing "a merge nobody asserted, withdrawn by a retraction that never names it"
+    ;; The retracted handle is a `motherOf` fact; the equality it supported is derived
+    ;; (`functional`), so the thing that stopped displacing the spelling is not in the
+    ;; region under its own name.  The closure moving is the whole of what says so.
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (merges! kb 20)
+      (v/assert kb '(functional eqcMotherOf) merge-cost-ctx)
+      (v/assert kb '(eqcMotherOf EqcTom EqcMaryA) merge-cost-ctx)
+      (let [second-fact (v/assert kb '(eqcMotherOf EqcTom EqcMaryB) merge-cost-ctx)]
+        (v/assert kb '(eqcCaresFor EqcMaryB EqcTom) merge-cost-ctx)
+        (let [orig (v/handle-of kb '(eqcCaresFor EqcMaryB EqcTom) merge-cost-ctx)]
+          (is (false? (v/in? kb orig))
+              "displaced by the derived merge, which elected the smaller spelling")
+          (v/retract! kb second-fact)
+          (is (true? (v/in? kb orig))
+              "and believed again once the derived merge goes, twenty merges standing"))))))
+
+(deftest dropping-a-schematic-rewrite-revives-what-it-normalized
+  (testing "an equation leaving re-normalizes the sentences it reached"
+    ;; The channel a class comparison cannot see: a schematic rewrite displaces a
+    ;; spelling by normalizing its *terms*, so the entry it produced names no merged
+    ;; symbol at all.
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (merges! kb 20)
+      (v/assert kb '(eqcKnows EqcRoot (eqcDadOf (eqcDadOf EqcRoot))) merge-cost-ctx)
+      (let [orig (v/handle-of kb '(eqcKnows EqcRoot (eqcDadOf (eqcDadOf EqcRoot)))
+                              merge-cost-ctx)
+            rule (v/assert kb '(equals (eqcDadOf (eqcDadOf ?x)) (eqcGrandadOf ?x))
+                           merge-cost-ctx)]
+        (is (false? (v/in? kb orig)) "normalized away while the equation stands")
+        (v/retract! kb rule)
+        (is (true? (v/in? kb orig))
+            "and believed again once nothing normalizes it")))))

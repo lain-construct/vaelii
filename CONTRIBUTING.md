@@ -47,7 +47,9 @@ lein gate    # lint, then the suite, then the perf claims — the check before y
 that answer three different questions — well-formed, right, still fast — and it is
 deliberately **not** fail-fast, because the suite takes minutes and learning about all
 three failures once beats learning about them one cycle at a time. Each stage streams
-to its own log under `target/gate/`, and a failing stage prints its tail inline.
+to its own log under `target/gate/run-<pid>/`, which `target/gate/latest` points at — a
+run owns its directory, because two gates share a working tree here and neither may read
+the other's verdict. A failing stage prints its tail inline.
 `--only <stage>`, `--skip <stage>`, `--quick`, `--all`, and `PERF_TOLERANCE` on a
 loaded machine.
 
@@ -156,13 +158,13 @@ rejection messages: [`docs/naming.md`](docs/naming.md).
 | Role | Convention | Example |
 |------|-----------|---------|
 | predicate | camelCase, lowercase-initial | `parentOf`, `genl`, `argIsa` |
-| individual | CapitalCamelCase | `Fido`, `Tom` |
+| individual | CapitalCamelCase | `Muffet`, `Tom` |
 | type | snake_case, a **unary** predicate | `dog`, `physical_object` |
 | context | ends with `Context`, CapitalCamelCase | `CoreContext`, `UniverseContext` |
 
 What follows from it:
 
-- **Types are unary predicates.** Write `(dog Fido)`, not `(isa Fido Dog)`. `thing` is
+- **Types are unary predicates.** Write `(dog Muffet)`, not `(isa Muffet Dog)`. `thing` is
   the root of the `genl` hierarchy.
 - **snake_case implies arity 1.** An underscored functor names a type, and a type is a
   one-place predicate, so `(lives_in ?x cold_place)` is refused — write `livesIn`. A
@@ -281,6 +283,20 @@ deployment script that set it keeps setting it and stops being obeyed — so it 
 `test/golden/config-surface.edn` and its row in `docs/operations.md` in the same commit.
 Adding one is Additive and owes the same golden and the same row.
 
+**The shipped ontology's content is not part of that surface, and the line runs between
+the code and the data.** `resources/kb/` is data the engine ships, and a caller takes the
+ontology their engine version carries — there is no separate thing to pin, no way to hold
+one version of the terms against another of the engine. So an edit to a term, a
+declaration or a comment there takes **no** Breaking label however far it moves an
+answer, and rides any release. What it owes instead is the roster or golden test that
+pins the shipped set, so the change is visible rather than quiet, and a changelog entry
+that says what moved.
+
+The engine *code* that reads the ontology is surface as usual, and the distinction is
+sharp enough to apply without argument: changing what `decontextualizedPredicate` **means**
+is class 1, and changing **which terms carry it** is not. The first is a contract every
+KB is written against; the second is one KB's content.
+
 The split has citable precedent rather than being this repo's invention:
 
 - **SemVer** defines a patch as "an internal change that fixes incorrect
@@ -362,6 +378,7 @@ lein test                        # the :default selector, memory stores — the 
 lein test :all                   # ...plus the ^:slow half
 lein test :slow                  # only the marked ones
 lein test-backends               # the whole suite once per backend (all eight)
+lein test-sweeps                 # ...and once per alternative implementation (all five)
 ```
 
 **Tests are integration tests against the storage backend**, not unit tests over
@@ -388,6 +405,18 @@ mocks — the in-memory stores by default, with no external dependency.
   the index, records, recovery or overlay owes `./scripts/test-backends.sh` a run
   before it lands. A durable-store bug is invisible to the one backend the gate
   exercises, which is the whole reason there are eight.
+- **`./scripts/test-sweeps.sh` is the other axis**, and a change touching inference,
+  the TMS or context retrieval owes it the same run. Five switches re-run the suite
+  through an alternative implementation of something the engine otherwise picks for
+  itself — the dense TMS, the sweep chainer, the node engine, one of its tacticians,
+  the reference nested context retrieval — and each is a cost decision rather than a
+  semantic one, so the five must be failing-set-identical with each other and with a
+  plain `lein test`. Their assertion counts may differ where an assertion pins an
+  artifact of one implementation and stands aside under the switch that replaces it.
+- **Run both locally rather than asking CI for them.** The `deep` workflow runs the
+  same sixteen configurations, and one run of it is 209 job-minutes — the local
+  scripts cost wall time and nothing else, so they are the gate and CI is the
+  confirmation.
 - **`^:slow` marks a test costing about a second or more on its own**, and `lein test`
   skips those by default. Twenty of them carry just under half the suite's assertions,
   so `:all` is a habit rather than a hook: run it when a change touches inference,
@@ -457,7 +486,14 @@ remote shell. See [`.github/SECURITY.md`](.github/SECURITY.md).
 ## 7. Commits & pull requests
 
 - **Target the `develop` branch.** Pull requests land on `develop`; `main` carries
-  releases and is pushed by the maintainer, so it is never a pull-request target.
+  releases and is pushed by the maintainer, so it is never a pull-request target. The
+  required checks live on `develop` and `main` has none, so retargeting is not a
+  formality — see §9.4. If the base dropdown offered you `main`, change it.
+- **Each commit's `author` is the person who signs it off.** A change someone else
+  drafted is landed by re-authoring it, not by committing it under their name with a
+  second sign-off appended: a `Signed-off-by:` line is a certification, so it may only
+  name someone who can make one. That rules out a tool, bot or agent account — for the
+  same reasons a co-author trailer may not name one, below.
 - **Commit style** is Conventional Commits: `type(scope): subject`, with the scope
   optional. The types in use are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`,
   `style`, `build`, `bench`, `chore`, `deps`. Examples from `git log`:
@@ -573,8 +609,21 @@ git commit -s --amend  # add sign-off to the most recent commit
 ```
 
 A `Signed-off-by:` trailer certifies that the four DCO clauses apply to your commit.
-The [DCO GitHub App](https://github.com/apps/dco) checks every commit in every pull
-request and blocks the merge if any commit is missing a sign-off.
+The [DCO GitHub App](https://github.com/apps/dco) checks every commit and blocks the
+merge if any is missing a sign-off.
+
+**That check is a required one on `develop`** — the pull-request target (§7) — beside
+`lint`, `license/cla` and the suite. `main` carries releases, is pushed by the maintainer,
+and requires none of them, so a pull request aimed at `main` is not a lighter path to the same
+review: it is a path with no review on it at all, and it will be retargeted rather than
+merged.
+
+The **suite** (`memory` / `disk`) is required too, and it runs on **every** pull request —
+a doc-only one included, which it passes in a few minutes. No path filter narrows it, and
+that is what lets it be required: a workflow a filter skips reports nothing at all, not
+even a skip, so a required check naming it would block every pull request the filter
+matched for ever. A red suite is a change that does not land, at the merge button rather
+than at the reviewer's discretion.
 
 The DCO's text says "the open source license indicated in the file", and every `.clj`
 file under `src/`, `test/` and `bench/` indicates it — a two-line SPDX header:

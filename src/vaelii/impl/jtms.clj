@@ -105,6 +105,7 @@
   This module owns the in-memory graph; the caller owns physical deletion, since
   only it holds the stores."
   (:require [clojure.set :as set]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols]
             [vaelii.impl.strength :as strength]))
@@ -1142,3 +1143,18 @@
   "The network as one canonical persistent map (see `-snapshot`).  A testing and
   debugging surface — the differential oracle compares two implementations with it."
   [tms] (-snapshot tms))
+
+;; ---- what the network holds beside itself, declared ---------------------
+
+(caches/register-cache
+ {:cache    :justification-dedup
+  :label    "Justification dedup"
+  :scope    :process
+  :unit     "conclusions"
+  :limit    nil
+  :counters nil
+  :note     (str "Which justifications a conclusion already holds, so a conclusion "
+                 "reached by k witnesses is not scanned k times. Bound for the length "
+                 "of one chaining run and dropped when it returns, so there is nothing "
+                 "to count between runs.")
+  :read     (fn [_] {:entries (some-> ^java.util.HashMap (:m *dedup-cache*) .size)})})

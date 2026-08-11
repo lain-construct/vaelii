@@ -17,11 +17,11 @@
 
 (tu/deftest-kb genl-well-formedness
   (let [dog (tu/tmp-type) animal (tu/tmp-type) mammal (tu/tmp-type)
-        fido (tu/tmp-ind) rover (tu/tmp-ind)]
+        muffet (tu/tmp-ind) rover (tu/tmp-ind)]
     (testing "well-formed genl is accepted"
       (is (v/assert kb (list 'genl dog animal) 'UniverseContext)))
     (testing "genl relates types, not individuals"
-      (is (ill-formed? (list 'genl fido animal) 'UniverseContext))
+      (is (ill-formed? (list 'genl muffet animal) 'UniverseContext))
       (is (ill-formed? (list 'genl dog rover) 'UniverseContext)))
     (testing "genl of a type with itself is ill-formed"
       (is (ill-formed? (list 'genl dog dog) 'UniverseContext)))
@@ -30,21 +30,21 @@
       (is (ill-formed? (list 'genl animal mammal) 'UniverseContext)))))   ; would close mammal→animal→mammal
 
 (tu/deftest-kb disjoint-well-formedness
-  (let [dog (tu/tmp-type) cat (tu/tmp-type) mammal (tu/tmp-type) fido (tu/tmp-ind)]
+  (let [dog (tu/tmp-type) cat (tu/tmp-type) mammal (tu/tmp-type) muffet (tu/tmp-ind)]
     (testing "well-formed disjoint is accepted"
       (is (v/assert kb (list 'disjoint dog cat) 'UniverseContext)))
     (testing "disjoint relates types, not individuals"
-      (is (ill-formed? (list 'disjoint fido cat) 'UniverseContext)))
+      (is (ill-formed? (list 'disjoint muffet cat) 'UniverseContext)))
     (testing "genl-related types can't be disjoint"
       (v/assert kb (list 'genl dog mammal) 'UniverseContext)
       (is (ill-formed? (list 'disjoint dog mammal) 'UniverseContext)))))
 
 (tu/deftest-kb argIsa-and-genlContext-well-formedness
-  (let [parentOf (tu/tmp-pred) animal (tu/tmp-type) fido (tu/tmp-ind) a-ctx (tu/tmp-ctx)]
+  (let [parentOf (tu/tmp-pred) animal (tu/tmp-type) muffet (tu/tmp-ind) a-ctx (tu/tmp-ctx)]
     (testing "argIsa needs a predicate, a positive integer, and a type"
       (is (v/assert kb (list 'argIsa parentOf 1 animal) 'UniverseContext))
       (is (ill-formed? (list 'argIsa parentOf 0 animal) 'UniverseContext))    ; position must be positive
-      (is (ill-formed? (list 'argIsa parentOf 1 fido) 'UniverseContext)))     ; type is an individual
+      (is (ill-formed? (list 'argIsa parentOf 1 muffet) 'UniverseContext)))     ; type is an individual
     (testing "genlContext relates contexts"
       (is (v/assert kb (list 'genlContext a-ctx 'UniverseContext) 'UniverseContext))
       (is (ill-formed? (list 'genlContext animal 'UniverseContext) 'UniverseContext)))))  ; not a context

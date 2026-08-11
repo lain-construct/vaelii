@@ -22,7 +22,30 @@
       (is (= 3 (p/count-at (:index kb) [])))
       (is (= 3 (p/count-at (:index kb) [bornIn])))
       (is (= 2 (p/count-at (:index kb) [bornIn tom])))
-      (is (= 1 (p/count-at (:index kb) [bornIn tom paris]))))))
+      (is (= 1 (p/count-at (:index kb) [bornIn tom paris]))))
+    (testing "and the width at a level is its own read, agreeing with the child set"
+      ;; `count-children` is what the query planner's cost model divides by, and it is
+      ;; asked once per literal per plan — so it answers off a cardinality rather than
+      ;; by building the children (`perf`'s `plan-scaling` is the gate on that).  The
+      ;; two must not drift: a width that disagreed with the set it counts would make
+      ;; the planner divide by a number the matcher never sees.
+      (let [ix (:index kb)]
+        (doseq [prefix [[] [bornIn] [bornIn tom] [bornIn bob]
+                        ;; the key ends with the context, so a whole sentence is still an
+                        ;; interior node — its children are the contexts it is stored in
+                        [bornIn tom paris]
+                        [bornIn tom paris 'NaturalWorldContext]  ; the leaf: no children
+                        [bornIn tom paris 'CoreContext]          ; absent: a real sentence,
+                                                                 ; not in that context
+                        [bornIn (tu/tmp-ind)]                    ; absent: no node at all
+                        [(tu/tmp-pred)]]]
+          (is (= (count (p/children ix prefix)) (p/count-children ix prefix))
+              (pr-str prefix)))
+        (is (= 2 (p/count-children ix [bornIn])))             ; tom and bob
+        (is (= 2 (p/count-children ix [bornIn tom])))         ; paris and rome
+        (is (= 1 (p/count-children ix [bornIn tom paris])))   ; the one context it is in
+        (is (zero? (p/count-children ix [bornIn tom paris 'NaturalWorldContext])))
+        (is (zero? (p/count-children ix [bornIn (tu/tmp-ind)])))))))
 
 (tu/deftest-kb query-by-context-and-pattern
   (let [bornIn (tu/tmp-pred) tom (tu/tmp-ind) bob (tu/tmp-ind) paris (tu/tmp-ind)]
@@ -66,11 +89,11 @@
       (is (= 0 (v/count-in-context kb c2))))))
 
 (tu/deftest-kb the-functor-root-spans-arity-and-polarity
-  (let [dog (tu/tmp-type) fido (tu/tmp-ind) rex (tu/tmp-ind)
+  (let [dog (tu/tmp-type) muffet (tu/tmp-ind) rex (tu/tmp-ind)
         rel (tu/tmp-pred)]
-    (v/assert kb (list dog fido) 'UniverseContext)
+    (v/assert kb (list dog muffet) 'UniverseContext)
     (v/assert kb (list 'not (list dog rex)) 'UniverseContext)   ; negative fact
-    (v/assert kb (list rel fido rex) 'UniverseContext)
+    (v/assert kb (list rel muffet rex) 'UniverseContext)
     (testing "both polarities count under the same functor"
       (is (= 2 (v/count-with-functor kb dog)))
       (is (= 2 (count (v/sentexes-with-functor kb dog)))))

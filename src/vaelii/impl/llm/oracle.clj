@@ -32,8 +32,8 @@
 
   ## A derived claim is shown its situation, and never its rule
 
-  *Fido is awake* is not judgeable on its own — nobody knows Fido.  *Given that Fido is
-  a dog, Fido is awake* is: it is the everyday question of whether that is a reasonable
+  *Muffet is awake* is not judgeable on its own — nobody knows Muffet.  *Given that Muffet is
+  a dog, Muffet is awake* is: it is the everyday question of whether that is a reasonable
   thing to say about a dog you have just been told about.  So a derived claim carries
   the facts its justification rests on, glossed the same way.
 
@@ -108,10 +108,18 @@
   Two things are left out.  **The rule**, because showing it turns the question from *is
   this so* into *does this follow*.  And **the taxonomy edges** it fired through: a
   `genl` edge is vocabulary rather than a fact about anybody, and *every mammal is an
-  animal* in front of a question about Ann is the rule wearing a different hat."
+  animal* in front of a question about Ann is the rule wearing a different hat.
+
+  A claim two rules derive has **two supports**, and the one shown is chosen by content:
+  justifications are numbered as they are made, so taking whichever came back first would
+  put the situation on the page in the order the rules happened to fire.  Within the
+  chosen support the antecedents keep their own order — that is the rule's canonical
+  antecedent order, so it is a reading rather than an arrival."
   [kb handle]
-  (let [tree (v/why kb handle)
-        because (:because (first (:support tree)))]
+  (let [tree    (v/why kb handle)
+        support (first (sort-by (fn [s] (pr-str [(:rule s) (mapv :sentence (:because s))]))
+                                (:support tree)))
+        because (:because support)]
     (into []
           (comp (remove :cycle?)
                 (keep (fn [{:keys [sentence]}]
@@ -215,7 +223,7 @@
   "One claim as the prompt shows it: its number, the situation it rests on when it has
   one, and the claim itself.
 
-  Each given keeps the capital it was composed with — lower-casing an opening `Fido` to
+  Each given keeps the capital it was composed with — lower-casing an opening `Muffet` to
   make the join read better would misspell the vocabulary, which is the one thing a gloss
   may not do."
   [{:keys [index text givens]}]
@@ -253,7 +261,10 @@
   is dropped, because a verdict that cannot be attached to a claim is not evidence about
   anything."
   [text n]
-  (let [parsed (try (json/parse-string (unfence text)) (catch Exception _ nil))
+  ;; `Throwable`, as every read of a model's output: an answer this cannot parse is no
+  ;; verdicts rather than a thrown batch, and an `Exception` catch makes that promise
+  ;; conditional on which class the failure carries — a `StackOverflowError` is not one.
+  (let [parsed (try (json/parse-string (unfence text)) (catch Throwable _ nil))
         items  (when (map? parsed) (get parsed "verdicts"))]
     (reduce (fn [acc item]
               (let [i (get item "item")

@@ -279,7 +279,7 @@ content-identical under all four settings of the pair.
 Matching fans the **functor** out over its genl spec closure, so a supertype is met
 by its subtypes and — the same closure, one dimension over — a super-*predicate* by
 its sub-predicates. The type case is the familiar one: `(animal ?x)` is satisfied by
-a stored `(dog Fido)`. Generalized to every arity, `(parentOf a ?x)` reaches a stored
+a stored `(dog Muffet)`. Generalized to every arity, `(parentOf a ?x)` reaches a stored
 `(fatherOf a v)`, and a `(parentOf ?x ?y)` rule antecedent fires on a
 `(fatherOf Tom Bob)` fact, once `(genl fatherOf parentOf)` holds.
 
@@ -904,55 +904,229 @@ never costed once and for all, but under the variables bound at the point it wou
 run. `(parentOf ?x ?y)` is the whole extent of `parentOf`; after `?x` is bound it is
 one person's children, and only re-estimating sees that.
 
-**One class of literal is placed on structure, not on cost.** A **cartesian factor** —
-a literal sharing no variable with anything else in the conjunction — narrows nothing
-and is narrowed by nothing, so wherever it runs it multiplies the row count of
-everything after it. Its own extent therefore ranks it exactly wrong: a *selective*
-cartesian factor is the worst kind, because taking the cheapest literal available
-picks precisely that one first, where the multiplication lands on the whole rest of
-the plan. `order` holds them to the back, cheapest first among themselves (a run of
-pure multiplications sums to least with the smallest factor applied first).
+### Two estimators, two contracts
 
-Sharing no variable is what leaves such a literal unconstrained; it is not on its own
-what makes it a multiplier, and the rule checks both. A literal matching at most once
-multiplies by at most one — it can only prune — so it leads instead. The case that
-makes the difference load-bearing is the **ground** literal: both chaining paths
-substitute a rule's bindings into its antecedents *before* planning, so an antecedent
-whose variables the trigger bound arrives fully ground, and a literal with no
-variables shares none vacuously. Held back, `(dog Bob)` runs the whole join before the
-single lookup that refutes it. `est-matches` bounds from above, so an estimate of 1 is
-a *proof* the literal cannot fan out — the one direction that bound is sound in, and
-the only decision it is trusted with here.
+Both read the count-aware trie and neither fetches a record, and they are **not**
+interchangeable:
 
-The rule is stated over one literal at a time, and that is its reach: two literals
-disconnected from the rest but sharing a variable with **each other** are a cartesian
-block just as much, and neither is held back, because each shares a variable with
-something. Nothing in the shipped KB or the test world reaches that shape — no rule
-there has three generators to disconnect.
+| | `est-matches` | `est-rows` |
+|---|---|---|
+| answers | can this literal fan out at all | how much does it fan out |
+| contract | a sound **upper bound** | an **expected** value, wrong in both directions |
+| reading of 1 | a *proof* of at most one match | a guess that there is about one row |
+| composes across a join | no — maxima of products do not factor | yes — expectations do, under independence |
 
-**Why structure and not a cost search.** Do not replace this with a search for the
-cheapest whole order — costing plans by the sum of their intermediate rows, minimized
-over subsets — however well it reads. `est-matches` bounds a literal from **above**,
-and those bounds do not compose across a join: minimizing estimated cost end to end
-multiplies that error once per literal, and on randomized joins such a plan is
-measurably *worse* than cheapest-first (mean 2.31× the best permutation's rows
-against cheapest-first's 1.19× on one generated shape, losing 3 trials of 9 and
-winning none). It wins handsomely on a chain beside a disconnected literal, which is
-exactly the shape that makes it look right. Whether a literal shares a variable, by
-contrast, is read off the conjunction and needs no estimate, so the placement rule
-compounds nothing — and the estimate still decides the order within each group, where
-it is compared once and locally. A join cardinality model that composes is what such
-a search would need first.
+The one-sidedness of `est-matches` is load-bearing and the placement rules rest on it.
+`est-rows` is what a *join* is costed in, and being allowed to be wrong is precisely
+what lets it be composed.
 
-What the rule is worth, and what it is not: on a chain beside one disconnected
-literal (`lein bench-plan`) it cuts intermediate rows from 45,030 to 10,500 at six
-literals for ~0.1 ms of planning, and on randomized joins where nothing is isolated
-it changes no plan at all. A plan is **not** claimed to be optimal — on generated
-joins the planner runs 1.2–3.2× the best permutation's rows on average, and that gap
-is the cost model's, not the ordering rule's.
+`est-rows` returns a **summary** — the shape of the relation a literal denotes, not one
+number:
 
-**The cost model is the trie.** Walk the literal left to right extending a known path
-prefix:
+```clojure
+(est-rows kb '(parentOf ?x ?y))
+;; => {:rows 400 :vars #{?x ?y} :distinct {?x 20}}
+```
+
+`:distinct` holds only what the index can **count**. The trie narrows left to right, so
+the one variable it counts exactly is the one at the first position the known prefix
+cannot extend past — `(parentOf Tom ?y)` counts `?y`, `(parentOf ?x ?y)` counts `?x` and
+leaves `?y` out. A variable in `:vars` and absent from `:distinct` is *uncounted*, which
+is a different statement from zero.
+
+There is deliberately no `bound` argument, and the asymmetry with `est-matches` is the
+point: a literal's own shape does not depend on what the plan has bound, and the
+narrowing that binding buys is what the join formula computes. The planner seeds its
+prefix with the bound variables as a one-row relation, and gets back exactly the
+average branch the per-literal model charges for them — by the general rule rather
+than by one of its own.
+
+### Composing them
+
+For a join on the variables two relations share:
+
+```
+divide by            rows(A ⋈ B) = rows(A) · rows(B) ÷ Π d(v)   over shared v
+                            d(v) = max(d_A(v), d_B(v))          over whichever are read
+
+then carry forward         d′(v) = min(d_A(v), d_B(v))          for a shared v
+                           d′(u) = min(d_A(u), rows(A ⋈ B))     otherwise — no column has
+                                                                more distinct values than
+                                                                its relation has rows
+```
+
+The divisor and the count carried forward are different quantities and take the
+extremes in opposite directions: a join cannot group more finely than the coarser side
+allows, so `d` is the **larger**; and it cannot leave a column with more values than the
+finer side ever had, so `d′` is the **smaller**.
+
+Carrying `rows` forward and not `d′` is the failure mode to avoid: the second join then
+has nothing to divide by and the model silently degenerates to a product.
+
+**A count the trie read beats one inferred**, and that two-tier rule is what carries the
+model along a chain. `d(v)` is the larger of the counts the two sides actually read —
+larger, because a join cannot group more finely than the coarser side allows — and in
+`(p ?a ?b) ⋈ (q ?b ?c)` only `q` can read `?b`, since on `p` it trails a free position
+the walk stops at. Taking the maximum over *read* counts alone is what lets the side
+that knows decide. Where **neither** side read the variable the model would otherwise
+divide by nothing and call a join a cartesian product, which is the error that compounds
+fastest with depth, so it falls back on a proxy: the smaller of the two relations' own
+most-duplicated readings, and 1 where neither has one. The smaller, because an
+over-large divisor understates a join, which is the direction that puts an exploding
+literal early.
+
+A variable repeated **inside** one literal is the same join, and priced the same way:
+`(marriedTo ?x ?x)` is not the extent of `marriedTo` but that extent divided by `?x`'s
+distinct count, since the second occurrence is an equality between two positions.
+
+### Blocks, and the law that orders them
+
+Two literals sharing a variable constrain each other; two that share none do not, and
+no ordering *within* one group changes what the other costs. So the generators are
+split into **connected components** — structural, exact, read off the conjunction and
+costing nothing — and the estimate is asked only the two questions it can answer: which
+literal to take next inside a block, and which block to run first.
+
+A block producing `n` rows at internal intermediate cost `s`, placed after a prefix of
+`P` rows, costs `P·s`, and run before another block it also multiplies that one by `n`.
+Two blocks therefore compare by adjacent transposition:
+
+```
+cost[i,j] = P·(sᵢ + nᵢ·sⱼ)   against   cost[j,i] = P·(sⱼ + nⱼ·sᵢ)
+i first  ⟺  sᵢ/(nᵢ−1) ≥ sⱼ/(nⱼ−1)
+```
+
+so a **descending sort on `s/(n−1)`** is optimal — O(k log k), and no search. It
+degenerates correctly, which is the check that it is the right law: a single-literal
+block has `s = n`, so its ratio `n/(n−1)` decreases in `n` and the law reduces to
+smallest-extent-first; a block of one row ranks `+∞` and leads; a block of none would
+make the ratio change sign, so `n ≤ 1` is ranked first structurally rather than by the
+formula.
+
+**A cartesian factor running last is a consequence of that law, not a rule of its
+own** — and the two part company. A literal sharing no variable with anything else
+narrows nothing and is narrowed by nothing, so wherever it runs it multiplies
+everything after it, and its own extent ranks it exactly wrong under a cheapest-first
+pick. But *how* wrong depends on the block it would be running in front of, and the
+ratio says where the crossover is: against a chain of 20 rows fanning to 80
+(`s/(n−1)` = 100/79 ≈ 1.27), a disconnected relation of four rows reads 4/3 and leads,
+and one of five rows reads 5/4 and is held back. Both sides of that crossover are the
+cheapest permutation by the rows the engine actually runs.
+
+Because the law is stated over blocks rather than literals, it reaches the shape a
+one-literal-at-a-time rule cannot see: two literals disconnected from the rest but
+sharing a variable with **each other** are a cartesian factor just as much, and neither
+is isolated, because each shares a variable with something.
+
+A block's literals run **consecutively**, which is an assumption rather than a theorem —
+interleaving two blocks is a legal plan the law does not consider. It is measured rather
+than asserted: on a four-literal conjunction of two disconnected pairs, the contiguous
+plan is the cheapest of all twenty-four permutations, interleaved ones included
+(`plan_test`).
+
+Two placements sit outside the law, and both are claims the estimate cannot make:
+
+- **A block that cannot multiply runs first.** `est-matches` bounds each literal from
+  above, so a block whose literals each bound to 1 is *proved* to match at most once: it
+  can only prune. The case that makes this load-bearing is the **ground** literal —
+  both chaining paths substitute a rule's bindings into its antecedents *before*
+  planning, so an antecedent whose variables the trigger bound arrives fully ground, and
+  a literal with no variables shares none vacuously. Held back, `(dog Bob)` runs the
+  whole join before the single lookup that refutes it.
+- **The anchored block runs before the rest.** Every component reached by the caller's
+  already-bound variables, a deferred literal or the recursive literal is fused into one
+  and leads. Both are selectivity the summary algebra does not model — an evaluable
+  prunes on values rather than on counts, and a bound variable narrows a literal in a
+  way a rival block's own `n` cannot account for — so ranking those blocks by the law
+  would be ranking them on numbers with the narrowing left out.
+
+### Why a sort and not a search
+
+Do not replace this with a search for the cheapest whole order — costing plans by the
+sum of their intermediate rows, minimized over subsets — over `est-matches`. That is
+refuted, and measurably: on randomized joins such a plan ran a mean 2.31× the best
+permutation's actual rows against cheapest-first's 1.19×, losing 3 trials of 9 and
+winning none. The reason is not that a search is the wrong shape but that it was
+minimizing a sum of incomparable quantities, an upper bound for some literals and an
+average for others. `est-rows` exists to fix that, and once the numbers compose the
+ordering does not need a search: the transposition law sorts.
+
+### What it is worth, and how that is known
+
+**The q-error curve is the gate on the cost model, and it is read before any plan is
+timed.** For each prefix of the chosen order, `q = max(est/actual, actual/est)` against
+the count the engine actually returns for that prefix, reported per join depth by
+`lein bench-plan`. Flat in the depth means the estimates compose; growing in the depth
+means they do not, and no better ordering over them would rescue that. Judging a cost
+model by the cost of the plans it produces is two inferences downstream of the defect:
+it reports "the plan is bad" without reporting that the estimator is why.
+
+- On a uniform chain the estimate is **exact at every depth** (q = 1.00 through six
+  literals), which is the statement that the composition is right rather than that depth
+  1 was.
+- On a corpus built to break the assumption — one hub value taking three quarters of the
+  first relation, fan-outs varying sharply with the join key — q reads 1.00, 2.75, 2.87
+  at depths 1, 2, 3. Wrong, and **flat**: the error does not compound per join, which is
+  the whole claim. A model whose error multiplied would read ≈ 7.5 at depth 3.
+- Against an oracle over all 24 permutations of randomized four-way joins, the planned
+  order runs a mean **1.13×** the best possible (worst 2.25×), and 3.4% above optimal on
+  the totals. The per-literal model reads 2.18× and 47% on the same trials.
+- On a chain beside one disconnected literal (`lein bench-plan`), intermediate rows at
+  six literals fall from 80,040 to 18,000 for ~0.13 ms of planning — a 10.3× wall-clock
+  ratio against ranking every generator alike.
+- The same conjunction as a **rule's** antecedents, where it matters most and where
+  nothing else measures it, runs **7.1× / 8.4×** faster planned at four and five
+  antecedents. Canonical order is structural, so whether it happens to be a good order
+  is an accident of spelling — the bench's rule spells its cartesian antecedent so the
+  accident goes the wrong way, which is the case the planner exists for.
+
+A plan is still **not** claimed to be optimal, and two assumptions are why. Both are
+stated rather than designed around, and both are things the trie cannot answer.
+
+**Independence is assumed and is false.** Correlated arguments make the join formula
+under-estimate, and no amount of trie reading fixes it — the trie stores per-position
+counts, not joint ones, and sampling at plan time is not affordable at 100M facts.
+
+**The counts span every context, and a read is scoped to one.** The trie key ends with
+the context ([indexing.md](indexing.md)), so `count-at` under a prefix counts a sentence
+once per context it is stored in, while the query it is costing sees one context and the
+`genlContext` cone above it. Nothing scopes the counts, and nothing cheaply could: a
+per-context count is a second index, maintained on every write, for a number only the
+planner reads. Three things follow, and they are not the same thing.
+
+- `est-matches` **stays sound**. A cone is a subset of what is stored, so a count over all
+  contexts can only be too large — the direction the bound is allowed to be wrong in, and
+  a reading of 1 is still a proof.
+- `est-rows` **over-counts, on the rows only**. The level the walk stops at holds argument
+  values and the contexts sit a level below it, so `:distinct` counts what it should while
+  `:rows` carries the multiplicity. A join divides by the one and multiplies by the other,
+  so along a chain this compounds rather than cancelling.
+- A **ground** literal is immune, because it is clamped to one row or none whatever the
+  trie counts under it — which is the shape both chaining paths hand the planner most.
+
+The practical size of it is a KB's own: where a sentence sits in one context the
+multiplicity is 1 and the model is unaffected, and it grows with how much content is
+asserted into several contexts at once. `plan_test` pins all three consequences.
+
+The q-error curve is where both limits show — and it is measured on a single-context
+corpus, so what it reports is the independence assumption, not this one.
+
+There is deliberately **no statistics table**. Every number here is already in the
+count-aware trie, and a second source of truth about cardinality would need maintaining
+on every write.
+
+**Planning one fixed conjunction is flat in the size of the KB**, and that is a claim
+with a gate on it (`lein perf`'s `plan-scaling`) because it is easy to lose. The cost
+model divides by the trie's distinct-value count at a position, and it asks for that
+once per literal per plan; answering it with `(count (children …))` materializes the
+whole child set, which is O(how many distinct values sit there) — so a planner reading
+it that way costs 25× more against 32× the facts, on a conjunction that never changed.
+`p/count-children` answers the same number off a cardinality (`docs/indexing.md`). A
+plan is computed per rule expansion, per node in the node engine and per `prove` call,
+so a planner that scales with the KB scales with it on every one of those.
+
+**The per-literal model is the trie.** Walk the literal left to right extending a known
+path prefix:
 
 | token | estimate |
 |-------|----------|
@@ -975,7 +1149,7 @@ functor-blind shapes are costed. Both of the functor-keyed models — the subtyp
 and the functor root — read the functor as a concrete symbol, and both answer *low*
 when it is not one, which is the one direction a cost model may not err in: a lower
 bound ranks the dearest literal cheapest and hoists it to the front, where its
-fan-out multiplies everything after it. So an **open functor** (`(?type Fido)`) is
+fan-out multiplies everything after it. So an **open functor** (`(?type Muffet)`) is
 costed by the argument roots alone — the same posting `res/candidate-handles`
 actually reads for it — and a **dotted rest** (`(rel A . ?args)`), which pins no
 argument position at all since its tail splices a whole list, falls back to the
@@ -1021,10 +1195,23 @@ them against real values. Stored antecedent order is *canonical* order, chosen s
 spellings of one rule dedup to one sentex; it is structural and bears no relation to
 what is cheap, which is why planning matters as much for a rule as for a query.
 
-`(query-plan kb [g1 g2 …] ctx)` returns the chosen order with each literal's estimate
-and the variables bound when it runs. Binding `plan/*enabled*` false runs unplanned,
-which is how `plan_test` checks that every permutation of a conjunction returns the
-one answer set.
+`(query-plan kb [g1 g2 …] ctx)` returns the chosen order with the numbers each literal
+was placed on and the variables bound when it runs — `:est-matches` (the sound bound on
+this literal), `:est-rows` (its own expected size), `:est-prefix` (the expected size of
+the plan up to and including it, which is the number the ordering turned on),
+`:block`, and the `:deferred?` / `:recursive?` / `:isolated?` flags. A literal placed
+early on a small `:est-matches` whose `:est-prefix` then jumps is the cost model being
+wrong about a *join* rather than about a literal, which is the distinction the three
+columns exist to make. All of it is read off the plan that ran rather than recomputed
+beside it, so a flag cannot claim a literal was placed by a rule that did not fire.
+The browser renders the same table under "How it would be answered".
+
+`vaelii.impl.tactics` is the other consumer: it sums `explain`'s `:est-matches` as a
+node-selection cost, ceiling-clamped, and that is the sound bound rather than the
+expected one on purpose — a clamped sum wants the quantity that is never too small.
+
+Binding `plan/*enabled*` false runs unplanned, which is how `plan_test` checks that
+every permutation of a conjunction returns the one answer set.
 
 ## Deferred antecedents in a forward join
 
@@ -1167,7 +1354,14 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   (transitive closure over facts for a declared-`transitive` predicate; `:compute`, **70**
   — it reads the stored facts and the rule conclusions already among them, but not a rule
   that would conclude a further edge), and `SymmetricProver` / `InverseProver` /
-  `ReflexiveProver` (swapped/derived matches; 50, they augment facts).
+  `ReflexiveProver` (swapped/derived matches; 50, they augment facts). What counts as one
+  hop of the closure walk — believed matches, sub-predicates, the symmetric mirror and a
+  declared inverse's spelling, and not a rule conclusion — is
+  [taxonomy.md](taxonomy.md), "The step relation"; an open-argument ask's reach is held
+  per KB under the change clock, which is the same page's "What is cached". A cached
+  answer is this **prover's**, not the registry's, which is what keeps it clear of the
+  tier and scope dependence that stops `solve-goal` answers being cached at all
+  (`vaelii.impl.literal-cache`): drop the prover and the entry is never consulted.
 - **ArgPreservingProver** — `(argPreserving P n R)` / `argPreservingInverse` goals,
   answered by walking the `R`-reachability from a ground argument. `:compute`, **60**.
   Its declaration is also the `:preserving` shadowing channel, since it licenses a claim
@@ -1224,7 +1418,7 @@ Built-in provers (`default-provers`, held per-KB in an atom):
 - **ArgTypeProver** — infers an individual's type from *how it is used*: if a
   believed relation puts `x` in a position that `(argIsa P n T')` constrains, then
   `x` is a `T'` (and, by genl, every supertype). So `argIsa` reads two ways — a
-  **constraint** when asserting, and an **inference** when querying (Fido eats
+  **constraint** when asserting, and an **inference** when querying (Muffet eats
   Bone1 and eat's 2nd argument is food ⇒ Bone1 is food). On-demand, never
   materialized. Partial (50).
 - **FactProver** — index matches (`matches-visible`). Partial (50).
@@ -1315,9 +1509,13 @@ reasoning. Raw introspection still sees everything.
   O(N²) scaling wall, and one agenda derives the same set; see
   [Forward chaining](#forward-chaining).
 - **Non-monotonic settle.** After chaining (and after every assert / retract /
-  `recover`), `settle` relabels belief and resolves contradictions: the
-  weaker-class belief is defeated, a default/default tie goes to the edge solver,
-  and an irreducible known-true clash is reported in `(conflicts kb)`. Because
+  `recover`), `settle` relabels belief and resolves contradictions on one axis,
+  defeat-class: the strictly weaker member is defeated, an irreducible known-true
+  clash is reported in `(conflicts kb)`, and a **default/default tie is not
+  decided at all** — both sides stay believed and the pair is reported by
+  `(contradictions kb)`. The edge solver has no caller on this path; what it
+  arbitrates is a contested `assumptionRule` program ([solving.md](solving.md)).
+  Because
   belief is *recomputed* from the current facts, a default conclusion is withdrawn
   when its negation **arrives later** and revived when that negation is retracted.
   Full details: [nmtms.md](nmtms.md).
