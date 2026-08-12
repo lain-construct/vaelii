@@ -47,15 +47,15 @@
   (serve/app kb {:token "s3cret-token"}))
 
 (tu/deftest-kb every-wire-refusal-is-a-status-and-a-type
-  (tu/with-terms [dog Rex WireProbeContext]
+  (tu/with-terms [dog Rex CxWireProbe]
     (let [handler (open-app kb)
           oversized (with-redefs [guard/max-body-bytes 8]
                       (post-raw handler edn-headers
-                                (op-body :assert [(list dog Rex) WireProbeContext])))
+                                (op-body :assert [(list dog Rex) CxWireProbe])))
           pinned
           [["a wrong content-type" 415 :not-edn
             (post-raw handler {"content-type" "text/plain"}
-                      (op-body :assert [(list dog Rex) WireProbeContext]))]
+                      (op-body :assert [(list dog Rex) CxWireProbe]))]
            ["a body that does not read as EDN" 400 :not-edn
             (post-raw handler edn-headers "{:op :assert :args [(dog")]
            ["an op the allowlist does not name" 400 :unknown-op
@@ -99,13 +99,13 @@
            ;; uninformative: same body for a missing, wrong or malformed credential
            ["no bearer token, to a daemon holding one" 401 :unauthorized
             (post-raw (authed-app kb) edn-headers
-                      (op-body :assert [(list dog Rex) WireProbeContext]))]]
+                      (op-body :assert [(list dog Rex) CxWireProbe]))]]
           ;; the engine's own refusal rides the wire under the engine's `:type`, and a
           ;; request-refusal is the *caller's* fault, so it is a 400 like the daemon's
           ;; own — answered 500 it counts as a backend fault at every reverse proxy
           ;; and 5xx alarm between the caller and the daemon
           engine (post-raw handler edn-headers
-                           (op-body :assert [(list dog '?x) WireProbeContext]))]
+                           (op-body :assert [(list dog '?x) CxWireProbe]))]
       (doseq [[label status type reply] pinned]
         (testing label
           (is (= status (:status reply)) label)
@@ -114,8 +114,8 @@
         (is (= :not-ground (:type engine)))
         (is (= 400 (:status engine))))
       (testing "the refusal-vocabulary statuses: naming, options, handles, levels"
-        (doseq [[label args ty] [["snake_case arity 2" [(list 'lives_in Rex 'cold_place) WireProbeContext] :naming]
-                                 ["an unread option" [(list dog Rex) WireProbeContext {:strenth :monotonic}] :unknown-option]]]
+        (doseq [[label args ty] [["snake_case arity 2" [(list 'lives_in Rex 'cold_place) CxWireProbe] :naming]
+                                 ["an unread option" [(list dog Rex) CxWireProbe {:strenth :monotonic}] :unknown-option]]]
           (let [r (post-raw handler edn-headers (op-body :assert args))]
             (is (= 400 (:status r)) label)
             (is (= ty (:type r)) label))))

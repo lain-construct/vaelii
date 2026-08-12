@@ -15,31 +15,31 @@
   (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind)
         ancestor-rule (vr/rule-sentence [(list parentOf '?x '?y)] (list ancestorOf '?x '?y))]
-    (v/assert kb (list 'set/forwardRule ancestor-rule) 'FamContext)
-    (v/assert kb (list parentOf tom bob) 'FamContext)
+    (v/assert kb (list 'set/forwardRule ancestor-rule) 'CxFam)
+    (v/assert kb (list parentOf tom bob) 'CxFam)
     (testing "a forward rule forward-chains its consequent"
-      (is (seq (v/sentexes-matching kb (list ancestorOf tom bob) 'FamContext))))))
+      (is (seq (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam))))))
 
 (tu/deftest-kb backward-rule-does-not-materialize-but-proves
   (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind)
         ancestor-rule (vr/rule-sentence [(list parentOf '?x '?y)] (list ancestorOf '?x '?y))]
-    (v/assert kb (list 'set/backwardRule ancestor-rule) 'FamContext)
-    (v/assert kb (list parentOf tom bob) 'FamContext)
+    (v/assert kb (list 'set/backwardRule ancestor-rule) 'CxFam)
+    (v/assert kb (list parentOf tom bob) 'CxFam)
     (testing "a backward rule is not forward-materialized"
-      (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'FamContext))))
+      (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam))))
     (testing "but it answers backward queries"
-      (is (v/provable? kb (list ancestorOf tom bob) 'FamContext)))))
+      (is (v/provable? kb (list ancestorOf tom bob) 'CxFam)))))
 
 (tu/deftest-kb inert-rule-is-documentation-only
   (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind)
         ancestor-rule (vr/rule-sentence [(list parentOf '?x '?y)] (list ancestorOf '?x '?y))]
-    (v/assert kb (list 'set/inertRule ancestor-rule) 'FamContext)
-    (v/assert kb (list parentOf tom bob) 'FamContext)
+    (v/assert kb (list 'set/inertRule ancestor-rule) 'CxFam)
+    (v/assert kb (list parentOf tom bob) 'CxFam)
     (testing "an inert rule drives no inference"
-      (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'FamContext)))
-      (is (not (v/provable? kb (list ancestorOf tom bob) 'FamContext))))
+      (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam)))
+      (is (not (v/provable? kb (list ancestorOf tom bob) 'CxFam))))
     (testing "but the rule sentex is stored and findable by its terms"
       (is (= 1 (count (v/find-sentexes kb ancestorOf)))))
     ;; Documentation is only documentation if it is *there*: believed like any other
@@ -65,27 +65,27 @@
   (tu/with-terms [animal_ dog_ terrier_ Rex]
     (let [rule (vr/rule-sentence [(list 'genl '?a '?b) (list 'genl '?b '?c)]
                                  (list 'genl '?a '?c))]
-      (v/assert kb (list 'set/inertRule rule) 'UniverseContext)
-      (v/assert kb (list 'genl terrier_ dog_) 'UniverseContext)
-      (v/assert kb (list 'genl dog_ animal_) 'UniverseContext)
-      (v/assert kb (list terrier_ Rex) 'UniverseContext)
+      (v/assert kb (list 'set/inertRule rule) 'CxUniverse)
+      (v/assert kb (list 'genl terrier_ dog_) 'CxUniverse)
+      (v/assert kb (list 'genl dog_ animal_) 'CxUniverse)
+      (v/assert kb (list terrier_ Rex) 'CxUniverse)
       (testing "the closure answers the transitive question the rule describes"
         (is (v/genl? kb terrier_ animal_))
         ;; ...and a query at the supertype reaches the instance through it.  `ask`, not
         ;; `sentexes-matching`: the closure is answered on demand and stores no edge, so
         ;; there is no `(animal Rex)` sentex to match — which is the whole design.
-        (is (v/provable? kb (list animal_ Rex) 'UniverseContext))
-        (is (= [{'?w Rex}] (v/ask kb (list animal_ '?w) 'UniverseContext))))
+        (is (v/provable? kb (list animal_ Rex) 'CxUniverse))
+        (is (= [{'?w Rex}] (v/ask kb (list animal_ '?w) 'CxUniverse))))
       (testing "while the rule itself derives nothing"
         (is (empty? (v/sentexes-matching kb (list 'genl terrier_ animal_)
-                                         'UniverseContext))
+                                         'CxUniverse))
             "no materialized (genl terrier animal) — the closure is not a stored edge")))))
 
 (tu/deftest-kb direction-via-opts
   (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind)]
-    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) 'FamContext {:direction :backward})
-    (v/assert kb (list parentOf tom bob) 'FamContext)
+    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) 'CxFam {:direction :backward})
+    (v/assert kb (list parentOf tom bob) 'CxFam)
     (testing ":direction opt matches the virtual-predicate behavior"
-      (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'FamContext)))
-      (is (v/provable? kb (list ancestorOf tom bob) 'FamContext)))))
+      (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam)))
+      (is (v/provable? kb (list ancestorOf tom bob) 'CxFam)))))

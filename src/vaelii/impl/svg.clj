@@ -197,7 +197,7 @@
 
 (defn- edge-el
   "One edge: a line with the shared arrowhead, and — when it carries one — the relation
-  name centred on it.  `:kind` becomes a class, which is how a `genlContext` edge is told
+  name centred on it.  `:kind` becomes a class, which is how a `genlCx` edge is told
   from a `genl` edge without either of them being a different colour of the same claim.
   `:back?` puts a head at the other end too, for a pair related both ways."
   [{:keys [x1 y1 x2 y2 label kind back?]}]

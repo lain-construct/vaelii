@@ -1,11 +1,11 @@
-;; AbstractContext — non-biological upper-ontology types (intangible, physical
+;; CxAbstract — non-biological upper-ontology types (intangible, physical
 ;; objects, attributes, substances, artifacts, body parts and their kinds), the
 ;; physical-structure relations partOf/locatedIn/madeOf, and the two type-level
-;; relations largerThan/partType. Sees CoreContext; UniverseContext sees it, so any
+;; relations largerThan/partType. Sees CxCore; CxUniverse sees it, so any
 ;; type or relation here is visible from every context.
 
-(genlContext AbstractContext CoreContext)
-(genlContext UniverseContext AbstractContext)
+(genlCx CxAbstract CxCore)
+(genlCx CxUniverse CxAbstract)
 
 (comment artifact "A physical object made by an agent for a purpose.")
 (genl artifact physical_object)
@@ -86,7 +86,7 @@
 (disjoint living_thing artifact)
 
 (comment locatedIn
-         "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is SpaceContext's business, and partOfRegion is the relation to reach for there.")
+         "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is CxSpace's business, and partOfRegion is the relation to reach for there.")
 (binaryPredicate locatedIn)
 (instanceRelationPredicate locatedIn)
 (argIsa locatedIn 1 physical_object)

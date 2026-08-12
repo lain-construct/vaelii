@@ -18,7 +18,7 @@
   Argument shapes come from the `vaelii.core` var's own `:arglists` (minus the leading
   `kb`) and its docstring, so a signature change is picked up on the next build.  JSON
   carries no symbols, so a sentence / context / term argument is a **string holding an
-  EDN s-expression** — `\"(dog ?x)\"`, `\"WellContext\"` — read back with
+  EDN s-expression** — `\"(dog ?x)\"`, `\"CxWell\"` — read back with
   `clojure.edn/read-string` (never `read-string`: EDN has no reader-eval, so a model's
   output cannot evaluate code)."
   (:require [clojure.edn :as edn]
@@ -98,8 +98,8 @@
   listed falls back to the generic EDN-form description."
   '{sentence "A sentence as an EDN s-expression: \"(dog Muffet)\", \"(parentOf ?x Tom)\"."
     goal     "A goal sentence, or a vector of them for a conjunctive query: \"[(parentOf ?x ?y) (dog ?y)]\"."
-    context  "A context name: \"WellContext\". Use \"?ctx\" to mean any context."
-    ctx      "A context name: \"WellContext\"."
+    context  "A context name: \"CxWell\". Use \"?ctx\" to mean any context."
+    ctx      "A context name: \"CxWell\"."
     term     "A single term (predicate, individual, type, or context name): \"Muffet\"."
     terms    "Terms to intersect on, as EDN strings: [\"Muffet\", \"dog\"]."
     handle   "A sentex handle — the integer id a stored sentex is referenced by."

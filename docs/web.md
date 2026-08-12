@@ -74,7 +74,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 
 | Route | Shows |
 |-------|-------|
-| `/` | the **upper ontology**: what the KB is in four numbers, then the genlContext context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
+| `/` | the **upper ontology**: what the KB is in four numbers, then the genlCx context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
 | `/stats` (`?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, and the contradiction / conflict / violation tallies), a contexts-by-size table ranked largest-first, and the actual dilemmas / conflicts / dropped-derivation violations when non-empty — each violation naming the run that dropped it. Every list on it is one screen and continues on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed |
 | `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (`re-find` semantics — a bare `dog` is a substring match, `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
 | `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), its supertypes/subtypes/disjoint-with (if a type), then every sentex containing it grouped by the **index root** that reaches it — functor `[:functor-root]`, argument-position `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
@@ -103,12 +103,12 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/kbs/rows` | the loaded-KB panel, refetched once a second **while a load is running** — the trigger is in the answer, so an idle page stops asking |
 | `/kbs/export/rows` | the export panel, on the same self-terminating poll: the last job's report, and whether what it wrote is now offered under **Available** |
 | `/kbs/banner` | the **provisional-KB strip** every page carries when the KB it reads is not finished (below). Like the memory strip it is a read of the *process* and swaps only itself; it answers with the empty element once there is nothing to say, which is what stops the polling |
-| `/sandbox/reset` (POST) | **discard this session's sandbox** — every sentex in it and the `genlContext` edge that made it a context. The only control in the browser whose purpose is to destroy knowledge, so POST-only and origin-checked |
+| `/sandbox/reset` (POST) | **discard this session's sandbox** — every sentex in it and the `genlCx` edge that made it a context. The only control in the browser whose purpose is to destroy knowledge, so POST-only and origin-checked |
 | `/caches` | what this **process** is holding beside the stores: every cache the engine keeps, its bound, its unit and — where anything counts them — its hit rate, plus the heap strip below reused rather than redrawn, and the profiler. A read of the process, so its numbers are O(1) apiece and it can be left open (below) |
 | `/caches/rows` | the cache table, on the same self-terminating poll as the KB panels — it asks only while a job is running, which is when these numbers move |
 | `/caches/clear` (POST) | **drop the derived caches** and say what went. Origin-checked like every write and deliberately not behind `writing`: it moves no belief, holds no writer, and is the one control here meant to be used *while* a load runs |
 | `/kbs/memory` | the **memory strip** heading that panel, collapsed or (`?detail=1`) expanded into the per-KB breakdown. A read of the *process*, not of a KB, so it takes no view. Two requests reach it and they are different requests: the header line **toggles** (it asks for the state the panel is not in), while the panel **refreshes** at the state it is in, and only while a load is running — one element carrying both would poll the toggle and flip the breakdown open and shut every tick |
-| `/tree/rows?rel=<genl\|genlContext>&node=<term>` | one **level of a hierarchy**: that node's direct children, fetched the first time its disclosure is opened, and paged like any other list. `rel` reaches the index as a functor, so it is checked against the two transitivity relations rather than trusted |
+| `/tree/rows?rel=<genl\|genlCx>&node=<term>` | one **level of a hierarchy**: that node's direct children, fetched the first time its disclosure is opened, and paged like any other list. `rel` reaches the index as a functor, so it is checked against the two transitivity relations rather than trusted |
 | `/term/rows`, `/find/rows`, `/levels/rows`, `/front/rows`, `/stats/rows` | **continuations**: one more page of rows for a capped list. Not pages — bare `<li>`s a list's sentinel fetches for itself (below). The last two take a `?section=` naming which list on the page is continuing |
 
 Everything is cross-linked: terms → sentexes → justifications → terms, any sentex can
@@ -167,7 +167,7 @@ reason a term page is slow**, so the bound is part of the work and not a follow-
 - **Nothing.** No structure, no relations: no picture, no empty frame, no "no graph
   available" box. The page renders as it otherwise would.
 
-**A term is a context or it is not.** `genl` relates types and predicates, `genlContext`
+**A term is a context or it is not.** `genl` relates types and predicates, `genlCx`
 relates contexts, `wff` refuses the mixture, and the naming invariants keep the two
 vocabularies apart — so there is exactly one subsumption relation per term page and the
 class on its edges says which. That is also what makes a context page worth opening: `genl`
@@ -215,9 +215,9 @@ figure and nothing else — the page is still 200 and still complete.
 ### Somewhere safe to be wrong
 
 Every browser session gets a **sandbox**: a scratch context of its own, hung below
-`WellContext`. `vaelii.impl.sandbox`.
+`CxWell`. `vaelii.impl.sandbox`.
 
-The asymmetry is the whole design, and it is not a permission check. `genlContext` already
+The asymmetry is the whole design, and it is not a permission check. `genlCx` already
 decides what a context can see; hanging the sandbox at the bottom of the spindle means
 everything shipped flows *in* — every type, every relation, every rule is usable — and
 nothing flows *out*, because no shipped context names it. A reader can therefore be wrong
@@ -238,10 +238,10 @@ can discard, with nothing arranging for it.
   the hex `mint-token` produces is accepted.
 - **The assert form defaults its context to the sandbox**, so writing somewhere safe is
   what happens when the reader changes nothing. It is a default, not a lock: the field is
-  editable, and anyone who knows they want `NaturalWorldContext` can type it.
+  editable, and anyone who knows they want `CxNaturalWorld` can type it.
 - **Reset is a real teardown**, not a flag — every sentex in the extent through `edit!`'s
-  `:remove`, then the `genlContext` edge, which is not in the extent because
-  `genlContext` is forced-decontextualized and therefore stored in `UniverseContext`. The
+  `:remove`, then the `genlCx` edge, which is not in the extent because
+  `genlCx` is forced-decontextualized and therefore stored in `CxUniverse`. The
   dependency-directed sweep takes the derived conclusions and their justifications, so the
   KB comes back to its pre-session sentex *and* justification sets exactly.
 - **It appears in the chrome as a place, never as a context picker** — a `Sandbox` nav
@@ -287,7 +287,7 @@ Two things it is careful to show rather than assert:
   the conclusion and put it back, it forgot it and re-earned it, and the proof being
   identical while the record is not is a thing a slideshow could not fake.
 
-The individual is the only content the demo creates; the rules are `BiologyContext`'s
+The individual is the only content the demo creates; the rules are `CxBiology`'s
 shipped ones. Step 2 reads `why-not`'s **sentence** arity, which exists for exactly this
 case: a blocked conclusion has no handle to ask about.
 
@@ -1167,8 +1167,8 @@ one — the rankings taken are the ones the index already answers in O(1):
   ranking is `n` O(1) reads (150 ms over 13,196, and past `context-rank-cap` the page says
   it cannot rank rather than spending it). This is the ranking that earns its keep: a
   corpus's mass is not spread evenly over its contexts, and the four largest name the
-  subject outright — `UniversalVocabularyContext` 609,798, `GeneOntologyContentContext`
-  119,192, `BaseKBContext` 63,497, `ComputerSoftwareDataContext` 32,469. Fifty alphabetical
+  subject outright — `CxUniversalVocabulary` 609,798, `CxGeneOntologyContent`
+  119,192, `CxBaseKB` 63,497, `CxComputerSoftwareData` 32,469. Fifty alphabetical
   context names said none of that. It is the front page's lattice fallback and the whole
   of the stats table.
 - **Types, by how many things they are separated from.** One frequency pass over the pairs.

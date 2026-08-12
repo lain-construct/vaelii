@@ -38,42 +38,42 @@
       (orig kb s c))))
 
 (tu/deftest-kb succs-is-memoized-only-under-a-bound-cache
-  (tu/with-terms [before A B FarmContext]
-    (v/assert kb (list 'transitive before) FarmContext)
-    (v/assert kb (list before A B) FarmContext)
+  (tu/with-terms [before A B CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
+    (v/assert kb (list before A B) CxFarm)
     (let [calls (atom 0)]
       (with-redefs [res/matches-visible (counting-closure-lookups before calls)]
         (testing "no memo bound -> each succs call hits the store"
           (reset! calls 0)
           (binding [observe/*reach-memo* nil]
-            (#'provers/succs kb before A FarmContext)
-            (#'provers/succs kb before A FarmContext))
+            (#'provers/succs kb before A CxFarm)
+            (#'provers/succs kb before A CxFarm))
           (is (= 2 @calls)))
         (testing "a bound memo -> repeated succs of the same node hits the store once"
           (reset! calls 0)
           (binding [observe/*reach-memo* (atom {})]
-            (#'provers/succs kb before A FarmContext)
-            (#'provers/succs kb before A FarmContext))
+            (#'provers/succs kb before A CxFarm)
+            (#'provers/succs kb before A CxFarm))
           (is (= 1 @calls)))
         (testing "preds-of shares the cache without colliding with succs (different dir)"
           (reset! calls 0)
           (binding [observe/*reach-memo* (atom {})]
-            (#'provers/succs kb before A FarmContext)
-            (#'provers/preds-of kb before A FarmContext))    ; a different direction of A
+            (#'provers/succs kb before A CxFarm)
+            (#'provers/preds-of kb before A CxFarm))    ; a different direction of A
           (is (= 2 @calls) "succ and pred of the same node are distinct keys"))))))
 
 (tu/deftest-kb two-transitive-antecedents-stay-correct-and-linear
-  (tu/with-terms [before twoHop FarmContext]
-    (v/assert kb (list 'transitive before) FarmContext)
+  (tu/with-terms [before twoHop CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
     (let [nodes (vec (repeatedly 11 tu/tmp-ind))]           ; N0 -> N1 -> … -> N10, a chain
-      (doseq [i (range 10)] (v/assert kb (list before (nodes i) (nodes (inc i))) FarmContext))
+      (doseq [i (range 10)] (v/assert kb (list before (nodes i) (nodes (inc i))) CxFarm))
       ;; twoHop(?a,?c) :- before(?a,?b) ∧ before(?b,?c), backward-only so nothing is
       ;; forward-materialized and the join genuinely walks the `before` closure twice
       (v/assert-rule kb [(list before '?a '?b) (list before '?b '?c)]
-                     (list twoHop '?a '?c) FarmContext {:direction :backward})
+                     (list twoHop '?a '?c) CxFarm {:direction :backward})
       (let [calls (atom 0)]
         (with-redefs [res/matches-visible (counting-closure-lookups before calls)]
-          (let [ans (set (map #(get % '?c) (v/query kb (list twoHop (nodes 0) '?c) FarmContext {:max-depth 2})))]
+          (let [ans (set (map #(get % '?c) (v/query kb (list twoHop (nodes 0) '?c) CxFarm {:max-depth 2})))]
             (testing "correct: N0 two-hops to every node from N2 onward"
               (is (= (set (subvec nodes 2)) ans)))
             (testing "the closure is walked once, not once per join binding"
@@ -106,71 +106,71 @@
   ;; Write this one first: a closure held across a relabel is the failure that reports a
   ;; plausible answer rather than an error.  A relabel moves the change clock, which is
   ;; what retires the entry — nothing here looks for the entry the edge was in.
-  (tu/with-terms [before A B C FarmContext]
-    (v/assert kb (list 'genlContext FarmContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'transitive before) FarmContext)
-    (v/assert kb (list before A B) FarmContext)
-    (v/assert kb (list before B C) FarmContext)
-    (is (= #{B C} (ancestors-of kb before A FarmContext)) "the closure, computed and held")
+  (tu/with-terms [before A B C CxFarm]
+    (v/assert kb (list 'genlCx CxFarm 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'transitive before) CxFarm)
+    (v/assert kb (list before A B) CxFarm)
+    (v/assert kb (list before B C) CxFarm)
+    (is (= #{B C} (ancestors-of kb before A CxFarm)) "the closure, computed and held")
     ;; the middle edge is defeated rather than removed: the sentex stays stored and goes
     ;; OUT, which is the move a cache keyed on the store alone would not see
-    (v/assert kb (list 'not (list before B C)) FarmContext {:strength :monotonic})
-    (is (= #{B} (ancestors-of kb before A FarmContext))
+    (v/assert kb (list 'not (list before B C)) CxFarm {:strength :monotonic})
+    (is (= #{B} (ancestors-of kb before A CxFarm))
         "the closure shrinks with belief, and does not answer out of the held set")))
 
 (tu/deftest-kb a-retracted-edge-moves-the-cached-closure
-  (tu/with-terms [before A B C FarmContext]
-    (v/assert kb (list 'transitive before) FarmContext)
-    (v/assert kb (list before A B) FarmContext)
-    (let [h (v/assert kb (list before B C) FarmContext)]
-      (is (= #{B C} (ancestors-of kb before A FarmContext)))
+  (tu/with-terms [before A B C CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
+    (v/assert kb (list before A B) CxFarm)
+    (let [h (v/assert kb (list before B C) CxFarm)]
+      (is (= #{B C} (ancestors-of kb before A CxFarm)))
       (v/retract! kb h)
-      (is (= #{B} (ancestors-of kb before A FarmContext))))))
+      (is (= #{B} (ancestors-of kb before A CxFarm))))))
 
 (tu/deftest-kb a-new-edge-extends-a-closure-already-answered
-  (tu/with-terms [before A B C FarmContext]
-    (v/assert kb (list 'transitive before) FarmContext)
-    (v/assert kb (list before A B) FarmContext)
-    (is (= #{B} (ancestors-of kb before A FarmContext)))
-    (v/assert kb (list before B C) FarmContext)
-    (is (= #{B C} (ancestors-of kb before A FarmContext)) "the held answer did not survive the assert")))
+  (tu/with-terms [before A B C CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
+    (v/assert kb (list before A B) CxFarm)
+    (is (= #{B} (ancestors-of kb before A CxFarm)))
+    (v/assert kb (list before B C) CxFarm)
+    (is (= #{B C} (ancestors-of kb before A CxFarm)) "the held answer did not survive the assert")))
 
 (tu/deftest-kb a-sub-predicate-edge-arriving-later-extends-the-closure
   ;; The walk fans its functor over the genl spec closure, so an edge stored under a
   ;; sub-predicate is a hop.  A genl edge is an assert like any other, so the clock moves
   ;; and the held answer goes with it.
-  (tu/with-terms [before strictlyBefore A B C FarmContext]
-    (v/assert kb (list 'transitive before) FarmContext)
-    (v/assert kb (list before A B) FarmContext)
-    (v/assert kb (list strictlyBefore B C) FarmContext)
-    (is (= #{B} (ancestors-of kb before A FarmContext)))
-    (v/assert kb (list 'genl strictlyBefore before) FarmContext)
-    (is (= #{B C} (ancestors-of kb before A FarmContext))
+  (tu/with-terms [before strictlyBefore A B C CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
+    (v/assert kb (list before A B) CxFarm)
+    (v/assert kb (list strictlyBefore B C) CxFarm)
+    (is (= #{B} (ancestors-of kb before A CxFarm)))
+    (v/assert kb (list 'genl strictlyBefore before) CxFarm)
+    (is (= #{B C} (ancestors-of kb before A CxFarm))
         "the sub-predicate's edge is now a hop, and the held closure did not hide it")))
 
 (tu/deftest-kb two-contexts-that-see-different-edges-get-different-closures
   ;; The vantage is in the key.  Without it the first context asked would answer for the
   ;; second, which is the quietest possible wrong answer.
-  (tu/with-terms [before A B C BaseContext SideContext]
-    (v/assert kb (list 'genlContext SideContext BaseContext) 'UniverseContext)
-    (v/assert kb (list 'transitive before) BaseContext)
-    (v/assert kb (list before A B) BaseContext)
-    (v/assert kb (list before B C) SideContext)             ; only the narrower view sees it
-    (is (= #{B} (ancestors-of kb before A BaseContext)) "the base sees one hop")
-    (is (= #{B C} (ancestors-of kb before A SideContext)) "and the side context sees two")
-    (is (= #{B} (ancestors-of kb before A BaseContext)) "and asking again does not swap them")))
+  (tu/with-terms [before A B C CxBase CxSide]
+    (v/assert kb (list 'genlCx CxSide CxBase) 'CxUniverse)
+    (v/assert kb (list 'transitive before) CxBase)
+    (v/assert kb (list before A B) CxBase)
+    (v/assert kb (list before B C) CxSide)             ; only the narrower view sees it
+    (is (= #{B} (ancestors-of kb before A CxBase)) "the base sees one hop")
+    (is (= #{B C} (ancestors-of kb before A CxSide)) "and the side context sees two")
+    (is (= #{B} (ancestors-of kb before A CxBase)) "and asking again does not swap them")))
 
 (tu/deftest-kb a-repeated-closure-ask-walks-nothing
-  (tu/with-terms [before FarmContext]
-    (v/assert kb (list 'transitive before) FarmContext)
+  (tu/with-terms [before CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
     (let [nodes (vec (repeatedly 8 tu/tmp-ind))]
-      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) FarmContext))
+      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) CxFarm))
       (let [n (AtomicLong. 0)]
         (with-redefs [res/matches-visible (counting-neighbour-probes n)]
-          (let [first-answer (ancestors-of kb before (nodes 0) FarmContext)
+          (let [first-answer (ancestors-of kb before (nodes 0) CxFarm)
                 walked       (.get n)]
             (.set n 0)
-            (is (= first-answer (ancestors-of kb before (nodes 0) FarmContext))
+            (is (= first-answer (ancestors-of kb before (nodes 0) CxFarm))
                 "the same answer")
             (is (pos? walked) "the first ask walked")
             (is (zero? (.get n)) "and the second walked nothing at all")))))))
@@ -178,47 +178,47 @@
 (tu/deftest-kb a-closed-goal-reads-the-cache-without-filling-it
   ;; The asymmetry: an entry answers a pair by membership, and a closed goal that misses
   ;; keeps its early exit rather than building the whole extent to store one.
-  (tu/with-terms [before FarmContext]
-    (v/assert kb (list 'transitive before) FarmContext)
+  (tu/with-terms [before CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
     (let [nodes (vec (repeatedly 8 tu/tmp-ind))]
-      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) FarmContext))
+      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) CxFarm))
       (testing "a closed goal alone leaves the cache empty"
         (v/clear-caches kb)
-        (is (v/ask? kb (list before (nodes 0) (nodes 7)) FarmContext))
+        (is (v/ask? kb (list before (nodes 0) (nodes 7)) CxFarm))
         (is (zero? (count (:entries @(:closures kb))))))
       (testing "and once an open ask has filled it, a pair from that node is answered from the set"
-        (ancestors-of kb before (nodes 0) FarmContext)
+        (ancestors-of kb before (nodes 0) CxFarm)
         (let [n (AtomicLong. 0)
               stranger (tu/tmp-ind)]                        ; in no edge, so in no reach
           (with-redefs [res/matches-visible (counting-neighbour-probes n)]
-            (is (v/ask? kb (list before (nodes 0) (nodes 7)) FarmContext))
-            (is (not (v/ask? kb (list before (nodes 0) stranger) FarmContext)))
+            (is (v/ask? kb (list before (nodes 0) (nodes 7)) CxFarm))
+            (is (not (v/ask? kb (list before (nodes 0) stranger) CxFarm)))
             (is (zero? (.get n)) "neither answer walked — both came out of the held set"))))
       (testing "a pair from a node no ask has filled still walks, and still stops early"
         (let [n (AtomicLong. 0)]
           (with-redefs [res/matches-visible (counting-neighbour-probes n)]
-            (is (not (v/ask? kb (list before (nodes 7) (nodes 0)) FarmContext)))
+            (is (not (v/ask? kb (list before (nodes 7) (nodes 0)) CxFarm)))
             (is (pos? (.get n)) "the miss falls through to the walk rather than inventing one")))))))
 
 (tu/deftest-kb a-closure-past-the-bound-is-not-held
   ;; The bound counts members, because an entry is a whole reach: bounding entries would
   ;; bound nothing.  A reach bigger than the bound is never stored at all — it is the
   ;; case the bound exists for.
-  (tu/with-terms [before FarmContext]
-    (v/assert kb (list 'transitive before) FarmContext)
+  (tu/with-terms [before CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
     (let [nodes (vec (repeatedly 8 tu/tmp-ind))]
-      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) FarmContext))
+      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) CxFarm))
       (binding [provers/*closure-answer-limit* 3]
         (v/clear-caches kb)
-        (is (= 7 (count (ancestors-of kb before (nodes 0) FarmContext)))
+        (is (= 7 (count (ancestors-of kb before (nodes 0) CxFarm)))
             "the answer is the whole reach whether or not it is held")
         (is (zero? (count (:entries @(:closures kb))))
             "and a reach of 7 members is not held under a bound of 3"))
       (testing "a total that reaches the bound drops the map rather than evicting"
         (binding [provers/*closure-answer-limit* 5]
           (v/clear-caches kb)
-          (ancestors-of kb before (nodes 5) FarmContext)     ; 2 members
-          (ancestors-of kb before (nodes 4) FarmContext)     ; 3 more, total 5
+          (ancestors-of kb before (nodes 5) CxFarm)     ; 2 members
+          (ancestors-of kb before (nodes 4) CxFarm)     ; 3 more, total 5
           (is (pos? (count (:entries @(:closures kb)))))
-          (ancestors-of kb before (nodes 3) FarmContext)     ; 4 more, over the bound
+          (ancestors-of kb before (nodes 3) CxFarm)     ; 4 more, over the bound
           (is (zero? (count (:entries @(:closures kb))))))))))

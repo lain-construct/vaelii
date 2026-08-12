@@ -4,13 +4,13 @@
   "Somewhere safe to be wrong.
 
   A **sandbox** is a scratch context of one browser session's own, hung below
-  `WellContext` so it sees the whole shipped ontology and nothing shipped sees it.  A
+  `CxWell` so it sees the whole shipped ontology and nothing shipped sees it.  A
   reader can therefore use every type, every relation and every rule the KB ships, and
   cannot damage any of them: their content is visible only from inside, and one control
   takes all of it away again.
 
   Why that shape and not a permission system: visibility here is *logical*, not
-  administrative.  `genlContext` already decides what a context can see, and hanging the
+  administrative.  `genlCx` already decides what a context can see, and hanging the
   sandbox at the bottom of the spindle gives exactly the asymmetry wanted — everything
   flows in, nothing flows out — with no new concept and nothing to enforce.  A shipped
   rule firing over sandbox facts places its conclusion **in the sandbox**, because
@@ -22,15 +22,15 @@
 
   - **The context is created on the first write, not on the first page.**  A reader who
     only looks costs the KB nothing, and a KB full of empty sandboxes would be a KB with
-    a `genlContext` edge per idle visitor.
+    a `genlCx` edge per idle visitor.
   - **The session id is in the context name**, so two readers of one process never share
     one.  It is minted into a cookie by `wrap-session` and validated on the way back in —
     a name is being built from it, and a name built from unvalidated client input is an
     injection.
   - **Reset is a real teardown**, not a flag: every sentex in the extent goes through
-    `edit`'s `:remove`, and the `genlContext` edge with them.  The edge is not in the
-    extent — `genlContext` is a forced-decontextualized predicate, so it is stored in
-    `UniverseContext` — which is why it is fetched by hand rather than swept up with the
+    `edit`'s `:remove`, and the `genlCx` edge with them.  The edge is not in the
+    extent — `genlCx` is a forced-decontextualized predicate, so it is stored in
+    `CxUniverse` — which is why it is fetched by hand rather than swept up with the
     rest.
 
   Promotion — moving something out of a sandbox into a context that outlives it — is
@@ -61,11 +61,11 @@
 
 (defn context-for
   "The sandbox context named by `token`, or nil when the token is not one we minted.
-  `Sandbox<token>Context` satisfies the context naming invariant (CapitalCamelCase
-  ending in `Context`), so it is an ordinary context in every other respect."
+  `CxSandbox<token>` satisfies the context naming invariant (`Cx` prefix,
+  CapitalCamelCase), so it is an ordinary context in every other respect."
   [token]
   (when (and token (re-matches token-pattern (str token)))
-    (symbol (str "Sandbox" token "Context"))))
+    (symbol (str "CxSandbox" token))))
 
 (defn- cookies
   "The request's cookies as a map, parsed off the raw header.  Ring's cookie middleware
@@ -114,13 +114,13 @@
 
 ;; ---- the context itself --------------------------------------------------
 
-(defn- edge [ctx] (list 'genlContext ctx 'WellContext))
+(defn- edge [ctx] (list 'genlCx ctx 'CxWell))
 
 (defn live?
   "Does this sandbox exist in the KB yet?  It exists exactly when its edge does; the
   extent can be empty (everything in it retracted) and the sandbox still be open."
   [target ctx]
-  (boolean (and ctx (v/handle-of target (edge ctx) 'UniverseContext))))
+  (boolean (and ctx (v/handle-of target (edge ctx) 'CxUniverse))))
 
 (defn open
   "Make sure `ctx` exists, and answer it.  Idempotent — the edge is find-or-create, so a
@@ -128,7 +128,7 @@
   [target ctx]
   (when ctx
     (when-not (live? target ctx)
-      (v/edit! target {:add [[(edge ctx) 'UniverseContext {:strength :monotonic}]]}))
+      (v/edit! target {:add [[(edge ctx) 'CxUniverse {:strength :monotonic}]]}))
     ctx))
 
 (defn extent
@@ -152,9 +152,9 @@
     {:removed-sentexes 0 :removed-justifications 0}
     (let [handles (mapv :id (v/sentexes-in-context target ctx))
           gone    (:removed (v/edit! target {:remove handles}))
-          ;; the edge last, and separately: `genlContext` is forced-decontextualized, so
-          ;; it is stored in UniverseContext and was never in the extent above
-          e       (v/handle-of target (edge ctx) 'UniverseContext)
+          ;; the edge last, and separately: `genlCx` is forced-decontextualized, so
+          ;; it is stored in CxUniverse and was never in the extent above
+          e       (v/handle-of target (edge ctx) 'CxUniverse)
           gone2   (if e (:removed (v/edit! target {:remove [e]}))
                       {:removed-sentexes 0 :removed-justifications 0})]
       (merge-with + gone gone2))))

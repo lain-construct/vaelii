@@ -24,7 +24,7 @@
             [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu]))
 
-;; A fresh KB per test: the CoreContext grammar, the SpaceContext vocabulary that states
+;; A fresh KB per test: the CxCore grammar, the CxSpace vocabulary that states
 ;; distances in it, and the prover registered.  The vocabulary is an upper context (it is
 ;; *about* space, so it is nobody else's business); the prover is opt-in, so registering it
 ;; is what turns stored distance facts into a network.  The algebra tests below need none
@@ -32,10 +32,10 @@
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'SpaceContext "upper")
+                        (seed/load-context 'CxSpace "upper")
                         (v/add-prover (dist/distance-prover)))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 ;; ---- the algebra, checked against real numbers --------------------------
 
@@ -311,18 +311,18 @@
 ;; ---- context and belief --------------------------------------------------
 
 (tu/deftest-kb the-network-follows-belief-and-visibility
-  (tu/with-terms [A B D InnerContext OuterContext]
-    (v/assert kb (list 'genlContext InnerContext OuterContext) C)
-    (v/assert kb (list 'coLocatedWith A B) OuterContext)
-    (v/assert kb (list 'closeTo B D) InnerContext)
+  (tu/with-terms [A B D CxInner CxOuter]
+    (v/assert kb (list 'genlCx CxInner CxOuter) C)
+    (v/assert kb (list 'coLocatedWith A B) CxOuter)
+    (v/assert kb (list 'closeTo B D) CxInner)
     (testing "the inner context sees both facts, so it composes the chain"
-      (is (v/ask? kb (list 'closeTo A D) InnerContext)))
+      (is (v/ask? kb (list 'closeTo A D) CxInner)))
     (testing "the outer context sees only its own, so it composes nothing"
-      (is (not (v/ask? kb (list 'closeTo A D) OuterContext)))
-      (is (v/ask? kb (list 'coLocatedWith A B) OuterContext)))
+      (is (not (v/ask? kb (list 'closeTo A D) CxOuter)))
+      (is (v/ask? kb (list 'coLocatedWith A B) CxOuter)))
     (testing "retracting a link breaks the chain — the network is read, not cached"
-      (v/retract! kb (v/handle-of kb (list 'closeTo B D) InnerContext))
-      (is (not (v/ask? kb (list 'closeTo A D) InnerContext))))))
+      (v/retract! kb (v/handle-of kb (list 'closeTo B D) CxInner))
+      (is (not (v/ask? kb (list 'closeTo A D) CxInner))))))
 
 ;; ---- registration --------------------------------------------------------
 

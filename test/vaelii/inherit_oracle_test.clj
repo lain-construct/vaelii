@@ -26,7 +26,7 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(def ^:private ctx 'UniverseContext)
+(def ^:private ctx 'CxUniverse)
 
 (defn- comparable-claims
   "The claim set as plain data, ordered so two runs are comparable — handles are
@@ -142,17 +142,17 @@
       (is (seq cs) "the mirror is read on both paths or on neither"))))
 
 (tu/deftest-kb the-strongest-statement-of-a-tuple-wins-on-both-paths
-  (tu/with-terms [dog_t animal_t cat_t feline_t largerThan SideContext]
-    (v/assert kb (list 'genlContext SideContext ctx) ctx)
+  (tu/with-terms [dog_t animal_t cat_t feline_t largerThan CxSide]
+    (v/assert kb (list 'genlCx CxSide ctx) ctx)
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl cat_t feline_t) ctx)
       (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
       (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx))
-    ;; the same sentence twice, at two strengths, in two contexts SideContext sees
+    ;; the same sentence twice, at two strengths, in two contexts CxSide sees
     (v/assert kb (list largerThan animal_t feline_t) ctx {:strength :default})
-    (v/assert kb (list largerThan animal_t feline_t) SideContext {:strength :monotonic})
-    (let [cs (both-paths-agree kb (list largerThan dog_t cat_t) SideContext)]
+    (v/assert kb (list largerThan animal_t feline_t) CxSide {:strength :monotonic})
+    (let [cs (both-paths-agree kb (list largerThan dog_t cat_t) CxSide)]
       (is (= 1 (count cs)) "one claim per tuple, not one per sentex")
       (is (= :monotonic (:class (first cs)))
           "the strongest, and both paths agree which that is"))))

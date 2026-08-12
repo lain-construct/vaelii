@@ -267,7 +267,7 @@
 (tu/deftest-kb the-proposal-review-form-is-clean-where-it-lands
   (let [t    (tu/tmp-type "quokka")
         ctx  (tu/tmp-ctx "Marsupial")
-        _    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext)
+        _    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse)
         _    (v/assert kb (list 'genl t 'animal) ctx)
         doc  (:body (GET "/term" (str "q=" t)))
         frag (binding [web/*proposer*

@@ -12,10 +12,10 @@
   enforced and one that was never implemented.  A roster is what turns that silence into
   an answer.
 
-  **Population: CoreContext's own terms.**  Not every predicate in the KB — a domain
+  **Population: CxCore's own terms.**  Not every predicate in the KB — a domain
   relation is *supposed* to be inert, and `(likes Fred Mary)` asks nothing of the engine.
-  CoreContext is the vocabulary context, whose charter (see the header of
-  `resources/kb/CoreContext.txt`) is exactly \"the engine-interpreted special predicates
+  CxCore is the vocabulary context, whose charter (see the header of
+  `resources/kb/CxCore.txt`) is exactly \"the engine-interpreted special predicates
   and the predicate meta-ontology\", and its file is term-centric: one `(comment <term>
   …)` block per term.  So the terms it comments are precisely the grammar, and precisely
   the set where \"declared but unimplemented\" is a defect rather than the normal case.
@@ -29,8 +29,8 @@
   what a mark implies, and are read by no check because the mark itself is what the
   checks read.
 
-  **What keeps it honest** is `audit`, and two tests over it: a term CoreContext comments
-  with no roster entry fails, and a roster entry naming a term CoreContext no longer
+  **What keeps it honest** is `audit`, and two tests over it: a term CxCore comments
+  with no roster entry fails, and a roster entry naming a term CxCore no longer
   comments fails.  So the next plausible-looking functor cannot land unimplemented in
   silence, and a retired one cannot leave a stale claim behind.  The `:enforced` side is
   cross-checked against `special/entries` as well, which is machine-readable: a functor
@@ -51,19 +51,19 @@
 (def vocabulary-context
   "The context whose terms this roster is about.  `core-context/load-into` names the
   same symbol; it is the one context whose contents are the engine's own grammar."
-  'CoreContext)
+  'CxCore)
 
 (def roster
   "`term -> {:enforced \"where\"}` or `term -> {:inert \"why\"}`, over every term
-  CoreContext comments.
+  CxCore comments.
 
   The `:by` prose names a code path, so it is the thing to update when one moves — and
   `audit` is what notices when a *term* moves without it."
   '{;; ---- the taxonomy relations, cached rather than chained ----------------
     genl        {:enforced "taxonomy/add-genl — the cached closure every membership, match and placement reads"}
-    genlContext {:enforced "taxonomy/add-genlContext — the visibility closure a context read walks"}
+    genlCx {:enforced "taxonomy/add-genlCx — the visibility closure a context read walks"}
     thing       {:enforced "checks — the hierarchy root the open-world floors test against by name"}
-    predicate   {:enforced "generic: the argIsa target CoreContext constrains its own meta-level with"}
+    predicate   {:enforced "generic: the argIsa target CxCore constrains its own meta-level with"}
     function    {:enforced "generic: the argIsa target the function-valued positions of resultIsa, resultGenl and functionCorrespondingPredicate name"}
 
     ;; ---- the definitional constraints -------------------------------------
@@ -93,8 +93,8 @@
     abduciblePredicate   {:enforced "taxonomy prop :abducible — the gate on what abduce may hypothesize"}
 
     ;; ---- placement and lifting --------------------------------------------
-    decontextualizedPredicate       {:enforced "special — the UniverseContext lift, retroactive over the extent"}
-    forcedDecontextualizedPredicate {:enforced "special — storage straight into UniverseContext"}
+    decontextualizedPredicate       {:enforced "special — the CxUniverse lift, retroactive over the extent"}
+    forcedDecontextualizedPredicate {:enforced "special — storage straight into CxUniverse"}
     ist  {:enforced "assert and rule placement — never stored, it names where the sentence goes"}
 
     ;; ---- the connectives and rule wrappers, read by the canonicalizer -----
@@ -142,7 +142,7 @@
   "What the engine does with vocabulary term `term`: `{:enforced \"where\"}`,
   `{:inert \"why\"}`, or nil for a term the roster does not cover.
 
-  Nil is **not** \"nothing reads it\" — the roster's population is CoreContext's grammar,
+  Nil is **not** \"nothing reads it\" — the roster's population is CxCore's grammar,
   so an ordinary domain predicate is simply not a term this question is asked about."
   [term]
   (get roster term))

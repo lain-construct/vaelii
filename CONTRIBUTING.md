@@ -138,7 +138,7 @@ tests look more paranoid than a unit test needs to be.
   one answer. [`docs/nmtms.md`](docs/nmtms.md)
 - **Locality.** No operation recomputes the whole graph; a relabel is scoped to the
   affected region with the rest held fixed.
-- **Context scoping.** A read sees what its context sees, up the `genlContext` cone —
+- **Context scoping.** A read sees what its context sees, up the `genlCx` cone —
   facts, rules, taxonomy edges and the definitional checks alike.
   [`docs/contexts.md`](docs/contexts.md)
 - **Belief filtering.** A stored sentex is not a believed one. Matching, the taxonomy
@@ -160,7 +160,7 @@ rejection messages: [`docs/naming.md`](docs/naming.md).
 | predicate | camelCase, lowercase-initial | `parentOf`, `genl`, `argIsa` |
 | individual | CapitalCamelCase | `Muffet`, `Tom` |
 | type | snake_case, a **unary** predicate | `dog`, `physical_object` |
-| context | ends with `Context`, CapitalCamelCase | `CoreContext`, `UniverseContext` |
+| context | `Cx` followed by CapitalCamelCase | `CxCore`, `CxUniverse` |
 
 What follows from it:
 
@@ -344,7 +344,7 @@ If your predicate is transitive, symmetric or functional, assert the meta-predic
 alongside it and the existing machinery picks it up. A declaration the engine does not
 read is worse than none, because it is indistinguishable from one that works:
 `vaelii.impl.vocabulary` is the roster of what the engine's own grammar actually
-enforces, and `vocabulary_audit_test.clj` fails both on a `CoreContext` term the roster
+enforces, and `vocabulary_audit_test.clj` fails both on a `CxCore` term the roster
 does not mention and on a roster entry naming a term the grammar has retired. If you
 add a declaration, add it there too.
 

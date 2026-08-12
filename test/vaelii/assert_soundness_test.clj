@@ -38,21 +38,21 @@
 
 (tu/deftest-kb a-wrapper-around-a-fact-does-not-smuggle-it-past-the-disjointness-check
   ;; one context throughout: the disjointness check is context-scoped and this KB
-  ;; is fresh, so a declaration in an unwired UniverseContext would be invisible
+  ;; is fresh, so a declaration in an unwired CxUniverse would be invisible
   (tu/with-terms [dog cat Felix]
-    (v/assert kb (list 'disjoint dog cat) 'NaturalWorldContext)
-    (v/assert kb (list cat Felix) 'NaturalWorldContext)
+    (v/assert kb (list 'disjoint dog cat) 'CxNaturalWorld)
+    (v/assert kb (list cat Felix) 'CxNaturalWorld)
     (testing "asserted directly, the conflicting type is refused"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list dog Felix) 'NaturalWorldContext))))
+                   (v/assert kb (list dog Felix) 'CxNaturalWorld))))
     (testing "and wrapping it in set/defaultRule must not buy a way around that"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'set/defaultRule (list dog Felix)) 'NaturalWorldContext))))
+                   (v/assert kb (list 'set/defaultRule (list dog Felix)) 'CxNaturalWorld))))
     (testing "nothing was stored either way"
-      (is (empty? (v/sentexes-matching kb (list dog Felix) 'NaturalWorldContext))))))
+      (is (empty? (v/sentexes-matching kb (list dog Felix) 'CxNaturalWorld))))))
 
 (tu/deftest-kb a-wrapper-around-a-fact-does-not-smuggle-it-past-the-context-check
-  ;; A context name must end in `Context`.  Asserting into a non-context is refused;
+  ;; A context name must start with `Cx`.  Asserting into a non-context is refused;
   ;; the wrapper must not launder that either.
   (tu/with-terms [dog Muffet]
     (testing "asserted directly it is refused"
@@ -66,9 +66,9 @@
   ;; A non-ground fact asserts nothing — stored as a premise it would match any goal.
   (tu/with-terms [mortal]
     (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list mortal '?x) 'NaturalWorldContext)))
+                 (v/assert kb (list mortal '?x) 'CxNaturalWorld)))
     (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list 'set/defaultRule (list mortal '?x)) 'NaturalWorldContext)))))
+                 (v/assert kb (list 'set/defaultRule (list mortal '?x)) 'CxNaturalWorld)))))
 
 ;; ---- seam 2: a conjunctive consequent split into several rules ----------
 ;;
@@ -85,7 +85,7 @@
         (is (= :not-range-restricted
                (try (v/assert kb (vr/rule-sentence [(list a '?x)]
                                                    (list 'and (list b '?x) (list c '?y)))
-                              'NaturalWorldContext)
+                              'CxNaturalWorld)
                     nil
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
       (testing "and the first conjunct's rule was not left behind"
@@ -98,13 +98,13 @@
   (tu/with-terms [a b c Thing]
     (let [hs (v/assert kb (vr/rule-sentence [(list a '?x)]
                                             (list 'and (list b '?x) (list c '?x)))
-                       'NaturalWorldContext)]
+                       'CxNaturalWorld)]
       (is (vector? hs) "a conjunctive consequent returns the vector of rule handles")
       (is (= 2 (count hs)))
-      (v/assert kb (list a Thing) 'NaturalWorldContext)
+      (v/assert kb (list a Thing) 'CxNaturalWorld)
       (testing "both conjuncts are derived"
-        (is (seq (v/sentexes-matching kb (list b Thing) 'NaturalWorldContext)))
-        (is (seq (v/sentexes-matching kb (list c Thing) 'NaturalWorldContext)))))))
+        (is (seq (v/sentexes-matching kb (list b Thing) 'CxNaturalWorld)))
+        (is (seq (v/sentexes-matching kb (list c Thing) 'CxNaturalWorld)))))))
 
 ;; ---- seam 3: the derivation path ----------------------------------------
 ;;
@@ -118,15 +118,15 @@
 
 (tu/deftest-kb a-derived-genl-edge-cannot-close-a-cycle-in-the-taxonomy
   (tu/with-terms [dog animal relates]
-    (v/assert kb (list 'genl dog animal) 'UniverseContext)
+    (v/assert kb (list 'genl dog animal) 'CxUniverse)
     (testing "the reverse edge is refused when asserted directly — it would cycle"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'genl animal dog) 'UniverseContext))))
+                   (v/assert kb (list 'genl animal dog) 'CxUniverse))))
     ;; now try to derive the same edge instead of asserting it
     (v/assert kb (list 'set/forwardRule
                        (vr/rule-sentence [(list relates '?x '?y)] (list 'genl '?x '?y)))
-              'UniverseContext)
-    (v/assert kb (list relates animal dog) 'UniverseContext)
+              'CxUniverse)
+    (v/assert kb (list relates animal dog) 'CxUniverse)
     (testing "deriving it must not corrupt the closure either"
       (is (not (v/genl? kb animal dog))
           "a derived edge closed a genl cycle: animal is now a subtype of itself")
@@ -145,9 +145,9 @@
 
 (tu/deftest-kb a-rule-and-its-negated-twin-are-different-rules
   (tu/with-terms [p q]
-    (let [pos (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) 'NaturalWorldContext)
+    (let [pos (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) 'CxNaturalWorld)
           neg (v/assert kb (vr/rule-sentence [(list p '?x)] (list 'not (list q '?x)))
-                        'NaturalWorldContext)]
+                        'CxNaturalWorld)]
       (is (not= pos neg)
           "identical antecedents, opposite conclusions — these must be two sentexes")
       (testing "and each keeps its own consequent polarity"
@@ -194,7 +194,7 @@
           metarule  (vr/rule-sentence ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x))]
       (testing "an antecedent literal with a variable functor"
         (let [e (is (thrown? clojure.lang.ExceptionInfo
-                             (v/assert kb metarule 'NaturalWorldContext)))]
+                             (v/assert kb metarule 'CxNaturalWorld)))]
           (is (= :not-indexable (:type (ex-data e))))
           (is (re-find #"instantiated" (ex-message e))
               "and the message names what to write instead")))
@@ -202,13 +202,13 @@
         (is (= :not-indexable
                (try (v/assert kb (vr/rule-sentence [(list likesOf '?x '?y) '(transitive ?p)]
                                                    '(?p ?y ?x))
-                              'NaturalWorldContext)
+                              'CxNaturalWorld)
                     nil
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
       (testing "the same refusal through assert-rule, which wraps and calls assert"
         (is (= :not-indexable
                (try (v/assert-rule kb ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)
-                                   'NaturalWorldContext)
+                                   'CxNaturalWorld)
                     nil
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
       (testing "and nothing was stored on the way to any of those"
@@ -216,12 +216,12 @@
 
 (tu/deftest-kb an-inert-rule-may-carry-a-variable-predicate
   ;; `:inert` runs in neither engine — it is documentation with a handle — so an index
-  ;; key it never reads is nothing it promised.  `CoreContext` ships one: the
+  ;; key it never reads is nothing it promised.  `CxCore` ships one: the
   ;; decontextualized-predicate lift, stated as `(implies (?pred . ?args) (ist
-  ;; UniverseContext (?pred . ?args)))` for a reader and implemented in code.
+  ;; CxUniverse (?pred . ?args)))` for a reader and implemented in code.
   (let [h (v/assert kb (list 'set/inertRule
                              (vr/rule-sentence ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)))
-                    'NaturalWorldContext)]
+                    'CxNaturalWorld)]
     (is (some? h) "the inert spelling still asserts")
     (is (= :inert (:direction (v/sentex kb h))))
     (v/retract! kb h)))
@@ -231,7 +231,7 @@
   ;; the instantiated rule the message asks for is exactly this, and it must land.
   (tu/with-terms [likesOf]
     (let [h (v/assert kb (vr/rule-sentence [(list likesOf '?x '?y)] (list likesOf '?y '?x))
-                      'NaturalWorldContext)]
+                      'CxNaturalWorld)]
       (is (some? h))
       (v/retract! kb h))))
 

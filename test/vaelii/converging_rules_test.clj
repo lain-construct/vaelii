@@ -41,70 +41,70 @@
 (tu/deftest-kb converging-dag-shares-a-residual-subgoal
   ;; 16 -> 4 -> 1: four children per parent, so (anc <parent> ?z) is reached from four
   ;; branches.  The answer must be the full ancestor relation either way.
-  (tu/with-terms [parentOf anc KinContext]
+  (tu/with-terms [parentOf anc CxKin]
     (let [n (fn [lvl i] (symbol (str "Kin" lvl "n" i)))]
       (doseq [[lvl cnt] [[0 16] [1 4]]]
         (doseq [i (range cnt)]
-          (v/assert kb (list parentOf (n lvl i) (n (inc lvl) (quot i 4))) KinContext)))
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) KinContext
+          (v/assert kb (list parentOf (n lvl i) (n (inc lvl) (quot i 4))) CxKin)))
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxKin
                      {:direction :backward})
       (v/assert-rule kb [(list parentOf '?x '?y) (list anc '?y '?z)] (list anc '?x '?z)
-                     KinContext {:direction :backward})
+                     CxKin {:direction :backward})
       (testing "every leaf reaches its parent, grandparent and the root"
-        (let [sols (both-ways kb (list anc (n 0 0) '?z) KinContext)]
+        (let [sols (both-ways kb (list anc (n 0 0) '?z) CxKin)]
           (is (= #{(n 1 0) (n 2 0)} (set (map #(get % '?z) sols))))))
       (testing "the open query agrees with the uncached engine, answer for answer"
-        (let [sols (both-ways kb (list anc '?x '?z) KinContext)]
+        (let [sols (both-ways kb (list anc '?x '?z) CxKin)]
           (is (= 36 (count sols))
               "16 leaves reach a parent and the root, 4 parents reach the root")))
       (testing "a bound second argument is the same relation read the other way"
-        (both-ways kb (list anc '?x (n 2 0)) KinContext)))))
+        (both-ways kb (list anc '?x (n 2 0)) CxKin)))))
 
 (tu/deftest-kb same-generation-agrees-with-the-uncached-engine
   ;; sg(?x,?y) :- up(?x,?a), sg(?a,?b), down(?b,?y) — the recursive subgoal keeps BOTH
   ;; arguments open, and many (?x,?y) pairs route through the same (?a,?b)
-  (tu/with-terms [up down flat sg SgContext]
+  (tu/with-terms [up down flat sg CxSg]
     (doseq [i (range 12)]
-      (v/assert kb (list up (symbol (str "SgA" i)) (symbol (str "SgM" (quot i 4)))) SgContext)
-      (v/assert kb (list down (symbol (str "SgM" (quot i 4))) (symbol (str "SgB" i))) SgContext))
+      (v/assert kb (list up (symbol (str "SgA" i)) (symbol (str "SgM" (quot i 4)))) CxSg)
+      (v/assert kb (list down (symbol (str "SgM" (quot i 4))) (symbol (str "SgB" i))) CxSg))
     (doseq [i (range 3)]
-      (v/assert kb (list flat (symbol (str "SgM" i)) (symbol (str "SgM" i))) SgContext))
-    (v/assert-rule kb [(list flat '?x '?y)] (list sg '?x '?y) SgContext {:direction :backward})
+      (v/assert kb (list flat (symbol (str "SgM" i)) (symbol (str "SgM" i))) CxSg))
+    (v/assert-rule kb [(list flat '?x '?y)] (list sg '?x '?y) CxSg {:direction :backward})
     (v/assert-rule kb [(list up '?x '?a) (list sg '?a '?b) (list down '?b '?y)]
-                   (list sg '?x '?y) SgContext {:direction :backward})
-    (testing "open"  (is (seq (both-ways kb (list sg '?x '?y) SgContext))))
-    (testing "bound" (both-ways kb (list sg 'SgA0 '?y) SgContext))))
+                   (list sg '?x '?y) CxSg {:direction :backward})
+    (testing "open"  (is (seq (both-ways kb (list sg '?x '?y) CxSg))))
+    (testing "bound" (both-ways kb (list sg 'SgA0 '?y) CxSg))))
 
 (tu/deftest-kb a-cyclic-rule-graph-is-answered-the-same-either-way
   ;; a cycle in the rule graph, where a path-structured search would re-enter itself:
   ;; the depth bound is what ends it here, and the answer must not depend on the cache
-  (tu/with-terms [edge path CycContext]
+  (tu/with-terms [edge path CxCyc]
     (let [nodes (mapv #(symbol (str "Cyc" %)) (range 5))]
       (doseq [[a b] [[0 1] [1 2] [2 0] [2 3] [3 4] [1 4]]]
-        (v/assert kb (list edge (nodes a) (nodes b)) CycContext))
-      (v/assert-rule kb [(list edge '?x '?z)] (list path '?x '?z) CycContext
+        (v/assert kb (list edge (nodes a) (nodes b)) CxCyc))
+      (v/assert-rule kb [(list edge '?x '?z)] (list path '?x '?z) CxCyc
                      {:direction :backward})
       (v/assert-rule kb [(list edge '?x '?y) (list path '?y '?z)] (list path '?x '?z)
-                     CycContext {:direction :backward})
+                     CxCyc {:direction :backward})
       (testing "from a node inside the cycle"
-        (let [sols (both-ways kb (list path (nodes 0) '?z) CycContext)]
+        (let [sols (both-ways kb (list path (nodes 0) '?z) CxCyc)]
           (is (= (set nodes) (set (map #(get % '?z) sols)))
               "Cyc0 reaches every node — itself included, back around the cycle")))
       (testing "open, over the whole graph"
-        (both-ways kb (list path '?x '?z) CycContext)))))
+        (both-ways kb (list path '?x '?z) CxCyc)))))
 
 (tu/deftest-kb an-exception-is-honoured-through-the-cache
   ;; a guarded rule's firing depends on `exceptWhen`, evaluated per completed binding —
   ;; a cached expansion must not carry a firing the exception blocks
-  (tu/with-terms [parentOf anc estranged KinContext]
+  (tu/with-terms [parentOf anc estranged CxKin]
     (v/assert kb (list 'exceptWhen (list estranged '?x)
                        (list 'set/defaultRule
                              (list 'implies (list parentOf '?x '?z) (list anc '?x '?z))))
-              KinContext)
-    (v/assert kb (list parentOf 'MemoKidA 'MemoParentA) KinContext)
-    (v/assert kb (list parentOf 'MemoKidB 'MemoParentA) KinContext)
-    (v/assert kb (list estranged 'MemoKidB) KinContext)
+              CxKin)
+    (v/assert kb (list parentOf 'MemoKidA 'MemoParentA) CxKin)
+    (v/assert kb (list parentOf 'MemoKidB 'MemoParentA) CxKin)
+    (v/assert kb (list estranged 'MemoKidB) CxKin)
     (testing "the excepted child concludes nothing, the other still does"
       (is (= #{'MemoParentA} (set (map #(get % '?z)
-                                       (both-ways kb (list anc 'MemoKidA '?z) KinContext)))))
-      (is (empty? (both-ways kb (list anc 'MemoKidB '?z) KinContext))))))
+                                       (both-ways kb (list anc 'MemoKidA '?z) CxKin)))))
+      (is (empty? (both-ways kb (list anc 'MemoKidB '?z) CxKin))))))

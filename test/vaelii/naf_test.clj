@@ -51,7 +51,7 @@
 
 (tu/deftest-kb unknown-holds-for-what-is-not-derivable
   (tu/with-terms [flies happy Tweety]
-    (v/assert kb (list 'flies Tweety) 'WellContext)
+    (v/assert kb (list 'flies Tweety) 'CxWell)
     (testing "a fact that is not stored is unknown"
       (is (v/ask? kb (list 'unknown (list 'happy Tweety))))
       (is (not (v/ask? kb (list 'unknown (list 'flies Tweety))))
@@ -61,7 +61,7 @@
   (tu/with-terms [flies Tweety]
     (testing "before the fact arrives, the literal is unknown"
       (is (v/ask? kb (list 'unknown (list 'flies Tweety)))))
-    (let [h (v/assert kb (list 'flies Tweety) 'WellContext)]
+    (let [h (v/assert kb (list 'flies Tweety) 'CxWell)]
       (testing "once asserted and believed, it is no longer unknown"
         (is (not (v/ask? kb (list 'unknown (list 'flies Tweety))))))
       (v/retract! kb h)
@@ -84,7 +84,7 @@
 
 (tu/deftest-kb there-exists-is-a-witnessed-existence-check
   (tu/with-terms [parentOf Ann Tom Nemo]
-    (v/assert kb (list 'parentOf Ann Tom) 'WellContext)
+    (v/assert kb (list 'parentOf Ann Tom) 'CxWell)
     (testing "holds when the body is witnessed, projecting the variable out"
       (is (v/ask? kb (list 'thereExists '?x (list 'parentOf '?x Tom))))
       (is (empty? (get (first (v/ask kb (list 'thereExists '?x (list 'parentOf '?x Tom)))) '?x))
@@ -94,7 +94,7 @@
 
 (tu/deftest-kb unknown-combined-with-there-exists
   (tu/with-terms [parentOf Ann Tom Orphan]
-    (v/assert kb (list 'parentOf Ann Tom) 'WellContext)
+    (v/assert kb (list 'parentOf Ann Tom) 'CxWell)
     (testing "(unknown (thereExists ...)) is 'nobody stands in the relation'"
       (is (v/ask? kb (list 'unknown (list 'thereExists '?x (list 'parentOf '?x Orphan))))
           "no known parent of Orphan")
@@ -107,9 +107,9 @@
   (tu/with-terms [flies Tweety]
     (testing "asserting a query operator as a fact is refused (it stores nothing)"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'unknown (list 'flies Tweety)) 'WellContext)))
+                   (v/assert kb (list 'unknown (list 'flies Tweety)) 'CxWell)))
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'thereExists '?x (list 'flies '?x)) 'WellContext))))))
+                   (v/assert kb (list 'thereExists '?x (list 'flies '?x)) 'CxWell))))))
 
 ;; ---- unknown in a rule antecedent: derive-time blocking -----------------
 
@@ -117,32 +117,32 @@
   (tu/with-terms [pp qq rr Aa Bb]
     ;; (pp ?x) & unknown(qq ?x) => (rr ?x)
     (v/assert kb (list 'implies (list 'and (list 'pp '?x) (list 'unknown (list 'qq '?x))) (list 'rr '?x))
-              'WellContext)
-    (v/assert kb (list 'pp Aa) 'WellContext)          ; qq Aa absent -> fires
-    (v/assert kb (list 'qq Bb) 'WellContext)          ; qq Bb present *before* pp Bb -> blocked
-    (v/assert kb (list 'pp Bb) 'WellContext)
+              'CxWell)
+    (v/assert kb (list 'pp Aa) 'CxWell)          ; qq Aa absent -> fires
+    (v/assert kb (list 'qq Bb) 'CxWell)          ; qq Bb present *before* pp Bb -> blocked
+    (v/assert kb (list 'pp Bb) 'CxWell)
     (testing "fires when the NAF query is not derivable"
-      (is (v/ask? kb (list 'rr Aa) 'WellContext)))
+      (is (v/ask? kb (list 'rr Aa) 'CxWell)))
     (testing "does not fire when the NAF query holds at derive time"
-      (is (not (v/ask? kb (list 'rr Bb) 'WellContext))))))
+      (is (not (v/ask? kb (list 'rr Bb) 'CxWell))))))
 
 ;; ---- order independence: block on late arrival, revive on retract -------
 
 (tu/deftest-kb unknown-is-order-independent-block-then-revive
   (tu/with-terms [pp qq rr Aa]
     (v/assert kb (list 'implies (list 'and (list 'pp '?x) (list 'unknown (list 'qq '?x))) (list 'rr '?x))
-              'WellContext)
-    (v/assert kb (list 'pp Aa) 'WellContext)
+              'CxWell)
+    (v/assert kb (list 'pp Aa) 'CxWell)
     (testing "derived while the NAF query is absent"
-      (is (v/ask? kb (list 'rr Aa) 'WellContext)))
-    (let [h (v/assert kb (list 'qq Aa) 'WellContext)]
+      (is (v/ask? kb (list 'rr Aa) 'CxWell)))
+    (let [h (v/assert kb (list 'qq Aa) 'CxWell)]
       (testing "a later fact that satisfies the query blocks and sweeps the conclusion"
-        (is (not (v/ask? kb (list 'rr Aa) 'WellContext)))
-        (is (nil? (v/handle-of kb (list 'rr Aa) 'WellContext))
+        (is (not (v/ask? kb (list 'rr Aa) 'CxWell)))
+        (is (nil? (v/handle-of kb (list 'rr Aa) 'CxWell))
             "the conclusion is deleted, not merely disbelieved (garbage collection, not defeat)"))
       (v/retract! kb h)
       (testing "retracting it revives the conclusion by re-derivation"
-        (is (v/ask? kb (list 'rr Aa) 'WellContext))))))
+        (is (v/ask? kb (list 'rr Aa) 'CxWell))))))
 
 (tu/deftest-kb unknown-is-order-independent-when-a-merge-is-what-arrives
   ;; A merge is the other way `S` becomes derivable, and it is not a fact arriving: the
@@ -156,20 +156,20 @@
   (tu/with-terms [pp qq rr Kept Retired]
     (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x)))
                        (list rr '?x))
-              'WellContext)
-    (v/assert kb (list qq Kept) 'WellContext)
-    (v/assert kb (list pp Retired) 'WellContext)
-    (is (v/ask? kb (list rr Retired) 'WellContext)
+              'CxWell)
+    (v/assert kb (list qq Kept) 'CxWell)
+    (v/assert kb (list pp Retired) 'CxWell)
+    (is (v/ask? kb (list rr Retired) 'CxWell)
         "derived while nothing under qq reaches that individual")
-    (let [h (v/assert kb (list 'rewriteOf Kept Retired) 'WellContext)]
+    (let [h (v/assert kb (list 'rewriteOf Kept Retired) 'CxWell)]
       (testing "the merge makes the inner query derivable, so the conclusion is swept"
-        (is (= 1 (count (v/sentexes-matching kb (list qq '?x) 'WellContext)))
+        (is (= 1 (count (v/sentexes-matching kb (list qq '?x) 'CxWell)))
             "and qq's own extent never moved")
-        (is (empty? (v/sentexes-matching kb (list rr '?x) 'WellContext))
+        (is (empty? (v/sentexes-matching kb (list rr '?x) 'CxWell))
             "under either spelling — the conclusion migrated and then went"))
       (v/retract! kb h)
       (testing "and splitting the class again revives it"
-        (is (v/ask? kb (list rr Retired) 'WellContext))))))
+        (is (v/ask? kb (list rr Retired) 'CxWell))))))
 
 (tu/deftest-kb a-merge-can-complete-a-conjunction-through-the-conjunct-that-was-short
   ;; The conjunctive reading of the merge channel: `qq` holds of one spelling and `rr` of
@@ -181,48 +181,48 @@
     (v/assert kb (list 'implies (list 'and (list pp '?x)
                                       (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                        (list ss '?x))
-              'WellContext)
-    (v/assert kb (list qq Kept) 'WellContext)
-    (v/assert kb (list rr Retired) 'WellContext)
-    (v/assert kb (list pp Retired) 'WellContext)
-    (is (v/ask? kb (list ss Retired) 'WellContext)
+              'CxWell)
+    (v/assert kb (list qq Kept) 'CxWell)
+    (v/assert kb (list rr Retired) 'CxWell)
+    (v/assert kb (list pp Retired) 'CxWell)
+    (is (v/ask? kb (list ss Retired) 'CxWell)
         "derived while qq reaches Kept and the firing binds Retired")
-    (let [h (v/assert kb (list 'rewriteOf Kept Retired) 'WellContext)]
+    (let [h (v/assert kb (list 'rewriteOf Kept Retired) 'CxWell)]
       (testing "the merge answers both conjuncts under one representative, so it is swept"
-        (is (= 1 (count (v/sentexes-matching kb (list qq '?x) 'WellContext)))
+        (is (= 1 (count (v/sentexes-matching kb (list qq '?x) 'CxWell)))
             "and qq's own extent never moved")
-        (is (empty? (v/sentexes-matching kb (list ss '?x) 'WellContext))
+        (is (empty? (v/sentexes-matching kb (list ss '?x) 'CxWell))
             "under either spelling — the conclusion migrated and then went"))
       (v/retract! kb h)
       (testing "and splitting the class again revives it"
-        (is (v/ask? kb (list ss Retired) 'WellContext))))))
+        (is (v/ask? kb (list ss Retired) 'CxWell))))))
 
 (tu/deftest-kb a-conjunction-reaches-the-same-belief-when-the-merge-arrives-first
   ;; The oracle for the test above.  Merged first, the firing is refused at derive time
   ;; and no trigger is involved at all, so the two orders must agree.
   (tu/with-terms [pp qq rr ss Kept Retired]
-    (v/assert kb (list 'rewriteOf Kept Retired) 'WellContext)
+    (v/assert kb (list 'rewriteOf Kept Retired) 'CxWell)
     (v/assert kb (list 'implies (list 'and (list pp '?x)
                                       (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                        (list ss '?x))
-              'WellContext)
-    (v/assert kb (list qq Kept) 'WellContext)
-    (v/assert kb (list rr Retired) 'WellContext)
-    (v/assert kb (list pp Retired) 'WellContext)
-    (is (empty? (v/sentexes-matching kb (list ss '?x) 'WellContext))
+              'CxWell)
+    (v/assert kb (list qq Kept) 'CxWell)
+    (v/assert kb (list rr Retired) 'CxWell)
+    (v/assert kb (list pp Retired) 'CxWell)
+    (is (empty? (v/sentexes-matching kb (list ss '?x) 'CxWell))
         "merged first, the rule never concludes")))
 
 (tu/deftest-kb an-unknown-reaches-the-same-belief-when-the-merge-arrives-first
   ;; the oracle for the test above: merged first, the firing is refused at derive time
   ;; and no trigger is involved at all, so the two orders must agree.
   (tu/with-terms [pp qq rr Kept Retired]
-    (v/assert kb (list 'rewriteOf Kept Retired) 'WellContext)
+    (v/assert kb (list 'rewriteOf Kept Retired) 'CxWell)
     (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x)))
                        (list rr '?x))
-              'WellContext)
-    (v/assert kb (list qq Kept) 'WellContext)
-    (v/assert kb (list pp Retired) 'WellContext)
-    (is (empty? (v/sentexes-matching kb (list rr '?x) 'WellContext))
+              'CxWell)
+    (v/assert kb (list qq Kept) 'CxWell)
+    (v/assert kb (list pp Retired) 'CxWell)
+    (is (empty? (v/sentexes-matching kb (list rr '?x) 'CxWell))
         "merged first, the rule never concludes")))
 
 (tu/deftest-kb unknown-with-there-exists-in-a-rule
@@ -231,16 +231,16 @@
     (v/assert kb (list 'implies (list 'and (list 'person '?p)
                                       (list 'unknown (list 'thereExists '?c (list 'owns '?c '?p))))
                        (list 'ownerless '?p))
-              'WellContext)
-    (v/assert kb (list 'person Zed) 'WellContext)
+              'CxWell)
+    (v/assert kb (list 'person Zed) 'CxWell)
     (testing "holds while nothing witnesses the existential"
-      (is (v/ask? kb (list 'ownerless Zed) 'WellContext)))
-    (let [h (v/assert kb (list 'owns (tu/tmp-ind "Hat") Zed) 'WellContext)]
+      (is (v/ask? kb (list 'ownerless Zed) 'CxWell)))
+    (let [h (v/assert kb (list 'owns (tu/tmp-ind "Hat") Zed) 'CxWell)]
       (testing "a witness blocks it"
-        (is (not (v/ask? kb (list 'ownerless Zed) 'WellContext))))
+        (is (not (v/ask? kb (list 'ownerless Zed) 'CxWell))))
       (v/retract! kb h)
       (testing "removing the witness revives it"
-        (is (v/ask? kb (list 'ownerless Zed) 'WellContext))))))
+        (is (v/ask? kb (list 'ownerless Zed) 'CxWell))))))
 
 (tu/deftest-kb standalone-there-exists-antecedent-is-a-parent
   (tu/with-terms [person parentOf aParent Dad Kid Childless]
@@ -248,13 +248,13 @@
     (v/assert kb (list 'implies (list 'and (list 'person '?x)
                                       (list 'thereExists '?y (list 'parentOf '?x '?y)))
                        (list 'aParent '?x))
-              'WellContext)
-    (v/assert kb (list 'person Dad) 'WellContext)
-    (v/assert kb (list 'person Childless) 'WellContext)
-    (v/assert kb (list 'parentOf Dad Kid) 'WellContext)
+              'CxWell)
+    (v/assert kb (list 'person Dad) 'CxWell)
+    (v/assert kb (list 'person Childless) 'CxWell)
+    (v/assert kb (list 'parentOf Dad Kid) 'CxWell)
     (testing "fires for a witnessed existential, not for an unwitnessed one"
-      (is (v/ask? kb (list 'aParent Dad) 'WellContext))
-      (is (not (v/ask? kb (list 'aParent Childless) 'WellContext))))))
+      (is (v/ask? kb (list 'aParent Dad) 'CxWell))
+      (is (not (v/ask? kb (list 'aParent Childless) 'CxWell))))))
 
 ;; ---- a conjunctive NAF query --------------------------------------------
 ;; `(unknown (and A B))` is `exceptWhen`'s conjunction inlined per literal: closure
@@ -267,16 +267,16 @@
     (v/assert kb (list 'implies (list 'and (list pp '?x)
                                       (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                        (list ss '?x))
-              'WellContext)
-    (v/assert kb (list qq Both) 'WellContext)
-    (v/assert kb (list rr Both) 'WellContext)
-    (v/assert kb (list qq One) 'WellContext)
-    (doseq [i [Both One Neither]] (v/assert kb (list pp i) 'WellContext))
+              'CxWell)
+    (v/assert kb (list qq Both) 'CxWell)
+    (v/assert kb (list rr Both) 'CxWell)
+    (v/assert kb (list qq One) 'CxWell)
+    (doseq [i [Both One Neither]] (v/assert kb (list pp i) 'CxWell))
     (testing "every conjunct derivable — the query holds, so the firing is blocked"
-      (is (not (v/ask? kb (list ss Both) 'WellContext))))
+      (is (not (v/ask? kb (list ss Both) 'CxWell))))
     (testing "one conjunct short is not the query holding"
-      (is (v/ask? kb (list ss One) 'WellContext))
-      (is (v/ask? kb (list ss Neither) 'WellContext)))))
+      (is (v/ask? kb (list ss One) 'CxWell))
+      (is (v/ask? kb (list ss Neither) 'CxWell)))))
 
 (tu/deftest-kb every-conjunct-of-a-NAF-query-is-watched
   ;; The re-check index is keyed per predicate, and a conjunction blocks on the *last*
@@ -286,27 +286,27 @@
     (v/assert kb (list 'implies (list 'and (list pp '?x)
                                       (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                        (list ss '?x))
-              'WellContext)
-    (v/assert kb (list pp Aa) 'WellContext)
-    (v/assert kb (list qq Aa) 'WellContext)
-    (is (v/ask? kb (list ss Aa) 'WellContext)
+              'CxWell)
+    (v/assert kb (list pp Aa) 'CxWell)
+    (v/assert kb (list qq Aa) 'CxWell)
+    (is (v/ask? kb (list ss Aa) 'CxWell)
         "one conjunct holding leaves the query underivable")
-    (let [h (v/assert kb (list rr Aa) 'WellContext)]      ; the *second* conjunct, last
+    (let [h (v/assert kb (list rr Aa) 'CxWell)]      ; the *second* conjunct, last
       (testing "completing the conjunction blocks and sweeps the conclusion"
-        (is (not (v/ask? kb (list ss Aa) 'WellContext)))
-        (is (nil? (v/handle-of kb (list ss Aa) 'WellContext))))
+        (is (not (v/ask? kb (list ss Aa) 'CxWell)))
+        (is (nil? (v/handle-of kb (list ss Aa) 'CxWell))))
       (v/retract! kb h)
       (testing "and breaking it again revives the conclusion by re-derivation"
-        (is (v/ask? kb (list ss Aa) 'WellContext))))))
+        (is (v/ask? kb (list ss Aa) 'CxWell))))))
 
 (tu/deftest-kb a-conjunctive-NAF-goal-agrees-with-the-rule-antecedent
   ;; The backward reading of the same query: `UnknownProver` answers a conjunction the
   ;; way `exception-holds?` does, or `ask` and forward chaining would disagree about one
   ;; rule.
   (tu/with-terms [qq rr Both One]
-    (v/assert kb (list qq Both) 'WellContext)
-    (v/assert kb (list rr Both) 'WellContext)
-    (v/assert kb (list qq One) 'WellContext)
+    (v/assert kb (list qq Both) 'CxWell)
+    (v/assert kb (list rr Both) 'CxWell)
+    (v/assert kb (list qq One) 'CxWell)
     (is (not (v/ask? kb (list 'unknown (list 'and (list qq Both) (list rr Both)))))
         "both conjuncts derivable — the conjunction is known")
     (is (v/ask? kb (list 'unknown (list 'and (list qq One) (list rr One))))
@@ -327,11 +327,11 @@
                                       (list 'unknown (list 'and (list qq '?y) (list rr '?y)
                                                            (list tt '?y))))
                        (list ss '?y))
-          h1     (v/assert kb nested 'WellContext)
-          h2     (v/assert kb flat 'WellContext)]
+          h1     (v/assert kb nested 'CxWell)
+          h2     (v/assert kb flat 'CxWell)]
       (is (= h1 h2) "the nested spelling and the flat one are one rule")
-      (doseq [p [pp qq rr tt]] (v/assert kb (list p All) 'WellContext))
-      (is (not (v/ask? kb (list ss All) 'WellContext))
+      (doseq [p [pp qq rr tt]] (v/assert kb (list p All) 'CxWell))
+      (is (not (v/ask? kb (list ss All) 'CxWell))
           "every conjunct of the flattened query holds, so the firing is blocked"))))
 
 (tu/deftest-kb a-thereExists-conjunct-is-watched-by-what-it-quantifies
@@ -345,17 +345,17 @@
                                             (list 'and (list 'thereExists '?c (list kidOf '?x '?c))
                                                   (list adult '?x))))
                        (list lonely '?x))
-              'WellContext)
-    (v/assert kb (list 'person Ppp) 'WellContext)
-    (v/assert kb (list adult Ppp) 'WellContext)
-    (is (v/ask? kb (list lonely Ppp) 'WellContext)
+              'CxWell)
+    (v/assert kb (list 'person Ppp) 'CxWell)
+    (v/assert kb (list adult Ppp) 'CxWell)
+    (is (v/ask? kb (list lonely Ppp) 'CxWell)
         "adult but childless — the existential conjunct is short, so the query does not hold")
-    (let [h (v/assert kb (list kidOf Ppp Qqq) 'WellContext)]
+    (let [h (v/assert kb (list kidOf Ppp Qqq) 'CxWell)]
       (testing "a witness arriving completes the query through the *existential* conjunct"
-        (is (not (v/ask? kb (list lonely Ppp) 'WellContext))))
+        (is (not (v/ask? kb (list lonely Ppp) 'CxWell))))
       (v/retract! kb h)
       (testing "and removing it revives the conclusion"
-        (is (v/ask? kb (list lonely Ppp) 'WellContext))))))
+        (is (v/ask? kb (list lonely Ppp) 'CxWell))))))
 
 (tu/deftest-kb a-conjunctive-NAF-antecedent-is-honoured-by-a-backward-only-rule
   ;; The companion of the single-literal case below: a backward-only rule is never
@@ -365,15 +365,15 @@
                        (list 'implies (list 'and (list pp '?x)
                                             (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                              (list ss '?x)))
-              'WellContext)
-    (v/assert kb (list pp Both) 'WellContext)
-    (v/assert kb (list qq Both) 'WellContext)
-    (v/assert kb (list rr Both) 'WellContext)
-    (v/assert kb (list pp One) 'WellContext)
-    (v/assert kb (list qq One) 'WellContext)
-    (is (empty? (v/prove kb (list ss Both) 'WellContext))
+              'CxWell)
+    (v/assert kb (list pp Both) 'CxWell)
+    (v/assert kb (list qq Both) 'CxWell)
+    (v/assert kb (list rr Both) 'CxWell)
+    (v/assert kb (list pp One) 'CxWell)
+    (v/assert kb (list qq One) 'CxWell)
+    (is (empty? (v/prove kb (list ss Both) 'CxWell))
         "both conjuncts derivable — the rule does not conclude")
-    (is (seq (v/prove kb (list ss One) 'WellContext))
+    (is (seq (v/prove kb (list ss One) 'CxWell))
         "one conjunct short — it does")))
 
 (tu/deftest-kb a-negated-conjunct-is-watched-and-blocks-when-it-arrives
@@ -386,13 +386,13 @@
                                       (list 'unknown (list 'and (list 'not (list ff '?x))
                                                            (list aa '?x))))
                        (list oo '?x))
-              'WellContext)
-    (v/assert kb (list bb Ned) 'WellContext)
-    (v/assert kb (list aa Ned) 'WellContext)
-    (is (v/ask? kb (list oo Ned) 'WellContext)
+              'CxWell)
+    (v/assert kb (list bb Ned) 'CxWell)
+    (v/assert kb (list aa Ned) 'CxWell)
+    (is (v/ask? kb (list oo Ned) 'CxWell)
         "the negated conjunct is not derivable, so the conjunction is short")
-    (v/assert kb (list 'not (list ff Ned)) 'WellContext)
-    (is (not (v/ask? kb (list oo Ned) 'WellContext))
+    (v/assert kb (list 'not (list ff Ned)) 'CxWell)
+    (is (not (v/ask? kb (list oo Ned) 'CxWell))
         "and its arrival completes the query, so the conclusion is swept")))
 
 (tu/deftest-kb an-aggregate-conjunct-is-watched-by-its-census-body
@@ -405,14 +405,14 @@
                                             (list 'and (list 'agg/count 2 '?c (list kidOf '?x '?c))
                                                   (list adult '?x))))
                        (list gg '?x))
-              'WellContext)
-    (v/assert kb (list 'person Moe) 'WellContext)
-    (v/assert kb (list adult Moe) 'WellContext)
-    (v/assert kb (list kidOf Moe K1) 'WellContext)
-    (is (v/ask? kb (list gg Moe) 'WellContext)
+              'CxWell)
+    (v/assert kb (list 'person Moe) 'CxWell)
+    (v/assert kb (list adult Moe) 'CxWell)
+    (v/assert kb (list kidOf Moe K1) 'CxWell)
+    (is (v/ask? kb (list gg Moe) 'CxWell)
         "one kid — the census is not 2, so the conjunction is short")
-    (v/assert kb (list kidOf Moe K2) 'WellContext)
-    (is (not (v/ask? kb (list gg Moe) 'WellContext))
+    (v/assert kb (list kidOf Moe K2) 'CxWell)
+    (is (not (v/ask? kb (list gg Moe) 'CxWell))
         "the count reaching 2 completes the query, on a predicate the aggregate frames")))
 
 (tu/deftest-kb conjunct-order-is-not-a-NAF-rule-s-identity
@@ -422,16 +422,16 @@
     (let [h1 (v/assert kb (list 'implies (list 'and (list pp '?x)
                                                (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                                 (list ss '?x))
-                       'WellContext)
+                       'CxWell)
           h2 (v/assert kb (list 'implies (list 'and (list pp '?y)
                                                (list 'unknown (list 'and (list rr '?y) (list qq '?y))))
                                 (list ss '?y))
-                       'WellContext)
+                       'CxWell)
           h3 (v/assert kb (list 'implies (list 'and (list pp '?z)
                                                (list 'unknown (list 'and (list qq '?z) (list rr '?z)
                                                                     (list qq '?z))))
                                 (list ss '?z))
-                       'WellContext)]
+                       'CxWell)]
       (is (= h1 h2) "two spellings of one conjunction are one rule")
       (is (= h1 h3) "and a repeated conjunct is not a different condition"))))
 
@@ -440,10 +440,10 @@
     (let [h1 (v/assert kb (list 'implies (list 'and (list mm '?x)
                                                (list 'unknown (list 'and (list nn '?x))))
                                 (list zz '?x))
-                       'WellContext)
+                       'CxWell)
           h2 (v/assert kb (list 'implies (list 'and (list mm '?y) (list 'unknown (list nn '?y)))
                                 (list zz '?y))
-                       'WellContext)]
+                       'CxWell)]
       (is (= h1 h2) "a lone conjunct is the bare literal, and stores as it"))))
 
 ;; ---- well-formedness of NAF rule antecedents ----------------------------
@@ -463,7 +463,7 @@
                                                          (list 'and (list childOf '?x '?c)
                                                                (list sick '?c)))))
                               (list lonely '?x))
-                     'WellContext))))
+                     'CxWell))))
     (testing "and an aggregate over one, which needs the same join"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"quantifies a conjunction"
@@ -473,7 +473,7 @@
                                                                    (list sick '?c)))
                                     (list 'lessThan 1 '?n))
                               (list counted '?x))
-                     'WellContext))))))
+                     'CxWell))))))
 
 (tu/deftest-kb an-empty-NAF-conjunction-is-refused
   (tu/with-terms [person nobody]
@@ -482,7 +482,7 @@
            clojure.lang.ExceptionInfo #"empty conjunction"
            (v/assert kb (list 'implies (list 'and (list person '?x) (list 'unknown (list 'and)))
                               (list nobody '?x))
-                     'WellContext))))))
+                     'CxWell))))))
 
 (tu/deftest-kb unknown-must-be-closed-by-the-generators
   (tu/with-terms [person likes knows loner]
@@ -491,7 +491,7 @@
            clojure.lang.ExceptionInfo #"not closed"
            (v/assert kb (list 'implies (list 'and (list 'person '?x) (list 'unknown (list 'likes '?x '?z)))
                               (list 'loner '?x))
-                     'WellContext))))
+                     'CxWell))))
     (testing "and so is a conjunction one of whose conjuncts is open — closure is what
               makes the conjuncts independent ground checks"
       (is (thrown-with-msg?
@@ -500,7 +500,7 @@
                                              (list 'unknown (list 'and (list knows '?x)
                                                                   (list likes '?x '?z))))
                               (list 'loner '?x))
-                     'WellContext))))))
+                     'CxWell))))))
 
 (tu/deftest-kb there-exists-variable-must-be-local
   (tu/with-terms [person foo bar]
@@ -509,7 +509,7 @@
            clojure.lang.ExceptionInfo #"escapes its quantifier"
            (v/assert kb (list 'implies (list 'and (list 'person '?x) (list 'thereExists '?x (list 'foo '?x)))
                               (list 'bar '?x))
-                     'WellContext))))))
+                     'CxWell))))))
 
 ;; ---- stratification: no cycle through negation --------------------------
 
@@ -518,17 +518,17 @@
     (testing "an acyclic NAF rule is accepted"
       (is (v/assert kb (list 'implies (list 'and (list 'aa '?x) (list 'unknown (list 'bb '?x)))
                              (list 'cc '?x))
-                    'WellContext)))
+                    'CxWell)))
     (testing "closing the loop — a rule concluding the NAF predicate — is refused"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list 'cc '?x) (list 'bb '?x)) 'WellContext))))
+           (v/assert kb (list 'implies (list 'cc '?x) (list 'bb '?x)) 'CxWell))))
     (testing "a one-rule cycle (unknown on what it concludes) is refused"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
            (v/assert kb (list 'implies (list 'and (list 'dd '?x) (list 'unknown (list 'ee '?x)))
                               (list 'ee '?x))
-                     'WellContext))))))
+                     'CxWell))))))
 
 (tu/deftest-kb a-cycle-through-any-conjunct-of-a-NAF-conjunction-is-refused
   ;; Every conjunct is a negative dependency, not just the first: the negative edges are
@@ -540,16 +540,16 @@
     (is (v/assert kb (list 'implies (list 'and (list gg '?x)
                                           (list 'unknown (list 'and (list aa '?x) (list bb '?x))))
                            (list cc '?x))
-                  'WellContext)
+                  'CxWell)
         "the acyclic conjunctive rule is accepted")
     (testing "closing the loop through the first conjunct is refused"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list cc '?x) (list aa '?x)) 'WellContext))))
+           (v/assert kb (list 'implies (list cc '?x) (list aa '?x)) 'CxWell))))
     (testing "and through the second, which is the one a single-predicate key would miss"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list cc '?x) (list bb '?x)) 'WellContext))))))
+           (v/assert kb (list 'implies (list cc '?x) (list bb '?x)) 'CxWell))))))
 
 ;; ---- backward agreement: a NAF antecedent under rule expansion ----------
 ;; A backward-only rule cannot be pre-materialized by forward chaining, so whoever
@@ -562,20 +562,20 @@
     (v/assert kb (list 'set/backwardRule
                        (list 'implies (list 'and (list 'pp '?x) (list 'unknown (list 'qq '?x)))
                              (list 'rr '?x)))
-              'WellContext)
-    (v/assert kb (list 'pp Aa) 'WellContext)
-    (v/assert kb (list 'pp Bb) 'WellContext)
-    (v/assert kb (list 'qq Bb) 'WellContext)
+              'CxWell)
+    (v/assert kb (list 'pp Aa) 'CxWell)
+    (v/assert kb (list 'pp Bb) 'CxWell)
+    (v/assert kb (list 'qq Bb) 'CxWell)
     (testing "the rule forward-derives nothing (it is backward-only)"
-      (is (empty? (v/sentexes-matching kb (list 'rr '?x) 'WellContext))))
+      (is (empty? (v/sentexes-matching kb (list 'rr '?x) 'CxWell))))
     (testing "every backward chainer expands the rule and honours the unknown"
       ;; the node engine (`query` at a depth) and the recur DFS must agree
-      (doseq [provable? [#(v/query? kb % 'WellContext {:max-depth 2})
-                         #(v/provable? kb % 'WellContext)]]
+      (doseq [provable? [#(v/query? kb % 'CxWell {:max-depth 2})
+                         #(v/provable? kb % 'CxWell)]]
         (is (provable? (list 'rr Aa)) "qq Aa absent -> provable")
         (is (not (provable? (list 'rr Bb))) "qq Bb present -> not provable"))
-      (is (= 1 (count (v/prove kb (list 'rr Aa) 'WellContext))))
-      (is (= 0 (count (v/prove kb (list 'rr Bb) 'WellContext)))))))
+      (is (= 1 (count (v/prove kb (list 'rr Aa) 'CxWell))))
+      (is (= 0 (count (v/prove kb (list 'rr Bb) 'CxWell)))))))
 
 ;; ---- prove/backward now evaluate a deferred antecedent ------------------
 ;; The gap that was: the recursive chainer discharged an antecedent by fact
@@ -586,27 +586,27 @@
 (tu/deftest-kb prove-and-backward-honour-every-deferred-antecedent
   (tu/with-terms [rel distinctPair age nextAge Ann Bob Tom]
     ;; `different` — the unique-name test
-    (v/assert kb (list rel Ann Bob) 'WellContext)
-    (v/assert kb (list rel Ann Ann) 'WellContext)
+    (v/assert kb (list rel Ann Bob) 'CxWell)
+    (v/assert kb (list rel Ann Ann) 'CxWell)
     (v/assert kb (list 'set/backwardRule
                        (list 'implies (list 'and (list rel '?x '?y) (list 'different '?x '?y))
                              (list distinctPair '?x '?y)))
-              'WellContext)
+              'CxWell)
     (testing "different: prove and backward honour it in a backward-only rule"
-      (is (v/provable? kb (list distinctPair Ann Bob) 'WellContext))
-      (is (not (v/provable? kb (list distinctPair Ann Ann) 'WellContext)))
-      (is (= 1 (count (v/prove kb (list distinctPair Ann Bob) 'WellContext))))
-      (is (= 0 (count (v/prove kb (list distinctPair Ann Ann) 'WellContext)))))
+      (is (v/provable? kb (list distinctPair Ann Bob) 'CxWell))
+      (is (not (v/provable? kb (list distinctPair Ann Ann) 'CxWell)))
+      (is (= 1 (count (v/prove kb (list distinctPair Ann Bob) 'CxWell))))
+      (is (= 0 (count (v/prove kb (list distinctPair Ann Ann) 'CxWell)))))
     ;; `evaluate` — computed, binds its output
-    (v/assert kb (list age Tom 40) 'WellContext)
+    (v/assert kb (list age Tom 40) 'CxWell)
     (v/assert kb (list 'set/backwardRule
                        (list 'implies (list 'and (list age '?p '?n) (list 'evaluate '?next (list '+ '?n 1)))
                              (list nextAge '?p '?next)))
-              'WellContext)
+              'CxWell)
     (testing "evaluate: prove checks and backward binds the computed value"
-      (is (v/provable? kb (list nextAge Tom 41) 'WellContext))
-      (is (not (v/provable? kb (list nextAge Tom 99) 'WellContext)))
-      (is (= [41] (map #(get % '?a) (v/prove kb (list nextAge Tom '?a) 'WellContext)))))))
+      (is (v/provable? kb (list nextAge Tom 41) 'CxWell))
+      (is (not (v/provable? kb (list nextAge Tom 99) 'CxWell)))
+      (is (= [41] (map #(get % '?a) (v/prove kb (list nextAge Tom '?a) 'CxWell)))))))
 
 ;; ---- belief-sensitivity: unknown reads belief, not mere storage ---------
 ;; `(unknown S)` holds of an `S` that is stored but currently OUT (a defeated
@@ -615,14 +615,14 @@
 
 (tu/deftest-kb unknown-holds-of-a-defeated-default
   (tu/with-terms [happy Zed]
-    (v/assert kb (list 'happy Zed) 'WellContext {:strength :default})
+    (v/assert kb (list 'happy Zed) 'CxWell {:strength :default})
     (testing "while believed, it is not unknown"
       (is (not (v/ask? kb (list 'unknown (list 'happy Zed))))))
     ;; a monotonic negation defeats the default: (happy Zed) goes OUT but stays stored
-    (v/assert kb (list 'not (list 'happy Zed)) 'WellContext {:strength :monotonic})
+    (v/assert kb (list 'not (list 'happy Zed)) 'CxWell {:strength :monotonic})
     (testing "the default is now stored-but-disbelieved"
-      (is (some? (v/handle-of kb (list 'happy Zed) 'WellContext)) "still stored")
-      (is (not (v/ask? kb (list 'happy Zed) 'WellContext)) "but not believed"))
+      (is (some? (v/handle-of kb (list 'happy Zed) 'CxWell)) "still stored")
+      (is (not (v/ask? kb (list 'happy Zed) 'CxWell)) "but not believed"))
     (testing "so the belief-sensitive unknown now holds"
       (is (v/ask? kb (list 'unknown (list 'happy Zed))))
       (is (not (v/ask? kb (list 'unknown (list 'not (list 'happy Zed)))))
@@ -638,16 +638,16 @@
                                       (list 'unknown (list 'qq '?x))
                                       (list 'unknown (list 'ss '?x)))
                        (list 'rr '?x))
-              'WellContext)
-    (v/assert kb (list 'pp Aa) 'WellContext)
+              'CxWell)
+    (v/assert kb (list 'pp Aa) 'CxWell)
     (testing "fires only when BOTH inners are absent"
-      (is (v/ask? kb (list 'rr Aa) 'WellContext)))
-    (let [h (v/assert kb (list 'ss Aa) 'WellContext)]
+      (is (v/ask? kb (list 'rr Aa) 'CxWell)))
+    (let [h (v/assert kb (list 'ss Aa) 'CxWell)]
       (testing "one inner holding is enough to block"
-        (is (not (v/ask? kb (list 'rr Aa) 'WellContext))))
+        (is (not (v/ask? kb (list 'rr Aa) 'CxWell))))
       (v/retract! kb h)
       (testing "and revives when it leaves"
-        (is (v/ask? kb (list 'rr Aa) 'WellContext))))))
+        (is (v/ask? kb (list 'rr Aa) 'CxWell))))))
 
 ;; ---- subtype fan-out: the NAF query and its trigger follow genl ---------
 ;; `(unknown (super ?x))` must be blocked by a `(sub ?x)` fact — the level-6 query
@@ -658,56 +658,56 @@
   ;; bound (gensym'd) types/predicates throughout, so `genl`, the rule's NAF query,
   ;; and the subtype fact all name the *same* terms
   (tu/with-terms [sub super pp rr Aa]
-    (v/assert kb (list 'genl sub super) 'WellContext)
+    (v/assert kb (list 'genl sub super) 'CxWell)
     (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list super '?x)))
                        (list rr '?x))
-              'WellContext)
-    (v/assert kb (list pp Aa) 'WellContext)
+              'CxWell)
+    (v/assert kb (list pp Aa) 'CxWell)
     (testing "with no super/sub membership, it fires"
-      (is (v/ask? kb (list rr Aa) 'WellContext)))
-    (let [h (v/assert kb (list sub Aa) 'WellContext)]
+      (is (v/ask? kb (list rr Aa) 'CxWell)))
+    (let [h (v/assert kb (list sub Aa) 'CxWell)]
       (testing "a subtype fact satisfies the supertype NAF query and blocks it"
-        (is (not (v/ask? kb (list rr Aa) 'WellContext))
+        (is (not (v/ask? kb (list rr Aa) 'CxWell))
             "(sub Aa) makes (super Aa) derivable, so (unknown (super Aa)) fails"))
       (v/retract! kb h)
       (testing "removing it revives the conclusion"
-        (is (v/ask? kb (list rr Aa) 'WellContext))))))
+        (is (v/ask? kb (list rr Aa) 'CxWell))))))
 
 ;; ---- context scoping: a fact the conclusion cannot see does not block ---
 ;; The `unknown` is evaluated in the conclusion's PLACEMENT context, so a fact in a
-;; sibling context — one the placement context does not see via genlContext — cannot
+;; sibling context — one the placement context does not see via genlCx — cannot
 ;; make its inner derivable.  This is why it is a derive-time check, not a global
 ;; `?ctx` join filter.
 
 (tu/deftest-kb unknown-respects-the-placement-context
-  (tu/with-terms [pp qq rr Aa ParContext SubAContext SubBContext]
+  (tu/with-terms [pp qq rr Aa CxPar CxSubA CxSubB]
     ;; two sibling contexts under a common parent; siblings do not see each other
-    (v/assert kb (list 'genlContext SubAContext ParContext) 'WellContext)
-    (v/assert kb (list 'genlContext SubBContext ParContext) 'WellContext)
+    (v/assert kb (list 'genlCx CxSubA CxPar) 'CxWell)
+    (v/assert kb (list 'genlCx CxSubB CxPar) 'CxWell)
     ;; rule + generator live in SubA, so the conclusion is placed in SubA
     (v/assert kb (list 'implies (list 'and (list 'pp '?x) (list 'unknown (list 'qq '?x)))
                        (list 'rr '?x))
-              SubAContext)
-    (v/assert kb (list 'pp Aa) SubAContext)
+              CxSubA)
+    (v/assert kb (list 'pp Aa) CxSubA)
     (testing "the conclusion is derived in SubA"
-      (is (v/ask? kb (list 'rr Aa) SubAContext)))
+      (is (v/ask? kb (list 'rr Aa) CxSubA)))
     ;; a qq fact in the *sibling* SubB is invisible from SubA, so it must NOT block
-    (let [h (v/assert kb (list 'qq Aa) SubBContext)]
+    (let [h (v/assert kb (list 'qq Aa) CxSubB)]
       (testing "a fact in an unseen sibling context does not satisfy the NAF query"
-        (is (v/ask? kb (list 'rr Aa) SubAContext)
+        (is (v/ask? kb (list 'rr Aa) CxSubA)
             "(qq Aa) in SubB is not visible from SubA, so (unknown (qq Aa)) still holds"))
       (v/retract! kb h))
     ;; but a qq fact in SubA itself IS visible, so it blocks
-    (let [h (v/assert kb (list 'qq Aa) SubAContext)]
+    (let [h (v/assert kb (list 'qq Aa) CxSubA)]
       (testing "a fact in the placement context does block"
-        (is (not (v/ask? kb (list 'rr Aa) SubAContext))))
+        (is (not (v/ask? kb (list 'rr Aa) CxSubA))))
       (v/retract! kb h))))
 
 ;; ---- thereExists with a vector of quantified variables ------------------
 
 (tu/deftest-kb there-exists-binds-a-vector-of-variables
   (tu/with-terms [rel Aa Bb]
-    (v/assert kb (list 'rel Aa Bb) 'WellContext)
+    (v/assert kb (list 'rel Aa Bb) 'CxWell)
     (testing "a vector binder closes off all its variables"
       (is (= #{} (sx/free-vars (list 'thereExists ['?x '?y] (list 'rel '?x '?y)))))
       (is (v/ask? kb (list 'thereExists ['?x '?y] (list 'rel '?x '?y))))

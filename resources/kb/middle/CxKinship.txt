@@ -1,9 +1,9 @@
-;; KinshipContext — kinship & age theory: the rules that derive ancestorOf and
+;; CxKinship — kinship & age theory: the rules that derive ancestorOf and
 ;; grandparentOf from parentOf, and olderThan from birthYearOf. Sees the shared
-;; upper ontology via UniverseContext; WellContext sees it.
+;; upper ontology via CxUniverse; CxWell sees it.
 
-(genlContext KinshipContext UniverseContext)
-(genlContext WellContext KinshipContext)
+(genlCx CxKinship CxUniverse)
+(genlCx CxWell CxKinship)
 
 (implies (and (parentOf ?x ?y)) (ancestorOf ?x ?y))
 

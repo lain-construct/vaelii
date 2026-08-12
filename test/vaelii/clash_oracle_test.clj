@@ -85,14 +85,14 @@
 
 ;; ---- the shared ontology ------------------------------------------------
 
-(def ^:private ctxs '[ClashBaseContext ClashSubContext])
+(def ^:private ctxs '[CxClashBase CxClashSub])
 
 (def ^:private types
   '[animal mammal reptile dog cat snake plant])
 
 (def ^:private inds
   "One pool of individuals for both contexts, so a term routinely holds one membership
-  either side of the `genlContext` edge — the pair only `ClashSubContext` can see whole
+  either side of the `genlCx` edge — the pair only `CxClashSub` can see whole
   (see the namespace docstring)."
   '[CI0 CI1 CI2 CI3 CI4 CI5])
 
@@ -113,7 +113,7 @@
   never produce."
   [kb]
   (v/with-deferred-settle kb
-    (v/assert kb (list 'genlContext (second ctxs) (first ctxs)) 'UniverseContext)
+    (v/assert kb (list 'genlCx (second ctxs) (first ctxs)) 'CxUniverse)
     (doseq [[sub sup] '[[mammal animal] [reptile animal] [dog mammal] [cat mammal]]]
       (v/assert kb (list 'genl sub sup) (first ctxs) {:strength :monotonic}))
     (v/assert kb '(disjoint mammal reptile) (first ctxs) {:strength :monotonic})
@@ -310,19 +310,19 @@
   (let [inc-kb (tu/fresh)
         exh-kb (tu/isolated-fresh)
         ops    [;; content first, and nothing about it moves again
-                [:assert '(dog CI0)   'ClashBaseContext {}]
-                [:assert '(snake CI0) 'ClashBaseContext {}]
-                [:assert '(dog CI1)   'ClashBaseContext {}]
-                [:assert '(cat CI1)   'ClashBaseContext {}]
+                [:assert '(dog CI0)   'CxClashBase {}]
+                [:assert '(snake CI0) 'CxClashBase {}]
+                [:assert '(dog CI1)   'CxClashBase {}]
+                [:assert '(cat CI1)   'CxClashBase {}]
                 ;; …then the vocabulary moves under it, twice
-                [:assert '(genl snake reptile) 'ClashBaseContext {:strength :monotonic}]
-                [:assert '(disjoint dog cat)   'ClashBaseContext {:strength :monotonic}]
+                [:assert '(genl snake reptile) 'CxClashBase {:strength :monotonic}]
+                [:assert '(disjoint dog cat)   'CxClashBase {:strength :monotonic}]
                 ;; a settle that touches neither pair: both must still be reported
-                [:assert '(plant CI4) 'ClashBaseContext {}]
+                [:assert '(plant CI4) 'CxClashBase {}]
                 ;; and the separations leaving again
-                [:retract '(disjoint dog cat) 'ClashBaseContext]
-                [:retract '(genl snake reptile) 'ClashBaseContext]
-                [:assert '(plant CI5) 'ClashBaseContext {}]]]
+                [:retract '(disjoint dog cat) 'CxClashBase]
+                [:retract '(genl snake reptile) 'CxClashBase]
+                [:assert '(plant CI5) 'CxClashBase {}]]]
     (try
       (binding [checks/*arbitrate-constraints?* true]
         (binding [settle/*incremental-clashes* true]  (build-ontology! inc-kb))
@@ -371,15 +371,15 @@
   ;; end, which is the half a memo that silently dropped everything would also pass.
   (let [cs (directed-stream
             [;; a standing pair on `mammal` / `reptile`, and nothing about it moves again
-             [:assert '(mammal CI0)  'ClashBaseContext {}]
-             [:assert '(reptile CI0) 'ClashBaseContext {}]
+             [:assert '(mammal CI0)  'CxClashBase {}]
+             [:assert '(reptile CI0) 'CxClashBase {}]
              ;; edges arriving and leaving under types the pair does not name
-             [:assert '(genl snake reptile) 'ClashBaseContext {:strength :monotonic}]
-             [:assert '(genl plant thing)   'ClashBaseContext {:strength :monotonic}]
-             [:assert '(cat CI3) 'ClashBaseContext {}]
-             [:retract '(genl plant thing) 'ClashBaseContext]
-             [:retract '(genl snake reptile) 'ClashBaseContext]
-             [:assert '(cat CI4) 'ClashBaseContext {}]])]
+             [:assert '(genl snake reptile) 'CxClashBase {:strength :monotonic}]
+             [:assert '(genl plant thing)   'CxClashBase {:strength :monotonic}]
+             [:assert '(cat CI3) 'CxClashBase {}]
+             [:retract '(genl plant thing) 'CxClashBase]
+             [:retract '(genl snake reptile) 'CxClashBase]
+             [:assert '(cat CI4) 'CxClashBase {}]])]
     (is (= 1 (count cs))
         "the pair the edges were never about is still the one standing dilemma")))
 
@@ -391,35 +391,35 @@
   ;; either member.  A per-pair reading that stopped at the two functors rather than at
   ;; their closures would carry it for the rest of the KB's life.
   (directed-stream
-   [[:assert '(dog CI0)   'ClashBaseContext {}]
-    [:assert '(plant CI0) 'ClashBaseContext {}]
+   [[:assert '(dog CI0)   'CxClashBase {}]
+    [:assert '(plant CI0) 'CxClashBase {}]
     ;; a settle that touches neither, so the pair is standing rather than arriving
-    [:assert '(cat CI3) 'ClashBaseContext {}]
+    [:assert '(cat CI3) 'CxClashBase {}]
     ;; ...and the edge the separation reaches `dog` through goes
-    [:retract '(genl mammal animal) 'ClashBaseContext]
-    [:assert '(cat CI4) 'ClashBaseContext {}]
+    [:retract '(genl mammal animal) 'CxClashBase]
+    [:assert '(cat CI4) 'CxClashBase {}]
     ;; and comes back, so the pair has to be found a second time
-    [:assert '(genl mammal animal) 'ClashBaseContext {:strength :monotonic}]
-    [:assert '(cat CI5) 'ClashBaseContext {}]]))
+    [:assert '(genl mammal animal) 'CxClashBase {:strength :monotonic}]
+    [:assert '(cat CI5) 'CxClashBase {}]]))
 
 (deftest an-edge-two-contexts-support-is-read-from-each-of-them
   ;; The scoped half of the same reading.  `(genl mammal animal)` is asserted from
-  ;; `ClashSubContext` as well, so one edge has two supporters and two asserting
+  ;; `CxClashSub` as well, so one edge has two supporters and two asserting
   ;; contexts; retracting the base one leaves the edge **active** and visible from
-  ;; `ClashSubContext` alone.  So the relation as a whole did not move, while a pair in
+  ;; `CxClashSub` alone.  So the relation as a whole did not move, while a pair in
   ;; the base context has stopped being separated through it and one in the sub context
   ;; has not — a reading taken globally and never checked against the asking context
   ;; would keep both.
   (directed-stream
-   [[:assert '(genl mammal animal) 'ClashSubContext {:strength :monotonic}]
-    [:assert '(dog CI0)   'ClashBaseContext {}]
-    [:assert '(plant CI0) 'ClashBaseContext {}]
-    [:assert '(dog CI1)   'ClashSubContext {}]
-    [:assert '(plant CI1) 'ClashSubContext {}]
-    [:assert '(cat CI3) 'ClashBaseContext {}]
+   [[:assert '(genl mammal animal) 'CxClashSub {:strength :monotonic}]
+    [:assert '(dog CI0)   'CxClashBase {}]
+    [:assert '(plant CI0) 'CxClashBase {}]
+    [:assert '(dog CI1)   'CxClashSub {}]
+    [:assert '(plant CI1) 'CxClashSub {}]
+    [:assert '(cat CI3) 'CxClashBase {}]
     ;; the base supporter goes; the sub one keeps the edge alive
-    [:retract '(genl mammal animal) 'ClashBaseContext]
-    [:assert '(cat CI4) 'ClashBaseContext {}]]))
+    [:retract '(genl mammal animal) 'CxClashBase]
+    [:assert '(cat CI4) 'CxClashBase {}]]))
 
 (deftest a-metatype-member-leaving-withdraws-what-it-was-separating
   ;; The one ingredient of a separation that is neither a declaration nor a closure.
@@ -433,17 +433,17 @@
   ;; sweep, so the two directions do not check the same thing and both are here.
   (let [kb  (tu/fresh)
         exh (tu/isolated-fresh)
-        ops [[:assert '(disjointMetatype clsh_kind_t) 'ClashBaseContext {:strength :monotonic}]
-             [:assert '(clsh_kind_t clsh_a_t) 'ClashBaseContext {:strength :monotonic}]
-             [:assert '(clsh_a_t CI0) 'ClashBaseContext {}]
-             [:assert '(clsh_b_t CI0) 'ClashBaseContext {}]
+        ops [[:assert '(disjointMetatype clsh_kind_t) 'CxClashBase {:strength :monotonic}]
+             [:assert '(clsh_kind_t clsh_a_t) 'CxClashBase {:strength :monotonic}]
+             [:assert '(clsh_a_t CI0) 'CxClashBase {}]
+             [:assert '(clsh_b_t CI0) 'CxClashBase {}]
              ;; the member arrives over content already stored, and must reach it
-             [:assert '(clsh_kind_t clsh_b_t) 'ClashBaseContext {:strength :monotonic}]
+             [:assert '(clsh_kind_t clsh_b_t) 'CxClashBase {:strength :monotonic}]
              ;; a settle that touches neither member of the pair
-             [:assert '(plant CI4) 'ClashBaseContext {}]
+             [:assert '(plant CI4) 'CxClashBase {}]
              ;; ...and the member goes again, with the mark still standing
-             [:retract '(clsh_kind_t clsh_b_t) 'ClashBaseContext]
-             [:assert '(plant CI5) 'ClashBaseContext {}]]]
+             [:retract '(clsh_kind_t clsh_b_t) 'CxClashBase]
+             [:assert '(plant CI5) 'CxClashBase {}]]]
     (try
       (binding [checks/*arbitrate-constraints?* true]
         (doseq [[i op] (map-indexed vector ops)]
@@ -469,7 +469,7 @@
         read!  (fn [sentences]
                  (let [kb (tu/fresh)]
                    (try
-                     (doseq [s sentences] (v/assert kb s 'ClashBaseContext))
+                     (doseq [s sentences] (v/assert kb s 'CxClashBase))
                      (mapv (fn [r] (mapv :sentence (:sides r))) (v/contradictions kb))
                      (finally (tu/clear-kb! kb)))))
         fwd    (read! (apply concat pairs))

@@ -51,7 +51,7 @@
 
 (deftest the-vocabulary-the-engine-interprets-is-present
   (testing "every cache-maintaining special predicate has an entry"
-    (doseq [f '[genl genlContext disjoint disjointMetatype
+    (doseq [f '[genl genlCx disjoint disjointMetatype
                 transitive symmetric reflexive functional inverse
                 decontextualizedPredicate forcedDecontextualizedPredicate]]
       (is (contains? special/table f) (str f " missing from the table"))))

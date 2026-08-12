@@ -81,7 +81,7 @@
                           (range width))
                   (for [j (range m)]
                     (list 'benchLoose (symbol (str "BenchU" j)) (symbol (str "BenchV" j)))))
-                 'UniverseContext {:chain? false}))
+                 'CxUniverse {:chain? false}))
 
 (defn- conjunction [width]
   (into ['(benchLoose ?u ?v)]
@@ -98,7 +98,7 @@
   "How many solutions the first `k` literals of `order` actually return."
   [kb order k]
   (binding [plan/*enabled* false]
-    (count (v/prove kb (vec (take k order)) 'UniverseContext))))
+    (count (v/prove kb (vec (take k order)) 'CxUniverse))))
 
 (defn- rows
   "Σ of the partial-solution counts an order passes through — the structural cost,
@@ -111,7 +111,7 @@
   The estimate is `explain`'s `:est-prefix`, which is the number the ordering itself
   turned on rather than one computed alongside it."
   [kb q]
-  (let [steps (plan/explain kb q 'UniverseContext)
+  (let [steps (plan/explain kb q 'CxUniverse)
         order (mapv :goal steps)]
     (mapv (fn [k]
             (let [est (double (max 1 (:est-prefix (nth steps (dec k)))))
@@ -147,26 +147,26 @@
                    (range width))]
     (v/assert-many kb (for [j (range m)]
                         (list 'benchAlone (symbol (str "BenchU" j)) (symbol (str "BenchV" j))))
-                   'UniverseContext {:chain? false})
+                   'CxUniverse {:chain? false})
     (v/assert-rule kb ante (list head '?n0 (symbol (str "?n" width)))
-                   'UniverseContext {:direction :backward :chain? false})
+                   'CxUniverse {:direction :backward :chain? false})
     (let [goal [(list head '?a '?b)]
           run  (fn [on?]
                  (binding [plan/*enabled* on?]
                    ;; one discarded run to warm the JIT and the literal cache, so what
                    ;; is timed is the join rather than the first-call overhead
-                   (dotimes [_ 1] (count (v/prove kb goal 'UniverseContext)))
+                   (dotimes [_ 1] (count (v/prove kb goal 'CxUniverse)))
                    (let [t0 (System/nanoTime)
-                         n  (count (v/prove kb goal 'UniverseContext))]
+                         n  (count (v/prove kb goal 'CxUniverse))]
                      [n (/ (- (System/nanoTime) t0) 1e6)])))]
       [(run false) (run true)])))
 
 (defn- plan-cost-ms [kb q strategy iters]
   (with-strategy* strategy
     (fn []
-      (dotimes [_ 200] (plan/order kb q 'UniverseContext {}))
+      (dotimes [_ 200] (plan/order kb q 'CxUniverse {}))
       (let [t0 (System/nanoTime)]
-        (dotimes [_ iters] (plan/order kb q 'UniverseContext {}))
+        (dotimes [_ iters] (plan/order kb q 'CxUniverse {}))
         (/ (- (System/nanoTime) t0) 1e6 iters)))))
 
 (defn -main [& args]
@@ -198,13 +198,13 @@
       (let [kb (kbs width)
             q  (conjunction width)
             plans {:written  (vec q)
-                   :greedy   (with-strategy* :greedy   #(plan/order kb q 'UniverseContext {}))
-                   :placed   (with-strategy* :placed #(plan/order kb q 'UniverseContext {}))}
+                   :greedy   (with-strategy* :greedy   #(plan/order kb q 'CxUniverse {}))
+                   :placed   (with-strategy* :placed #(plan/order kb q 'CxUniverse {}))}
             runs  (into {} (for [[k order] plans]
                              [k {:order order
                                  :rows  (rows kb order)
                                  :ms    (second (timed #(binding [plan/*enabled* false]
-                                                          (v/prove kb order 'UniverseContext))))}]))
+                                                          (v/prove kb order 'CxUniverse))))}]))
             best  (apply min (map (comp :ms val) runs))]
         (doseq [k [:written :greedy :placed]]
           (let [{:keys [rows ms]} (runs k)]

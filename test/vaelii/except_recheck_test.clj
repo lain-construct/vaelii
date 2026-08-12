@@ -26,7 +26,7 @@
             [vaelii.impl.provers :as provers]
             [vaelii.test-util :as tu]))
 
-(def ^:private ctx 'RecheckCostContext)
+(def ^:private ctx 'CxRecheckCost)
 
 (defn- counting-evaluations
   "Run `f`, returning the number of level-6 exception evaluations it caused."
@@ -165,10 +165,10 @@
       (is (empty? (v/sentexes-matching kb '(xflies Tweety) '?ctx))
           "the edge makes the exception hold, and the conclusion is swept"))))
 
-(deftest a-genlContext-edge-rechecks-only-the-exceptions-in-its-cone
-  (testing "a genlContext edge outside every excepted rule's placement cone re-checks
+(deftest a-genlCx-edge-rechecks-only-the-exceptions-in-its-cone
+  (testing "a genlCx edge outside every excepted rule's placement cone re-checks
             none of them, instead of the whole excepted-rule roster"
-    ;; A genlContext edge changes what contexts *see*, so it can flip an exception —
+    ;; A genlCx edge changes what contexts *see*, so it can flip an exception —
     ;; but only one evaluated in a context the edge's `sub` reaches (`context-down`).
     ;; An edge in an unrelated context cone re-checks nothing, where the old blanket
     ;; re-checked every fired excepted rule.  Counted, not timed: the blanket's cost is
@@ -184,15 +184,15 @@
                                                 (list 'implies (list 'and (list p '?x)) (list s '?x))))
                                  ctx)
                        (v/assert kb (list p (symbol (str "CI" i))) ctx)))
-                   ;; a fresh genlContext edge whose cone (context-down of its sub) does
+                   ;; a fresh genlCx edge whose cone (context-down of its sub) does
                    ;; not reach `ctx`, so no fired exception is in it
                    (counting-evaluations
-                    #(v/assert kb '(genlContext FarSubContext FarSuperContext)
-                               'UniverseContext {:strength :monotonic}))))
+                    #(v/assert kb '(genlCx CxFarSub CxFarSuper)
+                               'CxUniverse {:strength :monotonic}))))
           few  (cost 5)
           many (cost 20)]
       (is (= 0 few many)
-          (str "an out-of-cone genlContext edge re-checked exceptions instead of "
+          (str "an out-of-cone genlCx edge re-checked exceptions instead of "
                "narrowing to its cone: " few " (5 rules) / " many " (20 rules)")))))
 
 (deftest a-released-exception-is-still-re-derived
@@ -277,7 +277,7 @@
 
 ;; ---- the genl edge trigger is narrowed to the closures it moves ----------
 ;;
-;; Queueing *every* excepted rule with `:all` on a `genl` / `genlContext` edge change
+;; Queueing *every* excepted rule with `:all` on a `genl` / `genlCx` edge change
 ;; makes taxonomy churn re-evaluate (and re-chain) whole extents of rules whose
 ;; exceptions the edge could not possibly move.  The genl trigger is therefore
 ;; keyed by the edge's supertype closure: only rules whose exception is registered
@@ -285,7 +285,7 @@
 ;; `disjoint`, whose provers answer across arguments and so cannot be keyed on a
 ;; predicate at all — are queued.  A **negated** conjunct registers under `not`, which
 ;; hides the predicate it is about, and is keyed on the edge's *subtype* closure
-;; instead (`special/recheck-negated-exceptions`).  (`genlContext` keeps the blanket: a
+;; instead (`special/recheck-negated-exceptions`).  (`genlCx` keeps the blanket: a
 ;; visibility edge changes what every exception can see, which no predicate key can
 ;; narrow.)
 
@@ -725,7 +725,7 @@
       (is (empty? (v/sentexes-matching kb '(mseen ?x) ctx))
           "merged first, the rule never concludes"))))
 
-(deftest a-genlContext-edge-retakes-a-census-with-no-firing-to-key-on
+(deftest a-genlCx-edge-retakes-a-census-with-no-firing-to-key-on
   (testing "an aggregate rule is exempt from the placement-cone narrowing"
     ;; The narrowing above reads where a rule's firings were *placed*, which is sound for
     ;; every condition that blocks: what a widened cone can change always has a firing to
@@ -736,26 +736,26 @@
                    (tu/with-cleared-kb [kb tu/isolated-fresh]
                      ;; both under the rule's own context, so a firing has somewhere to
                      ;; be placed; the edge under test is the one between them
-                     (v/assert kb (list 'genlContext 'GSubContext ctx) ctx
+                     (v/assert kb (list 'genlCx 'CxGSub ctx) ctx
                                {:strength :monotonic})
-                     (v/assert kb (list 'genlContext 'GUpContext ctx) ctx
+                     (v/assert kb (list 'genlCx 'CxGUp ctx) ctx
                                {:strength :monotonic})
                      (when-not edge-last?
-                       (v/assert kb '(genlContext GSubContext GUpContext) ctx
+                       (v/assert kb '(genlCx CxGSub CxGUp) ctx
                                  {:strength :monotonic}))
-                     (v/assert kb '(gperson GAnn) 'GSubContext)
+                     (v/assert kb '(gperson GAnn) 'CxGSub)
                      (v/assert kb '(implies (and (gperson ?x)
                                                  (agg/count ?n ?c (gchildOf ?x ?c))
                                                  (lessThan 2 ?n))
                                             (glargeFamily ?x))
                                ctx)
                      (doseq [c '[GC1 GC2 GC3]]
-                       (v/assert kb (list 'gchildOf 'GAnn c) 'GUpContext))
+                       (v/assert kb (list 'gchildOf 'GAnn c) 'CxGUp))
                      (when edge-last?
-                       (v/assert kb '(genlContext GSubContext GUpContext) ctx
+                       (v/assert kb '(genlCx CxGSub CxGUp) ctx
                                  {:strength :monotonic}))
                      (mapv :sentence (v/sentexes-matching kb '(glargeFamily ?x)
-                                                          'GSubContext))))]
+                                                          'CxGSub))))]
       (is (= '[(glargeFamily GAnn)] (belief false))
           "with the edge in place the census sees three children and the rule fires")
       (is (= (belief false) (belief true))

@@ -510,12 +510,12 @@
                                         (nth vars j) (nth vars (inc j))))
                           (range a))
               conseq (list (nth cb (u/zipf-sample ccum rng)) (first vars) (last vars))]
-          (try (v/assert-rule kb antes conseq 'BenchContext
+          (try (v/assert-rule kb antes conseq 'CxBench
                               {:direction :backward})
                (catch Exception _ nil))))
       (dotimes [_ facts]
         (try (v/assert kb (list (nth (band 0) (u/zipf-sample bcum rng)) (ind) (ind))
-                       'BenchContext)
+                       'CxBench)
              (catch Exception _ nil))))
     (println (format "  %,d sentexes in %.0f ms" (v/sentex-count kb) (ms t0)))))
 
@@ -642,7 +642,7 @@
 (def ^:private taxonomy-functors
   "The two predicates whose churn is not an index measurement.
 
-  A `genl` or `genlContext` sentence **is** a taxonomy edge, so retracting one and putting
+  A `genl` or `genlCx` sentence **is** a taxonomy edge, so retracting one and putting
   it back retires a cached closure (`docs/taxonomy.md`) rather than only the trie under
   it.  On an ontology corpus the two are a fifth of everything stored — `genl` alone is
   the largest predicate in the shipped OpenCyc conversion — and one such pair costs
@@ -658,7 +658,7 @@
   and a mean over a sample holding one of each is the second divided by the sample size,
   wearing the shape of a typical cost.  So the report is median, p95 and max, and it names
   the pairs at the top."
-  '#{genl genlContext})
+  '#{genl genlCx})
 
 (defn- churn-functor
   "The functor a stored fact churns under, or nil for a rule.  `sx/body` rather than the

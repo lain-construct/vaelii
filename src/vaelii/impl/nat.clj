@@ -18,7 +18,7 @@
                              minted.
 
   The constant↔expression map is itself an ordinary stored fact, `(termOfUnit K E)`
-  in UniverseContext, so the inverted term index makes `E`'s constituents (and `K`)
+  in CxUniverse, so the inverted term index makes `E`'s constituents (and `K`)
   discoverable natively — no KV side tables.  `K` stays STABLE across renames: a
   rename rewrites the expression inside the one `termOfUnit` sentex in place, and
   nested NATs referencing `K` need no cascade.
@@ -55,7 +55,7 @@
   "Where every NAT bookkeeping fact lives — `(reifiableFunction F)`, `(termOfUnit K
   E)`, `(resultIsa F T)`, and a minted reified NAT's materialized types — so it is visible
   from every context, matching the other universal vocabulary."
-  'UniverseContext)
+  'CxUniverse)
 
 (def no-match
   "The reserved `nat/` constant a read-mode reify resolves an unknown (never-minted)
@@ -615,7 +615,7 @@
 
 (defn mint-nat!
   "Mint a fresh reified constant for the ground NAT expression `E`: allocate an opaque
-  `nat/` constant `K`, assert `(termOfUnit K E)` in UniverseContext, materialize the
+  `nat/` constant `K`, assert `(termOfUnit K E)` in CxUniverse, materialize the
   function's result types (`(T K)` per `resultIsa`, `(genl K T)` per `resultGenl`),
   and return `K`.  The bookkeeping is `:monotonic` — a reified NAT's identity and result
   types are structural, not defeasible defaults.  `assert` stores synchronously, so a

@@ -1,6 +1,6 @@
-;; SocialContext — theory over the social relations: what acquaintance follows from,
+;; CxSocial — theory over the social relations: what acquaintance follows from,
 ;; and how employment relates to membership. Sees the shared upper ontology via
-;; UniverseContext; WellContext sees it.
+;; CxUniverse; CxWell sees it.
 ;;
 ;; Every rule here runs one way only. `knows` is deliberately not symmetric — a great
 ;; many people know someone who does not know them — so friendship and marriage, which
@@ -9,8 +9,8 @@
 ;; knows) would have been one word and would have made the KB assert the converse of
 ;; every acquaintance it ever learned.
 
-(genlContext SocialContext UniverseContext)
-(genlContext WellContext SocialContext)
+(genlCx CxSocial CxUniverse)
+(genlCx CxWell CxSocial)
 
 (implies (and (friendOf ?x ?y)) (knows ?x ?y))
 

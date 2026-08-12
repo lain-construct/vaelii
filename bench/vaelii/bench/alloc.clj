@@ -446,7 +446,7 @@
         cfg   {:n n :arity 2 :seed 42
                :preds (u/terms "aRel" 40)
                :inds  (u/terms "AInd" 400)
-               :ctxs  (mapv #(symbol (str "ACtx" % "Context")) (range 4))}
+               :ctxs  (mapv #(symbol (str "CxACtx" %)) (range 4))}
         opts  {:warm 12 :blocks 20}
         floor (instrument-floor 1000)]
     (println (format "vaelii index-lookup allocation bake-off — %,d facts, arity 2" n))

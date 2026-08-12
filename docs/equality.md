@@ -195,7 +195,7 @@ migration handed over.
 
 The closure itself is the other half, and it is compared rather than assumed: the active
 equality edges, the `rewriteOf` preference claims they carry, the believed schematic
-rewrite rules, and the `genlContext` generation. A move in any of those can retire an
+rewrite rules, and the `genlCx` generation. A move in any of those can retire an
 entry that nothing relabelled — an equation leaving re-normalizes every sentence it
 reached, a context edge changes which merges a reader can see — so a settle that moved one
 of them re-examines the whole set. A stamp that cannot be compared, which is a freshly
@@ -203,9 +203,9 @@ opened KB and a recovered one, reads the same way: one full pass, never a wrong 
 
 ### Scope, context, and re-election
 
-**An equality applies where it is visible.** A merge asserted in `CoreContext`
+**An equality applies where it is visible.** A merge asserted in `CxCore`
 applies everywhere; one asserted in a context applies there and below, by the
-ordinary `genlContext` up-closure. That answers "is equality global or scoped" the
+ordinary `genlCx` up-closure. That answers "is equality global or scoped" the
 same way everything else in the engine answers it, and it is what lets a story
 merge two characters without leaking into an unrelated one.
 
@@ -343,7 +343,7 @@ the fact revives.
 ## Storage
 
 The closure is a fourth cached relation in `vaelii.impl.taxonomy`, beside `genl`,
-`genlContext` and the predicate metadata, and inherits their belief-following
+`genlCx` and the predicate metadata, and inherits their belief-following
 `:support` discipline: an edge is active only while some sentex asserting it is
 believed, and `refresh-beliefs` reconciles at the end of every `settle`.
 
@@ -360,7 +360,7 @@ incremental result is checked against it after every edit, as
 
 ## Public surface
 
-`genl` has `genls` / `specs` / `genl?`; `genlContext` has `context-up` / `sees?`.
+`genl` has `genls` / `specs` / `genl?`; `genlCx` has `context-up` / `sees?`.
 Equality gets the same treatment, or an application cannot see what merged:
 `representative`, `same-class?`, `equiv-class`, `deprecated?`. Without
 `deprecated?` in particular, nothing outside representative *selection*
@@ -389,7 +389,7 @@ displaced it.
   belief would depend on arrival order.
 - **A rule concluding one of the three relations does not merge.** The derivation path
   runs the `:derived?` subset of the special-predicate table — the `genl` and
-  `genlContext` closure edges — so a rule-concluded `(sameAs A B)` is stored and
+  `genlCx` closure edges — so a rule-concluded `(sameAs A B)` is stored and
   believed while the equality closure never learns it, no spelling is displaced, and no
   violation is filed. **`recover` over that same store does learn it**, since the rebuild
   replays the stored declarations, so a restarted KB and a running one disagree about the
@@ -518,7 +518,7 @@ refuse.
   predicate metadata. `different` is refused by `wff` on the way in.
 - Migration (`migrate-sentex` / `migrate-class`): re-canonicalized rather than
   substituted, one justification per incident equality edge, and applied only where the
-  equality is *visible* by the `genlContext` up-closure — once per **reader** whose
+  equality is *visible* by the `genlCx` up-closure — once per **reader** whose
   election differs (`reader-contexts-for`, over `tax/meet-closure`), each twin placed in
   the context that elected it. Runs over the whole class, so a late `rewriteOf`
   re-electing the representative re-migrates with no separate code path.

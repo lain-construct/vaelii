@@ -25,12 +25,12 @@
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'SpaceContext "upper")
-                        (seed/load-context 'TimeContext "upper")
+                        (seed/load-context 'CxSpace "upper")
+                        (seed/load-context 'CxTime "upper")
                         (v/add-prover (space/spatial-prover))
                         (v/add-prover (iv/allen-prover)))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 ;; ---- reachable from a rule ----------------------------------------------
 
@@ -144,26 +144,26 @@
   ;; knowledge derives different things according to which context its halves were
   ;; stated in, and the conclusion's own placement context is the one that cannot see
   ;; the reason it was drawn.
-  (tu/with-terms [A B D AContext BContext BothContext tmpEnclosed]
-    (v/assert kb (list 'genlContext AContext 'UniverseContext) C)
-    (v/assert kb (list 'genlContext BContext 'UniverseContext) C)
-    (v/assert kb (list 'genlContext BothContext AContext) C)
-    (v/assert kb (list 'genlContext BothContext BContext) C)
+  (tu/with-terms [A B D CxA CxB CxBoth tmpEnclosed]
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) C)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) C)
+    (v/assert kb (list 'genlCx CxBoth CxA) C)
+    (v/assert kb (list 'genlCx CxBoth CxB) C)
     (v/assert-rule kb [(list 'nonTangentialProperPart '?x D)] (list tmpEnclosed '?x) C
                    {:direction :forward})
-    (v/assert kb (list 'nonTangentialProperPart A B) AContext)
-    (v/assert kb (list 'nonTangentialProperPart B D) BContext)
+    (v/assert kb (list 'nonTangentialProperPart A B) CxA)
+    (v/assert kb (list 'nonTangentialProperPart B D) CxB)
     (testing "neither sibling composes the chain, and the context below both does"
-      (is (= 8 (count (space/possible-relations kb AContext A D)))
+      (is (= 8 (count (space/possible-relations kb CxA A D)))
           "A's context cannot see B's half, so A to D is wide open there")
-      (is (= #{:ntpp} (space/possible-relations kb BothContext A D)))
-      (is (v/ask? kb (list 'nonTangentialProperPart A D) BothContext))
-      (is (nil? (v/handle-of kb (list 'nonTangentialProperPart A D) BothContext))
+      (is (= #{:ntpp} (space/possible-relations kb CxBoth A D)))
+      (is (v/ask? kb (list 'nonTangentialProperPart A D) CxBoth))
+      (is (nil? (v/handle-of kb (list 'nonTangentialProperPart A D) CxBoth))
           "and it is genuinely not stored anywhere"))
     (testing "so the rule fires on it, in the context that sees why"
-      (is (= #{BothContext} (placements kb tmpEnclosed A))))
+      (is (= #{CxBoth} (placements kb tmpEnclosed A))))
     (testing "and the firing rests on both halves, so either one withdraws it"
-      (v/retract! kb (v/handle-of kb (list 'nonTangentialProperPart A B) AContext))
+      (v/retract! kb (v/handle-of kb (list 'nonTangentialProperPart A B) CxA))
       (is (empty? (placements kb tmpEnclosed A))))))
 
 (tu/deftest-kb a-fact-that-licenses-nothing-is-not-what-makes-that-firing-appear
@@ -172,20 +172,20 @@
   ;; wait for some unrelated fact to be stated in the context that composes it.  Belief
   ;; would then depend on an assertion that entails nothing — and survive its
   ;; retraction, so a reload of the very same content would not reproduce the KB.
-  (tu/with-terms [A B D X Y AContext BContext BothContext tmpEnclosed]
-    (v/assert kb (list 'genlContext AContext 'UniverseContext) C)
-    (v/assert kb (list 'genlContext BContext 'UniverseContext) C)
-    (v/assert kb (list 'genlContext BothContext AContext) C)
-    (v/assert kb (list 'genlContext BothContext BContext) C)
+  (tu/with-terms [A B D X Y CxA CxB CxBoth tmpEnclosed]
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) C)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) C)
+    (v/assert kb (list 'genlCx CxBoth CxA) C)
+    (v/assert kb (list 'genlCx CxBoth CxB) C)
     (v/assert-rule kb [(list 'nonTangentialProperPart '?x D)] (list tmpEnclosed '?x) C
                    {:direction :forward})
-    (v/assert kb (list 'nonTangentialProperPart A B) AContext)
-    (v/assert kb (list 'nonTangentialProperPart B D) BContext)
+    (v/assert kb (list 'nonTangentialProperPart A B) CxA)
+    (v/assert kb (list 'nonTangentialProperPart B D) CxB)
     (let [before (placements kb tmpEnclosed A)]
-      (v/assert kb (list 'nonTangentialProperPart X Y) BothContext)
+      (v/assert kb (list 'nonTangentialProperPart X Y) CxBoth)
       (is (= before (placements kb tmpEnclosed A))
           "a fact about two other regions entirely decides nothing about this one")
-      (v/retract! kb (v/handle-of kb (list 'nonTangentialProperPart X Y) BothContext))
+      (v/retract! kb (v/handle-of kb (list 'nonTangentialProperPart X Y) CxBoth))
       (is (= before (placements kb tmpEnclosed A))
           "and taking it away again decides nothing either"))))
 
@@ -194,21 +194,21 @@
   ;; were last joined, per context — so the contexts it takes a delta for have to be the
   ;; same ones it solves against.  Growing the chain a fact at a time is what asks: each
   ;; arrival moves the meeting context's network and nothing else's.
-  (tu/with-terms [A B D E AContext BContext BothContext tmpIn]
-    (v/assert kb (list 'genlContext AContext 'UniverseContext) C)
-    (v/assert kb (list 'genlContext BContext 'UniverseContext) C)
-    (v/assert kb (list 'genlContext BothContext AContext) C)
-    (v/assert kb (list 'genlContext BothContext BContext) C)
+  (tu/with-terms [A B D E CxA CxB CxBoth tmpIn]
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) C)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) C)
+    (v/assert kb (list 'genlCx CxBoth CxA) C)
+    (v/assert kb (list 'genlCx CxBoth CxB) C)
     (v/assert-rule kb [(list 'partOfRegion '?x E)] (list tmpIn '?x) C {:direction :forward})
-    (v/assert kb (list 'nonTangentialProperPart A B) AContext)
+    (v/assert kb (list 'nonTangentialProperPart A B) CxA)
     (is (empty? (placements kb tmpIn A)) "nothing reaches E yet")
-    (v/assert kb (list 'nonTangentialProperPart B D) BContext)
+    (v/assert kb (list 'nonTangentialProperPart B D) CxB)
     (is (empty? (placements kb tmpIn A)))
-    (v/assert kb (list 'nonTangentialProperPart D E) AContext)
+    (v/assert kb (list 'nonTangentialProperPart D E) CxA)
     (testing "the last link closes it for every region on the chain at once"
-      (is (= #{BothContext} (placements kb tmpIn A)))
-      (is (= #{BothContext} (placements kb tmpIn B)))
-      (is (= #{AContext} (placements kb tmpIn D))
+      (is (= #{CxBoth} (placements kb tmpIn A)))
+      (is (= #{CxBoth} (placements kb tmpIn B)))
+      (is (= #{CxA} (placements kb tmpIn D))
           "D reaches E within one context, so that is where its conclusion belongs"))))
 
 (tu/deftest-kb a-variable-context-asks-what-some-reader-entails-not-what-all-facts-would
@@ -217,19 +217,19 @@
   ;; are the case that separates it: their facts compose for no reader at all, since no
   ;; context inherits both, and a single read over the union of what every context holds
   ;; would report a relation nowhere entailed.
-  (tu/with-terms [A B D AContext BContext BothContext]
-    (v/assert kb (list 'genlContext AContext 'UniverseContext) C)
-    (v/assert kb (list 'genlContext BContext 'UniverseContext) C)
-    (v/assert kb (list 'nonTangentialProperPart A B) AContext)
-    (v/assert kb (list 'nonTangentialProperPart B D) BContext)
+  (tu/with-terms [A B D CxA CxB CxBoth]
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) C)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) C)
+    (v/assert kb (list 'nonTangentialProperPart A B) CxA)
+    (v/assert kb (list 'nonTangentialProperPart B D) CxB)
     (testing "no context in the KB entails the composition"
-      (is (not (v/ask? kb (list 'partOfRegion A D) AContext)))
-      (is (not (v/ask? kb (list 'partOfRegion A D) BContext)))
+      (is (not (v/ask? kb (list 'partOfRegion A D) CxA)))
+      (is (not (v/ask? kb (list 'partOfRegion A D) CxB)))
       (is (not (v/ask? kb (list 'partOfRegion A D) C))))
     (testing "so neither does 'some context'"
       (is (not (v/ask? kb (list 'partOfRegion A D) '?ctx))))
     (testing "while what a reader does entail is still answered there and at ?ctx"
-      (is (v/ask? kb (list 'partOfRegion A B) AContext))
+      (is (v/ask? kb (list 'partOfRegion A B) CxA))
       (is (v/ask? kb (list 'partOfRegion A B) '?ctx))
       (is (v/ask? kb (list 'partOfRegion B D) '?ctx)
           "from the other context, which no single reader shares with the first"))
@@ -239,9 +239,9 @@
                     [(get s '?x) (get s '?y)])))))
     (testing "give the two a common descendant and there is now a reader that composes
               them, so 'some context' answers — the same question, a different lattice"
-      (v/assert kb (list 'genlContext BothContext AContext) C)
-      (v/assert kb (list 'genlContext BothContext BContext) C)
-      (is (v/ask? kb (list 'partOfRegion A D) BothContext))
+      (v/assert kb (list 'genlCx CxBoth CxA) C)
+      (v/assert kb (list 'genlCx CxBoth CxB) C)
+      (is (v/ask? kb (list 'partOfRegion A D) CxBoth))
       (is (v/ask? kb (list 'partOfRegion A D) '?ctx)))))
 
 ;; ---- a negative fact is a constraint, on every path a positive one is ----
@@ -316,22 +316,22 @@
   ;; it should be — and reads as correct against anything but another order of the same
   ;; content.  The rules are permuted along with the facts, since "the rule arrived last"
   ;; is exactly the case a rule's own full join would otherwise paper over.
-  (tu/with-terms [A B D P Q X Y AContext BContext BothContext tmpIn tmpApart]
-    (let [setup  [(list 'genlContext AContext 'UniverseContext)
-                  (list 'genlContext BContext 'UniverseContext)
-                  (list 'genlContext BothContext AContext)
-                  (list 'genlContext BothContext BContext)]
-          steps  [;; the containment chain, split so only BothContext composes it
-                  #(v/assert % (list 'nonTangentialProperPart A B) AContext)
-                  #(v/assert % (list 'nonTangentialProperPart B D) BContext)
+  (tu/with-terms [A B D P Q X Y CxA CxB CxBoth tmpIn tmpApart]
+    (let [setup  [(list 'genlCx CxA 'CxUniverse)
+                  (list 'genlCx CxB 'CxUniverse)
+                  (list 'genlCx CxBoth CxA)
+                  (list 'genlCx CxBoth CxB)]
+          steps  [;; the containment chain, split so only CxBoth composes it
+                  #(v/assert % (list 'nonTangentialProperPart A B) CxA)
+                  #(v/assert % (list 'nonTangentialProperPart B D) CxB)
                   ;; a negative fact, which pins P/Q to DC by complement alone
-                  #(v/assert % (list 'not (list 'regionConnectedTo P Q)) AContext)
+                  #(v/assert % (list 'not (list 'regionConnectedTo P Q)) CxA)
                   ;; and one about two regions neither pair mentions
-                  #(v/assert % (list 'nonTangentialProperPart X Y) BContext)
+                  #(v/assert % (list 'nonTangentialProperPart X Y) CxB)
                   #(v/assert-rule % [(list 'partOfRegion '?x D)] (list tmpIn '?x)
-                                  'UniverseContext {:direction :forward})
+                                  'CxUniverse {:direction :forward})
                   #(v/assert-rule % [(list 'spatiallyDisconnected '?x Q)] (list tmpApart '?x)
-                                  'UniverseContext {:direction :forward})]
+                                  'CxUniverse {:direction :forward})]
           derived (fn [k]
                     (set (for [pred [tmpIn tmpApart]
                                s    (v/sentexes-matching k (list pred '?x) '?ctx)]
@@ -339,17 +339,17 @@
           run    (fn [order]
                    (let [k (doto (tu/isolated-fresh)
                              (core-context/load-into)
-                             (seed/load-context 'SpaceContext "upper")
+                             (seed/load-context 'CxSpace "upper")
                              (v/add-prover (space/spatial-prover)))]
-                     (doseq [s setup] (v/assert k s 'UniverseContext))
+                     (doseq [s setup] (v/assert k s 'CxUniverse))
                      (doseq [step order] (step k))
                      (derived k)))
           answers (mapv #(run (shuffled % steps)) (range 8))]
       (testing "every order agrees, and on something rather than on nothing"
         (is (apply = answers))
-        (is (contains? (first answers) [(list tmpIn A) BothContext])
-            "the composition only BothContext sees")
-        (is (contains? (first answers) [(list tmpApart P) AContext])
+        (is (contains? (first answers) [(list tmpIn A) CxBoth])
+            "the composition only CxBoth sees")
+        (is (contains? (first answers) [(list tmpApart P) CxA])
             "and the relation only the negative fact pins")))))
 
 ;; ---- inconsistency is reported, not merely silent ------------------------
@@ -664,17 +664,17 @@
 (tu/deftest-kb a-context-the-fact-is-invisible-from-has-an-empty-delta
   ;; the delta is per network, and a network is per context — an arriving fact narrows the
   ;; ones that see it and leaves the rest exactly where they were
-  (tu/with-terms [A B D Sibling1Context Sibling2Context]
-    (doseq [c [Sibling1Context Sibling2Context]]
-      (v/assert kb (list 'genlContext c 'UniverseContext) 'UniverseContext))
-    (v/assert kb (list 'nonTangentialProperPart A B) Sibling1Context)
-    (v/assert kb (list 'nonTangentialProperPart A B) Sibling2Context)
-    (doseq [c [Sibling1Context Sibling2Context]]
+  (tu/with-terms [A B D CxSibling1 CxSibling2]
+    (doseq [c [CxSibling1 CxSibling2]]
+      (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+    (v/assert kb (list 'nonTangentialProperPart A B) CxSibling1)
+    (v/assert kb (list 'nonTangentialProperPart A B) CxSibling2)
+    (doseq [c [CxSibling1 CxSibling2]]
       (qkb/note-joined kb space/rcc8 c (:baseline (qkb/join-delta kb space/rcc8 c))))
-    (v/assert kb (list 'nonTangentialProperPart B D) Sibling1Context)
-    (is (seq (:moved (qkb/join-delta kb space/rcc8 Sibling1Context)))
+    (v/assert kb (list 'nonTangentialProperPart B D) CxSibling1)
+    (is (seq (:moved (qkb/join-delta kb space/rcc8 CxSibling1)))
         "the context the fact landed in moved")
-    (is (= #{} (:moved (qkb/join-delta kb space/rcc8 Sibling2Context)))
+    (is (= #{} (:moved (qkb/join-delta kb space/rcc8 CxSibling2)))
         "its sibling cannot see the fact, so its network is where it was left")))
 
 (tu/deftest-kb the-rejoin-enumerates-the-pairs-that-moved-not-every-pair

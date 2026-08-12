@@ -165,9 +165,9 @@ two routes to one figure, and collapse to a point rather than a contradiction.
 ## Vocabulary and registration
 
 `length`, `totalDuration` and `overlapDuration` are declared in
-`resources/kb/upper/TimeContext.txt`, beside the Allen relations — they are *about*
+`resources/kb/upper/CxTime.txt`, beside the Allen relations — they are *about*
 intervals. `length` is a duration, not a spatial extent. The measure terms and the unit
-table stay MeasureContext's.
+table stay CxMeasure's.
 
 The prover is **opt-in**, and needs no other prover registered — `possible-allen-relations`
 and `stp/overlap-window` are both functions of the believed facts rather than queries, so

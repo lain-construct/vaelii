@@ -65,7 +65,7 @@
   contexts have a non-empty common down-closure.
 
   `:neg` and `:pos` are the contexts each polarity was believed in, whether or not it
-  paired — the whole of what a `genlContext` edge could change the pairing through.  The
+  paired — the whole of what a `genlCx` edge could change the pairing through.  The
   only thing the pairing reads through that relation is `share-a-view?` of one context
   from each side, so an entry every one of whose `:neg` × `:pos` verdicts still reads the
   same is an entry a context edge cannot have moved (`negation-nogoods`).  Collected here
@@ -125,7 +125,7 @@
   Both are filtered to bodies that are actually opposed, which on a KB with a handful of
   contradictions is nearly none of what either input offers.
 
-  A genlContext edge is the third way, and it is not here: joint visibility is read
+  A genlCx edge is the third way, and it is not here: joint visibility is read
   through that closure rather than through either side's handles, so the edge moves no
   handle and posts no body.  `negation-nogoods` adds those separately, from the
   visibility verdicts each entry recorded (`moved-verdicts` and `bodies-crossing`)."
@@ -172,7 +172,7 @@
 (defn- moved-verdicts
   "The recorded verdicts that no longer read the way they read at the last stamp.
 
-  This is the proportional form of the `genlContext` generation test, and it is exact
+  This is the proportional form of the `genlCx` generation test, and it is exact
   rather than an over-approximation.  What a body's pairing reads through that relation
   is `common-descendant?` of one context from each polarity and nothing else, so an entry
   whose verdicts all stand yields the pairing it yielded last settle — whatever else
@@ -271,7 +271,7 @@
   is live — a member defeated later in this settle leaves it standing — so
   `resolve-contradictions` filters on belief before deciding anything.
 
-  **A genlContext edge is the third input, and it is narrowed by the cone rather than by
+  **A genlCx edge is the third input, and it is narrowed by the cone rather than by
   a counter.**  Joint visibility is read through that closure, so a new context edge can
   make a pair visible that no handle of either side went near — the region and `:dirty`
   between them cannot see it, and neither knows the body.  What decides it is
@@ -316,7 +316,7 @@
       (do (reset! (:negations kb) {}) #{})
       (let [tax   (:taxonomy kb)
             prev  @(:negations kb)
-            vocab (tax/relation-gen tax :genlContext)
+            vocab (tax/relation-gen tax :genlCx)
             ;; a memo with no stamp at all carries nothing — a fresh KB, a `recover`, or
             ;; the empty-`:opposed` reset above — so the whole opposed set is re-derived.
             ;; That is a different question from *what moved since* the stamp, which is
@@ -598,7 +598,7 @@
   Nothing here is stored.  A clash is a **report** recomputed from current belief each
   settle, never a sentex: `(contradicts X Y)` asserted would be a premise needing truth
   maintenance of its own, and it would go stale the moment either side moved
-  (resources/kb/CoreContext.txt says so of the predicate itself)."
+  (resources/kb/CxCore.txt says so of the predicate itself)."
   [kb {:keys [nogood priority sentence kind]}]
   (let [tms   (:tms kb)
         recs  (:records kb)
@@ -809,7 +809,7 @@
   kept.
 
   These are exactly the provers that reason across arguments: the `genl` /
-  `genlContext` closures, disjointness (closed under genl), a predicate declared
+  `genlCx` closures, disjointness (closed under genl), a predicate declared
   transitive or reflexive or holding an inverse, one with a **preserved argument
   position**, and the evaluables — computed rather than stored, so no fact can move
   them at all, but cheaper to wave through than to reason about.
@@ -1238,7 +1238,7 @@
 ;; and being blamed for one are different questions — the writer is refused only on
 ;; grounds it can see, and the joint question is answered here, at settle, as a
 ;; `:disjoint` entry in the violations ledger.  Settle is the route-agnostic point:
-;; a membership arriving, a declaration arriving, a genl or genlContext edge moving,
+;; a membership arriving, a declaration arriving, a genl or genlCx edge moving,
 ;; and a belief revival all expose the same clash, and reporting only the route that
 ;; happened to run last would read as arbitrary.
 ;;
@@ -1393,7 +1393,7 @@
 (def ^:dynamic *exposure-instance-budget*
   "How many candidate instances one settle's exposure pass will enumerate for the
   extent-sweeping routes — a separating declaration, a metatype membership, a genl
-  edge, and a genlContext edge each implicate every instance below their types (or
+  edge, and a genlCx edge each implicate every instance below their types (or
   in their cone), and on a large corpus that is the extent, not the region.  A
   sweep cut short files a single `:exposure-truncated` entry naming its trigger, so
   the cap is never silent.  The membership route is exact and unbudgeted — it is
@@ -1459,7 +1459,7 @@
 
 (defn- members-in-cone
   "The membership terms stored in the contexts `sub` now sees — the candidates a
-  genlContext edge's visibility move can newly put in joint sight.  Lazy, for the
+  genlCx edge's visibility move can newly put in joint sight.  Lazy, for the
   same budgeted consumer — and left in the cone's own order for the reason
   `instances-below` records, which was measured here: a context cycle makes the cone the
   whole graph, so sorting it before the first term came out cost
@@ -1630,7 +1630,7 @@
   * `(genl A B)` — `A`'s instances gain `B`'s ancestors, so the second half of a
     clash could be any other membership they hold: the O(1) `pairable?` gate is all
     that can be said without knowing which.
-  * `(genlContext Sub Super)` — visibility itself moved, so the roots are `:all` and
+  * `(genlCx Sub Super)` — visibility itself moved, so the roots are `:all` and
     the same gate applies."
   [kb sen]
   (let [tax (:taxonomy kb)
@@ -1653,7 +1653,7 @@
          :keep?     #(pairable? kb %)
          :roots     #{a}})
 
-      genlContext
+      genlCx
       (let [[_ sub _] sen]
         {:enumerate (members-in-cone kb sub)
          :keep?     #(pairable? kb %)
@@ -1704,7 +1704,7 @@
 (def ^:private clash-declaration-functors
   "Sentence functors whose arrival implicates content already stored.  A membership or
   a relation fact needs no entry here: it is its own candidate, found in the region."
-  '#{disjoint disjointMetatype genl genlContext functional asymmetric})
+  '#{disjoint disjointMetatype genl genlCx functional asymmetric})
 
 (defn- metatype-member?
   "Is `sen` a term **joining** a disjoint metatype — `(M T)` where the taxonomy already
@@ -1787,7 +1787,7 @@
                         :cut?       cut?
                         :sentexes   (mapcat #(membership-sentexes kb %) (filter keep? terms))}))]
     (cond
-      (contains? '#{disjoint disjointMetatype genl genlContext} f)
+      (contains? '#{disjoint disjointMetatype genl genlCx} f)
       (implicated (declaration-reach kb sen))
 
       (contains? '#{functional asymmetric} f)
@@ -1985,7 +1985,7 @@
   (`metatype-member-reach`); a member leaving has no sentex left to sweep from, so this
   is what says the answer moved.
 
-  The `genlContext` counter is not a value, and it is here anyway: an asker is a context
+  The `genlCx` counter is not a value, and it is here anyway: an asker is a context
   that sees both halves of a pair, so which contexts can convict a pair is a question
   about the context relation as a whole rather than about either half's own reading of
   it.  The `genl` relation is the one whose reading *is* per type, and it is narrowed per
@@ -1997,7 +1997,7 @@
          (tax/disjoint-metatypes tax))
    (tax/props tax :functional)
    (tax/props tax :asymmetric)
-   (tax/relation-gen tax :genlContext)])
+   (tax/relation-gen tax :genlCx)])
 
 (defn- genl-view-keys
   "The `[type context]` keys a known pair reads the `genl` closure at — one per member —
@@ -2140,8 +2140,8 @@
 
   The checks are scoped to the context they are asked in, and rightly — a context is
   convicted only on grounds it can see (`checks/disjoint-problems`).  But a pair whose
-  halves sit in two contexts is visible from neither of them alone: `GenContext` is
-  general, `SpecContext` sees it, and only `SpecContext` has both memberships in view.
+  halves sit in two contexts is visible from neither of them alone: `CxGen` is
+  general, `CxSpec` sees it, and only `CxSpec` has both memberships in view.
   Asking each arriving sentex from its own context therefore answers the pair's question
   from whichever side happened to arrive last, and one of the two sides cannot answer it
   at all — so the same knowledge lands on a defeat or on two coexisting claims according
@@ -2401,7 +2401,7 @@
   roots the moved ingredient implicates (`:all` when visibility itself moved).  Per
   ingredient kind: a membership focuses its own term on its type — exact and
   unbudgeted; a separating declaration, metatype membership, or genl edge focuses
-  the instances below its types on those types; a genlContext edge focuses the
+  the instances below its types on those types; a genlCx edge focuses the
   moved cone's memberships on everything.  The extent-sweeping routes draw on one
   shared instance budget, and a trigger whose sweep is cut short is returned in
   `:truncated`."
@@ -2441,7 +2441,7 @@
             ;; arm below would otherwise claim it and file the metatype itself as a
             ;; term holding a type — leaving an arriving metatype declaration with no
             ;; sweep at all.
-            (contains? '#{disjoint disjointMetatype genl genlContext} f)
+            (contains? '#{disjoint disjointMetatype genl genlCx} f)
             (let [{:keys [enumerate keep? roots]} (declaration-reach kb sen)]
               (sweep m sen enumerate keep? roots))
 
@@ -2557,7 +2557,7 @@
 ;; kinds have the same cross-context hole and, until this, no reporting path at all:
 ;; the assert door is scoped to the writer's own cone so it sees one half and refuses
 ;; nothing, and under `:refuse` `clash-askers` withholds the vantages that would see
-;; the pair whole.  So a `functional` slot filled either side of a `genlContext` edge,
+;; the pair whole.  So a `functional` slot filled either side of a `genlCx` edge,
 ;; and an `asymmetric` claim written across one, stood believed and unmentioned — under
 ;; the strictest policy, which is the one chosen precisely to let nothing through.
 ;;
@@ -2572,7 +2572,7 @@
 
 (defn- constraint-facts-in-cone
   "The believed binary facts of a declared `functional` or `asymmetric` predicate stored
-  in the contexts `sub` now sees — the candidates a `genlContext` edge's visibility move
+  in the contexts `sub` now sees — the candidates a `genlCx` edge's visibility move
   can newly put in joint sight.
 
   The exact parallel of `members-in-cone`, which answers the same question for the
@@ -2607,12 +2607,12 @@
   (`constraint-exposure-entries` groups and ranks on content), so ordering the region
   walk would be an `n log n` per settle that decides nothing.
 
-  **A `genlContext` edge in the region is the one trigger that reaches past it**, and it
+  **A `genlCx` edge in the region is the one trigger that reaches past it**, and it
   has to: visibility itself moved, so a pair whose halves were already stored and already
   believed becomes jointly visible without either half being relabelled — neither is in
   the region, and reporting the same knowledge only when the edges happened to arrive
   first is the arrival-order dependence this whole pass exists to remove. The disjointness
-  pass answers the same trigger the same way (`declaration-reach`'s `genlContext` arm over
+  pass answers the same trigger the same way (`declaration-reach`'s `genlCx` arm over
   `members-in-cone`); this reads `constraint-facts-in-cone`, the binary-fact parallel, and
   spends the same `*exposure-instance-budget*` on it. Ordered here, unlike the region
   walk, because a budgeted enumeration's *prefix* is what the cap decides and that may not
@@ -2646,7 +2646,7 @@
         region    (into [] believed touched)
         edges     (content-order
                    (filterv #(and (sequential? (:sentence %))
-                                  (= 'genlContext (nm/functor (:sentence %))))
+                                  (= 'genlCx (nm/functor (:sentence %))))
                             region))
         left      (volatile! (long *exposure-instance-budget*))
         unswept   (volatile! [])
@@ -2800,7 +2800,7 @@
                                                      " visible and unreported"))
                                               (when (and (pos? over) (seq unswept)) "; ")
                                               (when (seq unswept)
-                                                (str (count unswept) " genlContext edge(s)"
+                                                (str (count unswept) " genlCx edge(s)"
                                                      " went unswept, so pairs their"
                                                      " visibility move exposes are"
                                                      " unreported")))}}))]
@@ -2834,7 +2834,7 @@
   makes the pass below free for a KB that has not?
 
   The taxonomy's arity table alone is not the answer: it holds the `(arity P n)` sentexes,
-  and a KB loaded without CoreContext's derivation rules has only the predicate-type
+  and a KB loaded without CxCore's derivation rules has only the predicate-type
   membership, which `checks/declared-arity` reads and this table never sees.  So the three
   memberships are asked too, as index cardinalities."
   [kb]
@@ -2976,7 +2976,7 @@
 (defn- settle-finish
   "Reconcile the derived caches with settled belief and record the readings.
 
-  `belief-moved?` gates the `refresh-beliefs` reconcile of the genl / genlContext
+  `belief-moved?` gates the `refresh-beliefs` reconcile of the genl / genlCx
   closures and the four flat caches.  That reconcile exists to catch a *supporter's
   label flipping* while its sentex stays put, and the only things that flip a label in
   a settle are defeat, revival (`clear-defeats!` reviving a previously-defeated node),
@@ -3015,7 +3015,7 @@
     ;; close a new one.  Left to the *next* settle, `:scc` reads empty in between, and
     ;; `:scc` is not only a pruning — `tax/placement-rep` collapses a mutually-visible
     ;; group of contexts to one name through it, so the same firing would place its
-    ;; conclusion in `AlphaContext` or in `BetaContext` depending on how many settles had
+    ;; conclusion in `CxAlpha` or in `CxBeta` depending on how many settles had
     ;; run since a defeat touched the cycle, which is precisely the arrival-order
     ;; dependence that choice exists to remove (docs/contexts.md).  Free when nothing
     ;; went loose — every belief move that touches no cycle, which is nearly all of them.
@@ -3173,7 +3173,7 @@
       (jtms/clear-defeats! (:tms kb))
       ;; ...and reconcile the belief-derived caches with what that revived, **before**
       ;; anything asks them a question.  `clear-defeats!` lifts a defeat, so a `genl` or
-      ;; `genlContext` edge defeated last settle is believed again as of this line — but
+      ;; `genlCx` edge defeated last settle is believed again as of this line — but
       ;; the cached closures still describe the KB without it until `refresh-beliefs` runs.
       ;; It must therefore run *here*, before `constraint-nogoods` below reads them, and not
       ;; only in `settle-finish`: discovery reading a vocabulary one settle out of date

@@ -20,24 +20,24 @@
   ;; (implies (and (partOf ?part ?whole) (locatedIn ?whole ?place)) (locatedIn ?part ?place))
   ;; joins on ?whole — the Engine is in the Garage because the Car is.
   (testing "the joined rule places the part in the whole's location"
-    (is (seq (v/sentexes-matching kb '(locatedIn Engine1 Garage1) 'NaturalWorldContext)))
+    (is (seq (v/sentexes-matching kb '(locatedIn Engine1 Garage1) 'CxNaturalWorld)))
     ;; Piston1 partOf Engine1, and Engine1's derived location feeds the rule again
-    (is (seq (v/sentexes-matching kb '(locatedIn Piston1 Garage1) 'NaturalWorldContext))))
+    (is (seq (v/sentexes-matching kb '(locatedIn Piston1 Garage1) 'CxNaturalWorld))))
   (testing "the forward conclusion composes with transitive locatedIn"
     ;; locatedIn Engine1 Garage1 (derived) + locatedIn Garage1 House1 ⇒ Engine1 in House1
-    (is (v/ask? kb '(locatedIn Engine1 House1) 'NaturalWorldContext))
-    (is (v/ask? kb '(locatedIn Piston1 House1) 'NaturalWorldContext))))
+    (is (v/ask? kb '(locatedIn Engine1 House1) 'CxNaturalWorld))
+    (is (v/ask? kb '(locatedIn Piston1 House1) 'CxNaturalWorld))))
 
 (tu/deftest-kb owning-a-whole-entails-owning-its-parts
   ;; (implies (and (owns ?p ?whole) (partOf ?part ?whole)) (owns ?p ?part)) joins on ?whole.
   (testing "the parts of an owned whole are owned — when the facts share a context"
-    (is (seq (v/sentexes-matching kb '(owns Tom Roof1) 'SocialWorldContext)))
-    (is (seq (v/sentexes-matching kb '(owns Tom Chimney1) 'SocialWorldContext))))
+    (is (seq (v/sentexes-matching kb '(owns Tom Roof1) 'CxSocialWorld)))
+    (is (seq (v/sentexes-matching kb '(owns Tom Chimney1) 'CxSocialWorld))))
   (testing "but a cross-context binding yields no conclusion — placement needs a common view"
-    ;; owns Tom Car1 (SocialWorldContext) joins partOf Engine1 Car1 (NaturalWorldContext); the two
+    ;; owns Tom Car1 (CxSocialWorld) joins partOf Engine1 Car1 (CxNaturalWorld); the two
     ;; sibling contexts share no view, so the conclusion has nowhere to be placed.
-    (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) 'SocialWorldContext)))
-    (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) 'NaturalWorldContext)))))
+    (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) 'CxSocialWorld)))
+    (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) 'CxNaturalWorld)))))
 
 (tu/deftest-kb joined-antecedents-infer-a-part-type
   ;; partOf now carries argIsa (partOf 2 physical_object), so an untyped part is
@@ -61,25 +61,25 @@
   ;; (spared LionA MouseA) + (freed MouseA LionA) ⇒ (repaidKindness MouseA LionA),
   ;; a rule joined on BOTH actors.
   (testing "the mouse repays the lion's mercy"
-    (is (seq (v/sentexes-matching kb '(repaidKindness MouseA LionA) 'LionMouseContext))))
+    (is (seq (v/sentexes-matching kb '(repaidKindness MouseA LionA) 'CxLionMouse))))
   (testing "not the other way around — the join is directional"
-    (is (empty? (v/sentexes-matching kb '(repaidKindness LionA MouseA) 'LionMouseContext)))))
+    (is (empty? (v/sentexes-matching kb '(repaidKindness LionA MouseA) 'CxLionMouse)))))
 
 (tu/deftest-kb tortoise-and-hare-derives-the-winner
   ;; a three-antecedent join: raced + persevered(slow) + napped(fast) ⇒ wins(slow,fast).
   (testing "the steady tortoise wins"
-    (is (seq (v/sentexes-matching kb '(wins TortoiseA HareA) 'TortoiseHareContext))))
+    (is (seq (v/sentexes-matching kb '(wins TortoiseA HareA) 'CxTortoiseHare))))
   (testing "the hare does not win"
-    (is (empty? (v/sentexes-matching kb '(wins HareA TortoiseA) 'TortoiseHareContext)))))
+    (is (empty? (v/sentexes-matching kb '(wins HareA TortoiseA) 'CxTortoiseHare)))))
 
 (tu/deftest-kb ant-and-grasshopper-derives-preparation-pays
   ;; derived facts feed a further join: survivesWinter(ant) + suffersInWinter(hopper)
   ;; ⇒ betterPreparedThan(ant, hopper).
   (testing "the intermediate conclusions are derived"
-    (is (seq (v/sentexes-matching kb '(survivesWinter AntA) 'AntGrasshopperContext)))
-    (is (seq (v/sentexes-matching kb '(suffersInWinter GrasshopperA) 'AntGrasshopperContext))))
+    (is (seq (v/sentexes-matching kb '(survivesWinter AntA) 'CxAntGrasshopper)))
+    (is (seq (v/sentexes-matching kb '(suffersInWinter GrasshopperA) 'CxAntGrasshopper))))
   (testing "and the moral joins them"
-    (is (seq (v/sentexes-matching kb '(betterPreparedThan AntA GrasshopperA) 'AntGrasshopperContext)))))
+    (is (seq (v/sentexes-matching kb '(betterPreparedThan AntA GrasshopperA) 'CxAntGrasshopper)))))
 
 (tu/deftest-kb boy-who-cried-wolf-is-non-monotonic
   ;; belief in a cry is a default that carries its own exception: the rule is
@@ -87,22 +87,22 @@
   ;; So for a liar the rule concludes *nothing* — this is undercutting, not
   ;; rebutting, and there is no competing conclusion to arbitrate.
   (testing "the liar's cry is not believed"
-    (is (empty? (v/sentexes-matching kb '(believed BoyA) 'CriedWolfContext)))
-    (is (seq   (v/sentexes-matching kb '(not (believed BoyA)) 'CriedWolfContext))))
+    (is (empty? (v/sentexes-matching kb '(believed BoyA) 'CxCriedWolf)))
+    (is (seq   (v/sentexes-matching kb '(not (believed BoyA)) 'CxCriedWolf))))
   (testing "the blocked conclusion is never stored — swept, not kept defeated"
     ;; The pre-`exceptWhen` engine derived (believed BoyA), rebutted it with the
     ;; competing rule, and left it stored-but-OUT so it could revive.  A blocked
     ;; justification is simply invalid, so the conclusion is unsupported and the
     ;; existing dependency-directed sweep deletes it (docs/exceptions.md,
     ;; "Garbage collection, not defeat").
-    (is (nil? (v/handle-of kb '(believed BoyA) 'CriedWolfContext)))
+    (is (nil? (v/handle-of kb '(believed BoyA) 'CxCriedWolf)))
     (is (empty? (filter #(= '(believed BoyA) (:sentence %))
                         (v/find-sentexes kb 'BoyA)))))
   (testing "yet the absence is explicable, not merely a gap"
     ;; the moral is only demonstrated if the KB can say *why* the boy is not
     ;; believed, and a swept conclusion has no handle to ask about — which is what
     ;; `why-not`'s sentence arity is for.
-    (let [wn (v/why-not kb '(believed BoyA) 'CriedWolfContext)]
+    (let [wn (v/why-not kb '(believed BoyA) 'CxCriedWolf)]
       (is (= :excepted (:reason wn)))
       (is (= '(liar BoyA) (:exception wn)))))
   (testing "blocking yields nothing to arbitrate — no conflict and no dilemma"
@@ -110,16 +110,16 @@
     (is (empty? (v/contradictions kb))))
   (testing "yet the danger is real: a joined rule with a constant character derives it"
     ;; (approaches WolfA ?victim) + (criesWolf ?victim) ⇒ (inDanger ?victim)
-    (is (seq (v/sentexes-matching kb '(inDanger BoyA) 'CriedWolfContext)))
-    (is (empty? (v/sentexes-matching kb '(inDanger WolfA) 'CriedWolfContext)))))   ; the constant binds only the victim
+    (is (seq (v/sentexes-matching kb '(inDanger BoyA) 'CxCriedWolf)))
+    (is (empty? (v/sentexes-matching kb '(inDanger WolfA) 'CxCriedWolf)))))   ; the constant binds only the victim
 
 (tu/deftest-kb middle-theories-reach-story-characters-but-siblings-stay-isolated
-  ;; In the layered spindle a *middle* theory (biology) is seen by every WellContext
+  ;; In the layered spindle a *middle* theory (biology) is seen by every CxWell
   ;; descendant, so it DOES reach story characters — the mortal default lands on the
   ;; lion, placed back in its own leaf.  What stays isolated is a join across sibling
   ;; data contexts (owns/partOf, tested above) and a rule whose type does not match.
   (testing "a middle biology theory reaches a story animal, in that animal's leaf"
-    (is (seq (v/sentexes-matching kb '(mortal LionA) 'LionMouseContext))))
+    (is (seq (v/sentexes-matching kb '(mortal LionA) 'CxLionMouse))))
   (testing "but a default whose antecedent type does not hold never fires — neither a
             wolf nor a hare is a bird, so the flight default does not touch them"
     (is (empty? (v/sentexes-matching kb '(flies WolfA) '?ctx)))
@@ -137,7 +137,7 @@
 
 (tu/deftest-kb every-story-documents-its-moral
   (testing "each story context carries a moral comment"
-    (doseq [cx '[LionMouseContext TortoiseHareContext AntGrasshopperContext CriedWolfContext FoxCrowContext]]
+    (doseq [cx '[CxLionMouse CxTortoiseHare CxAntGrasshopper CxCriedWolf CxFoxCrow]]
       (is (= 1 (count (core-context/comment-of kb cx))) (str "moral for " cx))
       (is (re-find #"moral" (first (core-context/comment-of kb cx))) (str "moral for " cx)))))
 
@@ -145,16 +145,16 @@
 
 (tu/deftest-kb goal-reasoning-derives-that-an-agent-achieves-its-goal
   (testing "the fox wants the cheese, brings about getting it, and so achieves its goal"
-    (is (seq (v/sentexes-matching kb '(achievesGoal FoxF HasCheese) 'FoxCrowContext))))
+    (is (seq (v/sentexes-matching kb '(achievesGoal FoxF HasCheese) 'CxFoxCrow))))
   (testing "the same schema retrofitted reads the tortoise's win as a goal achieved"
-    (is (seq (v/sentexes-matching kb '(achievesGoal TortoiseA WinRace) 'TortoiseHareContext))))
+    (is (seq (v/sentexes-matching kb '(achievesGoal TortoiseA WinRace) 'CxTortoiseHare))))
   (testing "the conclusion is isolated to its story leaf, not visible elsewhere"
-    (is (empty? (v/sentexes-matching kb '(achievesGoal FoxF HasCheese) 'TortoiseHareContext)))
-    (is (empty? (v/sentexes-matching kb '(achievesGoal FoxF HasCheese) 'UniverseContext))))
+    (is (empty? (v/sentexes-matching kb '(achievesGoal FoxF HasCheese) 'CxTortoiseHare)))
+    (is (empty? (v/sentexes-matching kb '(achievesGoal FoxF HasCheese) 'CxUniverse))))
   (testing "no goal is derived for an agent that wants nothing"
-    (is (not (v/ask? kb '(achievesGoal CrowF HasCheese) 'FoxCrowContext))))
+    (is (not (v/ask? kb '(achievesGoal CrowF HasCheese) 'CxFoxCrow))))
   (testing "an agent is responsible for what its action directly causes"
-    (is (seq (v/sentexes-matching kb '(responsibleFor FoxF CrowSings) 'FoxCrowContext)))))
+    (is (seq (v/sentexes-matching kb '(responsibleFor FoxF CrowSings) 'CxFoxCrow)))))
 
 (tu/deftest-kb causal-chains-compose-transitively
   (testing "the flattery ultimately causes the fox to get the cheese"

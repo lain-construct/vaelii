@@ -23,17 +23,17 @@
             [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu]))
 
-;; A fresh KB per test: the CoreContext grammar, the TimeContext vocabulary that states
+;; A fresh KB per test: the CxCore grammar, the CxTime vocabulary that states
 ;; instant relations in it, and the prover registered.  The vocabulary is an upper context;
 ;; the prover is opt-in, so registering it is what turns stored instant facts into a
 ;; network.  The algebra tests below need none of it.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'TimeContext "upper")
+                        (seed/load-context 'CxTime "upper")
                         (v/add-prover (pt/point-prover)))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 ;; ---- the algebra, derived from numeric instants -------------------------
 
@@ -269,17 +269,17 @@
 ;; ---- context and belief --------------------------------------------------
 
 (tu/deftest-kb the-network-follows-belief-and-visibility
-  (tu/with-terms [P Q R InnerContext OuterContext]
-    (v/assert kb (list 'genlContext InnerContext OuterContext) C)
-    (v/assert kb (list 'instantBefore P Q) OuterContext)
-    (v/assert kb (list 'instantBefore Q R) InnerContext)
+  (tu/with-terms [P Q R CxInner CxOuter]
+    (v/assert kb (list 'genlCx CxInner CxOuter) C)
+    (v/assert kb (list 'instantBefore P Q) CxOuter)
+    (v/assert kb (list 'instantBefore Q R) CxInner)
     (testing "the inner context sees both facts, so it composes the chain"
-      (is (v/ask? kb (list 'instantBefore P R) InnerContext)))
+      (is (v/ask? kb (list 'instantBefore P R) CxInner)))
     (testing "the outer sees only its own, so it composes nothing"
-      (is (not (v/ask? kb (list 'instantBefore P R) OuterContext))))
+      (is (not (v/ask? kb (list 'instantBefore P R) CxOuter))))
     (testing "retracting a link breaks the chain — the network is read, not cached"
-      (v/retract! kb (v/handle-of kb (list 'instantBefore Q R) InnerContext))
-      (is (not (v/ask? kb (list 'instantBefore P R) InnerContext))))))
+      (v/retract! kb (v/handle-of kb (list 'instantBefore Q R) CxInner))
+      (is (not (v/ask? kb (list 'instantBefore P R) CxInner))))))
 
 ;; ---- registration --------------------------------------------------------
 

@@ -27,7 +27,7 @@
   reported in `(v/violations kb)` alongside the definitional constraints.
 
   House rules as everywhere: gensym'd temporaries via `tu/with-terms`, engine
-  vocabulary (`genl`, `genlContext`, `set/defaultRule`, `exceptWhen`) literal, and the
+  vocabulary (`genl`, `genlCx`, `set/defaultRule`, `exceptWhen`) literal, and the
   neutral fixture asserts the KB is restored."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
@@ -82,10 +82,10 @@
 ;; cyclic, and the one that keeps stored state stratified at all times.
 
 (tu/deftest-kb a-genl-edge-that-closes-a-cycle-between-stored-rules-is-refused
-  (tu/with-terms [base p flightless penguin EdgeContext]
-    (let [terms {:base base :p p :flightless flightless :penguin penguin :ctx EdgeContext}]
+  (tu/with-terms [base p flightless penguin CxEdge]
+    (let [terms {:base base :p p :flightless flightless :penguin penguin :ctx CxEdge}]
       (cycle-shaped-rules! kb terms)
-      (let [data (refusal kb (list 'genl penguin flightless) EdgeContext)]
+      (let [data (refusal kb (list 'genl penguin flightless) CxEdge)]
         (testing "the edge is refused, and says why"
           (is (= :not-stratified (:type data))))
         (testing "the refusal names the cycle it would have created"
@@ -96,10 +96,10 @@
   ;; a `genl` edge that simply does not put anything in the exception's spec closure
   ;; — so the refusal above is attributable to the **cycle** and not to "there is an
   ;; exception around, refuse edges".
-  (tu/with-terms [base p flightless penguin unrelated EdgeContext]
+  (tu/with-terms [base p flightless penguin unrelated CxEdge]
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
-                             :ctx EdgeContext})
-    (is (v/assert kb (list 'genl penguin unrelated) EdgeContext)
+                             :ctx CxEdge})
+    (is (v/assert kb (list 'genl penguin unrelated) CxEdge)
         "penguin under an unrelated supertype crosses no negative edge")
     (is (tax/genl? (:taxonomy kb) penguin unrelated)
         "and the accepted edge did reach the closures")))
@@ -109,28 +109,28 @@
   ;; edge, but R1 states no exception — so the graph has no negative edge at all and
   ;; the cycle it would close is ordinary positive recursion, which is a supported
   ;; feature rather than a violation.
-  (tu/with-terms [base p flightless penguin PlainContext]
-    (is (v/assert kb (vr/rule-sentence [(list base '?x)] (list p '?x)) PlainContext))
-    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) PlainContext))
-    (is (v/assert kb (list 'genl penguin flightless) PlainContext))))
+  (tu/with-terms [base p flightless penguin CxPlain]
+    (is (v/assert kb (vr/rule-sentence [(list base '?x)] (list p '?x)) CxPlain))
+    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxPlain))
+    (is (v/assert kb (list 'genl penguin flightless) CxPlain))))
 
-;; ---- a genlContext edge takes the same path ------------------------------
+;; ---- a genlCx edge takes the same path ------------------------------
 ;; DECISION: the trigger sits on **both** transitive relations, the way
 ;; `recheck-every-exception` does, so the two edge kinds cannot drift apart.  Today
 ;; only a `genl` edge can actually move the graph — the dependency graph is over
-;; *predicates* and mentions no context, so a `genlContext` edge adds no graph edge
+;; *predicates* and mentions no context, so a `genlCx` edge adds no graph edge
 ;; and the walk finds nothing.  This test pins that reading: the check runs (the walk
 ;; is counted) and the edge is accepted.
 
-(tu/deftest-kb a-genlContext-edge-runs-the-same-check-and-is-accepted
-  (tu/with-terms [base p flightless penguin EdgeContext SubContext]
+(tu/deftest-kb a-genlCx-edge-runs-the-same-check-and-is-accepted
+  (tu/with-terms [base p flightless penguin CxEdge CxSub]
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
-                             :ctx EdgeContext})
-    (let [n (walks #(v/assert kb (list 'genlContext SubContext EdgeContext) SubContext))]
+                             :ctx CxEdge})
+    (let [n (walks #(v/assert kb (list 'genlCx CxSub CxEdge) CxSub))]
       (testing "the edge kind is checked, not skipped"
         (is (pos? n)))
       (testing "and is accepted: the graph is over predicates, so no context edge is in it"
-        (is (tax/sees? (:taxonomy kb) SubContext EdgeContext))))))
+        (is (tax/sees? (:taxonomy kb) CxSub CxEdge))))))
 
 ;; ---- a refused edge leaves nothing behind --------------------------------
 
@@ -139,13 +139,13 @@
   ;; touched: it adds the edge to a detached copy of the taxonomy to ask the
   ;; question.  A half-applied refusal would leave the closures claiming an edge no
   ;; sentex supports, which `recover` would then disagree with.
-  (tu/with-terms [base p flightless penguin EdgeContext]
+  (tu/with-terms [base p flightless penguin CxEdge]
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
-                             :ctx EdgeContext})
+                             :ctx CxEdge})
     (let [before-sx    (tu/sentex-ids kb)
           before-dd    (tu/justification-ids kb)
           before-edges (tax/genl-edges (:taxonomy kb))
-          data         (refusal kb (list 'genl penguin flightless) EdgeContext)]
+          data         (refusal kb (list 'genl penguin flightless) CxEdge)]
       (is (= :not-stratified (:type data)))
       (is (= before-sx (tu/sentex-ids kb))    "no sentex was stored")
       (is (= before-dd (tu/justification-ids kb)) "no justification was stored")
@@ -159,16 +159,16 @@
 ;; every ordinary `genl` assert in the ontology.
 
 (tu/deftest-kb an-edge-change-walks-nothing-when-no-rule-carries-an-exception
-  (tu/with-terms [base p FastContext]
-    (v/assert kb (vr/rule-sentence [(list base '?x)] (list p '?x)) FastContext)
+  (tu/with-terms [base p CxFast]
+    (v/assert kb (vr/rule-sentence [(list base '?x)] (list p '?x)) CxFast)
     (testing "no exception anywhere: the edge assert does not walk the graph at all"
       (tu/with-terms [sub super]
-        (is (zero? (walks #(v/assert kb (list 'genl sub super) FastContext))))))
+        (is (zero? (walks #(v/assert kb (list 'genl sub super) CxFast))))))
     (testing "control: one excepted rule in the KB and the same operation does walk"
       (tu/with-terms [exc otherBase other sub super]
         (v/assert kb (except-rule (list exc '?x) [(list otherBase '?x)] (list other '?x))
-                  FastContext)
-        (is (pos? (walks #(v/assert kb (list 'genl sub super) FastContext))))))))
+                  CxFast)
+        (is (pos? (walks #(v/assert kb (list 'genl sub super) CxFast))))))))
 
 ;; ---- the derivation path -------------------------------------------------
 ;; DECISION: a *derived* edge is **dropped and reported**, not thrown.  Forward
@@ -179,16 +179,16 @@
 ;; was only *reported* would still be in the taxonomy.
 
 (tu/deftest-kb a-derived-edge-that-would-close-a-cycle-is-dropped-and-reported
-  (tu/with-terms [base p flightless penguin subtypeMarker noted DeriveContext]
+  (tu/with-terms [base p flightless penguin subtypeMarker noted CxDerive]
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
-                             :ctx DeriveContext})
+                             :ctx CxDerive})
     ;; a rule that *concludes* a genl edge, plus an innocuous one firing on the same
     ;; fact — chaining must finish the run, not abort at the bad conclusion
     (v/assert kb (vr/rule-sentence [(list subtypeMarker '?t)] (list 'genl '?t flightless))
-              DeriveContext)
+              CxDerive)
     (v/assert kb (vr/rule-sentence [(list subtypeMarker '?t)] (list noted '?t))
-              DeriveContext)
-    (v/assert kb (list subtypeMarker penguin) DeriveContext)
+              CxDerive)
+    (v/assert kb (list subtypeMarker penguin) CxDerive)
     (let [vs (v/violations kb)]
       (testing "the conclusion is reported as inadmissible, with the cycle"
         (is (= [:not-stratified] (mapv :violation vs)))
@@ -210,11 +210,11 @@
 ;; checks), so a shared memo would serve the refused edge as a real subtype.
 
 (tu/deftest-kb a-refused-edge-does-not-poison-the-closure-memo-through-the-probe
-  (tu/with-terms [base p flightless penguin sub super EdgeContext]
+  (tu/with-terms [base p flightless penguin sub super CxEdge]
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
-                             :ctx EdgeContext})
-    (let [h    (v/assert kb (list 'genl sub super) EdgeContext)
-          data (refusal kb (list 'genl penguin flightless) EdgeContext)]
+                             :ctx CxEdge})
+    (let [h    (v/assert kb (list 'genl sub super) CxEdge)
+          data (refusal kb (list 'genl penguin flightless) CxEdge)]
       (is (= :not-stratified (:type data)) "the probe ran and the edge was refused")
       (v/retract! kb h)
       (testing "the closure read after the gen catch-up never sees the refused edge"
@@ -224,12 +224,12 @@
 (tu/deftest-kb a-derived-edge-that-closes-no-cycle-is-placed-normally
   ;; The control for the drop above: same derivation, same excepted rule in the KB,
   ;; an edge that crosses no negative edge — so it lands and reaches the closures.
-  (tu/with-terms [base p flightless penguin unrelated subtypeMarker DeriveContext]
+  (tu/with-terms [base p flightless penguin unrelated subtypeMarker CxDerive]
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
-                             :ctx DeriveContext})
+                             :ctx CxDerive})
     (v/assert kb (vr/rule-sentence [(list subtypeMarker '?t)] (list 'genl '?t unrelated))
-              DeriveContext)
-    (v/assert kb (list subtypeMarker penguin) DeriveContext)
+              CxDerive)
+    (v/assert kb (list subtypeMarker penguin) CxDerive)
     (is (empty? (v/violations kb)))
     (is (seq (v/sentexes-matching kb (list 'genl penguin unrelated) '?ctx)))
     (is (tax/genl? (:taxonomy kb) penguin unrelated)

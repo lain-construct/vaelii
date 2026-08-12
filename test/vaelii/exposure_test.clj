@@ -7,9 +7,9 @@
   refusing a writer on grounds it cannot see.
 
   Three routes expose one clash — the membership arriving last, the separating
-  declaration arriving last, the `genlContext` edge arriving last — and the pass
+  declaration arriving last, the `genlCx` edge arriving last — and the pass
   runs at settle exactly so the answer is route-agnostic.  Each route gets a test;
-  the shared lattice is two siblings under UniverseContext, with the joint viewer
+  the shared lattice is two siblings under CxUniverse, with the joint viewer
   (when one exists) below both.  The membership-last route's acceptance test is
   `disjoint_test/a-general-context-may-be-given-what-a-specific-one-forbids`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -22,14 +22,14 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- siblings!
-  "Two sibling contexts under UniverseContext, two root types, one term holding one
+  "Two sibling contexts under CxUniverse, two root types, one term holding one
   type in each sibling — admissible everywhere, since neither sibling sees the
   other."
   [kb {:keys [a b t1 t2 x]}]
-  (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-  (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-  (v/assert kb (list 'genlContext a 'UniverseContext) 'UniverseContext)
-  (v/assert kb (list 'genlContext b 'UniverseContext) 'UniverseContext)
+  (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+  (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+  (v/assert kb (list 'genlCx a 'CxUniverse) 'CxUniverse)
+  (v/assert kb (list 'genlCx b 'CxUniverse) 'CxUniverse)
   (v/assert kb (list t1 x) a)
   (v/assert kb (list t2 x) b))
 
@@ -37,25 +37,25 @@
   ;; the pin for the ∃-descendant reading: the memberships coexist, the declaration
   ;; is visible to both writers, and still no single context sees the whole clash —
   ;; so there is nothing to report and nobody to report it to.
-  (tu/with-terms [AContext BContext left_t right_t Pip]
-    (v/assert kb (list 'disjoint left_t right_t) 'UniverseContext)
-    (siblings! kb {:a AContext :b BContext :t1 left_t :t2 right_t :x Pip})
+  (tu/with-terms [CxA CxB left_t right_t Pip]
+    (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
+    (siblings! kb {:a CxA :b CxB :t1 left_t :t2 right_t :x Pip})
     (is (empty? (v/violations kb)))
-    (is (seq (v/sentexes-matching kb (list left_t Pip) AContext)))
-    (is (seq (v/sentexes-matching kb (list right_t Pip) BContext)))))
+    (is (seq (v/sentexes-matching kb (list left_t Pip) CxA)))
+    (is (seq (v/sentexes-matching kb (list right_t Pip) CxB)))))
 
-(tu/deftest-kb a-genlContext-edge-arriving-last-exposes-the-clash
+(tu/deftest-kb a-genlCx-edge-arriving-last-exposes-the-clash
   ;; the visibility route: everything else stands, and wiring a joint viewer below
   ;; both siblings is what makes the clash visible — the edge's own settle files it.
-  (tu/with-terms [AContext BContext WContext left_t right_t Pip]
-    (v/assert kb (list 'disjoint left_t right_t) 'UniverseContext)
-    (siblings! kb {:a AContext :b BContext :t1 left_t :t2 right_t :x Pip})
-    (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
+  (tu/with-terms [CxA CxB CxW left_t right_t Pip]
+    (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
+    (siblings! kb {:a CxA :b CxB :t1 left_t :t2 right_t :x Pip})
+    (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
     (is (empty? (v/violations kb)) "seeing one side is not seeing the clash")
-    (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
     (let [vs (v/violations kb)]
       (is (= [:disjoint] (mapv :violation vs)))
-      (is (= #{WContext} (get-in (first vs) [:detail :visible-from])))
+      (is (= #{CxW} (get-in (first vs) [:detail :visible-from])))
       (is (= Pip (get-in (first vs) [:detail :term]))))))
 
 (tu/deftest-kb a-rebuild-exposes-nothing-because-nothing-newly-moved
@@ -64,44 +64,44 @@
   ;; on turns a bounded incremental check into a full-KB audit nobody asked for: 27% of
   ;; an OpenCyc import.  The clash is still there and still findable; what the skip
   ;; costs nobody is re-filing it on every restart.
-  (tu/with-terms [AContext BContext WContext left_t right_t Pip]
-    (v/assert kb (list 'disjoint left_t right_t) 'UniverseContext)
-    (siblings! kb {:a AContext :b BContext :t1 left_t :t2 right_t :x Pip})
-    (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
+  (tu/with-terms [CxA CxB CxW left_t right_t Pip]
+    (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
+    (siblings! kb {:a CxA :b CxB :t1 left_t :t2 right_t :x Pip})
+    (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
     (is (= [:disjoint] (mapv :violation (v/violations kb)))
         "the change that exposed it reported it")
     (v/clear-violations! kb)
     (v/recover kb)
     (is (empty? (v/violations kb)) "and the rebuild does not report it again")
     (testing "while the KB still holds both sides, and an ordinary settle still reports"
-      (is (seq (v/sentexes-matching kb (list left_t Pip) AContext)))
-      (is (seq (v/sentexes-matching kb (list right_t Pip) BContext)))
+      (is (seq (v/sentexes-matching kb (list left_t Pip) CxA)))
+      (is (seq (v/sentexes-matching kb (list right_t Pip) CxB)))
       ;; a real change to the same lattice exposes again, so the gate is about
       ;; rebuilding and not about the clash having been seen once
-      (tu/with-terms [VContext]
-        (v/assert kb (list 'genlContext VContext AContext) 'UniverseContext)
-        (v/assert kb (list 'genlContext VContext BContext) 'UniverseContext)
+      (tu/with-terms [CxV]
+        (v/assert kb (list 'genlCx CxV CxA) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxV CxB) 'CxUniverse)
         (let [vs (v/violations kb)]
           (is (every? #(= :disjoint (:violation %)) vs))
           ;; the new viewer is named among those the clash is visible from — the pass
           ;; is off for a rebuild, not off.  (W's sighting is re-filed alongside it:
           ;; an exposure is an event, and the cone moved again.)
-          (is (some #(contains? (get-in % [:detail :visible-from]) VContext) vs)))))))
+          (is (some #(contains? (get-in % [:detail :visible-from]) CxV) vs)))))))
 
 (tu/deftest-kb the-standing-question-is-answerable-on-demand
   ;; `settle` reports what a change newly exposed; this reports what the KB holds now.
   ;; It is the same clash and the same entry shape, asked of the whole KB by a caller
   ;; who chose to — and it is what an imported KB has instead of a settle that ran
   ;; while the content was arriving.
-  (tu/with-terms [AContext BContext WContext left_t right_t Pip]
-    (v/assert kb (list 'disjoint left_t right_t) 'UniverseContext)
-    (siblings! kb {:a AContext :b BContext :t1 left_t :t2 right_t :x Pip})
+  (tu/with-terms [CxA CxB CxW left_t right_t Pip]
+    (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
+    (siblings! kb {:a CxA :b CxB :t1 left_t :t2 right_t :x Pip})
     (testing "before a joint viewer exists there is nothing to see, from either angle"
       (is (empty? (v/violations kb)))
       (is (empty? (v/exposed-clashes kb))))
-    (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
     (let [filed (v/violations kb)
           asked (v/exposed-clashes kb)]
       (is (= [:disjoint] (mapv :violation asked)))
@@ -119,60 +119,60 @@
       (is (= [:disjoint] (mapv :violation (v/exposed-clashes kb)))
           "and the clash is still there to be asked about"))
     (testing "and it goes when the clash does"
-      (v/retract! kb (v/handle-of kb (list 'disjoint left_t right_t) 'UniverseContext))
+      (v/retract! kb (v/handle-of kb (list 'disjoint left_t right_t) 'CxUniverse))
       (is (empty? (v/exposed-clashes kb))))))
 
 (tu/deftest-kb a-declaration-arriving-last-exposes-the-clash
   ;; the separation route: the memberships are jointly visible all along, and the
   ;; disjointness arriving is what makes them a clash.
-  (tu/with-terms [AContext CContext t1 t2 Pip]
-    (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-    (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-    (v/assert kb (list t1 Pip) CContext)
-    (v/assert kb (list t2 Pip) AContext)
+  (tu/with-terms [CxA CxC t1 t2 Pip]
+    (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+    (v/assert kb (list t1 Pip) CxC)
+    (v/assert kb (list t2 Pip) CxA)
     (is (empty? (v/violations kb)) "compatible until somebody separates them")
-    (v/assert kb (list 'disjoint t1 t2) CContext)
+    (v/assert kb (list 'disjoint t1 t2) CxC)
     (let [vs (v/violations kb)]
       (is (= [:disjoint] (mapv :violation vs)))
-      (is (= #{AContext} (get-in (first vs) [:detail :visible-from]))))))
+      (is (= #{CxA} (get-in (first vs) [:detail :visible-from]))))))
 
 (tu/deftest-kb a-genl-edge-arriving-last-exposes-the-clash
   ;; the closure route: the held types are not themselves separated — a subtype
   ;; edge arriving puts one of them under a separated type, and the instances below
   ;; its sub side are re-examined.
-  (tu/with-terms [AContext CContext dog_t canine_t cat_t Rex]
-    (v/assert kb (list 'genl canine_t 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl cat_t 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl dog_t 'thing) 'UniverseContext)
-    (v/assert kb (list 'disjoint canine_t cat_t) 'UniverseContext)
-    (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-    (v/assert kb (list dog_t Rex) CContext)
-    (v/assert kb (list cat_t Rex) AContext)
+  (tu/with-terms [CxA CxC dog_t canine_t cat_t Rex]
+    (v/assert kb (list 'genl canine_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'disjoint canine_t cat_t) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+    (v/assert kb (list dog_t Rex) CxC)
+    (v/assert kb (list cat_t Rex) CxA)
     (is (empty? (v/violations kb)) "a dog-cat is odd but nothing separates them yet")
-    (v/assert kb (list 'genl dog_t canine_t) CContext)
+    (v/assert kb (list 'genl dog_t canine_t) CxC)
     (let [vs (v/violations kb)]
       (is (= [:disjoint] (mapv :violation vs)))
-      (is (= #{AContext} (get-in (first vs) [:detail :visible-from])))
+      (is (= #{CxA} (get-in (first vs) [:detail :visible-from])))
       (is (= Rex (get-in (first vs) [:detail :term]))))))
 
 (tu/deftest-kb exposure-is-an-event-append-only-and-refiled-on-revival
   ;; the ledger contract: retracting the ingredient that exposed a clash does not
   ;; withdraw the entry, and the ingredient returning files a new one.
-  (tu/with-terms [AContext CContext t1 t2 Pip]
-    (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-    (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-    (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
-    (v/assert kb (list t1 Pip) AContext)
-    (let [h (v/assert kb (list t2 Pip) CContext)]
+  (tu/with-terms [CxA CxC t1 t2 Pip]
+    (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+    (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
+    (v/assert kb (list t1 Pip) CxA)
+    (let [h (v/assert kb (list t2 Pip) CxC)]
       (is (= 1 (count (v/violations kb))))
       (v/retract! kb h)
       (is (= 1 (count (v/violations kb))) "the entry outlives its ingredient")
-      (v/assert kb (list t2 Pip) CContext)
+      (v/assert kb (list t2 Pip) CxC)
       (is (= 2 (count (v/violations kb))) "each exposure is its own event")
       (testing "and the runs differ, so \"current\" stays decidable"
         (is (apply distinct? (map :run (v/violations kb))))))))
@@ -180,17 +180,17 @@
 (tu/deftest-kb an-unrelated-settle-does-not-refile-a-standing-clash
   ;; locality: the pass reads the settle's moved region, so a clash whose
   ;; ingredients did not move is not re-examined, let alone re-filed.
-  (tu/with-terms [AContext CContext t1 t2 other Pip Quo]
-    (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-    (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-    (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
-    (v/assert kb (list t1 Pip) AContext)
-    (v/assert kb (list t2 Pip) CContext)
+  (tu/with-terms [CxA CxC t1 t2 other Pip Quo]
+    (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+    (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
+    (v/assert kb (list t1 Pip) CxA)
+    (v/assert kb (list t2 Pip) CxC)
     (is (= 1 (count (v/violations kb))))
-    (v/assert kb (list other Quo) CContext)
-    (v/assert kb (list other Pip) CContext)
+    (v/assert kb (list other Quo) CxC)
+    (v/assert kb (list other Pip) CxC)
     (is (= 1 (count (v/violations kb)))
         "an unrelated membership — even of the clash's own term — files nothing new:
          the pair it forms with the standing types is not disjoint")))
@@ -201,18 +201,18 @@
   ;; :exposure-truncated naming its trigger rather than silently reading as full
   ;; coverage.  The membership route is exact and unbudgeted.
   (binding [settle/*exposure-instance-budget* 1]
-    (tu/with-terms [AContext CContext t1 t2 Pip Quo Rex]
-      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-      (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-      (v/assert kb (list t1 Pip) CContext)
-      (v/assert kb (list t2 Pip) AContext)
-      (v/assert kb (list t1 Quo) CContext)
-      (v/assert kb (list t2 Quo) AContext)
-      (v/assert kb (list t1 Rex) CContext)
+    (tu/with-terms [CxA CxC t1 t2 Pip Quo Rex]
+      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+      (v/assert kb (list t1 Pip) CxC)
+      (v/assert kb (list t2 Pip) CxA)
+      (v/assert kb (list t1 Quo) CxC)
+      (v/assert kb (list t2 Quo) CxA)
+      (v/assert kb (list t1 Rex) CxC)
       ;; the declaration arrives last: five memberships below its types, budget one
-      (v/assert kb (list 'disjoint t1 t2) CContext)
+      (v/assert kb (list 'disjoint t1 t2) CxC)
       (let [vs (v/violations kb)
             cut (filter #(= :exposure-truncated (:violation %)) vs)]
         (is (seq cut) "the cut is reported, not silent")
@@ -232,21 +232,21 @@
   ;; so the ledger gets one entry with a count, not one per trigger.  Left unfixed this
   ;; was 41,500 entries on an OpenCyc load, against a ledger that keeps 1,000.
   (binding [settle/*exposure-instance-budget* 1]
-    (tu/with-terms [CContext t1 t2 Pip Quo]
-      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-      (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list t1 Pip) CContext)
-      (v/assert kb (list t2 Quo) CContext)
-      (v/assert kb (list 'disjoint t1 t2) CContext)
+    (tu/with-terms [CxC t1 t2 Pip Quo]
+      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list t1 Pip) CxC)
+      (v/assert kb (list t2 Quo) CxC)
+      (v/assert kb (list 'disjoint t1 t2) CxC)
       (v/clear-violations! kb)
       ;; one settle, several sweeping triggers: two genl edges and a metatype
       (tu/with-terms [t3 t4]
         (v/with-deferred-settle kb
-          (v/assert kb (list 'genl t3 t1) 'UniverseContext)
-          (v/assert kb (list 'genl t4 t2) 'UniverseContext)
-          (v/assert kb (list t3 Pip) CContext)
-          (v/assert kb (list t4 Quo) CContext)))
+          (v/assert kb (list 'genl t3 t1) 'CxUniverse)
+          (v/assert kb (list 'genl t4 t2) 'CxUniverse)
+          (v/assert kb (list t3 Pip) CxC)
+          (v/assert kb (list t4 Quo) CxC)))
       (let [cut (filter #(= :exposure-truncated (:violation %)) (v/violations kb))]
         (is (>= (count cut) 1) "the bound is still reported")
         (is (= 1 (count cut)) "once per settle, however many triggers it cut short")
@@ -266,17 +266,17 @@
   ;; so a sweep of everything below either side spends the budget ten times over on
   ;; the fillers and never reaches the clash, while the cheaper side is one term.
   (binding [settle/*exposure-instance-budget* 4]
-    (tu/with-terms [AContext CContext t1 t2 Pip]
-      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-      (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
+    (tu/with-terms [CxA CxC t1 t2 Pip]
+      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
       (dotimes [_ 40]
-        (v/assert kb (list t1 (tu/tmp-ind "Filler")) CContext))
-      (v/assert kb (list t1 Pip) CContext)
-      (v/assert kb (list t2 Pip) AContext)
+        (v/assert kb (list t1 (tu/tmp-ind "Filler")) CxC))
+      (v/assert kb (list t1 Pip) CxC)
+      (v/assert kb (list t2 Pip) CxA)
       (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) CContext)
+      (v/assert kb (list 'disjoint t1 t2) CxC)
       (let [vs (v/violations kb)]
         (is (= [Pip] (mapv #(get-in % [:detail :term])
                            (filter #(= :disjoint (:violation %)) vs)))
@@ -290,15 +290,15 @@
   ;; survives instead would walk both extents to the end looking for a keeper and then
   ;; report full coverage, which is the one thing a bounded pass may not do.
   (binding [settle/*exposure-instance-budget* 2]
-    (tu/with-terms [AContext CContext t1 t2]
-      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-      (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Left")) CContext))
-      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Right")) AContext))
+    (tu/with-terms [CxA CxC t1 t2]
+      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Left")) CxC))
+      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Right")) CxA))
       (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) CContext)
+      (v/assert kb (list 'disjoint t1 t2) CxC)
       (let [vs (v/violations kb)]
         (is (empty? (filter #(= :disjoint (:violation %)) vs))
             "nobody holds both, so there is no clash to expose")
@@ -310,21 +310,21 @@
   ;; same shape as a type membership — so the membership arm claims it unless the
   ;; declarations are matched first, and the metatype gets filed as a term holding a
   ;; type while the clash its arrival creates goes unswept.
-  (tu/with-terms [AContext CContext animalSpecies dog_t cat_t Rex]
-    (v/assert kb (list 'genl dog_t 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl cat_t 'thing) 'UniverseContext)
-    (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-    (v/assert kb (list animalSpecies dog_t) 'UniverseContext)
-    (v/assert kb (list animalSpecies cat_t) 'UniverseContext)
-    (v/assert kb (list dog_t Rex) CContext)
-    (v/assert kb (list cat_t Rex) AContext)
+  (tu/with-terms [CxA CxC animalSpecies dog_t cat_t Rex]
+    (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+    (v/assert kb (list animalSpecies dog_t) 'CxUniverse)
+    (v/assert kb (list animalSpecies cat_t) 'CxUniverse)
+    (v/assert kb (list dog_t Rex) CxC)
+    (v/assert kb (list cat_t Rex) CxA)
     (is (empty? (v/violations kb)) "the metatype separates nothing yet")
-    (v/assert kb (list 'disjointMetatype animalSpecies) 'UniverseContext)
+    (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
     (let [vs (filter #(= :disjoint (:violation %)) (v/violations kb))]
       (is (= [Rex] (mapv #(get-in % [:detail :term]) vs))
           "the members become pairwise disjoint, and the term holding two of them is a clash")
-      (is (= #{AContext} (get-in (first vs) [:detail :visible-from]))))))
+      (is (= #{CxA} (get-in (first vs) [:detail :visible-from]))))))
 
 (tu/deftest-kb the-narrowed-sweep-finds-what-the-complete-question-finds
   ;; The candidate rule is a *narrowing*, so the claim that matters is that it narrows
@@ -336,21 +336,21 @@
   ;; that mostly hold one side only, so a sweep below either side collects fillers while
   ;; the intersection collects the two that convict.  On OpenCyc the same comparison
   ;; over every declaration is 638 against 638, with both differences empty.
-  (tu/with-terms [AContext CContext a1_t a2_t b1_t b2_t Pip Quo]
+  (tu/with-terms [CxA CxC a1_t a2_t b1_t b2_t Pip Quo]
     (doseq [t [a1_t a2_t b1_t b2_t]]
-      (v/assert kb (list 'genl t 'thing) 'UniverseContext))
-    (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-    (dotimes [_ 12] (v/assert kb (list a1_t (tu/tmp-ind "Filler")) CContext))
-    (dotimes [_ 12] (v/assert kb (list b2_t (tu/tmp-ind "Filler")) CContext))
-    (v/assert kb (list a1_t Pip) CContext)
-    (v/assert kb (list b1_t Pip) AContext)
-    (v/assert kb (list a2_t Quo) CContext)
-    (v/assert kb (list b2_t Quo) AContext)
+      (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+    (dotimes [_ 12] (v/assert kb (list a1_t (tu/tmp-ind "Filler")) CxC))
+    (dotimes [_ 12] (v/assert kb (list b2_t (tu/tmp-ind "Filler")) CxC))
+    (v/assert kb (list a1_t Pip) CxC)
+    (v/assert kb (list b1_t Pip) CxA)
+    (v/assert kb (list a2_t Quo) CxC)
+    (v/assert kb (list b2_t Quo) CxA)
     (v/clear-violations! kb)
-    (v/assert kb (list 'disjoint a1_t b1_t) 'UniverseContext)
-    (v/assert kb (list 'disjoint a2_t b2_t) 'UniverseContext)
-    (v/assert kb (list 'disjoint a1_t b2_t) 'UniverseContext)
+    (v/assert kb (list 'disjoint a1_t b1_t) 'CxUniverse)
+    (v/assert kb (list 'disjoint a2_t b2_t) 'CxUniverse)
+    (v/assert kb (list 'disjoint a1_t b2_t) 'CxUniverse)
     (let [filed (into #{} (comp (filter #(= :disjoint (:violation %))) (map :detail))
                       (v/violations kb))
           truth (into #{} (map :detail) (v/exposed-clashes kb))]
@@ -366,13 +366,13 @@
   ;; of the sizing arithmetic, and in particular the *symbol* side's extent is not swept
   ;; on the strength of a side that can convict nobody.
   (binding [settle/*exposure-instance-budget* 3]
-    (tu/with-terms [CContext real_t Pip]
-      (v/assert kb (list 'genl real_t 'thing) 'UniverseContext)
-      (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-      (dotimes [_ 20] (v/assert kb (list real_t (tu/tmp-ind "Filler")) CContext))
-      (v/assert kb (list real_t Pip) CContext)
+    (tu/with-terms [CxC real_t Pip]
+      (v/assert kb (list 'genl real_t 'thing) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+      (dotimes [_ 20] (v/assert kb (list real_t (tu/tmp-ind "Filler")) CxC))
+      (v/assert kb (list real_t Pip) CxC)
       (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint (list 'SomeFn real_t) real_t) 'UniverseContext)
+      (v/assert kb (list 'disjoint (list 'SomeFn real_t) real_t) 'CxUniverse)
       (let [vs (v/violations kb)]
         (is (empty? (filter #(= :disjoint (:violation %)) vs))
             "a compound can head no stored membership, so it is nobody's clash")
@@ -389,13 +389,13 @@
             settle/*exposure-instance-budget* 4]
     (tu/with-kb [kb]
       (tu/with-terms [dog_t cat_t Rex]
-        (v/assert kb (list 'genl dog_t 'thing) 'UniverseContext)
-        (v/assert kb (list 'genl cat_t 'thing) 'UniverseContext)
-        (dotimes [_ 40] (v/assert kb (list dog_t (tu/tmp-ind "Pup")) 'UniverseContext))
-        (v/assert kb (list dog_t Rex) 'UniverseContext)
-        (v/assert kb (list cat_t Rex) 'UniverseContext)
+        (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
+        (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
+        (dotimes [_ 40] (v/assert kb (list dog_t (tu/tmp-ind "Pup")) 'CxUniverse))
+        (v/assert kb (list dog_t Rex) 'CxUniverse)
+        (v/assert kb (list cat_t Rex) 'CxUniverse)
         (is (empty? (v/contradictions kb)) "nothing separates them yet")
-        (v/assert kb (list 'disjoint dog_t cat_t) 'UniverseContext)
+        (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
         (is (= [:disjoint] (mapv :kind (v/contradictions kb)))
             "the one term holding both is arbitrated, though dog_t's extent is ten times
              the budget — the cheaper side is cat_t's single instance")))))
@@ -405,18 +405,18 @@
   ;; M's *other* members, so a term below T holding nothing else of M is not a
   ;; candidate.  Twenty such terms sit below dog_t against a budget of three.
   (binding [settle/*exposure-instance-budget* 3]
-    (tu/with-terms [AContext CContext animalSpecies dog_t cat_t Rex]
-      (v/assert kb (list 'genl dog_t 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl cat_t 'thing) 'UniverseContext)
-      (v/assert kb (list 'genlContext CContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext AContext CContext) 'UniverseContext)
-      (v/assert kb (list 'disjointMetatype animalSpecies) 'UniverseContext)
-      (v/assert kb (list animalSpecies cat_t) 'UniverseContext)
-      (dotimes [_ 20] (v/assert kb (list dog_t (tu/tmp-ind "Pup")) CContext))
-      (v/assert kb (list dog_t Rex) CContext)
-      (v/assert kb (list cat_t Rex) AContext)
+    (tu/with-terms [CxA CxC animalSpecies dog_t cat_t Rex]
+      (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
+      (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
+      (v/assert kb (list animalSpecies cat_t) 'CxUniverse)
+      (dotimes [_ 20] (v/assert kb (list dog_t (tu/tmp-ind "Pup")) CxC))
+      (v/assert kb (list dog_t Rex) CxC)
+      (v/assert kb (list cat_t Rex) CxA)
       (v/clear-violations! kb)
-      (v/assert kb (list animalSpecies dog_t) 'UniverseContext)
+      (v/assert kb (list animalSpecies dog_t) 'CxUniverse)
       (let [vs (v/violations kb)]
         (is (= [Rex] (mapv #(get-in % [:detail :term])
                            (filter #(= :disjoint (:violation %)) vs)))
@@ -449,18 +449,18 @@
                 (tu/with-kb [k]
                   (tu/with-terms [aa_t bb_t cc_t dd_t Pip Quo]
                     (doseq [t [aa_t bb_t cc_t dd_t]]
-                      (v/assert k (list 'genl t 'thing) 'UniverseContext))
+                      (v/assert k (list 'genl t 'thing) 'CxUniverse))
                     (doseq [t [aa_t bb_t cc_t dd_t]]
-                      (dotimes [_ 10] (v/assert k (list t (tu/tmp-ind "Pad")) 'UniverseContext)))
-                    (v/assert k (list aa_t Pip) 'UniverseContext)
-                    (v/assert k (list bb_t Pip) 'UniverseContext)
-                    (v/assert k (list cc_t Quo) 'UniverseContext)
-                    (v/assert k (list dd_t Quo) 'UniverseContext)
+                      (dotimes [_ 10] (v/assert k (list t (tu/tmp-ind "Pad")) 'CxUniverse)))
+                    (v/assert k (list aa_t Pip) 'CxUniverse)
+                    (v/assert k (list bb_t Pip) 'CxUniverse)
+                    (v/assert k (list cc_t Quo) 'CxUniverse)
+                    (v/assert k (list dd_t Quo) 'CxUniverse)
                     (v/clear-violations! k)
                     (v/with-deferred-settle k
                       (doseq [d (cond-> [(list 'disjoint aa_t bb_t) (list 'disjoint cc_t dd_t)]
                                   backwards? reverse)]
-                        (v/assert k d 'UniverseContext)))
+                        (v/assert k d 'CxUniverse)))
                     ;; normalized to *which* separation, since the two arms name different
                     ;; terms and the sentences are therefore never `=`
                     {:decided (into #{}
@@ -502,16 +502,16 @@
       ;; so a second copy in the enclosing KB is a second copy in *this* one
       (let [cut-at (fn [budget]
                      (tu/with-kb [k]
-                       (doseq [t [t1 t2]] (v/assert k (list 'genl t 'thing) 'UniverseContext))
+                       (doseq [t [t1 t2]] (v/assert k (list 'genl t 'thing) 'CxUniverse))
                        ;; t1's extent is exactly five and is the cheaper side, so it is
                        ;; what `two-sided-reach` enumerates
-                       (dotimes [_ 4] (v/assert k (list t1 (tu/tmp-ind "Pad")) 'UniverseContext))
-                       (v/assert k (list t1 Pip) 'UniverseContext)
-                       (dotimes [_ 9] (v/assert k (list t2 (tu/tmp-ind "Other")) 'UniverseContext))
-                       (v/assert k (list t2 Pip) 'UniverseContext)
+                       (dotimes [_ 4] (v/assert k (list t1 (tu/tmp-ind "Pad")) 'CxUniverse))
+                       (v/assert k (list t1 Pip) 'CxUniverse)
+                       (dotimes [_ 9] (v/assert k (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
+                       (v/assert k (list t2 Pip) 'CxUniverse)
                        (v/clear-violations! k)
                        (binding [settle/*exposure-instance-budget* budget]
-                         (v/assert k (list 'disjoint t1 t2) 'UniverseContext))
+                         (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
                        {:cut     (seq (filter #(= :arbitration-truncated (:violation %))
                                               (v/violations k)))
                         :decided (seq (v/contradictions k))}))]
@@ -535,14 +535,14 @@
   (binding [checks/*arbitrate-constraints?* true
             settle/*exposure-instance-budget* 2]
     (tu/with-terms [t1 t2 Pip]
-      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Filler")) 'UniverseContext))
-      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Other")) 'UniverseContext))
-      (v/assert kb (list t1 Pip) 'UniverseContext)
-      (v/assert kb (list t2 Pip) 'UniverseContext)
+      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Filler")) 'CxUniverse))
+      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
+      (v/assert kb (list t1 Pip) 'CxUniverse)
+      (v/assert kb (list t2 Pip) 'CxUniverse)
       (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
+      (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
       (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
         ;; One entry, and this settle takes one pass — so what the entry's `:triggers`
         ;; counts is not separated here from what the passes counted.  That is the test
@@ -581,22 +581,22 @@
             settle/*exposure-instance-budget* 2]
     (tu/with-terms [t1 t2 Pip bird penguin flies Opus]
       ;; the separation, with a reach the budget cannot finish
-      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Filler")) 'UniverseContext))
-      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Other")) 'UniverseContext))
-      (v/assert kb (list t1 Pip) 'UniverseContext)
-      (v/assert kb (list t2 Pip) 'UniverseContext)
+      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Filler")) 'CxUniverse))
+      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
+      (v/assert kb (list t1 Pip) 'CxUniverse)
+      (v/assert kb (list t2 Pip) 'CxUniverse)
       ;; ...and the excepted rule, over vocabulary the separation does not reach
       (v/assert kb (list 'exceptWhen (list penguin '?x)
                          (list 'set/defaultRule
                                (vr/rule-sentence [(list bird '?x)] (list flies '?x))))
-                'UniverseContext)
+                'CxUniverse)
       (v/clear-violations! kb)
       (v/with-deferred-settle kb
-        (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
-        (v/assert kb (list bird Opus) 'UniverseContext)
-        (v/assert kb (list penguin Opus) 'UniverseContext))
+        (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
+        (v/assert kb (list bird Opus) 'CxUniverse)
+        (v/assert kb (list penguin Opus) 'CxUniverse))
       (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
         (is (<= 2 (:passes (v/settle-stats kb)))
             "the premise of the test: a settle of one pass sweeps once and dedups nothing")
@@ -606,7 +606,7 @@
         (is (= 1 (count (get-in (first cut) [:detail :sample])))
             "and the sample names it once")
         (testing "the exception that made the settle iterate did its own job"
-          (is (empty? (v/sentexes-matching kb (list flies Opus) 'UniverseContext))))))))
+          (is (empty? (v/sentexes-matching kb (list flies Opus) 'CxUniverse))))))))
 
 (tu/deftest-kb a-functional-declaration-swept-short-is-reported-by-nothing-else
   ;; `functional` implicates stored content on the deciding path and on no other, so a
@@ -614,11 +614,11 @@
   (binding [checks/*arbitrate-constraints?* true
             settle/*exposure-instance-budget* 2]
     (tu/with-terms [ownerOf]
-      (v/assert kb (list 'binaryPredicate ownerOf) 'UniverseContext)
+      (v/assert kb (list 'binaryPredicate ownerOf) 'CxUniverse)
       (dotimes [_ 20]
-        (v/assert kb (list ownerOf (tu/tmp-ind "Thing") (tu/tmp-ind "Who")) 'UniverseContext))
+        (v/assert kb (list ownerOf (tu/tmp-ind "Thing") (tu/tmp-ind "Who")) 'CxUniverse))
       (v/clear-violations! kb)
-      (v/assert kb (list 'functional ownerOf) 'UniverseContext)
+      (v/assert kb (list 'functional ownerOf) 'CxUniverse)
       (let [vs (v/violations kb)]
         (is (seq (filter #(= :arbitration-truncated (:violation %)) vs))
             "the deciding pass reports it")
@@ -629,12 +629,12 @@
   (binding [checks/*arbitrate-constraints?* true
             settle/*exposure-instance-budget* 4096]
     (tu/with-terms [t1 t2 Pip]
-      (v/assert kb (list 'genl t1 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl t2 'thing) 'UniverseContext)
-      (v/assert kb (list t1 Pip) 'UniverseContext)
-      (v/assert kb (list t2 Pip) 'UniverseContext)
+      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+      (v/assert kb (list t1 Pip) 'CxUniverse)
+      (v/assert kb (list t2 Pip) 'CxUniverse)
       (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) 'UniverseContext)
+      (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
       (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations kb)))
           "a bound nothing reached is not a truncation")
       (is (seq (v/contradictions kb)) "and the pair it did reach is decided"))))
@@ -651,12 +651,12 @@
   ;; disagree with one that never restarted.
   (binding [checks/*arbitrate-constraints?* true]
     (let [build (fn [k t1 t2 Pip]
-                  (v/assert k (list 'genl t1 'thing) 'UniverseContext)
-                  (v/assert k (list 'genl t2 'thing) 'UniverseContext)
-                  (dotimes [_ 20] (v/assert k (list t1 (tu/tmp-ind "Filler")) 'UniverseContext))
-                  (dotimes [_ 20] (v/assert k (list t2 (tu/tmp-ind "Other")) 'UniverseContext))
-                  (v/assert k (list t1 Pip) 'UniverseContext)
-                  (v/assert k (list t2 Pip) 'UniverseContext)
+                  (v/assert k (list 'genl t1 'thing) 'CxUniverse)
+                  (v/assert k (list 'genl t2 'thing) 'CxUniverse)
+                  (dotimes [_ 20] (v/assert k (list t1 (tu/tmp-ind "Filler")) 'CxUniverse))
+                  (dotimes [_ 20] (v/assert k (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
+                  (v/assert k (list t1 Pip) 'CxUniverse)
+                  (v/assert k (list t2 Pip) 'CxUniverse)
                   (v/clear-violations! k))]
       (testing "a budget too small to finish files no notice, because it is a rebuild"
         (tu/with-terms [t1 t2 Pip]
@@ -664,7 +664,7 @@
             (build k t1 t2 Pip)
             (binding [settle/*exposure-instance-budget* 2
                       settle/*rebuilding?* true]
-              (v/assert k (list 'disjoint t1 t2) 'UniverseContext))
+              (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
             (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations k)))
                 "off, as it is for the exposure pass"))))
       (testing "and a budget that can finish still decides the pair, rebuilding or not —
@@ -674,13 +674,13 @@
             (build k t1 t2 Pip)
             (binding [settle/*exposure-instance-budget* 4096
                       settle/*rebuilding?* true]
-              (v/assert k (list 'disjoint t1 t2) 'UniverseContext))
+              (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
             (is (= [:disjoint] (mapv :kind (v/contradictions k))))))))))
 
 ;; ---- the other two kinds, across the same edge ---------------------------
 ;;
 ;; `disjoint` was the only kind the ledger could say, so under `:refuse` a `functional`
-;; slot filled either side of a `genlContext` edge and an `asymmetric` claim written
+;; slot filled either side of a `genlCx` edge and an `asymmetric` claim written
 ;; across one were neither refused nor reported.  Same lattice as the disjointness
 ;; cases above: two siblings neither of which sees the other, and a joint viewer below
 ;; both that sees the whole pair.
@@ -689,11 +689,11 @@
   "The declaration and the two siblings with a joint viewer below both — everything but
   the two clashing claims, so a test can choose the order those arrive in."
   [kb {:keys [a b w decl pred]}]
-  (v/assert kb (list decl pred) 'UniverseContext)
-  (v/assert kb (list 'genlContext a 'UniverseContext) 'UniverseContext)
-  (v/assert kb (list 'genlContext b 'UniverseContext) 'UniverseContext)
-  (v/assert kb (list 'genlContext w a) 'UniverseContext)
-  (v/assert kb (list 'genlContext w b) 'UniverseContext))
+  (v/assert kb (list decl pred) 'CxUniverse)
+  (v/assert kb (list 'genlCx a 'CxUniverse) 'CxUniverse)
+  (v/assert kb (list 'genlCx b 'CxUniverse) 'CxUniverse)
+  (v/assert kb (list 'genlCx w a) 'CxUniverse)
+  (v/assert kb (list 'genlCx w b) 'CxUniverse))
 
 (defn- split-pair!
   "Two claims of one predicate, one in each sibling, with a joint viewer below both —
@@ -706,36 +706,36 @@
 (tu/deftest-kb a-functional-slot-filled-across-an-edge-is-reported
   ;; The hole this closes.  Neither writer can see the other's filler, so neither is
   ;; refused; the joint viewer sees both, and that is what the entry names.
-  (tu/with-terms [AContext BContext WContext birthYear Tom]
+  (tu/with-terms [CxA CxB CxW birthYear Tom]
     (let [one (list birthYear Tom 1970)
           two (list birthYear Tom 1980)]
-      (split-pair! kb {:a AContext :b BContext :w WContext :decl 'functional
+      (split-pair! kb {:a CxA :b CxB :w CxW :decl 'functional
                        :pred birthYear :one one :two two})
       (let [vs (filter #(= :functional (:violation %)) (v/violations kb))]
         (is (= 1 (count vs)) "one entry for the pair, not one per side")
-        (is (= #{WContext} (get-in (first vs) [:detail :visible-from])))
+        (is (= #{CxW} (get-in (first vs) [:detail :visible-from])))
         (is (= birthYear (get-in (first vs) [:detail :pred])))
-        (is (= #{[one AContext] [two BContext]}
+        (is (= #{[one CxA] [two CxB]}
                (set (get-in (first vs) [:detail :clash])))))
       (testing "and belief is untouched — this reports, it does not decide"
-        (is (seq (v/sentexes-matching kb one AContext)))
-        (is (seq (v/sentexes-matching kb two BContext)))
+        (is (seq (v/sentexes-matching kb one CxA)))
+        (is (seq (v/sentexes-matching kb two CxB)))
         (is (empty? (v/contradictions kb)))))))
 
 (tu/deftest-kb an-asymmetric-claim-written-across-an-edge-is-reported
-  (tu/with-terms [AContext BContext WContext largerThan Rex Pip]
+  (tu/with-terms [CxA CxB CxW largerThan Rex Pip]
     (let [one (list largerThan Rex Pip)
           two (list largerThan Pip Rex)]
-      (split-pair! kb {:a AContext :b BContext :w WContext :decl 'asymmetric
+      (split-pair! kb {:a CxA :b CxB :w CxW :decl 'asymmetric
                        :pred largerThan :one one :two two})
       (let [vs (filter #(= :asymmetric (:violation %)) (v/violations kb))]
         (is (= 1 (count vs)))
-        (is (= #{WContext} (get-in (first vs) [:detail :visible-from])))
-        (is (= #{[one AContext] [two BContext]}
+        (is (= #{CxW} (get-in (first vs) [:detail :visible-from])))
+        (is (= #{[one CxA] [two CxB]}
                (set (get-in (first vs) [:detail :clash])))))
       (testing "belief untouched"
-        (is (seq (v/sentexes-matching kb one AContext)))
-        (is (seq (v/sentexes-matching kb two BContext)))
+        (is (seq (v/sentexes-matching kb one CxA)))
+        (is (seq (v/sentexes-matching kb two CxB)))
         (is (empty? (v/contradictions kb)))))))
 
 (deftest the-report-is-the-same-in-either-arrival-order
@@ -744,15 +744,15 @@
   ;; which arrived last.  **The two arms share one term set and run over two cleared
   ;; KBs**, so the entries are comparable as values: an arm-local `with-terms` would make
   ;; them differ for a reason that has nothing to do with order.
-  (tu/with-terms [AContext BContext WContext birthYear Tom]
+  (tu/with-terms [CxA CxB CxW birthYear Tom]
     (let [one (list birthYear Tom 1970)
           two (list birthYear Tom 1980)
-          spec {:a AContext :b BContext :w WContext :decl 'functional :pred birthYear}
+          spec {:a CxA :b CxB :w CxW :decl 'functional :pred birthYear}
           run  (fn [first-half second-half]
                  (tu/with-cleared-kb [k tu/fresh]
                    (split-lattice! k spec)
-                   (v/assert k first-half (if (= first-half one) AContext BContext))
-                   (v/assert k second-half (if (= second-half one) AContext BContext))
+                   (v/assert k first-half (if (= first-half one) CxA CxB))
+                   (v/assert k second-half (if (= second-half one) CxA CxB))
                    (mapv #(dissoc % :run)
                          (filter (comp #{:functional} :violation) (v/violations k)))))
           a (run one two)
@@ -764,30 +764,30 @@
   ;; `:visible-from` is a property of the pair, so a second joint viewer belongs in it.
   ;; Reading it off whichever vantage happened to convict would make the entry a function
   ;; of which half the region held.
-  (tu/with-terms [AContext BContext WContext VContext birthYear Tom]
+  (tu/with-terms [CxA CxB CxW CxV birthYear Tom]
     (let [one (list birthYear Tom 1970)
           two (list birthYear Tom 1980)]
-      (split-lattice! kb {:a AContext :b BContext :w WContext
+      (split-lattice! kb {:a CxA :b CxB :w CxW
                           :decl 'functional :pred birthYear})
       ;; a second, incomparable viewer of both siblings, in place before the facts
-      (v/assert kb (list 'genlContext VContext AContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext VContext BContext) 'UniverseContext)
-      (v/assert kb one AContext)
-      (v/assert kb two BContext)
+      (v/assert kb (list 'genlCx CxV CxA) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxV CxB) 'CxUniverse)
+      (v/assert kb one CxA)
+      (v/assert kb two CxB)
       (let [vs (filter (comp #{:functional} :violation) (v/violations kb))]
         (is (= 1 (count vs)))
-        (is (= #{WContext VContext} (get-in (first vs) [:detail :visible-from]))
+        (is (= #{CxW CxV} (get-in (first vs) [:detail :visible-from]))
             "both joint viewers, not the one that was enumerated first")))))
 
 (tu/deftest-kb a-wide-slot-is-capped-and-says-so
   ;; The entries are not bounded by the region: one slot filled from N contexts a single
   ;; vantage sees is N-1 pairs off one arriving fact, and the ledger keeps 1000.
-  (tu/with-terms [WContext birthYear Tom]
-    (v/assert kb (list 'functional birthYear) 'UniverseContext)
+  (tu/with-terms [CxW birthYear Tom]
+    (v/assert kb (list 'functional birthYear) 'CxUniverse)
     (let [ctxs (vec (repeatedly 8 #(tu/tmp-ctx "Src")))]
       (doseq [c ctxs]
-        (v/assert kb (list 'genlContext c 'UniverseContext) 'UniverseContext)
-        (v/assert kb (list 'genlContext WContext c) 'UniverseContext))
+        (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxW c) 'CxUniverse))
       (doseq [[i c] (map-indexed vector (butlast ctxs))]
         (v/assert kb (list birthYear Tom (+ 1900 i)) c))
       (v/clear-violations! kb)
@@ -806,8 +806,8 @@
   ;; vantages are already asked, so the pair is decided rather than reported — and this
   ;; pass must add nothing there, or the ledger and `contradictions` both claim it.
   (tu/with-neutral-kb [k #(v/open-kb (assoc tu/scratch-space :constraints :arbitrate))]
-    (tu/with-terms [AContext BContext WContext birthYear Tom]
-      (split-pair! k {:a AContext :b BContext :w WContext :decl 'functional
+    (tu/with-terms [CxA CxB CxW birthYear Tom]
+      (split-pair! k {:a CxA :b CxB :w CxW :decl 'functional
                       :pred birthYear
                       :one (list birthYear Tom 1970) :two (list birthYear Tom 1980)})
       (is (seq (v/contradictions k)) "the vantage decides it")
@@ -818,10 +818,10 @@
   ;; The gap is cross-context only.  Written in one context the assert door sees the
   ;; whole pair and refuses, which is what `:refuse` means — nothing reaches the ledger.
   (tu/with-terms [birthYear Tom]
-    (v/assert kb (list 'functional birthYear) 'UniverseContext)
-    (v/assert kb (list birthYear Tom 1970) 'UniverseContext)
+    (v/assert kb (list 'functional birthYear) 'CxUniverse)
+    (v/assert kb (list birthYear Tom 1970) 'CxUniverse)
     (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list birthYear Tom 1980) 'UniverseContext)))
+                 (v/assert kb (list birthYear Tom 1980) 'CxUniverse)))
     (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))
 
 (tu/deftest-kb a-self-tuple-in-two-contexts-orders-on-the-context
@@ -829,16 +829,16 @@
   ;; key stopping at the sentence leaves them in whatever order the walk supplied — which
   ;; is the side the region held.  `content-order` keys on sentence *then* context and so
   ;; does the half ordering; this is the case that tells the two keys apart.
-  (tu/with-terms [AContext BContext WContext beats Rex]
+  (tu/with-terms [CxA CxB CxW beats Rex]
     (let [claim (list beats Rex Rex)]
-      (split-lattice! kb {:a AContext :b BContext :w WContext
+      (split-lattice! kb {:a CxA :b CxB :w CxW
                           :decl 'asymmetric :pred beats})
-      (v/assert kb claim AContext)
-      (v/assert kb claim BContext)
+      (v/assert kb claim CxA)
+      (v/assert kb claim CxB)
       (let [vs (filter (comp #{:asymmetric} :violation) (v/violations kb))]
         (is (= 1 (count vs)))
         (let [[[_ c1] [_ c2]] (get-in (first vs) [:detail :clash])]
-          (is (= [c1 c2] (sort-by str [AContext BContext]))
+          (is (= [c1 c2] (sort-by str [CxA CxB]))
               "the two halves are ordered by context, the sentences being equal")
           (is (= c1 (:context (first vs)))
               "and the entry's own context is the first of that ordered pair"))))))
@@ -846,13 +846,13 @@
 (tu/deftest-kb a-rebuild-reports-nothing-because-nothing-newly-moved
   ;; Same rule as the disjointness pass beside it: a `recover`'s region is the whole KB,
   ;; so *newly* visible has no meaning there and every standing pair would be refiled.
-  (tu/with-terms [AContext BContext WContext birthYear Tom]
-    (split-lattice! kb {:a AContext :b BContext :w WContext
+  (tu/with-terms [CxA CxB CxW birthYear Tom]
+    (split-lattice! kb {:a CxA :b CxB :w CxW
                         :decl 'functional :pred birthYear})
-    (v/assert kb (list birthYear Tom 1970) AContext)
+    (v/assert kb (list birthYear Tom 1970) CxA)
     (v/clear-violations! kb)
     (binding [settle/*rebuilding?* true]
-      (v/assert kb (list birthYear Tom 1980) BContext))
+      (v/assert kb (list birthYear Tom 1980) CxB))
     (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))
 
 (tu/deftest-kb a-predicate-carrying-both-properties-reads-both-postings
@@ -860,63 +860,63 @@
   ;; a functional partner shares argument 1, an asymmetric one holds it in argument 2.
   ;; A predicate declared both needs both reads, and dropping either loses a pair rather
   ;; than costing a scan — which a narrowing done for cost is exactly how to get wrong.
-  (tu/with-terms [AContext BContext WContext ranks Tom Pip Vic]
-    (split-lattice! kb {:a AContext :b BContext :w WContext
+  (tu/with-terms [CxA CxB CxW ranks Tom Pip Vic]
+    (split-lattice! kb {:a CxA :b CxB :w CxW
                         :decl 'functional :pred ranks})
-    (v/assert kb (list 'asymmetric ranks) 'UniverseContext)
+    (v/assert kb (list 'asymmetric ranks) 'CxUniverse)
     (testing "the functional partner, which shares argument 1"
-      (v/assert kb (list ranks Tom 1) AContext)
-      (v/assert kb (list ranks Tom 2) BContext)
+      (v/assert kb (list ranks Tom 1) CxA)
+      (v/assert kb (list ranks Tom 2) CxB)
       (is (seq (filter (comp #{:functional} :violation) (v/violations kb)))))
     (testing "and the asymmetric partner, whose argument 1 is the other side's argument 2"
       ;; fresh subjects: a converse pair on Tom would also be a second filler of Tom's
       ;; functional slot, and the door would refuse it before any of this ran
       (v/clear-violations! kb)
-      (v/assert kb (list ranks Pip Vic) AContext)
-      (v/assert kb (list ranks Vic Pip) BContext)
+      (v/assert kb (list ranks Pip Vic) CxA)
+      (v/assert kb (list ranks Vic Pip) CxB)
       (is (seq (filter (comp #{:asymmetric} :violation) (v/violations kb)))))))
 
 (tu/deftest-kb an-edge-arriving-after-both-facts-still-exposes-the-pair
   ;; The arrival order the region alone cannot see: visibility itself moves, so a pair
   ;; whose halves are already stored and already believed becomes jointly visible without
-  ;; either half being relabelled. Neither is in the moved region, so the `genlContext`
+  ;; either half being relabelled. Neither is in the moved region, so the `genlCx`
   ;; edge has to reach out to them — the same trigger `exposure-candidates` answers for
   ;; disjointness, over the binary-fact parallel of `members-in-cone`.
-  (tu/with-terms [AContext BContext WContext birthYear Tom]
+  (tu/with-terms [CxA CxB CxW birthYear Tom]
     (let [one (list birthYear Tom 1970)
           two (list birthYear Tom 1980)]
-      (v/assert kb (list 'functional birthYear) 'UniverseContext)
-      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb one AContext)
-      (v/assert kb two BContext)
+      (v/assert kb (list 'functional birthYear) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+      (v/assert kb one CxA)
+      (v/assert kb two CxB)
       (is (empty? (filter (comp #{:functional} :violation) (v/violations kb)))
           "nothing sees the pair yet")
-      (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
       (is (empty? (filter (comp #{:functional} :violation) (v/violations kb)))
           "seeing one side is not seeing the clash")
-      (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
       (let [vs (filter (comp #{:functional} :violation) (v/violations kb))]
         (is (= 1 (count vs)) "the edge that completes the view reports the pair")
-        (is (= #{WContext} (get-in (first vs) [:detail :visible-from])))
-        (is (= #{[one AContext] [two BContext]}
+        (is (= #{CxW} (get-in (first vs) [:detail :visible-from])))
+        (is (= #{[one CxA] [two CxB]}
                (set (get-in (first vs) [:detail :clash]))))))))
 
 (deftest the-edges-may-arrive-in-either-position-and-the-report-is-the-same
   ;; The whole point of the trigger: facts-then-edges and edges-then-facts are the same
   ;; knowledge, so they are one entry either way. Two cleared KBs over one term set, so
   ;; the entries compare as values.
-  (tu/with-terms [AContext BContext WContext birthYear Tom]
+  (tu/with-terms [CxA CxB CxW birthYear Tom]
     (let [one   (list birthYear Tom 1970)
           two   (list birthYear Tom 1980)
           decl! (fn [k]
-                  (v/assert k (list 'functional birthYear) 'UniverseContext)
-                  (v/assert k (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
-                  (v/assert k (list 'genlContext BContext 'UniverseContext) 'UniverseContext))
+                  (v/assert k (list 'functional birthYear) 'CxUniverse)
+                  (v/assert k (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+                  (v/assert k (list 'genlCx CxB 'CxUniverse) 'CxUniverse))
           edges! (fn [k]
-                   (v/assert k (list 'genlContext WContext AContext) 'UniverseContext)
-                   (v/assert k (list 'genlContext WContext BContext) 'UniverseContext))
-          facts! (fn [k] (v/assert k one AContext) (v/assert k two BContext))
+                   (v/assert k (list 'genlCx CxW CxA) 'CxUniverse)
+                   (v/assert k (list 'genlCx CxW CxB) 'CxUniverse))
+          facts! (fn [k] (v/assert k one CxA) (v/assert k two CxB))
           run   (fn [first! second!]
                   (tu/with-cleared-kb [k tu/fresh]
                     (decl! k) (first! k) (second! k)
@@ -935,14 +935,14 @@
   ;; Distinct subjects, so the cone is full of candidates and *none* of them pairs — the
   ;; entry filed can then only be the sweep's, not the "more pairs than I will file" one
   ;; the same kind also carries.
-  (tu/with-terms [SrcContext WContext birthYear]
-    (v/assert kb (list 'functional birthYear) 'UniverseContext)
-    (v/assert kb (list 'genlContext SrcContext 'UniverseContext) 'UniverseContext)
+  (tu/with-terms [CxSrc CxW birthYear]
+    (v/assert kb (list 'functional birthYear) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxSrc 'CxUniverse) 'CxUniverse)
     (doseq [i (range 6)]
-      (v/assert kb (list birthYear (tu/tmp-ind "Subj") (+ 1900 i)) SrcContext))
+      (v/assert kb (list birthYear (tu/tmp-ind "Subj") (+ 1900 i)) CxSrc))
     (v/clear-violations! kb)
     (binding [settle/*exposure-instance-budget* 2]
-      (v/assert kb (list 'genlContext WContext SrcContext) 'UniverseContext))
+      (v/assert kb (list 'genlCx CxW CxSrc) 'CxUniverse))
     (let [vs  (v/violations kb)
           cut (filter (comp #{:constraint-exposure-truncated} :violation) vs)]
       (is (empty? (filter (comp #{:functional} :violation) vs))
@@ -954,10 +954,10 @@
 (tu/deftest-kb siblings-with-no-joint-viewer-report-nothing
   ;; The ∃-vantage reading, for these two kinds: the claims coexist and no single
   ;; context sees both, so there is nobody the pair is a clash for.
-  (tu/with-terms [AContext BContext birthYear Tom]
-    (v/assert kb (list 'functional birthYear) 'UniverseContext)
-    (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list birthYear Tom 1970) AContext)
-    (v/assert kb (list birthYear Tom 1980) BContext)
+  (tu/with-terms [CxA CxB birthYear Tom]
+    (v/assert kb (list 'functional birthYear) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list birthYear Tom 1970) CxA)
+    (v/assert kb (list birthYear Tom 1980) CxB)
     (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))

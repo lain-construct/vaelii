@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.taxonomy-test
-  "Pure unit tests for the genl / genlContext closures and context placement.
+  "Pure unit tests for the genl / genlCx closures and context placement.
 
   Edges are *supported*: every mutation names the sentex handle asserting the edge,
   and the edge is active while at least one supporter is believed.  The handles here
@@ -54,11 +54,11 @@
 (deftest clear-relations-drops-support-too
   (let [t (tax/create-taxonomy)]
     (tax/add-genl t 'dog 'animal 1)
-    (tax/add-genlContext t 'BioContext 'UniverseContext 2)
+    (tax/add-genlCx t 'CxBio 'CxUniverse 2)
     (tax/clear-relations! t)
     (testing "both transitive relations are empty, edges and support alike"
       (is (empty? (tax/genl-edges t)))
-      (is (empty? (tax/genlContext-edges t)))
+      (is (empty? (tax/genlCx-edges t)))
       (is (not (tax/genl? t 'dog 'animal))))
     (testing "and a refresh cannot resurrect them"
       (tax/refresh-beliefs t (constantly true))
@@ -197,9 +197,9 @@
   (let [t     (tax/create-taxonomy)
         dirty #(:cache-dirty @t)
         k     '[:disjoint #{dog cat}]]
-    (tax/add-disjoint t 'dog 'cat 1 'AContext)
+    (tax/add-disjoint t 'dog 'cat 1 'CxA)
     (is (empty? (dirty)) "one supporter is exact, so nothing is owed")
-    (tax/add-disjoint t 'dog 'cat 2 'BContext)
+    (tax/add-disjoint t 'dog 'cat 2 'CxB)
     (is (= #{k} (dirty)) "a second supporter makes the recorded contexts a superset")
     (testing "dropping one of two leaves the entry standing, and still owing"
       (tax/del-disjoint! t 'dog 'cat 1)
@@ -225,7 +225,7 @@
   adjacency and answers `genls` / `specs` on demand, so the oracle compares those
   answers against the reference rather than a stored map."
   [t rel-key]
-  (let [[up-fn dn-fn] (if (= rel-key :genlContext)
+  (let [[up-fn dn-fn] (if (= rel-key :genlCx)
                         [tax/context-up tax/context-down]
                         [tax/genls tax/specs])
         nodes (into #{} (mapcat identity) (get-in @t [rel-key :edges]))]
@@ -329,7 +329,7 @@
                          (if delete? "deleting " "adding ") [a b]))))))))))
 
 (deftest sees?-agrees-with-reference-over-cyclic-context-graphs
-  ;; The `genlContext` twin of the test above, with the acyclicity restriction lifted —
+  ;; The `genlCx` twin of the test above, with the acyclicity restriction lifted —
   ;; a context cycle is admitted, because `genlMt` states them and mutual visibility is
   ;; a claim rather than a contradiction.  So the edge generator is free to point
   ;; either way, every trial closes cycles and splits them again, and `sees?` is
@@ -340,12 +340,12 @@
   ;; *false* for a real path.  Both are invisible to a closure comparison that only
   ;; ever reads a repaired taxonomy, so the pairs are checked while the relation is
   ;; still loose as well as after `restore-depths` has run.
-  (let [nodes (mapv #(symbol (str "c_" % "Context")) (range 10))
+  (let [nodes (mapv #(symbol (str "CxC" %)) (range 10))
         rnd   (java.util.Random. 271828)
         edge  (fn [] (let [i (.nextInt rnd (count nodes))
                            j (.nextInt rnd (count nodes))]
                        (when (not= i j) [(nodes i) (nodes j)])))
-        ref-up (fn [t] (:up (tax/closures (get-in @t [:genlContext :edges]))))
+        ref-up (fn [t] (:up (tax/closures (get-in @t [:genlCx :edges]))))
         check  (fn [t trial what]
                  (let [up (ref-up t)]
                    (is (every? (fn [x] (every? (fn [y]
@@ -363,8 +363,8 @@
                           (edge))]
             (when a
               (if delete?
-                (do (tax/del-genlContext! t a b 1) (swap! live disj [a b]))
-                (do (tax/add-genlContext t a b 1) (swap! live conj [a b])))
+                (do (tax/del-genlCx! t a b 1) (swap! live disj [a b]))
+                (do (tax/add-genlCx t a b 1) (swap! live conj [a b])))
               (check t trial (str (if delete? "deleting " "adding ") [a b]))
               (when (zero? (mod step 7))
                 (tax/restore-depths t)
@@ -375,27 +375,27 @@
 (deftest a-context-cycle-is-one-component-and-splits-when-an-edge-goes
   ;; BaseKB's own shape: a cycle admitted, read both ways, then broken.
   (let [t (tax/create-taxonomy)]
-    (tax/add-genlContext t 'BaseKBContext 'UniversalVocabularyContext 1)
-    (tax/add-genlContext t 'UniversalVocabularyContext 'BaseKBContext 2)
-    (tax/add-genlContext t 'SomeTheoryContext 'BaseKBContext 3)
+    (tax/add-genlCx t 'CxBaseKB 'CxUniversalVocabulary 1)
+    (tax/add-genlCx t 'CxUniversalVocabulary 'CxBaseKB 2)
+    (tax/add-genlCx t 'CxSomeTheory 'CxBaseKB 3)
     (tax/restore-depths t)
     (testing "the cycle is mutual visibility, and it composes with the rest of the cone"
-      (is (tax/sees? t 'BaseKBContext 'UniversalVocabularyContext))
-      (is (tax/sees? t 'UniversalVocabularyContext 'BaseKBContext))
-      (is (tax/sees? t 'SomeTheoryContext 'UniversalVocabularyContext))
-      (is (not (tax/sees? t 'UniversalVocabularyContext 'SomeTheoryContext)))
-      (is (= '#{BaseKBContext UniversalVocabularyContext}
-             (tax/context-up t 'BaseKBContext)))
-      (is (= '#{SomeTheoryContext BaseKBContext UniversalVocabularyContext}
-             (tax/context-down t 'UniversalVocabularyContext))))
+      (is (tax/sees? t 'CxBaseKB 'CxUniversalVocabulary))
+      (is (tax/sees? t 'CxUniversalVocabulary 'CxBaseKB))
+      (is (tax/sees? t 'CxSomeTheory 'CxUniversalVocabulary))
+      (is (not (tax/sees? t 'CxUniversalVocabulary 'CxSomeTheory)))
+      (is (= '#{CxBaseKB CxUniversalVocabulary}
+             (tax/context-up t 'CxBaseKB)))
+      (is (= '#{CxSomeTheory CxBaseKB CxUniversalVocabulary}
+             (tax/context-down t 'CxUniversalVocabulary))))
     (testing "and dropping the back edge separates them again, immediately"
       ;; immediately: the answer may not wait for a settle, so the component is
       ;; dissolved by the deletion itself rather than by the repair that follows it
-      (tax/del-genlContext! t 'UniversalVocabularyContext 'BaseKBContext 2)
-      (is (not (tax/sees? t 'UniversalVocabularyContext 'BaseKBContext)))
-      (is (tax/sees? t 'BaseKBContext 'UniversalVocabularyContext))
+      (tax/del-genlCx! t 'CxUniversalVocabulary 'CxBaseKB 2)
+      (is (not (tax/sees? t 'CxUniversalVocabulary 'CxBaseKB)))
+      (is (tax/sees? t 'CxBaseKB 'CxUniversalVocabulary))
       (tax/restore-depths t)
-      (is (not (tax/sees? t 'UniversalVocabularyContext 'BaseKBContext))))))
+      (is (not (tax/sees? t 'CxUniversalVocabulary 'CxBaseKB))))))
 
 (deftest incremental-closure-agrees-through-belief-changes
   ;; refresh-beliefs applies the difference edge by edge; the result must still match
@@ -425,12 +425,12 @@
 
 (deftest edge-contexts-track-supporters
   (let [t (tax/create-taxonomy)]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
-    (is (= '#{AContext} (tax/edge-contexts t :genl '[dog animal])))
-    (tax/add-genl t 'dog 'animal 2 'BContext)
-    (is (= '#{AContext BContext} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (is (= '#{CxA} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/add-genl t 'dog 'animal 2 'CxB)
+    (is (= '#{CxA CxB} (tax/edge-contexts t :genl '[dog animal])))
     (tax/del-genl! t 'dog 'animal 1)
-    (is (= '#{BContext} (tax/edge-contexts t :genl '[dog animal])))
+    (is (= '#{CxB} (tax/edge-contexts t :genl '[dog animal])))
     (tax/del-genl! t 'dog 'animal 2)
     (is (= #{} (tax/edge-contexts t :genl '[dog animal])))
     (testing "a contextless supporter records nil — the constrains-everywhere reading"
@@ -443,19 +443,19 @@
   ;; must leave `:edge-ctxs`, or a scoped read from there would answer through a
   ;; defeated supporter.
   (let [t (tax/create-taxonomy)]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
-    (tax/add-genl t 'dog 'animal 2 'BContext)
-    (is (= '#{AContext BContext} (tax/edge-contexts t :genl '[dog animal])))
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (tax/add-genl t 'dog 'animal 2 'CxB)
+    (is (= '#{CxA CxB} (tax/edge-contexts t :genl '[dog animal])))
     (tax/refresh-beliefs t #{1})
     (testing "the edge stays active while B's support leaves"
       (is (tax/genl? t 'dog 'animal))
-      (is (= '#{AContext} (tax/edge-contexts t :genl '[dog animal]))))
+      (is (= '#{CxA} (tax/edge-contexts t :genl '[dog animal]))))
     (tax/refresh-beliefs t #{2})
-    (is (= '#{BContext} (tax/edge-contexts t :genl '[dog animal])))
+    (is (= '#{CxB} (tax/edge-contexts t :genl '[dog animal])))
     (tax/refresh-beliefs t #{})
     (is (= #{} (tax/edge-contexts t :genl '[dog animal])))
     (tax/refresh-beliefs t #{1 2})
-    (is (= '#{AContext BContext} (tax/edge-contexts t :genl '[dog animal])))))
+    (is (= '#{CxA CxB} (tax/edge-contexts t :genl '[dog animal])))))
 
 (deftest a-context-only-move-retires-the-read-memo
   ;; a scoped closure read is a function of `:edge-ctxs`, so a context-only move
@@ -463,8 +463,8 @@
   ;; refresh must not, or every settle would empty the memo.
   (let [t (tax/create-taxonomy)
         gen #(get-in @t [:genl :gen])]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
-    (tax/add-genl t 'dog 'animal 2 'BContext)
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (tax/add-genl t 'dog 'animal 2 'CxB)
     (let [g (gen)]
       (tax/refresh-beliefs t #{1})
       (is (> (gen) g) "a context-only move bumps"))
@@ -477,14 +477,14 @@
         counts #(get-in @t [:genl :ctx-counts])
         cgen   #(get-in @t [:genl :ctxs-gen])]
     (let [g0 (cgen)]
-      (tax/add-genl t 'a 'b 1 'AContext)
-      (is (= '{AContext 1} (counts)))
+      (tax/add-genl t 'a 'b 1 'CxA)
+      (is (= '{CxA 1} (counts)))
       (is (= (inc g0) (cgen)) "a new context key bumps")
-      (tax/add-genl t 'c 'd 2 'AContext)
-      (is (= '{AContext 2} (counts)))
+      (tax/add-genl t 'c 'd 2 'CxA)
+      (is (= '{CxA 2} (counts)))
       (is (= (inc g0) (cgen)) "a repeat of a counted context does not")
       (tax/del-genl! t 'a 'b 1)
-      (is (= '{AContext 1} (counts)))
+      (is (= '{CxA 1} (counts)))
       (is (= (inc g0) (cgen)))
       (tax/del-genl! t 'c 'd 2)
       (is (= {} (counts)))
@@ -517,7 +517,7 @@
   (let [t      (tax/create-taxonomy)
         rnd    (java.util.Random. 42)
         nodes  '[na nb nc nd ne nf ng]
-        ctxs   ['AContext 'BContext 'CContext nil]
+        ctxs   ['CxA 'CxB 'CxC nil]
         live   (atom {})                                     ; handle -> [sub super]
         next-h (atom 0)]
     (dotimes [_ 400]
@@ -592,7 +592,7 @@
   ;; against the previous belief, and a handle joins it on the edit that creates it —
   ;; which is what `settle` hands over, an assert being believed as it integrates.
   (let [nodes  (mapv #(symbol (str "s_" %)) (range 9))
-        ctxs   ['AContext 'BContext nil]
+        ctxs   ['CxA 'CxB nil]
         rnd    (java.util.Random. 1234)]                ; fixed seed: a failure reproduces
     (dotimes [trial 30]
       (let [t        (tax/create-taxonomy)
@@ -644,13 +644,13 @@
   ;; the flat-cache twin: same discipline, point lookups instead of closures.
   (let [t (tax/create-taxonomy)
         k [:disjoint #{'dog 'cat}]]
-    (tax/add-disjoint t 'dog 'cat 1 'AContext)
-    (tax/add-disjoint t 'dog 'cat 2 'BContext)
-    (is (= '#{AContext BContext} (tax/cache-contexts t k)))
+    (tax/add-disjoint t 'dog 'cat 1 'CxA)
+    (tax/add-disjoint t 'dog 'cat 2 'CxB)
+    (is (= '#{CxA CxB} (tax/cache-contexts t k)))
     (testing "a context-only belief move retargets the entry"
       (tax/refresh-beliefs t #{1})
       (is (tax/disjoint? t 'dog 'cat) "the pair still constrains")
-      (is (= '#{AContext} (tax/cache-contexts t k))))
+      (is (= '#{CxA} (tax/cache-contexts t k))))
     (testing "no believed supporter: inactive, and the contexts say so"
       (tax/refresh-beliefs t #{})
       (is (not (tax/disjoint? t 'dog 'cat)))
@@ -734,7 +734,7 @@
   ;; joins it on the edit that creates it: what `settle` hands over, an assert being
   ;; believed as it integrates.  A *retraction* names nothing, which is the case
   ;; `:cache-dirty` exists for and the one this fails without.
-  (let [ctxs ['AContext 'BContext nil]
+  (let [ctxs ['CxA 'CxB nil]
         rnd  (java.util.Random. 90210)]                 ; fixed seed: a failure reproduces
     (dotimes [trial 25]
       (let [t        (tax/create-taxonomy)
@@ -786,92 +786,92 @@
                 (str "trial " trial ": :cache-handle-keys is not the transpose of "
                      ":cache-support after op " op))))))))
 
-(deftest genlContext-visibility
+(deftest genlCx-visibility
   (let [t (tax/create-taxonomy)]
-    (tax/add-genlContext t 'BioContext 'UniverseContext 1)
-    (tax/add-genlContext t 'CoreContext 'UniverseContext 2)
+    (tax/add-genlCx t 'CxBio 'CxUniverse 1)
+    (tax/add-genlCx t 'CxCore 'CxUniverse 2)
     (testing "a specific context sees the general one"
-      (is (tax/sees? t 'BioContext 'UniverseContext))
-      (is (not (tax/sees? t 'UniverseContext 'BioContext))))))
+      (is (tax/sees? t 'CxBio 'CxUniverse))
+      (is (not (tax/sees? t 'CxUniverse 'CxBio))))))
 
 (deftest placement
   (let [t (tax/create-taxonomy)]
-    (tax/add-genlContext t 'BioContext 'UniverseContext 1)
-    (tax/add-genlContext t 'CoreContext 'UniverseContext 2)
+    (tax/add-genlCx t 'CxBio 'CxUniverse 1)
+    (tax/add-genlCx t 'CxCore 'CxUniverse 2)
     (testing "rule + facts all in the top context place at the top"
-      (is (= '#{UniverseContext} (tax/maximal-common-descendant-contexts t '[UniverseContext UniverseContext]))))
+      (is (= '#{CxUniverse} (tax/maximal-common-descendant-contexts t '[CxUniverse CxUniverse]))))
     (testing "universal rule + specific facts place in the specific context"
-      (is (= '#{BioContext} (tax/maximal-common-descendant-contexts t '[UniverseContext BioContext]))))
+      (is (= '#{CxBio} (tax/maximal-common-descendant-contexts t '[CxUniverse CxBio]))))
     (testing "incomparable contexts have no common view"
-      (is (= #{} (tax/maximal-common-descendant-contexts t '[BioContext CoreContext]))))))
+      (is (= #{} (tax/maximal-common-descendant-contexts t '[CxBio CxCore]))))))
 
 (deftest placement-through-the-seeing-member
   ;; a member of `ctxs` that sees every other member is the unique maximum, answered
   ;; by sees? probes alone; the closure fallback must agree wherever both apply.
   (let [t (tax/create-taxonomy)]
-    (tax/add-genlContext t 'BioContext 'UniverseContext 1)
-    (tax/add-genlContext t 'CoreContext 'UniverseContext 2)
-    (tax/add-genlContext t 'WellContext 'BioContext 3)
-    (tax/add-genlContext t 'WellContext 'CoreContext 4)
-    (tax/add-genlContext t 'LeftContext 'BioContext 5)
-    (tax/add-genlContext t 'LeftContext 'CoreContext 6)
+    (tax/add-genlCx t 'CxBio 'CxUniverse 1)
+    (tax/add-genlCx t 'CxCore 'CxUniverse 2)
+    (tax/add-genlCx t 'CxWell 'CxBio 3)
+    (tax/add-genlCx t 'CxWell 'CxCore 4)
+    (tax/add-genlCx t 'CxLeft 'CxBio 5)
+    (tax/add-genlCx t 'CxLeft 'CxCore 6)
     (testing "a chain places at its most specific member"
-      (is (= '#{WellContext} (tax/maximal-common-descendant-contexts
-                              t '[UniverseContext BioContext WellContext]))))
+      (is (= '#{CxWell} (tax/maximal-common-descendant-contexts
+                         t '[CxUniverse CxBio CxWell]))))
     (testing "duplicates collapse before the probes"
-      (is (= '#{BioContext} (tax/maximal-common-descendant-contexts
-                             t '[BioContext BioContext UniverseContext]))))
+      (is (= '#{CxBio} (tax/maximal-common-descendant-contexts
+                        t '[CxBio CxBio CxUniverse]))))
     (testing "incomparable maxima both survive the fallback"
       ;; Well and Left each see both siblings, neither sees the other — no seeing
       ;; member exists among [Bio Core], so this is the closure path
-      (is (= '#{WellContext LeftContext}
-             (tax/maximal-common-descendant-contexts t '[BioContext CoreContext]))))))
+      (is (= '#{CxWell CxLeft}
+             (tax/maximal-common-descendant-contexts t '[CxBio CxCore]))))))
 
 (deftest placement-over-mutually-visible-contexts
-  ;; Two contexts in a `genlContext` cycle are equally general, so each is an ancestor
+  ;; Two contexts in a `genlCx` cycle are equally general, so each is an ancestor
   ;; of the other and the maximality filter would strike both out — a firing with
   ;; nowhere to land.  They are one place to stand, and the one is chosen by content.
   (let [t (tax/create-taxonomy)]
-    (tax/add-genlContext t 'AlphaContext 'BetaContext 1)
-    (tax/add-genlContext t 'BetaContext 'AlphaContext 2)   ; the cycle
-    (tax/add-genlContext t 'AlphaContext 'UniverseContext 3)
+    (tax/add-genlCx t 'CxAlpha 'CxBeta 1)
+    (tax/add-genlCx t 'CxBeta 'CxAlpha 2)   ; the cycle
+    (tax/add-genlCx t 'CxAlpha 'CxUniverse 3)
     (tax/restore-depths t)
     (testing "a cycle is one maximum, not two and not none"
-      (is (= '#{AlphaContext}
-             (tax/maximal-common-descendant-contexts t '[AlphaContext BetaContext]))))
+      (is (= '#{CxAlpha}
+             (tax/maximal-common-descendant-contexts t '[CxAlpha CxBeta]))))
     (testing "and which one does not depend on the order they were handed in"
-      (is (= (tax/maximal-common-descendant-contexts t '[AlphaContext BetaContext])
-             (tax/maximal-common-descendant-contexts t '[BetaContext AlphaContext]))))
+      (is (= (tax/maximal-common-descendant-contexts t '[CxAlpha CxBeta])
+             (tax/maximal-common-descendant-contexts t '[CxBeta CxAlpha]))))
     (testing "a rule above the cycle still places inside it"
-      (is (= '#{AlphaContext}
-             (tax/maximal-common-descendant-contexts t '[UniverseContext BetaContext]))))
+      (is (= '#{CxAlpha}
+             (tax/maximal-common-descendant-contexts t '[CxUniverse CxBeta]))))
     (testing "and a descendant of the cycle still wins, being strictly more specific"
-      (tax/add-genlContext t 'WellContext 'AlphaContext 4)
+      (tax/add-genlCx t 'CxWell 'CxAlpha 4)
       (tax/restore-depths t)
-      (is (= '#{WellContext}
-             (tax/maximal-common-descendant-contexts t '[WellContext BetaContext]))))))
+      (is (= '#{CxWell}
+             (tax/maximal-common-descendant-contexts t '[CxWell CxBeta]))))))
 
 (deftest common-descendant-existence
   ;; the boolean sibling of the placement function, for the callers that only ever
   ;; ask existence — pinned shape by shape, then against the full function wholesale.
   (let [t (tax/create-taxonomy)]
-    (tax/add-genlContext t 'BioContext 'UniverseContext 1)
-    (tax/add-genlContext t 'CoreContext 'UniverseContext 2)
-    (tax/add-genlContext t 'WellContext 'BioContext 3)
-    (tax/add-genlContext t 'WellContext 'CoreContext 4)
-    (tax/add-genlContext t 'DeepContext 'WellContext 5)
-    (tax/add-genlContext t 'OrphanContext 'ElsewhereContext 6)
+    (tax/add-genlCx t 'CxBio 'CxUniverse 1)
+    (tax/add-genlCx t 'CxCore 'CxUniverse 2)
+    (tax/add-genlCx t 'CxWell 'CxBio 3)
+    (tax/add-genlCx t 'CxWell 'CxCore 4)
+    (tax/add-genlCx t 'CxDeep 'CxWell 5)
+    (tax/add-genlCx t 'CxOrphan 'CxElsewhere 6)
     (testing "a comparable pair answers through the seeing member"
-      (is (tax/common-descendant? t '[UniverseContext BioContext]))
-      (is (tax/common-descendant? t '[BioContext DeepContext])))
+      (is (tax/common-descendant? t '[CxUniverse CxBio]))
+      (is (tax/common-descendant? t '[CxBio CxDeep])))
     (testing "incomparable siblings share their child"
-      (is (tax/common-descendant? t '[BioContext CoreContext])))
+      (is (tax/common-descendant? t '[CxBio CxCore])))
     (testing "no context sees both arms of a disconnected pair"
-      (is (not (tax/common-descendant? t '[BioContext OrphanContext])))
-      (is (not (tax/common-descendant? t '[UniverseContext ElsewhereContext OrphanContext]))))
+      (is (not (tax/common-descendant? t '[CxBio CxOrphan])))
+      (is (not (tax/common-descendant? t '[CxUniverse CxElsewhere CxOrphan]))))
     (testing "the empty family has no witness, a singleton is its own"
       (is (not (tax/common-descendant? t [])))
-      (is (tax/common-descendant? t '[BioContext])))
+      (is (tax/common-descendant? t '[CxBio])))
     (testing "agreement with the maximal set over every context triple"
       (let [cs (vec (tax/contexts t))]
         (doseq [a cs, b cs, c cs]
@@ -1195,7 +1195,7 @@
 (deftest rewrite-rules-are-content-ordered-however-they-arrive
   (letfn [(lhss [rs]
             (let [t (tax/create-taxonomy)]
-              (doseq [[h l r] rs] (tax/add-rewrite-rule t h l r 'AContext))
+              (doseq [[h l r] rs] (tax/add-rewrite-rule t h l r 'CxA))
               (rewrite-lhss t)))]
     (let [a [1 '(ff (ff ?x)) '(gg ?x)]
           b [2 '(hh (hh ?x)) '(ii ?x)]]
@@ -1206,11 +1206,11 @@
 
 (deftest the-rewrite-order-is-memoized-until-the-rule-set-moves
   (let [t (tax/create-taxonomy)]
-    (tax/add-rewrite-rule t 1 '(ff (ff ?x)) '(gg ?x) 'AContext)
+    (tax/add-rewrite-rule t 1 '(ff (ff ?x)) '(gg ?x) 'CxA)
     (is (identical? (tax/rewrite-rules t) (tax/rewrite-rules t))
         "with the rule set unmoved, a second read hands back the seq the first sorted")
     (testing "a second rule retires it"
-      (tax/add-rewrite-rule t 2 '(hh (hh ?x)) '(ii ?x) 'AContext)
+      (tax/add-rewrite-rule t 2 '(hh (hh ?x)) '(ii ?x) 'CxA)
       (is (= '[(ff (ff ?x)) (hh (hh ?x))] (rewrite-lhss t))))
     (testing "defeating one retires it — the rule stops rewriting"
       (tax/refresh-beliefs t #{1})
@@ -1230,14 +1230,14 @@
   ;; atom for the same reason `:closure-memo` does — a shared one would have the probe's
   ;; hypothetical rule answering a real read.
   (let [t (tax/create-taxonomy)]
-    (tax/add-rewrite-rule t 1 '(ff (ff ?x)) '(gg ?x) 'AContext)
+    (tax/add-rewrite-rule t 1 '(ff (ff ?x)) '(gg ?x) 'CxA)
     (is (= '[(ff (ff ?x))] (rewrite-lhss t)))
     (let [probe (tax/detached-copy t)]
       (is (not (identical? (:rewrite-order @t) (:rewrite-order @probe)))
           "the copy's memo is its own atom, not the live one by reference")
-      (tax/add-rewrite-rule probe 2 '(hh (hh ?x)) '(ii ?x) 'AContext)
+      (tax/add-rewrite-rule probe 2 '(hh (hh ?x)) '(ii ?x) 'CxA)
       (is (= '[(ff (ff ?x)) (hh (hh ?x))] (rewrite-lhss probe)) "the probe sees its rule")
       (is (= '[(ff (ff ?x))] (rewrite-lhss t)) "and the live taxonomy does not")
       (testing "the live memo still answers its own rule set after the probe read"
-        (tax/add-rewrite-rule t 3 '(jj (jj ?x)) '(kk ?x) 'AContext)
+        (tax/add-rewrite-rule t 3 '(jj (jj ?x)) '(kk ?x) 'CxA)
         (is (= '[(ff (ff ?x)) (jj (jj ?x))] (rewrite-lhss t)))))))

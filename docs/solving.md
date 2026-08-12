@@ -60,7 +60,7 @@ so the marker is never derived: asserting everything its body names concludes no
 solve is the only reader.
 
 **Grounding it is a join.** Every constraint rule visible from the solve's base — the
-same `genlContext` up-closure that scopes the `assumptionRules` — has its body split by
+same `genlCx` up-closure that scopes the `assumptionRules` — has its body split by
 predicate: a literal whose predicate names a ground choice head is a **choice literal**,
 everything else is a **background** fact. The background literals are proved together
 through the ordinary conjunctive prover (`prove` in the base, belief-filtered and
@@ -77,7 +77,7 @@ contract.
 (assert kb '(set/hardConstraint
              (implies (and (edge ?x ?y) (color ?x ?k) (color ?y ?k))
                       (monochrome ?x ?y)))
-        'UniverseContext)
+        'CxUniverse)
 ```
 
 **Hard and soft differ at the encoding** ([asp.md](asp.md)). A hard nogood renders as an
@@ -101,7 +101,7 @@ sentexes. So an inert `(not head)` sitting in a context that sees a believed `he
 **no** nogood and moves **no** belief. Coexistence falls out of *not premising*.
 
 ```clojure
-(assert-inert kb '(color Item red) 'RedWorldContext)   ; stored, inspectable, never IN
+(assert-inert kb '(color Item red) 'CxRedWorld)   ; stored, inspectable, never IN
 ```
 
 **A rule is refused here** (`:not-indexable`), and the reason is that this door does not
@@ -147,7 +147,7 @@ anything else is refused as `:not-assertible`.
    tiebreak is off in every mode: singling out one of several equally valid answers is
    not what a solve is for, and the content-keyed program is order-independent without
    it.
-4. **Materialize** (`:all` only) — per answer set, a `genlContext` child `Into1`,
+4. **Materialize** (`:all` only) — per answer set, a `genlCx` child `Into1`,
    `Into2`, … of `Base` holding `(head)` for a chosen-true head, `(not head)` for a
    chosen-false one, and an inert `(labelingOf <ctx> <Into> <i>)` **ownership marker**.
 
@@ -163,7 +163,7 @@ and `retract!` tears an inert sentex down directly.
 **Replace-on-rerun, under `:all`** (the other two modes write nothing to replace).
 Re-running `do/label` with the same `Into` clears the previous run's artifacts before
 writing the new ones: every marked labeling context — its truth values, its marker, *and*
-its `genlContext` edge, so a surplus stale context (a run that shrank from three
+its `genlCx` edge, so a surplus stale context (a run that shrank from three
 labelings to two) drops out of the hierarchy and `do/classify`
 cannot sweep it back in — plus the classification. So a solve converges instead of
 accreting; without the sweep, two groundings' truth values would union into one
@@ -173,14 +173,14 @@ one exception is `:no-backend`: nothing was computed, so the previous artifact i
 standing.
 
 ```clojure
-(assert kb '(set/assumptionRule (implies (candidate ?c) (color ?c red))) 'UniverseContext)
-(assert kb '(set/assumptionRule (implies (candidate ?c) (color ?c blue))) 'UniverseContext)
-(assert kb '(functional color) 'UniverseContext)
-(assert kb '(candidate Item) 'UniverseContext)
+(assert kb '(set/assumptionRule (implies (candidate ?c) (color ?c red))) 'CxUniverse)
+(assert kb '(set/assumptionRule (implies (candidate ?c) (color ?c blue))) 'CxUniverse)
+(assert kb '(functional color) 'CxUniverse)
+(assert kb '(candidate Item) 'CxUniverse)
 
-(assert kb '(do/label UniverseContext Plan) 'UniverseContext)
-;; => Plan1Context: (color Item red)  (not (color Item blue))
-;;    Plan2Context: (color Item blue) (not (color Item red))
+(assert kb '(do/label CxUniverse CxPlan) 'CxUniverse)
+;; => CxPlan1: (color Item red)  (not (color Item blue))
+;;    CxPlan2: (color Item blue) (not (color Item red))
 ;; base belief unchanged; contradictions 0; both worlds coexist
 ```
 
@@ -218,12 +218,12 @@ head is:
 * **supportable** — otherwise (a brave / credulous consequence only).
 
 The result is written as inert sentexes `(forced H)` / `(supportable H)` / `(excluded H)`
-in `<Into>ClassContext`, for inspection — replacing its own previous output, the same
+in `<Into>Class`, for inspection — replacing its own previous output, the same
 replace-on-rerun discipline `do/label` applies to the labelings.
 
 ```clojure
-(assert kb '(do/classify Plan) 'UniverseContext)
-;; PlanClassContext: (supportable (color Item red)) (supportable (color Item blue))
+(assert kb '(do/classify CxPlan) 'CxUniverse)
+;; CxPlanClass: (supportable (color Item red)) (supportable (color Item blue))
 ```
 
 ## Inspecting a solve
@@ -250,6 +250,6 @@ only bites downstream of a rule therefore has nothing to bite on.
 
 A defeasible-default **dilemma** (`contradictions`) is *represented*, not solved — both
 sides stay believed and the engine arbitrates nothing. Classifying one is an opt-in
-solve: `(do/label DilemmaCtx Into)` then `(do/classify Into)`, which produces persistent
+solve: `(do/label CxDilemma Into)` then `(do/classify Into)`, which produces persistent
 inert contexts. `(do/labeling Ctx)` commits one labeling *live* into base belief (global,
 one at a time — docs/labeling.md); `do/label` is the inert, coexisting, persistent path.

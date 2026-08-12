@@ -134,7 +134,7 @@
               #(do (plan/order kb [(list hot-pred '?x '?y)
                                    (list (nth preds 2) '?y hot-ind)
                                    (list (nth preds 3) '?x '?z)]
-                               'Ctx0Context)
+                               'CxCtx0)
                    [1]))]))
 
 ;; ---- report -------------------------------------------------------------
@@ -158,7 +158,7 @@
         cfg    {:n n :r r :iters iters
                 :preds preds :inds inds
                 :units (u/terms "unit" 10)
-                :ctxs  (mapv #(symbol (str "Ctx" % "Context")) (range 8))
+                :ctxs  (mapv #(symbol (str "CxCtx" %)) (range 8))
                 :pred-cum (u/zipf-cumulative P 1.2)
                 :ind-cum  (u/zipf-cumulative M 1.0)
                 :compound-frac 0.15}

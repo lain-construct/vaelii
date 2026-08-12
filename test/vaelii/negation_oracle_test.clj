@@ -43,7 +43,7 @@
     region is empty.  `note-opposed!` posts the body as dirty.
   * **a relabel** — a defeat or a revival changes which pairs are believed while nothing
     is stored.  `jtms/touched` carries it.
-  * **a genlContext edge** — joint visibility is read through that closure rather than
+  * **a genlCx edge** — joint visibility is read through that closure rather than
     through either side's handles, so an edge can make a pair visible that neither side
     went near.  Each entry records the visibility verdict for the contexts it crosses,
     and the entries whose verdicts moved are the ones re-derived.
@@ -81,11 +81,11 @@
 ;; ---- the shared ontology ------------------------------------------------
 
 (def ^:private ctxs
-  "Three contexts, two of them **incomparable**: `NegLeftContext` and `NegRightContext`
-  both inherit `NegBaseContext` and neither sees the other.  A pair straddling them is
+  "Three contexts, two of them **incomparable**: `CxNegLeft` and `CxNegRight`
+  both inherit `CxNegBase` and neither sees the other.  A pair straddling them is
   invisible until something below both exists, which is the joint-visibility case
   `common-descendant?` answers and the `sees?` test alone would miss."
-  '[NegBaseContext NegLeftContext NegRightContext])
+  '[CxNegBase CxNegLeft CxNegRight])
 
 (def ^:private preds '[nflies nswims nsings])
 (def ^:private inds  '[NA NB NC])
@@ -93,7 +93,7 @@
 (defn- build-ontology! [kb]
   (v/with-deferred-settle kb
     (doseq [c (rest ctxs)]
-      (v/assert kb (list 'genlContext c (first ctxs)) 'UniverseContext))))
+      (v/assert kb (list 'genlCx c (first ctxs)) 'CxUniverse))))
 
 ;; ---- the operation stream -----------------------------------------------
 
@@ -101,7 +101,7 @@
   "One write, drawn to hit every route a negation nogood can arrive, leave and come back
   by: either polarity of a shared body in any of the three contexts, at either strength
   (so a pair can be decided by rank or stand as a dilemma), retraction of either side,
-  and — the case no store or relabel announces — a `genlContext` edge arriving *after* a
+  and — the case no store or relabel announces — a `genlCx` edge arriving *after* a
   pair that only it makes jointly visible."
   [^java.util.Random rng]
   (let [ctx  (nth ctxs (.nextInt rng (count ctxs)))
@@ -117,9 +117,9 @@
       ;; the third context is dropped *below* the other two, which makes every
       ;; left/right pair standing at the time jointly visible at once — with no handle
       ;; of any of them stored or relabelled
-      8       [:assert (list 'genlContext 'NegJoinContext (nth ctxs 1)) 'UniverseContext
+      8       [:assert (list 'genlCx 'CxNegJoin (nth ctxs 1)) 'CxUniverse
                {:strength :monotonic}]
-      9       [:assert (list 'genlContext 'NegJoinContext (nth ctxs 2)) 'UniverseContext
+      9       [:assert (list 'genlCx 'CxNegJoin (nth ctxs 2)) 'CxUniverse
                {:strength :monotonic}])))
 
 (defn- apply-op!
@@ -202,7 +202,7 @@
 (deftest a-retraction-re-derives-a-body-that-stays-opposed
   (let [[step op si se]
         (run-stream
-         [;; NegBaseContext is seen by both of the others, so all three pair
+         [;; CxNegBase is seen by both of the others, so all three pair
           [:assert '(nflies NA)             (first ctxs) {}]
           [:assert (list 'not '(nflies NA)) (nth ctxs 1) {}]
           [:assert (list 'not '(nflies NA)) (nth ctxs 2) {}]
@@ -268,23 +268,23 @@
 ;; nothing stored about them and no label moved.  Only the joint-visibility verdict the
 ;; memo recorded for the two contexts says so.
 
-(deftest a-genlContext-edge-exposes-standing-pairs
+(deftest a-genlCx-edge-exposes-standing-pairs
   (let [[step op si se]
         (run-stream
          (concat
           (for [p preds] [:assert (list p 'NA) (nth ctxs 1) {}])
           (for [p preds] [:assert (list 'not (list p 'NA)) (nth ctxs 2) {}])
           ;; nothing above pairs: left and right are incomparable
-          [[:assert '(genlContext NegJoinContext NegLeftContext) 'UniverseContext
+          [[:assert '(genlCx CxNegJoin CxNegLeft) 'CxUniverse
             {:strength :monotonic}]
            ;; ...and this second edge is what puts a context below *both*
-           [:assert '(genlContext NegJoinContext NegRightContext) 'UniverseContext
+           [:assert '(genlCx CxNegJoin CxNegRight) 'CxUniverse
             {:strength :monotonic}]
            [:assert '(nswims NB) (nth ctxs 1) {}]]))]
     (is (nil? step)
         (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 
-(deftest a-genlContext-edge-leaving-withdraws-the-pairs-it-exposed
+(deftest a-genlCx-edge-leaving-withdraws-the-pairs-it-exposed
   ;; The other direction of the same claim, and one the exposure case does not imply.  A
   ;; memo told what to re-derive by the verdicts it recorded has to notice a verdict going
   ;; from true back to *false*: a pair that was jointly visible and is not any more must
@@ -296,18 +296,18 @@
          (concat
           (for [p preds] [:assert (list p 'NA) (nth ctxs 1) {}])
           (for [p preds] [:assert (list 'not (list p 'NA)) (nth ctxs 2) {}])
-          [[:assert '(genlContext NegJoinContext NegLeftContext) 'UniverseContext
+          [[:assert '(genlCx CxNegJoin CxNegLeft) 'CxUniverse
             {:strength :monotonic}]
-           [:assert '(genlContext NegJoinContext NegRightContext) 'UniverseContext
+           [:assert '(genlCx CxNegJoin CxNegRight) 'CxUniverse
             {:strength :monotonic}]
            ;; a settle in between, so the pairs are standing rather than arriving
            [:assert '(nswims NB) (nth ctxs 1) {}]
-           [:retract '(genlContext NegJoinContext NegRightContext) 'UniverseContext]
+           [:retract '(genlCx CxNegJoin CxNegRight) 'CxUniverse]
            ;; one more settle, which is where a pair still carried would keep showing up
            [:assert '(nsings NC) (nth ctxs 1) {}]
            ;; ...and back, since a verdict that has moved twice is the one a stamp
            ;; comparing the wrong thing gets right by accident
-           [:assert '(genlContext NegJoinContext NegRightContext) 'UniverseContext
+           [:assert '(genlCx CxNegJoin CxNegRight) 'CxUniverse
             {:strength :monotonic}]
            [:assert '(nflies NB) (nth ctxs 1) {}]]))]
     (is (nil? step)

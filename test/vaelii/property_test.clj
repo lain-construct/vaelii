@@ -45,20 +45,20 @@
 ;; a shrunk counterexample prints the operations, not opaque closures.
 (def ^:private op-pool
   [[:default-birds-fly
-    #(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'UniverseContext)]
+    #(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'CxUniverse)]
    [:penguins-dont-fly
-    #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'UniverseContext)]
+    #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'CxUniverse)]
    [:tweety-is-a-penguin
-    #(v/assert % '(penguin Tweety) 'UniverseContext {:strength :monotonic})]
+    #(v/assert % '(penguin Tweety) 'CxUniverse {:strength :monotonic})]
    [:tweety-is-a-bird
-    #(v/assert % '(bird Tweety) 'UniverseContext)]
+    #(v/assert % '(bird Tweety) 'CxUniverse)]
    [:robin-is-a-bird
-    #(v/assert % '(bird Robin) 'UniverseContext)]
+    #(v/assert % '(bird Robin) 'CxUniverse)]
    [:flight-enables-travel
-    #(v/assert-rule % '[(flies ?x)] '(canTravel ?x) 'UniverseContext)]])
+    #(v/assert-rule % '[(flies ?x)] '(canTravel ?x) 'CxUniverse)]])
 
 (defn- believed? [kb sentence]
-  (boolean (seq (v/sentexes-matching kb sentence 'UniverseContext))))
+  (boolean (seq (v/sentexes-matching kb sentence 'CxUniverse))))
 
 (defn- observe
   "A whole-KB reading, compared as one value across orderings.  Beliefs plus the
@@ -66,14 +66,14 @@
   breadth `order_independence_test` settled on, so an order-dependent defeat, a
   double-counted contradiction, or a flipped class all surface as a diff."
   [kb]
-  (let [tw (v/handle-of kb '(flies Tweety) 'UniverseContext)
-        rb (v/handle-of kb '(flies Robin) 'UniverseContext)]
+  (let [tw (v/handle-of kb '(flies Tweety) 'CxUniverse)
+        rb (v/handle-of kb '(flies Robin) 'CxUniverse)]
     {:tweety-flies       (believed? kb '(flies Tweety))
      :tweety-grounded    (believed? kb '(not (flies Tweety)))
      :tweety-travels     (believed? kb '(canTravel Tweety))
      :robin-flies        (believed? kb '(flies Robin))
      :robin-travels      (believed? kb '(canTravel Robin))
-     :tweety-isa-bird    (v/isa? kb 'Tweety 'bird 'UniverseContext)
+     :tweety-isa-bird    (v/isa? kb 'Tweety 'bird 'CxUniverse)
      :flies-classes      [(v/defeat-class kb tw) (v/defeat-class kb rb)]
      :contradictions     (count (v/contradictions kb))
      :conflicts          (count (v/conflicts kb))}))

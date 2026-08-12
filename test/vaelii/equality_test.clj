@@ -4,7 +4,7 @@
   "Equality — `rewriteOf` / `sameAs` / `equals`, and the `different` that survives
   them.  Every test here holds against the shipped feature: one belief-following
   partition behind the three relations, recomputed on edge change like the `genl`
-  and `genlContext` closures beside it.
+  and `genlCx` closures beside it.
 
   Each test pins one decision from [docs/equality.md](../../docs/equality.md) and
   carries a comment naming it.  The shape under test is three assertable relations
@@ -38,7 +38,7 @@
   "The context section 9's cost tests work in.  Literal rather than gensym'd, because
   those tests build their own KB on the isolated pair and wipe it, which is what
   `tu/with-cleared-kb` is for."
-  'MergeCostContext)
+  'CxMergeCost)
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -87,15 +87,15 @@
 ;; which is the tie-break `sameAs` would otherwise use.
 
 (tu/deftest-kb rewrite-of-deprecates-its-second-argument-whatever-the-spelling
-  (tu/with-terms [bornIn Chicago NameContext]
+  (tu/with-terms [bornIn Chicago CxName]
     (let [[lo hi] (sort [(tu/tmp-ind "Obama") (tu/tmp-ind "Obama")])]
       ;; the preferred term is `hi`, so lexicographic order cannot explain the outcome
-      (v/assert kb (list bornIn lo Chicago) NameContext)
-      (v/assert kb (list 'rewriteOf hi lo) NameContext)
+      (v/assert kb (list bornIn lo Chicago) CxName)
+      (v/assert kb (list 'rewriteOf hi lo) CxName)
       (testing "the fact is migrated to the preferred term"
-        (is (believed? kb (list bornIn hi Chicago) NameContext)))
+        (is (believed? kb (list bornIn hi Chicago) CxName)))
       (testing "and the deprecated spelling is blocked, not deleted"
-        (is (stored-not-believed? kb (list bornIn lo Chicago) NameContext))))))
+        (is (stored-not-believed? kb (list bornIn lo Chicago) CxName))))))
 
 ;; DECISION (Three assertable relations, one closure): "`sameAs` ... Both names stay
 ;; first-class; neither is deprecated; the representative is an internal detail" —
@@ -105,16 +105,16 @@
 ;; order, `rewriteOf` elects its first argument and `sameAs` elects the smaller one.
 
 (tu/deftest-kb same-as-states-no-preference-so-the-smaller-symbol-represents
-  (tu/with-terms [bornIn Chicago NameContext]
+  (tu/with-terms [bornIn Chicago CxName]
     (let [[lo hi] (sort [(tu/tmp-ind "Obama") (tu/tmp-ind "Obama")])]
-      (v/assert kb (list bornIn hi Chicago) NameContext)
+      (v/assert kb (list bornIn hi Chicago) CxName)
       ;; written larger-first, so an implementation that trusted argument order would
       ;; elect `hi` and this test would catch it
-      (v/assert kb (list 'sameAs hi lo) NameContext)
+      (v/assert kb (list 'sameAs hi lo) CxName)
       (testing "the lexicographically smaller symbol represents the class"
-        (is (believed? kb (list bornIn lo Chicago) NameContext)))
+        (is (believed? kb (list bornIn lo Chicago) CxName)))
       (testing "so the fact written under the larger one is the blocked spelling"
-        (is (stored-not-believed? kb (list bornIn hi Chicago) NameContext))))))
+        (is (stored-not-believed? kb (list bornIn hi Chicago) CxName))))))
 
 ;; DECISION (Three assertable relations, one closure): "All three feed **one
 ;; equivalence closure**.  They differ in what they say *about* the members, not in
@@ -123,15 +123,15 @@
 (tu/deftest-kb all-three-relations-merge
   (doseq [rel ['rewriteOf 'sameAs 'equals]]
     (testing (str rel " merges its arguments")
-      (tu/with-terms [bornIn Chicago NameContext]
+      (tu/with-terms [bornIn Chicago CxName]
         (let [[lo hi] (sort [(tu/tmp-ind "Ind") (tu/tmp-ind "Ind")])]
           ;; `lo` is both the preferred term of the rewrite and the lexicographic
           ;; winner, so all three relations must agree on it
-          (v/assert kb (list bornIn hi Chicago) NameContext)
-          (v/assert kb (list rel lo hi) NameContext)
-          (is (believed? kb (list bornIn lo Chicago) NameContext)
+          (v/assert kb (list bornIn hi Chicago) CxName)
+          (v/assert kb (list rel lo hi) CxName)
+          (is (believed? kb (list bornIn lo Chicago) CxName)
               (str rel " did not migrate the fact to the representative"))
-          (is (stored-not-believed? kb (list bornIn hi Chicago) NameContext)
+          (is (stored-not-believed? kb (list bornIn hi Chicago) CxName)
               (str rel " did not block the non-representative spelling")))))))
 
 ;; DECISION (Choosing the representative): "Chains compose: `rewriteOf A B` and
@@ -140,20 +140,20 @@
 ;; passes the A/B half and fails here.
 
 (tu/deftest-kb a-rewrite-chain-composes-into-one-class-with-one-representative
-  (tu/with-terms [bornIn Chicago Berlin NameContext]
+  (tu/with-terms [bornIn Chicago Berlin CxName]
     (tu/with-terms [A B C]
-      (v/assert kb (list bornIn B Chicago) NameContext)
-      (v/assert kb (list bornIn C Berlin)  NameContext)
-      (v/assert kb (list 'rewriteOf A B) NameContext)
-      (v/assert kb (list 'rewriteOf B C) NameContext)
+      (v/assert kb (list bornIn B Chicago) CxName)
+      (v/assert kb (list bornIn C Berlin)  CxName)
+      (v/assert kb (list 'rewriteOf A B) CxName)
+      (v/assert kb (list 'rewriteOf B C) CxName)
       (testing "A represents all three, so both facts read under A"
-        (is (believed? kb (list bornIn A Chicago) NameContext))
-        (is (believed? kb (list bornIn A Berlin)  NameContext)))
+        (is (believed? kb (list bornIn A Chicago) CxName))
+        (is (believed? kb (list bornIn A Berlin)  CxName)))
       (testing "and neither of the two retired spellings is believed"
-        (is (stored-not-believed? kb (list bornIn B Chicago) NameContext))
-        (is (stored-not-believed? kb (list bornIn C Berlin)  NameContext)))
+        (is (stored-not-believed? kb (list bornIn B Chicago) CxName))
+        (is (stored-not-believed? kb (list bornIn C Berlin)  CxName)))
       (testing "B is deprecated too, so it does not represent C"
-        (is (not (believed? kb (list bornIn B Berlin) NameContext)))))))
+        (is (not (believed? kb (list bornIn B Berlin) CxName)))))))
 
 ;; DECISION (Choosing the representative): "Order independence is non-negotiable
 ;; ..., so the choice can never depend on handle ids or arrival order — handles are
@@ -163,21 +163,21 @@
 ;; so the loop's clears cannot pull the scratch space out from under this namespace.
 
 (deftest the-representative-does-not-depend-on-assertion-order
-  (tu/with-terms [bornIn worksAt Chicago Acme NameContext]
+  (tu/with-terms [bornIn worksAt Chicago Acme CxName]
     (let [[lo hi] (sort [(tu/tmp-ind "Ind") (tu/tmp-ind "Ind")])
-          ops     [#(v/assert % (list 'sameAs hi lo) NameContext)
-                   #(v/assert % (list bornIn  hi Chicago) NameContext)
-                   #(v/assert % (list worksAt lo Acme) NameContext)
-                   #(v/assert % (list bornIn  lo Chicago) NameContext)]
+          ops     [#(v/assert % (list 'sameAs hi lo) CxName)
+                   #(v/assert % (list bornIn  hi Chicago) CxName)
+                   #(v/assert % (list worksAt lo Acme) CxName)
+                   #(v/assert % (list bornIn  lo Chicago) CxName)]
           observe (fn [kb]
                     ;; the *reading*, never a handle: handles are allocated in
                     ;; assertion order, so one in the map would make every ordering
                     ;; differ for a reason that is not about belief
-                    {:born-under-lo  (believed? kb (list bornIn  lo Chicago) NameContext)
-                     :born-under-hi  (believed? kb (list bornIn  hi Chicago) NameContext)
-                     :works-under-lo (believed? kb (list worksAt lo Acme)    NameContext)
-                     :works-under-hi (believed? kb (list worksAt hi Acme)    NameContext)
-                     :different      (v/ask? kb (list 'different lo hi) NameContext)})
+                    {:born-under-lo  (believed? kb (list bornIn  lo Chicago) CxName)
+                     :born-under-hi  (believed? kb (list bornIn  hi Chicago) CxName)
+                     :works-under-lo (believed? kb (list worksAt lo Acme)    CxName)
+                     :works-under-hi (believed? kb (list worksAt hi Acme)    CxName)
+                     :different      (v/ask? kb (list 'different lo hi) CxName)})
           results (into #{} (map (fn [ordering]
                                    (let [k (tu/isolated-fresh)]
                                      (doseq [op ordering] (op k))
@@ -203,11 +203,11 @@
 ;; justification names both parents.
 
 (tu/deftest-kb the-migrated-twin-is-derived-and-justified-by-the-fact-and-the-equality
-  (tu/with-terms [bornIn Chicago NameContext]
+  (tu/with-terms [bornIn Chicago CxName]
     (tu/with-terms [Pref Dep]
-      (let [fact (v/assert kb (list bornIn Dep Chicago) NameContext)
-            eq   (v/assert kb (list 'rewriteOf Pref Dep) NameContext)
-            twin (v/handle-of kb (list bornIn Pref Chicago) NameContext)]
+      (let [fact (v/assert kb (list bornIn Dep Chicago) CxName)
+            eq   (v/assert kb (list 'rewriteOf Pref Dep) CxName)
+            twin (v/handle-of kb (list bornIn Pref Chicago) CxName)]
         (testing "the twin exists and is believed"
           (is (some? twin))
           (is (true? (v/in? kb twin))))
@@ -225,19 +225,19 @@
 ;; conclusion, and this must **not**, because the premise is still the caller's.
 
 (tu/deftest-kb the-stale-spelling-is-blocked-and-its-handle-stays-valid
-  (tu/with-terms [bornIn Chicago NameContext]
+  (tu/with-terms [bornIn Chicago CxName]
     (tu/with-terms [Pref Dep]
-      (let [h (v/assert kb (list bornIn Dep Chicago) NameContext)]
-        (v/assert kb (list 'rewriteOf Pref Dep) NameContext)
+      (let [h (v/assert kb (list bornIn Dep Chicago) CxName)]
+        (v/assert kb (list 'rewriteOf Pref Dep) CxName)
         (testing "the handle the caller holds still resolves to its sentex"
           (is (some? (v/sentex kb h)))
           (is (= (list bornIn Dep Chicago) (:sentence (v/sentex kb h))))
-          (is (= h (v/handle-of kb (list bornIn Dep Chicago) NameContext))))
+          (is (= h (v/handle-of kb (list bornIn Dep Chicago) CxName))))
         (testing "but it is not believed"
           (is (false? (v/in? kb h)))
           (is (false? (:believed? (v/why-not kb h)))))
         (testing "and it does not match — a raw level-2 lookup sees no believed hit"
-          (is (empty? (v/lookup kb 2 (list bornIn Dep Chicago) NameContext))))))))
+          (is (empty? (v/lookup kb 2 (list bornIn Dep Chicago) CxName))))))))
 
 ;; DECISION (What a merge does — Rewrite goals): "A query naming a non-representative
 ;; is rewritten before lookup, since its own sentexes are no longer believed."  So the
@@ -246,18 +246,18 @@
 ;; about the merge.
 
 (tu/deftest-kb a-goal-naming-the-deprecated-term-is-rewritten-and-still-answers
-  (tu/with-terms [bornIn Chicago NameContext]
+  (tu/with-terms [bornIn Chicago CxName]
     (tu/with-terms [Pref Dep]
-      (v/assert kb (list bornIn Dep Chicago) NameContext)
-      (v/assert kb (list 'rewriteOf Pref Dep) NameContext)
+      (v/assert kb (list bornIn Dep Chicago) CxName)
+      (v/assert kb (list 'rewriteOf Pref Dep) CxName)
       (testing "the closed goal answers under either spelling"
-        (is (seq (v/sentexes-matching kb (list bornIn Pref Chicago) NameContext)))
-        (is (seq (v/sentexes-matching kb (list bornIn Dep  Chicago) NameContext))
+        (is (seq (v/sentexes-matching kb (list bornIn Pref Chicago) CxName)))
+        (is (seq (v/sentexes-matching kb (list bornIn Dep  Chicago) CxName))
             "the goal was not rewritten to the representative before lookup")
-        (is (true? (v/ask? kb (list bornIn Dep Chicago) NameContext))))
+        (is (true? (v/ask? kb (list bornIn Dep Chicago) CxName))))
       (testing "and an open goal binds to the representative, not the retired name"
         (is (= #{Pref} (set (map #(get % '?who)
-                                 (v/ask kb (list bornIn '?who Chicago) NameContext)))))))))
+                                 (v/ask kb (list bornIn '?who Chicago) CxName)))))))))
 
 ;; DECISION (What a merge does — Migrate): "Dedup falls out: when the rewritten form
 ;; already exists, find-or-create returns that handle and it simply gains a second
@@ -265,14 +265,14 @@
 ;; claim that makes a merge idempotent against content the KB already had.
 
 (tu/deftest-kb merging-two-spellings-of-one-fact-yields-one-handle-with-two-supports
-  (tu/with-terms [bornIn Chicago NameContext]
+  (tu/with-terms [bornIn Chicago CxName]
     (tu/with-terms [Pref Dep]
-      (let [pref-h (v/assert kb (list bornIn Pref Chicago) NameContext)
-            _      (v/assert kb (list bornIn Dep  Chicago) NameContext)
+      (let [pref-h (v/assert kb (list bornIn Pref Chicago) CxName)
+            _      (v/assert kb (list bornIn Dep  Chicago) CxName)
             before (count (v/supporting-justifications kb pref-h))]
-        (v/assert kb (list 'rewriteOf Pref Dep) NameContext)
+        (v/assert kb (list 'rewriteOf Pref Dep) CxName)
         (testing "the representative's handle is unchanged"
-          (is (= pref-h (v/handle-of kb (list bornIn Pref Chicago) NameContext))))
+          (is (= pref-h (v/handle-of kb (list bornIn Pref Chicago) CxName))))
         (testing "it is still the premise the caller asserted"
           (is (true? (v/premise? kb pref-h)))
           (is (true? (v/in? kb pref-h))))
@@ -289,16 +289,16 @@
 ;; merged term in top-level argument position.
 
 (tu/deftest-kb a-merged-term-nested-inside-a-compound-is-rewritten-too
-  (tu/with-terms [reportedThat livesIn Ann Bob StoryContext]
+  (tu/with-terms [reportedThat livesIn Ann Bob CxStory]
     (tu/with-terms [Pref Dep]
       ;; Dep occurs only at depth 2 — never as an argument of the stored literal
-      (v/assert kb (list reportedThat Ann (list livesIn Bob Dep)) StoryContext)
-      (v/assert kb (list 'rewriteOf Pref Dep) StoryContext)
+      (v/assert kb (list reportedThat Ann (list livesIn Bob Dep)) CxStory)
+      (v/assert kb (list 'rewriteOf Pref Dep) CxStory)
       (testing "the nested occurrence is rewritten, so the congruent twin exists"
-        (is (believed? kb (list reportedThat Ann (list livesIn Bob Pref)) StoryContext)))
+        (is (believed? kb (list reportedThat Ann (list livesIn Bob Pref)) CxStory)))
       (testing "and the nested stale spelling is blocked like a flat one"
         (is (stored-not-believed? kb (list reportedThat Ann (list livesIn Bob Dep))
-                                  StoryContext))))))
+                                  CxStory))))))
 
 ;; DECISION (Interactions — Symmetric predicates): "Argument sorting for a symmetric
 ;; predicate is done at canonicalization time against the *stored* symbols.  A later
@@ -308,14 +308,14 @@
 ;; orders), so the *stored sentence* is read directly.
 
 (tu/deftest-kb migration-re-canonicalizes-a-symmetric-literal-rather-than-substituting
-  (tu/with-terms [siblingOf KinContext]
+  (tu/with-terms [siblingOf CxKin]
     (let [[lo mid hi] (sort [(tu/tmp-ind "Ind") (tu/tmp-ind "Ind") (tu/tmp-ind "Ind")])]
-      (v/assert kb (list 'symmetric siblingOf) KinContext)
+      (v/assert kb (list 'symmetric siblingOf) CxKin)
       ;; stored canonically as (siblingOf lo mid)
-      (v/assert kb (list siblingOf mid lo) KinContext)
+      (v/assert kb (list siblingOf mid lo) CxKin)
       ;; retire `lo` in favour of `hi`, which sorts *after* mid
-      (v/assert kb (list 'rewriteOf hi lo) KinContext)
-      (let [twin (v/handle-of kb (list siblingOf mid hi) KinContext)]
+      (v/assert kb (list 'rewriteOf hi lo) CxKin)
+      (let [twin (v/handle-of kb (list siblingOf mid hi) CxKin)]
         (testing "the twin exists"
           (is (some? twin)))
         (testing "and its stored sentence is re-canonicalized, not textually rewritten"
@@ -330,24 +330,24 @@
 ;; lose the caller's own premise.
 
 (tu/deftest-kb retracting-the-equality-sweeps-the-twins-and-revives-the-originals
-  (tu/with-terms [bornIn worksAt Chicago Acme NameContext]
+  (tu/with-terms [bornIn worksAt Chicago Acme CxName]
     (tu/with-terms [Pref Dep]
-      (let [f1 (v/assert kb (list bornIn  Dep Chicago) NameContext)
-            f2 (v/assert kb (list worksAt Dep Acme)    NameContext)
-            eq (v/assert kb (list 'rewriteOf Pref Dep) NameContext)]
+      (let [f1 (v/assert kb (list bornIn  Dep Chicago) CxName)
+            f2 (v/assert kb (list worksAt Dep Acme)    CxName)
+            eq (v/assert kb (list 'rewriteOf Pref Dep) CxName)]
         (testing "both twins exist while the equality holds"
-          (is (believed? kb (list bornIn  Pref Chicago) NameContext))
-          (is (believed? kb (list worksAt Pref Acme)    NameContext)))
+          (is (believed? kb (list bornIn  Pref Chicago) CxName))
+          (is (believed? kb (list worksAt Pref Acme)    CxName)))
         (v/retract! kb eq)
         (testing "the twins are swept — collected, not merely disbelieved"
-          (is (nil? (v/handle-of kb (list bornIn  Pref Chicago) NameContext)))
-          (is (nil? (v/handle-of kb (list worksAt Pref Acme)    NameContext))))
+          (is (nil? (v/handle-of kb (list bornIn  Pref Chicago) CxName)))
+          (is (nil? (v/handle-of kb (list worksAt Pref Acme)    CxName))))
         (testing "and the originals are unblocked"
           (is (true? (v/in? kb f1)))
           (is (true? (v/in? kb f2)))
-          (is (seq (v/sentexes-matching kb (list bornIn Dep Chicago) NameContext))))
+          (is (seq (v/sentexes-matching kb (list bornIn Dep Chicago) CxName))))
         (testing "so the two symbols are different again"
-          (is (true? (v/ask? kb (list 'different Pref Dep) NameContext))))))))
+          (is (true? (v/ask? kb (list 'different Pref Dep) CxName))))))))
 
 ;; ---- 5. `different` ------------------------------------------------------
 ;; DECISION (The unique-name assumption survives): "`(different X Y)` is **provable
@@ -357,16 +357,16 @@
 ;; not any single reading.
 
 (tu/deftest-kb different-tracks-the-closure-in-both-directions
-  (tu/with-terms [NameContext]
+  (tu/with-terms [CxName]
     (tu/with-terms [Pref Dep]
       (testing "two unmerged symbols are different by the unique-name assumption"
-        (is (true? (v/ask? kb (list 'different Pref Dep) NameContext))))
-      (let [eq (v/assert kb (list 'sameAs Pref Dep) NameContext)]
+        (is (true? (v/ask? kb (list 'different Pref Dep) CxName))))
+      (let [eq (v/assert kb (list 'sameAs Pref Dep) CxName)]
         (testing "once merged they are not"
-          (is (false? (v/ask? kb (list 'different Pref Dep) NameContext))))
+          (is (false? (v/ask? kb (list 'different Pref Dep) CxName))))
         (v/retract! kb eq)
         (testing "and retracting the merge restores the difference — the closure split"
-          (is (true? (v/ask? kb (list 'different Pref Dep) NameContext))))))))
+          (is (true? (v/ask? kb (list 'different Pref Dep) CxName))))))))
 
 ;; DECISION (The unique-name assumption survives): "**Variable arity.**  `(different
 ;; A B C)` asserts the arguments are pairwise distinct."  Pairwise, so merging *any*
@@ -374,16 +374,16 @@
 ;; would pass on a two-argument test and fail here.
 
 (tu/deftest-kb different-is-variable-arity-and-pairwise
-  (tu/with-terms [NameContext]
+  (tu/with-terms [CxName]
     (tu/with-terms [A B C]
       (testing "three pairwise-distinct symbols"
-        (is (true? (v/ask? kb (list 'different A B C) NameContext))))
+        (is (true? (v/ask? kb (list 'different A B C) CxName))))
       ;; merge the pair that is *not* first, so a first-pair-only check is caught
-      (v/assert kb (list 'sameAs B C) NameContext)
+      (v/assert kb (list 'sameAs B C) CxName)
       (testing "merging any one pair falsifies the whole literal"
-        (is (false? (v/ask? kb (list 'different A B C) NameContext))))
+        (is (false? (v/ask? kb (list 'different A B C) CxName))))
       (testing "while the untouched pair is still different"
-        (is (true? (v/ask? kb (list 'different A B) NameContext)))))))
+        (is (true? (v/ask? kb (list 'different A B) CxName)))))))
 
 ;; DECISION (The unique-name assumption survives): "**Not assertible.**  It is
 ;; answered by a prover and never stored.  Asserting it is rejected.  (An assertible
@@ -391,13 +391,13 @@
 ;; later `sameAs` contradictory.  Deliberately not built.)"
 
 (tu/deftest-kb different-is-not-assertible
-  (tu/with-terms [NameContext]
+  (tu/with-terms [CxName]
     (tu/with-terms [A B]
       (testing "asserting it is rejected"
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list 'different A B) NameContext))))
+                     (v/assert kb (list 'different A B) CxName))))
       (testing "and the refusal stores nothing"
-        (is (nil? (v/handle-of kb (list 'different A B) NameContext)))
+        (is (nil? (v/handle-of kb (list 'different A B) CxName)))
         (is (zero? (v/count-with-functor kb 'different)))
         (is (empty? (v/find-sentexes kb 'different)))))))
 
@@ -415,19 +415,19 @@
 ;; matters, is that nothing enumerates.
 
 (tu/deftest-kb an-open-different-is-refused-rather-than-enumerated
-  (tu/with-terms [bornIn Chicago NameContext]
+  (tu/with-terms [bornIn Chicago CxName]
     (tu/with-terms [A B C]
-      (doseq [x [A B C]] (v/assert kb (list bornIn x Chicago) NameContext))
+      (doseq [x [A B C]] (v/assert kb (list bornIn x Chicago) CxName))
       (testing "the ground goal is claimed by some prover — the control"
-        (is (seq (v/query-plan kb (list 'different A B) NameContext))))
+        (is (seq (v/query-plan kb (list 'different A B) CxName))))
       (testing "an unbound argument makes that prover inapplicable"
         ;; named by count rather than by class, since the doc names no prover
-        (is (< (count (v/query-plan kb (list 'different '?x B) NameContext))
-               (count (v/query-plan kb (list 'different A   B) NameContext)))
+        (is (< (count (v/query-plan kb (list 'different '?x B) CxName))
+               (count (v/query-plan kb (list 'different A   B) CxName)))
             "a prover claimed an open `different` goal"))
       (testing "and nothing enumerated the KB looking for non-B terms"
-        (is (empty? (v/ask kb (list 'different '?x B)  NameContext)))
-        (is (empty? (v/ask kb (list 'different '?x '?y) NameContext)))))))
+        (is (empty? (v/ask kb (list 'different '?x B)  CxName)))
+        (is (empty? (v/ask kb (list 'different '?x '?y) CxName)))))))
 
 ;; DECISION (The unique-name assumption survives): "**Not canonicalized.**  No chain
 ;; merging ...  `lessThan` merges chains because it is **transitive** ... `different`
@@ -441,12 +441,12 @@
 ;; `(lessThan ?b ?c)` does.
 
 (tu/deftest-kb a-different-chain-in-a-rule-antecedent-is-not-merged
-  (tu/with-terms [triple item StoryContext]
+  (tu/with-terms [triple item CxStory]
     (let [rh (v/assert-rule kb [(list item '?a) (list item '?b) (list item '?c)
                                 (list 'different '?a '?b)
                                 (list 'different '?b '?c)]
                             (list triple '?a '?b '?c)
-                            StoryContext)
+                            CxStory)
           antes (:antecedent (v/sentex kb rh))
           diffs (filter #(= 'different (first %)) antes)]
       (testing "both literals survive — no chain merge"
@@ -458,9 +458,9 @@
       (testing "the rule fires for a binding the merged form would have rejected"
         ;; a=c is allowed: the rule constrains a≠b and b≠c and says nothing about a,c
         (tu/with-terms [X Y]
-          (v/assert kb (list item X) StoryContext)
-          (v/assert kb (list item Y) StoryContext)
-          (is (seq (v/sentexes-matching kb (list triple X Y X) StoryContext))
+          (v/assert kb (list item X) CxStory)
+          (v/assert kb (list item Y) CxStory)
+          (is (seq (v/sentexes-matching kb (list triple X Y X) CxStory))
               "a merged (different ?a ?b ?c) would have blocked a = c")))
       (testing "and a rule assert does not store a `different` fact"
         (is (zero? (v/count-with-functor kb 'different)))))))
@@ -471,16 +471,16 @@
 ;; negation and is rejected — otherwise belief would depend on arrival order."
 
 (tu/deftest-kb a-rule-concluding-an-equality-from-a-different-antecedent-is-rejected
-  (tu/with-terms [candidate MergeContext]
+  (tu/with-terms [candidate CxMerge]
     (tu/with-terms [Anchor]
       (testing "the one-rule cycle through negation is refused at assert time"
         (is (thrown? clojure.lang.ExceptionInfo
                      (v/assert-rule kb [(list candidate '?x)
                                         (list 'different '?x Anchor)]
                                     (list 'sameAs '?x Anchor)
-                                    MergeContext))))
+                                    CxMerge))))
       (testing "and the refusal leaves no rule behind"
-        (is (empty? (v/sentexes-in-context kb MergeContext)))))))
+        (is (empty? (v/sentexes-in-context kb CxMerge)))))))
 
 ;; ---- 6. `functional` -----------------------------------------------------
 ;; DECISION (`functional` infers equality instead of throwing): "`(functional P)` plus
@@ -499,19 +499,19 @@
 ;; FAIL, and the two below never reach their assertions at all.
 
 (tu/deftest-kb functional-derives-an-equality-instead-of-throwing
-  (tu/with-terms [motherOf caresFor Tom FamContext]
+  (tu/with-terms [motherOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list 'functional motherOf) FamContext)
-      (v/assert kb (list motherOf Tom lo) FamContext)
+      (v/assert kb (list 'functional motherOf) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam)
       (testing "the second value does not throw"
-        (is (some? (v/assert kb (list motherOf Tom hi) FamContext))))
+        (is (some? (v/assert kb (list motherOf Tom hi) CxFam))))
       (testing "the two values are merged, so they are no longer different"
-        (is (false? (v/ask? kb (list 'different lo hi) FamContext))))
+        (is (false? (v/ask? kb (list 'different lo hi) CxFam))))
       (testing "and a fact about either reads under the representative"
-        (v/assert kb (list caresFor hi Tom) FamContext)
-        (is (believed? kb (list caresFor lo Tom) FamContext)))
+        (v/assert kb (list caresFor hi Tom) CxFam)
+        (is (believed? kb (list caresFor lo Tom) CxFam)))
       (testing "the derived equality is itself a sentex"
-        (is (some? (v/handle-of kb (list 'equals lo hi) FamContext)))))))
+        (is (some? (v/handle-of kb (list 'equals lo hi) CxFam)))))))
 
 (tu/deftest-kb a-merge-rests-on-every-functional-declaration-not-on-one-of-them
   ;; Nothing refuses `(functional P)` in two contexts, which is two sentexes and two
@@ -525,16 +525,16 @@
   ;; this apart from luck: resting the merge on one arbitrary handle passes whenever the
   ;; retracted declaration happens not to be the chosen one.  Retiring the first in one
   ;; predicate and the second in another, no single choice survives both.
-  (tu/with-terms [Tom FamContext StoryContext]
-    (v/assert kb (list 'genlContext StoryContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext FamContext 'UniverseContext) 'UniverseContext)
+  (tu/with-terms [Tom CxFam CxStory]
+    (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxFam 'CxUniverse) 'CxUniverse)
     (doseq [retire [:first :second]]
       (let [motherOf (tu/fresh-term :predicate "motherOf")
             [lo hi]  (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])
-            h1       (v/assert kb (list 'functional motherOf) FamContext)
-            h2       (v/assert kb (list 'functional motherOf) StoryContext)]
-        (v/assert kb (list motherOf Tom lo) FamContext)
-        (v/assert kb (list motherOf Tom hi) FamContext)
+            h1       (v/assert kb (list 'functional motherOf) CxFam)
+            h2       (v/assert kb (list 'functional motherOf) CxStory)]
+        (v/assert kb (list motherOf Tom lo) CxFam)
+        (v/assert kb (list motherOf Tom hi) CxFam)
         (is (v/same-class? kb lo hi)
             "the merge is derived while both declarations stand")
         (testing (str "retiring the " (name retire) " declaration leaves the merge")
@@ -550,12 +550,12 @@
 ;; half is pinned separately from the *reversible* half below.
 
 (tu/deftest-kb why-on-a-functional-merge-names-the-declaration-and-both-facts
-  (tu/with-terms [motherOf Tom FamContext]
+  (tu/with-terms [motherOf Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list 'functional motherOf) FamContext)
-      (v/assert kb (list motherOf Tom lo) FamContext)
-      (v/assert kb (list motherOf Tom hi) FamContext)
-      (let [eq (v/handle-of kb (list 'equals lo hi) FamContext)]
+      (v/assert kb (list 'functional motherOf) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam)
+      (v/assert kb (list motherOf Tom hi) CxFam)
+      (let [eq (v/handle-of kb (list 'equals lo hi) CxFam)]
         (is (some? eq) "no derived equality to explain")
         (let [tree (v/why kb eq)
               said (set (why-sentences tree))]
@@ -574,22 +574,22 @@
 ;; inspectable, reversible one is knowledge."
 
 (tu/deftest-kb retracting-either-functional-fact-un-merges-the-values
-  (tu/with-terms [motherOf caresFor Tom FamContext]
+  (tu/with-terms [motherOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list 'functional motherOf) FamContext)
-      (v/assert kb (list motherOf Tom lo) FamContext)
-      (let [second-fact (v/assert kb (list motherOf Tom hi) FamContext)]
-        (v/assert kb (list caresFor hi Tom) FamContext)
+      (v/assert kb (list 'functional motherOf) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam)
+      (let [second-fact (v/assert kb (list motherOf Tom hi) CxFam)]
+        (v/assert kb (list caresFor hi Tom) CxFam)
         (testing "merged while both facts stand"
-          (is (false? (v/ask? kb (list 'different lo hi) FamContext)))
-          (is (believed? kb (list caresFor lo Tom) FamContext)))
+          (is (false? (v/ask? kb (list 'different lo hi) CxFam)))
+          (is (believed? kb (list caresFor lo Tom) CxFam)))
         (v/retract! kb second-fact)
         (testing "retracting one of them un-merges"
-          (is (true? (v/ask? kb (list 'different lo hi) FamContext)))
-          (is (nil?  (v/handle-of kb (list 'equals lo hi) FamContext))))
+          (is (true? (v/ask? kb (list 'different lo hi) CxFam)))
+          (is (nil?  (v/handle-of kb (list 'equals lo hi) CxFam))))
         (testing "and the migrated twin is swept while the original revives"
-          (is (nil? (v/handle-of kb (list caresFor lo Tom) FamContext)))
-          (is (true? (believed? kb (list caresFor hi Tom) FamContext))))))))
+          (is (nil? (v/handle-of kb (list caresFor lo Tom) CxFam)))
+          (is (true? (believed? kb (list caresFor hi Tom) CxFam))))))))
 
 ;; DECISION (`functional` infers equality instead of throwing) meeting order
 ;; independence: a declaration has to reach the facts already stored exactly as it
@@ -602,38 +602,38 @@
 ;; first.
 
 (tu/deftest-kb a-functional-declaration-arriving-after-the-facts-merges-them-too
-  (tu/with-terms [motherOf caresFor Tom FamContext]
+  (tu/with-terms [motherOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list motherOf Tom lo) FamContext)
-      (v/assert kb (list motherOf Tom hi) FamContext)
+      (v/assert kb (list motherOf Tom lo) CxFam)
+      (v/assert kb (list motherOf Tom hi) CxFam)
       (testing "before the declaration the two values are simply two values"
-        (is (true? (v/ask? kb (list 'different lo hi) FamContext))))
-      (v/assert kb (list 'functional motherOf) FamContext)
+        (is (true? (v/ask? kb (list 'different lo hi) CxFam))))
+      (v/assert kb (list 'functional motherOf) CxFam)
       (testing "the declaration merges what it now says was always one thing"
-        (is (false? (v/ask? kb (list 'different lo hi) FamContext))))
+        (is (false? (v/ask? kb (list 'different lo hi) CxFam))))
       (testing "the derived equality is a sentex here too"
-        (is (some? (v/handle-of kb (list 'equals lo hi) FamContext))))
+        (is (some? (v/handle-of kb (list 'equals lo hi) CxFam))))
       (testing "and a fact about either reads under the representative"
-        (v/assert kb (list caresFor hi Tom) FamContext)
-        (is (believed? kb (list caresFor lo Tom) FamContext))))))
+        (v/assert kb (list caresFor hi Tom) CxFam)
+        (is (believed? kb (list caresFor lo Tom) CxFam))))))
 
 (tu/deftest-kb the-functional-declaration-reaches-the-same-belief-from-either-end
   ;; the oracle for the test above: the same three sentences in the two orders that
   ;; matter, compared on what the KB *believes* rather than on what it stored
-  (tu/with-terms [motherOf Tom FamContext]
+  (tu/with-terms [motherOf Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])
           decl (list 'functional motherOf)
           f1   (list motherOf Tom lo)
           f2   (list motherOf Tom hi)
-          reading (fn [] [(v/ask? kb (list 'different lo hi) FamContext)
+          reading (fn [] [(v/ask? kb (list 'different lo hi) CxFam)
                           (v/representative kb lo)
                           (v/representative kb hi)
-                          (some? (v/handle-of kb (list 'equals lo hi) FamContext))])]
-      (doseq [s [decl f1 f2]] (v/assert kb s FamContext))
+                          (some? (v/handle-of kb (list 'equals lo hi) CxFam))])]
+      (doseq [s [decl f1 f2]] (v/assert kb s CxFam))
       (let [declaration-first (reading)]
         (doseq [s [decl f1 f2]]
-          (when-let [h (v/handle-of kb s FamContext)] (v/retract! kb h)))
-        (doseq [s [f2 f1 decl]] (v/assert kb s FamContext))
+          (when-let [h (v/handle-of kb s CxFam)] (v/retract! kb h)))
+        (doseq [s [f2 f1 decl]] (v/assert kb s CxFam))
         (is (= declaration-first (reading))
             "the same three sentences believe different things in the two orders")))))
 
@@ -641,12 +641,12 @@
   ;; the merge is knowledge only if it is inspectable, and a retroactive one names the
   ;; same three sentexes a forward one does — otherwise `why` would explain one arrival
   ;; order and shrug at the other
-  (tu/with-terms [motherOf Tom FamContext]
+  (tu/with-terms [motherOf Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list motherOf Tom lo) FamContext)
-      (v/assert kb (list motherOf Tom hi) FamContext)
-      (v/assert kb (list 'functional motherOf) FamContext)
-      (let [eq (v/handle-of kb (list 'equals lo hi) FamContext)]
+      (v/assert kb (list motherOf Tom lo) CxFam)
+      (v/assert kb (list motherOf Tom hi) CxFam)
+      (v/assert kb (list 'functional motherOf) CxFam)
+      (let [eq (v/handle-of kb (list 'equals lo hi) CxFam)]
         (is (some? eq) "no derived equality to explain")
         (let [said (set (why-sentences (v/why kb eq)))]
           (is (contains? said (list 'functional motherOf)))
@@ -656,30 +656,30 @@
 (tu/deftest-kb retracting-a-retroactive-functional-declaration-un-merges
   ;; reversibility is the other half of "inspectable, reversible", and the declaration
   ;; is one of the three antecedents whichever order it arrived in
-  (tu/with-terms [motherOf caresFor Tom FamContext]
+  (tu/with-terms [motherOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list motherOf Tom lo) FamContext)
-      (v/assert kb (list motherOf Tom hi) FamContext)
-      (v/assert kb (list 'functional motherOf) FamContext)
-      (v/assert kb (list caresFor hi Tom) FamContext)
+      (v/assert kb (list motherOf Tom lo) CxFam)
+      (v/assert kb (list motherOf Tom hi) CxFam)
+      (v/assert kb (list 'functional motherOf) CxFam)
+      (v/assert kb (list caresFor hi Tom) CxFam)
       (testing "merged while the declaration stands"
-        (is (false? (v/ask? kb (list 'different lo hi) FamContext)))
-        (is (believed? kb (list caresFor lo Tom) FamContext)))
-      (v/retract! kb (v/handle-of kb (list 'functional motherOf) FamContext))
+        (is (false? (v/ask? kb (list 'different lo hi) CxFam)))
+        (is (believed? kb (list caresFor lo Tom) CxFam)))
+      (v/retract! kb (v/handle-of kb (list 'functional motherOf) CxFam))
       (testing "retracting the declaration un-merges the values it merged"
-        (is (true? (v/ask? kb (list 'different lo hi) FamContext)))
-        (is (nil?  (v/handle-of kb (list 'equals lo hi) FamContext))))
+        (is (true? (v/ask? kb (list 'different lo hi) CxFam)))
+        (is (nil?  (v/handle-of kb (list 'equals lo hi) CxFam))))
       (testing "and the migrated twin goes with it"
-        (is (nil? (v/handle-of kb (list caresFor lo Tom) FamContext)))
-        (is (true? (believed? kb (list caresFor hi Tom) FamContext)))))))
+        (is (nil? (v/handle-of kb (list caresFor lo Tom) CxFam)))
+        (is (true? (believed? kb (list caresFor hi Tom) CxFam)))))))
 
 (tu/deftest-kb a-retroactive-declaration-collapses-a-whole-slot-not-one-pair
   ;; three spellings of one mother: the sweep is over the predicate's extent, so every
   ;; value in the slot lands in one class rather than the first pair it happens to meet
-  (tu/with-terms [motherOf Tom FamContext]
+  (tu/with-terms [motherOf Tom CxFam]
     (let [[a b c] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (doseq [m [a b c]] (v/assert kb (list motherOf Tom m) FamContext))
-      (v/assert kb (list 'functional motherOf) FamContext)
+      (doseq [m [a b c]] (v/assert kb (list motherOf Tom m) CxFam))
+      (v/assert kb (list 'functional motherOf) CxFam)
       (testing "all three collapse to one representative"
         (is (= 1 (count (distinct (map #(v/representative kb %) [a b c]))))
             (str "three values did not reach one class: "
@@ -694,13 +694,13 @@
 ;; firing order.
 
 (tu/deftest-kb a-merge-that-creates-a-disjointness-violation-is-reported-not-thrown
-  (tu/with-terms [dog cat PetContext]
+  (tu/with-terms [dog cat CxPet]
     (tu/with-terms [Rex Fluffy]
-      (v/assert kb (list 'disjoint dog cat) PetContext)
-      (v/assert kb (list dog Rex)    PetContext)
-      (v/assert kb (list cat Fluffy) PetContext)
+      (v/assert kb (list 'disjoint dog cat) CxPet)
+      (v/assert kb (list dog Rex)    CxPet)
+      (v/assert kb (list cat Fluffy) CxPet)
       (testing "the merge itself does not throw"
-        (is (some? (v/assert kb (list 'sameAs Rex Fluffy) PetContext))))
+        (is (some? (v/assert kb (list 'sameAs Rex Fluffy) CxPet))))
       (let [vs (v/violations kb)]
         (testing "the impossible twin is reported as a disjointness violation"
           (is (seq vs))
@@ -709,7 +709,7 @@
       (testing "and the impossible twin was dropped, not stored"
         (let [rep (first (sort [Rex Fluffy]))
               other (if (= rep Rex) cat dog)]
-          (is (nil? (v/handle-of kb (list other rep) PetContext))))))))
+          (is (nil? (v/handle-of kb (list other rep) CxPet))))))))
 
 ;; ---- 8. well-formedness --------------------------------------------------
 ;; DECISION (Choosing the representative): "A `rewriteOf` cycle has no representative
@@ -718,29 +718,29 @@
 ;; asserted would pass the first and miss the second.
 
 (tu/deftest-kb a-rewrite-of-cycle-is-rejected
-  (tu/with-terms [NameContext]
+  (tu/with-terms [CxName]
     (tu/with-terms [A B C]
       (testing "the two-edge cycle"
-        (v/assert kb (list 'rewriteOf A B) NameContext)
+        (v/assert kb (list 'rewriteOf A B) CxName)
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list 'rewriteOf B A) NameContext))))
+                     (v/assert kb (list 'rewriteOf B A) CxName))))
       (testing "the three-edge cycle, which a pairwise check would miss"
-        (v/assert kb (list 'rewriteOf B C) NameContext)
+        (v/assert kb (list 'rewriteOf B C) CxName)
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list 'rewriteOf C A) NameContext))))
+                     (v/assert kb (list 'rewriteOf C A) CxName))))
       (testing "and a refused edge leaves nothing stored"
-        (is (nil? (v/handle-of kb (list 'rewriteOf B A) NameContext)))
-        (is (nil? (v/handle-of kb (list 'rewriteOf C A) NameContext)))))))
+        (is (nil? (v/handle-of kb (list 'rewriteOf B A) CxName)))
+        (is (nil? (v/handle-of kb (list 'rewriteOf C A) CxName)))))))
 
 ;; DECISION (Choosing the representative): a self-edge is the degenerate cycle, and it
 ;; is the one an import pipeline actually produces (the same term aligned to itself).
 
 (tu/deftest-kb a-rewrite-of-self-edge-is-rejected
-  (tu/with-terms [NameContext]
+  (tu/with-terms [CxName]
     (tu/with-terms [A]
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'rewriteOf A A) NameContext)))
-      (is (nil? (v/handle-of kb (list 'rewriteOf A A) NameContext))))))
+                   (v/assert kb (list 'rewriteOf A A) CxName)))
+      (is (nil? (v/handle-of kb (list 'rewriteOf A A) CxName))))))
 
 ;; ---- 9. what the supersession reconcile costs ----------------------------
 ;;

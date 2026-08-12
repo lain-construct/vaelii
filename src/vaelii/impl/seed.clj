@@ -14,7 +14,7 @@
   The files live under `resources/kb/`, in a shallow tree that mirrors the context
   spindle:
 
-      kb/CoreContext.txt        the vocabulary head (see vaelii.impl.core-context)
+      kb/CxCore.txt        the vocabulary head (see vaelii.impl.core-context)
       kb/upper/<C>.txt          definitional layers, between Core and Universe
       kb/middle/<C>.txt         theory layers, between Universe and Well
 
@@ -29,16 +29,16 @@
   (:import [java.io PushbackReader]))
 
 (defn- layer-files
-  "The `<Context>.txt` file names in layer sub-directory `dir`, read off whichever
+  "The `Cx<Name>.txt` file names in layer sub-directory `dir`, read off whichever
   classpath shape holds them: a filesystem tree (repl / lein / test) is listed as a
   directory, and a packaged jar is listed by its own entries — anchored on
-  `kb/CoreContext.txt` when the jar carries no directory entry for `kb/<dir>` to
+  `kb/CxCore.txt` when the jar carries no directory entry for `kb/<dir>` to
   resolve.  Any other protocol is refused rather than answered nil: nil here starts
   a KB with the upper and middle layers silently absent, the exact failure
   `read-sentences` exists to refuse one file at a time."
   [dir]
   (let [want (str "kb/" dir "/")
-        res  (or (io/resource (str "kb/" dir)) (io/resource "kb/CoreContext.txt"))]
+        res  (or (io/resource (str "kb/" dir)) (io/resource "kb/CxCore.txt"))]
     (when res
       (case (.getProtocol res)
         "file" (when-let [d (io/resource (str "kb/" dir))]
@@ -60,7 +60,7 @@
 (defn layer-contexts
   "The context symbols whose KB files live in the layer sub-directory `dir`
   (\"upper\" / \"middle\"), sorted for determinism.  Discovered from the classpath, so
-  dropping a new `<Context>.txt` in `kb/<dir>/` loads it with no code change — every
+  dropping a new `Cx<Name>.txt` in `kb/<dir>/` loads it with no code change — every
   context is loaded on kb start by default, from a filesystem tree and from a
   packaged jar alike (`layer-files`)."
   [dir]

@@ -63,15 +63,15 @@
         (.close ch))
       (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
         (is (lock/held? dir) "the KB now holds the lock")
-        (v/assert kb '(genl dog animal) 'UniverseContext {:strength :monotonic})
+        (v/assert kb '(genl dog animal) 'CxUniverse {:strength :monotonic})
         (is (v/genl? kb 'dog 'animal))))))
 
 (deftest two-kbs-over-one-directory-share-the-durable-store
   (with-tmp
     (fn [dir]
       (let [kb1 (v/open-kb {:backend :disk :dir dir :recover? false})]
-        (v/assert kb1 '(genl dog animal) 'UniverseContext {:strength :monotonic})
-        (v/assert kb1 '(dog Muffet) 'UniverseContext {:strength :monotonic})
+        (v/assert kb1 '(genl dog animal) 'CxUniverse {:strength :monotonic})
+        (v/assert kb1 '(dog Muffet) 'CxUniverse {:strength :monotonic})
         (testing "a KB reopened over the same directory (a restart) starts with an empty
                  in-memory graph but the same durable records, and recover rebuilds it"
           (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
@@ -79,20 +79,20 @@
             ;; the durable record is in the shared store — handle-of answers about
             ;; storage, not belief, so it is visible before recover (query is
             ;; belief-filtered by kb2's still-empty TMS, so it is not)
-            (is (some? (v/handle-of kb2 '(dog Muffet) 'UniverseContext))
+            (is (some? (v/handle-of kb2 '(dog Muffet) 'CxUniverse))
                 "the durable record is visible at the storage layer")
-            (is (empty? (v/sentexes-matching kb2 '(dog ?x) 'UniverseContext))
+            (is (empty? (v/sentexes-matching kb2 '(dog ?x) 'CxUniverse))
                 "but not believed until recover rebuilds the TMS")
             (v/recover kb2)
             (is (v/isa? kb2 'Muffet 'animal) "recover rebuilt the taxonomy from the store")
-            (is (seq (v/sentexes-matching kb2 '(dog ?x) 'UniverseContext)) "and belief with it")))))))
+            (is (seq (v/sentexes-matching kb2 '(dog ?x) 'CxUniverse)) "and belief with it")))))))
 
 (deftest close-then-reopen-from-disk-survives
   (with-tmp
     (fn [dir]
       (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
-        (v/assert kb '(genl dog animal) 'UniverseContext {:strength :monotonic})
-        (v/assert kb '(dog Muffet) 'UniverseContext {:strength :monotonic}))
+        (v/assert kb '(genl dog animal) 'CxUniverse {:strength :monotonic})
+        (v/assert kb '(dog Muffet) 'CxUniverse {:strength :monotonic}))
       ;; a genuine restart: fsync + close + release the lock + forget the stores, so the
       ;; reopen reads the durable logs from disk with fresh RAM state (not the shared
       ;; in-process registry the test above relies on)
@@ -100,7 +100,7 @@
       (is (not (lock/held? dir)) "the lock is released on close")
       (testing "a brand-new KB reads the durable store back from disk"
         (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
-          (is (some? (v/handle-of kb2 '(dog Muffet) 'UniverseContext)) "the record survived")
+          (is (some? (v/handle-of kb2 '(dog Muffet) 'CxUniverse)) "the record survived")
           (v/recover kb2)
           (is (v/isa? kb2 'Muffet 'animal) "and its taxonomy edge"))))))
 
@@ -113,14 +113,14 @@
     (fn [dir]
       (tu/with-terms [dog animal Muffet]
         (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
-          (v/assert kb (list 'genl dog animal) 'UniverseContext {:strength :monotonic})
-          (v/assert kb (list dog Muffet) 'UniverseContext {:strength :monotonic})
+          (v/assert kb (list 'genl dog animal) 'CxUniverse {:strength :monotonic})
+          (v/assert kb (list dog Muffet) 'CxUniverse {:strength :monotonic})
           (is (identical? kb (v/close! kb)) "close! returns the KB"))
         (is (not (lock/held? dir)) "close! released the single-writer lock")
         (is (empty? (backend/opened dir)) "and forgot the directory's stores")
         (testing "the same JVM reopens the directory; :recover? defaults to :auto"
           (let [kb2 (v/open-kb {:backend :disk :dir dir})]
-            (is (seq (v/sentexes-matching kb2 (list dog Muffet) 'UniverseContext))
+            (is (seq (v/sentexes-matching kb2 (list dog Muffet) 'CxUniverse))
                 "the data is back and believed with no explicit recover call")
             (is (v/isa? kb2 Muffet animal))))))))
 
@@ -132,12 +132,12 @@
   ;; every later test.
   (let [kb (v/open-kb {:backend :memory :space ::noop-space :recover? false})]
     (tu/with-terms [dog Muffet Rex]
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (identical? kb (v/close! kb)) "close! returns the KB")
-      (is (some? (v/handle-of kb (list dog Muffet) 'UniverseContext))
+      (is (some? (v/handle-of kb (list dog Muffet) 'CxUniverse))
           "the store is untouched")
-      (v/assert kb (list dog Rex) 'UniverseContext)
-      (is (some? (v/handle-of kb (list dog Rex) 'UniverseContext))
+      (v/assert kb (list dog Rex) 'CxUniverse)
+      (is (some? (v/handle-of kb (list dog Rex) 'CxUniverse))
           "and still writable")
       (tu/clear-kb! kb))))
 
@@ -150,7 +150,7 @@
     (fn [dir]
       (tu/with-terms [dog Muffet]
         (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
-          (v/assert kb (list dog Muffet) 'UniverseContext {:strength :monotonic}))
+          (v/assert kb (list dog Muffet) 'CxUniverse {:strength :monotonic}))
         ;; drs/close! is a plain fn called through its var, so with-redefs intercepts
         ;; (a protocol-method var would not)
         (with-redefs [drs/close! (fn [_] (throw (java.io.IOException. "disk full (simulated)")))]
@@ -160,7 +160,7 @@
         (is (empty? (backend/opened dir)) "and the registry entry is dropped")
         (testing "so a subsequent open of the same directory succeeds"
           (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
-            (is (some? (v/handle-of kb2 (list dog Muffet) 'UniverseContext))
+            (is (some? (v/handle-of kb2 (list dog Muffet) 'CxUniverse))
                 "the durable record reads back in the reopened store")))))))
 
 (deftest distinct-directories-are-isolated
@@ -170,24 +170,24 @@
         (fn [dir2]
           (let [kb1 (v/open-kb {:backend :disk :dir dir1 :recover? false})
                 kb2 (v/open-kb {:backend :disk :dir dir2 :recover? false})]
-            (v/assert kb1 '(dog Muffet) 'UniverseContext {:strength :monotonic})
-            (is (some? (v/handle-of kb1 '(dog Muffet) 'UniverseContext)))
-            (is (nil? (v/handle-of kb2 '(dog Muffet) 'UniverseContext))
+            (v/assert kb1 '(dog Muffet) 'CxUniverse {:strength :monotonic})
+            (is (some? (v/handle-of kb1 '(dog Muffet) 'CxUniverse)))
+            (is (nil? (v/handle-of kb2 '(dog Muffet) 'CxUniverse))
                 "a second directory shares nothing with the first")))))))
 
 (deftest reindex-rebuilds-index-from-records-on-disk
   (with-tmp
     (fn [dir]
       (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
-        (v/assert kb '(genl dog animal) 'UniverseContext {:strength :monotonic})
-        (v/assert kb '(dog Muffet) 'UniverseContext {:strength :monotonic})
-        (v/assert-rule kb ['(dog ?x)] '(barks ?x) 'UniverseContext)
-        (let [before {:dogs (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'UniverseContext)))
+        (v/assert kb '(genl dog animal) 'CxUniverse {:strength :monotonic})
+        (v/assert kb '(dog Muffet) 'CxUniverse {:strength :monotonic})
+        (v/assert-rule kb ['(dog ?x)] '(barks ?x) 'CxUniverse)
+        (let [before {:dogs (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'CxUniverse)))
                       :isa  (v/isa? kb 'Muffet 'animal)
                       :term (count (v/find-sentexes kb 'Muffet))}]
           (v/reindex kb)                          ; wipe the index, rebuild from the records, recover
           (testing "every index read answers as it did before the rebuild"
-            (is (= (:dogs before) (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'UniverseContext)))))
+            (is (= (:dogs before) (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'CxUniverse)))))
             (is (= (:isa before) (v/isa? kb 'Muffet 'animal)))
             (is (= (:term before) (count (v/find-sentexes kb 'Muffet))))))))))
 
@@ -212,7 +212,7 @@
   (letfn [(build! [dir]
             (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
               (dotimes [i 20]
-                (v/assert kb (list 'tmpShortP (symbol (str "TmpShort" i))) 'UniverseContext))
+                (v/assert kb (list 'tmpShortP (symbol (str "TmpShort" i))) 'CxUniverse))
               (v/close! kb)))
           (lop! [dir n]
             (let [f (RandomAccessFile. (str dir "/index/kv.log") "rw")]
@@ -221,9 +221,9 @@
           (reopened-finds-all? [dir]
             (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? :auto})]
               (try
-                (and (= 20 (count (v/sentexes-matching kb2 '(tmpShortP ?x) 'UniverseContext)))
+                (and (= 20 (count (v/sentexes-matching kb2 '(tmpShortP ?x) 'CxUniverse)))
                      (every? #(v/handle-of kb2 (list 'tmpShortP (symbol (str "TmpShort" %)))
-                                           'UniverseContext)
+                                           'CxUniverse)
                              (range 20)))
                 (finally (v/close! kb2)))))]
     (testing "a log shorter than its clean marker recorded is rebuilt, whatever survives"

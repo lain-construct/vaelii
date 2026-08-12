@@ -45,7 +45,7 @@
 
   Every one of those counts **spans all contexts**, since the trie key ends with the
   context and no prefix the walk builds reaches past the arguments.  A read is scoped to
-  one context and the `genlContext` cone above it, so the counts are an over-estimate by
+  one context and the `genlCx` cone above it, so the counts are an over-estimate by
   a sentence's context multiplicity — which leaves `est-matches` sound (a cone is a
   subset of what is stored, so the bound can only be too large) and puts the error on
   `est-rows`'s `:rows` alone, `:distinct` sitting a level above the contexts.  A ground

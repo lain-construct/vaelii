@@ -11,39 +11,39 @@
 (tu/deftest-kb findable-by-any-term
   (let [parentOf (tu/tmp-pred) likesPet (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind) muffet (tu/tmp-ind)]
-    (v/assert kb (list parentOf tom bob) 'NaturalWorldContext)
-    (v/assert kb (list likesPet bob muffet) 'NaturalWorldContext)
+    (v/assert kb (list parentOf tom bob) 'CxNaturalWorld)
+    (v/assert kb (list likesPet bob muffet) 'CxNaturalWorld)
     (testing "a sentex is findable by any term it contains — any position"
       (is (= 2 (count (v/find-sentexes kb bob))))        ; predicate arg in both
       (is (= 1 (count (v/find-sentexes kb tom))))
       (is (= 1 (count (v/find-sentexes kb muffet))))
       (is (= 1 (count (v/find-sentexes kb parentOf))))   ; by functor
-      (is (= 2 (count (v/find-sentexes kb 'NaturalWorldContext)))))  ; by context
+      (is (= 2 (count (v/find-sentexes kb 'CxNaturalWorld)))))  ; by context
     (testing "intersection of several terms"
       (is (= 1 (count (v/find-sentexes-all kb [bob muffet]))))
       (is (= 0 (count (v/find-sentexes-all kb [tom muffet])))))))
 
 (tu/deftest-kb ist-finds-or-creates
   (let [loves (tu/tmp-pred) mary (tu/tmp-ind) john (tu/tmp-ind)
-        h (v/ist kb 'BeliefContext (list loves mary john))]
+        h (v/ist kb 'CxBelief (list loves mary john))]
     (testing "ist creates the sentence in the context (ist), not a wrapper"
-      (is (= 1 (count (v/sentexes-matching kb (list loves mary john) 'BeliefContext))))
+      (is (= 1 (count (v/sentexes-matching kb (list loves mary john) 'CxBelief))))
       (is (empty? (v/find-sentexes kb 'ist))))        ; ist itself is never stored
     (testing "calling again finds the same sentex (idempotent)"
-      (is (= h (v/ist kb 'BeliefContext (list loves mary john)))))
+      (is (= h (v/ist kb 'CxBelief (list loves mary john)))))
     (testing "the (ist ..) form given to assert does the same"
-      (is (= h (v/assert kb (list 'ist 'BeliefContext (list loves mary john))))))
+      (is (= h (v/assert kb (list 'ist 'CxBelief (list loves mary john))))))
     (testing "the sentence is findable by any of its terms, and its contexts listed"
       (is (= 1 (count (v/find-sentexes kb (list loves mary john)))))
       (is (= 1 (count (v/find-sentexes kb mary))))
-      (is (= '(BeliefContext) (v/contexts-of kb (list loves mary john)))))))
+      (is (= '(CxBelief) (v/contexts-of kb (list loves mary john)))))))
 
 (tu/deftest-kb oversized-ground-compound-capped-but-atoms-stay-findable   ; perf-review #8
   (let [holds (tu/tmp-pred) bagOf (tu/tmp-pred) pairOf (tu/tmp-pred) tag (tu/tmp-ind)
         inds  (vec (repeatedly 70 tu/tmp-ind))
         big   (apply list bagOf inds)              ; ~72-node ground compound (> cap)
         small (list pairOf (first inds) tag)       ; 4-node ground compound (< cap)
-        h     (v/assert kb (list holds big small) 'NaturalWorldContext)]
+        h     (v/assert kb (list holds big small) 'CxNaturalWorld)]
     (testing "every atom of the oversized compound stays findable at any depth"
       (is (= 1 (count (v/find-sentexes kb (nth inds 40)))))   ; an individual deep inside
       (is (= 1 (count (v/find-sentexes kb bagOf))))            ; its functor symbol
@@ -66,7 +66,7 @@
 
 (tu/deftest-kb term-index-cleaned-on-retract
   (let [parentOf (tu/tmp-pred) tom (tu/tmp-ind) bob (tu/tmp-ind)
-        h (v/assert kb (list parentOf tom bob) 'NaturalWorldContext)]
+        h (v/assert kb (list parentOf tom bob) 'CxNaturalWorld)]
     (is (= 1 (count (v/find-sentexes kb tom))))
     (v/retract! kb h)
     (is (empty? (v/find-sentexes kb tom)))))

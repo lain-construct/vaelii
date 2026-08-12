@@ -30,9 +30,9 @@ mentions `?v` outside the aggregate.
 ```clojure
 ;; (scoreOf Team 3) (scoreOf Team 1) (scoreOf Team 4) (scoreOf Team 1) (scoreOf Team 5)
 
-(v/ask kb '(agg/count ?n ?v (scoreOf Team ?v)) 'WellContext)   ; => ({?n 4})
-(v/ask kb '(agg/sum   ?n ?v (scoreOf Team ?v)) 'WellContext)   ; => ({?n 13})
-(v/ask kb '(agg/avg   ?n ?v (scoreOf Team ?v)) 'WellContext)   ; => ({?n 3.25})
+(v/ask kb '(agg/count ?n ?v (scoreOf Team ?v)) 'CxWell)   ; => ({?n 4})
+(v/ask kb '(agg/sum   ?n ?v (scoreOf Team ?v)) 'CxWell)   ; => ({?n 13})
+(v/ask kb '(agg/avg   ?n ?v (scoreOf Team ?v)) 'CxWell)   ; => ({?n 3.25})
 ```
 
 Four, thirteen and 3.25 — over the four **distinct** values, not the five solutions.
@@ -376,7 +376,7 @@ concludes never reaches the store.
 | `checks/check-stratified` | the same predicates as negative edges |
 | `chain` | withhold from the join; bind per placement; the withdrawal arm |
 | `settle` | re-join a queued aggregate rule whether or not anything blocked |
-| `kb/CoreContext.txt` | five `(comment …)` + `(ternaryPredicate …)` declarations |
+| `kb/CxCore.txt` | five `(comment …)` + `(ternaryPredicate …)` declarations |
 
 ## Where the census is taken
 
@@ -417,7 +417,7 @@ while forward has to arrange for it.
 
 ## Scope
 
-**In:** the five operators as one prover, the `wff` refusal, the CoreContext
+**In:** the five operators as one prover, the `wff` refusal, the CxCore
 declarations, the closure and stratification checks, the re-check maintenance.
 
 **Out:**

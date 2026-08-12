@@ -29,12 +29,12 @@
   (let [kb (kb/open-kb {:backend :memory :space 38 :recover? false}
                        (fn [_] nil) (fn [_] nil))]
     (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
-    (v/assert-rule kb ['(rel ?x ?y) '(rel ?y ?z)] '(rel ?x ?z) 'CyContext {:direction :forward})
+    (v/assert-rule kb ['(rel ?x ?y) '(rel ?y ?z)] '(rel ?x ?z) 'CxCy {:direction :forward})
     (let [inds (mapv #(symbol (str "Ind" %)) (range m))
           t0   (System/nanoTime)]
       (v/with-deferred-settle kb
         (dotimes [i m]
-          (v/assert kb (list 'rel (nth inds i) (nth inds (mod (inc i) m))) 'CyContext)))
+          (v/assert kb (list 'rel (nth inds i) (nth inds (mod (inc i) m))) 'CxCy)))
       (let [ms    (/ (- (System/nanoTime) t0) 1e6)
             n     (p/count-with-functor (:index kb) 'rel)
             trunc (boolean (get-in (v/chain-stats kb) [:last :truncated?]))]

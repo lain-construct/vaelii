@@ -23,10 +23,10 @@ So it is **declared**, per predicate, per argument position:
 (argPreservingInverse P n R)   ; …licenses it when (R W A)
 ```
 
-`R` is any **transitive** relation — `genl` and `genlContext` through their cached
+`R` is any **transitive** relation — `genl` and `genlCx` through their cached
 closures, or a predicate declared `(transitive R)` walked over the stored facts. With
 `R` = `genl`, `argPreserving` is downward inheritance and `argPreservingInverse` is
-upward. With `R` = `genlContext` the preserved argument **names a context**, and the
+upward. With `R` = `genlCx` the preserved argument **names a context**, and the
 same two directions read the lattice: a claim about a wide context reaches every
 context below it — a decree stated of a whole world holds in each of its scenarios —
 and the inverse form carries a claim about a narrow context up to the ones above it.
@@ -58,7 +58,7 @@ licences do not travel down it.
 
 ## Two of them ship
 
-`largerThan` and `partType` are in the starter (`resources/kb/upper/AbstractContext.txt`), and the
+`largerThan` and `partType` are in the starter (`resources/kb/upper/CxAbstract.txt`), and the
 pair is worth comparing because they are declared **differently on purpose**:
 
 ```clojure
@@ -67,7 +67,7 @@ pair is worth comparing because they are declared **differently on purpose**:
 ```
 
 `largerThan` preserves on both positions, so `(largerThan mammal insect)` in
-`SizeContext` answers `(largerThan dog ant)` with nothing stored about dogs or ants.
+`CxSize` answers `(largerThan dog ant)` with nothing stored about dogs or ants.
 `partType` preserves on the **first only**: a kind of bird has whatever parts birds have,
 so `(partType bird wing)` answers `(partType penguin wing)` — but birds having wings says
 nothing about which *kinds of wing* they have, so position 2 preserves nothing. Each
@@ -78,7 +78,7 @@ The size claims are also where the sharp edge shows. Preservation runs downward 
 `largerThan` is asymmetric, hence irreflexive — so a claim relating a kind to one of its
 own subkinds would license `(largerThan K K)` and contradict itself. `(largerThan mammal
 mouse)` is not a fact this ontology can hold, however true it sounds; every pair in
-`SizeContext` is between kinds that are not `genl`-related, and that is a requirement
+`CxSize` is between kinds that are not `genl`-related, and that is a requirement
 rather than a coincidence.
 
 ## The transitivity has to have been declared
@@ -92,7 +92,7 @@ ever evidence for. `assert` refuses the declaration:
 ;; => throws :not-well-formed
 ;;    "begat is not transitive, and argPreserving walks the relation it names to a
 ;;     fixpoint — declare (transitive begat) before the preservation, or name one of
-;;     genl / genlContext"
+;;     genl / genlCx"
 ```
 
 The refusal lives in `wff` rather than in `(argIsa argPreserving 3 transitivePredicate)`
@@ -116,7 +116,7 @@ Everything here is read from the asking context. The declarations come through
 `matches-visible`; `witness-terms` walks the `genl` closure **scoped** to the vantage,
 so a claim travels the subtype edges the asker can see and no others; and
 `usable-relation?` reads `(transitive R)` from there too — a transitivity some invisible
-context declares is not a licence this one holds. `genlContext` is the stated
+context declares is not a licence this one holds. `genlCx` is the stated
 exception and stays global: the context topology is what [taxonomy.md](taxonomy.md)
 describes, and a preservation along it is a claim about that topology.
 
@@ -139,7 +139,7 @@ Preservation moves an **argument** along a relation; the predicate, and the leve
 relates at, are left alone. Crossing the line is a different claim: it links two
 predicates and has a quantifier reading to pin down (every member? some member?). The
 vocabulary for it is `(typeToInstancePred TypePred InstancePred)` — declared in
-CoreContext and **deliberately inert**: it records the pairing for a reader and the
+CxCore and **deliberately inert**: it records the pairing for a reader and the
 engine infers nothing from it, because the quantifier reading is exactly the thing
 nothing here fixes.
 
@@ -338,7 +338,7 @@ than by matching. So such a datum **re-joins in full** every forward rule carryi
 antecedent on a preserved predicate whose licensed set it moved, and those rules leave
 the trigger set so the work is done once (`inherit/rejoin-rules`,
 `chain/rejoin-preserving`). The sentences that move one are the declaration itself, a
-claim on the predicate, a fact on the relation — a `genl` or `genlContext` edge included
+claim on the predicate, a fact on the relation — a `genl` or `genlCx` edge included
 — `(transitive R)`, and `(asymmetric P)`.
 
 **A defeat inside arbitration moves the same joins with no sentence arriving at all.**
@@ -494,7 +494,7 @@ argument-side trigger the firings that predate the edge keep a conclusion the fi
 after it correctly drop, and which you get depends on when the edge arrived.
 
 `special/recheck-preserving-along` closes it. Whenever the extent of a relation `R` moves
-— a fact on it, or a `genl` / `genlContext` edge — every rule whose exception mentions a
+— a fact on it, or a `genl` / `genlCx` edge — every rule whose exception mentions a
 predicate declared `(argPreserving P n R)` is queued for re-evaluation at the next
 `settle`. Queued as `:all` rather than with the moved sentence as a narrowing trigger,
 because that sentence is about `R` and the exception is about `P`, so it could not narrow

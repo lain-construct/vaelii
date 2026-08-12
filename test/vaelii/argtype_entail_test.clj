@@ -36,12 +36,12 @@
   (v/assert kb (list 'genl t 'thing) ctx))
 
 (defn- a-context
-  "Hang `ctx` under UniverseContext, so what is declared universally is visible from
+  "Hang `ctx` under CxUniverse, so what is declared universally is visible from
   it.  A `fresh` KB has no spindle, and a context wired to nothing sees nothing —
   which would make every argument outside the hierarchy and every test here trivially
   true."
   [kb ctx]
-  (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext))
+  (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse))
 
 (defn- entailed
   "The handle of the **stored, believed** sentex for `sentence` in `ctx`, or nil.
@@ -62,36 +62,36 @@
 ;; ---- the headline --------------------------------------------------------
 
 (tu/deftest-kb a-declaration-entails-the-type-it-constrains
-  (tu/with-terms [animal parentOf Fred Mary WorldContext]
-    (a-context kb WorldContext)
-    (a-type kb animal WorldContext)
-    (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
+  (tu/with-terms [animal parentOf Fred Mary CxWorld]
+    (a-context kb CxWorld)
+    (a-type kb animal CxWorld)
+    (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
     (testing "with the entailment off, the constraint passes and stores nothing"
       (without-entailing
-       (v/assert kb (list parentOf Fred Mary) WorldContext)
-       (is (not (believed? kb (list animal Fred) WorldContext)))
-       (is (not (v/isa? kb Fred animal WorldContext))
+       (v/assert kb (list parentOf Fred Mary) CxWorld)
+       (is (not (believed? kb (list animal Fred) CxWorld)))
+       (is (not (v/isa? kb Fred animal CxWorld))
            "and the taxonomy has not learned what the declaration says")
-       (is (empty? (v/types-of kb Fred WorldContext)))))
-    (v/retract! kb (v/handle-of kb (list parentOf Fred Mary) WorldContext))
+       (is (empty? (v/types-of kb Fred CxWorld)))))
+    (v/retract! kb (v/handle-of kb (list parentOf Fred Mary) CxWorld))
     (with-entailing
-      (v/assert kb (list parentOf Fred Mary) WorldContext)
+      (v/assert kb (list parentOf Fred Mary) CxWorld)
       (testing "with it on, the type is a stored, believed datum"
-        (is (believed? kb (list animal Fred) WorldContext)))
+        (is (believed? kb (list animal Fred) CxWorld)))
       (testing "so the taxonomy — and everything reading it — now says so"
-        (is (v/isa? kb Fred animal WorldContext))
-        (is (= [animal] (vec (v/types-of kb Fred WorldContext)))))
+        (is (v/isa? kb Fred animal CxWorld))
+        (is (= [animal] (vec (v/types-of kb Fred CxWorld)))))
       (testing "and the second argument, which nothing constrains, is untouched"
-        (is (not (believed? kb (list animal Mary) WorldContext)))))))
+        (is (not (believed? kb (list animal Mary) CxWorld)))))))
 
 (tu/deftest-kb why-names-the-fact-and-the-declaration
-  (tu/with-terms [animal parentOf Fred Mary WorldContext]
-    (a-type kb animal WorldContext)
-    (a-context kb WorldContext)
-    (let [dh (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)]
+  (tu/with-terms [animal parentOf Fred Mary CxWorld]
+    (a-type kb animal CxWorld)
+    (a-context kb CxWorld)
+    (let [dh (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)]
       (with-entailing
-        (let [fh (v/assert kb (list parentOf Fred Mary) WorldContext)
-              th (v/handle-of kb (list animal Fred) WorldContext)
+        (let [fh (v/assert kb (list parentOf Fred Mary) CxWorld)
+              th (v/handle-of kb (list animal Fred) CxWorld)
               w  (v/why kb th)
               sup (first (:support w))]
           (is (some? th) "the type is stored")
@@ -103,34 +103,34 @@
 ;; ---- both directions reach one KB ---------------------------------------
 
 (tu/deftest-kb a-declaration-reaches-the-facts-already-stored
-  (tu/with-terms [animal parentOf Fred Mary Ann Bob WorldContext]
+  (tu/with-terms [animal parentOf Fred Mary Ann Bob CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb animal WorldContext)
-      (v/assert kb (list parentOf Fred Mary) WorldContext)
-      (v/assert kb (list parentOf Ann Bob) WorldContext)
-      (is (not (believed? kb (list animal Fred) WorldContext))
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (v/assert kb (list parentOf Fred Mary) CxWorld)
+      (v/assert kb (list parentOf Ann Bob) CxWorld)
+      (is (not (believed? kb (list animal Fred) CxWorld))
           "nothing is entailed while nothing is declared")
-      (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
       (testing "the declaration arriving last reaches every fact already stored"
-        (is (believed? kb (list animal Fred) WorldContext))
-        (is (believed? kb (list animal Ann) WorldContext))))))
+        (is (believed? kb (list animal Fred) CxWorld))
+        (is (believed? kb (list animal Ann) CxWorld))))))
 
 (tu/deftest-kb the-two-arrival-orders-reach-the-same-belief
   ;; the gate: declaration-then-fact and fact-then-declaration are the same knowledge
   (doseq [order [:declaration-first :facts-first]]
     (tu/with-neutral-kb [kb tu/fresh]
-      (tu/with-terms [animal parentOf Fred Mary WorldContext]
+      (tu/with-terms [animal parentOf Fred Mary CxWorld]
         (with-entailing
-          (a-context kb WorldContext)
-          (a-type kb animal WorldContext)
-          (let [decl #(v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
-                fact #(v/assert kb (list parentOf Fred Mary) WorldContext)]
+          (a-context kb CxWorld)
+          (a-type kb animal CxWorld)
+          (let [decl #(v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
+                fact #(v/assert kb (list parentOf Fred Mary) CxWorld)]
             (if (= order :declaration-first) (do (decl) (fact)) (do (fact) (decl))))
-          (is (believed? kb (list animal Fred) WorldContext)
+          (is (believed? kb (list animal Fred) CxWorld)
               (str "entailed under " (name order)))
           (is (= 1 (count (:support (v/why kb (v/handle-of kb (list animal Fred)
-                                                           WorldContext)))))
+                                                           CxWorld)))))
               (str "with one justification under " (name order))))))))
 
 ;; ---- the type is held by its supporters ---------------------------------
@@ -138,84 +138,84 @@
 (tu/deftest-kb retracting-either-supporter-takes-the-type-back
   (doseq [drop [:the-fact :the-declaration]]
     (tu/with-neutral-kb [kb tu/fresh]
-      (tu/with-terms [animal parentOf Fred Mary WorldContext]
+      (tu/with-terms [animal parentOf Fred Mary CxWorld]
         (with-entailing
-          (a-context kb WorldContext)
-          (a-type kb animal WorldContext)
-          (let [dh (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
-                fh (v/assert kb (list parentOf Fred Mary) WorldContext)]
-            (is (believed? kb (list animal Fred) WorldContext))
+          (a-context kb CxWorld)
+          (a-type kb animal CxWorld)
+          (let [dh (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
+                fh (v/assert kb (list parentOf Fred Mary) CxWorld)]
+            (is (believed? kb (list animal Fred) CxWorld))
             (v/retract! kb (if (= drop :the-fact) fh dh))
-            (is (not (believed? kb (list animal Fred) WorldContext))
+            (is (not (believed? kb (list animal Fred) CxWorld))
                 (str "the type goes when " (name drop) " goes"))
-            (is (nil? (v/handle-of kb (list animal Fred) WorldContext))
+            (is (nil? (v/handle-of kb (list animal Fred) CxWorld))
                 "swept, not merely disbelieved — its only justification is invalid")))))))
 
 (tu/deftest-kb a-type-survives-while-anything-supports-it
-  (tu/with-terms [animal parentOf childOf Fred Mary WorldContext]
+  (tu/with-terms [animal parentOf childOf Fred Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb animal WorldContext)
-      (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
-      (v/assert kb (list 'argIsa childOf 1 animal) WorldContext)
-      (let [fh (v/assert kb (list parentOf Fred Mary) WorldContext)]
-        (v/assert kb (list childOf Fred Mary) WorldContext)
-        (is (believed? kb (list animal Fred) WorldContext))
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
+      (v/assert kb (list 'argIsa childOf 1 animal) CxWorld)
+      (let [fh (v/assert kb (list parentOf Fred Mary) CxWorld)]
+        (v/assert kb (list childOf Fred Mary) CxWorld)
+        (is (believed? kb (list animal Fred) CxWorld))
         (testing "two independent facts entail it; dropping one leaves the other"
           (v/retract! kb fh)
-          (is (believed? kb (list animal Fred) WorldContext)))))))
+          (is (believed? kb (list animal Fred) CxWorld)))))))
 
 (tu/deftest-kb defeating-the-fact-takes-the-type-out-with-it
-  (tu/with-terms [animal parentOf Fred Mary WorldContext]
+  (tu/with-terms [animal parentOf Fred Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb animal WorldContext)
-      (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext {:strength :monotonic})
-      (v/assert kb (list parentOf Fred Mary) WorldContext)
-      (is (believed? kb (list animal Fred) WorldContext))
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld {:strength :monotonic})
+      (v/assert kb (list parentOf Fred Mary) CxWorld)
+      (is (believed? kb (list animal Fred) CxWorld))
       ;; a known-true negation defeats the default fact; the type is derived from it,
       ;; so belief follows without anything arranging for it
-      (v/assert kb (list 'not (list parentOf Fred Mary)) WorldContext
+      (v/assert kb (list 'not (list parentOf Fred Mary)) CxWorld
                 {:strength :monotonic})
-      (is (not (believed? kb (list animal Fred) WorldContext))
+      (is (not (believed? kb (list animal Fred) CxWorld))
           "the minted type follows the belief of what it rests on"))))
 
 ;; ---- where it does *not* mint -------------------------------------------
 
 (tu/deftest-kb an-inherited-declaration-constrains-but-does-not-spray
-  (tu/with-terms [animal rock parentOf Fred Mary Rex SchemaContext StoryContext]
+  (tu/with-terms [animal rock parentOf Fred Mary Rex CxSchema CxStory]
     (with-entailing
-      (a-type kb animal 'UniverseContext)
-      (a-type kb rock 'UniverseContext)
-      (a-context kb SchemaContext)
-      (v/assert kb (list 'genlContext StoryContext SchemaContext) 'UniverseContext)
-      (v/assert kb (list 'argIsa parentOf 1 animal) SchemaContext)
-      (v/assert kb (list parentOf Fred Mary) StoryContext)
+      (a-type kb animal 'CxUniverse)
+      (a-type kb rock 'CxUniverse)
+      (a-context kb CxSchema)
+      (v/assert kb (list 'genlCx CxStory CxSchema) 'CxUniverse)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxSchema)
+      (v/assert kb (list parentOf Fred Mary) CxStory)
       (testing "the ancestor's declaration entails nothing in the descendant"
-        (is (not (believed? kb (list animal Fred) StoryContext)))
-        (is (nil? (v/handle-of kb (list animal Fred) StoryContext))))
+        (is (not (believed? kb (list animal Fred) CxStory)))
+        (is (nil? (v/handle-of kb (list animal Fred) CxStory))))
       (testing "but it still constrains there — an argument of the wrong type is refused"
-        (v/assert kb (list rock Rex) StoryContext)
-        (v/assert kb (list 'disjoint animal rock) 'UniverseContext)
+        (v/assert kb (list rock Rex) CxStory)
+        (v/assert kb (list 'disjoint animal rock) 'CxUniverse)
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list parentOf Rex Mary) StoryContext))))
+                     (v/assert kb (list parentOf Rex Mary) CxStory))))
       (testing "and the same declaration written locally does entail"
-        (v/assert kb (list 'argIsa parentOf 1 animal) StoryContext)
-        (is (believed? kb (list animal Fred) StoryContext))))))
+        (v/assert kb (list 'argIsa parentOf 1 animal) CxStory)
+        (is (believed? kb (list animal Fred) CxStory))))))
 
 (tu/deftest-kb a-disjoint-argument-is-convicted-rather-than-minted
-  (tu/with-terms [animal rock parentOf Rex Mary WorldContext]
+  (tu/with-terms [animal rock parentOf Rex Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb animal WorldContext)
-      (a-type kb rock WorldContext)
-      (v/assert kb (list 'disjoint animal rock) WorldContext)
-      (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
-      (v/assert kb (list rock Rex) WorldContext)
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (a-type kb rock CxWorld)
+      (v/assert kb (list 'disjoint animal rock) CxWorld)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
+      (v/assert kb (list rock Rex) CxWorld)
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"arg constraint"
-                            (v/assert kb (list parentOf Rex Mary) WorldContext))
+                            (v/assert kb (list parentOf Rex Mary) CxWorld))
           "the existing :arg-type refusal, not a minted contradiction")
-      (is (nil? (v/handle-of kb (list animal Rex) WorldContext))
+      (is (nil? (v/handle-of kb (list animal Rex) CxWorld))
           "and no type was minted on the way to the refusal"))))
 
 (tu/deftest-kb one-sentex-however-many-declarations-entail-it
@@ -223,16 +223,16 @@
   ;; justification per (fact, declaration) pair.  Nothing is withheld because the type
   ;; was already reachable — see `checks/constraint-entailments` for why any such
   ;; narrowing would make the answer depend on arrival order.
-  (tu/with-terms [animal parentOf childOf Fred Mary WorldContext]
+  (tu/with-terms [animal parentOf childOf Fred Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb animal WorldContext)
-      (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
-      (v/assert kb (list 'argIsa childOf 1 animal) WorldContext)
-      (v/assert kb (list parentOf Fred Mary) WorldContext)
-      (v/assert kb (list childOf Fred Mary) WorldContext)
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
+      (v/assert kb (list 'argIsa childOf 1 animal) CxWorld)
+      (v/assert kb (list parentOf Fred Mary) CxWorld)
+      (v/assert kb (list childOf Fred Mary) CxWorld)
       (is (= 1 (count (v/sentexes-with-functor kb animal))) "one record")
-      (is (= 2 (count (:support (v/why kb (entailed kb (list animal Fred) WorldContext)))))
+      (is (= 2 (count (:support (v/why kb (entailed kb (list animal Fred) CxWorld)))))
           "two justifications — each fact holds it up on its own"))))
 
 (tu/deftest-kb a-subsuming-membership-does-not-suppress-the-entailment
@@ -240,57 +240,57 @@
   ;; *reaches* `animal` by subsumption, and the entailment is drawn anyway.  Withholding
   ;; it would mean the same three sentences produce different records depending on
   ;; whether the subtype membership arrived first.
-  (tu/with-terms [animal dog parentOf Muffet Mary WorldContext]
+  (tu/with-terms [animal dog parentOf Muffet Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb animal WorldContext)
-      (v/assert kb (list 'genl dog animal) WorldContext)
-      (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
-      (v/assert kb (list dog Muffet) WorldContext)
-      (v/assert kb (list parentOf Muffet Mary) WorldContext)
-      (is (believed? kb (list animal Muffet) WorldContext))
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (v/assert kb (list 'genl dog animal) CxWorld)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
+      (v/assert kb (list dog Muffet) CxWorld)
+      (v/assert kb (list parentOf Muffet Mary) CxWorld)
+      (is (believed? kb (list animal Muffet) CxWorld))
       (testing "and it is derived, so retracting the fact takes it back"
-        (v/retract! kb (v/handle-of kb (list parentOf Muffet Mary) WorldContext))
-        (is (nil? (v/handle-of kb (list animal Muffet) WorldContext)))
-        (is (v/isa? kb Muffet animal WorldContext)
+        (v/retract! kb (v/handle-of kb (list parentOf Muffet Mary) CxWorld))
+        (is (nil? (v/handle-of kb (list animal Muffet) CxWorld)))
+        (is (v/isa? kb Muffet animal CxWorld)
             "while subsumption, which never needed the record, still answers")))))
 
 (tu/deftest-kb a-query-mints-nothing
-  (tu/with-terms [animal parentOf Fred Mary WorldContext]
+  (tu/with-terms [animal parentOf Fred Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb animal WorldContext)
-      (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
       (let [before (tu/content-count kb)]
-        (v/ask kb (list parentOf Fred Mary) WorldContext)
-        (v/ask kb (list animal Fred) WorldContext)
-        (v/sentexes-matching kb (list parentOf '?x '?y) WorldContext)
+        (v/ask kb (list parentOf Fred Mary) CxWorld)
+        (v/ask kb (list animal Fred) CxWorld)
+        (v/sentexes-matching kb (list parentOf '?x '?y) CxWorld)
         (is (= before (tu/content-count kb)) "asking is not telling")
-        (is (nil? (v/handle-of kb (list animal Fred) WorldContext)))))))
+        (is (nil? (v/handle-of kb (list animal Fred) CxWorld)))))))
 
 (tu/deftest-kb an-undeclared-type-is-not-minted
   ;; the pure-native form of "structural types are reject-only": a name the hierarchy
   ;; does not hold is not a type we invent a membership in
-  (tu/with-terms [parentOf Fred Mary WorldContext]
+  (tu/with-terms [parentOf Fred Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (v/assert kb (list 'argIsa parentOf 1 'integer) WorldContext)
-      (v/assert kb (list parentOf Fred Mary) WorldContext)
-      (is (nil? (v/handle-of kb (list 'integer Fred) WorldContext))))))
+      (a-context kb CxWorld)
+      (v/assert kb (list 'argIsa parentOf 1 'integer) CxWorld)
+      (v/assert kb (list parentOf Fred Mary) CxWorld)
+      (is (nil? (v/handle-of kb (list 'integer Fred) CxWorld))))))
 
 ;; ---- the minted type is ordinary content --------------------------------
 
 (tu/deftest-kb a-minted-type-is-a-chaining-seed
-  (tu/with-terms [animal mortal parentOf Fred Mary WorldContext]
+  (tu/with-terms [animal mortal parentOf Fred Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb animal WorldContext)
-      (a-type kb mortal WorldContext)
-      (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
-      (v/assert-rule kb [(list animal '?x)] (list mortal '?x) WorldContext)
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (a-type kb mortal CxWorld)
+      (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
+      (v/assert-rule kb [(list animal '?x)] (list mortal '?x) CxWorld)
       (testing "the rule fires off the minted type within the same assert"
-        (v/assert kb (list parentOf Fred Mary) WorldContext)
-        (is (believed? kb (list mortal Fred) WorldContext))))))
+        (v/assert kb (list parentOf Fred Mary) CxWorld)
+        (is (believed? kb (list mortal Fred) CxWorld))))))
 
 (tu/deftest-kb the-cascade-closes
   ;; A declaration whose own conclusion is constrained: `(rel …)` mints `(t1 x)`, `t1`'s
@@ -298,17 +298,17 @@
   ;; there.  It has to cascade (the retroactive direction does, so the forward one must
   ;; agree), and it has to stop: every mint is find-or-create and every justification is
   ;; content-keyed, so the cycle has nothing new to produce on the second lap.
-  (tu/with-terms [t1 t2 rel Fred Mary WorldContext]
+  (tu/with-terms [t1 t2 rel Fred Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb t1 WorldContext)
-      (a-type kb t2 WorldContext)
-      (v/assert kb (list 'argIsa rel 1 t1) WorldContext)
-      (v/assert kb (list 'argIsa t1 1 t2) WorldContext)
-      (v/assert kb (list 'argIsa t2 1 t1) WorldContext)
-      (v/assert kb (list rel Fred Mary) WorldContext)
-      (is (believed? kb (list t1 Fred) WorldContext))
-      (is (believed? kb (list t2 Fred) WorldContext))
+      (a-context kb CxWorld)
+      (a-type kb t1 CxWorld)
+      (a-type kb t2 CxWorld)
+      (v/assert kb (list 'argIsa rel 1 t1) CxWorld)
+      (v/assert kb (list 'argIsa t1 1 t2) CxWorld)
+      (v/assert kb (list 'argIsa t2 1 t1) CxWorld)
+      (v/assert kb (list rel Fred Mary) CxWorld)
+      (is (believed? kb (list t1 Fred) CxWorld))
+      (is (believed? kb (list t2 Fred) CxWorld))
       (is (= 1 (count (v/sentexes-with-functor kb t1)))
           "one sentex per type, however many times the cycle is traversed"))))
 
@@ -319,17 +319,17 @@
   ;; gives it a handle to be justified against) and inside a fixpoint, and throwing from
   ;; either would leave the KB half-written or belief half-computed.  The same choice
   ;; `deduce-lift` makes for the copy it cannot admit.
-  (tu/with-terms [t rel Rex Mary WorldContext]
+  (tu/with-terms [t rel Rex Mary CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb t WorldContext)
-      (v/assert kb (list 'binaryPredicate t) WorldContext)
-      (v/assert kb (list 'argIsa rel 1 t) WorldContext)
+      (a-context kb CxWorld)
+      (a-type kb t CxWorld)
+      (v/assert kb (list 'binaryPredicate t) CxWorld)
+      (v/assert kb (list 'argIsa rel 1 t) CxWorld)
       (v/clear-violations! kb)
-      (let [h (v/assert kb (list rel Rex Mary) WorldContext)]
+      (let [h (v/assert kb (list rel Rex Mary) CxWorld)]
         (is (some? h) "the assert stands")
         (is (v/in? kb h))
-        (is (nil? (v/handle-of kb (list t Rex) WorldContext))
+        (is (nil? (v/handle-of kb (list t Rex) CxWorld))
             "and the entailment it could not admit was not stored")
         (let [vs (v/violations kb)]
           (is (some #(and (= :arity (:violation %)) (= (list t Rex) (:sentence %))) vs)
@@ -338,26 +338,26 @@
 ;; ---- argGenl -------------------------------------------------------------
 
 (tu/deftest-kb argGenl-entails-a-genl-edge
-  (tu/with-terms [physical_object partType wheel_kind axle_kind WorldContext]
+  (tu/with-terms [physical_object partType wheel_kind axle_kind CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb physical_object WorldContext)
-      (v/assert kb (list 'argGenl partType 1 physical_object) WorldContext)
-      (v/assert kb (list partType wheel_kind axle_kind) WorldContext)
+      (a-context kb CxWorld)
+      (a-type kb physical_object CxWorld)
+      (v/assert kb (list 'argGenl partType 1 physical_object) CxWorld)
+      (v/assert kb (list partType wheel_kind axle_kind) CxWorld)
       (is (v/genl? kb wheel_kind physical_object)
           "the argument named a kind of physical object, and now the taxonomy says so")
       (testing "and the edge is held by its supporters like any other entailment"
-        (v/retract! kb (v/handle-of kb (list partType wheel_kind axle_kind) WorldContext))
+        (v/retract! kb (v/handle-of kb (list partType wheel_kind axle_kind) CxWorld))
         (is (not (v/genl? kb wheel_kind physical_object)))))))
 
 (tu/deftest-kb an-individual-in-an-argGenl-position-is-convicted-not-given-an-edge
-  (tu/with-terms [physical_object partType Wheel axle_kind WorldContext]
+  (tu/with-terms [physical_object partType Wheel axle_kind CxWorld]
     (with-entailing
-      (a-context kb WorldContext)
-      (a-type kb physical_object WorldContext)
-      (v/assert kb (list 'argGenl partType 1 physical_object) WorldContext)
+      (a-context kb CxWorld)
+      (a-type kb physical_object CxWorld)
+      (v/assert kb (list 'argGenl partType 1 physical_object) CxWorld)
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"never be a subtype"
-                            (v/assert kb (list partType Wheel axle_kind) WorldContext)))
+                            (v/assert kb (list partType Wheel axle_kind) CxWorld)))
       (is (not (v/genl? kb Wheel physical_object))))))
 
 ;; ---- order independence --------------------------------------------------
@@ -385,17 +385,17 @@
   (let [results
         (for [order (permutations [:decl :fact :type])]
           (tu/with-neutral-kb [kb tu/fresh]
-            (tu/with-terms [animal dog parentOf Fred Mary WorldContext]
+            (tu/with-terms [animal dog parentOf Fred Mary CxWorld]
               (with-entailing
-                (a-context kb WorldContext)
-                (a-type kb animal WorldContext)
-                (v/assert kb (list 'genl dog animal) WorldContext)
+                (a-context kb CxWorld)
+                (a-type kb animal CxWorld)
+                (v/assert kb (list 'genl dog animal) CxWorld)
                 (doseq [step order]
                   (case step
-                    :decl (v/assert kb (list 'argIsa parentOf 1 animal) WorldContext)
-                    :fact (v/assert kb (list parentOf Fred Mary) WorldContext)
-                    :type (v/assert kb (list dog Fred) WorldContext)))
-                [order (believed-shape kb animal dog parentOf Fred Mary WorldContext)]))))]
+                    :decl (v/assert kb (list 'argIsa parentOf 1 animal) CxWorld)
+                    :fact (v/assert kb (list parentOf Fred Mary) CxWorld)
+                    :type (v/assert kb (list dog Fred) CxWorld)))
+                [order (believed-shape kb animal dog parentOf Fred Mary CxWorld)]))))]
     (is (= 1 (count (set (map second results))))
         (str "belief varied by arrival order: " (pr-str results)))
     (is (every? (comp :animal second) results)

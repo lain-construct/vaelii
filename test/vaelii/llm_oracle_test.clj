@@ -28,7 +28,7 @@
 (use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
 (use-fixtures :each (tu/neutral))
 
-(def ^:private N 'NaturalWorldContext)
+(def ^:private N 'CxNaturalWorld)
 
 (defn- derived-claims [kb] (oracle/claims kb (score/derived-handles kb N)))
 
@@ -65,7 +65,7 @@
       (is (not (str/includes? (oracle/line warm) "Every mammal"))))))
 
 (tu/deftest-kb a-premise-is-shown-with-no-situation-at-all
-  (let [premise (first (oracle/claims kb [(v/handle-of kb '(genl penguin bird) 'OrganismContext)]))]
+  (let [premise (first (oracle/claims kb [(v/handle-of kb '(genl penguin bird) 'CxOrganism)]))]
     (is (empty? (:givens premise)))
     (is (= "[0] Every penguin is a bird." (oracle/line premise)))))
 
@@ -250,9 +250,9 @@
   handles.  A context of their own, so the judged set is one batch a judge cannot tell
   apart while nothing false is mixed into a theory anybody else reads."
   [kb]
-  (v/assert kb '(genlContext ControlContext WellContext) 'WellContext)
-  (v/assert kb '(dog Rex99) 'ControlContext)
-  (mapv #(v/assert kb % 'ControlContext) control-sentences))
+  (v/assert kb '(genlCx CxControl CxWell) 'CxWell)
+  (v/assert kb '(dog Rex99) 'CxControl)
+  (mapv #(v/assert kb % 'CxControl) control-sentences))
 
 (deftest ^:llm a-live-model-judges-what-the-kb-concluded
   (cond

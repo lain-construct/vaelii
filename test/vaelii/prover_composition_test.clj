@@ -32,7 +32,7 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(def ^:private ctx 'UniverseContext)
+(def ^:private ctx 'CxUniverse)
 
 (defn- runs [plan] (into #{} (comp (filter :runs?) (map :prover)) plan))
 (defn- shadowed [plan] (into #{} (comp (remove :runs?) (map :prover)) plan))
@@ -141,10 +141,10 @@
     (is (= #{:preserving}
            (provers/shadowing-channels kb (list largerThan dog_t animal_t) ctx)))
     (testing "and it is scoped like every other declaration read"
-      (tu/with-terms [OtherContext]
-        (v/assert kb (list 'genlContext OtherContext 'CoreContext) 'CoreContext)
+      (tu/with-terms [CxOther]
+        (v/assert kb (list 'genlCx CxOther 'CxCore) 'CxCore)
         (is (empty? (provers/shadowing-channels
-                     kb (list largerThan dog_t animal_t) OtherContext))
+                     kb (list largerThan dog_t animal_t) CxOther))
             "a context that cannot see the declaration is not shadowed by it")))))
 
 ;; ---- what the planner reads ---------------------------------------------

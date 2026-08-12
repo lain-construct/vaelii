@@ -459,7 +459,7 @@
   "The [sub super] edges of a transitivity relation, read as the believed sentexes
   that state them.  The taxonomy caches the *closure*; the tree wants the direct
   edges it was built from, and those are exactly the believed `(genl a b)` /
-  `(genlContext a b)` sentexes — the same input the cache is maintained from, and
+  `(genlCx a b)` sentexes — the same input the cache is maintained from, and
   belief-filtered the same way."
   [kb pred]
   (into #{} (keep (fn [s] (let [[_ a b] (:sentence s)] (when (and a b) [a b]))))
@@ -1861,7 +1861,7 @@
   1000)
 
 (def ^:private lattice-cap
-  "How many `genlContext` edges the context lattice will read to find its roots.  A root
+  "How many `genlCx` edges the context lattice will read to find its roots.  A root
   is a context that no edge makes a sub of anything, which is a property of the *whole*
   edge set — there is no partial answer — so beyond this the page says it cannot root a
   lattice and lists the contexts instead.  Every KB we ship or import states contexts in
@@ -1943,12 +1943,12 @@
                     "show more"))))))
 
 (defn- context-roots
-  "The tops of the `genlContext` lattice — the contexts no edge makes a sub of anything —
+  "The tops of the `genlCx` lattice — the contexts no edge makes a sub of anything —
   or **nil** past `lattice-cap`, which is the page's cue to say so rather than draw a
   lattice it cannot root."
   [kb]
-  (when (<= (v/count-with-functor kb 'genlContext) lattice-cap)
-    (let [es (edges-of kb 'genlContext)]
+  (when (<= (v/count-with-functor kb 'genlCx) lattice-cap)
+    (let [es (edges-of kb 'genlCx)]
       (sort-by str (set/difference (set (map second es)) (set (map first es)))))))
 
 (defn- elided
@@ -2092,20 +2092,20 @@
              [:span.muted " — add knowledge; every line is checked before anything is stored."]]
             legend
             badge-legend
-            [:h2 "Contexts " [:span.muted "(genlContext)"]]
+            [:h2 "Contexts " [:span.muted "(genlCx)"]]
             (if roots
               [:ul.tree (for [r roots]
                           (if (expandable? kb r)
                             [:li [:details {:open "open"}
                                   [:summary (term-link view r)]
-                                  [:ul.tree-kids (tree-rows view 'genlContext r 0)]]]
+                                  [:ul.tree-kids (tree-rows view 'genlCx r 0)]]]
                             [:li (term-link view r)]))]
               ;; no lattice to draw, so the question changes from "how do they nest" to
               ;; "where is the knowledge" — which the sizes answer and an alphabetical
               ;; first-fifty never did
               (let [ranked (contexts-by-size kb)]
                 (list
-                 [:p.muted "Too many genlContext edges to root a lattice — the contexts "
+                 [:p.muted "Too many genlCx edges to root a lattice — the contexts "
                   "holding the most, instead."]
                  (if ranked
                    (list
@@ -2282,7 +2282,7 @@
          [:div
           ;; **Each half is a `[type context]` pair, and both halves are links.** Handing
           ;; the pair to `term-link` whole took its fallback arm, which links whatever it
-          ;; is given — so the page offered `/term?q=[dog AContext]`, a term no KB holds,
+          ;; is given — so the page offered `/term?q=[dog CxA]`, a term no KB holds,
           ;; for every clash it reported. The context is half of what the row says
           ;; anyway: a membership admissible where it was written is only interesting
           ;; beside *where* that was.
@@ -2327,7 +2327,7 @@
   ([{:keys [kb types] :as view} note clashes?]
    (let [ctxs    (vec (v/contexts kb))
          ;; the trie's own root count, not the sum of the table below it: a context the
-         ;; taxonomy does not know (nothing states a `genlContext` edge for it) holds
+         ;; taxonomy does not know (nothing states a `genlCx` edge for it) holds
          ;; sentexes all the same, and summing the table would quietly lose them
          total   (v/sentex-count kb)
          contras (v/contradictions kb)
@@ -2475,7 +2475,7 @@
   "The two relations drawn on the vertical axis.  They are not relation-flank edges: a
   `genl` edge drawn twice, once as a row and once as an arrow, would say two different
   things about one claim."
-  '#{genl genlContext})
+  '#{genl genlCx})
 
 ;; layout, in the flat user space `vaelii.impl.svg` crops to what is drawn
 (def ^:private graph-level 76)
@@ -2582,7 +2582,7 @@
   `term-page` has **already read**, so a term with no taxonomy at all costs the graph
   nothing and an individual pays for no probe that was going to come back empty.
 
-  A term is a context or it is not.  `genl` relates types and predicates, `genlContext`
+  A term is a context or it is not.  `genl` relates types and predicates, `genlCx`
   relates contexts, `wff` refuses the mixture, and the naming invariants keep the two
   vocabularies apart — so there is exactly one subsumption relation per term page, and the
   class on its edges is what says which.  A reader is never left to read a context edge as
@@ -2590,7 +2590,7 @@
   the one that was walked."
   [term gls sps]
   (if (= :context (v/term-role term))
-    {:rel 'genlContext :up? true :down? true}
+    {:rel 'genlCx :up? true :down? true}
     (when (or (seq gls) (seq sps))
       {:rel 'genl :up? (boolean (seq gls)) :down? (boolean (seq sps))})))
 
@@ -2810,7 +2810,7 @@
   "The captions under the picture: what was elided, and whether the read budget rather
   than the term's own shape is what stopped it."
   [{:keys [up down flank]} plan]
-  (let [word (fn [dir] (if (= 'genlContext (:rel plan))
+  (let [word (fn [dir] (if (= 'genlCx (:rel plan))
                          (if (= :up dir) "contexts it sees" "contexts that see it")
                          (if (= :up dir) "direct supertypes" "direct subtypes")))]
     (->> [(some->> (:direct up) (elision-note (word :up)))
@@ -2853,7 +2853,7 @@
         (let [scene (taxonomy-scene view term plan near)
               scene (update scene :flank merge reach)]
           (graph-figure (term-text view term) scene (graph-notes scene plan)
-                        (if (= 'genlContext (:rel plan))
+                        (if (= 'genlCx (:rel plan))
                           "arrows point at the more general context; relations flank it"
                           "arrows point at the more general type; relations flank it")))
         (when (seq near)
@@ -3423,7 +3423,7 @@
              "context into one network and tightens it by composition, so a relation "
              "nobody stated is entailed by the ones that were."]
             [:form.q {:method "get" :action "/network"}
-             [:input {:type "text" :name "ctx" :size 24 :placeholder "WellContext"
+             [:input {:type "text" :name "ctx" :size 24 :placeholder "CxWell"
                       :value (when ctx (pr-str ctx))}]
              [:select {:name "calc"}
               (for [{nm :calculus} table]
@@ -3818,8 +3818,8 @@
   the write: whether the sandbox exists is a per-request read, and step 1 is the request
   that brings it into being.
 
-  Both adding steps open the sandbox first.  Without its `genlContext` edge the sandbox
-  sees no shipped context, so BiologyContext's flight rule would not be visible from it
+  Both adding steps open the sandbox first.  Without its `genlCx` edge the sandbox
+  sees no shipped context, so CxBiology's flight rule would not be visible from it
   and the write would derive nothing at all — the demo would quietly do nothing rather
   than fail."
   [kb sandbox op first-h]
@@ -3864,7 +3864,7 @@
    [:div.assert-row
     [:label {:for "assert-ctx"} "Context"]
     [:input#assert-ctx {:type "text" :name "ctx" :size 24 :autocomplete "off"
-                        :placeholder "UniverseContext" :value ctx}]
+                        :placeholder "CxUniverse" :value ctx}]
     (when (and sandbox (= (str sandbox) (str ctx)))
       [:span.muted.sbx-note "your sandbox — nothing shipped can see it"])
     [:label.check {:for "assert-mono"}
@@ -4062,7 +4062,7 @@
   [{:keys [kb sandbox] :as view}]
   (let [live?  (boolean @(:sandbox-live? view))
         ctx-of (fn [{:keys [premises context]}]
-                 (if (seq premises) sandbox (or context 'WellContext)))
+                 (if (seq premises) sandbox (or context 'CxWell)))
         rows   (for [ex ex/examples
                      :let [ctx   (ctx-of ex)
                            avail (ex/available? kb ex)
@@ -4093,7 +4093,7 @@
 
 (defn reasoning-run
   "Establish one example's premises in the sandbox.  A write, so a POST — and the
-  sandbox is opened first, exactly as the demo does: without its `genlContext` edge it
+  sandbox is opened first, exactly as the demo does: without its `genlCx` edge it
   would see no shipped rule and the example would quietly derive nothing."
   [kb sandbox id]
   (when-let [ex (ex/by-id id)]
@@ -4454,7 +4454,7 @@
   [{:keys [kb sandbox] :as view} {:keys [text ctx monotonic?] :as state}]
   (let [ctx-sym (->form ctx)
         ;; the first write is what creates the sandbox, and it has to happen *before*
-        ;; the checks: they are context-scoped, so a sandbox with no `genlContext` edge
+        ;; the checks: they are context-scoped, so a sandbox with no `genlCx` edge
         ;; yet would see none of the shipped vocabulary they are checked against
         _       (when (and sandbox (= ctx-sym sandbox)) (sandbox/open kb sandbox))
         opts    (when monotonic? {:strength :monotonic})
@@ -5558,7 +5558,7 @@
          ["/tree/rows"  {:get (fn [req]
                                 (let [rel  (->form (get-in req [:query-params "rel"]))
                                       node (->form (get-in req [:query-params "node"]))]
-                                  (if (and ('#{genl genlContext} rel) (symbol? node))
+                                  (if (and ('#{genl genlCx} rel) (symbol? node))
                                     (tree-rows-page (view (current target) req) rel node
                                                     (->offset (get-in req [:query-params "offset"])))
                                     (frag ""))))}]

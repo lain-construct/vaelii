@@ -33,7 +33,7 @@
   (let [kb (v/open-kb {:backend :memory :space 30 :recover? false})]
     (v/clear! kb)
     (core-context/load-into kb)
-    (seed/load-context kb 'SpaceContext "upper")
+    (seed/load-context kb 'CxSpace "upper")
     kb))
 
 (defn- ms [f] (let [t (System/nanoTime)] (f) (/ (- (System/nanoTime) t) 1e6)))
@@ -45,7 +45,7 @@
   sharing an ancestor line compose."
   [shape n prover? rule? defer?]
   (let [kb     (fresh-kb)
-        ctx    'UniverseContext
+        ctx    'CxUniverse
         node   #(symbol (str "Reg" % "Node"))
         parent (if (= :tree shape) #(quot (dec %) 3) dec)
         opts   (when defer? {:chain? false})]

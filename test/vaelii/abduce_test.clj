@@ -22,10 +22,10 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- a-context
-  "Hang `ctx` under UniverseContext.  A `fresh` KB has no spindle, and a context wired
+  "Hang `ctx` under CxUniverse.  A `fresh` KB has no spindle, and a context wired
   to nothing sees nothing."
   [kb ctx]
-  (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext))
+  (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse))
 
 (defn- grant
   "Declare `pred` assumable.  Nothing is abducible without this."
@@ -42,13 +42,13 @@
 ;; ---- the headline --------------------------------------------------------
 
 (tu/deftest-kb the-wabd-shape
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
     (testing "the goal does not follow from what is stored"
-      (is (not (v/provable? kb (list wabGoal N) TheoryContext))))
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+      (is (not (v/provable? kb (list wabGoal N) CxTheory))))
+    (let [r (v/abduce kb (list wabGoal N) CxTheory)]
       (testing "abduction finds the one thing that would make it follow"
         (is (= #{(list wabPremise N)} (sentences r))))
       (testing "and the goal is answerable under it"
@@ -60,15 +60,15 @@
         (is (nil? (:handle (first (:hypotheses r)))))
         (is (nil? (v/handle-of kb (list wabPremise N) (:context r)))))
       (testing "and the goal is no more provable afterwards than before"
-        (is (not (v/provable? kb (list wabGoal N) TheoryContext)))))))
+        (is (not (v/provable? kb (list wabGoal N) CxTheory)))))))
 
 ;; ---- the gate ------------------------------------------------------------
 
 (tu/deftest-kb an-ungranted-predicate-is-never-assumed
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (let [r (v/abduce kb (list wabGoal N) CxTheory)]
       (testing "the same shape without the grant mints nothing"
         (is (empty? (:hypotheses r)))
         (is (empty? (:solutions r))))
@@ -77,40 +77,40 @@
         (is (= [(list wabPremise N)] (:refused r)))))))
 
 (tu/deftest-kb a-sentence-assert-would-refuse-is-not-hypothesized
-  (tu/with-terms [wabGoal wabPremise N dog_ cat_ TheoryContext]
-    (a-context kb TheoryContext)
-    (v/assert kb (list 'genl dog_ 'thing) TheoryContext)
-    (v/assert kb (list 'genl cat_ 'thing) TheoryContext)
-    (v/assert kb (list 'disjoint dog_ cat_) TheoryContext)
-    (v/assert kb (list cat_ N) TheoryContext)
-    (v/assert kb (list 'argIsa wabPremise 1 dog_) TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
+  (tu/with-terms [wabGoal wabPremise N dog_ cat_ CxTheory]
+    (a-context kb CxTheory)
+    (v/assert kb (list 'genl dog_ 'thing) CxTheory)
+    (v/assert kb (list 'genl cat_ 'thing) CxTheory)
+    (v/assert kb (list 'disjoint dog_ cat_) CxTheory)
+    (v/assert kb (list cat_ N) CxTheory)
+    (v/assert kb (list 'argIsa wabPremise 1 dog_) CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
     (testing "the hypothesis would put a cat in a dog-only slot, so it is refused"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list wabPremise N) TheoryContext))
+                   (v/assert kb (list wabPremise N) CxTheory))
           "and the same sentence really is unassertible"))
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+    (let [r (v/abduce kb (list wabGoal N) CxTheory)]
       (is (empty? (:hypotheses r)))
       (is (= [(list wabPremise N)] (:refused r))))))
 
 (tu/deftest-kb a-hypothesis-a-believed-negation-denies-is-not-minted
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (v/assert kb (list 'not (list wabPremise N)) TheoryContext {:strength :monotonic})
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (v/assert kb (list 'not (list wabPremise N)) CxTheory {:strength :monotonic})
+    (let [r (v/abduce kb (list wabGoal N) CxTheory)]
       (testing "a clash visible now is not an arbitration to run"
         (is (empty? (:hypotheses r)))
         (is (= [(list wabPremise N)] (:refused r)))))))
 
 (tu/deftest-kb an-open-goal-hypothesizes-nothing
-  (tu/with-terms [wabGoal wabPremise TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r (v/abduce kb (list wabGoal '?who) TheoryContext)]
+  (tu/with-terms [wabGoal wabPremise CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (let [r (v/abduce kb (list wabGoal '?who) CxTheory)]
       (testing "which individual would it be?  an open hypothesis is skolemization's
                 question, so this refuses rather than inventing a name"
         (is (empty? (:hypotheses r)))
@@ -124,27 +124,27 @@
           (is (str/starts-with? (name arg) "?")))))))
 
 (tu/deftest-kb the-grant-is-read-from-the-asking-context
-  (tu/with-terms [wabGoal wabPremise N TheoryContext SiblingContext]
-    (a-context kb TheoryContext)
-    (a-context kb SiblingContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (grant kb wabPremise SiblingContext)
+  (tu/with-terms [wabGoal wabPremise N CxTheory CxSibling]
+    (a-context kb CxTheory)
+    (a-context kb CxSibling)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (grant kb wabPremise CxSibling)
     (testing "a grant made in a context the asker cannot see does not reach it —
               abducibility is a policy of the context that gives it"
-      (is (empty? (:hypotheses (v/abduce kb (list wabGoal N) TheoryContext)))))
-    (v/assert kb (list 'genlContext TheoryContext SiblingContext) 'UniverseContext)
+      (is (empty? (:hypotheses (v/abduce kb (list wabGoal N) CxTheory)))))
+    (v/assert kb (list 'genlCx CxTheory CxSibling) 'CxUniverse)
     (testing "once it can see the grantor, it may assume"
       (is (= #{(list wabPremise N)}
-             (sentences (v/abduce kb (list wabGoal N) TheoryContext)))))))
+             (sentences (v/abduce kb (list wabGoal N) CxTheory)))))))
 
 ;; ---- what a hypothesis is ------------------------------------------------
 
 (tu/deftest-kb a-kept-hypothesis-is-an-ordinary-defeasible-premise
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r    (v/abduce kb (list wabGoal N) TheoryContext {:keep? true})
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (let [r    (v/abduce kb (list wabGoal N) CxTheory {:keep? true})
           actx (:context r)
           h    (:handle (first (:hypotheses r)))]
       (try
@@ -165,23 +165,23 @@
             (is (integer? c))
             (is (v/in? kb c))))
         (testing "and nothing that existed before can see any of it"
-          (is (nil? (v/handle-of kb (list wabPremise N) TheoryContext)))
-          (is (empty? (v/sentexes-matching kb (list wabGoal N) TheoryContext))))
+          (is (nil? (v/handle-of kb (list wabPremise N) CxTheory)))
+          (is (empty? (v/sentexes-matching kb (list wabGoal N) CxTheory))))
         (finally (v/abduce-discard! kb r))))))
 
 (tu/deftest-kb a-monotonic-fact-defeats-a-hypothesis-through-the-ordinary-path
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r    (v/abduce kb (list wabGoal N) TheoryContext {:keep? true})
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (let [r    (v/abduce kb (list wabGoal N) CxTheory {:keep? true})
           actx (:context r)
           h    (:handle (first (:hypotheses r)))
           c    (v/handle-of kb (list wabGoal N) actx)]
       (try
         (is (v/in? kb h))
         (is (v/in? kb c))
-        (let [no (v/assert kb (list 'not (list wabPremise N)) TheoryContext
+        (let [no (v/assert kb (list 'not (list wabPremise N)) CxTheory
                            {:strength :monotonic})]
           (testing "known-true content beats an assumption, with no abduction-specific
                     rule anywhere — the hypothesis is simply the weaker side"
@@ -197,14 +197,14 @@
 ;; ---- isolation and cleanup -----------------------------------------------
 
 (tu/deftest-kb an-ignored-abduction-leaves-the-kb-as-it-found-it
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
     (let [sx-before   (tu/sentex-ids kb)
           jd-before   (tu/justification-ids kb)
           in-before   (v/believed kb sx-before)
-          r           (v/abduce kb (list wabGoal N) TheoryContext)]
+          r           (v/abduce kb (list wabGoal N) CxTheory)]
       (is (seq (:hypotheses r)) "the call did do something")
       (testing "and then undid all of it: the same records, the same justifications"
         (is (= sx-before (tu/sentex-ids kb)))
@@ -213,12 +213,12 @@
         (is (= in-before (v/believed kb sx-before)))))))
 
 (tu/deftest-kb discarding-takes-the-consequences-with-it
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
     (let [sx-before (tu/sentex-ids kb)
-          r         (v/abduce kb (list wabGoal N) TheoryContext {:keep? true})
+          r         (v/abduce kb (list wabGoal N) CxTheory {:keep? true})
           actx      (:context r)]
       (is (< (count sx-before) (count (tu/sentex-ids kb))))
       (is (integer? (v/handle-of kb (list wabGoal N) actx)) "a derived conclusion exists")
@@ -233,12 +233,12 @@
 ;; ---- the search ----------------------------------------------------------
 
 (tu/deftest-kb a-second-round-reaches-what-the-first-could-not
-  (tu/with-terms [wabGoal wabP wabQ N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabP TheoryContext)
-    (grant kb wabQ TheoryContext)
-    (a-rule kb [(list wabP '?x) (list wabQ '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+  (tu/with-terms [wabGoal wabP wabQ N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabP CxTheory)
+    (grant kb wabQ CxTheory)
+    (a-rule kb [(list wabP '?x) (list wabQ '?x)] (list wabGoal '?x) CxTheory)
+    (let [r (v/abduce kb (list wabGoal N) CxTheory)]
       (testing "a conjunction is solved left to right, so the first round never reaches
                 the second conjunct — assuming the first is what exposes it"
         (is (= #{(list wabP N) (list wabQ N)} (sentences r)))
@@ -246,13 +246,13 @@
         (is (= :complete (:status r)))))))
 
 (tu/deftest-kb the-hypothesis-set-is-irredundant
-  (tu/with-terms [wabGoal wabP wabQ N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabP TheoryContext)
-    (grant kb wabQ TheoryContext)
-    (a-rule kb [(list wabP '?x)] (list wabGoal '?x) TheoryContext)
-    (a-rule kb [(list wabQ '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+  (tu/with-terms [wabGoal wabP wabQ N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabP CxTheory)
+    (grant kb wabQ CxTheory)
+    (a-rule kb [(list wabP '?x)] (list wabGoal '?x) CxTheory)
+    (a-rule kb [(list wabQ '?x)] (list wabGoal '?x) CxTheory)
+    (let [r (v/abduce kb (list wabGoal N) CxTheory)]
       (testing "two independent routes both dead-end, so both are assumed — and then
                 the one the answer does not need is dropped"
         (is (= 1 (count (:hypotheses r))))
@@ -260,24 +260,24 @@
         (is (seq (:solutions r)))))))
 
 (tu/deftest-kb a-goal-that-already-follows-assumes-nothing
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (v/assert kb (list wabPremise N) TheoryContext)
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (v/assert kb (list wabPremise N) CxTheory)
+    (let [r (v/abduce kb (list wabGoal N) CxTheory)]
       (testing "an empty hypothesis set is the claim that nothing was assumed"
         (is (empty? (:hypotheses r)))
         (is (seq (:solutions r)))
         (is (= :complete (:status r)))))))
 
 (tu/deftest-kb abducing-the-same-goal-twice-mints-no-duplicates
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r1 (v/abduce kb (list wabGoal N) TheoryContext)
-          r2 (v/abduce kb (list wabGoal N) TheoryContext)]
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (let [r1 (v/abduce kb (list wabGoal N) CxTheory)
+          r2 (v/abduce kb (list wabGoal N) CxTheory)]
       (is (= (sentences r1) (sentences r2)))
       (is (= 1 (count (:hypotheses r2))))
       (testing "each ran in its own scratch context, and neither left one behind"
@@ -288,12 +288,12 @@
 ;; ---- the caps ------------------------------------------------------------
 
 (tu/deftest-kb the-hypothesis-cap-is-enforced-and-said-out-loud
-  (tu/with-terms [wabGoal wabP wabQ wabR N TheoryContext]
-    (a-context kb TheoryContext)
-    (run! #(grant kb % TheoryContext) [wabP wabQ wabR])
+  (tu/with-terms [wabGoal wabP wabQ wabR N CxTheory]
+    (a-context kb CxTheory)
+    (run! #(grant kb % CxTheory) [wabP wabQ wabR])
     (a-rule kb [(list wabP '?x) (list wabQ '?x) (list wabR '?x)]
-            (list wabGoal '?x) TheoryContext)
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext {:max-hypotheses 2})]
+            (list wabGoal '?x) CxTheory)
+    (let [r (v/abduce kb (list wabGoal N) CxTheory {:max-hypotheses 2})]
       (testing "it stops at the cap rather than assuming its way to an answer"
         (is (= 2 (count (:hypotheses r))))
         (is (empty? (:solutions r))))
@@ -303,23 +303,23 @@
             "the third antecedent is a candidate with no room, not something refused —
              the two are different answers and are reported separately")))
     (testing "with room, the same goal is answered"
-      (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+      (let [r (v/abduce kb (list wabGoal N) CxTheory)]
         (is (= 3 (count (:hypotheses r))))
         (is (seq (:solutions r)))
         (is (= :complete (:status r)))))))
 
 (tu/deftest-kb a-dead-end-deeper-than-the-depth-cap-is-left-alone
-  (tu/with-terms [wabGoal wabMid wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabMid '?x)] (list wabGoal '?x) TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabMid '?x) TheoryContext)
+  (tu/with-terms [wabGoal wabMid wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabMid '?x)] (list wabGoal '?x) CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabMid '?x) CxTheory)
     (testing "two rule expansions deep, and the cap is one"
-      (let [r (v/abduce kb (list wabGoal N) TheoryContext {:max-depth 1})]
+      (let [r (v/abduce kb (list wabGoal N) CxTheory {:max-depth 1})]
         (is (empty? (:hypotheses r)))
         (is (= [(list wabPremise N)] (:refused r)))))
     (testing "the default reach finds it"
-      (let [r (v/abduce kb (list wabGoal N) TheoryContext)]
+      (let [r (v/abduce kb (list wabGoal N) CxTheory)]
         (is (= #{(list wabPremise N)} (sentences r)))
         (is (seq (:solutions r)))))))
 
@@ -331,19 +331,19 @@
       (is (thrown? clojure.lang.ExceptionInfo (v/abduce kb (list wabGoal N) '?ctx))))))
 
 (tu/deftest-kb a-conjunctive-goal-abduces-across-its-conjuncts
-  (tu/with-terms [wabP wabQ N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabP TheoryContext)
-    (grant kb wabQ TheoryContext)
-    (let [r (v/abduce kb [(list wabP N) (list wabQ N)] TheoryContext)]
+  (tu/with-terms [wabP wabQ N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabP CxTheory)
+    (grant kb wabQ CxTheory)
+    (let [r (v/abduce kb [(list wabP N) (list wabQ N)] CxTheory)]
       (testing "a vector goal is a conjunction here as it is for `prove`"
         (is (= #{(list wabP N) (list wabQ N)} (sentences r)))
         (is (seq (:solutions r)))))))
 
 (tu/deftest-kb the-context-defaults-to-universe
   (tu/with-terms [wabGoal wabPremise N]
-    (grant kb wabPremise 'UniverseContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) 'UniverseContext)
+    (grant kb wabPremise 'CxUniverse)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) 'CxUniverse)
     (let [r (v/abduce kb (list wabGoal N))]
       (is (= #{(list wabPremise N)} (sentences r)))
       (is (seq (:solutions r))))))
@@ -354,65 +354,65 @@
 ;; and not only through the driver.
 
 (tu/deftest-kb the-decision-is-a-predicate-over-a-sentence
-  (tu/with-terms [wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (is (not (abduce/abducible? kb (list wabPremise N) TheoryContext))
+  (tu/with-terms [wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (is (not (abduce/abducible? kb (list wabPremise N) CxTheory))
         "ungranted")
-    (grant kb wabPremise TheoryContext)
-    (is (abduce/abducible? kb (list wabPremise N) TheoryContext))
+    (grant kb wabPremise CxTheory)
+    (is (abduce/abducible? kb (list wabPremise N) CxTheory))
     (testing "and it says no to everything the driver would never hand it anyway"
-      (is (not (abduce/abducible? kb (list wabPremise '?x) TheoryContext)) "open")
-      (is (not (abduce/abducible? kb (list 'not (list wabPremise N)) TheoryContext))
+      (is (not (abduce/abducible? kb (list wabPremise '?x) CxTheory)) "open")
+      (is (not (abduce/abducible? kb (list 'not (list wabPremise N)) CxTheory))
           "a negation's functor is `not`, which nothing grants")
-      (is (not (abduce/abducible? kb N TheoryContext)) "not a literal at all")
-      (is (not (abduce/abducible? kb (list (list wabPremise N) N) TheoryContext))
+      (is (not (abduce/abducible? kb N CxTheory)) "not a literal at all")
+      (is (not (abduce/abducible? kb (list (list wabPremise N) N) CxTheory))
           "a compound in functor position names no predicate, so nothing grants it"))))
 
 (tu/deftest-kb the-depth-bound-is-the-decision-function-s-own
-  (tu/with-terms [wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
+  (tu/with-terms [wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
     (let [g (list wabPremise N)]
-      (is (some? (abduce/maybe-abduce kb g TheoryContext {:max-depth 2} 2)) "at the bound")
-      (is (nil? (abduce/maybe-abduce kb g TheoryContext {:max-depth 2} 3)) "past it")
+      (is (some? (abduce/maybe-abduce kb g CxTheory {:max-depth 2} 2)) "at the bound")
+      (is (nil? (abduce/maybe-abduce kb g CxTheory {:max-depth 2} 3)) "past it")
       (testing "and no bound is no bound — `run` always supplies one, but the seam is
                 written for a proof-search hook that may not"
-        (is (some? (abduce/maybe-abduce kb g TheoryContext {} 99)))))))
+        (is (some? (abduce/maybe-abduce kb g CxTheory {} 99)))))))
 
 (tu/deftest-kb retracting-the-grant-withdraws-the-permission
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (let [g (grant kb wabPremise TheoryContext)]
-      (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-      (is (seq (:hypotheses (v/abduce kb (list wabGoal N) TheoryContext))))
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (let [g (grant kb wabPremise CxTheory)]
+      (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+      (is (seq (:hypotheses (v/abduce kb (list wabGoal N) CxTheory))))
       (v/retract! kb g)
       (testing "the grant is a belief-following prop like any other declaration, so
                 taking it back takes the permission with it"
-        (is (empty? (:hypotheses (v/abduce kb (list wabGoal N) TheoryContext))))))))
+        (is (empty? (:hypotheses (v/abduce kb (list wabGoal N) CxTheory))))))))
 
 (tu/deftest-kb a-negation-the-asker-cannot-see-does-not-block
-  (tu/with-terms [wabGoal wabPremise N TheoryContext SiblingContext]
-    (a-context kb TheoryContext)
-    (a-context kb SiblingContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (v/assert kb (list 'not (list wabPremise N)) SiblingContext {:strength :monotonic})
+  (tu/with-terms [wabGoal wabPremise N CxTheory CxSibling]
+    (a-context kb CxTheory)
+    (a-context kb CxSibling)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (v/assert kb (list 'not (list wabPremise N)) CxSibling {:strength :monotonic})
     (testing "the gate reads `matches-visible`, so a denial stated somewhere the asker
               cannot see is no more binding on it than an assertion there would be"
       (is (= #{(list wabPremise N)}
-             (sentences (v/abduce kb (list wabGoal N) TheoryContext)))))
-    (v/assert kb (list 'genlContext TheoryContext SiblingContext) 'UniverseContext)
+             (sentences (v/abduce kb (list wabGoal N) CxTheory)))))
+    (v/assert kb (list 'genlCx CxTheory CxSibling) 'CxUniverse)
     (testing "wire the two together and the same denial now blocks"
-      (is (empty? (:hypotheses (v/abduce kb (list wabGoal N) TheoryContext)))))))
+      (is (empty? (:hypotheses (v/abduce kb (list wabGoal N) CxTheory)))))))
 
 ;; ---- what a kept abduction looks like to the rest of the API ---------------
 
 (tu/deftest-kb the-hypothesis-and-what-it-licensed-are-ordinary-to-why
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r    (v/abduce kb (list wabGoal N) TheoryContext {:keep? true})
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (let [r    (v/abduce kb (list wabGoal N) CxTheory {:keep? true})
           h    (:handle (first (:hypotheses r)))
           c    (v/handle-of kb (list wabGoal N) (:context r))]
       (try
@@ -428,12 +428,12 @@
         (finally (v/abduce-discard! kb r))))))
 
 (tu/deftest-kb the-edge-that-makes-the-scratch-context-is-not-itself-a-hypothesis
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
-    (let [r (v/abduce kb (list wabGoal N) TheoryContext {:keep? true})
-          e (v/handle-of kb (list 'genlContext (:context r) TheoryContext) 'UniverseContext)]
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+    (let [r (v/abduce kb (list wabGoal N) CxTheory {:keep? true})
+          e (v/handle-of kb (list 'genlCx (:context r) CxTheory) 'CxUniverse)]
       (try
         (testing "which context sees which is a fact about the scratch space; a
                   defeasible edge would let a clash among the hypotheses unhook the
@@ -445,20 +445,20 @@
 ;; ---- isolation, at its hardest -------------------------------------------
 
 (tu/deftest-kb a-hypothesis-cannot-block-a-base-rule-firing
-  (tu/with-terms [wabTrigger wabConc wabBlock wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
+  (tu/with-terms [wabTrigger wabConc wabBlock wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
     ;; a base rule that states its own exception, and a base fact that fires it
     (v/assert kb (list 'exceptWhen (list wabBlock '?x)
                        (list 'implies (list 'and (list wabTrigger '?x))
                              (list wabConc '?x)))
-              TheoryContext)
-    (v/assert kb (list wabTrigger N) TheoryContext)
-    (let [c (v/handle-of kb (list wabConc N) TheoryContext)]
+              CxTheory)
+    (v/assert kb (list wabTrigger N) CxTheory)
+    (let [c (v/handle-of kb (list wabConc N) CxTheory)]
       (is (integer? c) "the base conclusion is there before we start")
       ;; now abduce a goal whose hypothesis is the very literal that exception asks about
-      (grant kb wabBlock TheoryContext)
-      (a-rule kb [(list wabBlock '?x)] (list wabGoal '?x) TheoryContext)
-      (let [r (v/abduce kb (list wabGoal N) TheoryContext {:keep? true})]
+      (grant kb wabBlock CxTheory)
+      (a-rule kb [(list wabBlock '?x)] (list wabGoal '?x) CxTheory)
+      (let [r (v/abduce kb (list wabGoal N) CxTheory {:keep? true})]
         (try
           (is (= #{(list wabBlock N)} (sentences r)) "the hypothesis really was minted")
           (testing "and the base firing is untouched: the exception is evaluated in the
@@ -466,21 +466,21 @@
                     cannot see into it.  This is what makes isolation exact rather than
                     nearly so — blocking is the one thing that would *sweep* a base
                     conclusion, and a hypothesis has no reach to do it"
-            (is (= c (v/handle-of kb (list wabConc N) TheoryContext))
+            (is (= c (v/handle-of kb (list wabConc N) CxTheory))
                 "same handle, not re-derived")
             (is (v/in? kb c)))
           (finally (v/abduce-discard! kb r)))))))
 
 (tu/deftest-kb a-throw-mid-search-still-tears-the-scratch-context-down
-  (tu/with-terms [wabGoal wabPremise N TheoryContext]
-    (a-context kb TheoryContext)
-    (grant kb wabPremise TheoryContext)
-    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) TheoryContext)
+  (tu/with-terms [wabGoal wabPremise N CxTheory]
+    (a-context kb CxTheory)
+    (grant kb wabPremise CxTheory)
+    (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
     (let [sx-before (tu/sentex-ids kb)
           ctxs      (set (v/contexts kb))]
       (is (thrown? RuntimeException
                    (with-redefs [res/prove (fn [& _] (throw (RuntimeException. "boom")))]
-                     (v/abduce kb (list wabGoal N) TheoryContext))))
+                     (v/abduce kb (list wabGoal N) CxTheory))))
       (testing "isolation is the contract, and an exception is when it is easiest to
                 lose — the context is torn down on the way out of the throw"
         (is (= sx-before (tu/sentex-ids kb)))
@@ -490,8 +490,8 @@
 (tu/deftest-kb an-abduce-cap-nothing-reads-is-refused
   ;; {:max-hypothesis 2} ran at the default 8, and a misspelt :keep? tore down the
   ;; scratch context whose handles the caller meant to commit.
-  (tu/with-terms [pp Aa AbContext]
+  (tu/with-terms [pp Aa CxAb]
     (doseq [opts [{:max-hypothesis 2} {:keep true} {:max-dpeth 3}]]
-      (let [e (try (v/abduce kb (list pp Aa) AbContext opts) nil
+      (let [e (try (v/abduce kb (list pp Aa) CxAb opts) nil
                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
         (is (= :unknown-option (:type e)) (pr-str opts))))))

@@ -33,12 +33,12 @@
   the store a later open gets to repair."
   [^String dir]
   (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
-    (v/assert kb '(fish LayoutNemo) 'UniverseContext {:strength :monotonic})
+    (v/assert kb '(fish LayoutNemo) 'CxUniverse {:strength :monotonic})
     (backend/close-dir! dir)))
 
 (defn- answers? [^String dir]
   (let [kb  (v/open-kb {:backend :disk :dir dir :recover? :auto})
-        ok? (v/ask? kb '(fish LayoutNemo) 'UniverseContext)]
+        ok? (v/ask? kb '(fish LayoutNemo) 'CxUniverse)]
     (backend/close-dir! dir)
     ok?))
 
@@ -122,16 +122,16 @@
                                :recover? false})
                (v/clear!))]
     (try
-      (v/assert base '(dog Muffet) 'UniverseContext {:strength :monotonic})
+      (v/assert base '(dog Muffet) 'CxUniverse {:strength :monotonic})
       (let [default-index (File. (str (backend/disk-dir {}) "/index"))
             stamp-before  (when (.isDirectory default-index)
                             (.exists (File. default-index "layout.edn")))
             f (v/fork base)]
         (is (= '#{(dog Muffet)}
-               (set (map :sentence (v/sentexes-matching f '(dog ?x) 'UniverseContext))))
+               (set (map :sentence (v/sentexes-matching f '(dog ?x) 'CxUniverse))))
             "the fork sees its base through an index the gate left alone")
-        (v/assert f '(dog Rex) 'UniverseContext {:strength :monotonic})
-        (is (= 2 (count (v/sentexes-matching f '(dog ?x) 'UniverseContext)))
+        (v/assert f '(dog Rex) 'CxUniverse {:strength :monotonic})
+        (is (= 2 (count (v/sentexes-matching f '(dog ?x) 'CxUniverse)))
             "and still answers over both halves after a fork-local write")
         (testing "and it wrote no sentinel into the default disk directory"
           (is (= stamp-before

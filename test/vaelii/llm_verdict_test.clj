@@ -18,7 +18,7 @@
 (use-fixtures :each (tu/neutral))
 
 (defn- verdict-for [kb sentence]
-  (first (verdict/verdicts kb {:add [[sentence 'OrganismContext]] :remove []})))
+  (first (verdict/verdicts kb {:add [[sentence 'CxOrganism]] :remove []})))
 
 ;; ---- the four axes, one at a time ---------------------------------------
 
@@ -90,9 +90,9 @@
 ;; ---- the batch shape ----------------------------------------------------
 
 (tu/deftest-kb verdicts-line-up-with-the-batch-by-index
-  (let [batch {:add [['(genl penguin bird) 'OrganismContext]
-                     ['(mortal penguin) 'OrganismContext]
-                     ['(genl penguin Muffet) 'OrganismContext]]
+  (let [batch {:add [['(genl penguin bird) 'CxOrganism]
+                     ['(mortal penguin) 'CxOrganism]
+                     ['(genl penguin Muffet) 'CxOrganism]]
                :remove []}
         vs (verdict/verdicts kb batch)]
     (is (= [0 1 2] (map :index vs)))
@@ -101,10 +101,10 @@
     (is (= :unary-on-type (:rule (:correction (second vs))))
         "and the correction is still there to be rendered")
     (is (= (map first (:add batch)) (map :sentence vs)))
-    (is (= ['OrganismContext 'OrganismContext 'OrganismContext] (map :context vs)))))
+    (is (= ['CxOrganism 'CxOrganism 'CxOrganism] (map :context vs)))))
 
 (tu/deftest-kb a-precomputed-check-is-used-rather-than-repeated
-  (let [batch {:add [['(genl penguin Muffet) 'OrganismContext]] :remove []}
+  (let [batch {:add [['(genl penguin Muffet) 'CxOrganism]] :remove []}
         ;; the caller's own check-edit result, handed in the way `propose-page` hands
         ;; back its `:rejections`
         problems (v/check-edit kb batch)
@@ -113,7 +113,7 @@
     (is (= (map :type problems) (map :type (:problems (first vs)))))))
 
 (tu/deftest-kb the-summary-names-every-verdict-even-at-zero
-  (let [vs (verdict/verdicts kb {:add [['(genl penguin bird) 'OrganismContext]] :remove []})
+  (let [vs (verdict/verdicts kb {:add [['(genl penguin bird) 'CxOrganism]] :remove []})
         s  (verdict/summary vs)]
     (is (= #{:refused :uncertain :coins :ok} (set (keys s))))
     (is (= 1 (:ok s)))
@@ -125,7 +125,7 @@
 
 (tu/deftest-kb nothing-here-writes
   (let [before (tu/sentex-ids kb)]
-    (verdict/verdicts kb {:add [['(mortal penguin) 'OrganismContext]
-                                ['(genl penguin Muffet) 'OrganismContext]]
+    (verdict/verdicts kb {:add [['(mortal penguin) 'CxOrganism]
+                                ['(genl penguin Muffet) 'CxOrganism]]
                           :remove []})
     (is (= before (tu/sentex-ids kb)) "a verdict is a reading of a proposal")))

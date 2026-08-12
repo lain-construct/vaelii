@@ -77,7 +77,7 @@
          :max-derivations 100000
          :base :core))                                   ; :core (the vocabulary head) | :starter
 
-(def ^:private context-root 'GeneratedContext)
+(def ^:private context-root 'CxGenerated)
 
 ;; ---- deterministic sampling ---------------------------------------------
 
@@ -103,12 +103,12 @@
 ;; ---- the vocabulary ------------------------------------------------------
 ;; Every generated name carries its role in its spelling, exactly as the naming
 ;; invariants require (vaelii.impl.naming): a type is snake_case, an individual
-;; CapitalCamelCase, a predicate camelCase, a context ends in Context.
+;; CapitalCamelCase, a predicate camelCase, a context starts with Cx.
 
 (defn- type-name    [i] (symbol (str "gen_type_" i)))
 (defn- ind-name     [i] (symbol (str "GenInd" i)))
 (defn- pred-name    [i] (symbol (str "genRel" i)))
-(defn- context-name [i] (symbol (str "GenBand" i "Context")))
+(defn- context-name [i] (symbol (str "CxGenBand" i)))
 
 (defn- genl-edges
   "The type tree: type *i*'s parent is type `(quot (dec i) branching)`, so a parent's
@@ -187,10 +187,10 @@
      ;; joining a fact from each would complete with nowhere to put its conclusion
      ;; (`:no-placement`).  Down a chain every pair is comparable and the conclusion
      ;; lands in the deeper of the two.
-     :context-edges (cons (list 'genlContext context-root 'CoreContext)
-                          ;; each band sees the one above it — `(genlContext Sub Super)`,
+     :context-edges (cons (list 'genlCx context-root 'CxCore)
+                          ;; each band sees the one above it — `(genlCx Sub Super)`,
                           ;; so the *second* element of a consecutive pair is the child
-                          (map (fn [[super sub]] (list 'genlContext sub super))
+                          (map (fn [[super sub]] (list 'genlCx sub super))
                                (partition 2 1 (cons context-root
                                                     (remove #{context-root} ctxs)))))
      :genls        (genl-edges types branching)
@@ -312,7 +312,7 @@
        {:params  p
         :units   units
         ;; the stored count, counted as storage: summing per-context reads the
-        ;; *believed* genlContext closure, which undercounts a context no believed
+        ;; *believed* genlCx closure, which undercounts a context no believed
         ;; edge reaches
         :stored  (v/sentex-count kb)
         :derived (:derived chained 0)

@@ -22,19 +22,19 @@
 ;; ---- why ----------------------------------------------------------------
 
 (tu/deftest-kb why-walks-a-derivation-down-to-its-premises
-  (tu/with-terms [parentOf grandparentOf Tom Bob Ann FamContext]
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxFam]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) FamContext)
-    (let [h1 (v/assert kb (list parentOf Tom Bob) FamContext)
-          h2 (v/assert kb (list parentOf Bob Ann) FamContext)
-          gp (v/handle-of kb (list grandparentOf Tom Ann) FamContext)
+                   (list grandparentOf '?x '?z) CxFam)
+    (let [h1 (v/assert kb (list parentOf Tom Bob) CxFam)
+          h2 (v/assert kb (list parentOf Bob Ann) CxFam)
+          gp (v/handle-of kb (list grandparentOf Tom Ann) CxFam)
           w  (v/why kb gp)]
       (testing "the derived conclusion is believed, and is not a premise"
         (is (some? gp))
         (is (true? (:believed? w)))
         (is (false? (:premise? w)))
         (is (= (list grandparentOf Tom Ann) (:sentence w)))
-        (is (= FamContext (:context w)))
+        (is (= CxFam (:context w)))
         (is (some? (:defeat-class w))))
       (testing "one supporting justification, naming the rule and its two antecedents"
         (is (= 1 (count (:support w))))
@@ -47,12 +47,12 @@
             (is (every? #(= :default (:strength %)) (:because s)))))))))
 
 (tu/deftest-kb why-shows-the-rule-with-the-authors-variable-names
-  (tu/with-terms [parentOf grandparentOf Tom Bob Ann FamContext]
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxFam]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) FamContext)
-    (v/assert kb (list parentOf Tom Bob) FamContext)
-    (v/assert kb (list parentOf Bob Ann) FamContext)
-    (let [[s] (:support (v/why kb (v/handle-of kb (list grandparentOf Tom Ann) FamContext)))]
+                   (list grandparentOf '?x '?z) CxFam)
+    (v/assert kb (list parentOf Tom Bob) CxFam)
+    (v/assert kb (list parentOf Bob Ann) CxFam)
+    (let [[s] (:support (v/why kb (v/handle-of kb (list grandparentOf Tom Ann) CxFam)))]
       (testing "the informant is the rule handle, and the rule sentence is reported"
         (is (integer? (:informant s)))
         (is (some? (:rule s)))
@@ -67,15 +67,15 @@
         (is (not (contains? (set (map :handle (:because s))) (:informant s))))))))
 
 (tu/deftest-kb why-terminates-on-a-cyclic-justification-graph
-  (tu/with-terms [seedOf p q Thing CycContext]
+  (tu/with-terms [seedOf p q Thing CxCyc]
     ;; seed -> p, p -> q, q -> p.  (p Thing) is derived twice: once from the seed and
     ;; once from (q Thing), which is itself derived from (p Thing) — a genuine cycle
     ;; in the justification graph, not a rule-level one.
-    (v/assert-rule kb [(list seedOf '?x)] (list p '?x) CycContext)
-    (v/assert-rule kb [(list p '?x)] (list q '?x) CycContext)
-    (v/assert-rule kb [(list q '?x)] (list p '?x) CycContext)
-    (v/assert kb (list seedOf Thing) CycContext)
-    (let [ph (v/handle-of kb (list p Thing) CycContext)
+    (v/assert-rule kb [(list seedOf '?x)] (list p '?x) CxCyc)
+    (v/assert-rule kb [(list p '?x)] (list q '?x) CxCyc)
+    (v/assert-rule kb [(list q '?x)] (list p '?x) CxCyc)
+    (v/assert kb (list seedOf Thing) CxCyc)
+    (let [ph (v/handle-of kb (list p Thing) CxCyc)
           w  (v/why kb ph)]
       (testing "the cyclic derivation is walked without recursing forever"
         (is (some? ph))
@@ -90,8 +90,8 @@
           (is (= #{ph} (set (map :handle cycles)))))))))
 
 (tu/deftest-kb why-on-a-premise-and-on-an-unknown-handle
-  (tu/with-terms [dog Muffet FactContext]
-    (let [h (v/assert kb (list dog Muffet) FactContext {:strength :monotonic})
+  (tu/with-terms [dog Muffet CxFact]
+    (let [h (v/assert kb (list dog Muffet) CxFact {:strength :monotonic})
           w (v/why kb h)]
       (testing "a premise terminates immediately, carrying its assumption strength"
         (is (true? (:believed? w)))
@@ -111,18 +111,18 @@
   ;; `(reached NodeN)` rests on `(reached NodeN-1)` rests on … — no repeated handle,
   ;; so the cycle guard never fires and only the depth cap stands between the walk
   ;; and the stack.
-  (tu/with-terms [nextOf reached ChainContext]
+  (tu/with-terms [nextOf reached CxChain]
     (let [n     300
           nodes (vec (repeatedly (inc n) #(tu/tmp-ind "Node")))]
       (v/assert-rule kb [(list nextOf '?x '?y) (list reached '?x)]
-                     (list reached '?y) ChainContext)
-      (v/assert kb (list reached (nodes 0)) ChainContext)
+                     (list reached '?y) CxChain)
+      (v/assert kb (list reached (nodes 0)) CxChain)
       ;; the chainer's own derivation bound (`default-chain-opts` :max-depth 64) would
       ;; stop the chain long before `why`'s cap is reached, so lift it past the chain
       (v/assert-many kb (map #(list nextOf (nodes %) (nodes (inc %))) (range n))
-                     ChainContext {:max-depth 400})
-      (let [h  (v/handle-of kb (list reached (nodes n)) ChainContext)
-            h0 (v/handle-of kb (list reached (nodes 0)) ChainContext)]
+                     CxChain {:max-depth 400})
+      (let [h  (v/handle-of kb (list reached (nodes n)) CxChain)
+            h0 (v/handle-of kb (list reached (nodes 0)) CxChain)]
         (is (some? h) "the chain forward-derived to its end")
         (testing "the default cap truncates the deep branch and says so"
           (let [w (v/why kb h)]
@@ -151,10 +151,10 @@
 ;; ---- why-not ------------------------------------------------------------
 
 (tu/deftest-kb why-not-reports-a-defeated-default-and-what-contradicts-it
-  (tu/with-terms [flies Tweety BirdContext]
-    (v/assert kb (list flies Tweety) BirdContext)                              ; default
-    (v/assert kb (list 'not (list flies Tweety)) BirdContext {:strength :monotonic})
-    (let [h  (v/handle-of kb (list flies Tweety) BirdContext)
+  (tu/with-terms [flies Tweety CxBird]
+    (v/assert kb (list flies Tweety) CxBird)                              ; default
+    (v/assert kb (list 'not (list flies Tweety)) CxBird {:strength :monotonic})
+    (let [h  (v/handle-of kb (list flies Tweety) CxBird)
           wn (v/why-not kb h)]
       (testing "the default lost, but is still stored (it can be revived)"
         (is (some? h))
@@ -168,17 +168,17 @@
           (is (= :monotonic (:defeat-class c))))))))
 
 (tu/deftest-kb why-not-reports-a-conclusion-whose-support-went-out
-  (tu/with-terms [flies airborne Tweety BirdContext]
-    (v/assert kb (list flies Tweety) BirdContext)                              ; default
-    (v/assert-rule kb [(list flies '?x)] (list airborne '?x) BirdContext)
-    (let [ah (v/handle-of kb (list airborne Tweety) BirdContext)]
+  (tu/with-terms [flies airborne Tweety CxBird]
+    (v/assert kb (list flies Tweety) CxBird)                              ; default
+    (v/assert-rule kb [(list flies '?x)] (list airborne '?x) CxBird)
+    (let [ah (v/handle-of kb (list airborne Tweety) CxBird)]
       (is (some? ah))
       (is (true? (v/in? kb ah)))
       ;; now defeat the antecedent; the conclusion is not itself defeated, it simply
       ;; loses its only valid justification
-      (v/assert kb (list 'not (list flies Tweety)) BirdContext {:strength :monotonic})
+      (v/assert kb (list 'not (list flies Tweety)) CxBird {:strength :monotonic})
       (let [wn (v/why-not kb ah)
-            fh (v/handle-of kb (list flies Tweety) BirdContext)]
+            fh (v/handle-of kb (list flies Tweety) CxBird)]
         (testing "OUT for lack of support, not by defeat"
           (is (false? (v/in? kb ah)))
           (is (false? (:believed? wn)))
@@ -189,8 +189,8 @@
           (is (contains? (set (mapcat :missing (:support wn))) fh)))))))
 
 (tu/deftest-kb why-not-on-a-believed-and-on-an-unknown-handle
-  (tu/with-terms [dog Muffet FactContext]
-    (let [h (v/assert kb (list dog Muffet) FactContext)]
+  (tu/with-terms [dog Muffet CxFact]
+    (let [h (v/assert kb (list dog Muffet) CxFact)]
       (testing "a believed handle has nothing to explain"
         (is (true? (:believed? (v/why-not kb h))))
         (is (nil? (:reason (v/why-not kb h))))))
@@ -200,23 +200,23 @@
 ;; ---- the two are complements -------------------------------------------
 
 (tu/deftest-kb why-and-why-not-agree-on-belief
-  (tu/with-terms [bird flies Robin Tweety penguin BirdContext]
+  (tu/with-terms [bird flies Robin Tweety penguin CxBird]
     ;; the subtype edge is stated where the theory that reasons over it lives: the
     ;; flight rule fires on a penguin *through* this edge, and a conclusion is placed
     ;; only in a context that can see the edge it subsumed through
-    (v/assert kb (list 'genl penguin bird) BirdContext)
+    (v/assert kb (list 'genl penguin bird) CxBird)
     (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list bird '?x)] (list flies '?x)))
-              BirdContext)
-    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) BirdContext)
-    (v/assert kb (list bird Robin) BirdContext)
+              CxBird)
+    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) CxBird)
+    (v/assert kb (list bird Robin) CxBird)
     ;; Known-true, so the bare exception rule concludes at :monotonic and *defeats* the
     ;; :default `(flies Tweety)`.  Defeat is what this test needs: a defeated datum is
     ;; still stored, so `why` can report it unbelieved and `why-not` can name the side
     ;; that beat it.  (An `exceptWhen` on the flight rule would block instead, and there
     ;; would be no handle to ask about — that is `why-not`'s sentence arity.)
-    (v/assert kb (list penguin Tweety) BirdContext {:strength :monotonic})
-    (let [rh (v/handle-of kb (list flies Robin) BirdContext)
-          th (v/handle-of kb (list flies Tweety) BirdContext)]
+    (v/assert kb (list penguin Tweety) CxBird {:strength :monotonic})
+    (let [rh (v/handle-of kb (list flies Robin) CxBird)
+          th (v/handle-of kb (list flies Tweety) CxBird)]
       (testing "the ordinary bird flies by default, and why says on what grounds"
         (is (true? (:believed? (v/why kb rh))))
         (is (= :default (:defeat-class (v/why kb rh))))

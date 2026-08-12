@@ -19,11 +19,11 @@
 (use-fixtures :each (tu/neutral))
 
 (defn- scratch
-  "A context below WellContext to stand in for the reader's sandbox: it sees the whole
+  "A context below CxWell to stand in for the reader's sandbox: it sees the whole
   shipped ontology, and the fixture takes everything written into it away again."
   [kb]
   (let [c (tu/fresh-term :context :ExampleRun)]
-    (v/assert kb (list 'genlContext c 'WellContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx c 'CxWell) 'CxUniverse)
     c))
 
 ;; ---- the table itself ---------------------------------------------------
@@ -57,7 +57,7 @@
 (tu/deftest-kb every-example-answers-as-the-ontology-intends
   (let [ctx (scratch kb)]
     (doseq [{:keys [id premises context] :as e} ex/examples]
-      (let [where (if (seq premises) ctx (or context 'WellContext))]
+      (let [where (if (seq premises) ctx (or context 'CxWell))]
         (when (seq premises) (ex/establish! kb e where))
         (let [r (ex/run kb e where)]
           (is (:as-intended? r)
@@ -72,7 +72,7 @@
   (let [ctx (scratch kb)]
     (doseq [e ex/examples :when (seq (:premises e))] (ex/establish! kb e ctx))
     (doseq [{:keys [id premises context] :as e} ex/examples]
-      (let [r (ex/run kb e (if (seq premises) ctx (or context 'WellContext)))]
+      (let [r (ex/run kb e (if (seq premises) ctx (or context 'CxWell)))]
         (is (:as-intended? r)
             (str id " — " (pr-str (dissoc r :why))))))))
 
@@ -82,7 +82,7 @@
   ;; nobody saw until the store filled up
   (let [before (v/sentex-count kb)]
     (doseq [e ex/examples :when (empty? (:premises e))]
-      (ex/run kb e (or (:context e) 'WellContext)))
+      (ex/run kb e (or (:context e) 'CxWell)))
     (is (= before (v/sentex-count kb)))))
 
 (tu/deftest-kb establishing-an-example-twice-stores-it-once
@@ -100,10 +100,10 @@
   ;; vocabulary that is not there
   (tu/with-terms [nowhere Zork]
     (let [e {:id "fabricated" :group "g" :title "t" :shows "s"
-             :rests-on [[(list nowhere Zork) 'WellContext]]
+             :rests-on [[(list nowhere Zork) 'CxWell]]
              :goal (list nowhere Zork) :expect :yes}]
       (is (not (ex/available? kb e)))
-      (let [r (ex/run kb e 'WellContext)]
+      (let [r (ex/run kb e 'CxWell)]
         (is (false? (:available? r)))
         (is (nil? (:answered? r)) "an unavailable example is not run at all")
         (is (nil? (:as-intended? r)) "and makes no claim either way")))))
@@ -114,16 +114,16 @@
   ;; each card reports the level `escalate` stopped at, and the level *is* the claim:
   ;; a closure answering at 5 and the chainers answering at 7 are different statements
   ;; about what the KB had to do
-  (let [level (fn [id] (:level (ex/run kb (ex/by-id id) 'WellContext)))]
+  (let [level (fn [id] (:level (ex/run kb (ex/by-id id) 'CxWell)))]
     (testing "a cached closure, with no sentex materialized for the answer"
       (is (= 5 (level "genl-chain")))
-      (is (nil? (:handle (ex/run kb (ex/by-id "genl-chain") 'WellContext)))))
+      (is (nil? (:handle (ex/run kb (ex/by-id "genl-chain") 'CxWell)))))
     (testing "the prover stack, for disjointness and argument preservation"
       (is (= 6 (level "disjoint-metatype")))
       (is (= 6 (level "arg-preserving"))))
     (testing "plain context inheritance, for a forward-derived sentex with a record"
       (is (= 3 (level "metadata-to-type")))
-      (is (some? (:handle (ex/run kb (ex/by-id "metadata-to-type") 'WellContext)))))))
+      (is (some? (:handle (ex/run kb (ex/by-id "metadata-to-type") 'CxWell)))))))
 
 (tu/deftest-kb a-refusal-example-stores-nothing
   (let [ctx (scratch kb)

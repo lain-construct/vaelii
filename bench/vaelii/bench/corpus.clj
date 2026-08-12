@@ -89,9 +89,9 @@
       ;; to forward chaining), so φ actually controls how much fires.
       (v/with-deferred-settle kb
         (doseq [r rules]
-          (try (v/assert-rule kb (:antes r) (:conseq r) 'BenchContext {:direction (if (:forward? r) :forward :backward)})
+          (try (v/assert-rule kb (:antes r) (:conseq r) 'CxBench {:direction (if (:forward? r) :forward :backward)})
                (swap! nr inc) (catch Exception _ nil)))
-        (doseq [f facts] (try (v/assert kb f 'BenchContext {:max-depth md}) (swap! nf inc) (catch Exception _ nil))))
+        (doseq [f facts] (try (v/assert kb f 'CxBench {:max-depth md}) (swap! nf inc) (catch Exception _ nil))))
       (let [elapsed (ms t0)
             base    @nf
             total   (count (p/sentex-ids (:records kb)))

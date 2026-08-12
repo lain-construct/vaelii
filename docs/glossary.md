@@ -151,7 +151,7 @@ variables, canonical literal order, symmetric-argument sorting, and comparison
 folding. See [canonicalization.md](canonicalization.md).
 
 **`comment`** ![kb](../.github/badges/cat-kb.svg): A documentation sentex —
-`(comment <term> "…")` — that lets the CoreContext vocabulary document itself in
+`(comment <term> "…")` — that lets the CxCore vocabulary document itself in
 its own representation, read back by `core-context/comment-of`. See
 [inference.md](inference.md).
 
@@ -175,8 +175,8 @@ believed facts visible from a context. `core/qualitative-network` is the public
 reading of one. See [qcn.md](qcn.md).
 
 **Context** ![kb](../.github/badges/cat-kb.svg): The theory a sentex holds
-in — every sentex is in exactly one. Contexts form a `genlContext` hierarchy: a
-sub-context *sees* its supers. Names end in `Context`. See
+in — every sentex is in exactly one. Contexts form a `genlCx` hierarchy: a
+sub-context *sees* its supers. Names start with `Cx`, then CapitalCamelCase. See
 [contexts.md](contexts.md).
 
 **Contradiction** ![tms](../.github/badges/cat-tms.svg): A believed `P` and
@@ -184,15 +184,23 @@ sub-context *sees* its supers. Names end in `Context`. See
 dilemma* — both sides stay believed at `:default` and the pair is reported by
 `contradictions`, not arbitrated. See [nmtms.md](nmtms.md).
 
-**CoreContext** ![kb](../.github/badges/cat-kb.svg): The vocabulary head — the
+**CxCore** ![kb](../.github/badges/cat-kb.svg): The vocabulary head — the
 most general context, seen by every other. Loaded by `core-context/load-into`:
 every special predicate the engine interprets, each documented by a `comment`
 sentex. See [contexts.md](contexts.md).
 
+**CxUniverse** ![kb](../.github/badges/cat-kb.svg): The mid anchor of the
+context spindle, free for lifted universal facts and the target of
+`decontextualizedPredicate` justifications. See [contexts.md](contexts.md).
+
+**CxWell** ![kb](../.github/badges/cat-kb.svg): The bottom anchor of the
+context spindle, transitively seeing the whole ontology; the test-world's
+individuals and fables hang below it. See [contexts.md](contexts.md).
+
 ## D
 
 **`decontextualizedPredicate`** ![kb](../.github/badges/cat-kb.svg): Metadata
-deducing every `(P …)` — asserted or rule-concluded — into UniverseContext, so the
+deducing every `(P …)` — asserted or rule-concluded — into CxUniverse, so the
 fact is visible from every context instead of belonging to one. The target is
 fixed, not named: the definitional checks are context-scoped and only cover the copy
 when the stating context sees where it lands. `forcedDecontextualizedPredicate` is the
@@ -308,8 +316,8 @@ read via `sentexes-with-functor` / `count-with-functor`. See
 
 ## G
 
-**`genl` / `genlContext`** ![kb](../.github/badges/cat-kb.svg): The two
-transitively-closed relations — `genl` between unary types, `genlContext`
+**`genl` / `genlCx`** ![kb](../.github/badges/cat-kb.svg): The two
+transitively-closed relations — `genl` between unary types, `genlCx`
 between contexts. Cached as reflexive-transitive up/down closures, recomputed on
 edge change, belief-following. See [taxonomy.md](taxonomy.md).
 
@@ -409,7 +417,7 @@ re-canonicalized rather than textually substituted. See [equality.md](equality.m
 
 **Naming invariants** ![kb](../.github/badges/cat-kb.svg): The role conventions —
 predicates camelCase, individuals CapitalCamelCase, types snake_case (unary
-predicates), contexts ending in `Context`. `assert` rejects a bad name. See
+predicates), contexts `Cx`-prefixed CapitalCamelCase. `assert` rejects a bad name. See
 [naming.md](naming.md).
 
 **NAT** ![kb](../.github/badges/cat-kb.svg): A non-atomic term `(F a…)` — a
@@ -602,7 +610,7 @@ re-derivation does not mint a second one. See [skolem.md](skolem.md).
 
 **Stratification** ![inference](../.github/badges/cat-inference.svg): The
 well-formedness rule that a rule set must have no cycle through negation — `wff`
-refuses an `exceptWhen` (or a `genl`/`genlContext` edge) that closes one. A
+refuses an `exceptWhen` (or a `genl`/`genlCx` edge) that closes one. A
 purely positive cycle is ordinary recursion. See [exceptions.md](exceptions.md).
 
 **Strength** ![tms](../.github/badges/cat-tms.svg): The assumption strength of a
@@ -623,7 +631,7 @@ orders at match time. See [canonicalization.md](canonicalization.md).
 ## T
 
 **Taxonomy** ![kb](../.github/badges/cat-kb.svg): The in-memory cache of the
-`genl` / `genlContext` closures, the equality partition, the predicate metadata,
+`genl` / `genlCx` closures, the equality partition, the predicate metadata,
 and the disjointness caches — all belief-following, reconciled each `settle`. See
 [taxonomy.md](taxonomy.md).
 
@@ -651,7 +659,7 @@ positive one desugars to `S` with `?x` a local matched variable. See
 hierarchy — every type reaches `thing` upward. See [taxonomy.md](taxonomy.md).
 
 **Transitivity** ![kb](../.github/badges/cat-kb.svg): The lifeblood of common
-sense, done by cached closures rather than rules for `genl` / `genlContext`, and
+sense, done by cached closures rather than rules for `genl` / `genlCx`, and
 by metadata-driven provers for a `(transitive P)` predicate. See
 [taxonomy.md](taxonomy.md).
 
@@ -672,10 +680,6 @@ subtype fact satisfies the antecedent. See [inference.md](inference.md).
 symbols denote distinct things until an equality sentex says otherwise —
 preserved even under the equality closure and made provable by `different`. See
 [equality.md](equality.md).
-
-**UniverseContext** ![kb](../.github/badges/cat-kb.svg): The mid anchor of the
-context spindle, free for lifted universal facts and the target of
-`decontextualizedPredicate` justifications. See [contexts.md](contexts.md).
 
 **`unknown`** ![inference](../.github/badges/cat-inference.svg): The negation-as-
 failure prover — `(unknown S)` holds iff `S` is not derivable over the level-6
@@ -702,19 +706,15 @@ equations. An entry about a pair or a budget carries no `:sentence` or `:context
 See [inference.md](inference.md),
 [nmtms.md](nmtms.md).
 
-**Visibility (genlContext up-closure)** ![kb](../.github/badges/cat-kb.svg):
+**Visibility (genlCx up-closure)** ![kb](../.github/badges/cat-kb.svg):
 Which sentexes a context can use — those asserted in it or in any context it sees
-(its `genlContext` up-closure). Constraint checks and matching are visibility-
+(its `genlCx` up-closure). Constraint checks and matching are visibility-
 scoped. See [contexts.md](contexts.md).
 
 ## W
 
-**WellContext** ![kb](../.github/badges/cat-kb.svg): The bottom anchor of the
-context spindle, transitively seeing the whole ontology; the test-world's
-individuals and fables hang below it. See [contexts.md](contexts.md).
-
 **WFF (well-formedness)** ![kb](../.github/badges/cat-kb.svg): The structural
-checks `assert` runs before storing — that `genl`/`genlContext`, `disjoint`,
+checks `assert` runs before storing — that `genl`/`genlCx`, `disjoint`,
 `argIsa`, and the equality relations are shaped right and acyclic, plus rule
 stratification. See [naming.md](naming.md).
 

@@ -205,7 +205,7 @@
         P (max 50 (quot n 400)) M (max 1000 (quot n 4))
         cfg {:n n :preds (u/terms "pr" P) :inds (u/terms "Ind" M)
              :units (u/terms "unit" 10)
-             :ctxs (mapv #(symbol (str "Ctx" % "Context")) (range 8))
+             :ctxs (mapv #(symbol (str "CxCtx" %)) (range 8))
              :pred-cum (u/zipf-cumulative P 1.2) :ind-cum (u/zipf-cumulative M 1.0)
              :compound-frac 0.1}
         kb (kb/open-kb {:backend :memory :space 24 :recover? false}

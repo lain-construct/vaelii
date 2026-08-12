@@ -86,25 +86,25 @@
 ;; ---- ask-within ---------------------------------------------------------
 
 (tu/deftest-kb ask-within-unbounded-matches-ask
-  (tu/with-terms [parentOf Tom Bob Ann Zed FamContext]
-    (v/assert kb (list parentOf Tom Bob) FamContext)
-    (v/assert kb (list parentOf Tom Ann) FamContext)
-    (v/assert kb (list parentOf Tom Zed) FamContext)
+  (tu/with-terms [parentOf Tom Bob Ann Zed CxFam]
+    (v/assert kb (list parentOf Tom Bob) CxFam)
+    (v/assert kb (list parentOf Tom Ann) CxFam)
+    (v/assert kb (list parentOf Tom Zed) CxFam)
     (let [goal (list parentOf Tom '?y)
-          full (set (map #(get % '?y) (v/ask kb goal FamContext)))
-          r    (v/ask-within kb goal FamContext {:max-ms 60000})]
+          full (set (map #(get % '?y) (v/ask kb goal CxFam)))
+          r    (v/ask-within kb goal CxFam {:max-ms 60000})]
       (is (= :complete (:status r)))
       (is (= #{Bob Ann Zed} full))
       (is (= full (set (map #(get % '?y) (:results r))))))))
 
 (tu/deftest-kb ask-within-caps-and-resumes-to-the-whole-answer
-  (tu/with-terms [parentOf Tom Bob Ann Zed FamContext]
-    (v/assert kb (list parentOf Tom Bob) FamContext)
-    (v/assert kb (list parentOf Tom Ann) FamContext)
-    (v/assert kb (list parentOf Tom Zed) FamContext)
+  (tu/with-terms [parentOf Tom Bob Ann Zed CxFam]
+    (v/assert kb (list parentOf Tom Bob) CxFam)
+    (v/assert kb (list parentOf Tom Ann) CxFam)
+    (v/assert kb (list parentOf Tom Zed) CxFam)
     (let [goal (list parentOf Tom '?y)
-          full (set (map #(get % '?y) (v/ask kb goal FamContext)))
-          r1   (v/ask-within kb goal FamContext {:max-results 1})]
+          full (set (map #(get % '?y) (v/ask kb goal CxFam)))
+          r1   (v/ask-within kb goal CxFam {:max-results 1})]
       (is (= :capped (:status r1)))
       (is (= 1 (:count r1)))
       (testing "resuming until complete covers the whole answer, with no duplicates"
@@ -119,7 +119,7 @@
   ;; No *registry* member is `:search` — nothing in it expands a rule — so the top tier
   ;; is exercised the way an application would reach it: a registered prover that
   ;; declares itself expensive, and a goal only it answers.
-  (tu/with-terms [reachable Tom Ann FamContext]
+  (tu/with-terms [reachable Tom Ann CxFam]
     (let [costly (reify provers/Prover
                    (applicable?  [_ _ goal _] (= reachable (first goal)))
                    (est-bindings [_ _ _ _] 1)
@@ -129,11 +129,11 @@
       (v/add-prover kb costly)
       (let [goal (list reachable Tom '?who)]
         (testing "at :lookup the search tier is excluded, so no answer"
-          (let [r (v/ask-within kb goal FamContext {:max-cost :lookup})]
+          (let [r (v/ask-within kb goal CxFam {:max-cost :lookup})]
             (is (= :complete (:status r)))
             (is (empty? (:results r)))))
         (testing "raising the ceiling to :search lets it run"
-          (let [r (v/ask-within kb goal FamContext {:max-cost :search})]
+          (let [r (v/ask-within kb goal CxFam {:max-cost :search})]
             (is (= #{Ann} (set (map #(get % '?who) (:results r)))))))))))
 
 (tu/deftest-kb a-ceiling-that-is-not-a-tier-is-refused
@@ -142,16 +142,16 @@
   ;; existed to avoid.  So a `:max-cost` outside the three tiers has to say so, and
   ;; carry a `:type` a caller can discriminate on rather than an NPE from inside a
   ;; comparison.
-  (tu/with-terms [partOf A B D FamContext]
-    (v/assert kb (list 'transitive partOf) FamContext)
-    (v/assert kb (list partOf A B) FamContext)
-    (v/assert kb (list partOf B D) FamContext)
+  (tu/with-terms [partOf A B D CxFam]
+    (v/assert kb (list 'transitive partOf) CxFam)
+    (v/assert kb (list partOf A B) CxFam)
+    (v/assert kb (list partOf B D) CxFam)
     (let [goal (list partOf A '?y)]
       (testing "a real tier answers"
-        (is (= :complete (:status (v/ask-within kb goal FamContext {:max-cost :compute})))))
+        (is (= :complete (:status (v/ask-within kb goal CxFam {:max-cost :compute})))))
       (doseq [bogus [:Lookup :cheap :lookups "lookup"]]
         (testing (str "a ceiling of " (pr-str bogus) " is refused, with the tiers named")
-          (let [e (try (v/ask-within kb goal FamContext {:max-cost bogus})
+          (let [e (try (v/ask-within kb goal CxFam {:max-cost bogus})
                        nil
                        (catch clojure.lang.ExceptionInfo e e))]
             (is (some? e) (str (pr-str bogus) " was accepted as a cost tier"))
@@ -163,17 +163,17 @@
   ;; links, while TransitivePredicateProver (:compute) walks the closure.  So the
   ;; :lookup ceiling gives the direct answer and the :compute ceiling the full reach —
   ;; the middle tier made visible.
-  (tu/with-terms [precedes A B C FamContext]
-    (v/assert kb (list 'transitive precedes) FamContext)
-    (v/assert kb (list precedes A B) FamContext)
-    (v/assert kb (list precedes B C) FamContext)
+  (tu/with-terms [precedes A B C CxFam]
+    (v/assert kb (list 'transitive precedes) CxFam)
+    (v/assert kb (list precedes A B) CxFam)
+    (v/assert kb (list precedes B C) CxFam)
     (let [goal (list precedes A '?y)]
       (testing ":lookup sees the direct link only"
         (is (= #{B} (set (map #(get % '?y)
-                              (:results (v/ask-within kb goal FamContext {:max-cost :lookup})))))))
+                              (:results (v/ask-within kb goal CxFam {:max-cost :lookup})))))))
       (testing ":compute walks the transitive closure"
         (is (= #{B C} (set (map #(get % '?y)
-                                (:results (v/ask-within kb goal FamContext {:max-cost :compute}))))))))))
+                                (:results (v/ask-within kb goal CxFam {:max-cost :compute}))))))))))
 
 ;; ---- prove-within -------------------------------------------------------
 ;; A single-expansion grandparentOf rule (backward-only, so nothing is forward-
@@ -188,21 +188,21 @@
   (v/assert kb (list parentOf Bob Zed) ctx))
 
 (tu/deftest-kb prove-within-generous-budget-matches-prove
-  (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed FamContext]
-    (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed FamContext)
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed CxFam]
+    (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed CxFam)
     (let [goal (list grandparentOf Tom '?who)
-          full (set (map #(get % '?who) (v/prove kb goal FamContext)))
-          r    (v/prove-within kb goal FamContext {:max-ms 60000})]
+          full (set (map #(get % '?who) (v/prove kb goal CxFam)))
+          r    (v/prove-within kb goal CxFam {:max-ms 60000})]
       (is (= #{Ann Zed} full))
       (is (= :complete (:status r)))
       (is (= full (set (map #(get % '?who) (:results r))))))))
 
 (tu/deftest-kb prove-within-caps-and-resumes-to-the-whole-answer
-  (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed FamContext]
-    (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed FamContext)
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed CxFam]
+    (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed CxFam)
     (let [goal (list grandparentOf Tom '?who)
-          full (set (map #(get % '?who) (v/prove kb goal FamContext)))
-          r1   (v/prove-within kb goal FamContext {:max-results 1})]
+          full (set (map #(get % '?who) (v/prove kb goal CxFam)))
+          r1   (v/prove-within kb goal CxFam {:max-results 1})]
       (is (= #{Ann Zed} full))
       (is (= :capped (:status r1)))
       (is (= 1 (:count r1)))
@@ -214,17 +214,17 @@
               (is (= full (set acc))))))))))
 
 (tu/deftest-kb prove-within-max-depth-bounds-rule-expansion
-  (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed FamContext]
-    (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed FamContext)
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed CxFam]
+    (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed CxFam)
     (let [goal (list grandparentOf Tom '?who)]
       (testing "depth 0 permits no rule expansion, so a rule-derived goal is empty"
-        (let [r (v/prove-within kb goal FamContext {:max-depth 0})]
+        (let [r (v/prove-within kb goal CxFam {:max-depth 0})]
           (is (= :complete (:status r)))
           (is (empty? (:results r)))))
       (testing "one expansion is enough for grandparentOf"
         (is (= #{Ann Zed}
                (set (map #(get % '?who)
-                         (:results (v/prove-within kb goal FamContext {:max-depth 1}))))))))))
+                         (:results (v/prove-within kb goal CxFam {:max-depth 1}))))))))))
 
 ;; ---- the budget roster ----------------------------------------------------
 
@@ -250,12 +250,12 @@
                           (budget/collect (range 5) :max-results))))
   (testing "the four rostered bounds all pass at every door"
     (tu/with-neutral-kb [kb tu/fresh]
-      (tu/with-terms [dog Muffet BudgetContext]
-        (v/assert kb (list dog Muffet) BudgetContext)
-        (is (= :complete (:status (v/ask-within kb (list dog '?x) BudgetContext
+      (tu/with-terms [dog Muffet CxBudget]
+        (v/assert kb (list dog Muffet) CxBudget)
+        (is (= :complete (:status (v/ask-within kb (list dog '?x) CxBudget
                                                 {:max-ms 5000 :max-results 10
                                                  :max-cost :search}))))
-        (is (= :complete (:status (v/prove-within kb (list dog '?x) BudgetContext
+        (is (= :complete (:status (v/prove-within kb (list dog '?x) CxBudget
                                                   {:max-results 10 :max-depth 3})))))))
   (testing "and both anytime doors hold their budget to the roster"
     (tu/with-neutral-kb [kb tu/fresh]

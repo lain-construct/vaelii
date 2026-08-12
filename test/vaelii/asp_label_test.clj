@@ -74,14 +74,14 @@
   [kb]
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'UniverseContext)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'UniverseContext)
-    (v/assert kb (list quaker nixon)     'UniverseContext)
-    (v/assert kb (list republican nixon) 'UniverseContext)
+    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (list quaker nixon)     'CxUniverse)
+    (v/assert kb (list republican nixon) 'CxUniverse)
     {:pacifist pacifist
      :individual nixon
-     :handles [(v/handle-of kb (list pacifist nixon)             'UniverseContext)
-               (v/handle-of kb (list 'not (list pacifist nixon)) 'UniverseContext)]}))
+     :handles [(v/handle-of kb (list pacifist nixon)             'CxUniverse)
+               (v/handle-of kb (list 'not (list pacifist nixon)) 'CxUniverse)]}))
 
 (defn- program-of-dilemma
   "The `Program` an application would build to rank a reported dilemma: the two
@@ -194,11 +194,11 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (let [bird (tu/tmp-type) flies (tu/tmp-pred) tweety (tu/tmp-ind)]
         (v/set-solver kb edge/edge-solver)
-        (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'UniverseContext)
-        (v/assert kb (list bird tweety) 'UniverseContext)
-        (v/assert kb (list 'not (list flies tweety)) 'UniverseContext {:strength :monotonic})
+        (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+        (v/assert kb (list bird tweety) 'CxUniverse)
+        (v/assert kb (list 'not (list flies tweety)) 'CxUniverse {:strength :monotonic})
         (testing "the default lost, and not by arbitration"
-          (is (empty? (v/sentexes-matching kb (list flies tweety) 'UniverseContext)))
+          (is (empty? (v/sentexes-matching kb (list flies tweety) 'CxUniverse)))
           (is (nil? (v/last-program kb))))
         (testing "so there is nothing to classify"
           (is (= {:true #{} :supportable #{} :false #{}} (label/classify kb))))))))
@@ -217,8 +217,8 @@
       (v/set-solver kb edge/edge-solver)
       (let [{:keys [pacifist individual]} (nixon-diamond kb)]
         (testing "both sides still match — settling erased nothing"
-          (is (seq (v/sentexes-matching kb (list pacifist individual) 'UniverseContext)))
-          (is (seq (v/sentexes-matching kb (list 'not (list pacifist individual)) 'UniverseContext))))
+          (is (seq (v/sentexes-matching kb (list pacifist individual) 'CxUniverse)))
+          (is (seq (v/sentexes-matching kb (list 'not (list pacifist individual)) 'CxUniverse))))
         (testing "so the contested pair is derivable now, not only from a record"
           (let [ds (v/contradictions kb)]
             (is (= 1 (count ds)))
@@ -243,9 +243,9 @@
       (v/set-solver kb edge/edge-solver)
       (let [ctx (tu/tmp-ctx)]
         (nixon-diamond kb)
-        (let [{:keys [handles]} (label/label-context kb ctx 'UniverseContext)]
+        (let [{:keys [handles]} (label/label-context kb ctx 'CxUniverse)]
           (testing "the context is still minted as a specialization that sees its base"
-            (is (seq (v/sentexes-matching kb (list 'genlContext ctx 'UniverseContext) '?ctx))))
+            (is (seq (v/sentexes-matching kb (list 'genlCx ctx 'CxUniverse) '?ctx))))
           (testing "but it records no labeling, because there was none to record"
             (is (empty? handles))
             (is (zero? (v/count-in-context kb ctx)))
@@ -271,7 +271,7 @@
           (is (= 1 (count before)))
           (is (true? (v/in? kb pos)))
           (is (true? (v/in? kb neg))))
-        (label/label-context kb ctx 'UniverseContext)
+        (label/label-context kb ctx 'CxUniverse)
         (testing "and open on both sides afterwards — belief did not move"
           (is (true? (v/in? kb pos)))
           (is (true? (v/in? kb neg)))
@@ -286,7 +286,7 @@
 
 (deftest label-context-is-additive-and-retractable
   ;; No `!` in the name, so it must genuinely undo: the neutral fixture retracting the
-  ;; test's premises has to take the labeling context with it.  The `genlContext` edge
+  ;; test's premises has to take the labeling context with it.  The `genlCx` edge
   ;; is the one premise `label-context` writes unconditionally, so it is what teardown
   ;; has to reclaim — and the taxonomy closure it feeds has to let go of it too.
   (when asp?
@@ -294,9 +294,9 @@
       (v/set-solver kb edge/edge-solver)
       (let [ctx (tu/tmp-ctx)]
         (nixon-diamond kb)
-        (label/label-context kb ctx 'UniverseContext)
-        (is (seq (v/sentexes-matching kb (list 'genlContext ctx 'UniverseContext) '?ctx)))
-        (is (v/sees? kb ctx 'UniverseContext))))))
+        (label/label-context kb ctx 'CxUniverse)
+        (is (seq (v/sentexes-matching kb (list 'genlCx ctx 'CxUniverse) '?ctx)))
+        (is (v/sees? kb ctx 'CxUniverse))))))
 
 ;; ---- 4. known-true content is background, never contested --------------
 
@@ -316,8 +316,8 @@
       (v/set-solver kb edge/edge-solver)
       (let [{:keys [individual] [pos neg] :handles} (nixon-diamond kb)
             person (tu/tmp-type)
-            _ (v/assert kb (list person individual) 'UniverseContext {:strength :monotonic})
-            mono (v/handle-of kb (list person individual) 'UniverseContext)
+            _ (v/assert kb (list person individual) 'CxUniverse {:strength :monotonic})
+            mono (v/handle-of kb (list person individual) 'CxUniverse)
             dilemma (first (v/contradictions kb))]
         (testing "the dilemma names exactly the two defaults"
           (is (= #{pos neg} (:nogood dilemma)))
@@ -325,7 +325,7 @@
           (is (every? #(= :default (:defeat-class %)) (:sides dilemma))))
         (testing "and the entangled known-true fact stands, unclassed by the dilemma"
           (is (= :monotonic (v/defeat-class kb mono)))
-          (is (seq (v/sentexes-matching kb (list person individual) 'UniverseContext))))
+          (is (seq (v/sentexes-matching kb (list person individual) 'CxUniverse))))
         (testing "so a program built from the dilemma gives atoms to the defaults only"
           ;; the assertion a recorded program carries, at the boundary where a
           ;; caller crosses into the solver
@@ -341,13 +341,13 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (let [bird (tu/tmp-type) flies (tu/tmp-pred) tweety (tu/tmp-ind)]
         (v/set-solver kb edge/edge-solver)
-        (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'UniverseContext)
-        (v/assert kb (list bird tweety) 'UniverseContext)
-        (v/assert kb (list 'not (list flies tweety)) 'UniverseContext {:strength :monotonic})
+        (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+        (v/assert kb (list bird tweety) 'CxUniverse)
+        (v/assert kb (list 'not (list flies tweety)) 'CxUniverse {:strength :monotonic})
         (testing "the monotonic side won without a solve"
           (is (nil? (v/last-program kb)))
-          (is (empty? (v/sentexes-matching kb (list flies tweety) 'UniverseContext)))
-          (is (seq (v/sentexes-matching kb (list 'not (list flies tweety)) 'UniverseContext))))))))
+          (is (empty? (v/sentexes-matching kb (list flies tweety) 'CxUniverse)))
+          (is (seq (v/sentexes-matching kb (list 'not (list flies tweety)) 'CxUniverse))))))))
 
 (deftest a-rogue-solver-moves-neither-belief-nor-classification
   ;; `set-solver` takes any implementation, so the engine has to be safe against a bad
@@ -362,8 +362,8 @@
   (when asp?
     (tu/with-neutral-kb [kb tu/fresh]
       (let [happy (tu/tmp-pred) tom (tu/tmp-ind) called (atom 0)]
-        (v/assert kb (list happy tom) 'UniverseContext {:strength :monotonic})
-        (let [monotonic (v/handle-of kb (list happy tom) 'UniverseContext)]
+        (v/assert kb (list happy tom) 'CxUniverse {:strength :monotonic})
+        (let [monotonic (v/handle-of kb (list happy tom) 'CxUniverse)]
           (v/set-solver kb
                         (reify solve/Solver
                           (solve [_ {:keys [assumptions]}]
@@ -375,7 +375,7 @@
               (is (zero? @called))
               (is (nil? (v/last-program kb))))
             (testing "so the known-true belief stands, never having been at risk"
-              (is (seq (v/sentexes-matching kb (list happy tom) 'UniverseContext)))
+              (is (seq (v/sentexes-matching kb (list happy tom) 'CxUniverse)))
               (is (jtms/in? (:tms kb) monotonic)))
             (testing "and both sides of the dilemma stand, undecided by the plugin"
               (is (true? (v/in? kb pos)))

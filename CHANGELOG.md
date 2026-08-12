@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0 — 2026-08-12
+
+- **Breaking: a context name is `Cx`-prefixed, not `Context`-suffixed.** `CoreContext`
+  is `CxCore`, `UniverseContext` is `CxUniverse`, and the `assert` front door refuses a
+  `Context`-suffixed name by the same naming check that already refused a malformed
+  predicate or type. *Migration:* respell every context name — in a stored KB, an
+  `assert` call, and a saved dump — to the `Cx` form. `docs/naming.md`.
+
+- **Breaking: the context-transitivity predicate is `genlCx`.** `(genlContext sub super)`
+  is `(genlCx sub super)`, so the relation between two contexts is spelled the way the
+  contexts it relates are. The `genl` closure over types keeps its name. *Migration:*
+  respell the predicate wherever an edge is asserted, matched or retracted; a stored
+  `genlContext` edge is a fact under a predicate nothing reads, so re-assert it rather
+  than expecting the taxonomy to find it. `docs/taxonomy.md`.
+
 ## 0.6.0 — 2026-08-12
 
 What a stored rule is worth. A rule can now conclude a rule, a NAF guard written as a
@@ -24,7 +39,7 @@ written.
 |---|---|
 | treats a 5xx from the daemon's `:export` op as a backend fault | the five destination refusals answer **400** now; retry logic keyed on 5xx stops retrying a caller mistake |
 | drives `:preview` or `:clear-caches` through the LLM tool surface | they are no longer exposed to a model — call the op on the daemon or the API directly |
-| writes `(ist Ctx S)` in an antecedent or an `exceptWhen` | refused `:not-well-formed`; say it with `decontextualizedPredicate` or a `genlContext` edge |
+| writes `(ist Ctx S)` in an antecedent or an `exceptWhen` | refused `:not-well-formed`; say it with `decontextualizedPredicate` or a `genlCx` edge |
 | passes `(ist Ctx S)` to a read | it answers now instead of returning empty, with the named context winning over the argument |
 | writes `(unknown (and A B))` as a guard | it guards now; it fired unconditionally before. Under a quantifier the same shape is refused |
 | branches on `violations`' `:violation` with a defaultless `case` | `:functional`, `:asymmetric` and `:constraint-exposure-truncated` are new kinds |
@@ -45,7 +60,7 @@ read at two levels by one symbol, and one symbol gets one argument check.
   since `bird` lies *under* `animal` rather than in it. So seven facts the starter shipped
   were convicted by a declaration the starter also shipped: `check` reported `:arg-type` on
   each and re-asserting any of them threw, while loading them was silent. They loaded
-  because the declaration lives in `LifeContext` and the facts in `BiologyContext`, an
+  because the declaration lives in `CxLife` and the facts in `CxBiology`, an
   ordering the open-world reading accepts and for which `violations` files no retroactive
   `:arg-type` report — so nothing said a word. The kind-level content moves to
   `capabilityType`, a `typeRelationPredicate` taking `argGenl` on both positions and
@@ -240,7 +255,7 @@ entries, beside the `:disjoint` one that already was.
 
 - **Two of the three clash kinds slipped through exactly where nothing was meant to.**
   The definitional checks are scoped to the writer's own cone, so a pair split across a
-  `genlContext` edge is invisible to both writers and the assert door refuses nothing.
+  `genlCx` edge is invisible to both writers and the assert door refuses nothing.
   Under `:arbitrate` that is answered by the vantages — a context that sees the pair
   whole weighs it — but under `:refuse` the vantages are deliberately withheld, and the
   exposure ledger had an entry kind for **disjointness only**. So a `functional` slot
@@ -271,7 +286,7 @@ entries, beside the `:disjoint` one that already was.
   extent — which also means a `(functional P)` arriving *after* the facts it convicts is
   the arbitrating sweep's question and not this pass's, an absence
   [docs/taxonomy.md](docs/taxonomy.md) states rather than implies.
-- **A `genlContext` edge is the one trigger that reaches past the region, and it has to.**
+- **A `genlCx` edge is the one trigger that reaches past the region, and it has to.**
   Visibility itself moves there: a pair whose halves are both stored and both believed
   becomes jointly visible with neither half relabelled, so taking candidates from the
   moved region alone reported the same knowledge when the edges arrived *before* the facts
@@ -304,7 +319,7 @@ entries, beside the `:disjoint` one that already was.
   entry when it had more. A separate kind from the two sweep notices for the reason they
   are separate from each other: a reader acts differently on *these pairs went
   unreported* than on *this trigger went unswept*. The same entry says how many
-  `genlContext` edges went unswept, with a sample, a cone walk that stopped being the same
+  `genlCx` edges went unswept, with a sample, a cone walk that stopped being the same
   class of thing to a reader — pairs visible and unreported, nothing left undecided.
 - **One entry per pair, keyed on content.** Both halves can sit in one settle's region and
   each convicts the other, so a report keyed on the walked side would file a pair twice —
@@ -413,7 +428,7 @@ decides itself on a context it never consulted.
   itself — the other two do not, which is why this is refused rather than left inert. The
   refusal names the two ways to say what such an author meant, since a violation reported
   without its repair is a second lookup: `(decontextualizedPredicate P)` takes every
-  `(P ...)` into UniverseContext, which every context sees, and a `genlContext` edge puts
+  `(P ...)` into CxUniverse, which every context sees, and a `genlCx` edge puts
   `Ctx` in the rule's own cone — under either the premise is written plainly, and the
   context topology decides what is readable from where. The NAF frame is now descended by
   the connective walk in its literal's own role, which is what carries the refusal into
@@ -421,7 +436,7 @@ decides itself on a context it never consulted.
   antecedent/exception construct. Guard: `check_test`'s five frames, holding both doors to
   one `:type` and the store to no writes. *Class:* **Refusal** — no working caller exists,
   the shape having never matched anything. *Migration:* say it with
-  `(decontextualizedPredicate P)` or a `genlContext` edge into the rule's own cone — the
+  `(decontextualizedPredicate P)` or a `genlCx` edge into the rule's own cone — the
   refusal names both.
   [docs/contexts.md](docs/contexts.md).
 - **And it reads on a caller's behalf, which is the half that was missing.** `(ist Ctx S)`
@@ -440,7 +455,7 @@ decides itself on a context it never consulted.
   `Ctx`", a fact `Ctx` inherits being true in `Ctx`, so the difference is the doors' and
   not `ist`'s — pinned rather than reconciled. This grants **no** visibility a context
   argument did not already grant, which is what separates it from the antecedent above:
-  naming `AContext` is what `(sentexes-matching kb S 'AContext)` has always done, and the
+  naming `CxA` is what `(sentexes-matching kb S 'CxA)` has always done, and the
   caller asking has said so, where a rule reading `Ctx` on the sly would decide belief
   from a context its own cannot see. Guards: `context_scoping_test`'s four, including the
   whole-surface one and the sibling lattice where the answer is a context the asker cannot
@@ -691,10 +706,10 @@ backend cannot see, which is why the matrix exists.
   The dead `:base-highest` field is gone.
 
 **The uberjar loads the ontology it ships.** Layer discovery listed a directory, which a
-packaged jar need not carry, so an uberjar started with `CoreContext` alone and no upper or
+packaged jar need not carry, so an uberjar started with `CxCore` alone and no upper or
 middle layer — silently, the KB simply being smaller than the same tree run from source.
 
-- Discovery lists the jar's own entries, anchored on `kb/CoreContext.txt` when the jar
+- Discovery lists the jar's own entries, anchored on `kb/CxCore.txt` when the jar
   carries no directory entry, and an unlistable protocol is **refused** rather than answered
   nil. *Class:* neither label — a caller running from source saw every layer already, and
   one running the uberjar was getting a KB nobody meant to ship. Beside it: the load
@@ -935,7 +950,7 @@ because a caller can observe them and should be told what to expect.
   32k-entry cache was untouched.
 - **A taxonomy edge retired every memo, because a counter says something moved without saying
   what.** At 400 standing dilemmas one `genl` edge with nothing above or below it cost 800
-  `checks/arbitrable-violations` calls, and one `genlContext` edge under a context no
+  `checks/arbitrable-violations` calls, and one `genlCx` edge under a context no
   contradiction was stated in re-derived all 400 opposed bodies. Both cost zero:
   `clash-nogoods` weighs the `genl` relation **per pair**, keyed `[type context]`, and
   `negation-nogoods` records the joint-visibility verdict per context pair and re-derives only
@@ -1054,7 +1069,7 @@ because a caller can observe them and should be told what to expect.
 
 **The taxonomy and its closures.**
 
-- **A `genlContext` edge out of a context that sees another one back never returned.** The depth
+- **A `genlCx` edge out of a context that sees another one back never returned.** The depth
   potential ranks the **condensation**, so `A` and `B` are level as one component, and
   `raise-depth` lifted the single node — which put `A` above its own mate, round the cycle
   without end. The lift moves whole components, and the condensation being a DAG terminates it.
@@ -1252,28 +1267,28 @@ because a caller can observe them and should be told what to expect.
 **The shipped ontology.**
 
 - **The shipped ontology decontextualizes predicate metadata and nothing else.**
-  `SocietyContext` declared `(decontextualizedPredicate marriedTo)`, the one *domain* relation
+  `CxSociety` declared `(decontextualizedPredicate marriedTo)`, the one *domain* relation
   carrying a mark the rest of the ontology reserves for claims about a **predicate** — so a
   marriage stated anywhere became a claim of the whole KB, and a story, jurisdiction or
   hypothesis could not hold one the rest of the KB did not share. It reached past what the
-  declaration names, too: a rule fires on the lifted copy, so `SocialContext`'s marriage rule put
+  declaration names, too: a rule fires on the lifted copy, so `CxSocial`'s marriage rule put
   `knows` within reach of every data context. The declaration is gone; `marriedTo` keeps
   `symmetric`, and a KB that wants marriages lifted asserts the declaration where its reader can
   see it. *Class:* no label — ontology **content**, not the surface a caller writes against
   (§3.8). [docs/contexts.md, "What the shipped ontology declares it of"](docs/contexts.md).
 - **Every argument position in the shipped ontology is declared.** 227 `argIsa` / `argGenl`
-  declarations across `CoreContext` and the four upper contexts that carried none, at `thing`
+  declarations across `CxCore` and the four upper contexts that carried none, at `thing`
   throughout — the point being that every position is *stated*, not that any is narrowed. What it
   buys is schema completeness, a wrong-position refusal, and an edit rather than an addition when
   a position is later narrowed. `argGenl genl 2` is the one position left undeclared, and
-  `CoreContext` says why beside it. [docs/argtypes.md](docs/argtypes.md).
+  `CxCore` says why beside it. [docs/argtypes.md](docs/argtypes.md).
 - **Six types enter the upper ontology, and the declarations narrow onto them**, so an argument
   constraint refuses something rather than only recording that the position was considered.
   `spatial_thing` takes `physical_object` beneath it, `time_point` sits under `temporal_thing`,
   `function` beside `predicate`, and `integer`, `character_string` and `context` name themselves.
   Space takes `spatial_thing` on all 100 of its positions, Time `temporal_thing` on 46 and
   `time_point` on 16, and the meta-vocabulary takes `predicate`, `function`, `context`, `integer`
-  and `character_string` where it held `thing` — so `(before genlContext genl)` is an `:arg-type`
+  and `character_string` where it held `thing` — so `(before genlCx genl)` is an `:arg-type`
   refusal. *Class:* no label — ontology content (§3.8); what it owes instead is the roster that
   pins the shipped set, `vocabulary_audit_test`. *Migration:* a KB built on the shipped Space or
   Time vocabulary can be refused where 0.5.0 accepted it — the refusal names its convicting
@@ -1487,7 +1502,7 @@ written or deployed.
   `(isa? kb 'Muffet 'Dog)` answered false with nothing to search for. `nm/advice` reads
   intent where `problems` reads the invariants: it recognizes the shape and logs a
   `:warn` once per process spelling the rewrite that was meant. Beside it, a
-  `:no-placement` drop names `genlContext` and points at the `:rule-context` /
+  `:no-placement` drop names `genlCx` and points at the `:rule-context` /
   `:fact-contexts` already on the entry. `docs/naming.md`.
 - **A second `open-kb` defaulting onto the shared in-RAM space now warns**, naming both
   fixes — give the KB its own number, or name `{:space 0}` explicitly to say the sharing
@@ -1647,7 +1662,7 @@ so the rest can be read at leisure.
   lifts last settle's defeats at its top, but the cached closures were refreshed only in
   `settle-finish` — after `constraint-nogoods` had read them — so discovery asked its
   question against a vocabulary one settle out of date. A `P`/`¬P` pair made visible by
-  a revived `genlContext` edge went unarbitrated and `retract!` returned with both
+  a revived `genlCx` edge went unarbitrated and `retract!` returned with both
   believed, a state `recover` over the same records disagrees with.
 - **The disk KV index reads and publishes its RAM map under the lock.** `apply-ops!`
   read `@data` before acquiring and published after releasing, while `compact!` runs on
@@ -1783,7 +1798,7 @@ so the rest can be read at leisure.
   under `?var0`, which no arriving fact and no goal can spell — so the rule answered no
   backward goal at all and fired forward only when the concrete-predicate antecedent
   beside it arrived. Two arrival orders, two answers, from a rule the engine reported as
-  accepted. An `:inert` rule is exempt, which is what `CoreContext`'s decontextualized-
+  accepted. An `:inert` rule is exempt, which is what `CxCore`'s decontextualized-
   predicate lift is. *Migration:* assert the instantiated rules, one per predicate the
   metarule ranged over.
 
@@ -1924,7 +1939,7 @@ observable contract, which is why this is 0.3.0 and not 0.2.1; the rest are comp
   to 4 ms. `lein perf`'s `disjoint-enumeration` check is the claim.
 - **A definitional clash is arbitrated from a context that can see both halves.** The
   checks are scoped to the context they are asked in, so a pair whose halves sit either
-  side of a `genlContext` edge was answerable from exactly one of the two, and only when
+  side of a `genlCx` edge was answerable from exactly one of the two, and only when
   that half was the one the settle moved. `settle/clash-askers` runs the check from the
   candidate's own context and from the maximal common descendant of it and each context
   holding a sentex it could pair with; nothing is widened.

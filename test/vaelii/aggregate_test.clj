@@ -24,7 +24,7 @@
   "The single binding of `k` an aggregate answers with, or nil when it answers nothing.
   Asserts the 'exactly one answer or none' invariant on the way past."
   [kb goal k]
-  (let [sols (v/ask kb goal 'WellContext)]
+  (let [sols (v/ask kb goal 'CxWell)]
     (is (>= 1 (count sols)) "an aggregate yields exactly one answer or none")
     (get (first sols) k)))
 
@@ -46,9 +46,9 @@
 ;; ---- the five operators over a hand-built extent -------------------------
 
 (defn- extent!
-  "Assert `(pred Owner v)` for each v, in `WellContext`, and hand back the sentences."
+  "Assert `(pred Owner v)` for each v, in `CxWell`, and hand back the sentences."
   [kb pred owner vs]
-  (mapv (fn [v] (let [s (list pred owner v)] (v/assert kb s 'WellContext) s)) vs))
+  (mapv (fn [v] (let [s (list pred owner v)] (v/assert kb s 'CxWell) s)) vs))
 
 (tu/deftest-kb the-five-operators-reduce-the-body-s-solutions
   (tu/with-terms [scoreOf Team]
@@ -65,18 +65,18 @@
 (tu/deftest-kb the-reduction-variable-is-projected-out
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [7 8])
-    (let [sols (v/ask kb (list 'agg/count '?n '?v (list scoreOf Team '?v)) 'WellContext)]
+    (let [sols (v/ask kb (list 'agg/count '?n '?v (list scoreOf Team '?v)) 'CxWell)]
       (is (= 1 (count sols)))
       (is (= '#{?n} (set (keys (first sols))))
           "?v binds nothing outside the aggregate — it is counted, not witnessed"))))
 
 (tu/deftest-kb a-merged-pair-counts-once
   (tu/with-terms [knows Ada Alan Turing]
-    (v/assert kb (list knows Ada Alan) 'WellContext)
-    (v/assert kb (list knows Ada Turing) 'WellContext)
+    (v/assert kb (list knows Ada Alan) 'CxWell)
+    (v/assert kb (list knows Ada Turing) 'CxWell)
     (let [g (list 'agg/count '?n '?v (list knows Ada '?v))]
       (is (= 2 (one kb g '?n)) "two names, two values — before the merge")
-      (v/assert kb (list 'sameAs Alan Turing) 'WellContext)
+      (v/assert kb (list 'sameAs Alan Turing) 'CxWell)
       (is (= 1 (one kb g '?n))
           "one thing, one value — distinctness is by the equality closure's representative"))))
 
@@ -85,23 +85,23 @@
   ;; context holds are the ones *it* has not been told to merge.  Read globally, a
   ;; `sameAs` stated down here would collapse two values in the general context that was
   ;; never told — whose own solutions still name both.
-  (tu/with-terms [knows Ada Alan Turing LowContext]
-    (v/assert kb (list 'genlContext LowContext 'WellContext) 'UniverseContext
+  (tu/with-terms [knows Ada Alan Turing CxLow]
+    (v/assert kb (list 'genlCx CxLow 'CxWell) 'CxUniverse
               {:strength :monotonic})
-    (v/assert kb (list knows Ada Alan) 'WellContext)
-    (v/assert kb (list knows Ada Turing) 'WellContext)
-    (v/assert kb (list 'sameAs Alan Turing) LowContext)
+    (v/assert kb (list knows Ada Alan) 'CxWell)
+    (v/assert kb (list knows Ada Turing) 'CxWell)
+    (v/assert kb (list 'sameAs Alan Turing) CxLow)
     (let [g (list 'agg/count '?n '?v (list knows Ada '?v))]
-      (is (= 1 (get (first (v/ask kb g LowContext)) '?n))
+      (is (= 1 (get (first (v/ask kb g CxLow)) '?n))
           "the context that was told of the merge counts one")
-      (is (= 2 (get (first (v/ask kb g 'WellContext)) '?n))
+      (is (= 2 (get (first (v/ask kb g 'CxWell)) '?n))
           "and the one above it still counts two"))))
 
 (tu/deftest-kb the-check-arm-compares-instead-of-binding
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [2 4])
-    (is (v/ask? kb (list 'agg/count 2 '?v (list scoreOf Team '?v)) 'WellContext))
-    (is (not (v/ask? kb (list 'agg/count 3 '?v (list scoreOf Team '?v)) 'WellContext))
+    (is (v/ask? kb (list 'agg/count 2 '?v (list scoreOf Team '?v)) 'CxWell))
+    (is (not (v/ask? kb (list 'agg/count 3 '?v (list scoreOf Team '?v)) 'CxWell))
         "a bound ?n that does not match the computed value answers nothing")))
 
 ;; ---- the empty body: where the five differ -------------------------------
@@ -113,62 +113,62 @@
       (is (= 0 (one kb (g 'agg/sum) '?n)) "sum of an empty group is 0 — the identity")
       (testing "min / max / avg over nothing have no answer — not nil, not zero"
         (doseq [op '[agg/min agg/max agg/avg]]
-          (is (empty? (v/ask kb (g op) 'WellContext))
+          (is (empty? (v/ask kb (g op) 'CxWell))
               (str op " must yield no binding at all over an empty body")))))))
 
 ;; ---- numbers, measures, and what is neither ------------------------------
 
 (tu/deftest-kb a-non-numeric-value-is-an-error-not-a-silent-skip
   (tu/with-terms [likesThing Ann Cake Pie]
-    (v/assert kb (list likesThing Ann Cake) 'WellContext)
-    (v/assert kb (list likesThing Ann Pie) 'WellContext)
+    (v/assert kb (list likesThing Ann Cake) 'CxWell)
+    (v/assert kb (list likesThing Ann Pie) 'CxWell)
     (v/clear-violations! kb)
     (let [g (fn [op] (list op '?n '?v (list likesThing Ann '?v)))]
       (is (= 2 (one kb (g 'agg/count) '?n))
           "counting is the one reduction that never reads the values")
       (doseq [op '[agg/sum agg/min agg/max agg/avg]]
-        (is (empty? (v/ask kb (g op) 'WellContext)) (str op " cannot reduce symbols")))
+        (is (empty? (v/ask kb (g op) 'CxWell)) (str op " cannot reduce symbols")))
       (let [vs (filter #(= :aggregate (:violation %)) (v/violations kb))]
         (is (= 4 (count vs)) "each refusal is recorded, not swallowed")
         (is (every? #(str/includes? (:message %) "numbers or measures") vs))))))
 
 (tu/deftest-kb a-measure-sum-is-normalized-and-rendered-in-the-base-unit
   (tu/with-terms [lengthOf Wall Metre Centimetre Length]
-    ;; MeasureContext ships the vocabulary; the units themselves are an ontology's
-    (v/assert kb (list 'dimensionOf Metre Length) 'WellContext {:strength :monotonic})
-    (v/assert kb (list 'dimensionOf Centimetre Length) 'WellContext {:strength :monotonic})
-    (v/assert kb (list 'conversionFactor Centimetre Metre 0.01) 'WellContext
+    ;; CxMeasure ships the vocabulary; the units themselves are an ontology's
+    (v/assert kb (list 'dimensionOf Metre Length) 'CxWell {:strength :monotonic})
+    (v/assert kb (list 'dimensionOf Centimetre Length) 'CxWell {:strength :monotonic})
+    (v/assert kb (list 'conversionFactor Centimetre Metre 0.01) 'CxWell
               {:strength :monotonic})
-    (v/assert kb (list lengthOf Wall (list 'QuantityFn 300 Centimetre)) 'WellContext)
-    (v/assert kb (list lengthOf Wall (list 'QuantityFn 2 Metre)) 'WellContext)
+    (v/assert kb (list lengthOf Wall (list 'QuantityFn 300 Centimetre)) 'CxWell)
+    (v/assert kb (list lengthOf Wall (list 'QuantityFn 2 Metre)) 'CxWell)
     (is (= (list 'QuantityFn 5 Metre)
            (one kb (list 'agg/sum '?n '?v (list lengthOf Wall '?v)) '?n))
         "converted to base units, added there, and rendered back in the same unit")))
 
 (tu/deftest-kb an-interval-measure-carries-through-sum-and-stops-min
   (tu/with-terms [spanOf Trip Metre Length]
-    (v/assert kb (list 'dimensionOf Metre Length) 'WellContext {:strength :monotonic})
-    (v/assert kb (list spanOf Trip (list 'QuantityIntervalFn 1 3 Metre)) 'WellContext)
-    (v/assert kb (list spanOf Trip (list 'QuantityFn 10 Metre)) 'WellContext)
+    (v/assert kb (list 'dimensionOf Metre Length) 'CxWell {:strength :monotonic})
+    (v/assert kb (list spanOf Trip (list 'QuantityIntervalFn 1 3 Metre)) 'CxWell)
+    (v/assert kb (list spanOf Trip (list 'QuantityFn 10 Metre)) 'CxWell)
     (v/clear-violations! kb)
     (is (= (list 'QuantityIntervalFn 11 13 Metre)
            (one kb (list 'agg/sum '?n '?v (list spanOf Trip '?v)) '?n))
         "an over-approximation in is an over-approximation out, said out loud")
     (testing "min and max need a total order, which interval bounds do not give"
       (doseq [op '[agg/min agg/max]]
-        (is (empty? (v/ask kb (list op '?n '?v (list spanOf Trip '?v)) 'WellContext))))
+        (is (empty? (v/ask kb (list op '?n '?v (list spanOf Trip '?v)) 'CxWell))))
       (is (= 2 (count (filter #(str/includes? (str (:message %)) "partially ordered")
                               (v/violations kb))))
           "refused with the reason, not silently"))))
 
 (tu/deftest-kb point-measures-do-order-so-min-and-max-answer
   (tu/with-terms [spanOf Trip Metre Centimetre Length]
-    (v/assert kb (list 'dimensionOf Metre Length) 'WellContext {:strength :monotonic})
-    (v/assert kb (list 'dimensionOf Centimetre Length) 'WellContext {:strength :monotonic})
-    (v/assert kb (list 'conversionFactor Centimetre Metre 0.01) 'WellContext
+    (v/assert kb (list 'dimensionOf Metre Length) 'CxWell {:strength :monotonic})
+    (v/assert kb (list 'dimensionOf Centimetre Length) 'CxWell {:strength :monotonic})
+    (v/assert kb (list 'conversionFactor Centimetre Metre 0.01) 'CxWell
               {:strength :monotonic})
-    (v/assert kb (list spanOf Trip (list 'QuantityFn 250 Centimetre)) 'WellContext)
-    (v/assert kb (list spanOf Trip (list 'QuantityFn 4 Metre)) 'WellContext)
+    (v/assert kb (list spanOf Trip (list 'QuantityFn 250 Centimetre)) 'CxWell)
+    (v/assert kb (list spanOf Trip (list 'QuantityFn 4 Metre)) 'CxWell)
     (is (= (list 'QuantityFn 2.5 Metre)
            (one kb (list 'agg/min '?n '?v (list spanOf Trip '?v)) '?n))
         "compared in base units, so the smaller is the one with the smaller magnitude *there*")
@@ -177,24 +177,24 @@
 
 (tu/deftest-kb a-measure-average-and-a-measure-checked-rather-than-bound
   (tu/with-terms [spanOf Trip Metre Length]
-    (v/assert kb (list 'dimensionOf Metre Length) 'WellContext {:strength :monotonic})
-    (v/assert kb (list spanOf Trip (list 'QuantityFn 2 Metre)) 'WellContext)
-    (v/assert kb (list spanOf Trip (list 'QuantityFn 4 Metre)) 'WellContext)
+    (v/assert kb (list 'dimensionOf Metre Length) 'CxWell {:strength :monotonic})
+    (v/assert kb (list spanOf Trip (list 'QuantityFn 2 Metre)) 'CxWell)
+    (v/assert kb (list spanOf Trip (list 'QuantityFn 4 Metre)) 'CxWell)
     (is (= (list 'QuantityFn 3 Metre)
            (one kb (list 'agg/avg '?n '?v (list spanOf Trip '?v)) '?n))
         "the mean is linear in the bounds, so it renders as a point")
     (testing "check mode over a non-number compares the rendered measure"
       (is (v/ask? kb (list 'agg/avg (list 'QuantityFn 3 Metre) '?v
                            (list spanOf Trip '?v))
-                  'WellContext))
+                  'CxWell))
       (is (not (v/ask? kb (list 'agg/avg (list 'QuantityFn 9 Metre) '?v
                                 (list spanOf Trip '?v))
-                       'WellContext))))))
+                       'CxWell))))))
 
 (tu/deftest-kb the-reduction-slot-must-hold-a-variable
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [1 2])
-    (is (empty? (v/ask kb (list 'agg/count '?n 7 (list scoreOf Team 7)) 'WellContext))
+    (is (empty? (v/ask kb (list 'agg/count '?n 7 (list scoreOf Team 7)) 'CxWell))
         "a constant reduces over nothing — there is no variable to collect")
     (testing "and in a rule it is refused, not stored as a rule that can never fire"
       (tu/with-terms [tallied]
@@ -202,7 +202,7 @@
                                         (list 'and (list scoreOf Team '?s)
                                               (list 'agg/count '?n 7 (list scoreOf Team 7)))
                                         (list tallied Team '?n))
-                               'WellContext)
+                               'CxWell)
                      nil
                      (catch clojure.lang.ExceptionInfo e e))]
           (is (some? e) "a silently unfirable rule is the one outcome worse than an error")
@@ -211,12 +211,12 @@
 
 (tu/deftest-kb a-mixed-dimension-extent-is-refused-rather-than-added
   (tu/with-terms [measureOf Thing Metre Sec Length Duration]
-    (v/assert kb (list 'dimensionOf Metre Length) 'WellContext {:strength :monotonic})
-    (v/assert kb (list 'dimensionOf Sec Duration) 'WellContext {:strength :monotonic})
-    (v/assert kb (list measureOf Thing (list 'QuantityFn 2 Metre)) 'WellContext)
-    (v/assert kb (list measureOf Thing (list 'QuantityFn 3 Sec)) 'WellContext)
+    (v/assert kb (list 'dimensionOf Metre Length) 'CxWell {:strength :monotonic})
+    (v/assert kb (list 'dimensionOf Sec Duration) 'CxWell {:strength :monotonic})
+    (v/assert kb (list measureOf Thing (list 'QuantityFn 2 Metre)) 'CxWell)
+    (v/assert kb (list measureOf Thing (list 'QuantityFn 3 Sec)) 'CxWell)
     (v/clear-violations! kb)
-    (is (empty? (v/ask kb (list 'agg/sum '?n '?v (list measureOf Thing '?v)) 'WellContext))
+    (is (empty? (v/ask kb (list 'agg/sum '?n '?v (list measureOf Thing '?v)) 'CxWell))
         "metres plus seconds is not a sum")
     (is (seq (filter #(= :aggregate (:violation %)) (v/violations kb))))))
 
@@ -227,7 +227,7 @@
     (doseq [f (keys sx/aggregate-functors)]
       ;; ground, so the refusal is the wff arm's rather than the ground check's — an
       ;; aggregate written the ordinary way is refused twice over
-      (let [e (try (v/assert kb (list f 1 Team (list scoreOf Team 1)) 'WellContext)
+      (let [e (try (v/assert kb (list f 1 Team (list scoreOf Team 1)) 'CxWell)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) (str f " must be refused as a stored fact"))
@@ -237,7 +237,7 @@
     (testing "and the open form an author would actually write is refused too"
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list 'agg/count 1 '?v (list scoreOf Team '?v))
-                             'WellContext))))))
+                             'CxWell))))))
 
 ;; ---- in a rule antecedent: grouping and maintenance ----------------------
 
@@ -245,20 +245,20 @@
   "A DAG with `(transitive ancestorOf)` and one node per element of `edges`' union, plus
   the grouping rule.  Hands back the vocabulary the tests drive."
   [kb {:keys [node ancestorOf ancestorCount edges]}]
-  (v/assert kb (list 'transitive ancestorOf) 'WellContext {:strength :monotonic})
-  (doseq [n (into #{} cat edges)] (v/assert kb (list node n) 'WellContext))
-  (doseq [[a b] edges] (v/assert kb (list ancestorOf a b) 'WellContext))
+  (v/assert kb (list 'transitive ancestorOf) 'CxWell {:strength :monotonic})
+  (doseq [n (into #{} cat edges)] (v/assert kb (list node n) 'CxWell))
+  (doseq [[a b] edges] (v/assert kb (list ancestorOf a b) 'CxWell))
   (v/assert kb (list 'implies
                      (list 'and (list node '?x)
                            (list 'agg/count '?n '?a (list ancestorOf '?a '?x)))
                      (list ancestorCount '?x '?n))
-            'WellContext))
+            'CxWell))
 
 (defn- counted
   "`{node -> n}` from the believed `(ancestorCount ?x ?n)` facts."
   [kb ancestorCount]
   (into {} (map (fn [sx] (let [[_ x n] (:sentence sx)] [x n])))
-        (v/sentexes-matching kb (list ancestorCount '?x '?n) 'WellContext)))
+        (v/sentexes-matching kb (list ancestorCount '?x '?n) 'CxWell)))
 
 (tu/deftest-kb the-wagg-shape-per-node-transitive-ancestor-count
   (tu/with-terms [node ancestorOf ancestorCount A B C D E]
@@ -278,19 +278,19 @@
   (tu/with-terms [node ancestorOf ancestorCount P Q R]
     (ancestor-world! kb {:node node :ancestorOf ancestorOf
                          :ancestorCount ancestorCount :edges [[P Q]]})
-    (v/assert kb (list node R) 'WellContext)
+    (v/assert kb (list node R) 'CxWell)
     (is (= {P 0 Q 1 R 0} (counted kb ancestorCount)) "the starting counts")
     (testing "assert: the old conclusion goes and the new one arrives"
-      (let [h (v/assert kb (list ancestorOf R P) 'WellContext)]
+      (let [h (v/assert kb (list ancestorOf R P) 'CxWell)]
         (is (= {P 1 Q 2 R 0} (counted kb ancestorCount))
             "R is an ancestor of P and, transitively, of Q")
         (testing "retract: and back, in the other direction"
           (v/retract! kb h)
           (is (= {P 0 Q 1 R 0} (counted kb ancestorCount))))))
     (testing "defeat: a believed (not …) withdraws the fact, so the count follows belief"
-      (let [h (v/assert kb (list ancestorOf R P) 'WellContext {:strength :default})]
+      (let [h (v/assert kb (list ancestorOf R P) 'CxWell {:strength :default})]
         (is (= {P 1 Q 2 R 0} (counted kb ancestorCount)))
-        (let [d (v/assert kb (list 'not (list ancestorOf R P)) 'WellContext
+        (let [d (v/assert kb (list 'not (list ancestorOf R P)) 'CxWell
                           {:strength :monotonic})]
           (is (not (v/in? kb h)) "the stronger negation defeats the fact")
           (is (= {P 0 Q 1 R 0} (counted kb ancestorCount))
@@ -305,7 +305,7 @@
                                     (list 'and (list 'agg/count '?n '?a
                                                      (list ancestorOf '?a '?x)))
                                     (list ancestorCount '?x '?n))
-                           'WellContext)
+                           'CxWell)
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
@@ -320,7 +320,7 @@
                                           (list 'agg/count '?n '?a
                                                 (list ancestorOf '?a '?x)))
                                     (list sawAncestor '?x '?a))
-                           'WellContext)
+                           'CxWell)
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
@@ -343,7 +343,7 @@
   "`Left` and `Right` under `Root`, and the counting rule in `Root`."
   [kb {:keys [person childOf childCount Root Left Right]}]
   (doseq [c [Left Right]]
-    (v/assert kb (list 'genlContext c Root) 'UniverseContext {:strength :monotonic}))
+    (v/assert kb (list 'genlCx c Root) 'CxUniverse {:strength :monotonic}))
   (v/assert kb (list 'implies
                      (list 'and (list person '?x)
                            (list 'agg/count '?n '?c (list childOf '?x '?c)))
@@ -351,22 +351,22 @@
             Root))
 
 (tu/deftest-kb each-context-counts-what-it-sees-and-the-aggregate-does-not-place
-  (tu/with-terms [person childOf childCount Ann RootContext LeftContext RightContext]
+  (tu/with-terms [person childOf childCount Ann CxRoot CxLeft CxRight]
     (let [world {:person person :childOf childOf :childCount childCount
-                 :Root RootContext :Left LeftContext :Right RightContext}]
+                 :Root CxRoot :Left CxLeft :Right CxRight}]
       (two-contexts! kb world)
-      (v/assert kb (list childOf Ann 'C1) LeftContext)
-      (v/assert kb (list childOf Ann 'C2) LeftContext)
-      (v/assert kb (list childOf Ann 'C3) RightContext)
+      (v/assert kb (list childOf Ann 'C1) CxLeft)
+      (v/assert kb (list childOf Ann 'C2) CxLeft)
+      (v/assert kb (list childOf Ann 'C3) CxRight)
       (testing "grouped on a fact only the root holds, the census is the root's"
-        (v/assert kb (list person Ann) RootContext)
-        (is (= {RootContext 0} (counts-by-context kb childCount))
+        (v/assert kb (list person Ann) CxRoot)
+        (is (= {CxRoot 0} (counts-by-context kb childCount))
             (str "the counted facts live below the placement, and the aggregate names no"
                  " handle — so it cannot pull the conclusion down to them")))
       (testing "grouped in each child, one firing per context with its own count"
-        (v/assert kb (list person Ann) LeftContext)
-        (v/assert kb (list person Ann) RightContext)
-        (is (= {RootContext 0 LeftContext 2 RightContext 1}
+        (v/assert kb (list person Ann) CxLeft)
+        (v/assert kb (list person Ann) CxRight)
+        (is (= {CxRoot 0 CxLeft 2 CxRight 1}
                (counts-by-context kb childCount))
             "one rule, three contexts, three answers")))))
 
@@ -375,14 +375,14 @@
   ;; antecedents name what the join matched, and a census matches nothing.  Retraction
   ;; still reaches the conclusion, through the re-check index rather than through
   ;; dependency-directed sweep.
-  (tu/with-terms [person childOf childCount Ann RootContext LeftContext RightContext]
+  (tu/with-terms [person childOf childCount Ann CxRoot CxLeft CxRight]
     (two-contexts! kb {:person person :childOf childOf :childCount childCount
-                       :Root RootContext :Left LeftContext :Right RightContext})
-    (v/assert kb (list person Ann) LeftContext)
-    (v/assert kb (list childOf Ann 'C1) LeftContext)
-    (let [h2 (v/assert kb (list childOf Ann 'C2) LeftContext)]
-      (is (= {LeftContext 2} (counts-by-context kb childCount)))
-      (let [h    (v/handle-of kb (list childCount Ann 2) LeftContext)
+                       :Root CxRoot :Left CxLeft :Right CxRight})
+    (v/assert kb (list person Ann) CxLeft)
+    (v/assert kb (list childOf Ann 'C1) CxLeft)
+    (let [h2 (v/assert kb (list childOf Ann 'C2) CxLeft)]
+      (is (= {CxLeft 2} (counts-by-context kb childCount)))
+      (let [h    (v/handle-of kb (list childCount Ann 2) CxLeft)
             why  (v/why kb h)
             cited (into #{} (map :sentence)
                         (mapcat :because (:support why)))]
@@ -391,7 +391,7 @@
         (is (not (contains? cited (list childOf Ann 'C1)))))
       (testing "and retracting a counted fact moves the count regardless"
         (v/retract! kb h2)
-        (is (= {LeftContext 1} (counts-by-context kb childCount)))))))
+        (is (= {CxLeft 1} (counts-by-context kb childCount)))))))
 
 ;; ---- what a count is *for*: comparing it ---------------------------------
 ;; An aggregate is evaluated per placement context, so its `?n` is unbound for the
@@ -403,14 +403,14 @@
 (defn- family!
   "Two people, one with three children and one with one."
   [kb {:keys [person childOf Ann Bob]}]
-  (doseq [p [Ann Bob]] (v/assert kb (list person p) 'WellContext))
-  (doseq [c ['C1 'C2 'C3]] (v/assert kb (list childOf Ann c) 'WellContext))
-  (v/assert kb (list childOf Bob 'B1) 'WellContext))
+  (doseq [p [Ann Bob]] (v/assert kb (list person p) 'CxWell))
+  (doseq [c ['C1 'C2 'C3]] (v/assert kb (list childOf Ann c) 'CxWell))
+  (v/assert kb (list childOf Bob 'B1) 'CxWell))
 
 (defn- holders
   "The individuals a unary conclusion is believed of."
   [kb pred]
-  (into #{} (map (comp second :sentence)) (v/sentexes-matching kb (list pred '?x) 'WellContext)))
+  (into #{} (map (comp second :sentence)) (v/sentexes-matching kb (list pred '?x) 'CxWell)))
 
 (tu/deftest-kb a-person-with-more-than-two-children
   (tu/with-terms [person childOf largeFamily Ann Bob]
@@ -421,12 +421,12 @@
                                (list 'agg/count '?n '?c (list childOf '?x '?c))
                                (list 'lessThan 2 '?n))
                          (list largeFamily '?x))
-                'WellContext)
+                'CxWell)
       (is (= #{Ann} (holders kb largeFamily))
           "three children clears the bar and one does not")
       (testing "and the comparison is maintained against the count, both ways"
-        (let [h1 (v/assert kb (list childOf Bob 'B2) 'WellContext)
-              h2 (v/assert kb (list childOf Bob 'B3) 'WellContext)]
+        (let [h1 (v/assert kb (list childOf Bob 'B2) 'CxWell)
+              h2 (v/assert kb (list childOf Bob 'B3) 'CxWell)]
           (is (= #{Ann Bob} (holders kb largeFamily))
               "Bob crosses the threshold with no fact naming the conclusion")
           (v/retract! kb h2)
@@ -448,7 +448,7 @@
                                           (list 'lessThan 2 '?n)
                                           (list 'agg/count '?n '?c (list childOf '?x '?c)))
                                     (list largeFamily '?x))
-                           'WellContext)
+                           'CxWell)
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e) "the comparison is above the only thing that writes ?n")
@@ -467,10 +467,10 @@
                                    (list 'agg/count '?n '?c (list childOf '?x '?c))
                                    (list 'lessThan 2 '?n))
                              (list largeFamily '?x)))
-              'WellContext)
+              'CxWell)
     (is (empty? (holders kb largeFamily)) "nothing is stored — it never fires forward")
-    (is (v/query? kb (list largeFamily Ann) 'WellContext {:max-depth 2}))
-    (is (not (v/query? kb (list largeFamily Bob) 'WellContext {:max-depth 2})))))
+    (is (v/query? kb (list largeFamily Ann) 'CxWell {:max-depth 2}))
+    (is (not (v/query? kb (list largeFamily Bob) 'CxWell {:max-depth 2})))))
 
 (tu/deftest-kb forward-and-backward-agree-about-a-compared-count
   ;; the parity `provers/exception-holds?` exists to guarantee, asked of the shape that
@@ -482,12 +482,12 @@
                              (list 'agg/count '?n '?c (list childOf '?x '?c))
                              (list 'lessThan 2 '?n))
                        (list largeFamily '?x))
-              'WellContext)
+              'CxWell)
     (is (= #{Ann} (holders kb largeFamily))            "forward")
-    (is (v/ask? kb (list largeFamily Ann) 'WellContext)        "ask, yes")
-    (is (not (v/ask? kb (list largeFamily Bob) 'WellContext))  "ask, no")
-    (is (seq (v/prove kb (list largeFamily Ann) 'WellContext)) "prove, yes")
-    (is (empty? (v/prove kb (list largeFamily Bob) 'WellContext)) "prove, no")))
+    (is (v/ask? kb (list largeFamily Ann) 'CxWell)        "ask, yes")
+    (is (not (v/ask? kb (list largeFamily Bob) 'CxWell))  "ask, no")
+    (is (seq (v/prove kb (list largeFamily Ann) 'CxWell)) "prove, yes")
+    (is (empty? (v/prove kb (list largeFamily Bob) 'CxWell)) "prove, no")))
 
 (tu/deftest-kb a-computed-literal-carries-a-later-one-along-with-it
   ;; the chain is aggregate -> evaluate -> comparison: `?d` is written by a literal that
@@ -500,9 +500,9 @@
                              (list 'evaluate '?d (list '+ '?n 1))
                              (list 'lessThan 3 '?d))
                        (list roomFor '?x '?d))
-              'WellContext)
+              'CxWell)
     (is (= [(list roomFor Ann 4)]
-           (map :sentence (v/sentexes-matching kb (list roomFor '?x '?d) 'WellContext)))
+           (map :sentence (v/sentexes-matching kb (list roomFor '?x '?d) 'CxWell)))
         "?d reaches the consequent, and the comparison on it decides the firing")))
 
 (tu/deftest-kb an-unknown-may-read-a-count
@@ -513,9 +513,9 @@
                              (list 'agg/count '?n '?c (list childOf '?x '?c))
                              (list 'unknown (list banned '?n)))
                        (list allowed '?x))
-              'WellContext)
+              'CxWell)
     (is (= #{Ann Bob} (holders kb allowed)) "nothing is banned yet")
-    (let [h (v/assert kb (list banned 3) 'WellContext)]
+    (let [h (v/assert kb (list banned 3) 'CxWell)]
       (is (= #{Bob} (holders kb allowed))
           "banning the count Ann's group has withdraws her conclusion")
       (v/retract! kb h))
@@ -528,12 +528,12 @@
   ;; stored by then, so every later assert re-fires it and throws again.  Refusing at
   ;; assert time is the same diagnosis delivered where it can still be acted on.
   (tu/with-terms [person big Ann]
-    (v/assert kb (list person Ann) 'WellContext)
+    (v/assert kb (list person Ann) 'CxWell)
     (let [before (v/sentex-count kb)
           e (try (v/assert kb (list 'implies
                                     (list 'and (list person '?x) (list 'lessThan 2 '?n))
                                     (list big '?x))
-                           'WellContext)
+                           'CxWell)
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e) "?n is written by nothing in the rule")
@@ -543,7 +543,7 @@
         ;; the refusal is at canonicalization, so there is no sentex to look the rule
         ;; up by — `handle-of` would have to build the very form that is refused
         (is (= before (v/sentex-count kb)) "a refused rule stores nothing")
-        (is (some? (v/assert kb (list person 'Zed) 'WellContext)))))))
+        (is (some? (v/assert kb (list person 'Zed) 'CxWell)))))))
 
 ;; ---- stratification ------------------------------------------------------
 
@@ -554,7 +554,7 @@
                                           (list 'agg/count '?n '?a
                                                 (list bigGroup '?a)))
                                     (list bigGroup '?x))
-                           'WellContext)
+                           'CxWell)
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
@@ -567,9 +567,9 @@
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [1 2 3])
     (let [g (list 'agg/count '?n '?v (list scoreOf Team '?v))]
-      (is (empty? (:results (v/ask-within kb g 'WellContext {:max-cost :lookup})))
+      (is (empty? (:results (v/ask-within kb g 'CxWell {:max-cost :lookup})))
           "a reduction must exhaust the body, which :lookup does not buy")
-      (is (= 1 (count (:results (v/ask-within kb g 'WellContext {:max-cost :compute}))))
+      (is (= 1 (count (:results (v/ask-within kb g 'CxWell {:max-cost :compute}))))
           ":compute is the tier it declares, and it runs there"))))
 
 ;; ---- nothing is stored ---------------------------------------------------
@@ -580,7 +580,7 @@
     (let [sentexes (tu/sentex-ids kb)
           justs    (tu/justification-ids kb)]
       (doseq [f (keys sx/aggregate-functors)]
-        (v/ask kb (list f '?n '?v (list scoreOf Team '?v)) 'WellContext))
+        (v/ask kb (list f '?n '?v (list scoreOf Team '?v)) 'CxWell))
       (is (= sentexes (tu/sentex-ids kb)) "no sentex — a count is recomputed, never cached")
       (is (= justs (tu/justification-ids kb)) "and no justification"))))
 
@@ -590,21 +590,21 @@
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [4 5 6])
     (let [g (list 'agg/count '?n '?v (list scoreOf Team '?v))]
-      (is (= [3] (map '?n (v/prove kb g 'WellContext))) "prove: the recur DFS")
-      (is (= [3] (map '?n (v/prove kb g 'WellContext))) "prove: the recursive one")
-      (is (= [3] (map '?n (v/ask kb g 'WellContext))) "ask: the prover engine"))))
+      (is (= [3] (map '?n (v/prove kb g 'CxWell))) "prove: the recur DFS")
+      (is (= [3] (map '?n (v/prove kb g 'CxWell))) "prove: the recursive one")
+      (is (= [3] (map '?n (v/ask kb g 'CxWell))) "ask: the prover engine"))))
 
 (tu/deftest-kb a-backward-rule-may-join-on-a-count
   (tu/with-terms [scoreOf Team roster tallied]
     (extent! kb scoreOf Team [1 2])
-    (v/assert kb (list roster Team) 'WellContext)
+    (v/assert kb (list roster Team) 'CxWell)
     (v/assert kb (list 'set/backwardRule
                        (list 'implies
                              (list 'and (list roster '?t)
                                    (list 'agg/count '?n '?v (list scoreOf '?t '?v)))
                              (list tallied '?t '?n)))
-              'WellContext)
-    (is (= [2] (map '?n (v/query kb (list tallied Team '?n) 'WellContext {:max-depth 2})))
+              'CxWell)
+    (is (= [2] (map '?n (v/query kb (list tallied Team '?n) 'CxWell {:max-depth 2})))
         "a rule expansion discharges the aggregate through the registry like any other literal")))
 
 ;; ---- the doc's opening example, run rather than written ------------------
@@ -615,9 +615,9 @@
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [3 1 4 1 5])
     (let [g (fn [op] (list op '?n '?v (list scoreOf Team '?v)))]
-      (is (= '({?n 4})    (v/ask kb (g 'agg/count) 'WellContext)))
-      (is (= '({?n 13})   (v/ask kb (g 'agg/sum) 'WellContext)))
-      (is (= '({?n 3.25}) (v/ask kb (g 'agg/avg) 'WellContext))))))
+      (is (= '({?n 4})    (v/ask kb (g 'agg/count) 'CxWell)))
+      (is (= '({?n 13})   (v/ask kb (g 'agg/sum) 'CxWell)))
+      (is (= '({?n 3.25}) (v/ask kb (g 'agg/avg) 'CxWell))))))
 
 (tu/deftest-kb one-edit-and-n-asserts-reach-the-same-counts
   ;; the benchmark's headline claim (`lein bench-aggchain`, ~10x) is only worth
@@ -627,9 +627,9 @@
       (ancestor-world! kb {:node node :ancestorOf ancestorOf
                            :ancestorCount ancestorCount :edges edges})
       (let [one-at-a-time (counted kb ancestorCount)]
-        (doseq [[a b] edges] (v/retract! kb (v/handle-of kb (list ancestorOf a b) 'WellContext)))
+        (doseq [[a b] edges] (v/retract! kb (v/handle-of kb (list ancestorOf a b) 'CxWell)))
         (is (= {A 0 B 0 C 0 D 0} (counted kb ancestorCount)) "back to an empty relation")
-        (v/edit! kb {:add (mapv (fn [[a b]] [(list ancestorOf a b) 'WellContext]) edges)})
+        (v/edit! kb {:add (mapv (fn [[a b]] [(list ancestorOf a b) 'CxWell]) edges)})
         (is (= one-at-a-time (counted kb ancestorCount))
             "the batch settles once and reaches the identical counts")))))
 
@@ -642,10 +642,10 @@
   (tu/with-terms [node ancestorOf ancestorCount P Q R]
     (ancestor-world! kb {:node node :ancestorOf ancestorOf
                          :ancestorCount ancestorCount :edges [[P Q]]})
-    (v/assert kb (list node R) 'WellContext)
+    (v/assert kb (list node R) 'CxWell)
     (v/reindex kb)
     (is (= {P 0 Q 1 R 0} (counted kb ancestorCount)) "the conclusions survive the rebuild")
-    (let [h (v/assert kb (list ancestorOf R P) 'WellContext)]
+    (let [h (v/assert kb (list ancestorOf R P) 'CxWell)]
       (is (= {P 1 Q 2 R 0} (counted kb ancestorCount))
           "and the count still moves — the posting came back")
       (v/retract! kb h)
@@ -659,10 +659,10 @@
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [1 2])
     (is (v/ask? kb (list 'unknown (list 'agg/count 9 '?v (list scoreOf Team '?v)))
-                'WellContext)
+                'CxWell)
         "the count is not 9, so the check fails, so the unknown holds")
     (is (not (v/ask? kb (list 'unknown (list 'agg/count 2 '?v (list scoreOf Team '?v)))
-                     'WellContext))
+                     'CxWell))
         "the count *is* 2, so the check holds, so the unknown does not")))
 
 (tu/deftest-kb an-unknown-over-aggregate-rechecks-on-the-body-s-predicate
@@ -674,12 +674,12 @@
                        (list 'and (list childOf '?c '?x)
                              (list 'unknown (list 'agg/count 2 '?v (list childOf '?v '?x))))
                        (list soloChildIn '?x))
-              'WellContext)
-    (v/assert kb (list childOf Bo Ana) 'WellContext)
-    (is (v/ask? kb (list soloChildIn Ana) 'WellContext)
+              'CxWell)
+    (v/assert kb (list childOf Bo Ana) 'CxWell)
+    (is (v/ask? kb (list soloChildIn Ana) 'CxWell)
         "one child: the count is not 2, the unknown holds, the rule concludes")
-    (v/assert kb (list childOf Cy Ana) 'WellContext)
-    (is (not (v/ask? kb (list soloChildIn Ana) 'WellContext))
+    (v/assert kb (list childOf Cy Ana) 'CxWell)
+    (is (not (v/ask? kb (list soloChildIn Ana) 'CxWell))
         "two children: the arriving fact re-checks the rule and the conclusion is
         withdrawn, rather than kept on the census it was drawn at")))
 
@@ -689,8 +689,8 @@
   ;; level 6 is not "stored facts only": a forward conclusion is stored and believed by
   ;; the time the query runs, so it is in the census like anything else
   (tu/with-terms [raw cooked burnt]
-    (v/assert kb (list 'implies (list 'and (list raw '?x)) (list cooked '?x)) 'WellContext)
-    (doseq [n [1 2 3]] (v/assert kb (list raw (list 'DishFn n)) 'WellContext))
+    (v/assert kb (list 'implies (list 'and (list raw '?x)) (list cooked '?x)) 'CxWell)
+    (doseq [n [1 2 3]] (v/assert kb (list raw (list 'DishFn n)) 'CxWell))
     (is (= 3 (one kb (list 'agg/count '?n '?v (list cooked '?v)) '?n))
         "nobody asserted a single (cooked …) and all three are counted")
     (is (= 0 (one kb (list 'agg/count '?n '?v (list burnt '?v)) '?n))
@@ -702,9 +702,9 @@
   (tu/with-terms [raw cooked]
     (v/assert kb (list 'set/backwardRule
                        (list 'implies (list 'and (list raw '?x)) (list cooked '?x)))
-              'WellContext)
-    (doseq [n [1 2 3]] (v/assert kb (list raw (list 'DishFn n)) 'WellContext))
-    (is (v/query? kb (list cooked '(DishFn 1)) 'WellContext {:max-depth 2})
+              'CxWell)
+    (doseq [n [1 2 3]] (v/assert kb (list raw (list 'DishFn n)) 'CxWell))
+    (is (v/query? kb (list cooked '(DishFn 1)) 'CxWell {:max-depth 2})
         "backward chaining answers it goal by goal...")
     (is (= 0 (one kb (list 'agg/count '?n '?v (list cooked '?v)) '?n))
         "...but an aggregate body runs the registry, which expands no rule, so the
@@ -717,16 +717,16 @@
   ;; identically to the one with the generator written first — otherwise the aggregate
   ;; would run open and count the whole relation for every node
   (tu/with-terms [node ancestorOf ancestorCount A B C]
-    (v/assert kb (list 'transitive ancestorOf) 'WellContext {:strength :monotonic})
-    (doseq [n [A B C]] (v/assert kb (list node n) 'WellContext))
-    (v/assert kb (list ancestorOf A B) 'WellContext)
-    (v/assert kb (list ancestorOf B C) 'WellContext)
+    (v/assert kb (list 'transitive ancestorOf) 'CxWell {:strength :monotonic})
+    (doseq [n [A B C]] (v/assert kb (list node n) 'CxWell))
+    (v/assert kb (list ancestorOf A B) 'CxWell)
+    (v/assert kb (list ancestorOf B C) 'CxWell)
     (v/assert kb (list 'implies
                        (list 'and
                              (list 'agg/count '?n '?a (list ancestorOf '?a '?x))
                              (list node '?x))
                        (list ancestorCount '?x '?n))
-              'WellContext)
+              'CxWell)
     (is (= {A 0 B 1 C 2} (counted kb ancestorCount))
         "grouped per node, exactly as if the generator had been written first")))
 
@@ -760,14 +760,14 @@
     (is (= {:a 0 :b 1 :c 2 :d 3} (first answers)))))
 
 (defn- counting-rule!
-  "`(person ?x) & count > 2 => (largeFamily ?x)`, in `WellContext`."
+  "`(person ?x) & count > 2 => (largeFamily ?x)`, in `CxWell`."
   [kb {:keys [person childOf largeFamily]}]
   (v/assert kb (list 'implies
                      (list 'and (list person '?x)
                            (list 'agg/count '?n '?c (list childOf '?x '?c))
                            (list 'lessThan 2 '?n))
                      (list largeFamily '?x))
-            'WellContext))
+            'CxWell))
 
 (tu/deftest-kb a-merge-that-collapses-two-counted-values-withdraws-the-firing
   ;; The census-mover that is **not** a fact arriving or leaving.  A merge retires a
@@ -779,7 +779,7 @@
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
     (counting-rule! kb {:person person :childOf childOf :largeFamily largeFamily})
     (is (= #{Ann} (holders kb largeFamily)) "three children clears the bar")
-    (let [h (v/assert kb '(sameAs C2 C3) 'WellContext)]
+    (let [h (v/assert kb '(sameAs C2 C3) 'CxWell)]
       (is (= 2 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n))
           "two of the three children are one thing now")
       (is (= #{} (holders kb largeFamily))
@@ -794,7 +794,7 @@
   ;; the oracle for the test above.  Merged first, no trigger is involved at all: the
   ;; census is 2 the first time it is ever taken and the rule simply does not fire.
   (tu/with-terms [person childOf largeFamily Ann Bob]
-    (v/assert kb '(sameAs C2 C3) 'WellContext)
+    (v/assert kb '(sameAs C2 C3) 'CxWell)
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
     (counting-rule! kb {:person person :childOf childOf :largeFamily largeFamily})
     (is (= #{} (holders kb largeFamily))
@@ -805,12 +805,12 @@
   ;; `sameAs` anywhere in the KB.  It reaches the closure through the same arm an
   ;; asserted one does, and so must reach the same re-check.
   (tu/with-terms [person childOf largeFamily birthOrder Ann Bob]
-    (v/assert kb (list 'functional birthOrder) 'WellContext)
+    (v/assert kb (list 'functional birthOrder) 'CxWell)
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
     (counting-rule! kb {:person person :childOf childOf :largeFamily largeFamily})
     (is (= #{Ann} (holders kb largeFamily)))
-    (v/assert kb (list birthOrder Ann 'C2) 'WellContext)
-    (v/assert kb (list birthOrder Ann 'C3) 'WellContext)
+    (v/assert kb (list birthOrder Ann 'C2) 'CxWell)
+    (v/assert kb (list birthOrder Ann 'C3) 'CxWell)
     (is (= 2 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n))
         "a functional predicate with two values makes them one thing")
     (is (= #{} (holders kb largeFamily))
@@ -826,7 +826,7 @@
   (let [vals   [0.1 0.2 0.3 1e16 -1e16 7.7]
         totals (for [order [vals (reverse vals) [1e16 0.1 -1e16 7.7 0.3 0.2]]]
                  (tu/with-terms [reading Sensor]
-                   (doseq [x order] (v/assert kb (list reading Sensor x) 'WellContext))
+                   (doseq [x order] (v/assert kb (list reading Sensor x) 'CxWell))
                    [(one kb (list 'agg/sum '?n '?v (list reading Sensor '?v)) '?n)
                     (one kb (list 'agg/avg '?n '?v (list reading Sensor '?v)) '?n)]))]
     (is (= 1 (count (distinct totals)))
@@ -839,10 +839,10 @@
   ;; query and every settle pass.  The ledger keeps its newest 1000 entries, so filing
   ;; each one would evict the derivation-path drops it exists to report.
   (tu/with-terms [likesThing Ann Cake Pie]
-    (v/assert kb (list likesThing Ann Cake) 'WellContext)
-    (v/assert kb (list likesThing Ann Pie) 'WellContext)
+    (v/assert kb (list likesThing Ann Cake) 'CxWell)
+    (v/assert kb (list likesThing Ann Pie) 'CxWell)
     (v/clear-violations! kb)
-    (dotimes [_ 12] (v/ask kb (list 'agg/sum '?n '?v (list likesThing Ann '?v)) 'WellContext))
+    (dotimes [_ 12] (v/ask kb (list 'agg/sum '?n '?v (list likesThing Ann '?v)) 'CxWell))
     (is (= 1 (count (filter #(= :aggregate (:violation %)) (v/violations kb))))
         "twelve reductions of one bad extent are one defect")))
 
@@ -852,7 +852,7 @@
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [1 2])
     (let [plan (v/query-plan kb (list 'agg/count '?n '?v (list scoreOf Team '?v))
-                             'WellContext)
+                             'CxWell)
           agg  (first (filter :runs? plan))]
       (is (= 1 (count (filter :runs? plan)))
           "completeness 100 means the engine runs it alone — nothing is unioned in")

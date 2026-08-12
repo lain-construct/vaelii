@@ -47,7 +47,7 @@
 ;; ---- the shared ontology (identical on both KBs) ------------------------
 
 (defn build-ontology!
-  "CoreContext vocabulary + a compact ontology whose rules cover every invariant.  A
+  "CxCore vocabulary + a compact ontology whose rules cover every invariant.  A
   rule set, contexts, a type lattice, disjointness, and metadata — no contingent
   facts (those are the random sequence)."
   [kb]
@@ -55,13 +55,13 @@
   ;; context spindle: Base sees Core; Left and Right are incomparable specs of Base,
   ;; so a rule in Base firing over a Left fact and a Right fact has no common
   ;; placement context (the sibling no-placement case)
-  (v/assert kb '(genlContext BaseContext CoreContext) 'CoreContext {:strength :monotonic})
-  (v/assert kb '(genlContext LeftContext BaseContext) 'CoreContext {:strength :monotonic})
-  (v/assert kb '(genlContext RightContext BaseContext) 'CoreContext {:strength :monotonic})
+  (v/assert kb '(genlCx CxBase CxCore) 'CxCore {:strength :monotonic})
+  (v/assert kb '(genlCx CxLeft CxBase) 'CxCore {:strength :monotonic})
+  (v/assert kb '(genlCx CxRight CxBase) 'CxCore {:strength :monotonic})
   ;; type lattice
   (doseq [e '[(genl animal thing) (genl dog animal) (genl poodle dog)
               (genl cat animal) (genl bird animal) (genl penguin bird)]]
-    (v/assert kb e 'BaseContext {:strength :monotonic}))
+    (v/assert kb e 'CxBase {:strength :monotonic}))
   ;; predicate lattice — the sub-predicate fan-out is not a unary-only rule.  `fatherOf`
   ;; and `motherOf` sit under a **binary** `parentOf`, `leasesFrom` under a binary
   ;; `owns`, `strictlyBetweenIn` under a **ternary** `betweenIn`; a matcher that fanned
@@ -71,15 +71,15 @@
   (doseq [e '[(genl fatherOf parentOf) (genl motherOf parentOf)
               (genl leasesFrom owns)
               (genl strictlyBetweenIn betweenIn)]]
-    (v/assert kb e 'BaseContext {:strength :monotonic}))
-  (v/assert kb '(disjoint dog cat) 'BaseContext {:strength :monotonic})
+    (v/assert kb e 'CxBase {:strength :monotonic}))
+  (v/assert kb '(disjoint dog cat) 'CxBase {:strength :monotonic})
   ;; metadata
-  (v/assert kb '(symmetric siblingOf) 'BaseContext {:strength :monotonic})
-  (v/assert kb '(transitive ancestorOf) 'BaseContext {:strength :monotonic})
-  (v/assert kb '(functional bestFriendOf) 'BaseContext {:strength :monotonic})
+  (v/assert kb '(symmetric siblingOf) 'CxBase {:strength :monotonic})
+  (v/assert kb '(transitive ancestorOf) 'CxBase {:strength :monotonic})
+  (v/assert kb '(functional bestFriendOf) 'CxBase {:strength :monotonic})
   ;; rules (all in Base, so they see facts in Left / Right / Base)
   (let [R (fn [ante conseq]
-            (v/assert kb (list 'implies ante conseq) 'BaseContext))]
+            (v/assert kb (list 'implies ante conseq) 'CxBase))]
     ;; the leading-variable join the network exists to accelerate
     (R '(and (parentOf ?x ?y) (parentOf ?y ?z)) '(grandparentOf ?x ?z))
     ;; recursion + depth guard: right-recursive ancestor
@@ -99,7 +99,7 @@
     (R '(and (betweenIn ?x ?y ?z) (dog ?y)) '(guardedBy ?x ?z)))
   ;; exceptWhen default: birds fly unless penguins
   (v/assert kb '(exceptWhen (penguin ?b) (set/defaultRule (implies (bird ?b) (flies ?b))))
-            'BaseContext)
+            'CxBase)
   kb)
 
 ;; ---- content snapshots, by content not by handle ------------------------
@@ -190,7 +190,7 @@
 ;; ---- the random op stream -----------------------------------------------
 
 (def ^:private inds (mapv #(symbol (str "I" %)) (range 8)))
-(def ^:private ctxs '[LeftContext RightContext BaseContext])
+(def ^:private ctxs '[CxLeft CxRight CxBase])
 
 (defn- rand-fact [^java.util.Random rng]
   (let [ind #(nth inds (.nextInt rng (count inds)))
@@ -285,7 +285,7 @@
                     ;; at arity 2 and arity 3
                     (fatherOf I0 I2) (motherOf I3 I4) (leasesFrom I5 I6)
                     (strictlyBetweenIn I0 I1 I2) (betweenIn I3 I4 I5)]]
-          (v/assert rete-kb f 'BaseContext {:strength :monotonic}))
+          (v/assert rete-kb f 'CxBase {:strength :monotonic}))
         ;; every probe pattern must give the same [handle bindings] set both ways
         (doseq [pat '[(parentOf ?x ?y)      ; fully open
                       (parentOf I1 ?z)       ; leading value (trie-selective)
@@ -369,53 +369,53 @@
       [ok bad])))
 
 (deftest scenario-grandparent-leading-variable-join
-  (let [[ok bad] (run-both '[[:assert (parentOf I0 I1) BaseContext {:strength :monotonic}]
-                             [:assert (parentOf I1 I2) BaseContext {:strength :monotonic}]
-                             [:assert (parentOf I2 I3) BaseContext {:strength :monotonic}]])]
+  (let [[ok bad] (run-both '[[:assert (parentOf I0 I1) CxBase {:strength :monotonic}]
+                             [:assert (parentOf I1 I2) CxBase {:strength :monotonic}]
+                             [:assert (parentOf I2 I3) CxBase {:strength :monotonic}]])]
     (is ok (str "diverged: " (pr-str bad)))))
 
 (deftest scenario-recursion-and-depth
   (let [ops (mapv (fn [i] [:assert (list 'parentOf (nth inds i) (nth inds (inc i)))
-                           'BaseContext {:strength :monotonic}])
+                           'CxBase {:strength :monotonic}])
                   (range 6))
         [ok bad] (run-both ops)]
     (is ok (str "diverged: " (pr-str bad)))))
 
 (deftest scenario-exceptwhen-blocking
-  (let [[ok bad] (run-both '[[:assert (bird I0) BaseContext {:strength :monotonic}]
-                             [:assert (penguin I1) BaseContext {:strength :monotonic}]
+  (let [[ok bad] (run-both '[[:assert (bird I0) CxBase {:strength :monotonic}]
+                             [:assert (penguin I1) CxBase {:strength :monotonic}]
                              ;; I1 is a bird (penguin<bird) but excepted; I0 flies
-                             [:assert (bird I1) BaseContext {:strength :monotonic}]
-                             [:retract (penguin I1) BaseContext]])]  ; releases the exception
+                             [:assert (bird I1) CxBase {:strength :monotonic}]
+                             [:retract (penguin I1) CxBase]])]  ; releases the exception
     (is ok (str "diverged: " (pr-str bad)))))
 
 (deftest scenario-symmetric-non-trigger-antecedent
-  (let [[ok bad] (run-both '[[:assert (siblingOf I2 I3) BaseContext {:strength :monotonic}]
-                             [:assert (parentOf I0 I2) BaseContext {:strength :monotonic}]])]
+  (let [[ok bad] (run-both '[[:assert (siblingOf I2 I3) CxBase {:strength :monotonic}]
+                             [:assert (parentOf I0 I2) CxBase {:strength :monotonic}]])]
     ;; uncleAuntOf I0 I3 via (parentOf I0 I2)+(siblingOf I2 I3); siblingOf stored sorted
     (is ok (str "diverged: " (pr-str bad)))))
 
 (deftest scenario-functional-twin-derivation
-  (let [[ok bad] (run-both '[[:assert (bestFriendOf I0 I1) BaseContext {:strength :monotonic}]
-                             [:assert (bestFriendOf I0 I2) BaseContext {:strength :monotonic}]])]
+  (let [[ok bad] (run-both '[[:assert (bestFriendOf I0 I1) CxBase {:strength :monotonic}]
+                             [:assert (bestFriendOf I0 I2) CxBase {:strength :monotonic}]])]
     ;; two values for a functional predicate derive (equals I1 I2)
     (is ok (str "diverged: " (pr-str bad)))))
 
 (deftest scenario-sibling-context-no-placement
-  (let [[ok bad] (run-both '[[:assert (parentOf I0 I1) LeftContext {:strength :monotonic}]
-                             [:assert (parentOf I1 I2) RightContext {:strength :monotonic}]])]
+  (let [[ok bad] (run-both '[[:assert (parentOf I0 I1) CxLeft {:strength :monotonic}]
+                             [:assert (parentOf I1 I2) CxRight {:strength :monotonic}]])]
     ;; grandparent join across Left and Right: no common descendant, no placement
     (is ok (str "diverged: " (pr-str bad)))))
 
 (deftest scenario-deferred-antecedent
-  (let [[ok bad] (run-both '[[:assert (ageOf I0 2) BaseContext {:strength :monotonic}]
-                             [:assert (ageOf I1 4) BaseContext {:strength :monotonic}]
-                             [:assert (ageOf I2 3) BaseContext {:strength :monotonic}]])]
+  (let [[ok bad] (run-both '[[:assert (ageOf I0 2) CxBase {:strength :monotonic}]
+                             [:assert (ageOf I1 4) CxBase {:strength :monotonic}]
+                             [:assert (ageOf I2 3) CxBase {:strength :monotonic}]])]
     (is ok (str "diverged: " (pr-str bad)))))
 
 (deftest scenario-retraction-and-rederivation
-  (let [[ok bad] (run-both '[[:assert (parentOf I0 I1) BaseContext {:strength :monotonic}]
-                             [:assert (parentOf I1 I2) BaseContext {:strength :monotonic}]
-                             [:retract (parentOf I1 I2) BaseContext]
-                             [:assert (parentOf I1 I2) BaseContext {:strength :monotonic}]])]
+  (let [[ok bad] (run-both '[[:assert (parentOf I0 I1) CxBase {:strength :monotonic}]
+                             [:assert (parentOf I1 I2) CxBase {:strength :monotonic}]
+                             [:retract (parentOf I1 I2) CxBase]
+                             [:assert (parentOf I1 I2) CxBase {:strength :monotonic}]])]
     (is ok (str "diverged: " (pr-str bad)))))

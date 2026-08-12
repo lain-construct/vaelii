@@ -6,7 +6,7 @@
   load → [kbs.md](kbs.md); the reader map a corpus plugin declares itself with →
   [foreign.md](foreign.md); the registry a load runs in, and the screen that watches it →
   [web.md](web.md), "Long work as jobs".
-- **Assumes:** sentex, context, `genl` / `genlContext` → [glossary.md](glossary.md).
+- **Assumes:** sentex, context, `genl` / `genlCx` → [glossary.md](glossary.md).
 
 `vaelii.impl.catalog`. Everything else in this repo assumes it is holding *the* KB. The
 catalog is what makes that a choice: it lists the knowledge bases this process could
@@ -29,7 +29,7 @@ A source is a description, not a KB. Six kinds:
 
 | kind | content | loader |
 |------|---------|--------|
-| `:core` | the CoreContext vocabulary head alone | `vaelii.impl.core-context` |
+| `:core` | the CxCore vocabulary head alone | `vaelii.impl.core-context` |
 | `:starter` | the shipped schema-only ontology | `vaelii.impl.starter` |
 | `:generated` | synthesized from numbers — see [generating one](#generating-a-kb) | `vaelii.impl.io.generate` |
 | `:corpus` | a translated sentence corpus (OpenCyc) | a plugin's reader — [foreign.md](foreign.md) |
@@ -85,7 +85,7 @@ and the generator cannot disagree about a parameter's range or its default.
 
 One of those options is worth naming here because its cost is easy to under-read. A dump's
 `:belief?` (and a store's `:recover?`) governs **two** derived structures, not one: the
-JTMS *and* the cached `genl` / `genlContext` closures. Left off, the KB is findable by
+JTMS *and* the cached `genl` / `genlCx` closures. Left off, the KB is findable by
 term and countable but has no type hierarchy at all — `types` and `contexts` come back
 empty and the ontology page has nothing to draw. On a 1.1M-sentex OpenCyc dump that is
 the difference between 0 and 125,385 types. (Exact counts move with the import profile
@@ -284,7 +284,7 @@ because they are independent:
   what was asked for;
 * **belief and the taxonomy are not built** — `recover` builds them together and
   `:belief? false` skips them together. That empties more than queries: with no JTMS
-  every believed answer is empty, and with no genl/genlContext closures there is no type
+  every believed answer is empty, and with no genl/genlCx closures there is no type
   hierarchy either, so a fully stored KB renders as one holding no types and no contexts
   at all.
 
@@ -325,7 +325,7 @@ Two properties make it a measurement rather than noise:
 
 Individuals and predicates are Zipf-sampled, so the corpus has hot terms and a long tail
 like a real one. Generated names carry their role in their spelling, as the naming
-invariants require: `gen_type_7`, `GenInd42`, `genRel3`, `GenBand0Context`.
+invariants require: `gen_type_7`, `GenInd42`, `genRel3`, `CxGenBand0`.
 
 The fact contexts are a **chain**, not a fan of siblings. Two incomparable contexts
 have no common descendant, so a rule joining a fact from each would complete with nowhere

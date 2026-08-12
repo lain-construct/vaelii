@@ -70,10 +70,10 @@
 
 (defn- terms []
   (tu/with-terms [bird penguin animal flies feathered parentOf grandparentOf
-                  Tweety Opus Ann Bob Cid IndexContext]
+                  Tweety Opus Ann Bob Cid CxIndex]
     {:bird bird :penguin penguin :animal animal :flies flies :feathered feathered
      :parentOf parentOf :grandparentOf grandparentOf
-     :Tweety Tweety :Opus Opus :Ann Ann :Bob Bob :Cid Cid :ctx IndexContext}))
+     :Tweety Tweety :Opus Opus :Ann Ann :Bob Bob :Cid Cid :ctx CxIndex}))
 
 (defn- build!
   "Every index family in one KB: the trie (ragged paths, a numeric token, a negative
@@ -183,7 +183,7 @@
 
 (deftest the-digest-is-stable-across-exports-and-moves-with-the-records
   (tu/with-cleared-kb [kb tu/fresh]
-    (tu/with-terms [rel Aye Bee IndexContext]
+    (tu/with-terms [rel Aye Bee CxIndex]
       (let [a (fresh-dump-dir "d1") b (fresh-dump-dir "d2") c (fresh-dump-dir "d3")]
         (try
           (build! kb (terms))
@@ -191,7 +191,7 @@
           (export/export! kb b {:variant :records+index :compression :none})
           (is (= (:records (index-meta a)) (:records (index-meta b)))
               "two exports of one KB fingerprint alike, or nothing downstream can compare")
-          (v/assert kb (list rel Aye Bee) IndexContext)
+          (v/assert kb (list rel Aye Bee) CxIndex)
           (export/export! kb c {:variant :records+index :compression :none})
           (is (not= (:records (index-meta a)) (:records (index-meta c)))
               "and one more record is a different KB")

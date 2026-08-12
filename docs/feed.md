@@ -111,7 +111,7 @@ It does **not** re-run the goal, and that is the point: a listener that re-queri
 make every mutation cost a query per listener, which is the cost polling already had.
 
 Context-scoped like every other read — the sentex must sit in a context the watch's own
-can see, up the `genlContext` cone. A **variable** context (`'?ctx`) watches every context
+can see, up the `genlCx` cone. A **variable** context (`'?ctx`) watches every context
 and binds to the one that answered, the convention `ask` already takes.
 
 `f` is not called at all when nothing the goal answers moved, so an unrelated write is
@@ -259,7 +259,7 @@ reach it:
 (def conn (c/client "localhost" 4200))
 
 (c/watch conn)                          ; => {:token 0 :cursor 0 :max-events 256}
-(c/watch conn '(animal ?x) 'WellContext)      ; a standing query, same refusals
+(c/watch conn '(animal ?x) 'CxWell)      ; a standing query, same refusals
 (c/poll conn 0 0 {:wait-ms 20000})      ; => {:events [{…}] :cursor 3 :lagged 0}
 (c/unwatch conn 0)                      ; => true
 (c/watchers conn)                       ; => [{:token 0 :delivered 3 :pending 0}]
@@ -380,7 +380,7 @@ progress, and progress is not belief moving. Nothing in the browser subscribes.
   consequences** — the sinks are closed for the duration, or an
   `edit-with-consequences!` would attribute them to the caller.
 - **Honesty**: a standing query fires only on what answers it, through a subtype and a
-  sub-predicate, up the `genlContext` cone and no further; eight unanswerable goal shapes
+  sub-predicate, up the `genlCx` cone and no further; eight unanswerable goal shapes
   are refused and register nothing, as are a goal with no context and a listener that is
   `ifn?` but not a function; two live KBs never hear each other and a fork inherits no
   listeners.

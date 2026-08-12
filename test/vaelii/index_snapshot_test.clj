@@ -78,22 +78,22 @@
   (v/clear! kb)
   (doseq [i (range 60)]
     (v/assert kb (list 'parentOf (symbol (str "Snap" i)) (symbol (str "Snap" (inc i))))
-              'UniverseContext {:strength :monotonic}))
-  (v/assert kb '(dog SnapMuffet) 'UniverseContext {:strength :monotonic})
-  (v/assert kb '(likes SnapMuffet SnapBall) 'UniverseContext {:strength :monotonic})
-  (v/assert kb '(bornIn SnapMuffet 1970) 'UniverseContext {:strength :monotonic})
-  (v/assert-rule kb '[(parentOf ?x ?y)] '(ancestorOf ?x ?y) 'UniverseContext)
+              'CxUniverse {:strength :monotonic}))
+  (v/assert kb '(dog SnapMuffet) 'CxUniverse {:strength :monotonic})
+  (v/assert kb '(likes SnapMuffet SnapBall) 'CxUniverse {:strength :monotonic})
+  (v/assert kb '(bornIn SnapMuffet 1970) 'CxUniverse {:strength :monotonic})
+  (v/assert-rule kb '[(parentOf ?x ?y)] '(ancestorOf ?x ?y) 'CxUniverse)
   kb)
 
 (defn- answers
   "Everything the index is asked for, through the public surface plus the two index reads
   (`term-count`, the root count) no query would notice going wrong."
   [kb]
-  {:parents  (count (v/sentexes-matching kb '(parentOf ?x ?y) 'UniverseContext))
-   :dog      (v/ask? kb '(dog SnapMuffet) 'UniverseContext)
-   :ball     (count (v/sentexes-matching kb '(likes ?x SnapBall) 'UniverseContext))
-   :number   (count (v/sentexes-matching kb '(bornIn ?x 1970) 'UniverseContext))
-   :ancestor (v/ask? kb '(ancestorOf Snap0 Snap1) 'UniverseContext)
+  {:parents  (count (v/sentexes-matching kb '(parentOf ?x ?y) 'CxUniverse))
+   :dog      (v/ask? kb '(dog SnapMuffet) 'CxUniverse)
+   :ball     (count (v/sentexes-matching kb '(likes ?x SnapBall) 'CxUniverse))
+   :number   (count (v/sentexes-matching kb '(bornIn ?x 1970) 'CxUniverse))
+   :ancestor (v/ask? kb '(ancestorOf Snap0 Snap1) 'CxUniverse)
    :terms    (p/term-count (:index kb))
    :nodes    (p/count-at (:index kb) [])})
 
@@ -136,10 +136,10 @@
       (backend/close-dir! dir)
       (let [[kb2 rebuilds] (opening dir)]
         (is (zero? rebuilds))
-        (v/assert kb2 '(cat SnapTom) 'UniverseContext {:strength :monotonic})
-        (v/assert kb2 '(likes SnapTom SnapBall) 'UniverseContext {:strength :monotonic})
-        (is (v/ask? kb2 '(cat SnapTom) 'UniverseContext) "the trie thawed out of its mapping")
-        (is (= 2 (count (v/sentexes-matching kb2 '(likes ?x SnapBall) 'UniverseContext)))
+        (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
+        (v/assert kb2 '(likes SnapTom SnapBall) 'CxUniverse {:strength :monotonic})
+        (is (v/ask? kb2 '(cat SnapTom) 'CxUniverse) "the trie thawed out of its mapping")
+        (is (= 2 (count (v/sentexes-matching kb2 '(likes ?x SnapBall) 'CxUniverse)))
             "the thawed roots hold the mapped posting and the new member alike")
         (let [want (answers kb2)]
           (backend/close-dir! dir)
@@ -160,7 +160,7 @@
                  (select-keys (snap/save! dir (:index kb2) stamp) [:index :reason]))
               "the image already *is* this index — writing it would thaw the roots to read them")
           ;; and a write puts it back in play
-          (v/assert kb2 '(cat SnapTom) 'UniverseContext {:strength :monotonic})
+          (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
           (is (= :saved (:index (snap/save! dir (:index kb2) stamp)))))))))
 
 (deftest a-half-thawed-index-writes-its-sections-out-of-the-mapping
@@ -203,7 +203,7 @@
 
             ;; move the records on, and let the close write a *newer* image
             (let [[kb2 _] (opening dir)]
-              (v/assert kb2 '(fish SnapNemo) 'UniverseContext {:strength :monotonic}))
+              (v/assert kb2 '(fish SnapNemo) 'CxUniverse {:strength :monotonic}))
             (let [want (do (backend/close-dir! dir)
                            (let [[kb3 _] (opening dir)
                                  a (answers kb3)]
@@ -214,7 +214,7 @@
               (let [[kb4 rebuilds] (opening dir)]
                 (is (= 1 rebuilds) "the stamp caught it")
                 (is (= want (answers kb4)) "and the records answered instead")
-                (is (v/ask? kb4 '(fish SnapNemo) 'UniverseContext)
+                (is (v/ask? kb4 '(fish SnapNemo) 'CxUniverse)
                     "including the fact the stale image had never heard of")))
             (finally (rm-rf! aside))))))))
 

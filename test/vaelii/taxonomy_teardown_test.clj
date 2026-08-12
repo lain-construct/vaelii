@@ -4,7 +4,7 @@
   "Retraction of the *cached* taxonomy metadata.
 
   Every cache is **reference-counted** and **belief-tracked** now: `genl` /
-  `genlContext` / equality keep a per-claim `:support` map, and `disjoint`,
+  `genlCx` / equality keep a per-claim `:support` map, and `disjoint`,
   `disjointMetatype` + members, the predicate properties, and `inverse` share the
   `:cache-support` count.  An entry survives losing one of several supporters and
   follows defeat.  Belief-tracking is covered in `taxonomy_belief_test`; this file
@@ -25,12 +25,12 @@
 (tu/deftest-kb retracting-a-disjoint-declaration-releases-the-pair
   (tu/with-terms [dog cat Felix]
     ;; one context: the disjointness check is scoped, and this KB is fresh
-    (let [h (v/assert kb (list 'disjoint dog cat) 'NaturalWorldContext)]
+    (let [h (v/assert kb (list 'disjoint dog cat) 'CxNaturalWorld)]
       (is (v/disjoint? kb dog cat))
       (testing "while it stands, the conflicting membership is refused"
-        (v/assert kb (list cat Felix) 'NaturalWorldContext)
+        (v/assert kb (list cat Felix) 'CxNaturalWorld)
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list dog Felix) 'NaturalWorldContext))))
+                     (v/assert kb (list dog Felix) 'CxNaturalWorld))))
       (v/retract! kb h)
       (testing "retracting it releases the pair rather than leaving a stale entry"
         (is (not (v/disjoint? kb dog cat))
@@ -38,10 +38,10 @@
 
 (tu/deftest-kb retracting-a-predicate-property-unmarks-it
   (tu/with-terms [partOf siblingOf sameAs marriedTo]
-    (let [ht (v/assert kb (list 'transitive partOf)  'UniverseContext)
-          hs (v/assert kb (list 'symmetric siblingOf) 'UniverseContext)
-          hr (v/assert kb (list 'reflexive sameAs)    'UniverseContext)
-          hf (v/assert kb (list 'functional marriedTo) 'UniverseContext)]
+    (let [ht (v/assert kb (list 'transitive partOf)  'CxUniverse)
+          hs (v/assert kb (list 'symmetric siblingOf) 'CxUniverse)
+          hr (v/assert kb (list 'reflexive sameAs)    'CxUniverse)
+          hf (v/assert kb (list 'functional marriedTo) 'CxUniverse)]
       (is (v/has-prop? kb :transitive partOf))
       (is (v/has-prop? kb :symmetric siblingOf))
       (is (v/has-prop? kb :reflexive sameAs))
@@ -55,30 +55,30 @@
 
 (tu/deftest-kb retracting-an-inverse-declaration-releases-both-directions
   (tu/with-terms [parentOf childOf Tom Bob]
-    (let [h (v/assert kb (list 'inverse parentOf childOf) 'UniverseContext)]
-      (v/assert kb (list parentOf Tom Bob) 'UniverseContext)
+    (let [h (v/assert kb (list 'inverse parentOf childOf) 'CxUniverse)]
+      (v/assert kb (list parentOf Tom Bob) 'CxUniverse)
       (is (= childOf (v/inverse-of kb parentOf)))
-      (is (v/ask? kb (list childOf Bob Tom) 'UniverseContext)
+      (is (v/ask? kb (list childOf Bob Tom) 'CxUniverse)
           "the inverse goal is answerable while the declaration stands")
       (v/retract! kb h)
       (testing "the declaration going takes the inverse reasoning with it"
         (is (nil? (v/inverse-of kb parentOf)))
-        (is (not (v/ask? kb (list childOf Bob Tom) 'UniverseContext)))))))
+        (is (not (v/ask? kb (list childOf Bob Tom) 'CxUniverse)))))))
 
 (tu/deftest-kb retracting-a-disjoint-metatype-releases-every-pair-it-separated
   ;; A metatype separates its members by being *consulted*, not by materializing a
   ;; clique of `(disjoint a b)` sentexes.  So retraction reaches all of it at once:
   ;; there is no independent premise left behind to outlive the declaration.
   (tu/with-terms [animalSpecies dog cat fish]
-    (v/assert kb (list animalSpecies dog) 'UniverseContext)
-    (v/assert kb (list animalSpecies cat) 'UniverseContext)
-    (let [h (v/assert kb (list 'disjointMetatype animalSpecies) 'UniverseContext)]
+    (v/assert kb (list animalSpecies dog) 'CxUniverse)
+    (v/assert kb (list animalSpecies cat) 'CxUniverse)
+    (let [h (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)]
       (is (v/disjoint? kb dog cat) "members of a disjoint metatype are pairwise disjoint")
       (v/retract! kb h)
       (testing "retracting the metatype releases the pairs it separated"
         (is (not (v/disjoint? kb dog cat))))
       (testing "and it no longer separates a member added afterwards"
-        (v/assert kb (list animalSpecies fish) 'UniverseContext)
+        (v/assert kb (list animalSpecies fish) 'CxUniverse)
         (is (not (v/disjoint? kb dog fish)))))))
 
 (tu/deftest-kb retracting-one-member-releases-only-that-members-pairs
@@ -86,10 +86,10 @@
   ;; a member leaving the metatype stops being disjoint from the rest, while the
   ;; remaining members stay disjoint from each other.
   (tu/with-terms [animalSpecies dog cat fish]
-    (v/assert kb (list 'disjointMetatype animalSpecies) 'UniverseContext)
-    (v/assert kb (list animalSpecies dog) 'UniverseContext)
-    (let [hc (v/assert kb (list animalSpecies cat) 'UniverseContext)]
-      (v/assert kb (list animalSpecies fish) 'UniverseContext)
+    (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
+    (v/assert kb (list animalSpecies dog) 'CxUniverse)
+    (let [hc (v/assert kb (list animalSpecies cat) 'CxUniverse)]
+      (v/assert kb (list animalSpecies fish) 'CxUniverse)
       (is (v/disjoint? kb dog cat))
       (is (v/disjoint? kb dog fish))
       (v/retract! kb hc)
@@ -103,10 +103,10 @@
   ;; Asserting the clique would mean n(n-1)/2 stored `(disjoint a b)` sentexes for n
   ;; members.  The only sentexes are the ones the author wrote.
   (tu/with-terms [animalSpecies dog cat fish bird]
-    (v/assert kb (list 'disjointMetatype animalSpecies) 'UniverseContext)
+    (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
     (let [before (count (tu/sentex-ids kb))]
       (doseq [t [dog cat fish bird]]
-        (v/assert kb (list animalSpecies t) 'UniverseContext))
+        (v/assert kb (list animalSpecies t) 'CxUniverse))
       (testing "four members are pairwise disjoint"
         (is (v/disjoint? kb dog cat))
         (is (v/disjoint? kb fish bird))
@@ -124,10 +124,10 @@
 ;; These two tests check that genl and `disjoint` agree, rather than assume it.
 
 (tu/deftest-kb genl-survives-losing-one-of-two-supporting-sentexes
-  (tu/with-terms [dog animal AlphaContext]
-    (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)
-    (let [h1 (v/assert kb (list 'genl dog animal) 'UniverseContext)
-          _  (v/assert kb (list 'genl dog animal) AlphaContext)]
+  (tu/with-terms [dog animal CxAlpha]
+    (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
+    (let [h1 (v/assert kb (list 'genl dog animal) 'CxUniverse)
+          _  (v/assert kb (list 'genl dog animal) CxAlpha)]
       (is (v/genl? kb dog animal))
       (v/retract! kb h1)
       (testing "the edge is still asserted elsewhere, so the closure keeps it"
@@ -140,10 +140,10 @@
   ;; release a pair the other still asserts — otherwise a legitimate `(dog Felix)`
   ;; starts being accepted while `(disjoint dog cat)` is still believed in another
   ;; context.
-  (tu/with-terms [dog cat Felix AlphaContext]
-    (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)
-    (let [h1 (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-          h2 (v/assert kb (list 'disjoint dog cat) AlphaContext)]
+  (tu/with-terms [dog cat Felix CxAlpha]
+    (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
+    (let [h1 (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+          h2 (v/assert kb (list 'disjoint dog cat) CxAlpha)]
       (is (v/disjoint? kb dog cat))
       (when (not= h1 h2)                    ; two contexts, so two distinct sentexes
         (v/retract! kb h1)

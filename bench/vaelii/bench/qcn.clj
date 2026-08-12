@@ -44,8 +44,8 @@
 (defn- fresh-kb []
   (let [kb (v/open-kb {:backend :memory :space 30 :recover? false})]
     (core-context/load-into kb)
-    (seed/load-context kb 'SpaceContext "upper")
-    (seed/load-context kb 'TimeContext "upper")
+    (seed/load-context kb 'CxSpace "upper")
+    (seed/load-context kb 'CxTime "upper")
     kb))
 
 (defn- containment-tree
@@ -79,7 +79,7 @@
 
 (defn- bench-one [label load calc n]
   (let [kb  (fresh-kb)
-        ctx 'UniverseContext]
+        ctx 'CxUniverse]
     (load kb n ctx)
     ;; the network is resident on the KB, so bump the change clock to make the read
     ;; below a real one — what is being sized here is building it, not serving it

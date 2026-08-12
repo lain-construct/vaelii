@@ -72,19 +72,19 @@
 (deftest penguin-cascade-is-order-independent
   ;; 5 assertions, 120 orderings. The default may fire before or after the KB learns
   ;; Tweety is a penguin, before or after it learns penguins are birds at all.
-  (let [ops [#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'UniverseContext)
-             #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'UniverseContext)
-             #(v/assert % '(genl penguin bird) 'UniverseContext)
+  (let [ops [#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'CxUniverse)
+             #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'CxUniverse)
+             #(v/assert % '(genl penguin bird) 'CxUniverse)
              ;; Known-true: a bare rule confers :monotonic and is capped by its weakest
              ;; antecedent, so over this premise the exception concludes :monotonic and
              ;; out-ranks the :default flight rule.  Over a :default premise both sides
              ;; would tie at :default and the pair would be a represented dilemma.
-             #(v/assert % '(penguin Tweety) 'UniverseContext {:strength :monotonic})
-             #(v/assert % '(bird Robin) 'UniverseContext)]
+             #(v/assert % '(penguin Tweety) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(bird Robin) 'CxUniverse)]
         observe (fn [kb]
-                  {:tweety-flies (boolean (seq (v/sentexes-matching kb '(flies Tweety) 'UniverseContext)))
-                   :tweety-grounded (boolean (seq (v/sentexes-matching kb '(not (flies Tweety)) 'UniverseContext)))
-                   :robin-flies (boolean (seq (v/sentexes-matching kb '(flies Robin) 'UniverseContext)))
+                  {:tweety-flies (boolean (seq (v/sentexes-matching kb '(flies Tweety) 'CxUniverse)))
+                   :tweety-grounded (boolean (seq (v/sentexes-matching kb '(not (flies Tweety)) 'CxUniverse)))
+                   :robin-flies (boolean (seq (v/sentexes-matching kb '(flies Robin) 'CxUniverse)))
                    :conflicts (count (v/conflicts kb))})
         result (one-outcome! "penguin cascade" ops observe)]
     (testing "and the one outcome is the common-sense one"
@@ -102,14 +102,14 @@
   ;; being order-independent.  24 orderings.
   (let [ops [#(v/assert % '(exceptWhen (penguin ?x)
                                        (set/defaultRule (implies (and (bird ?x)) (flies ?x))))
-                        'UniverseContext)
-             #(v/assert % '(penguin Tweety) 'UniverseContext)
-             #(v/assert % '(bird Tweety) 'UniverseContext)
-             #(v/assert % '(bird Robin) 'UniverseContext)]
+                        'CxUniverse)
+             #(v/assert % '(penguin Tweety) 'CxUniverse)
+             #(v/assert % '(bird Tweety) 'CxUniverse)
+             #(v/assert % '(bird Robin) 'CxUniverse)]
         observe (fn [kb]
-                  {:tweety-query (boolean (seq (v/sentexes-matching kb '(flies Tweety) 'UniverseContext)))
-                   :tweety-ask   (v/ask? kb '(flies Tweety) 'UniverseContext)
-                   :robin-query  (boolean (seq (v/sentexes-matching kb '(flies Robin) 'UniverseContext)))
+                  {:tweety-query (boolean (seq (v/sentexes-matching kb '(flies Tweety) 'CxUniverse)))
+                   :tweety-ask   (v/ask? kb '(flies Tweety) 'CxUniverse)
+                   :robin-query  (boolean (seq (v/sentexes-matching kb '(flies Robin) 'CxUniverse)))
                    :conflicts    (count (v/conflicts kb))})
         result (one-outcome! "exceptWhen" ops observe)]
     (testing "the excepted binding never flies, forward or backward; the other does"
@@ -133,33 +133,33 @@
     (let [kb (tu/fresh)
           op {:r1 #(v/assert kb '(exceptWhen (penguin ?x)
                                              (set/defaultRule (implies (and (bird ?x)) (flies ?x))))
-                             'UniverseContext)
+                             'CxUniverse)
               :r2 #(v/assert kb '(exceptWhen (ostrich ?x)
                                              (set/defaultRule (implies (and (bird ?x)) (flies ?x))))
-                             'UniverseContext)
-              :fp #(v/assert kb '(bird Pengu) 'UniverseContext)
-              :tp #(v/assert kb '(penguin Pengu) 'UniverseContext)
-              :fo #(v/assert kb '(bird Ostri) 'UniverseContext)
-              :to #(v/assert kb '(ostrich Ostri) 'UniverseContext)
-              :fr #(v/assert kb '(bird Robby) 'UniverseContext)}]
+                             'CxUniverse)
+              :fp #(v/assert kb '(bird Pengu) 'CxUniverse)
+              :tp #(v/assert kb '(penguin Pengu) 'CxUniverse)
+              :fo #(v/assert kb '(bird Ostri) 'CxUniverse)
+              :to #(v/assert kb '(ostrich Ostri) 'CxUniverse)
+              :fr #(v/assert kb '(bird Robby) 'CxUniverse)}]
       (doseq [k order] ((op k)))
-      (is (empty? (v/sentexes-matching kb '(flies Pengu) 'UniverseContext)) (str order " penguin flies"))
-      (is (empty? (v/sentexes-matching kb '(flies Ostri) 'UniverseContext)) (str order " ostrich flies"))
-      (is (seq (v/sentexes-matching kb '(flies Robby) 'UniverseContext)) (str order " robin grounded"))
+      (is (empty? (v/sentexes-matching kb '(flies Pengu) 'CxUniverse)) (str order " penguin flies"))
+      (is (empty? (v/sentexes-matching kb '(flies Ostri) 'CxUniverse)) (str order " ostrich flies"))
+      (is (seq (v/sentexes-matching kb '(flies Robby) 'CxUniverse)) (str order " robin grounded"))
       (tu/clear-kb! kb))))
 
 (deftest a-default-feeding-a-bare-rule-is-order-independent
   ;; The downstream conclusion (canTravel) must track the defeat of its antecedent
   ;; whichever order the pieces arrive in.
-  (let [ops [#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'UniverseContext)
-             #(v/assert-rule % '[(flies ?x)] '(canTravel ?x) 'UniverseContext)
-             #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'UniverseContext)
-             #(v/assert % '(genl penguin bird) 'UniverseContext)
+  (let [ops [#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'CxUniverse)
+             #(v/assert-rule % '[(flies ?x)] '(canTravel ?x) 'CxUniverse)
+             #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'CxUniverse)
+             #(v/assert % '(genl penguin bird) 'CxUniverse)
              ;; known-true, so the exception concludes :monotonic and defeats the default
-             #(v/assert % '(penguin Tweety) 'UniverseContext {:strength :monotonic})]
+             #(v/assert % '(penguin Tweety) 'CxUniverse {:strength :monotonic})]
         observe (fn [kb]
-                  {:flies (boolean (seq (v/sentexes-matching kb '(flies Tweety) 'UniverseContext)))
-                   :travels (boolean (seq (v/sentexes-matching kb '(canTravel Tweety) 'UniverseContext)))})
+                  {:flies (boolean (seq (v/sentexes-matching kb '(flies Tweety) 'CxUniverse)))
+                   :travels (boolean (seq (v/sentexes-matching kb '(canTravel Tweety) 'CxUniverse)))})
         result (one-outcome! "default feeding a bare rule" ops observe)]
     (testing "a defeated antecedent withdraws the conclusion built on it"
       (is (false? (:flies result)))
@@ -175,15 +175,15 @@
   ;; `contradictions`. What must not vary with typing order is the whole reading —
   ;; which sides are believed, that neither was defeated, and that exactly one dilemma
   ;; is reported.
-  (let [ops [#(v/assert % (default-rule '[(quaker ?x)] '(pacifist ?x)) 'UniverseContext)
-             #(v/assert % (default-rule '[(republican ?x)] '(not (pacifist ?x))) 'UniverseContext)
-             #(v/assert % '(quaker Nixon) 'UniverseContext)
-             #(v/assert % '(republican Nixon) 'UniverseContext)]
+  (let [ops [#(v/assert % (default-rule '[(quaker ?x)] '(pacifist ?x)) 'CxUniverse)
+             #(v/assert % (default-rule '[(republican ?x)] '(not (pacifist ?x))) 'CxUniverse)
+             #(v/assert % '(quaker Nixon) 'CxUniverse)
+             #(v/assert % '(republican Nixon) 'CxUniverse)]
         observe (fn [kb]
-                  (let [pos (v/handle-of kb '(pacifist Nixon) 'UniverseContext)
-                        neg (v/handle-of kb '(not (pacifist Nixon)) 'UniverseContext)]
-                    {:pacifist (boolean (seq (v/sentexes-matching kb '(pacifist Nixon) 'UniverseContext)))
-                     :not-pacifist (boolean (seq (v/sentexes-matching kb '(not (pacifist Nixon)) 'UniverseContext)))
+                  (let [pos (v/handle-of kb '(pacifist Nixon) 'CxUniverse)
+                        neg (v/handle-of kb '(not (pacifist Nixon)) 'CxUniverse)]
+                    {:pacifist (boolean (seq (v/sentexes-matching kb '(pacifist Nixon) 'CxUniverse)))
+                     :not-pacifist (boolean (seq (v/sentexes-matching kb '(not (pacifist Nixon)) 'CxUniverse)))
                      ;; the defeat-classes, not the handles: handles are allocated in
                      ;; assertion order, so putting one in the reading would make every
                      ;; ordering differ for a reason that is not about belief.  Keyed
@@ -224,9 +224,9 @@
   ;; Three independent pairs, one op each: the pairs share no term, so nothing but the
   ;; ordering rule decides which report leads.  Six orderings.
   (let [pair    (fn [p strength]
-                  #(do (v/assert % (list p 'OrderedSubject) 'UniverseContext strength)
+                  #(do (v/assert % (list p 'OrderedSubject) 'CxUniverse strength)
                        (v/assert % (list 'not (list p 'OrderedSubject))
-                                 'UniverseContext strength)))
+                                 'CxUniverse strength)))
         ;; the sort key is each side's sentence, so the predicate name is what orders
         ;; one report against another — named so that content order and any arrival
         ;; order are different questions
@@ -254,14 +254,14 @@
       ;; exactly what the stored vector is in and exactly what `ranked` has to remove.
       (let [result (one-outcome!
                     "preview dilemma list ordering"
-                    (mapv (fn [p] #(v/assert % (list p 'OrderedSubject) 'UniverseContext {}))
+                    (mapv (fn [p] #(v/assert % (list p 'OrderedSubject) 'CxUniverse {}))
                           preds)
                     (fn [kb]
                       {:order (reading
                                (:contradictions
                                 (v/preview kb {:add (mapv (fn [p]
                                                             [(list 'not (list p 'OrderedSubject))
-                                                             'UniverseContext {}])
+                                                             'CxUniverse {}])
                                                           preds)})))}))]
         (is (= 3 (count (:order result))) "the batch opens all three")
         (is (= (sort (:order result)) (:order result))
@@ -273,17 +273,17 @@
 (deftest revival-is-order-independent
   ;; Build the default in either order, defeat it, then retract the defeater. The
   ;; conclusion must come back in both cases — belief is recomputed, not replayed.
-  (doseq [build [[#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'UniverseContext)
-                  #(v/assert % '(bird Sky) 'UniverseContext)]
-                 [#(v/assert % '(bird Sky) 'UniverseContext)
-                  #(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'UniverseContext)]]]
+  (doseq [build [[#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'CxUniverse)
+                  #(v/assert % '(bird Sky) 'CxUniverse)]
+                 [#(v/assert % '(bird Sky) 'CxUniverse)
+                  #(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'CxUniverse)]]]
     (let [kb (tu/fresh)]
       (doseq [op build] (op kb))
-      (is (seq (v/sentexes-matching kb '(flies Sky) 'UniverseContext)) "the default holds")
-      (let [neg (v/assert kb '(not (flies Sky)) 'UniverseContext {:strength :monotonic})]
-        (is (empty? (v/sentexes-matching kb '(flies Sky) 'UniverseContext)) "defeated")
+      (is (seq (v/sentexes-matching kb '(flies Sky) 'CxUniverse)) "the default holds")
+      (let [neg (v/assert kb '(not (flies Sky)) 'CxUniverse {:strength :monotonic})]
+        (is (empty? (v/sentexes-matching kb '(flies Sky) 'CxUniverse)) "defeated")
         (v/retract! kb neg)
-        (is (seq (v/sentexes-matching kb '(flies Sky) 'UniverseContext)) "revived"))))
+        (is (seq (v/sentexes-matching kb '(flies Sky) 'CxUniverse)) "revived"))))
   (tu/clear-kb! (tu/test-kb)))
 
 (deftest a-revival-that-owes-a-derivation-is-order-independent
@@ -302,19 +302,19 @@
   ;; have: the partner into each of the 4 gaps, and the rule into each of the 5 gaps of
   ;; what that leaves.  Twenty orderings, and the ones where the partner lands in the
   ;; middle are the defect.
-  (let [assert-a  #(v/assert % '(vpA VOne VTwo) 'UniverseContext)
-        defeat-a  #(v/assert % '(not (vpA VOne VTwo)) 'UniverseContext
+  (let [assert-a  #(v/assert % '(vpA VOne VTwo) 'CxUniverse)
+        defeat-a  #(v/assert % '(not (vpA VOne VTwo)) 'CxUniverse
                              {:strength :monotonic})
-        lift-a    #(v/retract! % (v/handle-of % '(not (vpA VOne VTwo)) 'UniverseContext))
-        partner   #(v/assert % '(vpB VTwo VThree) 'UniverseContext {:strength :monotonic})
-        rule      #(v/assert-rule % '[(vpA ?x ?z) (vpB ?z ?y)] '(vpC ?x ?y) 'UniverseContext
+        lift-a    #(v/retract! % (v/handle-of % '(not (vpA VOne VTwo)) 'CxUniverse))
+        partner   #(v/assert % '(vpB VTwo VThree) 'CxUniverse {:strength :monotonic})
+        rule      #(v/assert-rule % '[(vpA ?x ?z) (vpB ?z ?y)] '(vpC ?x ?y) 'CxUniverse
                                   {:direction :forward})
         insert    (fn [ops i op] (vec (concat (take i ops) [op] (drop i ops))))
         observe   (fn [kb]
                     {:joined     (boolean (seq (v/sentexes-matching kb '(vpC VOne VThree)
-                                                                    'UniverseContext)))
+                                                                    'CxUniverse)))
                      :antecedent (boolean (seq (v/sentexes-matching kb '(vpA VOne VTwo)
-                                                                    'UniverseContext)))})
+                                                                    'CxUniverse)))})
         outcomes  (into {}
                         (for [p (range 4)
                               r (range 5)
@@ -340,20 +340,20 @@
   ;; Same shape as its sibling: the ordered steps held in sequence, the two free ops slid
   ;; through every gap they have.  The orderings where the partner lands between the
   ;; merge and the un-merge are the defect.
-  (let [fact      #(v/assert % '(uqA UDep UZed) 'UniverseContext {:strength :monotonic})
-        merge-it  #(v/assert % '(rewriteOf UPref UDep) 'UniverseContext
+  (let [fact      #(v/assert % '(uqA UDep UZed) 'CxUniverse {:strength :monotonic})
+        merge-it  #(v/assert % '(rewriteOf UPref UDep) 'CxUniverse
                              {:strength :monotonic})
-        un-merge  #(v/retract! % (v/handle-of % '(rewriteOf UPref UDep) 'UniverseContext))
-        partner   #(v/assert % '(uqB UZed UWye) 'UniverseContext {:strength :monotonic})
+        un-merge  #(v/retract! % (v/handle-of % '(rewriteOf UPref UDep) 'CxUniverse))
+        partner   #(v/assert % '(uqB UZed UWye) 'CxUniverse {:strength :monotonic})
         rule      #(v/assert-rule % '[(uqA ?x ?z) (uqB ?z ?y)] '(uqC ?x ?y)
-                                  'UniverseContext {:direction :forward})
+                                  'CxUniverse {:direction :forward})
         insert    (fn [ops i op] (vec (concat (take i ops) [op] (drop i ops))))
         observe   (fn [kb]
                     {:conclusions (set (map :sentence
                                             (v/sentexes-matching kb '(uqC ?x ?y)
-                                                                 'UniverseContext)))
+                                                                 'CxUniverse)))
                      :antecedent  (boolean (seq (v/sentexes-matching kb '(uqA UDep UZed)
-                                                                     'UniverseContext)))})
+                                                                     'CxUniverse)))})
         outcomes  (into {}
                         (for [p (range 4)
                               r (range 5)
@@ -373,9 +373,9 @@
 (deftest genl-closure-is-order-independent
   ;; The cached closures are derived state, so they must land in the same place
   ;; whatever order the edges and their defeater arrive in.
-  (let [ops [#(v/assert % '(genl sub_t mid_t) 'UniverseContext)
-             #(v/assert % '(genl mid_t super_t) 'UniverseContext)
-             #(v/assert % '(sub_t Ind1) 'UniverseContext)]
+  (let [ops [#(v/assert % '(genl sub_t mid_t) 'CxUniverse)
+             #(v/assert % '(genl mid_t super_t) 'CxUniverse)
+             #(v/assert % '(sub_t Ind1) 'CxUniverse)]
         observe (fn [kb] {:isa (v/isa? kb 'Ind1 'super_t)})]
     (is (= #{{:isa true}} (outcomes ops observe))
         "transitive membership does not depend on which edge was asserted first"))
@@ -388,30 +388,30 @@
   ;; `genl` is not the same thing as re-firing the rules the edge just connected — so
   ;; without `special/subsumption-seeds` these four sentences derive `(breathes Muffet)`
   ;; in the orders that put the edge before the fact and nothing in the others.
-  (let [ops [#(v/assert % '(genl animal_t thing) 'UniverseContext)
-             #(v/assert % '(genl dog_t animal_t) 'UniverseContext)
-             #(v/assert % '(implies (animal_t ?x) (breathes ?x)) 'UniverseContext)
-             #(v/assert % '(dog_t Muffet) 'UniverseContext)]
+  (let [ops [#(v/assert % '(genl animal_t thing) 'CxUniverse)
+             #(v/assert % '(genl dog_t animal_t) 'CxUniverse)
+             #(v/assert % '(implies (animal_t ?x) (breathes ?x)) 'CxUniverse)
+             #(v/assert % '(dog_t Muffet) 'CxUniverse)]
         observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(breathes Muffet) 'UniverseContext)))})]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(breathes Muffet) 'CxUniverse)))})]
     (is (= {:derived true} (one-outcome! "subsumption firing" ops observe))
         "and the one outcome is the conclusion, not the silence"))
   (tu/clear-kb! (tu/test-kb)))
 
 (deftest a-firing-that-sees-across-a-context-edge-is-order-independent
   ;; The same claim for the other closure, and the same gap.  Matching fans an
-  ;; antecedent up the *visibility* cone, so a `genlContext` edge changes which facts a
+  ;; antecedent up the *visibility* cone, so a `genlCx` edge changes which facts a
   ;; stored rule can see — and the arriving datum is again the edge, so firing the rules
-  ;; keyed on `genlContext` is not the same thing as re-joining the rules the edge just
+  ;; keyed on `genlCx` is not the same thing as re-joining the rules the edge just
   ;; gave a wider view.  Without `special/visibility-seeds` these four sentences derive
   ;; `(vSeenP VA)` in the 17 orders that put the edge before the rule or the fact, and
   ;; nothing in the other 7.
-  (let [ops [#(v/assert % '(genlContext VMidContext UniverseContext) 'UniverseContext)
-             #(v/assert % '(genlContext VLowContext VMidContext) 'UniverseContext)
-             #(v/assert % '(vFactP VA) 'VMidContext)
-             #(v/assert % '(implies (vFactP ?x) (vSeenP ?x)) 'VLowContext)]
+  (let [ops [#(v/assert % '(genlCx CxVMid CxUniverse) 'CxUniverse)
+             #(v/assert % '(genlCx CxVLow CxVMid) 'CxUniverse)
+             #(v/assert % '(vFactP VA) 'CxVMid)
+             #(v/assert % '(implies (vFactP ?x) (vSeenP ?x)) 'CxVLow)]
         observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(vSeenP VA) 'VLowContext)))})]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(vSeenP VA) 'CxVLow)))})]
     (is (= {:derived true} (one-outcome! "visibility firing" ops observe))
         "a rule fires off what its context can see, whenever it was told it could"))
   (tu/clear-kb! (tu/test-kb)))
@@ -421,12 +421,12 @@
   ;; the first: a rule stated *above* applies in every context that sees it, so wiring a
   ;; new context under it hands the rule that context's own facts and places
   ;; the conclusion there.  Seeding is by fact, so it has to reach both cones.
-  (let [ops [#(v/assert % '(genlContext XMidContext UniverseContext) 'UniverseContext)
-             #(v/assert % '(genlContext XLowContext XMidContext) 'UniverseContext)
-             #(v/assert % '(xFactP XB) 'XLowContext)
-             #(v/assert % '(implies (xFactP ?x) (xSeenP ?x)) 'XMidContext)]
+  (let [ops [#(v/assert % '(genlCx CxXMid CxUniverse) 'CxUniverse)
+             #(v/assert % '(genlCx CxXLow CxXMid) 'CxUniverse)
+             #(v/assert % '(xFactP XB) 'CxXLow)
+             #(v/assert % '(implies (xFactP ?x) (xSeenP ?x)) 'CxXMid)]
         observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(xSeenP XB) 'XLowContext)))})]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(xSeenP XB) 'CxXLow)))})]
     (is (= {:derived true} (one-outcome! "inherited-rule firing" ops observe))
         "a rule above is inherited into a context wired under it, whenever that happened"))
   (tu/clear-kb! (tu/test-kb)))
@@ -435,14 +435,14 @@
 ;; drift into checking different things — the only difference between them is how many
 ;; of the 120 orderings they walk.
 (def ^:private derived-edge-ops
-  [#(v/assert % '(genlContext WMidContext UniverseContext) 'UniverseContext)
-   #(v/assert % '(wFactP WA) 'WMidContext)
-   #(v/assert % '(implies (wFactP ?x) (wSeenP ?x)) 'WLowContext)
-   #(v/assert % '(wWireP WLowContext WMidContext) 'UniverseContext)
-   #(v/assert % '(implies (wWireP ?a ?b) (genlContext ?a ?b)) 'UniverseContext)])
+  [#(v/assert % '(genlCx CxWMid CxUniverse) 'CxUniverse)
+   #(v/assert % '(wFactP WA) 'CxWMid)
+   #(v/assert % '(implies (wFactP ?x) (wSeenP ?x)) 'CxWLow)
+   #(v/assert % '(wWireP CxWLow CxWMid) 'CxUniverse)
+   #(v/assert % '(implies (wWireP ?a ?b) (genlCx ?a ?b)) 'CxUniverse)])
 
 (defn- derived-edge-observe [kb]
-  {:derived (boolean (seq (v/sentexes-matching kb '(wSeenP WA) 'WLowContext)))})
+  {:derived (boolean (seq (v/sentexes-matching kb '(wSeenP WA) 'CxWLow)))})
 
 (deftest a-derived-context-edge-seeds-like-an-asserted-one
   ;; and a rule concluding the edge reaches the same belief an assert does, or the
@@ -450,7 +450,7 @@
   ;;
   ;; Four orderings, not all 120, for the reason `two-independent-exceptions` above
   ;; takes a handful: an ordering here costs ~2s — deriving the edge recomputes the
-  ;; genlContext closure and re-places what it reaches, where every other test in this
+  ;; genlCx closure and re-places what it reaches, where every other test in this
   ;; file runs an ordering in about a millisecond — so the exhaustive walk is four
   ;; minutes, which is more than the whole rest of the suite.  The handful pins the
   ;; positions that matter: the edge rule first and last, and the fact arriving before

@@ -27,38 +27,38 @@
 
 (deftest check-reports-the-type-assert-would-throw
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [dog cat Muffet TheContext]
+    (tu/with-terms [dog cat Muffet CxThe]
       ;; the disjointness constrains where it is visible, so the asserting context
       ;; is wired below the declaring one
-      (v/assert kb (list 'genlContext TheContext 'CoreContext) 'CoreContext)
-      (v/assert kb (list 'genl dog 'animal) 'CoreContext)
-      (v/assert kb (list 'genl cat 'animal) 'CoreContext)
-      (v/assert kb (list 'disjoint dog cat) 'CoreContext)
-      (v/assert kb (list dog Muffet) TheContext)
+      (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
+      (v/assert kb (list 'genl dog 'animal) 'CxCore)
+      (v/assert kb (list 'genl cat 'animal) 'CxCore)
+      (v/assert kb (list 'disjoint dog cat) 'CxCore)
+      (v/assert kb (list dog Muffet) CxThe)
       (doseq [[label sentence context expected]
               [["a bad context"        (list dog Muffet) 'notacontext          :naming]
-               ["a bad functor"        (list 'BadPred Muffet) TheContext       :naming]
-               ["a variable in a fact" (list dog '?x) TheContext             :not-ground]
-               ["genl over an individual" (list 'genl Muffet dog) TheContext   :not-well-formed]
+               ["a bad functor"        (list 'BadPred Muffet) CxThe       :naming]
+               ["a variable in a fact" (list dog '?x) CxThe             :not-ground]
+               ["genl over an individual" (list 'genl Muffet dog) CxThe   :not-well-formed]
                ;; negation lives on facts: a rule under `not` would store a sentence
                ;; its own key cannot be computed from, so both doors refuse it —
                ;; wrapped exactly as bare, since the wrappers peel before the test
                ["a negated rule"
                 (list 'not (list 'implies (list dog '?x) (list 'animal '?x)))
-                TheContext                                                     :not-well-formed]
+                CxThe                                                     :not-well-formed]
                ["a negated wrapped rule"
                 (list 'not (list 'set/defaultRule
                                  (list 'implies (list dog '?x) (list 'animal '?x))))
-                TheContext                                                     :not-well-formed]
+                CxThe                                                     :not-well-formed]
                ["an unbound consequent variable"
-                (list 'implies (list dog '?x) (list 'animal '?y)) TheContext :not-range-restricted]
+                (list 'implies (list dog '?x) (list 'animal '?y)) CxThe :not-range-restricted]
                ;; the rule index is keyed by predicate, and a variable names none — so
                ;; `check` has to predict the refusal `assert` makes, or an editor
                ;; validating a metarule is told it will land when it will not
                ["a rule literal with a variable predicate"
                 (list 'implies (list 'and (list dog '?x) (list 'transitive '?p))
-                      (list '?p '?x '?x)) TheContext                          :not-indexable]
-               ["a disjoint type membership" (list cat Muffet) TheContext      :disjoint]]]
+                      (list '?p '?x '?x)) CxThe                          :not-indexable]
+               ["a disjoint type membership" (list cat Muffet) CxThe      :disjoint]]]
         (testing label
           (is (= #{expected} (types-of-check kb sentence context)))
           (is (= expected (assert-type kb sentence context))
@@ -66,25 +66,25 @@
 
 (deftest an-admissible-sentence-has-no-problems
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [likesOf Alice Bob TheContext]
-      (is (= [] (v/check kb (list likesOf Alice Bob) TheContext)))
+    (tu/with-terms [likesOf Alice Bob CxThe]
+      (is (= [] (v/check kb (list likesOf Alice Bob) CxThe)))
       (is (= [] (v/check kb (list 'implies (list likesOf '?x '?y) (list likesOf '?y '?x))
-                         TheContext)))
+                         CxThe)))
       (testing "and asserting it does succeed"
-        (is (some? (v/assert kb (list likesOf Alice Bob) TheContext)))))))
+        (is (some? (v/assert kb (list likesOf Alice Bob) CxThe)))))))
 
 ;; ---- nothing is stored --------------------------------------------------
 
 (deftest check-stores-nothing-whatever-the-answer
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [likesOf Alice Bob newType TheContext]
+    (tu/with-terms [likesOf Alice Bob newType CxThe]
       (doseq [sentence [(list likesOf Alice Bob)                ; admissible
                         (list likesOf Alice '?x)                ; not ground
                         (list 'genl newType 'animal)            ; a taxonomy edge
                         (list 'implies (list likesOf '?x '?y) (list likesOf '?y '?x))]]
-        (v/check kb sentence TheContext))
+        (v/check kb sentence CxThe))
       (testing "no sentex was created for any of them"
-        (is (nil? (v/handle-of kb (list likesOf Alice Bob) TheContext)))
+        (is (nil? (v/handle-of kb (list likesOf Alice Bob) CxThe)))
         (is (empty? (v/find-sentexes kb likesOf))))
       (testing "and the taxonomy edge the check considered did not reach the closure"
         (is (not (v/genl? kb newType 'animal)))))))
@@ -104,22 +104,22 @@
              ["a snake_case relation between two types"
               '(disjoint_with penguin fish)]]]
       (testing label
-        (is (= #{:naming} (types-of-check kb sentence 'WellContext)))
-        (is (= :naming (assert-type kb sentence 'WellContext))
+        (is (= #{:naming} (types-of-check kb sentence 'CxWell)))
+        (is (= :naming (assert-type kb sentence 'CxWell))
             "and it is the type assert throws for the same sentence")))
     (testing "a *unary* snake_case functor is a well-formed type name, however coined"
       ;; this check is about the shape of a name, not about whether the vocabulary
       ;; wants it — refusing an implausible type is a different question
       (is (= [] (v/check kb '(implies (penguin ?x) (has_black_and_white_feathers ?x))
-                         'WellContext))))))
+                         'CxWell))))))
 
 (deftest check-edit-carries-a-nested-naming-problem-per-entry
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [likesOf Alice Bob TheContext]
-      (let [ps (v/check-edit kb {:add [[(list likesOf Alice Bob) TheContext]
+    (tu/with-terms [likesOf Alice Bob CxThe]
+      (let [ps (v/check-edit kb {:add [[(list likesOf Alice Bob) CxThe]
                                        ['(implies (penguin ?x) (lives_in ?x cold_place))
-                                        'WellContext]
-                                       ['(disjoint_with penguin fish) 'WellContext]]})]
+                                        'CxWell]
+                                       ['(disjoint_with penguin fish) 'CxWell]]})]
         (is (= [{:in :add :index 1 :type :naming}
                 {:in :add :index 2 :type :naming}]
                (mapv #(select-keys % [:in :index :type]) ps)))
@@ -133,13 +133,13 @@
 
 (deftest a-request-that-is-not-a-sentence-in-a-context-is-shaped-wrong
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [dog Muffet TheContext]
-      (is (= #{:shape} (types-of-check kb (list dog Muffet) "TheContext")))
-      (is (= #{:shape} (types-of-check kb 'dog TheContext)))
+    (tu/with-terms [dog Muffet CxThe]
+      (is (= #{:shape} (types-of-check kb (list dog Muffet) "CxThe")))
+      (is (= #{:shape} (types-of-check kb 'dog CxThe)))
       ;; a non-map opts is an opts problem, not a shape one — the same
       ;; `:unknown-option` `assert` throws, since `shape-problems` runs its guard
       (is (= #{:unknown-option}
-             (into #{} (map :type) (v/check kb (list dog Muffet) TheContext :nope)))))))
+             (into #{} (map :type) (v/check kb (list dog Muffet) CxThe :nope)))))))
 
 ;; ---- the opts roster: admissible knowledge, inadmissible request ---------
 ;; These two are the request rather than the sentence, and neither is visible after the
@@ -149,75 +149,75 @@
 
 (deftest an-opts-key-assert-does-not-read-is-refused-not-defaulted
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [likesOf Alice Bob TheContext]
+    (tu/with-terms [likesOf Alice Bob CxThe]
       (let [sentence (list likesOf Alice Bob)]
         (testing "a misspelt key would silently store a default where known-true was meant"
           (is (= #{:unknown-option} (into #{} (map :type)
-                                          (v/check kb sentence TheContext {:strenth :monotonic}))))
-          (is (= :unknown-option (try (v/assert kb sentence TheContext {:strenth :monotonic}) nil
+                                          (v/check kb sentence CxThe {:strenth :monotonic}))))
+          (is (= :unknown-option (try (v/assert kb sentence CxThe {:strenth :monotonic}) nil
                                       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
         (testing "and the refusal names both the offending key and the roster"
-          (let [d (try (v/assert kb sentence TheContext {:strenth :monotonic}) nil
+          (let [d (try (v/assert kb sentence CxThe {:strenth :monotonic}) nil
                        (catch clojure.lang.ExceptionInfo e (ex-data e)))]
             (is (= [:strenth] (:unknown d)))
             (is (= (vec (sort v/assert-opt-keys)) (:options d)))))
         (testing "nothing was stored by either"
-          (is (empty? (v/sentexes-matching kb sentence TheContext))))
+          (is (empty? (v/sentexes-matching kb sentence CxThe))))
         (testing "every key on the roster is still accepted"
-          (is (empty? (v/check kb sentence TheContext
+          (is (empty? (v/check kb sentence CxThe
                                {:strength :monotonic :chain? false :max-depth 8
                                 :creator "t" :provenance {:source :test}}))))))))
 
 (deftest a-strength-outside-the-two-classes-is-refused
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [likesOf Alice Bob TheContext]
+    (tu/with-terms [likesOf Alice Bob CxThe]
       (let [sentence (list likesOf Alice Bob)]
         (doseq [bad [0.7 :monotonicc nil "monotonic"]]
           (testing (str "strength " (pr-str bad))
             (is (= #{:unknown-option} (into #{} (map :type)
-                                            (v/check kb sentence TheContext {:strength bad}))))
-            (is (= :unknown-option (try (v/assert kb sentence TheContext {:strength bad}) nil
+                                            (v/check kb sentence CxThe {:strength bad}))))
+            (is (= :unknown-option (try (v/assert kb sentence CxThe {:strength bad}) nil
                                         (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))))
-        (is (empty? (v/sentexes-matching kb sentence TheContext)))
+        (is (empty? (v/sentexes-matching kb sentence CxThe)))
         (testing "both assertable classes still land"
-          (is (some? (v/assert kb sentence TheContext {:strength :monotonic})))
-          (is (= :monotonic (v/defeat-class kb (v/handle-of kb sentence TheContext)))))))))
+          (is (some? (v/assert kb sentence CxThe {:strength :monotonic})))
+          (is (= :monotonic (v/defeat-class kb (v/handle-of kb sentence CxThe)))))))))
 
 (deftest assert-rule-holds-its-opts-to-the-same-roster
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [base derived TheContext]
+    (tu/with-terms [base derived CxThe]
       (let [antes [(list base '?x)] conseq (list derived '?x)]
-        (is (= :unknown-option (try (v/assert-rule kb antes conseq TheContext {:dir :forward}) nil
+        (is (= :unknown-option (try (v/assert-rule kb antes conseq CxThe {:dir :forward}) nil
                                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))
         (testing ":direction itself is on the roster"
-          (is (some? (v/assert-rule kb antes conseq TheContext {:direction :forward}))))))))
+          (is (some? (v/assert-rule kb antes conseq CxThe {:direction :forward}))))))))
 
 ;; ---- stratification: the rule-set check runs too ------------------------
 
 (deftest a-rule-closing-a-cycle-through-negation-is-reported-not-stored
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [base aP bP TheContext]
+    (tu/with-terms [base aP bP CxThe]
       ;; bP is concluded by a rule whose exception reads aP; a second rule concluding
       ;; aP from bP closes the cycle through that negation
       (v/assert kb (list 'exceptWhen (list aP '?x)
                          (list 'set/defaultRule
                                (list 'implies (list base '?x) (list bP '?x))))
-                TheContext)
+                CxThe)
       (let [cyclic (list 'implies (list bP '?x) (list aP '?x))
-            ps     (v/check kb cyclic TheContext)]
+            ps     (v/check kb cyclic CxThe)]
         (is (= #{:not-stratified} (into #{} (map :type) ps)))
         (testing "and the reported cycle is the one the refusal names"
           (is (seq (:cycle (first ps)))))
-        (is (= :not-stratified (assert-type kb cyclic TheContext)))))))
+        (is (= :not-stratified (assert-type kb cyclic CxThe)))))))
 
 ;; ---- the batch form -----------------------------------------------------
 
 (deftest check-edit-points-at-the-entry-that-is-wrong
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [likesOf Alice Bob TheContext]
-      (let [h  (v/assert kb (list likesOf Alice Bob) TheContext)
-            ps (v/check-edit kb {:add    [[(list likesOf Alice Bob) TheContext]
-                                          [(list likesOf Alice '?x) TheContext]
+    (tu/with-terms [likesOf Alice Bob CxThe]
+      (let [h  (v/assert kb (list likesOf Alice Bob) CxThe)
+            ps (v/check-edit kb {:add    [[(list likesOf Alice Bob) CxThe]
+                                          [(list likesOf Alice '?x) CxThe]
                                           [:not-an-entry]]
                                  :remove [h 999999 :nope]})]
         (testing "the admissible add contributes nothing"
@@ -244,13 +244,13 @@
       ;; sequentially the genl edge lands first and puts the kind under the constraint
       ;; type; as it stands the kind reaches `thing` and not the constraint, which is
       ;; the visible-evidence-in-the-wrong-place case argGenl convicts
-      (tu/with-terms [relOf a_kind an_animal Rex TheContext]
-        (v/assert kb (list 'genlContext TheContext 'CoreContext) 'CoreContext)
-        (v/assert kb (list 'genl an_animal 'thing) 'CoreContext)
-        (v/assert kb (list 'genl a_kind 'thing) 'CoreContext)
-        (v/assert kb (list 'argGenl relOf 1 an_animal) 'CoreContext)
-        (let [ps (v/check-edit kb {:add [[(list 'genl a_kind an_animal) TheContext]
-                                         [(list relOf a_kind Rex) TheContext]]})]
+      (tu/with-terms [relOf a_kind an_animal Rex CxThe]
+        (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
+        (v/assert kb (list 'genl an_animal 'thing) 'CxCore)
+        (v/assert kb (list 'genl a_kind 'thing) 'CxCore)
+        (v/assert kb (list 'argGenl relOf 1 an_animal) 'CxCore)
+        (let [ps (v/check-edit kb {:add [[(list 'genl a_kind an_animal) CxThe]
+                                         [(list relOf a_kind Rex) CxThe]]})]
           (is (= [{:in :add :index 1 :type :arg-genl}]
                  (mapv #(select-keys % [:in :index :type]) ps))
               "the second add was judged against a KB the first had already changed"))))
@@ -258,15 +258,15 @@
               earlier one would have forbidden"
       ;; the mirror: sequentially the declaration binds the fact after it and the arity
       ;; check refuses; as it stands nothing is declared and open world admits it
-      (tu/with-terms [pOf Thing TheContext]
-        (let [ps (v/check-edit kb {:add [[(list 'binaryPredicate pOf) TheContext]
-                                         [(list pOf Thing) TheContext]]})]
+      (tu/with-terms [pOf Thing CxThe]
+        (let [ps (v/check-edit kb {:add [[(list 'binaryPredicate pOf) CxThe]
+                                         [(list pOf Thing) CxThe]]})]
           (is (= [] ps)
               "the declaration in the same batch was read as though it had landed"))))
     (testing "and the open-world floor still holds: an untyped argument violates nothing"
-      (tu/with-terms [newPred Thing TheContext]
-        (is (= [] (v/check-edit kb {:add [[(list 'argIsa newPred 1 'animal) TheContext]
-                                          [(list newPred Thing) TheContext]]})))))))
+      (tu/with-terms [newPred Thing CxThe]
+        (is (= [] (v/check-edit kb {:add [[(list 'argIsa newPred 1 'animal) CxThe]
+                                          [(list newPred Thing) CxThe]]})))))))
 
 ;; ---- which declaration a violation names: content, not arrival ----------
 
@@ -277,18 +277,18 @@
   ;; enumeration order may not pick the declaration a refusal is about
   (doseq [flip? [false true]]
     (tu/with-neutral-kb [kb kb-with-starter]
-      (tu/with-terms [relOf t_first t_second t_plain Muffet Alice TheContext]
-        (v/assert kb (list 'genlContext TheContext 'CoreContext) 'CoreContext)
+      (tu/with-terms [relOf t_first t_second t_plain Muffet Alice CxThe]
+        (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
         (doseq [t [t_first t_second t_plain]]
-          (v/assert kb (list 'genl t 'thing) 'CoreContext))
+          (v/assert kb (list 'genl t 'thing) 'CxCore))
         (let [d1     (list 'argIsa relOf 1 t_first)
               d2     (list 'argIsa relOf 2 t_second)
               winner (first (sort-by pr-str [d1 d2]))]
           (doseq [d (if flip? [d2 d1] [d1 d2])]
-            (v/assert kb d 'CoreContext))
-          (v/assert kb (list t_plain Muffet) TheContext)
-          (v/assert kb (list t_plain Alice) TheContext)
-          (let [ps (v/check kb (list relOf Muffet Alice) TheContext)
+            (v/assert kb d 'CxCore))
+          (v/assert kb (list t_plain Muffet) CxThe)
+          (v/assert kb (list t_plain Alice) CxThe)
+          (let [ps (v/check kb (list relOf Muffet Alice) CxThe)
                 p  (first (filter #(= :arg-type (:type %)) ps))]
             (testing (str "assertion order " (if flip? "second first" "first second"))
               (is (some? p) "both declarations convict, so a violation is reported")
@@ -299,15 +299,15 @@
 
 (deftest check-follows-assert-into-ist-and-the-rule-wrappers
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [likesOf Alice IstContext]
+    (tu/with-terms [likesOf Alice CxIst]
       (testing "(ist Ctx S) is checked as S in Ctx"
         (is (= #{:not-ground}
-               (types-of-check kb (list 'ist IstContext (list likesOf Alice '?x)) 'UniverseContext))))
+               (types-of-check kb (list 'ist CxIst (list likesOf Alice '?x)) 'CxUniverse))))
       (testing "a set/*Rule wrapper is checked as the rule it wraps"
         (is (= #{:not-range-restricted}
                (types-of-check kb (list 'set/forwardRule
                                         (list 'implies (list 'dog '?x) (list 'animal '?y)))
-                               IstContext)))))))
+                               CxIst)))))))
 
 (deftest an-ist-form-holds-exactly-three-elements
   ;; `(ist Ctx S)` is the form, and both `assert` and `check` read it by position — so a
@@ -315,20 +315,20 @@
   ;; `(nth sentence 2)`; four asserted with the extra silently dropped, which is the
   ;; worse of the two because it stores something the caller did not write.
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [dog Muffet IstContext]
-      (let [short-form (list 'ist IstContext)
-            long-form  (list 'ist IstContext (list dog Muffet) 'junk)]
+    (tu/with-terms [dog Muffet CxIst]
+      (let [short-form (list 'ist CxIst)
+            long-form  (list 'ist CxIst (list dog Muffet) 'junk)]
         (testing "check reports the shape rather than raising out of nth"
-          (is (= #{:shape} (types-of-check kb short-form 'UniverseContext)))
-          (is (= #{:shape} (types-of-check kb long-form 'UniverseContext))))
+          (is (= #{:shape} (types-of-check kb short-form 'CxUniverse)))
+          (is (= #{:shape} (types-of-check kb long-form 'CxUniverse))))
         (testing "and assert refuses both with the same :type"
           (doseq [form [short-form long-form]]
             (let [e (is (thrown? clojure.lang.ExceptionInfo
-                                 (v/assert kb form 'UniverseContext))
+                                 (v/assert kb form 'CxUniverse))
                         (str (pr-str form) " is refused"))]
               (is (= :shape (:type (ex-data e)))))))
         (testing "and the over-long one stored nothing"
-          (is (empty? (v/sentexes-matching kb (list dog '?x) IstContext))))))))
+          (is (empty? (v/sentexes-matching kb (list dog '?x) CxIst))))))))
 
 (deftest ist-reads-nothing-so-it-is-refused-anywhere-it-would-have-to
   ;; `ist` places: `assert` finds-or-creates in Ctx, a consequent names where its
@@ -344,9 +344,9 @@
   ;; `unknown` is satisfied by that same emptiness, so the rule fires unconditionally.
   ;; A rule that does nothing announces itself; a guard that passes everything does not.
   (tu/with-neutral-kb [kb kb-with-starter]
-    (tu/with-terms [dog barks Muffet IstContext]
+    (tu/with-terms [dog barks Muffet CxIst]
       (let [before (v/sentex-count kb)
-            ante   (list 'ist IstContext (list dog '?x))
+            ante   (list 'ist CxIst (list dog '?x))
             reads  {"a positive antecedent"
                     (list 'implies ante (list barks '?x))
                     "one antecedent of a conjunction"
@@ -361,17 +361,17 @@
                     (list 'exceptWhen ante (list 'implies (list dog '?x) (list barks '?x)))}]
         (doseq [[label sentence] reads]
           (testing label
-            (is (= #{:not-well-formed} (types-of-check kb sentence 'UniverseContext)))
-            (is (= :not-well-formed (assert-type kb sentence 'UniverseContext))
+            (is (= #{:not-well-formed} (types-of-check kb sentence 'CxUniverse)))
+            (is (= :not-well-formed (assert-type kb sentence 'CxUniverse))
                 "and it is the type assert throws for the same sentence")))
         (testing "the message names the two ways to make S visible instead"
           (let [msg (:message (first (v/check kb (list 'implies ante (list barks '?x))
-                                              'UniverseContext)))]
+                                              'CxUniverse)))]
             (is (re-find #"decontextualizedPredicate" msg))
-            (is (re-find #"genlContext" msg))))
+            (is (re-find #"genlCx" msg))))
         (testing "an ist consequent is untouched — it is the placement escape hatch"
-          (is (= [] (v/check kb (list 'implies (list dog '?x) (list 'ist IstContext (list barks '?x)))
-                             'UniverseContext))))
+          (is (= [] (v/check kb (list 'implies (list dog '?x) (list 'ist CxIst (list barks '?x)))
+                             'CxUniverse))))
         (testing "and nothing any of it named was stored"
           (is (= before (v/sentex-count kb))))))))
 
@@ -423,15 +423,15 @@
                         (list loner '?x))
                   :not-well-formed]]]
           (testing label
-            (is (= #{expected} (types-of-check kb sentence 'UniverseContext)))
-            (is (= expected (assert-type kb sentence 'UniverseContext))
+            (is (= #{expected} (types-of-check kb sentence 'CxUniverse)))
+            (is (= expected (assert-type kb sentence 'CxUniverse))
                 "and it is the type assert throws for the same sentence")))
         (testing "and the well-formed conjunctive rule is admissible at both doors"
           (is (= [] (v/check kb (list 'implies (list 'and (list person '?x)
                                                      (list 'unknown (list 'and (list adult '?x)
                                                                           (list sick '?x))))
                                       (list loner '?x))
-                             'UniverseContext))))
+                             'CxUniverse))))
         (testing "and nothing any of it named was stored"
           (is (= before (v/sentex-count kb))))))))
 
@@ -444,22 +444,22 @@
   ;; non-sequential sentence finds no literals, so a string or nil would pass the naming
   ;; check vacuously and store as an object no query can match.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog Muffet InertContext]
+    (tu/with-terms [dog Muffet CxInert]
       (let [before (v/sentex-count kb)]
         (testing "a non-sequential sentence is :shape, as at assert"
           (doseq [bad ["(dog Muffet)" nil 42 {:a 1}]]
             (let [e (is (thrown? clojure.lang.ExceptionInfo
-                                 (v/assert-inert kb bad InertContext))
+                                 (v/assert-inert kb bad CxInert))
                         (str (pr-str bad) " is refused"))]
               (is (= :shape (:type (ex-data e)))))))
         (testing "a non-symbol context is :shape, not :naming"
           (let [e (is (thrown? clojure.lang.ExceptionInfo
-                               (v/assert-inert kb (list dog Muffet) (str InertContext))))]
+                               (v/assert-inert kb (list dog Muffet) (str CxInert))))]
             (is (= :shape (:type (ex-data e))))))
         (testing "and nothing was stored by any refusal"
           (is (= before (v/sentex-count kb)))))
       (testing "a well-formed inert sentex still stores, unbelieved"
-        (let [h (v/assert-inert kb (list dog Muffet) InertContext)]
+        (let [h (v/assert-inert kb (list dog Muffet) CxInert)]
           (is (nat-int? h))
           (is (not (v/in? kb h)) "inert means never a premise")
           (v/retract! kb h))))))
@@ -478,7 +478,7 @@
   ;; `direction_test/inert-rule-is-documentation-only` pins.  The refusal's message names
   ;; it, since a caller reaching for this door usually meant that one.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [bird flies Tweety InertContext]
+    (tu/with-terms [bird flies Tweety CxInert]
       (let [before (v/sentex-count kb)
             rule   (list 'implies (list bird '?x) (list flies '?x))]
         (doseq [[what sentence] [["a bare implies"      rule]
@@ -486,13 +486,13 @@
                                  ["a set/backwardRule"  (list 'set/backwardRule rule)]]]
           (testing what
             (let [e (is (thrown? clojure.lang.ExceptionInfo
-                                 (v/assert-inert kb sentence InertContext)))]
+                                 (v/assert-inert kb sentence CxInert)))]
               (is (= :not-indexable (:type (ex-data e)))
                   "the type check-generator uses for a rule that cannot exercise what it claims"))))
         (is (= before (v/sentex-count kb)) "and no refusal stored anything")
         (testing "the atoms a labeling actually materializes are untouched"
-          (let [h  (v/assert-inert kb (list bird Tweety) InertContext)
-                nh (v/assert-inert kb (list 'not (list bird Tweety)) InertContext)]
+          (let [h  (v/assert-inert kb (list bird Tweety) CxInert)
+                nh (v/assert-inert kb (list 'not (list bird Tweety)) CxInert)]
             (is (nat-int? h))
             (is (nat-int? nh))
             (is (not (v/in? kb h)))

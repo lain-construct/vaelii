@@ -18,11 +18,11 @@
 
 (defn- authored-sentences
   "Every sentence the shipped ontology's own source files contain, paired with the context
-  whose file holds it — `CoreContext.txt` plus every discovered file under `kb/upper/` and
+  whose file holds it — `CxCore.txt` plus every discovered file under `kb/upper/` and
   `kb/middle/`.  Read from the classpath the way the starter reads them, so a file added
   to a layer is swept with no edit here."
   []
-  (concat (for [s (seed/read-sentences 'CoreContext nil)] ['CoreContext s])
+  (concat (for [s (seed/read-sentences 'CxCore nil)] ['CxCore s])
           (for [dir ["upper" "middle"]
                 c   (seed/layer-contexts dir)
                 s   (seed/read-sentences c dir)]
@@ -62,9 +62,9 @@
         (str "shipped sentences their own KB convicts: " (vec guilty)))))
 
 (tu/deftest-kb starter-loads-and-reasons
-  (testing "the universal rule fires on natural-world facts, landing in NaturalWorldContext"
-    (is (seq (v/sentexes-matching kb '(grandparentOf Tom Ann) 'NaturalWorldContext)))
-    (is (empty? (v/sentexes-matching kb '(grandparentOf Tom Ann) 'UniverseContext))))
+  (testing "the universal rule fires on natural-world facts, landing in CxNaturalWorld"
+    (is (seq (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
+    (is (empty? (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxUniverse))))
   (testing "the genl taxonomy answers isa? queries"
     (is (v/isa? kb 'Muffet 'animal))
     (is (v/isa? kb 'Tom 'thing))
@@ -73,13 +73,13 @@
 
 (tu/deftest-kb starter-common-sense-reasoning
   (testing "defeasible flight: eagles fly by default, penguins (flightless birds) do not"
-    (is (seq   (v/sentexes-matching kb '(hasCapability Sam flying) 'NaturalWorldContext)))
-    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety flying) 'NaturalWorldContext)))
-    (is (seq   (v/sentexes-matching kb '(not (hasCapability Tweety flying)) 'NaturalWorldContext)))
+    (is (seq   (v/sentexes-matching kb '(hasCapability Sam flying) 'CxNaturalWorld)))
+    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety flying) 'CxNaturalWorld)))
+    (is (seq   (v/sentexes-matching kb '(not (hasCapability Tweety flying)) 'CxNaturalWorld)))
     (is (empty? (v/conflicts kb))))                   ; the strict exception resolves cleanly
   (testing "the mortality default reaches every living individual"
-    (is (seq (v/sentexes-matching kb '(mortal Tom) 'NaturalWorldContext)))
-    (is (seq (v/sentexes-matching kb '(mortal Muffet) 'NaturalWorldContext))))
+    (is (seq (v/sentexes-matching kb '(mortal Tom) 'CxNaturalWorld)))
+    (is (seq (v/sentexes-matching kb '(mortal Muffet) 'CxNaturalWorld))))
   (testing "predicate metadata answers via the generic provers"
     (is (v/ask? kb '(ancestorOf Tom Ann)))            ; transitive closure of parentOf
     (is (v/ask? kb '(childOf Bob Tom)))               ; inverse of parentOf
@@ -87,7 +87,7 @@
     (is (v/ask? kb '(partOf Piston1 Car1))))          ; transitive
   (testing "functional birthYearOf rejects a second, different value"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb '(birthYearOf Tom 1971) 'SocialWorldContext)))))
+                 (v/assert kb '(birthYearOf Tom 1971) 'CxSocialWorld)))))
 
 (tu/deftest-kb every-stored-sentence-satisfies-the-naming-invariants
   ;; `nm/problems` checks a functor per *literal*, so tightening it can invalidate

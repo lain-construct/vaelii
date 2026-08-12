@@ -100,7 +100,7 @@
     (kv/kv-clear! b)
     (kv/kv-add-to-set b [:term-index 'foo] 11)
     (kv/kv-add-to-set b [:term-index 'foo] 12)
-    (kv/kv-add-to-set b [:context-root 'AContext] 11)
+    (kv/kv-add-to-set b [:context-root 'CxA] 11)
     (kv/kv-put b [:trie :count []] 2)
     (let [snapshot (into #{} (kv/kv-entries b))]
       (is (= 3 (count snapshot)) "every key, once")

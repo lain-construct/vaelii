@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.taxonomy-scoped-test
   "The scoped read arities: a closure read asked from context K uses exactly the
-  edges K can see — some believed supporter asserts them from K's genlContext
+  edges K can see — some believed supporter asserts them from K's genlCx
   up-cone, or from no recorded context at all (nil, which constrains everywhere).
 
   Pure unit tests over a raw taxonomy, like taxonomy_test: handles are bare
@@ -12,15 +12,15 @@
   every edit of a random sequence, from every reader, so a stale memo or vis-index
   entry has nowhere to hide.
 
-  The context lattice used throughout ((genlContext Sub Super) = Sub sees Super):
+  The context lattice used throughout ((genlCx Sub Super) = Sub sees Super):
 
-      UContext            EContext
+      CxU            CxE
       /      \\               |
-  AContext  BContext      OContext
+  CxA  CxB      CxO
       \\      /
-      WContext
+      CxW
          |
-      DContext"
+      CxD"
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.taxonomy :as tax]))
 
@@ -34,93 +34,93 @@
   "A fresh taxonomy holding the context lattice above (handles 901-906)."
   []
   (let [t (tax/create-taxonomy)]
-    (tax/add-genlContext t 'AContext 'UContext 901)
-    (tax/add-genlContext t 'BContext 'UContext 902)
-    (tax/add-genlContext t 'WContext 'AContext 903)
-    (tax/add-genlContext t 'WContext 'BContext 904)
-    (tax/add-genlContext t 'DContext 'WContext 905)
-    (tax/add-genlContext t 'OContext 'EContext 906)
+    (tax/add-genlCx t 'CxA 'CxU 901)
+    (tax/add-genlCx t 'CxB 'CxU 902)
+    (tax/add-genlCx t 'CxW 'CxA 903)
+    (tax/add-genlCx t 'CxW 'CxB 904)
+    (tax/add-genlCx t 'CxD 'CxW 905)
+    (tax/add-genlCx t 'CxO 'CxE 906)
     t))
 
 ;; ---- the visibility sets --------------------------------------------------
 
 (deftest visible-ctxs-is-a-function-of-the-cone-and-the-census
   (let [t (lattice)]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
-    (tax/add-genl t 'cat 'animal 2 'BContext)
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (tax/add-genl t 'cat 'animal 2 'CxB)
     (testing "a reader seeing every asserting context gets nil — the global path"
-      (is (nil? (tax/visible-ctxs t :genl 'WContext)))
-      (is (nil? (tax/visible-ctxs t :genl 'DContext))))
+      (is (nil? (tax/visible-ctxs t :genl 'CxW)))
+      (is (nil? (tax/visible-ctxs t :genl 'CxD))))
     (testing "a reader seeing some of them gets exactly those"
-      (is (= '#{AContext} (tax/visible-ctxs t :genl 'AContext)))
-      (is (= '#{BContext} (tax/visible-ctxs t :genl 'BContext))))
+      (is (= '#{CxA} (tax/visible-ctxs t :genl 'CxA)))
+      (is (= '#{CxB} (tax/visible-ctxs t :genl 'CxB))))
     (testing "a reader seeing none gets the empty set, not nil"
-      (is (= #{} (tax/visible-ctxs t :genl 'OContext)))
-      (is (= #{} (tax/visible-ctxs t :genl 'ZContext))))
+      (is (= #{} (tax/visible-ctxs t :genl 'CxO)))
+      (is (= #{} (tax/visible-ctxs t :genl 'CxZ))))
     (testing "no context, or a variable, is unscoped"
       (is (nil? (tax/visible-ctxs t :genl nil)))
       (is (nil? (tax/visible-ctxs t :genl '?ctx))))
     (testing "an empty census is unscoped: nothing to filter by"
-      (is (nil? (tax/visible-ctxs (tax/create-taxonomy) :genl 'AContext))))))
+      (is (nil? (tax/visible-ctxs (tax/create-taxonomy) :genl 'CxA))))))
 
 (deftest visible-ctxs-is-interned-per-epoch
   (let [t (lattice)]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
+    (tax/add-genl t 'dog 'animal 1 'CxA)
     (testing "two reads from one context share one set object"
-      (is (identical? (tax/visible-ctxs t :genl 'AContext)
-                      (tax/visible-ctxs t :genl 'AContext))))
+      (is (identical? (tax/visible-ctxs t :genl 'CxA)
+                      (tax/visible-ctxs t :genl 'CxA))))
     (testing "a new asserting context re-stamps and recomputes"
-      (let [before (tax/visible-ctxs t :genl 'WContext)]
+      (let [before (tax/visible-ctxs t :genl 'CxW)]
         (is (nil? before) "W saw every asserting context")
-        (tax/add-genl t 'fish 'animal 2 'EContext)
-        (is (= '#{AContext} (tax/visible-ctxs t :genl 'WContext))
+        (tax/add-genl t 'fish 'animal 2 'CxE)
+        (is (= '#{CxA} (tax/visible-ctxs t :genl 'CxW))
             "E asserts now, W does not see it, so W is scoped")))
-    (testing "a genlContext edge re-stamps too — the cone itself moved"
-      (tax/add-genlContext t 'WContext 'EContext 907)
-      (is (nil? (tax/visible-ctxs t :genl 'WContext))
-          "W sees EContext now, so it sees every asserting context again"))))
+    (testing "a genlCx edge re-stamps too — the cone itself moved"
+      (tax/add-genlCx t 'CxW 'CxE 907)
+      (is (nil? (tax/visible-ctxs t :genl 'CxW))
+          "W sees CxE now, so it sees every asserting context again"))))
 
 ;; ---- the scoped closures --------------------------------------------------
 
 (deftest a-scoped-closure-walks-only-visible-edges
   (let [t (lattice)]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
-    (tax/add-genl t 'animal 'thing 2 'BContext)
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (tax/add-genl t 'animal 'thing 2 'CxB)
     (testing "a reader seeing both contexts composes the chain"
-      (is (= '#{dog animal thing} (tax/genls t 'dog 'WContext))))
+      (is (= '#{dog animal thing} (tax/genls t 'dog 'CxW))))
     (testing "a reader seeing only the first link stops there"
-      (is (= '#{dog animal} (tax/genls t 'dog 'AContext)))
-      (is (= '#{animal dog} (tax/specs t 'animal 'AContext))))
+      (is (= '#{dog animal} (tax/genls t 'dog 'CxA)))
+      (is (= '#{animal dog} (tax/specs t 'animal 'CxA))))
     (testing "a reader seeing only the second link never leaves the node"
-      (is (= '#{dog} (tax/genls t 'dog 'BContext))))
+      (is (= '#{dog} (tax/genls t 'dog 'CxB))))
     (testing "a reader seeing neither sees a bare node"
-      (is (= '#{dog} (tax/genls t 'dog 'OContext)))
-      (is (= '#{animal} (tax/specs t 'animal 'OContext))))
+      (is (= '#{dog} (tax/genls t 'dog 'CxO)))
+      (is (= '#{animal} (tax/specs t 'animal 'CxO))))
     (testing "the unscoped read is unchanged"
       (is (= '#{dog animal thing} (tax/genls t 'dog))))))
 
 (deftest a-nil-context-supporter-constrains-everywhere
   (let [t (lattice)]
     (tax/add-genl t 'dog 'animal 1)                     ; no context recorded
-    (tax/add-genl t 'animal 'thing 2 'AContext)
+    (tax/add-genl t 'animal 'thing 2 'CxA)
     (testing "the contextless edge is visible even where nothing else is"
-      (is (= '#{dog animal} (tax/genls t 'dog 'OContext)))
-      (is (= '#{dog animal} (tax/genls t 'dog 'ZContext))))
+      (is (= '#{dog animal} (tax/genls t 'dog 'CxO)))
+      (is (= '#{dog animal} (tax/genls t 'dog 'CxZ))))
     (testing "and composes with visible edges where they are visible"
-      (is (= '#{dog animal thing} (tax/genls t 'dog 'AContext))))))
+      (is (= '#{dog animal thing} (tax/genls t 'dog 'CxA))))))
 
 (deftest scoped-genl?-agrees-and-rejects-a-direct-invisible-edge
   (let [t (lattice)]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
+    (tax/add-genl t 'dog 'animal 1 'CxA)
     (testing "the direct-edge shortcut carries the visibility test"
       ;; the one-step case: dog→animal exists and is invisible from O.  A walk
       ;; that filtered only transitive steps but tested the raw neighbour set
       ;; directly would answer true here.
-      (is (tax/genl? t 'dog 'animal 'AContext))
-      (is (not (tax/genl? t 'dog 'animal 'OContext)))
-      (is (not (tax/genl? t 'dog 'animal 'BContext))))
+      (is (tax/genl? t 'dog 'animal 'CxA))
+      (is (not (tax/genl? t 'dog 'animal 'CxO)))
+      (is (not (tax/genl? t 'dog 'animal 'CxB))))
     (testing "reflexive from anywhere"
-      (is (tax/genl? t 'dog 'dog 'OContext)))))
+      (is (tax/genl? t 'dog 'dog 'CxO)))))
 
 (deftest a-scoped-read-answers-a-cycle-the-way-the-closure-it-walks-does
   ;; `wff` refuses a cyclic `genl` edge, and belief assembles one anyway: defeat an edge,
@@ -131,25 +131,25 @@
   ;; descent alone answers false for an edge the reader is looking straight at — while
   ;; `genls`, walking the very same visible edges, returns it.
   (let [t (lattice)]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
-    (tax/add-genl t 'animal 'dog 2 'AContext)
-    (tax/add-genl t 'cat 'thing 3 'BContext)          ; a second asserting context, so a
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (tax/add-genl t 'animal 'dog 2 'CxA)
+    (tax/add-genl t 'cat 'thing 3 'CxB)          ; a second asserting context, so a
     (tax/restore-depths t)                            ; reader seeing only A is scoped
-    (is (= '#{AContext} (tax/visible-ctxs t :genl 'AContext)) "scoping is engaged")
+    (is (= '#{CxA} (tax/visible-ctxs t :genl 'CxA)) "scoping is engaged")
     (testing "the closure walks the cycle"
-      (is (= '#{dog animal} (tax/genls t 'dog 'AContext)))
-      (is (= '#{dog animal} (tax/specs t 'dog 'AContext))))
+      (is (= '#{dog animal} (tax/genls t 'dog 'CxA)))
+      (is (= '#{dog animal} (tax/specs t 'dog 'CxA))))
     (testing "and the reachability agrees with the closure it claims to answer"
-      (is (tax/genl? t 'dog 'animal 'AContext))
-      (is (tax/genl? t 'animal 'dog 'AContext)))
+      (is (tax/genl? t 'dog 'animal 'CxA))
+      (is (tax/genl? t 'animal 'dog 'CxA)))
     (testing "as does the witness, which is the third reader of the same question"
-      (is (= [[1 'AContext]] (tax/reach-support t :genl 'dog 'animal 'AContext)))
-      (is (= [[2 'AContext]] (tax/reach-support t :genl 'animal 'dog 'AContext))))
+      (is (= [[1 'CxA]] (tax/reach-support t :genl 'dog 'animal 'CxA)))
+      (is (= [[2 'CxA]] (tax/reach-support t :genl 'animal 'dog 'CxA))))
     (testing "a shared component is a reason to keep walking, never an answer"
       ;; mutual reachability is a fact about the *global* edges; B sees neither of them
-      (is (not (tax/genl? t 'dog 'animal 'BContext)))
-      (is (not (tax/genl? t 'animal 'dog 'BContext)))
-      (is (nil? (tax/reach-support t :genl 'dog 'animal 'BContext))))))
+      (is (not (tax/genl? t 'dog 'animal 'CxB)))
+      (is (not (tax/genl? t 'animal 'dog 'CxB)))
+      (is (nil? (tax/reach-support t :genl 'dog 'animal 'CxB))))))
 
 (deftest a-scoped-read-follows-belief-per-context
   ;; the payoff of refresh-relation's retarget arm, read back out: the edge is
@@ -158,29 +158,29 @@
   ;; (disbelieved) supporter, so reader A stays scoped rather than falling into
   ;; the global path.
   (let [t (lattice)]
-    (tax/add-genl t 'dog 'animal 1 'AContext)
-    (tax/add-genl t 'dog 'animal 2 'BContext)
-    (is (tax/genl? t 'dog 'animal 'AContext))
-    (is (tax/genl? t 'dog 'animal 'BContext))
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (tax/add-genl t 'dog 'animal 2 'CxB)
+    (is (tax/genl? t 'dog 'animal 'CxA))
+    (is (tax/genl? t 'dog 'animal 'CxB))
     (tax/refresh-beliefs t (into lattice-handles #{2})) ; A's supporter defeated
-    (is (not (tax/genl? t 'dog 'animal 'AContext)))
-    (is (tax/genl? t 'dog 'animal 'BContext))
-    (is (tax/genl? t 'dog 'animal 'WContext) "a reader seeing B still answers")
+    (is (not (tax/genl? t 'dog 'animal 'CxA)))
+    (is (tax/genl? t 'dog 'animal 'CxB))
+    (is (tax/genl? t 'dog 'animal 'CxW) "a reader seeing B still answers")
     (tax/refresh-beliefs t (into lattice-handles #{1 2}))
-    (is (tax/genl? t 'dog 'animal 'AContext) "and revival brings A back")))
+    (is (tax/genl? t 'dog 'animal 'CxA) "and revival brings A back")))
 
 ;; ---- the scoped flat caches -----------------------------------------------
 
 (deftest scoped-disjointness-needs-a-visible-declaration
   (let [t (lattice)]
-    (tax/add-disjoint t 'dog 'cat 1 'AContext)
+    (tax/add-disjoint t 'dog 'cat 1 'CxA)
     (testing "visible from the declaring context and its descendants"
-      (is (tax/disjoint? t 'dog 'cat 'AContext))
-      (is (tax/disjoint? t 'dog 'cat 'WContext)))
+      (is (tax/disjoint? t 'dog 'cat 'CxA))
+      (is (tax/disjoint? t 'dog 'cat 'CxW)))
     (testing "invisible from a sibling, an ancestor, and a stranger"
-      (is (not (tax/disjoint? t 'dog 'cat 'BContext)))
-      (is (not (tax/disjoint? t 'dog 'cat 'UContext)))
-      (is (not (tax/disjoint? t 'dog 'cat 'OContext))))
+      (is (not (tax/disjoint? t 'dog 'cat 'CxB)))
+      (is (not (tax/disjoint? t 'dog 'cat 'CxU)))
+      (is (not (tax/disjoint? t 'dog 'cat 'CxO))))
     (testing "the unscoped arity still answers globally"
       (is (tax/disjoint? t 'dog 'cat)))
     (testing "a variable context is the unscoped read"
@@ -188,71 +188,71 @@
 
 (deftest scoped-disjointness-closes-under-visible-genl-only
   (let [t (lattice)]
-    (tax/add-disjoint t 'dog 'cat 1 'AContext)
-    (tax/add-genl t 'chihuahua 'dog 2 'BContext)
+    (tax/add-disjoint t 'dog 'cat 1 'CxA)
+    (tax/add-genl t 'chihuahua 'dog 2 'CxB)
     (testing "the subtype edge is invisible from A, so A cannot convict chihuahua"
-      (is (not (tax/disjoint? t 'chihuahua 'cat 'AContext))))
+      (is (not (tax/disjoint? t 'chihuahua 'cat 'CxA))))
     (testing "a reader seeing both the declaration and the edge convicts"
-      (is (tax/disjoint? t 'chihuahua 'cat 'WContext)))
+      (is (tax/disjoint? t 'chihuahua 'cat 'CxW)))
     (testing "the declaration alone is not enough"
-      (is (not (tax/disjoint? t 'chihuahua 'cat 'BContext))))))
+      (is (not (tax/disjoint? t 'chihuahua 'cat 'CxB))))))
 
 (deftest scoped-disjointness-through-a-metatype-needs-all-three-visible
   (let [t (lattice)]
-    (tax/mark-disjoint-metatype t 'kind_of_animal 1 'AContext)
-    (tax/add-metatype-member t 'kind_of_animal 'dog 2 'AContext)
-    (tax/add-metatype-member t 'kind_of_animal 'cat 3 'BContext)
+    (tax/mark-disjoint-metatype t 'kind_of_animal 1 'CxA)
+    (tax/add-metatype-member t 'kind_of_animal 'dog 2 'CxA)
+    (tax/add-metatype-member t 'kind_of_animal 'cat 3 'CxB)
     (testing "the mark and both memberships must be visible together"
-      (is (tax/disjoint? t 'dog 'cat 'WContext))
-      (is (not (tax/disjoint? t 'dog 'cat 'AContext)) "cat's membership is B's")
-      (is (not (tax/disjoint? t 'dog 'cat 'BContext)) "the mark and dog's are A's")
-      (is (not (tax/disjoint? t 'dog 'cat 'OContext))))
+      (is (tax/disjoint? t 'dog 'cat 'CxW))
+      (is (not (tax/disjoint? t 'dog 'cat 'CxA)) "cat's membership is B's")
+      (is (not (tax/disjoint? t 'dog 'cat 'CxB)) "the mark and dog's are A's")
+      (is (not (tax/disjoint? t 'dog 'cat 'CxO))))
     (testing "unscoped still answers"
       (is (tax/disjoint? t 'dog 'cat)))))
 
 (deftest scoped-predicate-properties-and-inverse
   (let [t (lattice)]
-    (tax/mark-prop t :transitive 'partOf 1 'AContext)
-    (tax/add-inverse t 'parentOf 'childOf 2 'BContext)
+    (tax/mark-prop t :transitive 'partOf 1 'CxA)
+    (tax/add-inverse t 'parentOf 'childOf 2 'CxB)
     (testing "a property holds where its declaration is visible"
-      (is (tax/has-prop? t :transitive 'partOf 'AContext))
-      (is (tax/has-prop? t :transitive 'partOf 'WContext))
-      (is (not (tax/has-prop? t :transitive 'partOf 'BContext)))
+      (is (tax/has-prop? t :transitive 'partOf 'CxA))
+      (is (tax/has-prop? t :transitive 'partOf 'CxW))
+      (is (not (tax/has-prop? t :transitive 'partOf 'CxB)))
       (is (tax/has-prop? t :transitive 'partOf))
       (is (tax/has-prop? t :transitive 'partOf '?ctx)))
     (testing "an inverse answers where its declaration is visible"
-      (is (= 'childOf (tax/inverse-of t 'parentOf 'BContext)))
-      (is (= 'parentOf (tax/inverse-of t 'childOf 'WContext)))
-      (is (nil? (tax/inverse-of t 'parentOf 'AContext)))
+      (is (= 'childOf (tax/inverse-of t 'parentOf 'CxB)))
+      (is (= 'parentOf (tax/inverse-of t 'childOf 'CxW)))
+      (is (nil? (tax/inverse-of t 'parentOf 'CxA)))
       (is (= 'childOf (tax/inverse-of t 'parentOf))))
     (testing "a contextless declaration constrains everywhere"
       (tax/mark-prop t :symmetric 'siblingOf 3)
-      (is (tax/has-prop? t :symmetric 'siblingOf 'OContext)))))
+      (is (tax/has-prop? t :symmetric 'siblingOf 'CxO)))))
 
 (deftest a-flat-cache-follows-belief-per-context
   (let [t (lattice)]
-    (tax/add-disjoint t 'dog 'cat 1 'AContext)
-    (tax/add-disjoint t 'dog 'cat 2 'BContext)
-    (is (tax/disjoint? t 'dog 'cat 'AContext))
+    (tax/add-disjoint t 'dog 'cat 1 'CxA)
+    (tax/add-disjoint t 'dog 'cat 2 'CxB)
+    (is (tax/disjoint? t 'dog 'cat 'CxA))
     (tax/refresh-beliefs t (into lattice-handles #{2}))
     (testing "A's supporter defeated: A stops convicting, B does not"
-      (is (not (tax/disjoint? t 'dog 'cat 'AContext)))
-      (is (tax/disjoint? t 'dog 'cat 'BContext)))
+      (is (not (tax/disjoint? t 'dog 'cat 'CxA)))
+      (is (tax/disjoint? t 'dog 'cat 'CxB)))
     (tax/refresh-beliefs t (into lattice-handles #{1 2}))
-    (is (tax/disjoint? t 'dog 'cat 'AContext))))
+    (is (tax/disjoint? t 'dog 'cat 'CxA))))
 
 (deftest the-scoped-memo-budget-flushes-without-changing-answers
   ;; the budget is memory insurance, never semantics: with room for one visset,
   ;; alternating readers flush each other's level and every answer stays right.
   (binding [tax/*scoped-memo-budget* 1]
     (let [t (lattice)]
-      (tax/add-genl t 'dog 'animal 1 'AContext)
-      (tax/add-genl t 'cat 'animal 2 'BContext)
+      (tax/add-genl t 'dog 'animal 1 'CxA)
+      (tax/add-genl t 'cat 'animal 2 'CxB)
       (dotimes [_ 3]
-        (is (= '#{dog animal} (tax/genls t 'dog 'AContext)))
-        (is (= '#{dog} (tax/genls t 'dog 'BContext)))
-        (is (= '#{cat animal} (tax/genls t 'cat 'BContext)))
-        (is (= '#{cat} (tax/genls t 'cat 'OContext)))))))
+        (is (= '#{dog animal} (tax/genls t 'dog 'CxA)))
+        (is (= '#{dog} (tax/genls t 'dog 'CxB)))
+        (is (= '#{cat animal} (tax/genls t 'cat 'CxB)))
+        (is (= '#{cat} (tax/genls t 'cat 'CxO)))))))
 
 ;; ---- the reachability witness ----------------------------------------------
 ;; `reach-support` names one supporter per edge, and whatever depends on the
@@ -270,9 +270,9 @@
           t   (lattice)
           add (fn [h c] (tax/add-genl t 'dog 'animal h c))]
       (if a-first?
-        (do (add ha 'AContext) (add hb 'BContext))
-        (do (add hb 'BContext) (add ha 'AContext)))
-      (is (= [[ha 'AContext]] (tax/reach-support t :genl 'dog 'animal 'WContext))
+        (do (add ha 'CxA) (add hb 'CxB))
+        (do (add hb 'CxB) (add ha 'CxA)))
+      (is (= [[ha 'CxA]] (tax/reach-support t :genl 'dog 'animal 'CxW))
           (str "A's supporter at handle " ha ", asserted "
                (if a-first? "first" "second"))))))
 
@@ -284,10 +284,10 @@
   ;; two orders agree on it.
   (letfn [(witness-ctx [h1 h2]
             (let [t (lattice)]
-              (tax/add-genl t 'dog 'animal h1 'AContext)
-              (tax/add-genl t 'dog 'animal h2 'AContext)
-              (second (first (tax/reach-support t :genl 'dog 'animal 'WContext)))))]
-    (is (= 'AContext (witness-ctx 10 20) (witness-ctx 20 10)))))
+              (tax/add-genl t 'dog 'animal h1 'CxA)
+              (tax/add-genl t 'dog 'animal h2 'CxA)
+              (second (first (tax/reach-support t :genl 'dog 'animal 'CxW)))))]
+    (is (= 'CxA (witness-ctx 10 20) (witness-ctx 20 10)))))
 
 ;; ---- the oracle ------------------------------------------------------------
 
@@ -309,8 +309,8 @@
   (let [t       (lattice)
         rnd     (java.util.Random. 7)
         nodes   '[na nb nc nd ne nf ng]
-        ectxs   ['UContext 'AContext 'BContext 'WContext 'OContext nil]
-        readers '[UContext AContext BContext WContext DContext OContext EContext ZContext]
+        ectxs   ['CxU 'CxA 'CxB 'CxW 'CxO nil]
+        readers '[CxU CxA CxB CxW CxD CxO CxE CxZ]
         live    (atom {})
         next-h  (atom 0)]
     (dotimes [_ 200]
@@ -359,8 +359,8 @@
   (let [t       (lattice)
         rnd     (java.util.Random. 11)
         nodes   '[na nb nc nd ne]
-        ectxs   ['AContext 'BContext nil]
-        readers '[AContext BContext WContext OContext]
+        ectxs   ['CxA 'CxB nil]
+        readers '[CxA CxB CxW CxO]
         live    (atom {})
         next-h  (atom 0)]
     (dotimes [_ 60]
@@ -407,7 +407,7 @@
 
 (deftest scoped-class-agrees-with-the-filtered-reference-after-random-edits
   (let [terms '[ta tb tc td te]
-        ctxs  ['AContext 'BContext 'OContext nil]]
+        ctxs  ['CxA 'CxB 'CxO nil]]
     (doseq [seed (range 4)]
       (let [t      (lattice)
             rnd    (java.util.Random. (+ 100 seed))
@@ -438,7 +438,7 @@
                 (reset! out o)
                 (tax/refresh-beliefs t (complement o)))))
 
-          (doseq [reader '[AContext BContext WContext OContext]]
+          (doseq [reader '[CxA CxB CxW CxO]]
             (let [up    (tax/context-up t reader)
                   seen? (fn [h] (let [[_ _ _ c] (@live h)]
                                   (and (not (@out h)) (or (nil? c) (contains? up c)))))
@@ -470,8 +470,8 @@
     (let [t       (lattice)
           rnd     (java.util.Random. (+ 200 seed))
           nodes   '[na nb nc nd ne nf]
-          ectxs   ['AContext 'BContext nil]
-          readers '[AContext BContext WContext OContext]
+          ectxs   ['CxA 'CxB nil]
+          readers '[CxA CxB CxW CxO]
           pick    (fn [v] (nth v (.nextInt rnd (count v))))
           next-h  (atom 1000)]
       (dotimes [_ 30]

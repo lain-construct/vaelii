@@ -39,7 +39,7 @@
     (testing "the type tree, contexts, predicates, and disjointness render"
       (is (re-find #"thing" (:body r)))
       (is (re-find #"animal" (:body r)))
-      (is (re-find #"CoreContext" (:body r)))
+      (is (re-find #"CxCore" (:body r)))
       (is (re-find #"Core predicates" (:body r)))
       (is (re-find #"⊥" (:body r))))
     (testing "the header carries a menubar to the top-level tools"
@@ -96,7 +96,7 @@
       (is (re-find #"hx-get=\"/tree/rows\?rel=genl&amp;node=bird" b)
           "the child carries the request that would reach it")))
   (testing "the context lattice reads through the same route"
-    (is (= 200 (:status (GET "/tree/rows" "rel=genlContext&node=CoreContext")))))
+    (is (= 200 (:status (GET "/tree/rows" "rel=genlCx&node=CxCore")))))
   (testing "a relation that is not one of the two is refused, not looked up"
     ;; `rel` reaches the index as a functor, so it is checked rather than trusted
     (let [r (GET "/tree/rows" "rel=parentOf&node=Tom")]
@@ -128,7 +128,7 @@
   ;; injected at the **access** facade, which is the var the browser calls and the one an
   ;; import would have filled: nothing in this KB's own assert path can produce one
   (let [real acc/sentexes-with-functor
-        self {:id -1 :sentence '(disjoint nothing nothing) :context 'UniverseContext
+        self {:id -1 :sentence '(disjoint nothing nothing) :context 'CxUniverse
               :truth :true :strength :monotonic}]
     (with-redefs [acc/sentexes-with-functor
                   (fn [target pred & args]
@@ -168,10 +168,10 @@
   ;; every one of them.
   (tu/with-terms [wide_root]
     (let [before (count (:body (GET "/")))]
-      (v/assert kb (list 'genl wide_root 'thing) 'UniverseContext {:chain? false})
+      (v/assert kb (list 'genl wide_root 'thing) 'CxUniverse {:chain? false})
       (doseq [i (range 120)]
         (v/assert kb (list 'genl (symbol (str (name wide_root) "_kid" i)) wide_root)
-                  'UniverseContext {:chain? false}))
+                  'CxUniverse {:chain? false}))
       (let [after (count (:body (GET "/")))]
         (is (< (- after before) 2000)
             (str "120 new types added " (- after before) " bytes to the page")))
@@ -190,7 +190,7 @@
       (is (re-find #"Sentexes" (:body r)))
       (is (re-find #"Contexts by size" (:body r))))
     (testing "a context that actually holds facts shows up with a count"
-      (is (re-find #"NaturalWorldContext" (:body r)))
+      (is (re-find #"CxNaturalWorld" (:body r)))
       (is (re-find #"stat-n" (:body r))))))
 
 (deftest the-front-page-opens-with-what-the-kb-is
@@ -217,28 +217,28 @@
     (subs body i (min (count body) (+ i n)))))
 
 (tu/deftest-kb the-contexts-section-ranks-by-size-when-it-cannot-draw-a-lattice
-  ;; 28,998 genlContext edges is past `lattice-cap`, so there is no lattice to draw and the
+  ;; 28,998 genlCx edges is past `lattice-cap`, so there is no lattice to draw and the
   ;; question changes from "how do these nest" to "where is the knowledge".  Alphabetically
   ;; first-fifty answered neither.
-  (tu/with-terms [heldBy BiggestContext]
-    ;; a context is a node of the genlContext lattice, so an edge is what puts one in
+  (tu/with-terms [heldBy CxBiggest]
+    ;; a context is a node of the genlCx lattice, so an edge is what puts one in
     ;; `contexts` at all — a context nothing names holds sentexes but is not a node
-    (v/assert kb (list 'genlContext BiggestContext 'UniverseContext) 'UniverseContext
+    (v/assert kb (list 'genlCx CxBiggest 'CxUniverse) 'CxUniverse
               {:chain? false})
     ;; Sized off the largest context already loaded rather than off a constant: the
     ;; claim is that this context leads the ranking, and a fixed 400 makes that a bet
-    ;; on the shipped ontology staying smaller than it — which CoreContext, carrying an
+    ;; on the shipped ontology staying smaller than it — which CxCore, carrying an
     ;; argument declaration for every position of every predicate, does not.
     (let [n (+ 50 (apply max 0 (map #(v/count-in-context kb %) (v/contexts kb))))]
       (v/assert-many kb (for [i (range n)] (list heldBy (symbol (str "TmpBig" i))))
-                     BiggestContext {:chain? false})
+                     CxBiggest {:chain? false})
       (let [cap  (ns-resolve 'vaelii.impl.web 'lattice-cap)
             body (with-redefs-fn {cap 0}                ; no lattice to draw, at any size
                    #(:body (GET "/")))
             seg  (segment body "holding the most" 4000)
             ns'  (mapv #(Long/parseLong (second %)) (re-seq #" — (\d+) sentexes" seg))]
         (is (some? seg) "the fallback says what it is showing instead")
-        (is (re-find (re-pattern (str ">" BiggestContext "</a><span class=\"muted\"> — "
+        (is (re-find (re-pattern (str ">" CxBiggest "</a><span class=\"muted\"> — "
                                       n " sentexes"))
                      seg)
             "the biggest context, named with what it holds")
@@ -249,10 +249,10 @@
 
 (tu/deftest-kb disjointness-too-wide-to-list-is-summarised-by-what-separates-most
   (tu/with-terms [hub_type]
-    (v/assert kb (list 'genl hub_type 'thing) 'UniverseContext {:chain? false})
+    (v/assert kb (list 'genl hub_type 'thing) 'CxUniverse {:chain? false})
     (v/assert-many kb (for [i (range 60)]
                         (list 'disjoint hub_type (symbol (str (name hub_type) "_other" i))))
-                   'UniverseContext {:chain? false})
+                   'CxUniverse {:chain? false})
     (let [body (:body (GET "/"))
           seg  (segment body "Disjointness" 3000)]
       (is (some? seg) "past the cap the section is a summary, not a page of pairs")
@@ -266,12 +266,12 @@
   ;; A ledger row is not a name — it is one or two whole sentences with every subterm
   ;; linked — so fifty of them was 60 KB and the bulk of the stats page.  The count is on
   ;; the card above; the list is for seeing what one looks like.
-  (tu/with-terms [wobbles DilemmaContext]
+  (tu/with-terms [wobbles CxDilemma]
     ;; two represented dilemmas: a default and its negation at the same strength, which
     ;; `settle` leaves both believed and reports as a pair rather than arbitrating
     (doseq [i (range 2) :let [x (symbol (str "TmpWob" i))]]
-      (v/assert kb (list wobbles x) DilemmaContext)
-      (v/assert kb (list 'not (list wobbles x)) DilemmaContext))
+      (v/assert kb (list wobbles x) CxDilemma)
+      (v/assert kb (list 'not (list wobbles x)) CxDilemma))
     (is (<= 2 (count (v/contradictions kb))) "the KB holds more dilemmas than the cap below")
     (let [cap  (ns-resolve 'vaelii.impl.web 'ledger-cap)
           body (with-redefs-fn {cap 1} #(:body (GET "/stats")))
@@ -287,11 +287,11 @@
 
 (tu/deftest-kb the-contexts-table-is-capped-and-continues-on-scroll
   (tu/with-terms [heldBy]
-    ;; 40 contexts holding something: past the 25-row cap.  Each needs a genlContext edge
+    ;; 40 contexts holding something: past the 25-row cap.  Each needs a genlCx edge
     ;; to be a node of the lattice `contexts` enumerates
     (doseq [i (range 40)
-            :let [c (symbol (str "TmpTable" i "Context"))]]
-      (v/assert kb (list 'genlContext c 'UniverseContext) 'UniverseContext {:chain? false})
+            :let [c (symbol (str "CxTmpTable" i))]]
+      (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse {:chain? false})
       (v/assert kb (list heldBy (symbol (str "TmpRow" i))) c {:chain? false}))
     (let [body (:body (GET "/stats"))
           tbl  (subs body (str/index-of body "Contexts by size"))
@@ -317,7 +317,7 @@
 ;; deciding whether this is a reasoner rather than a lookup table, that is the evidence.
 
 (deftest a-single-goal-shows-every-prover-and-which-one-runs
-  (let [r (GET "/levels" "q=%28flies%20%3Fx%29&ctx=BiologyContext")]
+  (let [r (GET "/levels" "q=%28flies%20%3Fx%29&ctx=CxBiology")]
     (is (= 200 (:status r)))
     (is (re-find #"How it would be answered" (:body r)))
     (testing "the provers bearing on the goal, with their estimates"
@@ -330,13 +330,13 @@
 (deftest a-complete-prover-shadows-the-rest-and-the-page-says-so
   ;; `genl` is answered from the closure, which is complete for it — so every other
   ;; applicable prover is shadowed, and "applicable" stops meaning "consulted"
-  (let [body (:body (GET "/levels" "q=%28genl%20dog%20thing%29&ctx=OrganismContext"))]
+  (let [body (:body (GET "/levels" "q=%28genl%20dog%20thing%29&ctx=CxOrganism"))]
     (is (re-find #"TransitivityProver" body))
     (is (re-find #"shadowed by" body))
     (is (re-find #"the sole complete method" body))))
 
 (deftest a-conjunction-shows-its-join-order-and-what-decided-it
-  (let [r (GET "/levels" "q=%5B%28bird%20%3Fx%29%20%28flies%20%3Fx%29%5D&ctx=BiologyContext")]
+  (let [r (GET "/levels" "q=%5B%28bird%20%3Fx%29%20%28flies%20%3Fx%29%5D&ctx=CxBiology")]
     (is (= 200 (:status r)))
     (is (re-find #"Conjunctive goal" (:body r)))
     (testing "the literals in the order they will run, with the fan-out each was picked on"
@@ -361,16 +361,16 @@
   ;; unconditionally, and `term-link`'s fallback arm links whatever it is handed — so
   ;; each printed the text "nil" beside a live link to `/term?q=nil`.
   (let [kb tu/*kb*]
-    (tu/with-terms [AContext BContext WContext left_t right_t Pip]
-      (v/assert kb (list 'disjoint left_t right_t) 'UniverseContext)
-      (v/assert kb (list 'genl left_t 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl right_t 'thing) 'UniverseContext)
-      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
-      (v/assert kb (list left_t Pip) AContext)
-      (v/assert kb (list right_t Pip) BContext)
+    (tu/with-terms [CxA CxB CxW left_t right_t Pip]
+      (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
+      (v/assert kb (list 'genl left_t 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl right_t 'thing) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
+      (v/assert kb (list left_t Pip) CxA)
+      (v/assert kb (list right_t Pip) CxB)
       (is (some #(= :disjoint (:violation %)) (v/violations kb))
           "the sentence-less exposure entry is on the ledger")
       (let [body (:body (GET "/stats"))]
@@ -380,26 +380,26 @@
 (deftest a-standing-clash-links-its-two-terms-and-not-the-pair-it-came-in
   ;; `:held` is a vector of `[type context]` pairs. Handed to `term-link` whole it took
   ;; the fallback arm, which links whatever it is given — so every reported clash offered
-  ;; `/term?q=[dog AContext]`, a term no KB holds. Same failure as the `q=nil` row one
+  ;; `/term?q=[dog CxA]`, a term no KB holds. Same failure as the `q=nil` row one
   ;; screen up, and the same cause: a renderer destructuring an entry shape it assumed.
   (let [kb tu/*kb*]
-    (tu/with-terms [AContext BContext WContext left_t right_t Pip]
-      (v/assert kb (list 'disjoint left_t right_t) 'UniverseContext)
-      (v/assert kb (list 'genl left_t 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl right_t 'thing) 'UniverseContext)
-      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
-      (v/assert kb (list left_t Pip) AContext)
-      (v/assert kb (list right_t Pip) BContext)
+    (tu/with-terms [CxA CxB CxW left_t right_t Pip]
+      (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
+      (v/assert kb (list 'genl left_t 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl right_t 'thing) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
+      (v/assert kb (list left_t Pip) CxA)
+      (v/assert kb (list right_t Pip) CxB)
       (is (seq (v/exposed-clashes kb)) "the standing question finds the pair")
       (let [body (:body (GET "/stats" "clashes=1"))]
         (is (not (re-find #"q=%5B|q=\[" body))
             "no link to a bracketed [type context] pair")
         (is (re-find (re-pattern (str "q=" (name left_t))) body)
             "the type itself is linked")
-        (is (re-find (re-pattern (str "q=" (name AContext))) body)
+        (is (re-find (re-pattern (str "q=" (name CxA))) body)
             "and so is the context it was written in")))))
 
 (deftest the-standing-disjointness-question-is-asked-not-assumed
@@ -536,17 +536,17 @@
 (deftest a-context-page-draws-the-relation-a-context-has
   ;; `genl` says nothing about contexts, so the three type lines are empty on this page and
   ;; the picture is the only thing on it that shows the lattice at all
-  (let [svg (svg-of (:body (GET "/term" "q=NaturalWorldContext")))]
+  (let [svg (svg-of (:body (GET "/term" "q=CxNaturalWorld")))]
     (is (some? svg))
-    (is (re-find #"class=\"g-edge g-genlContext\"" svg)
+    (is (re-find #"class=\"g-edge g-genlCx\"" svg)
         "drawn distinguishably: a context edge must not read as a type edge")
     (is (not (re-find #"class=\"g-edge g-genl\"" svg)))
-    (is (contains? (drawn-terms svg) "WellContext"))))
+    (is (contains? (drawn-terms svg) "CxWell"))))
 
 (tu/deftest-kb the-radial-view-is-for-a-term-with-relations-and-no-taxonomy
-  (tu/with-terms [likesThing TmpA TmpB TmpC EgoContext]
-    (v/assert kb (list likesThing TmpA TmpB) EgoContext {:chain? false})
-    (v/assert kb (list likesThing TmpB TmpC) EgoContext {:chain? false})
+  (tu/with-terms [likesThing TmpA TmpB TmpC CxEgo]
+    (v/assert kb (list likesThing TmpA TmpB) CxEgo {:chain? false})
+    (v/assert kb (list likesThing TmpB TmpC) CxEgo {:chain? false})
     (let [body (:body (GET "/term" (str "q=" TmpA)))
           svg  (svg-of body)]
       (is (some? svg))
@@ -557,9 +557,9 @@
       (is (re-find #"two hops out" body)))))
 
 (tu/deftest-kb a-term-with-nothing-to-draw-gets-no-frame
-  (tu/with-terms [lonely_type Lonely QuietContext]
+  (tu/with-terms [lonely_type Lonely CxQuiet]
     ;; mentioned, and by exactly one unary fact: no subsumption, no binary relation
-    (v/assert kb (list lonely_type Lonely) QuietContext {:chain? false})
+    (v/assert kb (list lonely_type Lonely) CxQuiet {:chain? false})
     (let [body (:body (GET "/term" (str "q=" Lonely)))]
       (is (= 200 (:status (GET "/term" (str "q=" Lonely)))))
       (is (nil? (svg-of body)) "no picture")
@@ -569,7 +569,7 @@
 (deftest every-arrow-ends-on-a-node
   ;; A picture that draws an arrow into empty space is worse than one that draws less.
   ;; Checked structurally rather than trusted: each endpoint must land on some drawn box.
-  (doseq [q ["animal" "dog" "Bob" "thing" "NaturalWorldContext"]]
+  (doseq [q ["animal" "dog" "Bob" "thing" "CxNaturalWorld"]]
     (when-let [svg (svg-of (:body (GET "/term" (str "q=" q))))]
       (let [boxes (rects svg)
             on?   (fn [[x y]]
@@ -600,9 +600,9 @@
 (defn- wide-type!
   "A type with `n` direct subtypes, all temporaries the fixture takes back."
   [kb t n]
-  (v/assert kb (list 'genl t 'thing) 'UniverseContext {:chain? false})
+  (v/assert kb (list 'genl t 'thing) 'CxUniverse {:chain? false})
   (v/assert-many kb (for [i (range n)] (list 'genl (symbol (str (name t) "_kid" i)) t))
-                 'UniverseContext {:chain? false}))
+                 'CxUniverse {:chain? false}))
 
 (tu/deftest-kb a-compound-type-node-colours-as-a-type-not-a-number
   ;; An imported ontology names a type it has no atomic name for with a function term, so a
@@ -611,8 +611,8 @@
   ;; of red.
   (tu/with-terms [CollectionFn base_type member_type]
     (let [nat (list CollectionFn base_type)]
-      (v/assert kb (list 'genl nat 'thing) 'UniverseContext {:chain? false})
-      (v/assert kb (list 'genl member_type nat) 'UniverseContext {:chain? false})
+      (v/assert kb (list 'genl nat 'thing) 'CxUniverse {:chain? false})
+      (v/assert kb (list 'genl member_type nat) 'CxUniverse {:chain? false})
       (let [body (:body (GET "/term" (str "q=" (java.net.URLEncoder/encode (pr-str nat) "UTF-8"))))]
         (is (re-find #"<h2>Term <a class=\"sx t-type\"" body))
         (is (not (re-find #"<h2>Term <a class=\"sx t-num\"" body)))))))
@@ -636,9 +636,9 @@
   ;; sum of the closure sizes — free, every closure being a cached set — is taken as the
   ;; bound and only the window is walked.
   (tu/with-terms [left_type right_type]
-    (v/assert kb (list 'genl left_type 'thing) 'UniverseContext {:chain? false})
+    (v/assert kb (list 'genl left_type 'thing) 'CxUniverse {:chain? false})
     (wide-type! kb right_type 400)
-    (v/assert kb (list 'disjoint left_type right_type) 'UniverseContext {:chain? false})
+    (v/assert kb (list 'disjoint left_type right_type) 'CxUniverse {:chain? false})
     (let [cap  (ns-resolve 'vaelii.impl.web 'sortable-cap)
           body (with-redefs-fn {cap 100}
                  #(:body (GET "/term" (str "q=" left_type))))
@@ -653,10 +653,10 @@
 
 (tu/deftest-kb a-hub-draws-its-cap-and-says-what-it-left-out
   (tu/with-terms [hub_type]
-    (v/assert kb (list 'genl hub_type 'thing) 'UniverseContext {:chain? false})
+    (v/assert kb (list 'genl hub_type 'thing) 'CxUniverse {:chain? false})
     (v/assert-many kb (for [i (range 400)]
                         (list 'genl (symbol (str (name hub_type) "_kid" i)) hub_type))
-                   'UniverseContext {:chain? false})
+                   'CxUniverse {:chain? false})
     (let [body (:body (GET "/term" (str "q=" hub_type)))
           svg  (svg-of body)]
       (testing "the row is capped — 400 subtypes are not 400 nodes"
@@ -703,9 +703,9 @@
   ;; by reading forty thousand looks identical on the shipped schema.
   (tu/with-terms [tiny_type mid_type big_type]
     (doseq [[t n] [[tiny_type 3] [mid_type 40] [big_type 400]]]
-      (v/assert kb (list 'genl t 'thing) 'UniverseContext {:chain? false})
+      (v/assert kb (list 'genl t 'thing) 'CxUniverse {:chain? false})
       (v/assert-many kb (for [i (range n)] (list 'genl (symbol (str (name t) "_kid" i)) t))
-                     'UniverseContext {:chain? false}))
+                     'CxUniverse {:chain? false}))
     (let [gvar  (ns-resolve 'vaelii.impl.web 'term-graph)
           drawn (fn [t] (read-counts #(GET "/term" (str "q=" t))))
           plain (fn [t] (with-redefs-fn {gvar (fn [& _] nil)}
@@ -728,8 +728,8 @@
 (tu/deftest-kb the-graph-renders-the-same-through-the-access-facade
   ;; the browser is written against `vaelii.impl.access`, not `vaelii.core`; driving it
   ;; through an access value rather than a raw KB is the in-process half of that claim
-  (tu/with-terms [nearBy TmpP TmpQ FacadeContext]
-    (v/assert kb (list nearBy TmpP TmpQ) FacadeContext {:chain? false})
+  (tu/with-terms [nearBy TmpP TmpQ CxFacade]
+    (v/assert kb (list nearBy TmpP TmpQ) CxFacade {:chain? false})
     (let [via (web/app (acc/local kb))
           get* (fn [app] (:body (app {:request-method :get :uri "/term"
                                       :query-string (str "q=" TmpP)})))]
@@ -738,10 +738,10 @@
 ;; ---- belief, and failure ------------------------------------------------
 
 (tu/deftest-kb a-defeated-edge-leaves-the-graph-and-stays-in-the-list
-  (tu/with-terms [worksWith TmpX TmpY DefeatContext]
-    (let [h (v/assert kb (list worksWith TmpX TmpY) DefeatContext)]
+  (tu/with-terms [worksWith TmpX TmpY CxDefeat]
+    (let [h (v/assert kb (list worksWith TmpX TmpY) CxDefeat)]
       (is (some? (svg-of (:body (GET "/term" (str "q=" TmpX))))) "drawn while believed")
-      (v/assert kb (list 'not (list worksWith TmpX TmpY)) DefeatContext {:strength :monotonic})
+      (v/assert kb (list 'not (list worksWith TmpX TmpY)) CxDefeat {:strength :monotonic})
       (is (false? (v/in? kb h)) "the default is defeated by the known-true negation")
       (let [body (:body (GET "/term" (str "q=" TmpX)))]
         (is (nil? (svg-of body))
@@ -774,18 +774,18 @@
   "Run `f` with a reifiable function declared and `body` asserted, and answer what it
   returns.  Everything minted is a premise the neutral fixture retracts."
   [kb f]
-  (tu/with-terms [FruitFn BestTreeIn AppleTree Orchard1 fruit colorOf NatContext]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext {:chain? false})
-    (v/assert kb (list 'reifiableFunction BestTreeIn) 'UniverseContext {:chain? false})
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext {:chain? false})
-    (let [h (v/assert kb (list colorOf (list FruitFn AppleTree) 'Red) NatContext {:chain? false})
+  (tu/with-terms [FruitFn BestTreeIn AppleTree Orchard1 fruit colorOf CxNat]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse {:chain? false})
+    (v/assert kb (list 'reifiableFunction BestTreeIn) 'CxUniverse {:chain? false})
+    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse {:chain? false})
+    (let [h (v/assert kb (list colorOf (list FruitFn AppleTree) 'Red) CxNat {:chain? false})
           n (v/assert kb (list colorOf (list FruitFn (list BestTreeIn Orchard1)) 'Green)
-                      NatContext {:chain? false})]
+                      CxNat {:chain? false})]
       (f {:k (second (:sentence (v/sentex kb h)))
           :outer (second (:sentence (v/sentex kb n)))
           :handle h :nested n
           :FruitFn FruitFn :BestTreeIn BestTreeIn :AppleTree AppleTree
-          :Orchard1 Orchard1 :fruit fruit :colorOf colorOf :ctx NatContext}))))
+          :Orchard1 Orchard1 :fruit fruit :colorOf colorOf :ctx CxNat}))))
 
 (defn- visible-nats
   "Every reified constant a reader can actually *see* in `body` — the raw text with the
@@ -914,15 +914,15 @@
           (is (empty? (visible-nats (:body r)))))))))
 
 (tu/deftest-kb sentex-page-shows-a-believed-sentex-as-in
-  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'NaturalWorldContext)))
+  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))
         r   (GET (str "/sentex/" bob))]
     (is (re-find #"tag-in" (:body r)))))                  ; the IN belief pill
 
 (tu/deftest-kb sentex-page-shows-a-superseded-spelling
-  (tu/with-terms [bornIn Chicago NameContext]
+  (tu/with-terms [bornIn Chicago CxName]
     (tu/with-terms [Pref Dep]
-      (let [h (v/assert kb (list bornIn Dep Chicago) NameContext)]
-        (v/assert kb (list 'rewriteOf Pref Dep) NameContext)
+      (let [h (v/assert kb (list bornIn Dep Chicago) CxName)]
+        (v/assert kb (list 'rewriteOf Pref Dep) CxName)
         (is (false? (v/in? kb h)) "the deprecated spelling is stored but not believed")
         (let [r (GET (str "/sentex/" h))]
           (is (= 200 (:status r)))
@@ -931,9 +931,9 @@
           (is (re-find #"restated under its class representative" (:body r))))))))
 
 (tu/deftest-kb sentex-page-shows-a-defeated-default
-  (tu/with-terms [flies Tweety NestContext]
-    (let [pos (v/assert kb (list flies Tweety) NestContext {:strength :default})]
-      (v/assert kb (list 'not (list flies Tweety)) NestContext {:strength :monotonic})
+  (tu/with-terms [flies Tweety CxNest]
+    (let [pos (v/assert kb (list flies Tweety) CxNest {:strength :default})]
+      (v/assert kb (list 'not (list flies Tweety)) CxNest {:strength :monotonic})
       (is (false? (v/in? kb pos)) "the default loses to the monotonic negation")
       (let [r (GET (str "/sentex/" pos))]
         (is (re-find #"tag-defeated" (:body r)))
@@ -950,7 +950,7 @@
       (is (re-find #"<form" (:body r))))))
 
 (deftest levels-page-traces-a-goal-through-the-stack
-  (let [r (GET "/levels" "q=(animal%20%3Fx)&ctx=NaturalWorldContext")]
+  (let [r (GET "/levels" "q=(animal%20%3Fx)&ctx=CxNaturalWorld")]
     (is (= 200 (:status r)))
     (testing "the goal and the level that answers it are reported"
       (is (re-find #"Answered at level" (:body r)))
@@ -971,21 +971,21 @@
       (is (re-find #"A goal is a sentence" (:body r))))))
 
 (tu/deftest-kb sentex-page-links-into-the-stack
-  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'NaturalWorldContext)))
+  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))
         r   (GET (str "/sentex/" bob))]
     (is (= 200 (:status r)))
     (is (re-find #"Trace through the stack" (:body r)))
     (is (re-find #"/levels\?q=" (:body r)))))
 
 (tu/deftest-kb sentex-page-shows-supports-and-dependents
-  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'NaturalWorldContext)))
+  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
         r  (GET (str "/sentex/" gp))]
     (is (= 200 (:status r)))
     (is (re-find #"grandparentOf" (:body r)))
     (is (re-find #"Supported by" (:body r)))
     (is (re-find #"justification #" (:body r))))            ; it was derived
   (testing "a premise fact shows its dependents"
-    (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'NaturalWorldContext)))
+    (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))
           r   (GET (str "/sentex/" bob))]
       (is (re-find #"premise" (:body r)))
       (is (re-find #"Dependents" (:body r))))))
@@ -1003,7 +1003,7 @@
       (is (re-find #"\?x" (:body r))))))
 
 (tu/deftest-kb justification-page-shows-supports-and-conclusion
-  (let [gp  (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'NaturalWorldContext)))
+  (let [gp  (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
         ded (first (v/supporting-justifications kb gp))
         r   (GET (str "/justification/" (:id ded)))]
     (is (= 200 (:status r)))
@@ -1026,7 +1026,7 @@
   (let [spaces {:backend :memory :space 62 :recover? false}
         built  (v/open-kb spaces)]
     (try
-      (v/assert built '(dog Muffet) 'UniverseContext {})
+      (v/assert built '(dog Muffet) 'CxUniverse {})
       (let [reopened (v/open-kb spaces)]
         (cat/register! "wt-beliefless" "Reopened without recover" reopened)
         (is (cat/activate "wt-beliefless"))
@@ -1069,7 +1069,7 @@
             (is (str/includes? body "kb-caveat-running"))
             (is (str/includes? body "Writing is on hold"))))
         (testing "but a write is refused — a loader is already this process's one writer"
-          (doseq [[uri params] [["/assert"  {"text" "(dog Rex)" "ctx" "UniverseContext"}]
+          (doseq [[uri params] [["/assert"  {"text" "(dog Rex)" "ctx" "CxUniverse"}]
                                 ["/chain"   {}]
                                 ["/retract" {"handles" "1"}]]]
             (let [r (post uri params)]
@@ -1122,9 +1122,9 @@
             headers (assoc :headers headers)))))
 
 (tu/deftest-kb edit-form-seeds-a-textarea-for-the-selected-handles
-  (tu/with-terms [likesOf Alice Bob EditContext]
-    (let [h1 (v/assert kb (list likesOf Alice Bob) EditContext)
-          h2 (v/assert kb (list likesOf Bob Alice) EditContext)
+  (tu/with-terms [likesOf Alice Bob CxEdit]
+    (let [h1 (v/assert kb (list likesOf Alice Bob) CxEdit)
+          h2 (v/assert kb (list likesOf Bob Alice) CxEdit)
           r  (GET "/edit" (str "handles=" h1 "," h2))]
       (is (= 200 (:status r)))
       (is (re-find #"<textarea" (:body r)))
@@ -1133,12 +1133,12 @@
       (is (re-find (re-pattern (str "value=\"" h1 "," h2)) (:body r))))))  ; hidden handles
 
 (tu/deftest-kb editing-retracts-changed-lines-and-asserts-new-ones
-  (tu/with-terms [likesOf Alice Bob Carol EditContext]
-    (let [h1   (v/assert kb (list likesOf Alice Bob) EditContext)
-          h2   (v/assert kb (list likesOf Bob Alice) EditContext)
+  (tu/with-terms [likesOf Alice Bob Carol CxEdit]
+    (let [h1   (v/assert kb (list likesOf Alice Bob) CxEdit)
+          h2   (v/assert kb (list likesOf Bob Alice) CxEdit)
           ;; keep line 1 verbatim, rewrite line 2's object Alice -> Carol
-          text (str (pr-str [(list likesOf Alice Bob) EditContext]) "\n"
-                    (pr-str [(list likesOf Bob Carol) EditContext]))
+          text (str (pr-str [(list likesOf Alice Bob) CxEdit]) "\n"
+                    (pr-str [(list likesOf Bob Carol) CxEdit]))
           r    (POST "/edit" {"handles" (str h1 "," h2) "text" text})]
       (testing "it re-renders the changed row in place instead of reloading the page"
         (is (nil? (get-in r [:headers "HX-Refresh"])))
@@ -1152,12 +1152,12 @@
       (testing "the changed line's old sentex is retracted"
         (is (nil? (v/sentex kb h2))))
       (testing "and the edited sentence is asserted"
-        (is (seq (v/sentexes-matching kb (list likesOf Bob Carol) EditContext)))
-        (is (empty? (v/sentexes-matching kb (list likesOf Bob Alice) EditContext)))))))
+        (is (seq (v/sentexes-matching kb (list likesOf Bob Carol) CxEdit)))
+        (is (empty? (v/sentexes-matching kb (list likesOf Bob Alice) CxEdit)))))))
 
 (tu/deftest-kb a-parse-error-blocks-the-save-and-leaves-the-kb-intact
-  (tu/with-terms [likesOf Alice Bob EditContext]
-    (let [h1 (v/assert kb (list likesOf Alice Bob) EditContext)
+  (tu/with-terms [likesOf Alice Bob CxEdit]
+    (let [h1 (v/assert kb (list likesOf Alice Bob) CxEdit)
           r  (POST "/edit" {"handles" (str h1) "text" "(this is not a vector)"})]
       (is (= 200 (:status r)))
       (is (nil? (get-in r [:headers "HX-Refresh"])) "no refresh on a parse error")
@@ -1225,10 +1225,10 @@
 ;; ---- continuation: a capped list is walkable, not truncated -------------
 
 (tu/deftest-kb a-capped-group-ends-in-a-sentinel-that-fetches-the-rest
-  (tu/with-terms [manyOf ManyContext]
+  (tu/with-terms [manyOf CxMany]
     ;; one more than a group renders at a time, so the group is capped and continues
     (doseq [i (range 61)]
-      (v/assert kb (list manyOf (symbol (str "Thing" i))) ManyContext {:chain? false}))
+      (v/assert kb (list manyOf (symbol (str "Thing" i))) CxMany {:chain? false}))
     (let [r (GET "/term" (str "q=" (name manyOf)))]
       (is (= 200 (:status r)))
       (is (re-find #"61 stored" (:body r)))
@@ -1270,7 +1270,7 @@
                        (let [[uri qs] (str/split (str/replace href "&amp;" "&") #"\?" 2)]
                          [uri qs])))]
       (v/assert-many kb (for [i (range n)] (list pred (symbol (str "Thing" i))))
-                     'ManyContext {:chain? false})
+                     'CxMany {:chain? false})
       (let [first-body (:body (get* "/term" (str "q=" pred)))]
         (is (re-find (re-pattern (str n " stored")) first-body)
             "the O(1) count reports the whole extent, however long it is")
@@ -1285,7 +1285,7 @@
               (recur (next-url body) (long (+ seen (rows body))) (inc pages)))))))))
 
 (deftest levels-results-continue-the-same-way
-  (let [r (GET "/levels/rows" "q=(animal%20%3Fx)&ctx=NaturalWorldContext&level=4&offset=0")]
+  (let [r (GET "/levels/rows" "q=(animal%20%3Fx)&ctx=CxNaturalWorld&level=4&offset=0")]
     (is (= 200 (:status r)))
     (is (not (re-find #"<main" (:body r))))
     (is (re-find #"Sam" (:body r))))
@@ -1361,7 +1361,7 @@
   ;; the home page prints `comment` text — KB content, which an importer or an agent
   ;; writes, so it is as untrusted as a query param
   (tu/with-terms [evilPred]
-    (v/assert kb (list 'comment evilPred "doc <script>alert('kb')</script> text") 'CoreContext)
+    (v/assert kb (list 'comment evilPred "doc <script>alert('kb')</script> text") 'CxCore)
     (let [body (predicate-page-holding evilPred)]
       (is (some? body) "the comment is on one of the list's pages")
       (is (escaped? body "<script>alert('kb')" "&lt;script&gt;alert(&apos;kb&apos;)")))))
@@ -1370,7 +1370,7 @@
   ;; a sentence carrying a free-text string is the shape that puts markup in the
   ;; textarea; it must be escaped once, so the user edits the text they wrote
   (tu/with-terms [notedPred]
-    (let [h (v/assert kb (list 'comment notedPred "a <b> tag") 'CoreContext)
+    (let [h (v/assert kb (list 'comment notedPred "a <b> tag") 'CxCore)
           r (GET "/edit" (str "handles=" h))]
       (is (re-find #"&lt;b&gt;" (:body r)) "the markup in the sentence is escaped")
       (is (not (re-find #"&amp;lt;" (:body r))) "and not escaped a second time"))))
@@ -1420,19 +1420,19 @@
 ;; browser stamps on the request is what separates our own page from any other tab.
 
 (tu/deftest-kb a-same-origin-post-edits-the-kb
-  (tu/with-terms [likesOf Alice Bob Carol EditContext]
-    (let [h    (v/assert kb (list likesOf Alice Bob) EditContext)
-          text (pr-str [(list likesOf Alice Carol) EditContext])
+  (tu/with-terms [likesOf Alice Bob Carol CxEdit]
+    (let [h    (v/assert kb (list likesOf Alice Bob) CxEdit)
+          text (pr-str [(list likesOf Alice Carol) CxEdit])
           r    (POST "/edit" {"handles" (str h) "text" text}
                  {"host" "localhost:3000" "origin" "http://localhost:3000"})]
       (is (= 200 (:status r)))
       (is (re-find #"Saved" (:body r)))
-      (is (seq (v/sentexes-matching kb (list likesOf Alice Carol) EditContext)) "the write went through"))))
+      (is (seq (v/sentexes-matching kb (list likesOf Alice Carol) CxEdit)) "the write went through"))))
 
 (tu/deftest-kb a-cross-origin-post-is-refused-and-writes-nothing
-  (tu/with-terms [likesOf Alice Bob Carol EditContext]
-    (let [h    (v/assert kb (list likesOf Alice Bob) EditContext)
-          text (pr-str [(list likesOf Alice Carol) EditContext])]
+  (tu/with-terms [likesOf Alice Bob Carol CxEdit]
+    (let [h    (v/assert kb (list likesOf Alice Bob) CxEdit)
+          text (pr-str [(list likesOf Alice Carol) CxEdit])]
       (doseq [[label hdrs] [["another site"  {"host" "localhost:3000" "origin" "http://evil.example"}]
                             ;; a sandboxed frame sends Origin: null — an origin claim
                             ;; that matches nothing, not an absent header
@@ -1442,12 +1442,12 @@
         (let [r (POST "/edit" {"handles" (str h) "text" text} hdrs)]
           (is (= 403 (:status r)) label)))
       (is (v/in? kb h) "the original is untouched")
-      (is (empty? (v/sentexes-matching kb (list likesOf Alice Carol) EditContext)) "and nothing was asserted"))))
+      (is (empty? (v/sentexes-matching kb (list likesOf Alice Carol) CxEdit)) "and nothing was asserted"))))
 
 (tu/deftest-kb a-same-origin-referer-is-accepted
-  (tu/with-terms [likesOf Alice Bob EditContext]
-    (let [h (v/assert kb (list likesOf Alice Bob) EditContext)
-          r (POST "/edit" {"handles" (str h) "text" (pr-str [(list likesOf Alice Bob) EditContext])}
+  (tu/with-terms [likesOf Alice Bob CxEdit]
+    (let [h (v/assert kb (list likesOf Alice Bob) CxEdit)
+          r (POST "/edit" {"handles" (str h) "text" (pr-str [(list likesOf Alice Bob) CxEdit])}
               {"host" "localhost:3000" "referer" "http://localhost:3000/term?q=x"})]
       (is (= 200 (:status r))))))
 
@@ -1460,11 +1460,11 @@
 ;; invisible to a request that has none.
 
 (tu/deftest-kb an-oversized-post-is-a-413-that-writes-nothing
-  (tu/with-terms [likesOf Alice Bob Carol EditContext]
-    (let [h    (v/assert kb (list likesOf Alice Bob) EditContext)
+  (tu/with-terms [likesOf Alice Bob Carol CxEdit]
+    (let [h    (v/assert kb (list likesOf Alice Bob) CxEdit)
           form (str "handles=" h "&text="
                     (java.net.URLEncoder/encode
-                     (pr-str [(list likesOf Alice Carol) EditContext]) "UTF-8"))
+                     (pr-str [(list likesOf Alice Carol) CxEdit]) "UTF-8"))
           post (fn []
                  (*app* {:request-method :post :uri "/edit" :scheme :http
                          :headers {"host"         "localhost:3000"
@@ -1482,7 +1482,7 @@
                 buffered copy the limit leaves behind is what wrap-params reads"
         (let [r (post)]
           (is (= 200 (:status r)))
-          (is (seq (v/sentexes-matching kb (list likesOf Alice Carol) EditContext))
+          (is (seq (v/sentexes-matching kb (list likesOf Alice Carol) CxEdit))
               "the form really was parsed out of the body"))))))
 
 ;; ---- selection: the rows carry what the keyboard and a screen reader need ----
@@ -1521,7 +1521,7 @@
 ;; ---- why: the whole proof tree, not one hop ----------------------------
 
 (tu/deftest-kb the-why-page-renders-the-proof-down-to-the-premises
-  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'NaturalWorldContext)))
+  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
         r  (GET (str "/why/" gp))]
     (is (= 200 (:status r)))
     (testing "the goal, the justification that concluded it, and the rule that licensed it"
@@ -1537,13 +1537,13 @@
       (is (re-find #"<summary" (:body r))))))
 
 (tu/deftest-kb the-sentex-page-links-to-the-proof-tree
-  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'NaturalWorldContext)))
+  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
         r  (GET (str "/sentex/" gp))]
     (is (re-find (re-pattern (str "/why/" gp)) (:body r)))
     (is (re-find #"Why is this believed" (:body r)))))
 
 (tu/deftest-kb the-why-page-of-a-premise-terminates-at-it
-  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'NaturalWorldContext)))
+  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))
         r   (GET (str "/why/" bob))]
     (is (= 200 (:status r)))
     (is (re-find #"tag-premise" (:body r)))))
@@ -1566,37 +1566,37 @@
       (is (re-find #":strength :monotonic" body))))
   (testing "opened from a term page it arrives with the term already in it"
     (is (re-find #"\(dog " (:body (GET "/assert" "q=dog"))))
-    (is (re-find #"value=\"CoreContext\"" (:body (GET "/assert" "q=CoreContext"))))))
+    (is (re-find #"value=\"CxCore\"" (:body (GET "/assert" "q=CxCore"))))))
 
 (tu/deftest-kb asserting-through-the-form-stores-the-sentence
-  (tu/with-terms [likesOf Alice Bob NewContext]
+  (tu/with-terms [likesOf Alice Bob CxNew]
     (let [r (POST "/assert" {"text" (str (pr-str (list likesOf Alice Bob)) "\n"
                                          (pr-str (list likesOf Bob Alice)))
-                             "ctx"  (str NewContext)
+                             "ctx"  (str CxNew)
                              "strength" "monotonic"}
               {"host" "localhost:3000" "origin" "http://localhost:3000"})]
       (is (= 200 (:status r)))
       (is (re-find #"Stored" (:body r)))
       (testing "both lines landed, known-true, in one settle"
-        (is (seq (v/sentexes-matching kb (list likesOf Alice Bob) NewContext)))
-        (is (seq (v/sentexes-matching kb (list likesOf Bob Alice) NewContext)))
+        (is (seq (v/sentexes-matching kb (list likesOf Alice Bob) CxNew)))
+        (is (seq (v/sentexes-matching kb (list likesOf Bob Alice) CxNew)))
         (is (= :monotonic (:strength (v/sentex kb (v/handle-of kb (list likesOf Alice Bob)
-                                                               NewContext)))))))))
+                                                               CxNew)))))))))
 
 (tu/deftest-kb the-assert-form-checks-before-it-writes
-  (tu/with-terms [likesOf Alice NewContext]
+  (tu/with-terms [likesOf Alice CxNew]
     (testing "a line that assert would refuse is reported with its type, and stores nothing"
       (let [r (POST "/assert" {"text" (str (pr-str (list likesOf Alice 'Carol)) "\n"
                                            (pr-str (list likesOf Alice '?x)))
-                               "ctx"  (str NewContext)}
+                               "ctx"  (str CxNew)}
                 {"host" "localhost:3000" "origin" "http://localhost:3000"})]
         (is (= 200 (:status r)))
         (is (re-find #"not-ground" (:body r)))
         (is (re-find #"line 2" (:body r)) "the problem points at the line it came from")
         (testing "and the good line on the same form was not written either"
-          (is (empty? (v/sentexes-matching kb (list likesOf Alice 'Carol) NewContext))))))
+          (is (empty? (v/sentexes-matching kb (list likesOf Alice 'Carol) CxNew))))))
     (testing "an unreadable line is reported, not thrown"
-      (let [r (POST "/assert" {"text" "(((" "ctx" (str NewContext)}
+      (let [r (POST "/assert" {"text" "(((" "ctx" (str CxNew)}
                 {"host" "localhost:3000" "origin" "http://localhost:3000"})]
         (is (= 200 (:status r)))
         (is (re-find #"unreadable" (:body r)))))
@@ -1611,30 +1611,30 @@
         (is (re-find #"naming" (:body r)))))))
 
 (tu/deftest-kb the-editor-shows-a-check-problem-beside-the-line
-  (tu/with-terms [likesOf Alice Bob EditContext]
-    (let [h (v/assert kb (list likesOf Alice Bob) EditContext)
+  (tu/with-terms [likesOf Alice Bob CxEdit]
+    (let [h (v/assert kb (list likesOf Alice Bob) CxEdit)
           ;; a syntactically fine `[sentence context]` that `assert` would still refuse
           r (POST "/edit" {"handles" (str h)
-                           "text" (pr-str [(list likesOf Alice '?x) EditContext])})]
+                           "text" (pr-str [(list likesOf Alice '?x) CxEdit])})]
       (is (= 200 (:status r)))
       (is (re-find #"not-ground" (:body r)))
       (is (re-find #"line 1" (:body r)))
       (is (v/in? kb h) "the save was refused, so the original is untouched"))))
 
 (tu/deftest-kb a-cross-origin-assert-is-refused
-  (tu/with-terms [likesOf Alice Bob NewContext]
-    (let [r (POST "/assert" {"text" (pr-str (list likesOf Alice Bob)) "ctx" (str NewContext)}
+  (tu/with-terms [likesOf Alice Bob CxNew]
+    (let [r (POST "/assert" {"text" (pr-str (list likesOf Alice Bob)) "ctx" (str CxNew)}
               {"host" "localhost:3000" "origin" "http://evil.example"})]
       (is (= 403 (:status r)))
-      (is (empty? (v/sentexes-matching kb (list likesOf Alice Bob) NewContext))))))
+      (is (empty? (v/sentexes-matching kb (list likesOf Alice Bob) CxNew))))))
 
 ;; ---- retract: what will go, said before it goes ------------------------
 
 (tu/deftest-kb the-retract-preview-names-the-consequences-and-writes-nothing
-  (tu/with-terms [aP cP X RetractContext]
-    (v/assert-rule kb [(list aP '?x)] (list cP '?x) RetractContext)
-    (let [fa (v/assert kb (list aP X) RetractContext)
-          ch (v/handle-of kb (list cP X) RetractContext)
+  (tu/with-terms [aP cP X CxRetract]
+    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract)
+    (let [fa (v/assert kb (list aP X) CxRetract)
+          ch (v/handle-of kb (list cP X) CxRetract)
           r  (GET "/retract" (str "handles=" fa))]
       (is (some? ch) "the rule derived the consequent")
       (is (= 200 (:status r)))
@@ -1649,10 +1649,10 @@
         (is (v/in? kb ch))))))
 
 (tu/deftest-kb retracting-the-selection-takes-its-consequences-with-it
-  (tu/with-terms [aP cP X RetractContext]
-    (v/assert-rule kb [(list aP '?x)] (list cP '?x) RetractContext)
-    (let [fa (v/assert kb (list aP X) RetractContext)
-          ch (v/handle-of kb (list cP X) RetractContext)
+  (tu/with-terms [aP cP X CxRetract]
+    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract)
+    (let [fa (v/assert kb (list aP X) CxRetract)
+          ch (v/handle-of kb (list cP X) CxRetract)
           r  (POST "/retract" {"handles" (str fa)}
                {"host" "localhost:3000" "origin" "http://localhost:3000"})]
       (is (= 200 (:status r)))
@@ -1667,8 +1667,8 @@
         (is (re-find #"id=\"sx-count\"" (:body r)))))))
 
 (tu/deftest-kb a-cross-origin-retract-is-refused
-  (tu/with-terms [aP X RetractContext]
-    (let [fa (v/assert kb (list aP X) RetractContext)
+  (tu/with-terms [aP X CxRetract]
+    (let [fa (v/assert kb (list aP X) CxRetract)
           r  (POST "/retract" {"handles" (str fa)}
                {"host" "localhost:3000" "origin" "http://evil.example"})]
       (is (= 403 (:status r)))
@@ -1686,8 +1686,8 @@
   ;; `check-edit` round-trip every other write post makes, so the answer is the problem
   ;; (`:unknown-handle`) rather than a success-styled "Retracted 0 sentexes" — and
   ;; rather than `edit`'s own refusal, which the browser has no middleware to catch.
-  (tu/with-terms [aP X RetractContext]
-    (let [fa (v/assert kb (list aP X) RetractContext)]
+  (tu/with-terms [aP X CxRetract]
+    (let [fa (v/assert kb (list aP X) CxRetract)]
       (v/retract! kb fa)
       (let [r (POST "/retract" {"handles" (str fa)}
                 {"host" "localhost:3000" "origin" "http://localhost:3000"})]
@@ -1698,7 +1698,7 @@
           (is (re-find #"Nothing was written" (:body r)))
           (is (not (re-find #"Retracted<" (:body r)))))))
     (testing "a live selection still retracts as before"
-      (let [fb (v/assert kb (list aP X) RetractContext)
+      (let [fb (v/assert kb (list aP X) CxRetract)
             r  (POST "/retract" {"handles" (str fb)}
                  {"host" "localhost:3000" "origin" "http://localhost:3000"})]
         (is (= 200 (:status r)))

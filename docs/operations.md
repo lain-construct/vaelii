@@ -40,8 +40,8 @@ enforces it with a fail-fast file lock. That shapes how the interfaces coexist:
 ## CLI — `vaelii.cli`
 
 ```sh
-lein cli assert  '(dog Muffet)' NaturalWorldContext --dir /var/lib/vaelii
-lein cli match   '(dog ?x)'   NaturalWorldContext --dir /var/lib/vaelii   # => [(dog Muffet)]
+lein cli assert  '(dog Muffet)' CxNaturalWorld --dir /var/lib/vaelii
+lein cli match   '(dog ?x)'   CxNaturalWorld --dir /var/lib/vaelii   # => [(dog Muffet)]
 lein cli why     3                                --dir /var/lib/vaelii
 lein cli export  /var/backups/vaelii-2026-07     --dir /var/lib/vaelii     # back it up
 lein cli repl --starter                                                    # interactive
@@ -255,9 +255,9 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
 ```clojure
 (require '[vaelii.client :as c])
 (def conn (c/client "localhost" 4200))
-(c/assert conn '(dog Muffet) 'NaturalWorldContext)    ; => 1
-(c/query  conn '(dog ?x)   'NaturalWorldContext)    ; => ({?x Muffet})
-(c/ask?   conn '(animal Muffet) 'NaturalWorldContext)
+(c/assert conn '(dog Muffet) 'CxNaturalWorld)    ; => 1
+(c/query  conn '(dog ?x)   'CxNaturalWorld)    ; => ({?x Muffet})
+(c/ask?   conn '(animal Muffet) 'CxNaturalWorld)
 (c/why    conn 1)
 ```
 
@@ -395,7 +395,7 @@ A client reaches it with the same token from its own environment:
 (require '[vaelii.client :as c])
 (def conn (c/client "127.0.0.1" 4200))                   ; VAELII_API_TOKEN, or :token
 (c/health conn)                                          ; => {:ok true}
-(c/assert conn '(dog Muffet) 'NaturalWorldContext)
+(c/assert conn '(dog Muffet) 'CxNaturalWorld)
 ```
 
 ## Logging — a dial, and what is behind it

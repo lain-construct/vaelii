@@ -231,12 +231,12 @@
   **Ordered nearest context first**, because that is where a cap has to cut.  The cone
   of a leaf context runs from the story it is about up to the vocabulary head, and a
   predicate the story's own theory declares is worth more to a reader of that story than
-  one `CoreContext` declares — so the cone is sorted by how much each context sees, which
+  one `CxCore` declares — so the cone is sorted by how much each context sees, which
   is largest at the leaf and smallest at the head.  Alphabetical within one context, so the
   order is a function of the taxonomy and never of arrival.
 
   The cone is walked term by term because a read at a *ground* context is exact-context:
-  `sentexes-matching` at `LionMouseContext` answers about that context alone, and what the
+  `sentexes-matching` at `CxLionMouse` answers about that context alone, and what the
   context *sees* is `context-up`, a cached closure lookup.  So this is one narrow read per
   context in the cone."
   [kb context]
@@ -420,7 +420,7 @@
    "    (implies (<type> ?x) (<property> ?x))                a general claim about a kind\n"
    "    (implies (and (<p> ?x ?y) (<q> ?y)) (<r> ?x ?y))     a general claim joining two\n\n"
    "**Write no context, and no `ist`.** Every candidate is filed in the context named in "
-   "the user turn. `(ist SomeContext ...)` means *file this in SomeContext* — it is not a "
+   "the user turn. `(ist CxSome ...)` means *file this in CxSome* — it is not a "
    "claim, it is a filing instruction, and writing one puts your sentence somewhere the "
    "reviewer is not looking. Write the bare sentence.\n\n"
    "**A general claim in the text is a rule, not a fact.** \"Whoever is spared repays the "

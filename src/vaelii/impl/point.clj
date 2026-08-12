@@ -44,7 +44,7 @@
   makes a cycle of strict `instantBefore` facts a reportable contradiction rather than a
   suspicion.
 
-  The vocabulary ships in `kb/upper/TimeContext.txt` beside the interval relations.  The
+  The vocabulary ships in `kb/upper/CxTime.txt` beside the interval relations.  The
   prover is **opt-in** on top of it: register it with `vaelii.core/add-prover`, and until
   then a KB stores and retrieves instant relations as ordinary facts without paying for the
   network."

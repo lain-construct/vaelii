@@ -13,11 +13,11 @@
   literature — A is left of B *from viewpoint C* — and a constraint network is strictly
   binary, a constraint being a set of relations on a *pair*.  The resolution is that a
   context already **is** a frame of reference: a network is built per context out of the
-  facts visible there, so `(leftOf Mouse Lion)` asserted in `LionMouseContext` is a claim
+  facts visible there, so `(leftOf Mouse Lion)` asserted in `CxLionMouse` is a claim
   in that context's frame and in no other.  Two contexts looking at the same
   individuals from opposite sides state opposite facts and neither contaminates the
   other; a frame that has to be argued about rather than assumed is a context, and the
-  argument is `genlContext`.  So this calculus is binary, composes exactly as the
+  argument is `genlCx`.  So this calculus is binary, composes exactly as the
   cardinal directions do, and needs nothing of the shared glue that the other three do
   not already need.
 
@@ -66,8 +66,8 @@
   reported here is real while a *non*-entailment means \"not provable\", never \"provably
   false\" — the same open-world reading `argIsa` and `exceptWhen` take.
 
-  The vocabulary ships in `kb/upper/SpaceContext.txt` beside the topology, the compass and
-  the distance scale — all of them are *about* space, so CoreContext keeps only the
+  The vocabulary ships in `kb/upper/CxSpace.txt` beside the topology, the compass and
+  the distance scale — all of them are *about* space, so CxCore keeps only the
   grammar they are declared in.  The prover is **opt-in** on top of it: register it with
   `vaelii.core/add-prover`, and until then a KB stores and retrieves relative directions
   as ordinary facts without paying for the network."

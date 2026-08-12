@@ -28,7 +28,7 @@
 
   House rules: gensym'd temporaries via `tu/with-terms`; engine vocabulary
   (`equals`, `reifiableFunction`, `QuantityFn`, `Kilogram`, contexts) literal; the
-  neutral fixture asserts the KB is restored.  CoreContext is loaded because the NAT
+  neutral fixture asserts the KB is restored.  CxCore is loaded because the NAT
   bookkeeping (`termOfUnit`, `resultIsa`) rides real vocabulary."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
@@ -44,8 +44,8 @@
   ;; `(equals a b)` over two symbols rewrites every sentex naming `a` to `b` at any
   ;; nesting — no congruence algorithm, just the term index + migration.
   (tu/with-terms [bornIn Obama BarackObama Honolulu]
-    (v/assert kb (list bornIn Obama Honolulu) 'UniverseContext)
-    (v/assert kb (list 'equals Obama BarackObama) 'UniverseContext)
+    (v/assert kb (list bornIn Obama Honolulu) 'CxUniverse)
+    (v/assert kb (list 'equals Obama BarackObama) 'CxUniverse)
     (is (= [{'?c Honolulu}] (v/ask kb (list bornIn BarackObama '?c) '?ctx))
         "a fact about Obama holds of the merged BarackObama")))
 
@@ -56,12 +56,12 @@
   ;; side reifies to a reified NAT constant before wff, so this is ordinary individual
   ;; equality — the two reified NATs merge and a fact about one holds of the other.
   (tu/with-terms [MotherOf Alice Bob livesIn NYC]
-    (v/assert kb (list 'reifiableFunction MotherOf) 'UniverseContext)
-    (v/assert kb (list livesIn (list MotherOf Alice) NYC) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherOf) 'CxUniverse)
+    (v/assert kb (list livesIn (list MotherOf Alice) NYC) 'CxUniverse)
     (testing "before the merge, nothing is known about Bob's mother"
       (is (empty? (v/ask kb (list livesIn (list MotherOf Bob) '?c) '?ctx))))
     (let [h (v/assert kb (list 'equals (list MotherOf Alice) (list MotherOf Bob))
-                      'UniverseContext)]
+                      'CxUniverse)]
       (testing "the assertion is accepted, its sides reified to symbols"
         (is (some? h))
         (is (every? nat/reified-nat-symbol? (rest (:sentence (v/sentex kb h))))))
@@ -85,7 +85,7 @@
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo #"compound"
          (v/assert kb '(equals (QuantityFn 5 Kilogram) (QuantityFn 5000 Gram))
-                   'UniverseContext)))))
+                   'CxUniverse)))))
 
 ;; ---- Part B: schematic equational rules ---------------------------------
 
@@ -97,13 +97,13 @@
   ;; query on the grandfatherOf normal form matches.
   (tu/with-terms [fatherOf grandfatherOf parentChain Tom]
     (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfatherOf '?x))
-              'UniverseContext)
-    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'UniverseContext)
+              'CxUniverse)
+    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
     (testing "the stored term meets a query at the grandfatherOf normal form"
-      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'UniverseContext))))
+      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'CxUniverse))))
     (testing "a query on the pre-normal form still matches — the goal normalizes too"
       (is (seq (v/sentexes-matching kb (list parentChain (list fatherOf (list fatherOf Tom)))
-                                    'UniverseContext))))
+                                    'CxUniverse))))
     (testing "ask binds through the normal form"
       (is (= [{'?y Tom}]
              (v/ask kb (list parentChain (list grandfatherOf '?y)) '?ctx))))))
@@ -114,23 +114,23 @@
   (tu/with-terms [fatherOf grandfatherOf parentChain Tom]
     (let [he (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x))
                                 (list grandfatherOf '?x))
-                       'UniverseContext)]
-      (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'UniverseContext)))
+                       'CxUniverse)]
+      (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'CxUniverse)))
       (testing "retracting the equation drops the twin and revives the original"
         (v/retract! kb he)
-        (is (empty? (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'UniverseContext)))
+        (is (empty? (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'CxUniverse)))
         (is (seq (v/sentexes-matching kb (list parentChain (list fatherOf (list fatherOf Tom)))
-                                      'UniverseContext)))))))
+                                      'CxUniverse)))))))
 
 (tu/deftest-kb schematic-rewrite-terminates-on-a-cascade
   ;; The reduction order guarantees termination whatever the nesting depth: fatherOf^6
   ;; Tom reduces to grandfatherOf^3 Tom, and normalization does not hang.
   (tu/with-terms [fatherOf grandfatherOf ancestry Tom]
     (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfatherOf '?x))
-              'UniverseContext)
-    (v/assert kb (list ancestry (nest fatherOf Tom 6)) 'UniverseContext)
-    (is (seq (v/sentexes-matching kb (list ancestry (nest grandfatherOf Tom 3)) 'UniverseContext)))))
+              'CxUniverse)
+    (v/assert kb (list ancestry (nest fatherOf Tom 6)) 'CxUniverse)
+    (is (seq (v/sentexes-matching kb (list ancestry (nest grandfatherOf Tom 3)) 'CxUniverse)))))
 
 (tu/deftest-kb schematic-rewrite-is-order-independent
   ;; Both migration paths converge on the same normal form: a fact asserted BEFORE the
@@ -139,13 +139,13 @@
   ;; each order in one KB.
   (tu/with-terms [pa gpa chaina TomA  pb gpb chainb TomB]
     (testing "rule then fact — the fact migrates when it arrives"
-      (v/assert kb (list 'equals (list pa (list pa '?x)) (list gpa '?x)) 'UniverseContext)
-      (v/assert kb (list chaina (list pa (list pa TomA))) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list chaina (list gpa TomA)) 'UniverseContext))))
+      (v/assert kb (list 'equals (list pa (list pa '?x)) (list gpa '?x)) 'CxUniverse)
+      (v/assert kb (list chaina (list pa (list pa TomA))) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list chaina (list gpa TomA)) 'CxUniverse))))
     (testing "fact then rule — the stored fact migrates when the rule arrives"
-      (v/assert kb (list chainb (list pb (list pb TomB))) 'UniverseContext)
-      (v/assert kb (list 'equals (list pb (list pb '?x)) (list gpb '?x)) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list chainb (list gpb TomB)) 'UniverseContext))))))
+      (v/assert kb (list chainb (list pb (list pb TomB))) 'CxUniverse)
+      (v/assert kb (list 'equals (list pb (list pb '?x)) (list gpb '?x)) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list chainb (list gpb TomB)) 'CxUniverse))))))
 
 (tu/deftest-kb prove-and-backward-normalize-the-goal
   ;; Parity: prove/backward now rewrite the top goal like query/ask, so a schematic
@@ -153,18 +153,18 @@
   ;; path-dependent-answer gap.
   (tu/with-terms [fatherOf grandfatherOf parentChain Tom  bornIn Keep Retire Hawaii]
     (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfatherOf '?x))
-              'UniverseContext)
-    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'UniverseContext)
+              'CxUniverse)
+    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
     (testing "prove answers the grandfatherOf normal form"
-      (is (seq (v/prove kb (list parentChain (list grandfatherOf Tom)) 'UniverseContext))))
+      (is (seq (v/prove kb (list parentChain (list grandfatherOf Tom)) 'CxUniverse))))
     (testing "backward answers the pre-normal form — the goal normalizes"
       (is (seq (v/prove kb (list parentChain (list fatherOf (list fatherOf Tom)))
-                        'UniverseContext))))
+                        'CxUniverse))))
     ;; merged-spelling equality parity: rewriteOf makes Retire the deprecated spelling
-    (v/assert kb (list bornIn Retire Hawaii) 'UniverseContext)
-    (v/assert kb (list 'rewriteOf Keep Retire) 'UniverseContext)
+    (v/assert kb (list bornIn Retire Hawaii) 'CxUniverse)
+    (v/assert kb (list 'rewriteOf Keep Retire) 'CxUniverse)
     (testing "prove answers a goal under the retired spelling (goal rewrites to the rep)"
-      (is (= [{'?c Hawaii}] (v/prove kb (list bornIn Retire '?c) 'UniverseContext))))))
+      (is (= [{'?c Hawaii}] (v/prove kb (list bornIn Retire '?c) 'CxUniverse))))))
 
 (tu/deftest-kb schematic-rewrite-orients-equal-size-by-precedence
   ;; KBO orients an equal-size pair by the symbol precedence (where the old size-only
@@ -172,11 +172,11 @@
   ;; canonical form and collapse to a single believed sentex.
   (tu/with-terms [ff gg wrap Tom]
     (v/assert kb (list 'equals (list ff (list gg '?x)) (list gg (list ff '?x)))
-              'UniverseContext)
-    (v/assert kb (list wrap (list ff (list gg Tom))) 'UniverseContext)
-    (v/assert kb (list wrap (list gg (list ff Tom))) 'UniverseContext)
+              'CxUniverse)
+    (v/assert kb (list wrap (list ff (list gg Tom))) 'CxUniverse)
+    (v/assert kb (list wrap (list gg (list ff Tom))) 'CxUniverse)
     (is (= 1 (count (distinct (map :sentence
-                                   (v/sentexes-matching kb (list wrap '?t) 'UniverseContext)))))
+                                   (v/sentexes-matching kb (list wrap '?t) 'CxUniverse)))))
         "the two equal-size-related facts collapse to one normal form")))
 
 (tu/deftest-kb schematic-rewrite-composes-with-symbol-merge
@@ -185,36 +185,36 @@
   ;; rewriting compose.
   (tu/with-terms [fatherOf grandfatherOf parentChain Tom Thomas]
     (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfatherOf '?x))
-              'UniverseContext)
-    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'UniverseContext)
-    (v/assert kb (list 'equals Tom Thomas) 'UniverseContext)      ; a symbol merge
+              'CxUniverse)
+    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
+    (v/assert kb (list 'equals Tom Thomas) 'CxUniverse)      ; a symbol merge
     (let [rep (v/representative kb Tom)]
-      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf rep)) 'UniverseContext))
+      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf rep)) 'CxUniverse))
           "the fact normalizes under both the merge (Tom→rep) and the rewrite (∘→gp)"))))
 
 (tu/deftest-kb retracting-one-schematic-rule-leaves-the-other
   ;; The rule cache is belief-following per equation handle: dropping one rule stops
   ;; its normalization while another's stands.
   (tu/with-terms [pp gpp qq ggqq wrap Tom]
-    (let [r1 (v/assert kb (list 'equals (list pp (list pp '?x)) (list gpp '?x)) 'UniverseContext)]
-      (v/assert kb (list 'equals (list qq (list qq '?x)) (list ggqq '?x)) 'UniverseContext)
-      (v/assert kb (list wrap (list pp (list pp Tom))) 'UniverseContext)
-      (v/assert kb (list wrap (list qq (list qq Tom))) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list wrap (list gpp Tom)) 'UniverseContext)))
-      (is (seq (v/sentexes-matching kb (list wrap (list ggqq Tom)) 'UniverseContext)))
+    (let [r1 (v/assert kb (list 'equals (list pp (list pp '?x)) (list gpp '?x)) 'CxUniverse)]
+      (v/assert kb (list 'equals (list qq (list qq '?x)) (list ggqq '?x)) 'CxUniverse)
+      (v/assert kb (list wrap (list pp (list pp Tom))) 'CxUniverse)
+      (v/assert kb (list wrap (list qq (list qq Tom))) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list wrap (list gpp Tom)) 'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list wrap (list ggqq Tom)) 'CxUniverse)))
       (testing "retracting the pp-rule stops its normalization but leaves the qq-rule's"
         (v/retract! kb r1)
-        (is (empty? (v/sentexes-matching kb (list wrap (list gpp Tom)) 'UniverseContext)))
-        (is (seq (v/sentexes-matching kb (list wrap (list ggqq Tom)) 'UniverseContext)))))))
+        (is (empty? (v/sentexes-matching kb (list wrap (list gpp Tom)) 'CxUniverse)))
+        (is (seq (v/sentexes-matching kb (list wrap (list ggqq Tom)) 'CxUniverse)))))))
 
 (tu/deftest-kb conflicting-schematic-rules-surface-non-confluence
   ;; Two equations with the same LHS but different RHS disagree about a shared term.
   ;; Detection, not completion: nothing is dropped (the normal form stays
   ;; deterministic), but the conflict is surfaced in the violations ledger.
   (tu/with-terms [ff gg hh]
-    (v/assert kb (list 'equals (list ff (list ff '?x)) (list gg '?x)) 'UniverseContext)
+    (v/assert kb (list 'equals (list ff (list ff '?x)) (list gg '?x)) 'CxUniverse)
     (v/clear-violations! kb)
-    (v/assert kb (list 'equals (list ff (list ff '?x)) (list hh '?x)) 'UniverseContext)
+    (v/assert kb (list 'equals (list ff (list ff '?x)) (list hh '?x)) 'CxUniverse)
     (let [nc (filter #(= :non-confluent (:violation %)) (v/violations kb))]
       (is (seq nc) "the second equation conflicts with the first at their shared LHS")
       (is (every? :message nc)))))
@@ -222,9 +222,9 @@
 (tu/deftest-kb disjoint-schematic-rules-report-no-conflict
   ;; Rules over different predicates never overlap, so no non-confluence is reported.
   (tu/with-terms [ff gg pp qq]
-    (v/assert kb (list 'equals (list ff (list ff '?x)) (list gg '?x)) 'UniverseContext)
+    (v/assert kb (list 'equals (list ff (list ff '?x)) (list gg '?x)) 'CxUniverse)
     (v/clear-violations! kb)
-    (v/assert kb (list 'equals (list pp (list pp '?x)) (list qq '?x)) 'UniverseContext)
+    (v/assert kb (list 'equals (list pp (list pp '?x)) (list qq '?x)) 'CxUniverse)
     (is (not-any? #(= :non-confluent (:violation %)) (v/violations kb)))))
 
 (tu/deftest-kb permutative-schematic-equation-is-refused
@@ -234,7 +234,7 @@
   (tu/with-terms [rel]
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo #"orient"
-         (v/assert kb (list 'equals (list rel '?x '?y) (list rel '?y '?x)) 'UniverseContext)))))
+         (v/assert kb (list 'equals (list rel '?x '?y) (list rel '?y '?x)) 'CxUniverse)))))
 
 ;; ---- the rule order is content, whatever the memo does ------------------
 
@@ -255,17 +255,17 @@
   ;; through `by-role` so the gensym'd names do not stand in the way.
   (tu/with-terms [ffa gga hha wrapa TomA  ffb ggb hhb wrapb TomB]
     (letfn [(landed [wrap m]
-              (->> (v/sentexes-matching kb (list wrap '?t) 'UniverseContext)
+              (->> (v/sentexes-matching kb (list wrap '?t) 'CxUniverse)
                    (map #(by-role m (:sentence %)))
                    set))]
       (testing "the gg-equation first"
-        (v/assert kb (list 'equals (list ffa (list ffa '?x)) (list gga '?x)) 'UniverseContext)
-        (v/assert kb (list 'equals (list ffa (list ffa '?x)) (list hha '?x)) 'UniverseContext)
-        (v/assert kb (list wrapa (list ffa (list ffa TomA))) 'UniverseContext))
+        (v/assert kb (list 'equals (list ffa (list ffa '?x)) (list gga '?x)) 'CxUniverse)
+        (v/assert kb (list 'equals (list ffa (list ffa '?x)) (list hha '?x)) 'CxUniverse)
+        (v/assert kb (list wrapa (list ffa (list ffa TomA))) 'CxUniverse))
       (testing "the hh-equation first"
-        (v/assert kb (list 'equals (list ffb (list ffb '?x)) (list hhb '?x)) 'UniverseContext)
-        (v/assert kb (list 'equals (list ffb (list ffb '?x)) (list ggb '?x)) 'UniverseContext)
-        (v/assert kb (list wrapb (list ffb (list ffb TomB))) 'UniverseContext))
+        (v/assert kb (list 'equals (list ffb (list ffb '?x)) (list hhb '?x)) 'CxUniverse)
+        (v/assert kb (list 'equals (list ffb (list ffb '?x)) (list ggb '?x)) 'CxUniverse)
+        (v/assert kb (list wrapb (list ffb (list ffb TomB))) 'CxUniverse))
       (let [a (landed wrapa {ffa 'FF gga 'GG hha 'HH wrapa 'WRAP TomA 'TOM})
             b (landed wrapb {ffb 'FF ggb 'GG hhb 'HH wrapb 'WRAP TomB 'TOM})]
         (is (seq a) "the fact is stored under some normal form")

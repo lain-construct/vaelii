@@ -28,19 +28,19 @@
 ;; `except_test`: Tweety flies, Opus does not, nothing was arbitrated.
 
 (tu/deftest-kb deferred-settle-reaches-the-same-belief-as-per-assert
-  (tu/with-terms [bird penguin flies Tweety Opus BirdContext]
+  (tu/with-terms [bird penguin flies Tweety Opus CxBird]
     (v/with-deferred-settle kb
       (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
-                BirdContext)
-      (v/assert kb (list bird Tweety) BirdContext)
-      (v/assert kb (list bird Opus) BirdContext)
-      (v/assert kb (list penguin Opus) BirdContext))
+                CxBird)
+      (v/assert kb (list bird Tweety) CxBird)
+      (v/assert kb (list bird Opus) CxBird)
+      (v/assert kb (list penguin Opus) CxBird))
     (testing "the unexcepted binding concludes"
-      (is (seq (v/sentexes-matching kb (list flies Tweety) BirdContext))))
+      (is (seq (v/sentexes-matching kb (list flies Tweety) CxBird))))
     (testing "the excepted binding was swept by the closing settle"
-      (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext))))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
     (testing "blocking is not rebutting, and nothing was arbitrated"
-      (is (empty? (v/sentexes-matching kb (list 'not (list flies Opus)) BirdContext)))
+      (is (empty? (v/sentexes-matching kb (list 'not (list flies Opus)) CxBird)))
       (is (empty? (v/conflicts kb))))))
 
 ;; ---- the settle is genuinely deferred ------------------------------------
@@ -49,36 +49,36 @@
 ;; the batch and gone only after it closes — the observable difference.
 
 (tu/deftest-kb deferral-postpones-the-exception-sweep-to-the-batch-end
-  (tu/with-terms [bird penguin flies Opus BirdContext]
+  (tu/with-terms [bird penguin flies Opus CxBird]
     (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Opus) BirdContext)
-    (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext))
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))
         "flies Opus is placed while only bird is known")
     (v/with-deferred-settle kb
-      (v/assert kb (list penguin Opus) BirdContext)
+      (v/assert kb (list penguin Opus) CxBird)
       (testing "mid-batch: settle deferred, so the queued sweep has not run"
-        (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext)))))
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird)))))
     (testing "the closing settle ran the sweep"
-      (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext))))))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))))
 
 ;; ---- assert-many: derive + return handles --------------------------------
 
 (tu/deftest-kb assert-many-chains-per-fact-and-settles-once
-  (tu/with-terms [parentOf grandparentOf Tom Bob Ann FamContext]
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxFam]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) FamContext)
+                   (list grandparentOf '?x '?z) CxFam)
     (let [hs (v/assert-many kb [(list parentOf Tom Bob) (list parentOf Bob Ann)]
-                            FamContext)]
+                            CxFam)]
       (testing "one handle back per input sentence, in order"
         (is (= 2 (count hs)))
         (is (every? nat-int? hs)))
       (testing "chaining ran per fact, so the grandparent is derived after the settle"
-        (is (seq (v/sentexes-matching kb (list grandparentOf Tom Ann) FamContext))))
+        (is (seq (v/sentexes-matching kb (list grandparentOf Tom Ann) CxFam))))
       (testing "the returned handles are the asserted facts"
         (is (= (set hs)
-               (set [(v/handle-of kb (list parentOf Tom Bob) FamContext)
-                     (v/handle-of kb (list parentOf Bob Ann) FamContext)])))))))
+               (set [(v/handle-of kb (list parentOf Tom Bob) CxFam)
+                     (v/handle-of kb (list parentOf Bob Ann) CxFam)])))))))
 
 ;; ---- bulk-assert-facts!: the fast path lands what the slow one lands ------
 ;; The door's whole promise is that turning the checks, the dedup and the provenance
@@ -87,45 +87,45 @@
 ;; docstring names: stored sentexes, index, beliefs, `count-with-functor`.
 
 (tu/deftest-kb bulk-assert-facts-lands-what-per-fact-assert-lands
-  (tu/with-terms [edgeOf BulkContext SlowContext]
+  (tu/with-terms [edgeOf CxBulk CxSlow]
     (let [inds  (mapv #(tu/tmp-ind (str "Node" %)) (range 24))
           facts (mapv (fn [a b] (list edgeOf a b)) inds (rest (cycle inds)))
           n     (count facts)
           idx   (:index kb)]
-      (let [hs (v/bulk-assert-facts! kb facts BulkContext)]
+      (let [hs (v/bulk-assert-facts! kb facts CxBulk)]
         (is (= n (count hs)) "one handle back per input fact, in order"))
-      (doseq [f facts] (v/assert kb f SlowContext {:chain? false}))
+      (doseq [f facts] (v/assert kb f CxSlow {:chain? false}))
 
       (testing "same stored sentexes — one per fact on each side"
-        (is (= n (p/count-in-context idx BulkContext) (p/count-in-context idx SlowContext))))
+        (is (= n (p/count-in-context idx CxBulk) (p/count-in-context idx CxSlow))))
       (testing "same count-with-functor — the functor root took both halves"
         (is (= (* 2 n) (v/count-with-functor kb edgeOf)))
         (is (= (* 2 n) (p/count-at idx [edgeOf]))))
       (testing "same beliefs — every fact matches and is IN on both sides"
         (doseq [f facts]
-          (is (seq (v/sentexes-matching kb f BulkContext)))
-          (is (seq (v/sentexes-matching kb f SlowContext)))
-          (is (v/in? kb (v/handle-of kb f BulkContext)))
-          (is (v/in? kb (v/handle-of kb f SlowContext)))))
+          (is (seq (v/sentexes-matching kb f CxBulk)))
+          (is (seq (v/sentexes-matching kb f CxSlow)))
+          (is (v/in? kb (v/handle-of kb f CxBulk)))
+          (is (v/in? kb (v/handle-of kb f CxSlow)))))
       (testing "same index — each argument root holds both halves' handles"
         (doseq [t inds, pos [1 2]]
-          (is (= (count (filter #(= BulkContext (:context (v/sentex kb %)))
+          (is (= (count (filter #(= CxBulk (:context (v/sentex kb %)))
                                 (p/sentexes-with-arg idx pos t)))
-                 (count (filter #(= SlowContext (:context (v/sentex kb %)))
+                 (count (filter #(= CxSlow (:context (v/sentex kb %)))
                                 (p/sentexes-with-arg idx pos t)))))))
       (testing "provenance is the one documented difference: the bulk premise carries none"
-        (is (nil? (v/provenance kb (v/handle-of kb (first facts) BulkContext))))
-        (is (some? (v/provenance kb (v/handle-of kb (first facts) SlowContext))))))))
+        (is (nil? (v/provenance kb (v/handle-of kb (first facts) CxBulk))))
+        (is (some? (v/provenance kb (v/handle-of kb (first facts) CxSlow))))))))
 
 (tu/deftest-kb bulk-assert-facts-reports-its-rate-to-on-progress
   ;; The load rate is what makes the next regression noticeable, so the door reports
   ;; it rather than leaving every caller to time the call.  The closing event fires
   ;; *after* the deferred settle, so it covers the whole load.
-  (tu/with-terms [edgeOf RateContext]
+  (tu/with-terms [edgeOf CxRate]
     (let [inds   (mapv #(tu/tmp-ind (str "Rate" %)) (range 12))
           facts  (mapv (fn [a b] (list edgeOf a b)) inds (rest (cycle inds)))
           events (atom [])]
-      (v/bulk-assert-facts! kb facts RateContext {:on-progress #(swap! events conj %)})
+      (v/bulk-assert-facts! kb facts CxRate {:on-progress #(swap! events conj %)})
       (is (= 1 (count @events)) "one event: the corpus is under the 100,000-fact window")
       (let [{:keys [phase total elapsed-ms facts-per-sec]} (first @events)]
         (is (= :done phase))
@@ -136,14 +136,14 @@
 ;; ---- nesting composes: only the outermost settles ------------------------
 
 (tu/deftest-kb nested-deferred-settle-composes
-  (tu/with-terms [bird penguin flies Opus BirdContext]
+  (tu/with-terms [bird penguin flies Opus CxBird]
     (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Opus) BirdContext)
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
     (v/with-deferred-settle kb
       (v/with-deferred-settle kb
-        (v/assert kb (list penguin Opus) BirdContext))
+        (v/assert kb (list penguin Opus) CxBird))
       (testing "an inner block does not settle; the outer one still owns it"
-        (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext)))))
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird)))))
     (testing "the outermost settle swept it"
-      (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext))))))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))))

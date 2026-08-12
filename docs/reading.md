@@ -69,15 +69,15 @@ is asked in one place rather than in two.
          '[vaelii.impl.llm.ollama :as ollama])
 
 (llm/propose-text kb {:text     "A lion caught a mouse, but he spared it…"
-                      :context  'LionMouseContext        ; never the model's to write
+                      :context  'CxLionMouse        ; never the model's to write
                       :source   :aesop-lion-and-mouse    ; what provenance records
                       :provider (ollama/generation-provider)})
 ;; => {:status   :ok
-;;     :batch    {:add [[(lion Lion1) LionMouseContext
+;;     :batch    {:add [[(lion Lion1) CxLionMouse
 ;;                       {:provenance {:source :aesop-lion-and-mouse :segment 0
 ;;                                     :span [0 82] :confidence 0.9}}] …]
 ;;                :remove []}
-;;     :lines    "[(lion Lion1) LionMouseContext {…}]\n…"   ; the editor's textarea content
+;;     :lines    "[(lion Lion1) CxLionMouse {…}]\n…"   ; the editor's textarea content
 ;;     :repairs  [{:entry […] :problem {:type :not-ground …} :correction {…}}]
 ;;     :corrections [{:from (believed person) :to (set/defaultRule …) :why "…"}]
 ;;     :coverage {:segments 4 :covered 3
@@ -148,7 +148,7 @@ coins a synonym for it, and the claim joins nothing. `text/declared-in` reads th
 `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships **scoped to the target
 context's cone** — which is the right scope on its merits, since a candidate filed in one
 context may reuse exactly the vocabulary that context sees — and orders the cone by how much
-each context sees, largest first. So a cap drops `CoreContext`'s plumbing before it drops
+each context sees, largest first. So a cap drops `CxCore`'s plumbing before it drops
 the story's own predicates.
 
 What tier 3 puts on the card is **names and shapes**. A declaration says a predicate exists
@@ -259,7 +259,7 @@ the scorer's opinion.
 Two filters on what counts as gold:
 
 - **Its own context**, not the cone above it. A story context sees the whole upper ontology
-  through `genlContext`, and scoring a reader of one fable against the shipped schema would
+  through `genlCx`, and scoring a reader of one fable against the shipped schema would
   measure a recall it was never asked for.
 - **Premises only.** `(repaidKindness MouseA LionA)` is forward-chained, and so are the
   eleven conclusions the shipped biology theory draws about the characters. Asking a reader
@@ -366,7 +366,7 @@ spelled stay.
 
 Six, and they are more informative than the rates.
 
-**A second modelling layer in the same context.** `TortoiseHareContext` holds the fable
+**A second modelling layer in the same context.** `CxTortoiseHare` holds the fable
 *and* `world-narrative`'s story-understanding schema — `(goal WinRace)`,
 `(event TortoiseFinishes)`, `(brings TortoiseA TortoiseFinishes)` and three more. Those are
 premises somebody wrote, so they are gold, and the prose says nothing about goals or events.

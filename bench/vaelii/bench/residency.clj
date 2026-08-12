@@ -90,7 +90,7 @@
                       :fallback (file-bytes dir "roots-fallback.nippy")}]
           ;; touch every mapped posting once, so the reading is of a *warm* mapped index
           ;; rather than of one nothing has read yet
-          (dorun (v/sentexes-matching kb2 '(?p ?x ?y) 'GeneratedContext))
+          (dorun (v/sentexes-matching kb2 '(?p ?x ?y) 'CxGenerated))
           (disk/close-dir! dir)
           (snap/discard! dir)                                  ; the fallback, on purpose
           (let [[_ rebuild-ms] (timed (v/open-kb {:records :disk :index :columnar

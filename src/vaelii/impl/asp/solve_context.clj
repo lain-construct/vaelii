@@ -3,7 +3,7 @@
 (ns vaelii.impl.asp.solve-context
   "Solving as a **persistent, inert** artifact: `assumptionRules` define choices, a
   solve grounds them (scoped to a base context), enumerates the optimal answer sets,
-  and materializes **each one as its own labeling context** — a `genlContext` child of
+  and materializes **each one as its own labeling context** — a `genlCx` child of
   the base holding the chosen truth values as inert sentexes.  `classify` then gathers
   brave/cautious over those labelings.
 
@@ -42,7 +42,6 @@
   `disjoint` type clash.  Choices do **not** propagate through ordinary rules yet
   (that is provenance-propagation / full clingo grounding, the named follow-ups)."
   (:require [clojure.set :as set]
-            [clojure.string :as str]
             [vaelii.core :as v]
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
@@ -53,20 +52,20 @@
             [vaelii.impl.solve :as solve]))
 
 ;; ---- context naming and ownership ----------------------------------------
-;; `Into` is a context name (ends in "Context") that seeds the run's artifact
-;; names: labelings are numbered `<base>1Context`, `<base>2Context`, …, and the
-;; classification lands in `<base>ClassContext`.  The names are for humans;
+;; `Into` is a context name (`Cx`-prefixed) that seeds the run's artifact names by
+;; appending to it directly — the prefix is already there, so nothing is stripped or
+;; re-added: labelings are numbered `<Into>1`, `<Into>2`, …, and the classification
+;; lands in `<Into>Class`.  The names are for humans;
 ;; **ownership is recorded, never inferred from a name**: each labeling context
 ;; carries an inert `(labelingOf <ctx> <Into> <i>)` marker, and rediscovery reads
 ;; the markers back through the term index.  So a user context that happens to be
-;; named `<base><i>Context` is neither read by `classify` nor swept by a re-run —
+;; named `<Into><i>` is neither read by `classify` nor swept by a re-run —
 ;; a name pattern would make both mistakes, and with a destructive sweep the
 ;; second one is data loss.
 
-(defn- base-name [ctx] (str/replace (name ctx) #"Context$" ""))
-(defn- ctx-sym [& parts] (symbol (str (apply str parts) "Context")))
-(defn- class-context [into]    (ctx-sym (base-name into) "Class"))
-(defn- labeling-context [into i] (ctx-sym (base-name into) i))
+(defn- ctx-sym [base & parts] (symbol (apply str (name base) parts)))
+(defn- class-context [into]      (ctx-sym into "Class"))
+(defn- labeling-context [into i] (ctx-sym into i))
 
 (defn- marker?
   "Is this stored sentence a `labelingOf` ownership marker?"
@@ -87,7 +86,7 @@
        (mapv second)))
 
 (defn- free-labeling-contexts
-  "Labeling context names for `n` answer sets: `<base><i>Context` counting up from 1,
+  "Labeling context names for `n` answer sets: `<Into><i>` counting up from 1,
   skipping any name an unrelated context already occupies — in the hierarchy, or
   with a non-empty extent.  A re-run's own previous contexts were cleared just
   before this runs, so they do not block their own slots; a user context that
@@ -108,7 +107,7 @@
 
 (defn- clear-context!
   "Retract everything in or about `ctx`: its extent and any sentex that mentions it
-  — the labeling truth values and their marker, the `genlContext` edge that hangs it
+  — the labeling truth values and their marker, the `genlCx` edge that hangs it
   under a base, a stale classification.  The term index makes that one lookup
   (`find-sentexes`), and `retract!` tears an inert sentex down directly.
 
@@ -125,7 +124,7 @@
   the numbered labeling contexts and the classification.
   Replace-on-rerun is what keeps a run from accreting across groundings — an inert
   `(head)` beside an inert `(not head)` in one context asserts nothing — and
-  retracting the `genlContext` edges is what drops a surplus stale context (a run
+  retracting the `genlCx` edges is what drops a surplus stale context (a run
   that shrank from three labelings to two) out of the hierarchy, so `classify`
   cannot sweep it back in."
   [kb into]
@@ -136,7 +135,7 @@
 
 (defn- assumption-rules
   "Every **believed** `assumptionRule` visible from `base` — scoped to `base` and its
-  genlContext up-closure, never the whole KB.  `sentexes-in-context` reads storage, so
+  genlCx up-closure, never the whole KB.  `sentexes-in-context` reads storage, so
   the belief question is asked here, as both chainers ask it: a defeated or superseded
   assumptionRule must not mint choice heads.  `rule-believed?` rather than `jtms/in?`
   so an `:inert` rule stays available — this run is the fourth consumer of a rule's
@@ -242,7 +241,7 @@
 
 (defn- constraint-rules
   "Every **believed** constraint rule visible from `base` — scoped to `base` and its
-  genlContext up-closure, and belief-filtered, like `assumption-rules`: a defeated or
+  genlCx up-closure, and belief-filtered, like `assumption-rules`: a defeated or
   superseded constraint must not go on forbidding models."
   [kb base]
   (for [ctx (distinct (cons base (v/context-up kb base)))
@@ -410,8 +409,8 @@
   **`mode` (an optional third argument, default `:all`) picks how many worlds:**
 
     * `:all` — enumerate **every** optimal answer set and materialize each as its own
-      inert labeling context: a `genlContext` child of `Base` named
-      `<Into-base><i>Context` (skipping any slot an unrelated context occupies) holding
+      inert labeling context: a `genlCx` child of `Base` named
+      `<Into><i>` (skipping any slot an unrelated context occupies) holding
       `(head)` for a chosen-true choice, `(not head)` for a chosen-false one, and its
       `labelingOf` ownership marker.  The worlds coexist and persist for `do/classify` to
       aggregate; base belief is untouched.  This is the studying-many-worlds mode, and it
@@ -483,9 +482,9 @@
                                      l      (labeling chosen)
                                      truths (:true l)
                                      falses (:false l)]
-                                 ;; a genlContext edge so the labeling shows under Base in the tree;
+                                 ;; a genlCx edge so the labeling shows under Base in the tree;
                                  ;; monotonic because it is a real structural edge, not a solve result
-                                 (v/assert kb (list 'genlContext ctx base) base {:strength :monotonic})
+                                 (v/assert kb (list 'genlCx ctx base) base {:strength :monotonic})
                                  ;; the ownership marker rediscovery reads (see labeling-contexts)
                                  (v/assert-inert kb (list 'labelingOf ctx into (inc i)) ctx)
                                  (doseq [s truths] (v/assert-inert kb s ctx))
@@ -518,7 +517,7 @@
 
 (defn classify
   "Gather brave/cautious over the labelings a prior `(do/label _ Into)` produced, and
-  record the result as inert sentexes in `<Into-base>ClassContext`.  A choice head is
+  record the result as inert sentexes in `<Into>Class`.  A choice head is
 
     * `(forced H)`      — `(head)` in **every** labeling (a cautious/skeptical consequence),
     * `(excluded H)`    — `(not head)` in every labeling,

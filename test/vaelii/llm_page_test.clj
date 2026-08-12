@@ -42,7 +42,7 @@
         flies  (tu/fresh-term :predicate :flies)
         likes  (tu/fresh-term :predicate :likes)
         ctx    (tu/fresh-term :context :Story)]
-    (v/assert kb (list 'genlContext ctx 'CoreContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx ctx 'CxCore) 'CxUniverse)
     (v/assert kb (list 'genl bird animal) ctx)
     (v/assert kb (list 'genl peng bird) ctx)
     (v/assert kb (list 'comment peng "A flightless bird.") ctx)
@@ -79,7 +79,7 @@
   (let [p (tu/fresh-term :predicate :smells)
         ctx (tu/fresh-term :context :Story)
         t (tu/fresh-term :type :animal)]
-    (v/assert kb (list 'genlContext ctx 'CoreContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx ctx 'CxCore) 'CxUniverse)
     (v/assert kb (list 'argIsa p 1 t) ctx)
     (is (nil? (get (inv/declared-arities kb) p)))
     (testing "the shape falls back to a stored fact's arity, which is ground truth"
@@ -110,8 +110,8 @@
     (testing "the type-level structural predicates are offered"
       (is (= '[genl disjoint comment argIsa] (vec structural))))
     (testing "and the rest of the head's vocabulary is not — a penguin page has no use for it"
-      (is (not-any? domain '#{genlContext lessThan evaluate rewriteOf forcedDecontextualizedPredicate}))
-      (is (not-any? (set structural) '#{genlContext lessThan evaluate})))
+      (is (not-any? domain '#{genlCx lessThan evaluate rewriteOf forcedDecontextualizedPredicate}))
+      (is (not-any? (set structural) '#{genlCx lessThan evaluate})))
     (testing "nor are the head's own types offered as type names"
       (is (not-any? (set (map :type (:types i))) '#{predicate unaryPredicate binaryPredicate})))))
 
@@ -123,7 +123,7 @@
       (is (= :predicate (inv/term-kind kb eats)))
       (is (= :predicate (inv/term-kind kb flies))))
     (is (= :individual (inv/term-kind kb 'Muffet)))
-    (is (= :context (inv/term-kind kb 'WellContext)))))
+    (is (= :context (inv/term-kind kb 'CxWell)))))
 
 (tu/deftest-kb the-card-is-bounded-by-tokens-and-says-what-it-cut
   (let [{:keys [penguin]} (world kb)
@@ -158,11 +158,11 @@
   ;; is what the card should state — `animal` says less than `bird` about what belongs
   ;; there, and the alphabet is not what decides between them.
   (let [{:keys [animal bird ctx]} (world kb)]
-    (tu/with-terms [chases OtherContext]
-      (v/assert kb (list 'genlContext OtherContext 'CoreContext) 'UniverseContext)
+    (tu/with-terms [chases CxOther]
+      (v/assert kb (list 'genlCx CxOther 'CxCore) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate chases) ctx)
       (v/assert kb (list 'argIsa chases 1 animal) ctx)
-      (v/assert kb (list 'argIsa chases 1 bird) OtherContext)
+      (v/assert kb (list 'argIsa chases 1 bird) CxOther)
       (v/assert kb (list 'argIsa chases 2 animal) ctx)
       (let [shape (inv/predicate-shape kb chases 2)]
         (is (= [[1 bird] [1 animal] [2 animal]] (:args shape)) "narrowest first, within a position")
@@ -344,11 +344,11 @@
   (let [{:keys [penguin ctx]} (world kb)
         rows (page/stored-lines kb penguin)]
     (is (= ctx (page/page-context rows nil)) "where the term's own sentexes are")
-    (is (= 'WellContext (page/page-context rows 'WellContext)) "the caller always wins")
+    (is (= 'CxWell (page/page-context rows 'CxWell)) "the caller always wins")
     (testing "the head is excluded — derived bookkeeping there can outnumber the definitions"
-      (is (= 'UniverseContext
+      (is (= 'CxUniverse
              (page/page-context [{:context inv/head-context} {:context inv/head-context}] nil))))
-    (is (= 'UniverseContext (page/page-context [] nil)))))
+    (is (= 'CxUniverse (page/page-context [] nil)))))
 
 (tu/deftest-kb the-prompt-shows-the-failure-and-the-fix
   (testing "telling a model to use arguments is not enough — the wrong answer is shown too"

@@ -37,7 +37,7 @@
         muffet (tu/fresh-term :individual :Muffet)
         tom  (tu/fresh-term :individual :Tom)
         ctx  (tu/fresh-term :context :Story)]
-    (v/assert kb (list 'genlContext ctx 'CoreContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx ctx 'CxCore) 'CxUniverse)
     {:dog dog :cat cat :Muffet muffet :Tom tom :ctx ctx
      :h-dog (v/assert kb (list dog muffet) ctx)
      :h-cat (v/assert kb (list cat tom) ctx)}))
@@ -79,7 +79,7 @@
 
 (tu/deftest-kb a-truncated-batch-turn-is-its-own-status
   (tu/with-terms [dog Muffet]
-    (let [batch {:add [[(list dog Muffet) 'UniverseContext]] :remove [12345]}
+    (let [batch {:add [[(list dog Muffet) 'CxUniverse]] :remove [12345]}
           p (stub/provider {:script [(answer "max_tokens" (stub/batch-text batch))]})
           r (session/propose kb {:message "add Muffet" :provider p})]
       (is (= :truncated (:status r)))
@@ -90,17 +90,17 @@
   ;; The page path only adds, so a short answer costs assertions rather than proposing a
   ;; retraction — the batch stands and the flag says it is a prefix.
   (tu/with-terms [a_penguin a_bird]
-    (v/assert kb (list 'genl a_penguin a_bird) 'UniverseContext)
+    (v/assert kb (list 'genl a_penguin a_bird) 'CxUniverse)
     (let [text (stub/assertions-text [(list 'genl a_penguin 'thing)])
           cut  (stub/provider {:script [(answer "max_tokens" text)]})
-          r    (session/propose-page kb {:term a_penguin :context 'UniverseContext
+          r    (session/propose-page kb {:term a_penguin :context 'CxUniverse
                                          :provider cut :message "flesh it out"})]
       (is (= :ok (:status r)))
       (is (true? (:answer-truncated? r)))
       (is (= 1 (count (:add (:batch r)))) "what did arrive is still applicable"))
     (testing "and a whole turn says so too"
       (let [whole (stub/provider {:script [{:assertions [(list 'genl a_penguin 'thing)]}]})
-            r     (session/propose-page kb {:term a_penguin :context 'UniverseContext
+            r     (session/propose-page kb {:term a_penguin :context 'CxUniverse
                                             :provider whole :message "flesh it out"})]
         (is (false? (:answer-truncated? r)))))))
 
@@ -112,10 +112,10 @@
   ;; this, the reviewer reading the same 40 lines is not.
   (tu/with-terms [a_penguin likes]
     (doseq [who (repeatedly 12 #(tu/fresh-term :individual :Who))]
-      (v/assert kb (list likes who a_penguin) 'UniverseContext))
+      (v/assert kb (list likes who a_penguin) 'CxUniverse))
     (let [p (stub/provider {:script [{:assertions [(list 'genl a_penguin 'thing)]}]})
           page-proposal (fn [popts]
-                          (session/propose-page kb {:term a_penguin :context 'UniverseContext
+                          (session/propose-page kb {:term a_penguin :context 'CxUniverse
                                                     :provider p :message "flesh it out"
                                                     :prompt-opts popts}))]
       (testing "cut by the line cap: how many there were, and the shown rows are fewer"
@@ -180,11 +180,11 @@
   ;; jointly inconsistent both pass and the proposal is `:ok`.  `edit!` is not a
   ;; transaction, so the apply stores the first, throws on the second, and skips the
   ;; settle — which is the state this reports rather than raises.
-  (tu/with-terms [a_dog a_cat Rex StoryContext]
-    (v/assert kb (list 'genlContext StoryContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'disjoint a_dog a_cat) 'UniverseContext)
-    (let [batch {:add [[(list a_dog Rex) StoryContext]
-                       [(list a_cat Rex) StoryContext]]
+  (tu/with-terms [a_dog a_cat Rex CxStory]
+    (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'disjoint a_dog a_cat) 'CxUniverse)
+    (let [batch {:add [[(list a_dog Rex) CxStory]
+                       [(list a_cat Rex) CxStory]]
                  :remove []}]
       (testing "the critic passes it — neither add contradicts the KB it was graded against"
         (is (empty? (session/check-batch kb batch))))
@@ -197,29 +197,29 @@
           (is (= :disjoint (:type (:error r))))
           (is (instance? Throwable (:exception (:error r)))))
         (testing "and the store agrees with the count"
-          (is (some? (v/handle-of kb (list a_dog Rex) StoryContext)))
-          (is (nil? (v/handle-of kb (list a_cat Rex) StoryContext))))
+          (is (some? (v/handle-of kb (list a_dog Rex) CxStory)))
+          (is (nil? (v/handle-of kb (list a_cat Rex) CxStory))))
         (testing "belief was settled by hand, which is what makes the prefix recoverable"
           (is (pos? (reduce + (vals (:histogram (v/settle-stats kb))))))
-          (is (true? (v/in? kb (v/handle-of kb (list a_dog Rex) StoryContext)))))))))
+          (is (true? (v/in? kb (v/handle-of kb (list a_dog Rex) CxStory)))))))))
 
 (tu/deftest-kb a-whole-batch-reports-the-same-shape-with-nothing-failed
-  (tu/with-terms [a_dog Rex StoryContext]
-    (v/assert kb (list 'genlContext StoryContext 'UniverseContext) 'UniverseContext)
-    (let [batch {:add [[(list a_dog Rex) StoryContext]] :remove []}
+  (tu/with-terms [a_dog Rex CxStory]
+    (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse)
+    (let [batch {:add [[(list a_dog Rex) CxStory]] :remove []}
           r (session/apply-proposal! kb {:status :ok :batch batch})]
       (is (= 1 (:applied r)))
       (is (nil? (:failed-at r)))
       (is (nil? (:error r)))
       (is (= 1 (count (:added (:result r)))) "the edit result is still the whole of it")
-      (is (some? (v/handle-of kb (list a_dog Rex) StoryContext))))))
+      (is (some? (v/handle-of kb (list a_dog Rex) CxStory))))))
 
 (tu/deftest-kb applying-still-refuses-a-proposal-the-critic-rejected
   ;; The precondition is a throw and stays one: nothing was written, so there is no
   ;; partial state to report and a caller that ignored the status must be stopped.
   (tu/with-terms [Muffet]
     (let [proposal {:status :invalid
-                    :batch {:add [[(list 'BadFunctor Muffet) 'UniverseContext]] :remove []}}]
+                    :batch {:add [[(list 'BadFunctor Muffet) 'CxUniverse]] :remove []}}]
       (is (= :llm-not-applicable
              (try (session/apply-proposal! kb proposal)
                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))))

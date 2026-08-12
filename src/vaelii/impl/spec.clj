@@ -41,7 +41,7 @@
 ;; ---- building blocks ----------------------------------------------------
 
 (s/def ::kb map?)                          ; a KB record satisfies map?
-(s/def ::context symbol?)                  ; a CapitalCamelCase …Context symbol, or the
+(s/def ::context symbol?)                  ; a Cx-prefixed CapitalCamelCase symbol, or the
                                            ; open '?ctx variable the read paths default to
 (s/def ::sentence some?)                   ; a sentence (a list) — never nil
 (s/def ::goal (s/or :one seq?              ; a single goal sentence …

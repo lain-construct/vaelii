@@ -407,7 +407,7 @@
           ;; the busiest context, not an arbitrary one: a read scoped to a context nobody
           ;; asserts into sees no edges and would measure the empty case.
           ctx     (if quick?
-                    'UniverseContext
+                    'CxUniverse
                     (first (sort-by #(- (v/count-in-context kb %)) all-ctx)))
           types   (vec (v/types kb))
           sample  (vec (take (if quick? 500 10000) types))

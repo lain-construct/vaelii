@@ -248,7 +248,7 @@
               "properties" {"sentence" {"type" "string"
                                         "description" "One s-expression, e.g. (fatherOf Tom Ann)"}
                             "context" {"type" "string"
-                                       "description" "The context it holds in, e.g. WellContext"}
+                                       "description" "The context it holds in, e.g. CxWell"}
                             "strength" {"type" "string" "enum" ["monotonic" "default"]
                                         "description" "monotonic = known true; default = defeasible"}}
               "required" ["sentence" "context"]}}
@@ -268,13 +268,13 @@
   nothing — is the cheap fix, and it costs about sixty tokens."
   (str "### Example\n\n"
        "Selected lines:\n\n"
-       "[(parentOf Tom Ann) WellContext]\n"
-       "[(dog Muffet) WellContext]\n\n"
+       "[(parentOf Tom Ann) CxWell]\n"
+       "[(dog Muffet) CxWell]\n\n"
        "Instruction: Tom is Ann's father, and Muffet belongs to Ann.\n\n"
        "Your whole answer:\n\n"
-       "[(fatherOf Tom Ann) WellContext]\n"
-       "[(dog Muffet) WellContext]\n"
-       "[(ownedBy Muffet Ann) WellContext]\n\n"
+       "[(fatherOf Tom Ann) CxWell]\n"
+       "[(dog Muffet) CxWell]\n"
+       "[(ownedBy Muffet Ann) CxWell]\n\n"
        "The first line was rewritten, the second kept exactly as given, the third "
        "invented — and every one of them is an s-expression in brackets, never a "
        "sentence of English."))
@@ -309,7 +309,7 @@
    "| predicate | camelCase | `parentOf`, `ownedBy` |\n"
    "| individual | CapitalCamelCase | `Muffet`, `Ann` |\n"
    "| type | snake_case, used as a **unary** predicate | `dog`, `physical_object` |\n"
-   "| context | CapitalCamelCase ending in `Context` | `WellContext` |\n\n"
+   "| context | `Cx` prefix, then CapitalCamelCase | `CxWell` |\n\n"
    "Write `(dog Muffet)`, never `(isa Muffet Dog)`. A fact must be ground — no `?x` "
    "variables outside a rule. Reuse the vocabulary on the card rather than inventing a "
    "synonym for it, and prefer the most specific predicate the card offers.\n\n"

@@ -64,26 +64,26 @@
     (testing "every rostered term is a symbol — a ground compound is a fragment, not a name"
       (is (every? symbol? (v/terms kb))))
     (testing "known vocabulary is in there"
-      (is (every? (set (v/terms kb)) '[genl thing CoreContext argIsa])))))
+      (is (every? (set (v/terms kb)) '[genl thing CxCore argIsa])))))
 
 ;; ---- maintenance: a name arrives with the first mention, leaves with the last ----
 
 (deftest a-term-arrives-and-leaves-with-its-postings
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog Muffet Rex StoryContext]
+    (tu/with-terms [dog Muffet Rex CxStory]
       (let [before (set (v/terms kb))
             n0     (v/term-count kb)
-            h1     (v/assert kb (list dog Muffet) StoryContext)]
+            h1     (v/assert kb (list dog Muffet) CxStory)]
         (testing "asserting introduces every name the sentex mentions, once"
-          (is (set/subset? #{dog Muffet StoryContext} (set (v/terms kb))))
+          (is (set/subset? #{dog Muffet CxStory} (set (v/terms kb))))
           (is (= (+ n0 3) (v/term-count kb))))
-        (let [h2 (v/assert kb (list dog Rex) StoryContext)]
+        (let [h2 (v/assert kb (list dog Rex) CxStory)]
           (testing "a second sentex over the same names adds only the new one"
             (is (= (+ n0 4) (v/term-count kb))))
           (testing "retracting one keeps the names the other still mentions"
             (v/retract! kb h1)
-            (is (= #{dog Rex StoryContext}
-                   (set/intersection #{dog Muffet Rex StoryContext} (set (v/terms kb)))))
+            (is (= #{dog Rex CxStory}
+                   (set/intersection #{dog Muffet Rex CxStory} (set (v/terms kb)))))
             (is (= (+ n0 3) (v/term-count kb))))
           (testing "retracting the last mention retires them all"
             (v/retract! kb h2)
@@ -92,29 +92,29 @@
 
 (deftest a-term-survives-in-another-context
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [likes Ann Bob OneContext TwoContext]
-      (let [h1 (v/assert kb (list likes Ann Bob) OneContext)]
-        (v/assert kb (list likes Ann Bob) TwoContext)
-        (is (set/subset? #{likes Ann Bob OneContext TwoContext} (set (v/terms kb))))
+    (tu/with-terms [likes Ann Bob CxOne CxTwo]
+      (let [h1 (v/assert kb (list likes Ann Bob) CxOne)]
+        (v/assert kb (list likes Ann Bob) CxTwo)
+        (is (set/subset? #{likes Ann Bob CxOne CxTwo} (set (v/terms kb))))
         (v/retract! kb h1)
         (let [ts (set (v/terms kb))]
-          (is (set/subset? #{likes Ann Bob TwoContext} ts) "the shared names stay")
-          (is (not (ts OneContext)) "the emptied context's name goes"))))))
+          (is (set/subset? #{likes Ann Bob CxTwo} ts) "the shared names stay")
+          (is (not (ts CxOne)) "the emptied context's name goes"))))))
 
 (deftest a-rules-terms-are-rostered
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [parentOf ancestorOf RuleContext]
-      (let [h (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) RuleContext)]
-        (is (set/subset? #{parentOf ancestorOf RuleContext} (set (v/terms kb)))
+    (tu/with-terms [parentOf ancestorOf CxRule]
+      (let [h (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) CxRule)]
+        (is (set/subset? #{parentOf ancestorOf CxRule} (set (v/terms kb)))
             "a rule's antecedent/consequent predicates are names like any other")
         (is (not-any? #{'?x '?y '?var0 '?var1} (v/terms kb)) "variables are not names")
         (v/retract! kb h)
-        (is (not-any? #{parentOf ancestorOf RuleContext} (v/terms kb)))))))
+        (is (not-any? #{parentOf ancestorOf CxRule} (v/terms kb)))))))
 
 (deftest numbers-and-strings-are-not-terms
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [bornIn Tom DataContext]
-      (v/assert kb (list bornIn Tom 1970) DataContext)
+    (tu/with-terms [bornIn Tom CxData]
+      (v/assert kb (list bornIn Tom 1970) CxData)
       (is (every? symbol? (v/terms kb)))
       (is (= (vec (scanned-terms kb)) (v/terms kb))))))
 
@@ -122,8 +122,8 @@
 
 (deftest reindex-reproduces-the-roster
   (tu/with-neutral-kb [kb starter-kb]
-    (tu/with-terms [cat Felix HouseContext]
-      (v/assert kb (list cat Felix) HouseContext)
+    (tu/with-terms [cat Felix CxHouse]
+      (v/assert kb (list cat Felix) CxHouse)
       (let [before (v/terms kb)]
         (v/reindex kb)
         (is (= before (v/terms kb)) "a wholesale index rebuild reproduces the vocabulary")
@@ -134,13 +134,13 @@
   ;; a second KB over the same durable store, recovered — the index is derived state
   ;; that lives beside the records, so the vocabulary must read the same either side.
   (tu/with-cleared-kb [kb tu/fresh]
-    (tu/with-terms [wolf Lupo WildContext]
-      (v/assert kb (list wolf Lupo) WildContext)
+    (tu/with-terms [wolf Lupo CxWild]
+      (v/assert kb (list wolf Lupo) CxWild)
       (let [before (v/terms kb)
             kb2    (doto (tu/test-kb) (v/recover))]
         (is (= before (v/terms kb2)))
         (is (= (count before) (v/term-count kb2)))
-        (is (set/subset? #{wolf Lupo WildContext} (set (v/terms kb2))))))))
+        (is (set/subset? #{wolf Lupo CxWild} (set (v/terms kb2))))))))
 
 ;; ---- search -------------------------------------------------------------
 
@@ -148,11 +148,11 @@
   (tu/with-neutral-kb [kb tu/fresh]
     ;; the generated names share the prefix `tmpParent` and differ at the next
     ;; character, so the sorted answer is [parentOf parentTo] whatever the gensym
-    (tu/with-terms [parentOf parentTo Ann PrefixContext]
+    (tu/with-terms [parentOf parentTo Ann CxPrefix]
       (let [pre  (subs (str parentOf) 0 9)              ; "tmpParent"
             both [parentOf parentTo]]
-        (v/assert kb (list parentOf Ann Ann) PrefixContext)
-        (v/assert kb (list parentTo Ann Ann) PrefixContext)
+        (v/assert kb (list parentOf Ann Ann) CxPrefix)
+        (v/assert kb (list parentTo Ann Ann) CxPrefix)
         (testing "prefix is the default, and case-insensitive"
           (is (= both (v/find-terms kb pre)))
           (is (= both (v/find-terms kb (str/upper-case pre))))
@@ -180,7 +180,7 @@
         (testing "a bad :match is refused"
           (is (thrown? clojure.lang.ExceptionInfo (v/find-terms kb pre {:match :fuzzy}))))
         (testing "a retracted term stops matching"
-          (v/retract! kb (v/handle-of kb (list parentTo Ann Ann) PrefixContext))
+          (v/retract! kb (v/handle-of kb (list parentTo Ann Ann) CxPrefix))
           (is (= [parentOf] (v/find-terms kb pre))))))))
 
 (deftest find-terms-over-the-starter-vocabulary
@@ -188,11 +188,11 @@
     (testing "a prefix search is the enumeration, filtered"
       (is (= (vec (filter #(str/starts-with? (str %) "genl") (v/terms kb)))
              (v/find-terms kb "genl")))
-      (is (some #{'genlContext} (v/find-terms kb "genl"))))
+      (is (some #{'genlCx} (v/find-terms kb "genl"))))
     (testing "a regex reaches what a prefix cannot"
-      (is (seq (v/find-terms kb "Context$" {:match :regex})))
-      (is (every? #(str/ends-with? (str %) "Context")
-                  (v/find-terms kb "Context$" {:match :regex}))))
+      (is (seq (v/find-terms kb "^Cx" {:match :regex})))
+      (is (every? #(str/starts-with? (str %) "Cx")
+                  (v/find-terms kb "^Cx" {:match :regex}))))
     (testing "an empty query matches everything, and :limit bounds it"
       (is (= (v/terms kb) (v/find-terms kb "")))
       (is (= 10 (count (v/find-terms kb "" {:limit 10})))))))
@@ -203,8 +203,8 @@
   ;; `:unknown-option`, the vocabulary of the `:match` refusal beside it: a known key holding
   ;; a value it cannot mean.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [parentOf Ann LimitContext]
-      (v/assert kb (list parentOf Ann Ann) LimitContext)
+    (tu/with-terms [parentOf Ann CxLimit]
+      (v/assert kb (list parentOf Ann Ann) CxLimit)
       (doseq [bad ["5" 0 -1 5.0 :ten]]
         (let [e (is (thrown? clojure.lang.ExceptionInfo
                              (v/find-terms kb "tmp" {:limit bad}))

@@ -1,24 +1,24 @@
 # Contexts
 
-- **Covers:** how a sentex is scoped to a context, how the `genlContext` closure orders
+- **Covers:** how a sentex is scoped to a context, how the `genlCx` closure orders
   contexts into the shipped spindle, and where a forward-derived or lifted fact is placed.
 - **Not here:** `genl`, the sibling closure over types rather than contexts →
   [taxonomy.md](taxonomy.md); a storage-level private copy of a whole KB, which a context
   does not provide → [overlay.md](overlay.md).
 - **Assumes:** sentex, belief, `genl`, taxonomy → [glossary.md](glossary.md).
 
-Every sentex is in exactly one **context** (a CapitalCamelCase symbol ending in `Context`). Contexts
+Every sentex is in exactly one **context** (a `Cx`-prefixed CapitalCamelCase symbol). Contexts
 partition and scope belief.
 
-## genlContext: the context hierarchy
+## genlCx: the context hierarchy
 
-`(genlContext Sub Super)` means `Sub` *sees* `Super` — a specific context inherits the
+`(genlCx Sub Super)` means `Sub` *sees* `Super` — a specific context inherits the
 assertions of the more general ones. `vaelii.impl.taxonomy` caches the reflexive-
 transitive up/down closure (`context-up`, `context-down`, `sees?`), recomputed when a
-`genlContext` edge is asserted/retracted. A context `K` sees a sentex in context `Y`
+`genlCx` edge is asserted/retracted. A context `K` sees a sentex in context `Y`
 iff `Y ∈ context-up(K)`.
 
-**Two contexts may see each other.** Unlike `genl`, a `genlContext` cycle is admitted:
+**Two contexts may see each other.** Unlike `genl`, a `genlCx` cycle is admitted:
 visibility is a preorder, not an order, and mutual visibility is a claim an ontology
 makes — OpenCyc's `genlMt` graph has 49 such components, one of them BaseKB's own
 (`BaseKB ↔ UniversalVocabularyMt ↔ CycAgencyTheoryMt ↔ …`). Reachability over a cycle
@@ -47,8 +47,8 @@ does not merely cost `sees?` a walk; it leaves the group with no name, so
 what can dissolve one without a sentex moving — an edge defeated out of a cycle, or
 revived back into one — so `settle` repairs the potential **after** it reconciles belief
 as well as before, and no firing ever runs against a component the reconcile unmade.
-Deferred to the next settle instead, one conclusion would land in `AlphaContext` and the
-next in `BetaContext` for no reason but how many settles had run since the defeat.
+Deferred to the next settle instead, one conclusion would land in `CxAlpha` and the
+next in `CxBeta` for no reason but how many settles had run since the defeat.
 
 ## The context spindle
 
@@ -56,79 +56,79 @@ The default topology is a **five-layer spindle**, most general (top) to most spe
 (bottom): the vocabulary head, a *definitional* band, a mid anchor, a *theory* band,
 and a bottom anchor. Data hangs below the bottom.
 
-- **CoreContext** — the spindle *head*: the code-supported vocabulary (every special
+- **CxCore** — the spindle *head*: the code-supported vocabulary (every special
   predicate the engine interprets), asserted by `vaelii.impl.core-context`. The root —
   every context sees it.
 - **upper** — the *definitional* band, between Core and Universe: what things *are*,
   always true, like `genl`. One context per domain (`vaelii.impl.starter`), each
-  seeing CoreContext and seen by UniverseContext:
-  - `AbstractContext` — the abstract type skeleton (`intangible`/`physical_object` and
+  seeing CxCore and seen by CxUniverse:
+  - `CxAbstract` — the abstract type skeleton (`intangible`/`physical_object` and
     their kinds) plus the structural relations `partOf`/`locatedIn`.
-  - `OrganismContext` — the biological taxonomy and its disjointness.
-  - `LifeContext` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
+  - `CxOrganism` — the biological taxonomy and its disjointness.
+  - `CxLife` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
     `birthYearOf`, `olderThan`, …) with their argIsa and metadata.
-  - `SocietyContext` — the social relations (`marriedTo`, `likes`, `owns`).
-  - `MeasureContext` — the theory of measurement: the two measure terms, the
+  - `CxSociety` — the social relations (`marriedTo`, `likes`, `owns`).
+  - `CxMeasure` — the theory of measurement: the two measure terms, the
     `dimensionOf`/`conversionFactor` table, the five comparisons ([quantity.md](quantity.md)).
-  - `SpaceContext` — qualitative space, four independent calculi in one context because
+  - `CxSpace` — qualitative space, four independent calculi in one context because
     all four are *about* space: RCC-8 topology, cardinal direction, relative direction
     and qualitative distance, fifty predicates between them ([space.md](space.md)).
-  - `TimeContext` — qualitative time in three layers over the same subject: Allen's
+  - `CxTime` — qualitative time in three layers over the same subject: Allen's
     thirteen interval relations plus seven derived disjunctions, the point algebra over
     instants with the endpoint predicates that bridge the two, and the metric layer
     (`temporalDistance`) that puts real measures on the gaps ([time.md](time.md),
     [stp.md](stp.md)). The `length` / `totalDuration` / `overlapDuration` vocabulary the
     duration arithmetic computes over lives here too ([duration.md](duration.md)).
-- **UniverseContext** — the mid *anchor*, left free for **lifting**: universally-true
-  facts collect here (`decontextualizedPredicate` justifications and the forced `genlContext`
+- **CxUniverse** — the mid *anchor*, left free for **lifting**: universally-true
+  facts collect here (`decontextualizedPredicate` justifications and the forced `genlCx`
   extent). It sees every upper context and is seen by every middle context.
 - **middle** — the *theory* band, between Universe and Well: how the definitional
   things *interrelate*, where several overlapping theories can coexist. One context
-  per theory, each seeing UniverseContext and seen by WellContext:
-  - `KinshipContext` — grandparentOf, ancestorOf, olderThan.
-  - `MereologyContext` — a part is located where its whole is; owning a whole entails
+  per theory, each seeing CxUniverse and seen by CxWell:
+  - `CxKinship` — grandparentOf, ancestorOf, olderThan.
+  - `CxMereology` — a part is located where its whole is; owning a whole entails
     owning its parts.
-  - `BiologyContext` — birds fly by default except penguins; living things are mortal;
+  - `CxBiology` — birds fly by default except penguins; living things are mortal;
     flight enables travel.
-  - `AnatomyContext` — what kinds of thing have what kinds of part, entirely in
+  - `CxAnatomy` — what kinds of thing have what kinds of part, entirely in
     `partType` claims. Nothing here concludes anything about an individual, which is
     deliberate: "birds have wings" to "Pingu has a wing" needs a quantifier reading.
-  - `SizeContext` — comparative size said the two ways it can be said: `largerThan`
+  - `CxSize` — comparative size said the two ways it can be said: `largerThan`
     among kinds, and a comparison computed between two objects' measures. The worked
     example of `argPreserving` ([inherit.md](inherit.md)).
-  - `SocialContext` — what acquaintance follows from, and how employment relates to
+  - `CxSocial` — what acquaintance follows from, and how employment relates to
     membership. Every rule runs one way only, because `knows` is deliberately not
     symmetric.
-- **WellContext** — the bottom *anchor*: it sees every middle theory, so it (and any
+- **CxWell** — the bottom *anchor*: it sees every middle theory, so it (and any
   context hung beneath it) transitively sees the whole ontology.
 
-Each upper/middle file wires *itself* into the axis with two `genlContext` edges, so
-the topology is **data** — dropping a `<Context>.txt` in `resources/kb/upper/` or `resources/kb/middle/`
+Each upper/middle file wires *itself* into the axis with two `genlCx` edges, so
+the topology is **data** — dropping a `Cx<Name>.txt` in `resources/kb/upper/` or `resources/kb/middle/`
 adds a context, no code change, and every context present is loaded on kb start by
-default. There is **no** direct `(genlContext WellContext CoreContext)` edge; Well
+default. There is **no** direct `(genlCx CxWell CxCore)` edge; Well
 reaches Core through the whole axis (middle → Universe → upper → Core).
 
-`vaelii.impl.core-context` loads only the head (CoreContext); the bands are the starter's,
-so a **CoreContext-only KB is just the vocabulary** — no spindle bands at all.
+`vaelii.impl.core-context` loads only the head (CxCore); the bands are the starter's,
+so a **CxCore-only KB is just the vocabulary** — no spindle bands at all.
 
 ### The shipped KB is schema only
 
 The starter ships **no individuals and no facts** — only types, relation definitions,
 and the theory rules. Contingent data (a cast, worked examples, the Aesop fables)
-belongs **below WellContext** and lives in the tests that need it: `test/vaelii/world.clj`
-hangs `NaturalWorldContext` / `SocialWorldContext` off WellContext, and
-`test/vaelii/world_fables.clj` hangs `StoriesContext` there with a context per fable
+belongs **below CxWell** and lives in the tests that need it: `test/vaelii/world.clj`
+hangs `CxNaturalWorld` / `CxSocialWorld` off CxWell, and
+`test/vaelii/world_fables.clj` hangs `CxStories` there with a context per fable
 beneath it.
-Because a middle theory is seen by every WellContext descendant, a rule firing over
-cast facts in `NaturalWorldContext` places its conclusion back in `NaturalWorldContext`
+Because a middle theory is seen by every CxWell descendant, a rule firing over
+cast facts in `CxNaturalWorld` places its conclusion back in `CxNaturalWorld`
 (the maximal common descendant), where a query finds it.
 
 ### Adding a sibling context
 
 A user adds their **own sibling** in either band. A *definitional* sibling sees
-CoreContext and is seen by UniverseContext (`(genlContext MyContext CoreContext)` and
-`(genlContext UniverseContext MyContext)`); a *theory* sibling sees UniverseContext and
-is seen by WellContext. Its vocabulary is visible from every data context below Well
+CxCore and is seen by CxUniverse (`(genlCx CxMy CxCore)` and
+`(genlCx CxUniverse CxMy)`); a *theory* sibling sees CxUniverse and
+is seen by CxWell. Its vocabulary is visible from every data context below Well
 without touching the shipped bands.
 
 ## Context-aware inference
@@ -169,12 +169,12 @@ contexts closes immediately**, which is every KB that has not divided the knowle
 question between contexts: there is nothing for a second to meet.
 
 The starter's owns-parts rule shows both outcomes. The rule `(implies (and (owns ?p
-?whole) (partOf ?part ?whole)) (owns ?p ?part))` is a middle theory (`MereologyContext`,
+?whole) (partOf ?part ?whole)) (owns ?p ?part))` is a middle theory (`CxMereology`,
 seen by every data context below Well), and the test-world cast supplies the facts. It
 derives `(owns Tom Roof1)`: both `(owns Tom House1)` and `(partOf Roof1 House1)` sit in
-SocialWorldContext, so the intersection is non-empty and the conclusion lands there.
-But `(owns Tom Engine1)` is **not** derived — `(owns Tom Car1)` is in SocialWorldContext
-while `(partOf Engine1 Car1)` is in NaturalWorldContext (sibling data contexts with no
+CxSocialWorld, so the intersection is non-empty and the conclusion lands there.
+But `(owns Tom Engine1)` is **not** derived — `(owns Tom Car1)` is in CxSocialWorld
+while `(partOf Engine1 Car1)` is in CxNaturalWorld (sibling data contexts with no
 common view), so the placement intersection is empty and no justification is made.
 
 ## except: removing visibility down a context subtree
@@ -185,7 +185,7 @@ the more general contexts C sees untouched. It is a **meta-sentex**: `(sentexHan
 is the term form of a stored sentex's handle (`sentex/sentex-handle`), so the except
 names the sentex it hides rather than restating it. Like every other fact it is
 belief-following — retracting or defeating the except restores the hidden sentex — and
-it rides the ordinary `genlContext` up-closure, visible from exactly the contexts where
+it rides the ordinary `genlCx` up-closure, visible from exactly the contexts where
 it hides its target.
 
 The removal is **total**, not just for reads:
@@ -220,7 +220,7 @@ while the excepts are not. On a chaining run over a KB with 1,000 excepts the di
 is 16× the whole run (`lein bench-hotreads`).
 
 The re-check triggers are the except arriving or leaving (`special/recheck-except`,
-keyed on the handle it names rather than a predicate) and any `genlContext` edge change
+keyed on the handle it names rather than a predicate) and any `genlCx` edge change
 (`special/recheck-except-cone` — a visibility move changes which contexts see the
 excepting context, hence what each hides).
 
@@ -238,7 +238,7 @@ Ctx. `(ist Ctx S)` is **not** stored as a sentex; given to `assert` (or via
 **ist in a rule consequent.** A rule whose consequent is `(ist Ctx S)` places `S`
 into the named context `Ctx` instead of the computed placement — overriding the
 default maximal-contexts rule. `Ctx` may be a variable bound by an antecedent (e.g.
-`(genlContext ?c UniverseContext) ⇒ (ist ?c ...)`). The rule is indexed by `S`'s predicate,
+`(genlCx ?c CxUniverse) ⇒ (ist ?c ...)`). The rule is indexed by `S`'s predicate,
 not by `ist`, and range-restriction covers the inner sentence and the context slot.
 
 **ist in a query.** Every read taking a sentence and a context takes `(ist Ctx S)` as its
@@ -275,15 +275,15 @@ announces itself, and a guard that passes everything does not.
 
 The reading a rule wants is that `S` be **visible** where it is stated, which is what the
 two mechanisms below this section say — `(decontextualizedPredicate P)` takes every
-`(P ...)` into UniverseContext, which every context sees, and a `genlContext` edge puts
+`(P ...)` into CxUniverse, which every context sees, and a `genlCx` edge puts
 `Ctx` in the rule's own cone. Under either the premise is written plainly, and it is the
-`genlContext` topology rather than a per-rule annotation that decides what is readable
+`genlCx` topology rather than a per-rule annotation that decides what is readable
 from where. `sentex/ist-read-problem` carries the refusal and names both.
 
 **Why the query takes what the antecedent is refused**, since it is one form treated two
 ways: the query grants no visibility the context argument did not already grant.
-`(sentexes-matching kb S AContext)` has always answered `AContext`'s facts from anywhere,
-and `(ist AContext S)` is a spelling of it — the caller asking about `AContext` has said
+`(sentexes-matching kb S CxA)` has always answered `CxA`'s facts from anywhere,
+and `(ist CxA S)` is a spelling of it — the caller asking about `CxA` has said
 so. A rule antecedent is the other case: nobody asked, the rule's own context may not see
 `Ctx`, and what comes back decides *belief* rather than answering one caller.
 `context_scoping_test` pins both halves.
@@ -293,10 +293,10 @@ individuals under `predicate` (itself a `thing`): `unaryPredicate` (types and
 one-place properties), `binaryPredicate`, `ternaryPredicate`, and the algebraic
 subtypes of `binaryPredicate` — `symmetricPredicate` / `asymmetricPredicate` /
 `transitivePredicate` / `reflexivePredicate` / `functionalPredicate`. The algebraic five
-are **derived** from the predicate metadata by CoreContext rules, so a `(symmetric siblingOf)` declaration
+are **derived** from the predicate metadata by CxCore rules, so a `(symmetric siblingOf)` declaration
 yields `(symmetricPredicate siblingOf)` and `isa? siblingOf symmetricPredicate` holds —
 exactly as `isa? dog unaryPredicate` does for a type. Those rules deliberately name **no**
-context and place by the ordinary rule: every context sees CoreContext, so a declaration
+context and place by the ordinary rule: every context sees CxCore, so a declaration
 made there still concludes there, and one made in a context concludes in that
 context rather than becoming vocabulary the whole KB reads (see "The consumers"
 below).
@@ -305,15 +305,15 @@ below).
 
 `(decontextualizedPredicate P)` takes every `(P ...)` out of the context it was stated
 in. Each one — asserted, or concluded by a rule — is additionally **deduced into
-UniverseContext**, supported by the placement sentex *and* the
-`(decontextualizedPredicate P)` sentex. Since every context sees UniverseContext,
+CxUniverse**, supported by the placement sentex *and* the
+`(decontextualizedPredicate P)` sentex. Since every context sees CxUniverse,
 the fact becomes visible everywhere, even from a *sibling* context that cannot see
 where it was stated. Retracting or defeating either the original or the declaration
 withdraws the copy through the JTMS, and declaring it retroactively lifts the `(P ...)`
 facts already present.
 
 The mechanism is documented in the KB in its own representation by an inert rule,
-`(set/inertRule (implies (?pred . ?args) (ist UniverseContext (?pred . ?args))))` — the
+`(set/inertRule (implies (?pred . ?args) (ist CxUniverse (?pred . ?args))))` — the
 dotted rest pattern quantifies over any predicate and its arguments (see
 [inference.md](inference.md)). It is `inertRule` because the behavior is implemented
 in code, so the rule is never indexed or fired; it only records the intent. The
@@ -330,7 +330,7 @@ context knows nothing about. What it costs is stated here rather than hidden: a
 declaration in one theory publishes a sibling theory's `(P ...)` extent KB-wide, so
 the mark belongs in a schema context, not a contingent one.
 
-### Why UniverseContext, and not a target the declaration names
+### Why CxUniverse, and not a target the declaration names
 
 A lift into a context the declaration picks out is the obvious generalization, and it
 is unsound. The definitional checks — disjointness, functionality, `argIsa` — are
@@ -341,19 +341,19 @@ stated meet in the target as a violation nothing reports:
 
 ```clojure
 (disjoint dog mouse)
-(dog Rex)   @AContext   →  copy in TContext      ; fine in A — B is invisible from A
-(mouse Rex) @BContext   →  copy in TContext      ; fine in B — A is invisible from B
-;; TContext now believes Rex is both, and no check ever considered the pair
+(dog Rex)   @CxA   →  copy in CxT      ; fine in A — B is invisible from A
+(mouse Rex) @CxB   →  copy in CxT      ; fine in B — A is invisible from B
+;; CxT now believes Rex is both, and no check ever considered the pair
 ```
 
-UniverseContext is the target that closes this, because it is the one context every
+CxUniverse is the target that closes this, because it is the one context every
 context sees: the first copy is visible to the *next* assert, so the ordinary
 context-scoped check catches the clash at its source, and the second assert is refused
 where it is made. That is not a lucky property of a well-known context — it is the
 whole reason the target is fixed.
 
 The residual case is a context wired outside the spindle, which sees neither its
-siblings nor UniverseContext. There the stating context could not have run the check
+siblings nor CxUniverse. There the stating context could not have run the check
 either, so the lift runs it on the copy itself (`unchecked-target?` — one `sees?` per
 lift, and only that case pays anything more), dropping the copy and recording a
 `violations` entry that names the context it was lifted from.
@@ -380,7 +380,7 @@ the predicate fire on the copy as well as on the original.
 That second firing is the point, and it is about **placement**, not about what a rule
 can see — forward chaining already matches antecedents across every context. Firing on
 the original places the conclusion in the source context; firing on the copy places
-it in UniverseContext. So a consequence of a decontextualized fact is decontextualized
+it in CxUniverse. So a consequence of a decontextualized fact is decontextualized
 in turn, which is what you want (if `(edgeTo A B)` holds everywhere, so does what a
 universal rule concludes from it) and what it costs: **two stored sentexes for one
 conclusion**, and the rule fires twice.
@@ -405,7 +405,7 @@ Two boundaries, both deliberate:
 Every shipped declaration is a claim about a **predicate** rather than about a world.
 `functional`, `inverse`, `reflexive`, `symmetric`, `asymmetric` and `transitive` carry
 the mark — so a `(symmetric P)` stated in one theory is the KB's claim about `P` and not
-that theory's — and `genlContext` carries the forced variant below. **No domain relation
+that theory's — and `genlCx` carries the forced variant below. **No domain relation
 carries either**, and two things hold that line:
 
 - **A domain fact is what a theory is for.** A marriage, an ownership, a location holds
@@ -414,20 +414,20 @@ carries either**, and two things hold that line:
   fiction's marriage a claim of the whole KB.
 - **The mark travels down the rules.** A conclusion drawn from a lifted copy is lifted
   in turn (above), so a mark on one predicate reaches whatever the rules over it
-  conclude: `SocialContext`'s `(implies (and (marriedTo ?x ?y)) (knows ?x ?y))` would put
+  conclude: `CxSocial`'s `(implies (and (marriedTo ?x ?y)) (knows ?x ?y))` would put
   `knows` within reach of every data context without `knows` being declared anything.
 
 `abduciblePredicate` is the near-miss on the other side, and is scoped for the
 converse reason: willingness to assume a `(P …)` is a policy of the context that grants
 it rather than a property of `P` ([abduction.md](abduction.md)).
 
-## forcedDecontextualizedPredicate: a canonical home in UniverseContext
+## forcedDecontextualizedPredicate: a canonical home in CxUniverse
 
 `(forcedDecontextualizedPredicate P)` is the stronger variant. Instead of leaving the
 original where it was asserted and deducing a copy, it **forces the storage context
-of every `(P ...)` to UniverseContext** on assert — no separate justification, the fact's
-extent simply lives there. `genlContext` is declared this way (the vocabulary head asserts
-`(forcedDecontextualizedPredicate genlContext)` before any `genlContext` edge), so the whole context
+of every `(P ...)` to CxUniverse** on assert — no separate justification, the fact's
+extent simply lives there. `genlCx` is declared this way (the vocabulary head asserts
+`(forcedDecontextualizedPredicate genlCx)` before any `genlCx` edge), so the whole context
 topology has one canonical home rather than being scattered across the contexts each
 edge was asserted in.
 
@@ -441,16 +441,16 @@ predicate like they are.
 `argIsa` arg checks and disjointness checks are **not global**: when asserting in
 context K they consider only constraints and type memberships *visible from* K
 (its `context-up` closure). So shared vocabulary must live in a context K sees — in the
-starter, the CoreContext vocabulary and the upper definitional contexts sit at the top
+starter, the CxCore vocabulary and the upper definitional contexts sit at the top
 of the spindle (every data context reaches them through the axis), so their `argIsa`
 constraints, comments, and type memberships are visible everywhere.
 
 The `genl` closure reads are scoped the same way (docs/taxonomy.md): `genls` /
 `specs` / `genl?` / `disjoint?` take a context, and a read asked from K walks only
-the edges some believed supporter asserts from K's cone.  The **`genlContext`
+the edges some believed supporter asserts from K's cone.  The **`genlCx`
 closure itself stays global, as a stated exception** — visibility scoped by
 visibility would be circular, `forcedDecontextualizedPredicate` already forces
-every `genlContext` edge universal, and the scoped reads' interning is keyed on
+every `genlCx` edge universal, and the scoped reads' interning is keyed on
 that closure being context-independent.  A clash no single writer could see —
 admissible where each half was stated, jointly visible from some descendant — is
 reported by `settle`'s exposure pass in `(violations kb)`, never by refusing a
@@ -551,11 +551,11 @@ just as well when the feature is broken outright.
   outlives the supporter that went — so the surviving route re-derives, at a fresh
   handle. `subsumption_support_test` is the standing guard for all of it.
 
-  **A `genlContext` edge owes the same debt through the other closure**, and
+  **A `genlCx` edge owes the same debt through the other closure**, and
   `special/visibility-seeds` is the twin that pays it. Matching fans an antecedent up the
   *visibility* cone, so an edge arriving after both the rule and the facts changes which
   facts the rule can see — and again the arriving datum is the edge, so firing the rules
-  keyed on `genlContext` is not the same thing as re-joining the rules the edge just gave
+  keyed on `genlCx` is not the same thing as re-joining the rules the edge just gave
   a wider view.
 
   It seeds **both** cones, because an edge pairs rules and facts in two directions. A
@@ -568,7 +568,7 @@ just as well when the feature is broken outright.
   **It is enumerated from the rules, and each half is gated on the other holding one.**
   Both are about cost, and the cost is asymptotic rather than constant. Walking the cone
   and keeping the facts a rule could match is a record fetch per sentex *in the cone*, so
-  wiring N contexts under a `UniverseContext` holding K facts is O(N·K) against
+  wiring N contexts under a `CxUniverse` holding K facts is O(N·K) against
   O(N+K) without it, and a spindle D deep is O(D²) because each edge's up-cone is the
   whole chain above. Two ref-counted rosters maintained at the rule index/unindex choke
   points — `:rule-antecedents`, the predicates some rule takes as an antecedent, and
@@ -601,13 +601,13 @@ just as well when the feature is broken outright.
   relation's transitivity from the same vantage.
 
 - **The predicate meta-ontology concludes where it was declared.** The metadata rules
-  in `kb/CoreContext.txt` place by the ordinary rule and name no context, so a
+  in `kb/CxCore.txt` place by the ordinary rule and name no context, so a
   `(symmetric myRel)` stated in a context concludes `(symmetricPredicate myRel)`
-  *there*. **Do not name CoreContext in them.** Doing so publishes the conclusion: `isa?`
+  *there*. **Do not name CxCore in them.** Doing so publishes the conclusion: `isa?`
   would answer from a context that cannot see the declaration, while `has-prop?`, asked
   of the same declaration from the same context, answers false.
 
 An **`(ist Ctx S)` consequent remains an explicit escape hatch** and is not scoped —
 that is what it is for. A rule author writing one is choosing the target, the same way
-`forcedDecontextualizedPredicate` chooses UniverseContext; the engine holds them to
+`forcedDecontextualizedPredicate` chooses CxUniverse; the engine holds them to
 the subsumption check above and nothing else.

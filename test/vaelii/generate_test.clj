@@ -61,7 +61,7 @@
       (doseq [[s _] (take 20 facts)]
         (is (nm/predicate? (nm/functor s)))
         (is (every? nm/individual? (nm/args s)))))
-    (testing "contexts end in Context"
+    (testing "contexts start with Cx"
       (doseq [[_ sub super] context-edges]
         (is (nm/context? sub))
         (is (nm/context? super))))
@@ -69,7 +69,7 @@
       (doseq [r rules]
         (is (empty? (nm/problems (list 'implies (cons 'and (:antecedents r))
                                        (:consequent r))
-                                 'GeneratedContext)))))))
+                                 'CxGenerated)))))))
 
 (deftest rules-are-range-restricted-and-stratified
   (let [{:keys [rules]} (gen/plan (assoc small :rules 200))]
@@ -106,10 +106,10 @@
         (is (contains? (v/specs kb 'thing) 'gen_type_0)))
       (testing "the fact contexts are a chain under the schema context, so any two facts
                 a rule joins have a common descendant to put its conclusion in"
-        (is (v/sees? kb 'GenBand1Context 'GenBand0Context))
-        (is (v/sees? kb 'GenBand0Context 'GeneratedContext)))
+        (is (v/sees? kb 'CxGenBand1 'CxGenBand0))
+        (is (v/sees? kb 'CxGenBand0 'CxGenerated)))
       (testing "the rules are there, in the mix that was asked for"
-        (let [rules (filter :antecedent (v/sentexes-in-context kb 'GeneratedContext))]
+        (let [rules (filter :antecedent (v/sentexes-in-context kb 'CxGenerated))]
           (is (= (:rules small) (count rules)))
           (is (= 4 (count (filter #(= :forward (:direction %)) rules))))
           (is (= 2 (count (filter :defeasible rules)))))))))

@@ -1,7 +1,7 @@
-;; TimeContext — the theory of time: qualitative relations between INTERVALS in Allen's
+;; CxTime — the theory of time: qualitative relations between INTERVALS in Allen's
 ;; algebra, qualitative order between INSTANTS in the point algebra, the two joined by an
 ;; interval's endpoints, and the metric layer that puts real measures on the gaps. Sees
-;; CoreContext; UniverseContext sees it, so a temporal relation is stateable from every
+;; CxCore; CxUniverse sees it, so a temporal relation is stateable from every
 ;; context. An interval and an instant are both ordinary individuals — nothing here
 ;; declares them, and nothing here is about clocks or calendars.
 ;;
@@ -46,7 +46,7 @@
 ;;
 ;; Duration is the quantitative half, and it is where time meets measurement. An
 ;; interval's own duration is the stored fact (length I M), whose measure M is one of
-;; MeasureContext's structural NATs. totalDuration and overlapDuration are computed from those and
+;; CxMeasure's structural NATs. totalDuration and overlapDuration are computed from those and
 ;; never stored: a prover reads the lengths, normalizes them against the unit table, does
 ;; the arithmetic on magnitude bounds, and renders the answer in the dimension's base
 ;; unit — as a point when it is exact and an interval when it is only bounded, so an
@@ -59,8 +59,8 @@
 ;; with (during B C) answers (during A C) and the weaker (subintervalOf A C) with it. The
 ;; prover is opt-in; the vocabulary is not. See docs/time.md.
 
-(genlContext TimeContext CoreContext)
-(genlContext UniverseContext TimeContext)
+(genlCx CxTime CxCore)
+(genlCx CxUniverse CxTime)
 
 (comment after
          "(after ?interval1 ?interval2) means that ?interval1 begins strictly after ?interval2 ends. They share no time and do not touch, so some gap separates them. The converse of before.")

@@ -36,9 +36,9 @@
 
 (tu/deftest-kb an-unbounded-run-is-not-flagged-truncated
   (tu/with-terms [thing marked A B C D E F]
-    (v/assert kb (fwd [(list thing '?x)] (list marked '?x)) 'NaturalWorldContext)
+    (v/assert kb (fwd [(list thing '?x)] (list marked '?x)) 'CxNaturalWorld)
     (doseq [i [A B C D E F]]
-      (v/assert kb (list thing i) 'NaturalWorldContext {:chain? false}))
+      (v/assert kb (list thing i) 'CxNaturalWorld {:chain? false}))
     (let [{:keys [derived truncated?]} (v/forward-chain kb {})]
       (is (>= derived 6) "one conclusion per fact")
       (is (not truncated?)))))
@@ -52,13 +52,13 @@
   ;; datum's fan-out can overshoot it — `:max-derivations` is a backstop against a
   ;; runaway run, not a precise quota.  Asserting well below the unbounded total is
   ;; what pins it without over-claiming.
-  (tu/with-terms [edge path A B C D E GraphContext]
-    (v/assert kb (list 'genlContext GraphContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) GraphContext)
+  (tu/with-terms [edge path A B C D E CxGraph]
+    (v/assert kb (list 'genlCx CxGraph 'CxUniverse) 'CxUniverse)
+    (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) CxGraph)
     (v/assert kb (fwd [(list edge '?x '?y) (list path '?y '?z)]
-                      (list path '?x '?z)) GraphContext)
+                      (list path '?x '?z)) CxGraph)
     (doseq [[a b] [[A B] [B C] [C D] [D E]]]
-      (v/assert kb (list edge a b) GraphContext {:chain? false}))
+      (v/assert kb (list edge a b) CxGraph {:chain? false}))
     (let [{:keys [derived truncated?]} (v/forward-chain kb {:max-derivations 2})]
       (is truncated? "the run hit the derivation backstop")
       (is (< derived 10)
@@ -66,13 +66,13 @@
 
 (tu/deftest-kb max-depth-still-bounds-a-deepening-chain
   ;; The other disjunct, for contrast: depth grows, so the depth bound fires.
-  (tu/with-terms [edge path A B C D GraphContext]
-    (v/assert kb (list 'genlContext GraphContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) GraphContext)
+  (tu/with-terms [edge path A B C D CxGraph]
+    (v/assert kb (list 'genlCx CxGraph 'CxUniverse) 'CxUniverse)
+    (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) CxGraph)
     (v/assert kb (fwd [(list edge '?x '?y) (list path '?y '?z)]
-                      (list path '?x '?z)) GraphContext)
+                      (list path '?x '?z)) CxGraph)
     (doseq [[a b] [[A B] [B C] [C D]]]
-      (v/assert kb (list edge a b) GraphContext {:chain? false}))
+      (v/assert kb (list edge a b) CxGraph {:chain? false}))
     (let [{:keys [truncated?]} (v/forward-chain kb {:max-depth 1})]
       (is truncated? "a depth-1 bound cannot reach the two-hop path"))))
 
@@ -92,7 +92,7 @@
   [kb n]
   (let [edge (tu/tmp-pred "edge"), path (tu/tmp-pred "path"), ctx (tu/tmp-ctx "Graph")
         nodes (vec (repeatedly (inc n) #(tu/tmp-ind "N")))]
-    (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
     (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) ctx {:chain? false})
     (v/assert kb (fwd [(list edge '?x '?y) (list path '?y '?z)] (list path '?x '?z))
               ctx {:chain? false})
@@ -135,12 +135,12 @@
 
 (tu/deftest-kb an-ist-consequent-places-into-a-bound-context-variable
   ;; The covered half, restated here so the guard test below has its complement.
-  (tu/with-terms [holdsIn interesting Widget AlphaContext]
-    (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)
+  (tu/with-terms [holdsIn interesting Widget CxAlpha]
+    (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
     (v/assert kb (fwd [(list holdsIn '?c '?x)] (list 'ist '?c (list interesting '?x)))
-              'UniverseContext)
-    (v/assert kb (list holdsIn AlphaContext Widget) 'UniverseContext)
-    (is (seq (v/sentexes-matching kb (list interesting Widget) AlphaContext))
+              'CxUniverse)
+    (v/assert kb (list holdsIn CxAlpha Widget) 'CxUniverse)
+    (is (seq (v/sentexes-matching kb (list interesting Widget) CxAlpha))
         "the conclusion landed in the context the variable bound to")))
 
 (tu/deftest-kb an-ist-consequent-binding-a-non-context-places-nothing
@@ -148,9 +148,9 @@
   ;; not placed into a made-up "context" that nothing can see.
   (tu/with-terms [holdsIn interesting Widget NotACtx]
     (v/assert kb (fwd [(list holdsIn '?c '?x)] (list 'ist '?c (list interesting '?x)))
-              'UniverseContext)
+              'CxUniverse)
     (let [contexts-before (set (v/contexts kb))]
-      (v/assert kb (list holdsIn NotACtx Widget) 'UniverseContext)
+      (v/assert kb (list holdsIn NotACtx Widget) 'CxUniverse)
       (testing "nothing was placed"
         ;; `contexts-of` asks where this *sentence* is asserted; `find-sentexes` would
         ;; also match the rule, which mentions the predicate in its consequent.

@@ -14,7 +14,7 @@
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 (defn- witness
   "The skolem constant in the (single) believed match of `goal`, at argument `pos`."

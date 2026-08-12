@@ -62,7 +62,7 @@
 ;; `recheck` is the exception re-check queue: `{rule-handle -> triggers}` for the rules
 ;; whose `exceptWhen` query may have flipped since the last settle, posted by the
 ;; triggers (a fact arriving or leaving on one of the exception's predicates, or any
-;; genl/genlContext edge change) and drained by `settle`.  `triggers` is the set of
+;; genl/genlCx edge change) and drained by `settle`.  `triggers` is the set of
 ;; sentences that moved — which firings of that rule to re-evaluate — or `:all` when
 ;; there is no such sentence and all of them must be.  Nothing here caches whether an
 ;; exception *holds* — the queue says what to re-evaluate, and the re-evaluation says
@@ -97,7 +97,7 @@
 ;; store and removal choke points; `:negations` says *what each of those bodies currently
 ;; contradicts about*, as `{body #{nogood}}`.  `:dirty` is the bodies a store or a removal
 ;; touched since the last settle drained it (`note-opposed!` posts them, the same choke
-;; points that maintain `:opposed`); `:vocab` is the genlContext generation the
+;; points that maintain `:opposed`); `:vocab` is the genlCx generation the
 ;; joint-visibility test reads through, so a context edge retires the whole memo.  Which
 ;; three things move a pairing, and the measured cost of dropping either narrowing:
 ;; docs/nmtms.md, "Soft, prioritized contradictions".
@@ -923,7 +923,7 @@
 ;; ---- type queries -------------------------------------------------------
 
 (defn- exists-in?
-  "Does the ground `sentence` hold in a context visible from `context` (its genlContext
+  "Does the ground `sentence` hold in a context visible from `context` (its genlCx
   up-closure; a variable context means any context)?"
   [kb sentence context]
   (boolean (seq (res/matches-visible kb sentence context))))

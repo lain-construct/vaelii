@@ -85,25 +85,25 @@
   completeness assertion below is what keeps this honest."
   [kb]
   (tu/with-terms [bird penguin animal flies feathered parentOf grandparentOf
-                  Tweety Opus Ann Bob Cid RoutingContext]
-    (v/assert kb (list 'genl penguin bird) RoutingContext {:strength :monotonic})
-    (v/assert kb (list 'genl bird animal) RoutingContext {:strength :monotonic})
+                  Tweety Opus Ann Bob Cid CxRouting]
+    (v/assert kb (list 'genl penguin bird) CxRouting {:strength :monotonic})
+    (v/assert kb (list 'genl bird animal) CxRouting {:strength :monotonic})
     ;; a rule with an exception — the rule index and both exception-index halves
     (v/assert kb (list 'exceptWhen (list penguin '?b)
                        (list 'set/defaultRule
                              (vr/rule-sentence [(list bird '?b)] (list flies '?b))))
-              RoutingContext)
+              CxRouting)
     (v/assert kb (vr/rule-sentence [(list parentOf '?x '?y) (list parentOf '?y '?z)]
                                    (list grandparentOf '?x '?z))
-              RoutingContext)
-    (v/assert kb (list bird Tweety) RoutingContext {:strength :monotonic})
-    (v/assert kb (list feathered Tweety) RoutingContext)
-    (v/assert kb (list bird Opus) RoutingContext)
-    (v/assert kb (list penguin Opus) RoutingContext)
-    (v/assert kb (list parentOf Ann Bob) RoutingContext)
-    (v/assert kb (list parentOf Bob Cid) RoutingContext)
-    (v/assert kb (list 'bornInYear Tweety 1970) RoutingContext)   ; a numeric trie token
-    (v/assert kb (list 'not (list feathered Opus)) RoutingContext)))
+              CxRouting)
+    (v/assert kb (list bird Tweety) CxRouting {:strength :monotonic})
+    (v/assert kb (list feathered Tweety) CxRouting)
+    (v/assert kb (list bird Opus) CxRouting)
+    (v/assert kb (list penguin Opus) CxRouting)
+    (v/assert kb (list parentOf Ann Bob) CxRouting)
+    (v/assert kb (list parentOf Bob Cid) CxRouting)
+    (v/assert kb (list 'bornInYear Tweety 1970) CxRouting)   ; a numeric trie token
+    (v/assert kb (list 'not (list feathered Opus)) CxRouting)))
 
 (defn- families-present
   "The families the built index actually holds, with one representative key each."

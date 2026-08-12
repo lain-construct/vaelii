@@ -147,13 +147,13 @@
 
 ;; ---- arm 1: excepted-handles per placement -------------------------------
 
-(def ^:private leaf-ctx 'HotLeafContext)
-(def ^:private mid-ctx  'HotMidContext)
-(def ^:private base-ctx 'HotBaseContext)
+(def ^:private leaf-ctx 'CxHotLeaf)
+(def ^:private mid-ctx  'CxHotMid)
+(def ^:private base-ctx 'CxHotBase)
 
 (defn- build-contexts! [kb]
-  (doseq [[sub super] [[base-ctx 'CoreContext] [mid-ctx base-ctx] [leaf-ctx mid-ctx]]]
-    (v/assert kb (list 'genlContext sub super) 'CoreContext {:chain? false})))
+  (doseq [[sub super] [[base-ctx 'CxCore] [mid-ctx base-ctx] [leaf-ctx mid-ctx]]]
+    (v/assert kb (list 'genlCx sub super) 'CxCore {:chain? false})))
 
 (defn- build-excepts!
   "`e` believed `(except (sentexHandle H))` facts, each hiding a **decoy** — a fact no
@@ -250,7 +250,7 @@
 
 ;; ---- arm 2: est-matches over a subtype closure ---------------------------
 
-(def ^:private est-ctx 'HotEstContext)
+(def ^:private est-ctx 'CxHotEst)
 
 (defn- type-name
   "A type spelling the naming policy accepts: snake_case, so `hr_t7` and never `hrT7`,
@@ -268,7 +268,7 @@
   "A `genl` tree of `depth` levels and `branching` children per node, rooted at `hr_t0`
   — so `specs(hr_t0)` is the whole tree and `specs` of a leaf is one node."
   [kb ^long depth ^long branching]
-  (v/assert kb (list 'genlContext est-ctx 'CoreContext) 'CoreContext {:chain? false})
+  (v/assert kb (list 'genlCx est-ctx 'CxCore) 'CxCore {:chain? false})
   (v/with-deferred-settle kb
     (doseq [i (range 1 (tree-size depth branching))]
       (v/assert kb (list 'genl (type-name i) (type-name (quot (dec i) branching)))

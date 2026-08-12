@@ -29,7 +29,7 @@
                                                  :metric-time))))
 (use-fixtures :each (tu/neutral))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 (defn- state!
   "Assert each sentence into the one context this namespace reasons in.  A network is
@@ -81,12 +81,12 @@
   ;; a ring is not a hard error at assert time — every fact is fine on its own — it is
   ;; a network with no solution, and a KB that answered questions from it would be
   ;; making things up.
-  (tu/with-terms [RingContext X Y Z]
-    (v/assert kb (list 'genlContext RingContext 'UniverseContext) 'UniverseContext)
+  (tu/with-terms [CxRing X Y Z]
+    (v/assert kb (list 'genlCx CxRing 'CxUniverse) 'CxUniverse)
     (doseq [s [(list 'before X Y) (list 'before Y Z) (list 'before Z X)]]
-      (v/assert kb s RingContext))
-    (is (not (:consistent? (v/qualitative-network kb :allen RingContext))))
-    (is (nil? (v/qualitative-scenario kb :allen RingContext))
+      (v/assert kb s CxRing))
+    (is (not (:consistent? (v/qualitative-network kb :allen CxRing))))
+    (is (nil? (v/qualitative-scenario kb :allen CxRing))
         "there is no arrangement, so none is offered")))
 
 ;; ---- time: what happened before what ------------------------------------

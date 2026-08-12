@@ -26,9 +26,9 @@
 
   **Child edges and leaf handles are separate keys because the trie is ragged.**
   Paths differ in length with arity, so one sentex's *full* path can be a proper
-  prefix of another's: `(rel A B)` in `CeeContext` keys as `[rel A B CeeContext]`,
-  and `(rel A B CeeContext X)` in `DeeContext` keys as `[rel A B CeeContext X
-  DeeContext]` — the first path is an interior node of the second.  Storing both
+  prefix of another's: `(rel A B)` in `CxCee` keys as `[rel A B CxCee]`,
+  and `(rel A B CxCee X)` in `CxDee` keys as `[rel A B CxCee X
+  CxDee]` — the first path is an interior node of the second.  Storing both
   handles and child labels in one set therefore mixed them, and a caller could not
   tell them apart by type (a handle is an integer, and so is the token `1970`).  Two
   keys make the distinction structural: `lookup` reads only the leaf key at its
@@ -526,7 +526,7 @@
   ;; The exception re-check index.  A rule carrying an `exceptWhen` is posted under
   ;; every predicate its exception query mentions, so asserting or retracting a fact on
   ;; that predicate finds the rules whose exception it could have flipped; and into the
-  ;; `:rules` roster, which a genl/genlContext edge change re-checks wholesale (a
+  ;; `:rules` roster, which a genl/genlCx edge change re-checks wholesale (a
   ;; closure can flip an exception with no matching fact ever arriving).  Granularity
   ;; is the rule, never the firing; nothing here records whether an exception *holds*.
   (index-exception [_ handle preds]

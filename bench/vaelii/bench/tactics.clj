@@ -47,7 +47,7 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.tactics :as tac]))
 
-(def ^:private context 'BenchContext)
+(def ^:private context 'CxBench)
 
 (defn- say [& parts] (println (apply str parts)) (flush))
 

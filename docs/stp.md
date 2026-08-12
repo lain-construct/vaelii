@@ -239,7 +239,7 @@ compatibility guarantee — the metric layer can only narrow.
 ## Vocabulary
 
 `temporalDistance` (ternary), `startOf` and `endOf` (binary) are declared in
-`resources/kb/upper/TimeContext.txt` beside the interval and instant relations, each with
+`resources/kb/upper/CxTime.txt` beside the interval and instant relations, each with
 its own `comment` sentex. Instants and intervals are ordinary individuals; nothing declares
 them, and nothing here is about clocks or calendars.
 

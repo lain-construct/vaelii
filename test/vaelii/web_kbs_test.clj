@@ -104,7 +104,7 @@
             rebuilt, it reads the holder per request"
     (is (= "generated#1" (catalog/active)))
     (is (re-find #"gen_type_0" (:body (GET "/"))))
-    (is (re-find #"GeneratedContext" (:body (GET "/stats")))))
+    (is (re-find #"CxGenerated" (:body (GET "/stats")))))
   (testing "and the header's label moved with it"
     (is (re-find #"Generated corpus" (:body (GET "/kbs"))))))
 

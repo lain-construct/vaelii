@@ -25,20 +25,20 @@
     (is (= [[] {:memory true :starter true}] (cli/parse-opts ["--memory" "--starter"])))))
 
 (deftest read-forms-parses-a-line-of-edn
-  (is (= [(list 'dog '?x) 'MyContext] (cli/read-forms "(dog ?x) MyContext")))
+  (is (= [(list 'dog '?x) 'CxMy] (cli/read-forms "(dog ?x) CxMy")))
   (is (= [] (cli/read-forms "   "))))
 
 (tu/deftest-kb dispatch-runs-the-core-commands
-  (tu/with-terms [dog animal Muffet CliContext]
+  (tu/with-terms [dog animal Muffet CxCli]
     (testing "assert returns a handle; query returns the matching sentences"
-      (is (nat-int? (cli/dispatch kb "assert" [(list dog Muffet) CliContext] {})))
-      (is (= [(list dog Muffet)] (cli/dispatch kb "match" [(list dog '?x) CliContext] {}))))
+      (is (nat-int? (cli/dispatch kb "assert" [(list dog Muffet) CxCli] {})))
+      (is (= [(list dog Muffet)] (cli/dispatch kb "match" [(list dog '?x) CxCli] {}))))
     (testing "assert-rule / genl feed ask and provable? (specificity)"
-      (cli/dispatch kb "assert" [(list 'genl dog animal) CliContext] {})
-      (is (true? (cli/dispatch kb "provable?" [(list animal Muffet) CliContext] {})))
-      (is (some #(= Muffet (get % '?x)) (cli/dispatch kb "ask" [(list animal '?x) CliContext] {}))))
+      (cli/dispatch kb "assert" [(list 'genl dog animal) CxCli] {})
+      (is (true? (cli/dispatch kb "provable?" [(list animal Muffet) CxCli] {})))
+      (is (some #(= Muffet (get % '?x)) (cli/dispatch kb "ask" [(list animal '?x) CxCli] {}))))
     (testing "handle-of + why give a proof tree"
-      (let [h (cli/dispatch kb "handle-of" [(list dog Muffet) CliContext] {})]
+      (let [h (cli/dispatch kb "handle-of" [(list dog Muffet) CxCli] {})]
         (is (nat-int? h))
         (is (map? (cli/dispatch kb "why" [h] {})))
         (is (true? (cli/dispatch kb "in" [h] {})))))
@@ -48,15 +48,15 @@
     (testing "an unknown command throws with the command list"
       (is (thrown? clojure.lang.ExceptionInfo (cli/dispatch kb "frobnicate" [] {}))))
     (testing "retract tears the fact down"
-      (let [h (cli/dispatch kb "handle-of" [(list dog Muffet) CliContext] {})]
+      (let [h (cli/dispatch kb "handle-of" [(list dog Muffet) CxCli] {})]
         (cli/dispatch kb "retract" [h] {})
-        (is (empty? (cli/dispatch kb "match" [(list dog Muffet) CliContext] {})))))))
+        (is (empty? (cli/dispatch kb "match" [(list dog Muffet) CxCli] {})))))))
 
 (tu/deftest-kb quality-answers-in-prose-because-four-distributions-are-not-a-value-to-read
   ;; the one command whose answer is a document rather than data — and the consumer that
   ;; keeps `kb-quality` and `quality-report` exercised as a pair
   (tu/with-terms [a_type pOne]
-    (v/assert-rule kb [(list a_type '?x)] (list pOne '?x) 'UniverseContext)
+    (v/assert-rule kb [(list a_type '?x)] (list pOne '?x) 'CxUniverse)
     (let [out (cli/dispatch kb "quality" [] {})]
       (is (string? out) "a string, so `show` prints it as written rather than pprinting it")
       (is (re-find #"# KB quality" out))
@@ -64,14 +64,14 @@
       (is (re-find #"## Taxonomy coverage" out)))))
 
 (tu/deftest-kb strength-option-marks-an-assert-monotonic
-  (tu/with-terms [cat Felix CliContext]
-    (cli/dispatch kb "assert" [(list cat Felix) CliContext] {:strength "monotonic"})
-    (is (= :monotonic (v/defeat-class kb (v/handle-of kb (list cat Felix) CliContext))))))
+  (tu/with-terms [cat Felix CxCli]
+    (cli/dispatch kb "assert" [(list cat Felix) CxCli] {:strength "monotonic"})
+    (is (= :monotonic (v/defeat-class kb (v/handle-of kb (list cat Felix) CxCli))))))
 
 (deftest read-arg-keeps-a-path-a-path
   (testing "an argv string that reads as EDN is data — a sentence, a context, a handle"
     (is (= (list 'dog 'Muffet) (cli/read-arg "(dog Muffet)")))
-    (is (= 'NaturalWorldContext (cli/read-arg "NaturalWorldContext")))
+    (is (= 'CxNaturalWorld (cli/read-arg "CxNaturalWorld")))
     (is (= 3 (cli/read-arg "3"))))
   (testing "and one that reads as none is the string it already was, which is what an
             absolute filesystem path is: /var/lib/vaelii has two slashes and is no symbol"
@@ -85,8 +85,8 @@
                                                  (into-array FileAttribute [])))
         dump (io/file root "a-dump")]
     (try
-      (tu/with-terms [dog Muffet ExportContext]
-        (cli/dispatch kb "assert" [(list dog Muffet) ExportContext] {})
+      (tu/with-terms [dog Muffet CxExport]
+        (cli/dispatch kb "assert" [(list dog Muffet) CxExport] {})
         (let [summary (cli/dispatch kb "export" [(.getPath dump)] {:compression "none"})]
           (testing "the command answers with the writer's own summary"
             (is (= :records (:variant summary)))
@@ -103,7 +103,7 @@
               (try
                 (imp/import-dump target (.getPath dump) {:belief? false})
                 (is (= (v/sentex-count kb) (v/sentex-count target)))
-                (is (some? (v/handle-of target (list dog Muffet) ExportContext)))
+                (is (some? (v/handle-of target (list dog Muffet) CxExport)))
                 (finally (v/clear! target)))))
           (testing "--variant and --compression are the writer's own keywords, read from
                     the strings a shell hands over"
@@ -119,27 +119,27 @@
       (finally (doseq [^File f (reverse (file-seq root))] (.delete f))))))
 
 (tu/deftest-kb load-reads-edn-entries-and-asserts-them-in-one-batch
-  (tu/with-terms [dog cat Muffet Felix LoadContext]
+  (tu/with-terms [dog cat Muffet Felix CxLoad]
     (let [f (File/createTempFile "vaelii-cli-load" ".edn")]
       (try
-        (spit f (pr-str [[(list dog Muffet) LoadContext] [(list cat Felix) LoadContext]]))
+        (spit f (pr-str [[(list dog Muffet) CxLoad] [(list cat Felix) CxLoad]]))
         (is (= {:loaded 2 :stored 2} (cli/dispatch kb "load" [(.getPath f)] {})))
-        (is (seq (v/sentexes-matching kb (list dog Muffet) LoadContext)))
-        (is (seq (v/sentexes-matching kb (list cat Felix) LoadContext)))
+        (is (seq (v/sentexes-matching kb (list dog Muffet) CxLoad)))
+        (is (seq (v/sentexes-matching kb (list cat Felix) CxLoad)))
         (finally (.delete f))))))
 
 (tu/deftest-kb load-reports-entries-and-stored-sentexes-separately
   ;; `assert` answers the existing handle for a sentence already stored, so a file of
   ;; duplicates reports what it *did* — one stored sentex — beside what it read.  A
   ;; bare "loaded 3" reports the input's size as though it were the write's.
-  (tu/with-terms [dog Muffet DupContext]
+  (tu/with-terms [dog Muffet CxDup]
     (let [f (File/createTempFile "vaelii-cli-dup" ".edn")]
       (try
-        (spit f (pr-str [[(list dog Muffet) DupContext]
-                         [(list dog Muffet) DupContext]
-                         [(list dog Muffet) DupContext]]))
+        (spit f (pr-str [[(list dog Muffet) CxDup]
+                         [(list dog Muffet) CxDup]
+                         [(list dog Muffet) CxDup]]))
         (is (= {:loaded 3 :stored 1} (cli/dispatch kb "load" [(.getPath f)] {})))
-        (is (= 1 (count (v/sentexes-matching kb (list dog '?x) DupContext))))
+        (is (= 1 (count (v/sentexes-matching kb (list dog '?x) CxDup))))
         (finally (.delete f))))))
 
 (deftest a-flag-missing-its-value-is-refused-not-bound-nil
@@ -207,15 +207,15 @@
       (is (re-find #"usage: assert" (ex-message e))
           "and the message carries the usage line")))
   (testing "too many is refused too — a dropped context stores somewhere else"
-    (let [e (try (cli/check-arity! "assert" ['(dog Rex) 'AContext 'BContext]) nil
+    (let [e (try (cli/check-arity! "assert" ['(dog Rex) 'CxA 'CxB]) nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
       (is (= 3 (:given (ex-data e))))))
   (testing "an optional last operand takes either count"
     (is (nil? (cli/check-arity! "why-not" ['(dog Rex)])))
-    (is (nil? (cli/check-arity! "why-not" ['(dog Rex) 'AContext])))
+    (is (nil? (cli/check-arity! "why-not" ['(dog Rex) 'CxA])))
     (is (nil? (cli/check-arity! "isa" ['Rex 'dog])))
-    (is (nil? (cli/check-arity! "isa" ['Rex 'dog 'AContext]))))
+    (is (nil? (cli/check-arity! "isa" ['Rex 'dog 'CxA]))))
   (testing "a zero-operand command refuses operands"
     (is (nil? (cli/check-arity! "types" [])))
     (is (thrown? clojure.lang.ExceptionInfo (cli/check-arity! "types" ['x]))))
@@ -240,9 +240,9 @@
 (tu/deftest-kb assert-rule-carries-the-strength-flag
   ;; parsed one line up and never passed, --strength monotonic stored the rule at
   ;; :default — where the first contradicting default could defeat known-true content
-  (tu/with-terms [dog animal CliContext]
+  (tu/with-terms [dog animal CxCli]
     (let [h (cli/dispatch kb "assert-rule"
-                          [[(list dog '?x)] (list animal '?x) CliContext]
+                          [[(list dog '?x)] (list animal '?x) CxCli]
                           {:strength "monotonic"})]
       (is (= :monotonic (:strength (v/sentex kb h)))
           "the flag reaches the stored rule's record"))))

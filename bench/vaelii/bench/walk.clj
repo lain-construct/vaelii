@@ -70,7 +70,7 @@
     (doseq [f (reverse (file-seq (java.io.File. d)))] (.delete ^java.io.File f))
     d))
 
-(def ^:private ctx 'UniverseContext)
+(def ^:private ctx 'CxUniverse)
 (defn- node [i] (symbol (str "Node" i "Individual")))
 
 (defn- chain-kb

@@ -39,26 +39,26 @@
 
 (tu/deftest-kb a-specific-exception-blocks-the-general-default-rather-than-defeating-it
   (tu/with-terms [penguin bird flies swims Opus]
-    (v/assert kb (list 'genl penguin bird) 'UniverseContext)
-    (v/assert kb (list 'genl bird 'thing)  'UniverseContext)
+    (v/assert kb (list 'genl penguin bird) 'CxUniverse)
+    (v/assert kb (list 'genl bird 'thing)  'CxUniverse)
     ;; general: birds fly, *except* penguins.  specific: penguins do not.
     (v/assert kb (list 'exceptWhen (list penguin '?x)
                        (default-rule [(list bird '?x)] (list flies '?x)))
-              'UniverseContext)
-    (v/assert kb (default-rule [(list penguin '?x)] (list 'not (list flies '?x)))  'UniverseContext)
+              'CxUniverse)
+    (v/assert kb (default-rule [(list penguin '?x)] (list 'not (list flies '?x)))  'CxUniverse)
     ;; the same shape with the polarities swapped: birds do not swim, except
     ;; penguins; penguins do.  Blocking must behave identically.
     (v/assert kb (list 'exceptWhen (list penguin '?x)
                        (default-rule [(list bird '?x)] (list 'not (list swims '?x))))
-              'UniverseContext)
-    (v/assert kb (default-rule [(list penguin '?x)] (list swims '?x))              'UniverseContext)
-    (v/assert kb (list penguin Opus) 'UniverseContext)
+              'CxUniverse)
+    (v/assert kb (default-rule [(list penguin '?x)] (list swims '?x))              'CxUniverse)
+    (v/assert kb (list penguin Opus) 'CxUniverse)
     (testing "only the excepted rule's conclusion survives"
-      (is (seq    (v/sentexes-matching kb (list 'not (list flies Opus)) 'UniverseContext)))
-      (is (empty? (v/sentexes-matching kb (list flies Opus) 'UniverseContext))))
+      (is (seq    (v/sentexes-matching kb (list 'not (list flies Opus)) 'CxUniverse)))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) 'CxUniverse))))
     (testing "and identically when the specific rule is the positive one"
-      (is (seq    (v/sentexes-matching kb (list swims Opus) 'UniverseContext)))
-      (is (empty? (v/sentexes-matching kb (list 'not (list swims Opus)) 'UniverseContext))))
+      (is (seq    (v/sentexes-matching kb (list swims Opus) 'CxUniverse)))
+      (is (empty? (v/sentexes-matching kb (list 'not (list swims Opus)) 'CxUniverse))))
     (testing "the blocked conclusion was never created, so there is nothing to arbitrate"
       ;; `sentexes-with-functor` is raw — it sees defeated and unsupported sentexes
       ;; too, and a negative fact roots under its positive body's functor.  So each
@@ -87,20 +87,20 @@
 
 (tu/deftest-kb a-derived-conclusion-that-breaks-disjointness-is-arbitrated
   (tu/with-terms [dog fish Rex]
-    (v/assert kb (list 'disjoint dog fish) 'UniverseContext)
-    (v/assert kb (list dog Rex) 'UniverseContext)
-    (v/assert-rule kb [(list dog '?x)] (list fish '?x) 'UniverseContext)
+    (v/assert kb (list 'disjoint dog fish) 'CxUniverse)
+    (v/assert kb (list dog Rex) 'CxUniverse)
+    (v/assert-rule kb [(list dog '?x)] (list fish '?x) 'CxUniverse)
     (testing "the direct assertion of the derived sentence is still refused"
       ;; the assert path keeps its guardrail: a writer is told no
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list fish Rex) 'UniverseContext))))
+                   (v/assert kb (list fish Rex) 'CxUniverse))))
     (testing "the derived one is placed, and the clash is a represented dilemma"
-      (is (seq (v/sentexes-matching kb (list dog Rex)  'UniverseContext)))
-      (is (seq (v/sentexes-matching kb (list fish Rex) 'UniverseContext)))
+      (is (seq (v/sentexes-matching kb (list dog Rex)  'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list fish Rex) 'CxUniverse)))
       (let [cs (v/contradictions kb)]
         (is (= 1 (count cs)))
-        (is (= #{(v/handle-of kb (list dog Rex)  'UniverseContext)
-                 (v/handle-of kb (list fish Rex) 'UniverseContext)}
+        (is (= #{(v/handle-of kb (list dog Rex)  'CxUniverse)
+                 (v/handle-of kb (list fish Rex) 'CxUniverse)}
                (:nogood (first cs)))
             "both handles, so an application can rank the two")
         (is (= 2 (count (:sides (first cs)))))))
@@ -111,15 +111,15 @@
   ;; the other half of the same rule: the pair is arbitrated on defeat class, so a
   ;; :default conclusion against a :monotonic membership loses rather than tying
   (tu/with-terms [dog fish Rex]
-    (v/assert kb (list 'disjoint dog fish) 'UniverseContext)
-    (v/assert kb (list dog Rex) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'disjoint dog fish) 'CxUniverse)
+    (v/assert kb (list dog Rex) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list dog '?x)] (list fish '?x)))
-              'UniverseContext)
+              'CxUniverse)
     (testing "the known-true membership stands and the derived one is defeated"
-      (is (seq (v/sentexes-matching kb (list dog Rex) 'UniverseContext)))
-      (is (empty? (v/sentexes-matching kb (list fish Rex) 'UniverseContext))))
+      (is (seq (v/sentexes-matching kb (list dog Rex) 'CxUniverse)))
+      (is (empty? (v/sentexes-matching kb (list fish Rex) 'CxUniverse))))
     (testing "the loser is stored and disbelieved, so it has a reason"
-      (let [h (v/handle-of kb (list fish Rex) 'UniverseContext)]
+      (let [h (v/handle-of kb (list fish Rex) 'CxUniverse)]
         (is (integer? h) "arbitrated, not dropped — there is a record to ask about")
         (is (not (v/in? kb h)))
         (is (= :defeated (:reason (v/why-not kb h))))))
@@ -128,18 +128,18 @@
 
 (tu/deftest-kb a-derived-conclusion-that-breaks-functionality-is-arbitrated
   (tu/with-terms [birthYearOf bornIn Tom]
-    (v/assert kb (list 'functional birthYearOf) 'UniverseContext)
-    (v/assert kb (list birthYearOf Tom 1980) 'UniverseContext)
-    (v/assert kb (list bornIn Tom 1990) 'UniverseContext)
-    (v/assert-rule kb [(list bornIn '?x '?y)] (list birthYearOf '?x '?y) 'UniverseContext)
+    (v/assert kb (list 'functional birthYearOf) 'CxUniverse)
+    (v/assert kb (list birthYearOf Tom 1980) 'CxUniverse)
+    (v/assert kb (list bornIn Tom 1990) 'CxUniverse)
+    (v/assert-rule kb [(list bornIn '?x '?y)] (list birthYearOf '?x '?y) 'CxUniverse)
     (testing "the direct assertion of the derived sentence is still refused"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list birthYearOf Tom 1990) 'UniverseContext))))
+                   (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse))))
     (testing "the derived second value is placed and the pair reported"
       ;; two *numbers*: no equality could reconcile them, so this is the clash
       ;; `mergeable-values?` keeps hard rather than merging away
-      (is (seq (v/sentexes-matching kb (list birthYearOf Tom 1980) 'UniverseContext)))
-      (is (seq (v/sentexes-matching kb (list birthYearOf Tom 1990) 'UniverseContext)))
+      (is (seq (v/sentexes-matching kb (list birthYearOf Tom 1980) 'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list birthYearOf Tom 1990) 'CxUniverse)))
       (is (= 1 (count (v/contradictions kb)))))))
 
 ;; ---- 3. a derivation confers a class its antecedents never had ----------
@@ -150,9 +150,9 @@
 
 (tu/deftest-kb a-derived-conclusion-is-capped-by-its-weakest-antecedent
   (tu/with-terms [smoker unhealthy Bob]
-    (v/assert-rule kb [(list smoker '?x)] (list unhealthy '?x) 'UniverseContext)  ; bare rule: confers :monotonic
-    (v/assert kb (list smoker Bob) 'UniverseContext)                              ; :default premise
-    (let [derived (:id (first (v/sentexes-matching kb (list unhealthy Bob) 'UniverseContext)))]
+    (v/assert-rule kb [(list smoker '?x)] (list unhealthy '?x) 'CxUniverse)  ; bare rule: confers :monotonic
+    (v/assert kb (list smoker Bob) 'CxUniverse)                              ; :default premise
+    (let [derived (:id (first (v/sentexes-matching kb (list unhealthy Bob) 'CxUniverse)))]
       (is (some? derived) "the rule fired at all")
       (testing "a :default premise cannot yield a conclusion that outranks a default"
         (is (= :default (v/defeat-class kb derived))))
@@ -161,9 +161,9 @@
         ;; so this is a **dilemma**: both stay believed and the pair is represented.
         ;; Were the conclusion still conferred a class above `:default`, the negation
         ;; would simply lose and there would be no pair to report.
-        (v/assert kb (list 'not (list unhealthy Bob)) 'UniverseContext)           ; :default premise
-        (is (seq (v/sentexes-matching kb (list unhealthy Bob) 'UniverseContext)))
-        (is (seq (v/sentexes-matching kb (list 'not (list unhealthy Bob)) 'UniverseContext)))
+        (v/assert kb (list 'not (list unhealthy Bob)) 'CxUniverse)           ; :default premise
+        (is (seq (v/sentexes-matching kb (list unhealthy Bob) 'CxUniverse)))
+        (is (seq (v/sentexes-matching kb (list 'not (list unhealthy Bob)) 'CxUniverse)))
         (is (= 1 (count (v/contradictions kb))))
         (is (empty? (v/conflicts kb)))))))
 
@@ -177,9 +177,9 @@
   (tu/with-terms [mortal human]
     (testing "a non-ground sentence is not a fact and must be refused"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list mortal '?x) 'UniverseContext))))
+                   (v/assert kb (list mortal '?x) 'CxUniverse))))
     (testing "positive control: a rule, where variables belong, still asserts"
-      (is (some? (v/assert-rule kb [(list human '?x)] (list mortal '?x) 'UniverseContext))))))
+      (is (some? (v/assert-rule kb [(list human '?x)] (list mortal '?x) 'CxUniverse))))))
 
 ;; ---- 5. contradiction detection misses incomparable contexts -----------
 ;; BUG: `negation-nogoods` pairs S with (not S) only when one of their contexts
@@ -189,12 +189,12 @@
 ;; `negation-nogoods` now tests for a common descendant instead.
 
 (tu/deftest-kb a-contradiction-visible-from-a-common-descendant-is-detected
-  (tu/with-terms [flies Zed LeftContext RightContext BothContext]
-    (v/assert kb (list 'genlContext BothContext LeftContext)  'UniverseContext)
-    (v/assert kb (list 'genlContext BothContext RightContext) 'UniverseContext)
-    (v/assert kb (list flies Zed) LeftContext)
-    (v/assert kb (list 'not (list flies Zed)) RightContext)
-    (testing "BothContext sees both, so the clash is detected across the incomparable pair"
+  (tu/with-terms [flies Zed CxLeft CxRight CxBoth]
+    (v/assert kb (list 'genlCx CxBoth CxLeft)  'CxUniverse)
+    (v/assert kb (list 'genlCx CxBoth CxRight) 'CxUniverse)
+    (v/assert kb (list flies Zed) CxLeft)
+    (v/assert kb (list 'not (list flies Zed)) CxRight)
+    (testing "CxBoth sees both, so the clash is detected across the incomparable pair"
       ;; Both premises are `:default`, so the clash is a **dilemma** rather than a
       ;; conflict — but it must be *found*, which is what `sees?` alone could not do.
       ;; Detection is the invariant here; what the engine then does with the pair is
@@ -203,7 +203,7 @@
           "S and (not S) share a descendant context and the pair was not detected")
       (is (empty? (v/conflicts kb))))
     (testing "and a known-true side wins outright rather than tying"
-      (v/assert kb (list 'not (list flies Zed)) RightContext {:strength :monotonic})
+      (v/assert kb (list 'not (list flies Zed)) CxRight {:strength :monotonic})
       (is (empty? (v/sentexes-matching kb (list flies Zed) '?ctx)))
       (is (seq    (v/sentexes-matching kb (list 'not (list flies Zed)) '?ctx)))
       (is (empty? (v/contradictions kb))))))

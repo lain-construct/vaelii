@@ -22,7 +22,7 @@
 
   The third finding of the same shape — that the grammar itself is now audited, so a new
   declaration nobody classified fails a test rather than landing in silence — needs a
-  CoreContext baseline where these need a cleared one, and lives in
+  CxCore baseline where these need a cleared one, and lives in
   `vocabulary-audit-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -47,11 +47,11 @@
   ;; fact was indistinguishable from a right one — while the very next assert of the
   ;; same shape was refused.
   (tu/with-terms [parentOf A B C D E F]
-    (v/assert kb (list parentOf A B C) 'UniverseContext)
-    (v/assert kb (list parentOf D E F) 'UniverseContext)
-    (v/assert kb (list 'arity parentOf 2) 'UniverseContext)
+    (v/assert kb (list parentOf A B C) 'CxUniverse)
+    (v/assert kb (list parentOf D E F) 'CxUniverse)
+    (v/assert kb (list 'arity parentOf 2) 'CxUniverse)
     (let [e  (get (arity-entries kb) parentOf)
-          dh (v/handle-of kb (list 'arity parentOf 2) 'UniverseContext)]
+          dh (v/handle-of kb (list 'arity parentOf 2) 'CxUniverse)]
       (is (some? e) "the declaration files a finding")
       (is (= 2 (:count e)) "both stored facts are counted")
       (is (= #{(list parentOf A B C) (list parentOf D E F)} (set (:sample e))))
@@ -59,7 +59,7 @@
       (is (= dh (:declared-after e))
           "the entry points at the declaration that convicted")
       (is (not (:truncated e)))
-      (is (v/ask? kb (list parentOf A B C) 'UniverseContext)
+      (is (v/ask? kb (list parentOf A B C) 'CxUniverse)
           "reported, not withdrawn — nothing here moves belief"))))
 
 (tu/deftest-kb one-entry-per-declaration-and-not-one-per-fact
@@ -70,8 +70,8 @@
   ;; re-derive it.
   (tu/with-terms [wideOf X]
     (doseq [i (range 30)]
-      (v/assert kb (list wideOf X (symbol (str "TmpW" i)) 'Extra) 'UniverseContext))
-    (v/assert kb (list 'arity wideOf 2) 'UniverseContext)
+      (v/assert kb (list wideOf X (symbol (str "TmpW" i)) 'Extra) 'CxUniverse))
+    (v/assert kb (list 'arity wideOf 2) 'CxUniverse)
     (let [es (arity-entries kb)]
       (is (= 1 (count es)) "thirty convicted facts, one entry")
       (is (= 30 (:count (get es wideOf))))
@@ -79,20 +79,20 @@
 
 (tu/deftest-kb the-conforming-facts-of-the-same-predicate-are-not-counted
   (tu/with-terms [parentOf A B C G H]
-    (v/assert kb (list parentOf A B C) 'UniverseContext)
-    (v/assert kb (list parentOf G H) 'UniverseContext)
-    (v/assert kb (list 'arity parentOf 2) 'UniverseContext)
+    (v/assert kb (list parentOf A B C) 'CxUniverse)
+    (v/assert kb (list parentOf G H) 'CxUniverse)
+    (v/assert kb (list 'arity parentOf 2) 'CxUniverse)
     (is (= [(list parentOf A B C)] (:sample (get (arity-entries kb) parentOf)))
         "the sweep is over the predicate's extent; only the offender is in the finding")))
 
 (tu/deftest-kb the-membership-spelling-of-an-arity-reaches-back-too
   ;; `(binaryPredicate P)` says the same thing as `(arity P 2)`, and `declared-arity`
   ;; reads both — so the trigger set and the O(1) gate have to know both, or the reach
-  ;; works for a KB carrying CoreContext's derivation rules and silently not for one
+  ;; works for a KB carrying CxCore's derivation rules and silently not for one
   ;; loaded without them.
   (tu/with-terms [relOf A B C]
-    (v/assert kb (list relOf A B C) 'UniverseContext)
-    (v/assert kb (list 'binaryPredicate relOf) 'UniverseContext)
+    (v/assert kb (list relOf A B C) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate relOf) 'CxUniverse)
     (is (= [(list relOf A B C)] (:sample (get (arity-entries kb) relOf))))))
 
 (tu/deftest-kb a-variableArity-predicate-is-exempt-on-the-retroactive-path-too
@@ -100,15 +100,15 @@
   ;; reads a chain), and it is read by one `arity-problem` — so it must hold whichever
   ;; direction the check is asked from.
   (tu/with-terms [chainOf A B C]
-    (v/assert kb (list chainOf A B C) 'UniverseContext)
-    (v/assert kb (list 'variableArity chainOf) 'UniverseContext)
-    (v/assert kb (list 'arity chainOf 2) 'UniverseContext)
+    (v/assert kb (list chainOf A B C) 'CxUniverse)
+    (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
+    (v/assert kb (list 'arity chainOf 2) 'CxUniverse)
     (is (empty? (arity-entries kb)))))
 
 (tu/deftest-kb a-kb-that-declares-no-arity-reports-nothing
   (tu/with-terms [otherOf A B C D E]
-    (v/assert kb (list otherOf A B C) 'UniverseContext)
-    (v/assert kb (list otherOf D E) 'UniverseContext)
+    (v/assert kb (list otherOf A B C) 'CxUniverse)
+    (v/assert kb (list otherOf D E) 'CxUniverse)
     (is (empty? (v/violations kb)))))
 
 (tu/deftest-kb the-reach-is-an-event-and-an-unrelated-settle-does-not-re-file-it
@@ -116,10 +116,10 @@
   ;; *newly* convicted stored content.  A settle whose region holds neither the
   ;; declaration nor the facts has nothing new to say.
   (tu/with-terms [stableOf A B C X]
-    (v/assert kb (list stableOf A B C) 'UniverseContext)
-    (v/assert kb (list 'arity stableOf 2) 'UniverseContext)
+    (v/assert kb (list stableOf A B C) 'CxUniverse)
+    (v/assert kb (list 'arity stableOf 2) 'CxUniverse)
     (is (= 1 (count (arity-entries kb))))
-    (v/assert kb (list 'thing X) 'UniverseContext)
+    (v/assert kb (list 'thing X) 'CxUniverse)
     (is (= 1 (count (arity-entries kb))) "not re-filed")))
 
 (tu/deftest-kb a-rebuild-files-no-arity-reach-entry
@@ -133,13 +133,13 @@
   ;; KB answers differently after a restart.  A report is an event, and re-filing it says
   ;; nothing new.
   (tu/with-terms [rebuiltOf A B C]
-    (v/assert kb (list rebuiltOf A B C) 'UniverseContext)
-    (v/assert kb (list 'arity rebuiltOf 2) 'UniverseContext)
+    (v/assert kb (list rebuiltOf A B C) 'CxUniverse)
+    (v/assert kb (list 'arity rebuiltOf 2) 'CxUniverse)
     (is (= 1 (count (arity-entries kb))) "filed once when the declaration arrived")
     (v/clear-violations! kb)
     (v/recover kb)
     (is (empty? (arity-entries kb)) "and not again by the rebuild")
-    (is (v/ask? kb (list rebuiltOf A B C) 'UniverseContext)
+    (is (v/ask? kb (list rebuiltOf A B C) 'CxUniverse)
         "the fact survives the rebuild — nothing here withdrew it")))
 
 (tu/deftest-kb a-reach-cut-short-by-the-budget-says-so
@@ -149,8 +149,8 @@
   (binding [settle/*exposure-instance-budget* 2]
     (tu/with-terms [manyOf X]
       (doseq [i (range 6)]
-        (v/assert kb (list manyOf X (symbol (str "TmpM" i)) 'Extra) 'UniverseContext))
-      (v/assert kb (list 'arity manyOf 2) 'UniverseContext)
+        (v/assert kb (list manyOf X (symbol (str "TmpM" i)) 'Extra) 'CxUniverse))
+      (v/assert kb (list 'arity manyOf 2) 'CxUniverse)
       (let [e (get (arity-entries kb) manyOf)]
         (is (:truncated e) "the entry admits the sweep was bounded")
         (is (= 2 (:budget e)))
@@ -163,10 +163,10 @@
     (testing (str policy)
       (tu/with-neutral-kb [kb #(v/open-kb (assoc tu/scratch-space :constraints policy))]
         (tu/with-terms [firstOf A B C]
-          (v/assert kb (list 'arity firstOf 2) 'UniverseContext)
+          (v/assert kb (list 'arity firstOf 2) 'CxUniverse)
           (is (thrown? clojure.lang.ExceptionInfo
-                       (v/assert kb (list firstOf A B C) 'UniverseContext)))
-          (is (nil? (v/handle-of kb (list firstOf A B C) 'UniverseContext))))))))
+                       (v/assert kb (list firstOf A B C) 'CxUniverse)))
+          (is (nil? (v/handle-of kb (list firstOf A B C) 'CxUniverse))))))))
 
 (deftest an-arity-clash-is-not-a-nogood
   ;; The decision, pinned rather than argued.  `arity` names a second believed sentex, so
@@ -184,13 +184,13 @@
       "arity is not arbitrable; the comment above arbitrable-kinds has the measurement")
   (tu/with-neutral-kb [kb #(v/open-kb (assoc tu/scratch-space :constraints :arbitrate))]
     (tu/with-terms [relOf A B C]
-      (v/assert kb (list relOf A B C) 'UniverseContext {:strength :monotonic})
-      (v/assert kb (list 'arity relOf 2) 'UniverseContext)
+      (v/assert kb (list relOf A B C) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list 'arity relOf 2) 'CxUniverse)
       (is (empty? (v/contradictions kb)) "no dilemma is opened")
       (is (empty? (v/conflicts kb))      "and no irreducible clash")
-      (is (v/ask? kb (list 'arity relOf 2) 'UniverseContext)
+      (is (v/ask? kb (list 'arity relOf 2) 'CxUniverse)
           "the declaration is not defeated, so it still constrains everything else")
-      (is (v/ask? kb (list relOf A B C) 'UniverseContext))
+      (is (v/ask? kb (list relOf A B C) 'CxUniverse))
       (is (seq (arity-entries kb)) "the finding is reported instead"))))
 
 ;;; ── interArgIsa: the conditional argument constraint ───────────────────
@@ -209,15 +209,15 @@
                (list 'genl beef meat)
                (list 'genl grass 'thing)
                (list 'interArgIsa eats 1 carnivore 2 meat)]]
-      (v/assert kb s 'UniverseContext))
+      (v/assert kb s 'CxUniverse))
     {:carnivore carnivore :meat meat :beef beef :grass grass :eats eats}))
 
 (tu/deftest-kb a-conditional-constraint-refuses-the-violating-fact
   (let [{:keys [carnivore grass eats]} (eats-world kb)]
     (tu/with-terms [Rex Hay]
-      (v/assert kb (list carnivore Rex) 'UniverseContext)
-      (v/assert kb (list grass Hay) 'UniverseContext)
-      (let [e (try (v/assert kb (list eats Rex Hay) 'UniverseContext) nil
+      (v/assert kb (list carnivore Rex) 'CxUniverse)
+      (v/assert kb (list grass Hay) 'CxUniverse)
+      (let [e (try (v/assert kb (list eats Rex Hay) 'CxUniverse) nil
                    (catch clojure.lang.ExceptionInfo x (ex-data x)))]
         (is (= :inter-arg-type (:type e)))
         (is (= Hay (:arg e)))
@@ -231,9 +231,9 @@
   ;; exact type named, which is not what a type hierarchy is for.
   (let [{:keys [carnivore beef eats]} (eats-world kb)]
     (tu/with-terms [Rex Chunk]
-      (v/assert kb (list carnivore Rex) 'UniverseContext)
-      (v/assert kb (list beef Chunk) 'UniverseContext)
-      (is (v/assert kb (list eats Rex Chunk) 'UniverseContext)))))
+      (v/assert kb (list carnivore Rex) 'CxUniverse)
+      (v/assert kb (list beef Chunk) 'CxUniverse)
+      (is (v/assert kb (list eats Rex Chunk) 'CxUniverse)))))
 
 (tu/deftest-kb an-unestablished-trigger-leaves-the-constraint-dormant
   ;; Half of the reading, and the half that inverts the constraint if it is got backwards:
@@ -241,8 +241,8 @@
   ;; fires.  Read the other way, every untyped first argument would convict.
   (let [{:keys [grass eats]} (eats-world kb)]
     (tu/with-terms [Nobody Straw]
-      (v/assert kb (list grass Straw) 'UniverseContext)
-      (is (v/assert kb (list eats Nobody Straw) 'UniverseContext)))))
+      (v/assert kb (list grass Straw) 'CxUniverse)
+      (is (v/assert kb (list eats Nobody Straw) 'CxUniverse)))))
 
 (tu/deftest-kb an-untyped-target-is-excused-by-open-world
   ;; The other half.  The target is convicted by *absence* of a path to the constraint
@@ -250,22 +250,22 @@
   ;; for the edges that place it, exactly as `args-problem` allows.
   (let [{:keys [carnivore eats]} (eats-world kb)]
     (tu/with-terms [Rex Mystery]
-      (v/assert kb (list carnivore Rex) 'UniverseContext)
-      (is (v/assert kb (list eats Rex Mystery) 'UniverseContext)))))
+      (v/assert kb (list carnivore Rex) 'CxUniverse)
+      (is (v/assert kb (list eats Rex Mystery) 'CxUniverse)))))
 
 (tu/deftest-kb a-declaration-the-context-cannot-see-does-not-convict
   ;; Scoped like every other definitional check: a context is refused only on grounds
   ;; it can see.  The declaration is written in a sibling context, so it reaches nobody.
-  (tu/with-terms [carnivore_t meat_t grass_t eatsOf Rex Hay SideContext OtherContext]
+  (tu/with-terms [carnivore_t meat_t grass_t eatsOf Rex Hay CxSide CxOther]
     (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)
                (list 'genl grass_t 'thing)]]
-      (v/assert kb s 'UniverseContext))
-    (v/assert kb (list 'genlContext SideContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext OtherContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t) OtherContext)
-    (v/assert kb (list carnivore_t Rex) SideContext)
-    (v/assert kb (list grass_t Hay) SideContext)
-    (is (v/assert kb (list eatsOf Rex Hay) SideContext))))
+      (v/assert kb s 'CxUniverse))
+    (v/assert kb (list 'genlCx CxSide 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxOther 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t) CxOther)
+    (v/assert kb (list carnivore_t Rex) CxSide)
+    (v/assert kb (list grass_t Hay) CxSide)
+    (is (v/assert kb (list eatsOf Rex Hay) CxSide))))
 
 (tu/deftest-kb a-conditional-constraint-does-not-reach-back-over-stored-content
   ;; Deliberate, and the argument is `argIsa`'s verbatim: the conviction rests on the
@@ -277,8 +277,8 @@
                (list 'genl grass_t 'thing)
                (list carnivore_t Rex) (list grass_t Hay) (list eatsOf Rex Hay)
                (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t)]]
-      (v/assert kb s 'UniverseContext))
-    (is (v/ask? kb (list eatsOf Rex Hay) 'UniverseContext))
+      (v/assert kb s 'CxUniverse))
+    (is (v/ask? kb (list eatsOf Rex Hay) 'CxUniverse))
     (is (empty? (v/violations kb)))
     (is (empty? (v/contradictions kb)))))
 
@@ -286,26 +286,26 @@
   ;; Both positions, since `interArgIsa` names two and each is the same mistake: a
   ;; constraint that can never fire reads as enforced while enforcing nothing.
   (tu/with-terms [carnivore_t meat_t biteOf]
-    (v/assert kb (list 'genl carnivore_t 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl meat_t 'thing) 'UniverseContext)
-    (v/assert kb (list 'arity biteOf 2) 'UniverseContext)
+    (v/assert kb (list 'genl carnivore_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl meat_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'arity biteOf 2) 'CxUniverse)
     (doseq [bad [(list 'interArgIsa biteOf 1 carnivore_t 5 meat_t)
                  (list 'interArgIsa biteOf 5 carnivore_t 1 meat_t)]]
       (is (= :arg-position
-             (:type (try (v/assert kb bad 'UniverseContext) nil
+             (:type (try (v/assert kb bad 'CxUniverse) nil
                          (catch clojure.lang.ExceptionInfo x (ex-data x)))))
           (str bad)))))
 
 (tu/deftest-kb a-structurally-malformed-conditional-declaration-is-refused
   (tu/with-terms [carnivore_t meat_t someOf Muffet]
-    (v/assert kb (list 'genl carnivore_t 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl meat_t 'thing) 'UniverseContext)
+    (v/assert kb (list 'genl carnivore_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl meat_t 'thing) 'CxUniverse)
     (doseq [bad [(list 'interArgIsa someOf 1 carnivore_t)               ; four arguments
                  (list 'interArgIsa someOf 0 carnivore_t 2 meat_t)      ; position 0
                  (list 'interArgIsa someOf 1 carnivore_t 0 meat_t)
                  (list 'interArgIsa someOf 1 carnivore_t 2 Muffet)]]      ; an individual
       (is (= :not-well-formed
-             (:type (try (v/assert kb bad 'UniverseContext) nil
+             (:type (try (v/assert kb bad 'CxUniverse) nil
                          (catch clojure.lang.ExceptionInfo x (ex-data x)))))
           (str bad)))))
 
@@ -316,10 +316,10 @@
   (binding [checks/*assertive-arg-types?* true]
     (let [{:keys [carnivore meat eats]} (eats-world kb)]
       (tu/with-terms [Rex Chunk Nobody Other]
-        (v/assert kb (list carnivore Rex) 'UniverseContext)
-        (v/assert kb (list eats Rex Chunk) 'UniverseContext)
-        (is (v/ask? kb (list meat Chunk) 'UniverseContext))
-        (let [w (v/why kb (v/handle-of kb (list meat Chunk) 'UniverseContext))
+        (v/assert kb (list carnivore Rex) 'CxUniverse)
+        (v/assert kb (list eats Rex Chunk) 'CxUniverse)
+        (is (v/ask? kb (list meat Chunk) 'CxUniverse))
+        (let [w (v/why kb (v/handle-of kb (list meat Chunk) 'CxUniverse))
               j (first (:support w))]
           (is (= 1 (count (:support w))) "one justification, not one per settle")
           (is (= 'interArgIsa (:informant j)))
@@ -327,8 +327,8 @@
                    (list 'interArgIsa eats 1 carnivore 2 meat)}
                  (set (map :sentence (:because j))))
               "justified by the fact and the declaration, so retracting either takes it back"))
-        (v/assert kb (list eats Nobody Other) 'UniverseContext)
-        (is (not (v/ask? kb (list meat Other) 'UniverseContext))
+        (v/assert kb (list eats Nobody Other) 'CxUniverse)
+        (is (not (v/ask? kb (list meat Other) 'CxUniverse))
             "an unestablished trigger entails nothing")))))
 
 (tu/deftest-kb the-conditional-entailment-is-drawn-in-either-arrival-order
@@ -343,11 +343,11 @@
       (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)
                  (list carnivore_t Rex)
                  (list eatsOf Rex Chunk)]]                  ; the fact arrives FIRST
-        (v/assert kb s 'UniverseContext))
-      (is (not (v/ask? kb (list meat_t Chunk) 'UniverseContext))
+        (v/assert kb s 'CxUniverse))
+      (is (not (v/ask? kb (list meat_t Chunk) 'CxUniverse))
           "nothing to entail from yet")
-      (v/assert kb (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t) 'UniverseContext)
-      (is (v/ask? kb (list meat_t Chunk) 'UniverseContext)
+      (v/assert kb (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t) 'CxUniverse)
+      (is (v/ask? kb (list meat_t Chunk) 'CxUniverse)
           "the declaration reaches back over the fact already stored"))))
 
 (tu/deftest-kb retracting-either-half-takes-the-conditional-entailment-back
@@ -360,11 +360,11 @@
                  (list carnivore_t Rex)
                  (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t)
                  (list eatsOf Rex Chunk)]]
-        (v/assert kb s 'UniverseContext))
-      (is (v/ask? kb (list meat_t Chunk) 'UniverseContext))
+        (v/assert kb s 'CxUniverse))
+      (is (v/ask? kb (list meat_t Chunk) 'CxUniverse))
       (v/retract! kb (v/handle-of kb (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t)
-                                  'UniverseContext))
-      (is (not (v/ask? kb (list meat_t Chunk) 'UniverseContext))
+                                  'CxUniverse))
+      (is (not (v/ask? kb (list meat_t Chunk) 'CxUniverse))
           "retracting the declaration withdraws what it entailed"))))
 
 (tu/deftest-kb a-derived-conclusion-violating-a-conditional-constraint-is-dropped
@@ -379,9 +379,9 @@
                (list carnivore_t Rex) (list grass_t Hay)
                (list 'set/forwardRule (vr/rule-sentence [(list feedsOf '?a '?b)]
                                                         (list eatsOf '?a '?b)))]]
-      (v/assert kb s 'UniverseContext))
-    (v/assert kb (list feedsOf Rex Hay) 'UniverseContext)
-    (is (nil? (v/handle-of kb (list eatsOf Rex Hay) 'UniverseContext))
+      (v/assert kb s 'CxUniverse))
+    (v/assert kb (list feedsOf Rex Hay) 'CxUniverse)
+    (is (nil? (v/handle-of kb (list eatsOf Rex Hay) 'CxUniverse))
         "the violating conclusion is not stored")
     (is (some #{:inter-arg-type} (map :violation (v/violations kb)))
         "and it is reported rather than silently lost")))

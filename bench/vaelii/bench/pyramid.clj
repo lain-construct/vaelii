@@ -55,7 +55,7 @@
                            "expected/a_ext.sha1.")
                       {:env "VAELII_PYRAMID_CORPUS"}))))
 
-(def ^:private bench-context 'FieldBenchContext)
+(def ^:private bench-context 'CxFieldBench)
 
 (defn- sha1-of-lines
   "SHA-1 hex of the canonical form of `lines` — identical to the field harness's

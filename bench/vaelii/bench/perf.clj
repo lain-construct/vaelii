@@ -182,12 +182,12 @@
   [n]
   (binding [checks/*arbitrate-constraints?* true]
     (let [kb (fresh-kb)]
-      (v/assert kb '(disjoint pa_t pb_t) 'PerfContext {:strength :monotonic})
+      (v/assert kb '(disjoint pa_t pb_t) 'CxPerf {:strength :monotonic})
       (doall
        (for [i (range n)
              :let [x (symbol (str "PX" i))]]
-         (do (v/assert kb (list 'pa_t x) 'PerfContext {})
-             (nanos (v/assert kb (list 'pb_t x) 'PerfContext {}))))))))
+         (do (v/assert kb (list 'pa_t x) 'CxPerf {})
+             (nanos (v/assert kb (list 'pb_t x) 'CxPerf {}))))))))
 
 (defn- constraint-exposure-shared-arg
   "n facts of a declared-`asymmetric` predicate that all share argument 1, under
@@ -216,14 +216,14 @@
   shape flat."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(asymmetric plarger) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(asymmetric plarger) 'CxPerf {:strength :monotonic})
     (doall
      (for [i (range n)]
        (nanos (v/assert kb (list 'plarger 'PA (symbol (str "PL" i)))
-                        'PerfContext {}))))))
+                        'CxPerf {}))))))
 
 (defn- constraint-exposure-context-edge
-  "A `genlContext` edge asserted into a KB holding n facts of a declared `functional`
+  "A `genlCx` edge asserted into a KB holding n facts of a declared `functional`
   predicate in the context it newly sees, under `:refuse`.
 
   The edge is the one trigger the cross-context constraint report reaches *out* of the
@@ -245,15 +245,15 @@
   [n]
   (binding [settle/*exposure-instance-budget* 100]
     (let [kb (fresh-kb)]
-      (v/assert kb '(functional pbirth) 'PerfContext {:strength :monotonic})
-      (v/assert kb '(genlContext PSrcContext PerfContext) 'PerfContext {:strength :monotonic})
+      (v/assert kb '(functional pbirth) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(genlCx CxPSrc CxPerf) 'CxPerf {:strength :monotonic})
       (v/with-deferred-settle kb
         (doseq [i (range n)]
-          (v/assert kb (list 'pbirth (symbol (str "PS" i)) i) 'PSrcContext {})))
+          (v/assert kb (list 'pbirth (symbol (str "PS" i)) i) 'CxPSrc {})))
       (doall
        (for [i (range 60)]
-         (nanos (v/assert kb (list 'genlContext (symbol (str "PW" i "Context")) 'PSrcContext)
-                          'PerfContext {:strength :monotonic})))))))
+         (nanos (v/assert kb (list 'genlCx (symbol (str "CxPW" i)) 'CxPSrc)
+                          'CxPerf {:strength :monotonic})))))))
 
 (defn- defeasible-load
   "n facts arriving through one defeasible forward rule.  The rule fires per fact and the
@@ -263,10 +263,10 @@
   (let [kb (fresh-kb)]
     (v/assert kb (list 'set/defaultRule
                        (rules/rule-sentence ['(pbird ?x)] '(pflies ?x)))
-              'PerfContext {:strength :monotonic})
+              'CxPerf {:strength :monotonic})
     (doall
      (for [i (range n)]
-       (nanos (v/assert kb (list 'pbird (symbol (str "PB" i))) 'PerfContext {}))))))
+       (nanos (v/assert kb (list 'pbird (symbol (str "PB" i))) 'CxPerf {}))))))
 
 (defn- taxonomy-depth
   "n `genl` edges arriving parent-before-child down one chain.  Every edge pays a `wff`
@@ -274,13 +274,13 @@
   walking the closure instead would be linear in the chain already built."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(genl pt0_t thing) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(genl pt0_t thing) 'CxPerf {:strength :monotonic})
     (doall
      (for [i (range 1 (inc n))]
        (nanos (v/assert kb (list 'genl
                                  (symbol (str "pt" i "_t"))
                                  (symbol (str "pt" (dec i) "_t")))
-                        'PerfContext {:strength :monotonic}))))))
+                        'CxPerf {:strength :monotonic}))))))
 
 (defn- taxonomy-belief-flip
   "One `genl` edge defeated and revived over and over, in a taxonomy of n edges.
@@ -301,11 +301,11 @@
   (let [kb (fresh-kb)]
     (v/with-deferred-settle kb
       (doseq [i (range n)]
-        (v/assert kb (list 'genl (symbol (str "pfl" i "_t")) 'thing) 'PerfContext {})))
+        (v/assert kb (list 'genl (symbol (str "pfl" i "_t")) 'thing) 'CxPerf {})))
     (let [edge (list 'not (list 'genl (symbol (str "pfl" (quot n 2) "_t")) 'thing))]
       (doall
        (for [_ (range 120)]
-         (nanos (let [h (v/assert kb edge 'PerfContext {:strength :monotonic})]
+         (nanos (let [h (v/assert kb edge 'CxPerf {:strength :monotonic})]
                   (v/retract! kb h))))))))
 
 (defn- flat-cache-belief-flip
@@ -335,12 +335,12 @@
     (v/with-deferred-settle kb
       (doseq [i (range n)]
         (v/assert kb (list 'disjoint (symbol (str "pfd" i "a_t")) (symbol (str "pfd" i "b_t")))
-                  'PerfContext {})))
+                  'CxPerf {})))
     (let [k    (quot n 2)
           decl (list 'not (list 'disjoint (symbol (str "pfd" k "a_t")) (symbol (str "pfd" k "b_t"))))]
       (doall
        (for [_ (range 120)]
-         (nanos (let [h (v/assert kb decl 'PerfContext {:strength :monotonic})]
+         (nanos (let [h (v/assert kb decl 'CxPerf {:strength :monotonic})]
                   (v/retract! kb h))))))))
 
 (defn- arg-root-retrieval
@@ -352,14 +352,14 @@
     (v/with-deferred-settle kb
       (doseq [i (range n)]
         (v/assert kb (list 'pRelOf (symbol (str "PI" i)) (symbol (str "PT" i)))
-                  'PerfContext {:strength :monotonic})))
+                  'CxPerf {:strength :monotonic})))
     ;; a hundred matches per reading: one is a few microseconds whatever n is, which is
     ;; the very result being gated — and a ratio between two readings that small is
     ;; timer jitter.  Batching moves the reading above the floor without changing what
     ;; it measures.
     (let [goal (list 'pRelOf '?x (symbol (str "PT" (quot n 2))))]
       (doall (for [_ (range 40)]
-               (nanos (dotimes [_ 100] (doall (res/match-pattern kb goal 'PerfContext)))))))))
+               (nanos (dotimes [_ 100] (doall (res/match-pattern kb goal 'CxPerf)))))))))
 
 (def ^:private separated-types
   "Types under each side of the one declaration in `disjoint-enumeration` — the part of
@@ -381,20 +381,20 @@
   the result being gated, and a ratio between two readings that small is jitter."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(genl pdj_left thing)  'PerfContext {:strength :monotonic})
-    (v/assert kb '(genl pdj_right thing) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(genl pdj_left thing)  'CxPerf {:strength :monotonic})
+    (v/assert kb '(genl pdj_right thing) 'CxPerf {:strength :monotonic})
     (v/with-deferred-settle kb
       (doseq [i (range separated-types)]
         (v/assert kb (list 'genl (symbol (str "pdj_l" i)) 'pdj_left)
-                  'PerfContext {:strength :monotonic})
+                  'CxPerf {:strength :monotonic})
         (v/assert kb (list 'genl (symbol (str "pdj_r" i)) 'pdj_right)
-                  'PerfContext {:strength :monotonic}))
+                  'CxPerf {:strength :monotonic}))
       (doseq [i (range n)]
         (v/assert kb (list 'genl (symbol (str "pdj_o" i "_t")) 'thing)
-                  'PerfContext {:strength :monotonic})))
-    (v/assert kb '(disjoint pdj_left pdj_right) 'PerfContext {:strength :monotonic})
+                  'CxPerf {:strength :monotonic})))
+    (v/assert kb '(disjoint pdj_left pdj_right) 'CxPerf {:strength :monotonic})
     (doall (for [_ (range 60)]
-             (nanos (dotimes [_ 10] (count (v/ask kb '(disjoint pdj_l0 ?t) 'PerfContext))))))))
+             (nanos (dotimes [_ 10] (count (v/ask kb '(disjoint pdj_l0 ?t) 'CxPerf))))))))
 
 (defn- closure-membership
   "`(pBefore Head Tail)` over an n-long chain under `(transitive pBefore)`, asked after the
@@ -413,14 +413,14 @@
   [n]
   (let [kb (fresh-kb)
         nd #(symbol (str "PBefore" % "Individual"))]
-    (v/assert kb '(transitive pBefore) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(transitive pBefore) 'CxPerf {:strength :monotonic})
     (v/with-deferred-settle kb
       (doseq [i (range 1 n)]
-        (v/assert kb (list 'pBefore (nd (dec i)) (nd i)) 'PerfContext {:strength :monotonic})))
-    (dorun (v/ask kb (list 'pBefore (nd 0) '?y) 'PerfContext))
+        (v/assert kb (list 'pBefore (nd (dec i)) (nd i)) 'CxPerf {:strength :monotonic})))
+    (dorun (v/ask kb (list 'pBefore (nd 0) '?y) 'CxPerf))
     (let [goal (list 'pBefore (nd 0) (nd (dec n)))]
       (doall (for [_ (range 60)]
-               (nanos (dotimes [_ 200] (v/ask? kb goal 'PerfContext))))))))
+               (nanos (dotimes [_ 200] (v/ask? kb goal 'CxPerf))))))))
 
 (defn- membership-check
   "A type membership arriving into a KB that already holds n of them, each about a
@@ -433,13 +433,13 @@
   definition and gating it would be gating a claim nobody makes."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(genl pm_a_t thing) 'PerfContext {:strength :monotonic})
-    (v/assert kb '(genl pm_b_t thing) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(genl pm_a_t thing) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(genl pm_b_t thing) 'CxPerf {:strength :monotonic})
     (doall
      (for [i (range n)
            :let [x (symbol (str "PM" i))]]
-       (do (v/assert kb (list 'pm_a_t x) 'PerfContext {:strength :monotonic})
-           (nanos (v/assert kb (list 'pm_b_t x) 'PerfContext {:strength :monotonic})))))))
+       (do (v/assert kb (list 'pm_a_t x) 'CxPerf {:strength :monotonic})
+           (nanos (v/assert kb (list 'pm_b_t x) 'CxPerf {:strength :monotonic})))))))
 
 (defn- negation-arbitration
   "n **independent** P/¬P dilemmas — a fresh predicate and a fresh individual apiece, so
@@ -461,8 +461,8 @@
      (for [i (range n)
            :let [pr (symbol (str "pneg" i))
                  x  (symbol (str "PN" i))]]
-       (do (v/assert kb (list pr x) 'PerfContext {})
-           (nanos (v/assert kb (list 'not (list pr x)) 'PerfContext {})))))))
+       (do (v/assert kb (list pr x) 'CxPerf {})
+           (nanos (v/assert kb (list 'not (list pr x)) 'CxPerf {})))))))
 
 (defn- negation-load
   "n negative facts whose bodies are stored in ONE polarity only — the negation-heavy load
@@ -480,7 +480,7 @@
     (doall
      (for [i (range n)]
        (nanos (v/assert kb (list 'not (list (symbol (str "pnl" i)) 'PNA))
-                        'PerfContext {}))))))
+                        'CxPerf {}))))))
 
 (defn- compound-probe
   "`find-sentexes` on a ground **compound** — `(pcmp PI0 PTHot)`, a stored fact of a corpus
@@ -499,7 +499,7 @@
   [n]
   (let [kb (fresh-kb)]
     (v/bulk-assert-facts!
-     kb (for [i (range n)] (list 'pcmp (symbol (str "PI" i)) 'PTHot)) 'PerfContext)
+     kb (for [i (range n)] (list 'pcmp (symbol (str "PI" i)) 'PTHot)) 'CxPerf)
     (let [c (list 'pcmp 'PI0 'PTHot)]
       (doall (for [_ (range 200)]
                (nanos (dotimes [_ 100] (doall (v/find-sentexes kb c)))))))))
@@ -533,15 +533,15 @@
   reading as at the first."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(reifiableFunction PNatFn) 'UniverseContext {:strength :monotonic})
+    (v/assert kb '(reifiableFunction PNatFn) 'CxUniverse {:strength :monotonic})
     (v/with-deferred-settle kb
       (doseq [i (range n)]
         (v/assert kb (list 'pNatUse (symbol (str "PNU" i))
                            (list 'PNatFn (symbol (str "PNA" i))))
-                  'PerfContext {})))
+                  'CxPerf {})))
     (let [victims (mapv (fn [i]
                           (v/assert kb (list 'pRetVictim (symbol (str "PRV" i)) 'PRVal)
-                                    'PerfContext {}))
+                                    'CxPerf {}))
                         (range retract-victims))]
       (doall (for [h victims] (nanos (v/retract! kb h)))))))
 
@@ -588,7 +588,7 @@
   flat here by construction."
   [n]
   (let [st  (columnar/columnar-index-store {:space [::fanout]})
-        sxs (mapv (fn [i] (sx/sentex (list 'pfan (symbol (str "PF" i))) 'PerfContext {}))
+        sxs (mapv (fn [i] (sx/sentex (list 'pfan (symbol (str "PF" i))) 'CxPerf {}))
                   (range n))]
     (p/clear-index! st)
     (doall
@@ -704,10 +704,10 @@
                              (list 'perfPlanC (symbol (str "PpZ" i)) (symbol (str "PpW" i))))
                            (for [i (range 20)]
                              (list 'perfPlanLoose (symbol (str "PpU" i)) (symbol (str "PpV" i)))))
-                   'UniverseContext {:chain? false})
+                   'CxUniverse {:chain? false})
     (doall
      (for [_ (range 200)]
-       (nanos (dotimes [_ 20] (plan/order kb q 'UniverseContext {})))))))
+       (nanos (dotimes [_ 20] (plan/order kb q 'CxUniverse {})))))))
 
 (defn- arity-reach-trigger
   "n **conforming** facts of a predicate whose arity was declared before any of them.
@@ -724,10 +724,10 @@
   makes any sweep at all visible as growth rather than hiding inside a report."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(arity pReach 2) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(arity pReach 2) 'CxPerf {:strength :monotonic})
     (doall
      (for [i (range n)]
-       (nanos (v/assert kb (list 'pReach (symbol (str "PR" i)) 'PRval) 'PerfContext {}))))))
+       (nanos (v/assert kb (list 'pReach (symbol (str "PR" i)) 'PRval) 'CxPerf {}))))))
 
 (defn- feed-listener-scaling
   "n asserts on a KB with two change-feed listeners attached — one plain, one a standing
@@ -747,10 +747,10 @@
   [n]
   (let [kb (fresh-kb)]
     (v/watch kb (fn [_] nil))
-    (v/watch kb '(pFeed ?x ?y) 'PerfContext (fn [_] nil))
+    (v/watch kb '(pFeed ?x ?y) 'CxPerf (fn [_] nil))
     (doall
      (for [i (range n)]
-       (nanos (v/assert kb (list 'pFeed (symbol (str "PF" i)) 'PFval) 'PerfContext {}))))))
+       (nanos (v/assert kb (list 'pFeed (symbol (str "PF" i)) 'PFval) 'CxPerf {}))))))
 
 (defn- quality-report-scaling
   "`kb-quality` over n stored facts, where n grows 8x and the **vocabulary** grows 2.8x:
@@ -766,27 +766,27 @@
   [n]
   (let [kb   (fresh-kb)
         side (long (Math/ceil (Math/sqrt (double n))))]
-    (v/assert kb '(genl qual_thing thing) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(genl qual_thing thing) 'CxPerf {:strength :monotonic})
     (v/with-deferred-settle kb
       (doseq [i (range side), j (range side)]
         (v/assert kb (list 'pQual (symbol (str "QA" i)) (symbol (str "QB" j)))
-                  'PerfContext {})))
+                  'CxPerf {})))
     (doall (for [_ (range 60)] (nanos (v/kb-quality kb))))))
 
-(defn- pctx [prefix i] (symbol (str prefix i "Context")))
+(defn- pctx [prefix i] (symbol (str "Cx" prefix i)))
 
 (defn- retract-context-cycle-scaling
-  "One `retract!` of a `genlContext` edge **inside a two-context cycle**, on a KB whose
+  "One `retract!` of a `genlCx` edge **inside a two-context cycle**, on a KB whose
   context graph holds n unrelated contexts beside it.
 
-  Mutual visibility is a claim `genlContext` admits — two contexts see each other, and
+  Mutual visibility is a claim `genlCx` admits — two contexts see each other, and
   OpenCyc states it — so a context sits in a strongly connected component, and a
   deletion inside one can split it.  A split is the only edit that invalidates the
   component map, and the map is what `sees?` reads for its O(1) same-component answer,
   so it may not be left stale.  What the repair may cost is that component; what it may
   not cost is the graph around it, which is the claim measured here.
 
-  `genl` cycles are refused by `wff`, so this reaches `genlContext` only — and no other
+  `genl` cycles are refused by `wff`, so this reaches `genlCx` only — and no other
   check in this file builds a context cycle at all, which is exactly how a whole-relation
   repair per deleted cycle edge stayed invisible.
 
@@ -798,15 +798,15 @@
   (let [kb (fresh-kb)]
     (v/with-deferred-settle kb
       (doseq [i (range n)]
-        (v/assert kb (list 'genlContext (pctx "PcBg" i) 'PcTopContext) 'UniverseContext {}))
+        (v/assert kb (list 'genlCx (pctx "PcBg" i) 'CxPcTop) 'CxUniverse {}))
       (doseq [i (range retract-victims)]
-        (v/assert kb (list 'genlContext (pctx "PcA" i) 'PcTopContext) 'UniverseContext {})
-        (v/assert kb (list 'genlContext (pctx "PcB" i) (pctx "PcA" i)) 'UniverseContext {})))
+        (v/assert kb (list 'genlCx (pctx "PcA" i) 'CxPcTop) 'CxUniverse {})
+        (v/assert kb (list 'genlCx (pctx "PcB" i) (pctx "PcA" i)) 'CxUniverse {})))
     ;; the closing edges last and outside the batch: each settles, so the component map
     ;; is built and the relation is ranked before a single reading is taken
     (let [victims (mapv (fn [i]
-                          (v/assert kb (list 'genlContext (pctx "PcA" i) (pctx "PcB" i))
-                                    'UniverseContext {}))
+                          (v/assert kb (list 'genlCx (pctx "PcA" i) (pctx "PcB" i))
+                                    'CxUniverse {}))
                         (range retract-victims))]
       (doall (for [h victims] (nanos (v/retract! kb h)))))))
 
@@ -832,12 +832,12 @@
   (let [kb (fresh-kb)]
     (v/with-deferred-settle kb
       (doseq [i (range n)]
-        (v/assert kb (list 'pMergeBorn (symbol (str "PMHi" i)) 'PMPlace) 'PerfContext {})
+        (v/assert kb (list 'pMergeBorn (symbol (str "PMHi" i)) 'PMPlace) 'CxPerf {})
         (v/assert kb (list 'sameAs (symbol (str "PMAa" i)) (symbol (str "PMHi" i)))
-                  'PerfContext {})))
+                  'CxPerf {})))
     (let [victims (mapv (fn [i]
                           (v/assert kb (list 'pMergeVictim (symbol (str "PMV" i)) 'PMVal)
-                                    'PerfContext {}))
+                                    'CxPerf {}))
                         (range retract-victims))]
       (doall (for [h victims] (nanos (v/retract! kb h)))))))
 
@@ -870,12 +870,12 @@
   (let [kb (fresh-kb)]
     (v/assert kb '(exceptWhen (not (pNegSkip ?x))
                               (set/defaultRule (implies (and (pNegProbe ?x)) (pNegSeen ?x))))
-              'PerfContext {})
+              'CxPerf {})
     (doseq [i (range n)]
-      (v/assert kb (list 'pNegProbe (symbol (str "PNG" i))) 'PerfContext {}))
+      (v/assert kb (list 'pNegProbe (symbol (str "PNG" i))) 'CxPerf {}))
     (doall (for [i (range edge-writes)]
              (nanos (v/assert kb (list 'genl (symbol (str "pnegv" i "_t")) 'pnegtop_t)
-                              'PerfContext {:strength :monotonic}))))))
+                              'CxPerf {:strength :monotonic}))))))
 
 (defn- taxonomy-edge-arbitration
   "One `genl` edge — a fresh subtype under a fresh supertype, with nothing above it,
@@ -899,26 +899,26 @@
   [n]
   (binding [checks/*arbitrate-constraints?* true]
     (let [kb (fresh-kb)]
-      (v/assert kb '(disjoint pea_t peb_t) 'PerfContext {:strength :monotonic})
+      (v/assert kb '(disjoint pea_t peb_t) 'CxPerf {:strength :monotonic})
       (v/with-deferred-settle kb
         (doseq [i (range n)
                 :let [x (symbol (str "PEX" i))]]
-          (v/assert kb (list 'pea_t x) 'PerfContext {})
-          (v/assert kb (list 'peb_t x) 'PerfContext {})))
+          (v/assert kb (list 'pea_t x) 'CxPerf {})
+          (v/assert kb (list 'peb_t x) 'CxPerf {})))
       (doall
        (for [i (range edge-writes)]
          (nanos (v/assert kb (list 'genl (symbol (str "pev" i "_t"))
                                    (symbol (str "peu" i "_t")))
-                          'PerfContext {:strength :monotonic})))))))
+                          'CxPerf {:strength :monotonic})))))))
 
 (defn- context-edge-arbitration
-  "One `genlContext` edge — a fresh context under `UniverseContext`, with nothing below
+  "One `genlCx` edge — a fresh context under `CxUniverse`, with nothing below
   it — written on a KB carrying n standing P/¬P dilemmas, every one of them stated in a
   context the edge does not reach.
 
   The negation twin of the check above, and the same blind spot in the same place:
   `negation-arbitration` builds its standing set and writes no context edge afterwards.
-  Joint visibility is read through the `genlContext` closure, so a memo retired on that
+  Joint visibility is read through the `genlCx` closure, so a memo retired on that
   relation's generation re-derives every opposed body per edge — two belief-filtered
   reads and a cross product apiece — for an edge no contradiction in the KB is stated
   anywhere near.
@@ -931,13 +931,13 @@
       (doseq [i (range n)
               :let [pr (symbol (str "pceg" i))
                     x  (symbol (str "PCE" i))]]
-        (v/assert kb (list pr x) 'PerfContext {})
-        (v/assert kb (list 'not (list pr x)) 'PerfContext {})))
+        (v/assert kb (list pr x) 'CxPerf {})
+        (v/assert kb (list 'not (list pr x)) 'CxPerf {})))
     (doall
      (for [i (range edge-writes)]
-       (nanos (v/assert kb (list 'genlContext (symbol (str "PCtx" i "Context"))
-                                 'UniverseContext)
-                        'PerfContext {:strength :monotonic}))))))
+       (nanos (v/assert kb (list 'genlCx (symbol (str "CxPCtx" i))
+                                 'CxUniverse)
+                        'CxPerf {:strength :monotonic}))))))
 
 (def ^:private reads-per-visibility-reading
   "Reads batched into one timed measurement, the same batch at both sizes so it cancels
@@ -968,16 +968,16 @@
   (let [kb (fresh-kb)]
     (v/with-deferred-settle kb
       (doseq [i (range n)
-              :let [h (v/assert kb (list 'pvDecoy (symbol (str "PVD" i))) 'PerfContext
+              :let [h (v/assert kb (list 'pvDecoy (symbol (str "PVD" i))) 'CxPerf
                                 {:strength :monotonic})]]
-        (v/assert kb (list 'except (sx/sentex-handle h)) 'PerfContext
+        (v/assert kb (list 'except (sx/sentex-handle h)) 'CxPerf
                   {:strength :monotonic})))
-    (v/assert kb '(pvSeen PVOne) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(pvSeen PVOne) 'CxPerf {:strength :monotonic})
     (binding [lc/*enabled* false]
       (doall
        (for [_ (range 60)]
          (nanos (dotimes [_ reads-per-visibility-reading]
-                  (count (v/sentexes-matching kb '(pvSeen ?x) 'PerfContext)))))))))
+                  (count (v/sentexes-matching kb '(pvSeen ?x) 'CxPerf)))))))))
 
 (def ^:private reads-per-clash-reading
   "Readings of the standing set batched into one timed measurement, and **the same batch
@@ -1011,8 +1011,8 @@
       (doseq [i (range n)
               :let [pr (symbol (str "pread" i))
                     x  (symbol (str "PRD" i))]]
-        (v/assert kb (list pr x) 'PerfContext {})
-        (v/assert kb (list 'not (list pr x)) 'PerfContext {})))
+        (v/assert kb (list pr x) 'CxPerf {})
+        (v/assert kb (list 'not (list pr x)) 'CxPerf {})))
     (doall
      (for [_ (range 60)]
        (nanos (dotimes [_ reads-per-clash-reading]
@@ -1045,7 +1045,7 @@
     :run       constraint-exposure-shared-arg}
 
    {:name      :constraint-exposure-context-edge
-    :claim     "past the instance cap, 8x the facts behind a genlContext edge costs the same"
+    :claim     "past the instance cap, 8x the facts behind a genlCx edge costs the same"
     :sizes     [250 2000]
     :max-ratio 2.0
     :run       constraint-exposure-context-edge}
@@ -1262,7 +1262,7 @@
    ;; pair*.
    ;;
    ;; The baseline is **8**, and that is the header's own advice taken twice.  At 25 the
-   ;; baseline of the `genlContext` check already carried 25 pairs' worth of the
+   ;; baseline of the `genlCx` check already carried 25 pairs' worth of the
    ;; re-derivation being measured, which divided out and left a defective engine reading
    ;; between 10.9x and 21.2x depending on which way the small reading bounced — a gate
    ;; that would have passed the very shape it exists to catch, roughly one run in four.
@@ -1275,13 +1275,13 @@
    ;; JVM is much warmer than it is on `--only`.  The large reading barely moves (it is
    ;; real per-pair work, which no amount of warmth removes) and the small one drops by a
    ;; third, so the ratio climbs: the `genl` check reads 9.8-13.2x alone and 17.3-22.7x in
-   ;; place, the `genlContext` one 9.1-9.8x alone and 15.8-21.4x in place.  Bounds read off
+   ;; place, the `genlCx` one 9.1-9.8x alone and 15.8-21.4x in place.  Bounds read off
    ;; an `--only` run would fail every full one, which is the mirror image of the warming
    ;; bias `measure` describes and lands on the same rule: judge a check where it runs.
    ;;
    ;; Measured at 100x the standing set, both engines, full runs: a `genl` edge reads at
    ;; worst 22.7x with the carry weighed per pair and 106.6x with it retired on the
-   ;; relation's generation; a `genlContext` edge reads 21.4x against 65.6x.  So each
+   ;; relation's generation; a `genlCx` edge reads 21.4x against 65.6x.  So each
    ;; bound sits half again above the worst healthy reading and at a third to a half of
    ;; the defective one.
    {:name      :taxonomy-edge-arbitration
@@ -1291,7 +1291,7 @@
     :run       taxonomy-edge-arbitration}
 
    {:name      :context-edge-arbitration
-    :claim     "a genlContext edge reaching nothing costs under 32x per write at 100x the standing P/¬P dilemmas"
+    :claim     "a genlCx edge reaching nothing costs under 32x per write at 100x the standing P/¬P dilemmas"
     :sizes     [8 800]
     :max-ratio 32.0
     :run       context-edge-arbitration}

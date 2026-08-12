@@ -43,10 +43,10 @@
 (tu/deftest-kb a-forward-rule-with-a-comparison-fires-only-for-the-satisfying-pairs
   (tu/with-terms [ageOf youngerThan Ann Bob Cid]
     (doseq [[who n] [[Ann 10] [Bob 20] [Cid 30]]]
-      (v/assert kb (list ageOf who n) 'NaturalWorldContext {:chain? false}))
+      (v/assert kb (list ageOf who n) 'CxNaturalWorld {:chain? false}))
     (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
                       (list youngerThan '?x '?y))
-              'NaturalWorldContext)
+              'CxNaturalWorld)
     (let [derived (sentences kb youngerThan)]
       (testing "every strictly-increasing pair is derived"
         (is (= #{(list youngerThan Ann Bob)
@@ -63,21 +63,21 @@
   ;; *failed*, not that it was never run.  Equal ages satisfy no strict `lessThan`.
   (tu/with-terms [ageOf youngerThan Ann Bob]
     (doseq [who [Ann Bob]]
-      (v/assert kb (list ageOf who 10) 'NaturalWorldContext {:chain? false}))
+      (v/assert kb (list ageOf who 10) 'CxNaturalWorld {:chain? false}))
     (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
                       (list youngerThan '?x '?y))
-              'NaturalWorldContext)
+              'CxNaturalWorld)
     (is (empty? (sentences kb youngerThan)))))
 
 ;; ---- evaluate binds ------------------------------------------------------
 
 (tu/deftest-kb evaluate-binds-a-fresh-variable-the-consequent-uses
   (tu/with-terms [ageOf nextAge Ann Bob]
-    (v/assert kb (list ageOf Ann 10) 'NaturalWorldContext {:chain? false})
-    (v/assert kb (list ageOf Bob 41) 'NaturalWorldContext {:chain? false})
+    (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
+    (v/assert kb (list ageOf Bob 41) 'CxNaturalWorld {:chain? false})
     (v/assert kb (fwd [(list ageOf '?x '?a) (list 'evaluate '?next (list '+ '?a 1))]
                       (list nextAge '?x '?next))
-              'NaturalWorldContext)
+              'CxNaturalWorld)
     (testing "the computed value reaches the conclusion"
       (is (= #{(list nextAge Ann 11) (list nextAge Bob 42)}
              (sentences kb nextAge))))))
@@ -86,11 +86,11 @@
 
 (tu/deftest-kb a-computed-literal-contributes-no-handle
   (tu/with-terms [ageOf youngerThan Ann Bob]
-    (let [h1 (v/assert kb (list ageOf Ann 10) 'NaturalWorldContext {:chain? false})
-          h2 (v/assert kb (list ageOf Bob 20) 'NaturalWorldContext {:chain? false})
+    (let [h1 (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
+          h2 (v/assert kb (list ageOf Bob 20) 'CxNaturalWorld {:chain? false})
           rh (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
                                (list youngerThan '?x '?y))
-                       'NaturalWorldContext)
+                       'CxNaturalWorld)
           ch (handle-of kb youngerThan (list youngerThan Ann Bob))]
       (is (some? ch))
       (testing "the two facts and the rule support it — the comparison names nothing"
@@ -102,7 +102,7 @@
   ;; name, so the justification names the rule and nothing else.
   (tu/with-terms [theSum]
     (let [rh (v/assert kb (fwd [(list 'evaluate '?s (list '+ 1 2))] (list theSum '?s))
-                       'NaturalWorldContext)
+                       'CxNaturalWorld)
           ch (handle-of kb theSum (list theSum 3))]
       (is (some? ch))
       (is (= [[rh]] (mapv :antecedents (v/supporting-justifications kb ch)))))))
@@ -114,11 +114,11 @@
   ;; *true* — 10 is still less than 20 — so the conclusion may only survive on the
   ;; strength of the facts that bound its variables.
   (tu/with-terms [ageOf youngerThan Ann Bob]
-    (let [h1 (v/assert kb (list ageOf Ann 10) 'NaturalWorldContext {:chain? false})
-          _  (v/assert kb (list ageOf Bob 20) 'NaturalWorldContext {:chain? false})
+    (let [h1 (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
+          _  (v/assert kb (list ageOf Bob 20) 'CxNaturalWorld {:chain? false})
           _  (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
                                (list youngerThan '?x '?y))
-                       'NaturalWorldContext)
+                       'CxNaturalWorld)
           ch (handle-of kb youngerThan (list youngerThan Ann Bob))]
       (is (v/in? kb ch))
       (v/retract! kb h1)
@@ -134,10 +134,10 @@
   ;; case where the ordering guarantee cannot save the join.  Answering it with an
   ;; empty result would report an unrunnable rule as a rule that merely did not fire.
   (tu/with-terms [ageOf tooOld Ann]
-    (v/assert kb (list ageOf Ann 10) 'NaturalWorldContext {:chain? false})
+    (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
     (let [e (try (v/assert kb (fwd [(list ageOf '?x '?a) (list 'lessThan '?a '?b)]
                                    (list tooOld '?x))
-                           'NaturalWorldContext)
+                           'CxNaturalWorld)
                  nil
                  (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "an unbound comparison input throws rather than joining to nothing")

@@ -209,9 +209,9 @@
 
   **A deliberate global/scoped split inside one `cond`.**  The first floor asks what
   the argument *is* (could it ever be a type?) and stays **global**: a reified NAT's
-  minting edges land in `UniverseContext`, which the upper band sits above and
+  minting edges land in `CxUniverse`, which the upper band sits above and
   cannot see, so a scoped floor would convict an imported reified NAT used from
-  `MeasureContext` as \"an individual, so never a subtype\" — false.  The second
+  `CxMeasure` as \"an individual, so never a subtype\" — false.  The second
   floor is the **scoped** open-world excuse: an argument with no *visible* path
   into the hierarchy may simply have its edges out of sight, and a NAF check that
   convicted on invisible evidence would convict harder the less a context sees.
@@ -255,7 +255,7 @@
 
 (def predicate-type-arities
   "What each predicate-type membership says the arity is.  The `arity` sentexes and
-  these memberships derive each other through the CoreContext rules, so a declared
+  these memberships derive each other through the CxCore rules, so a declared
   predicate normally has both — but a `{:chain? false}` assert or a KB loaded without
   the rules has only what was written, so both spellings are read.
 
@@ -305,7 +305,7 @@
 
   So **both** arms are content-ordered, exact matches first because the direct statement
   is the one the caller asked about.  The order key is the sentence *and its context*:
-  `res/matches-visible` fans over the whole `genlContext` cone, so one sentence stated in
+  `res/matches-visible` fans over the whole `genlCx` cone, so one sentence stated in
   two visible contexts comes back as two exact matches, and a key on the sentence alone
   ties them — leaving the pick to enumeration order in precisely the arm that exists to
   take it away.  Never the handle, which is allocation order: two KBs given one op stream
@@ -882,7 +882,7 @@
   "The one context every other sees.  A declaration stated there speaks for every
   context, so it entails locally wherever it is visible; `special/universal-context` is
   the same symbol, named there for the lift."
-  'UniverseContext)
+  'CxUniverse)
 
 (defn- mintable-type?
   "Is `t` a type a membership can be minted in — a name the genl hierarchy actually
@@ -906,7 +906,7 @@
   context below it.  It does not *entail* there — an upper-band schema would
   otherwise spray derived `(T x)` memberships across every context that inherits it,
   claims no author of that context made.  So only a declaration written in the
-  context being checked, or in `UniverseContext` (which speaks for every context by
+  context being checked, or in `CxUniverse` (which speaks for every context by
   construction), draws the entailment.
 
   One record fetch, asked last of the conditions so it is paid only for a declaration
@@ -1337,7 +1337,7 @@
     (sx/check-naf-closed (rules/antecedents inner) (rules/consequent inner) nil)
     ;; A rule the index cannot key on, refused before it is stored — except when it is
     ;; `:inert`, which runs in neither engine and so promises nothing the index has to
-    ;; answer for.  `CoreContext`'s `(implies (?pred . ?args) (ist UniverseContext (?pred
+    ;; answer for.  `CxCore`'s `(implies (?pred . ?args) (ist CxUniverse (?pred
     ;; . ?args)))` is that case: the decontextualized-predicate lift is implemented in
     ;; code, and the rule states it for a reader.
     (when-not (= :inert direction)
@@ -1464,7 +1464,7 @@
                            :exception-preds (vec new-exc-preds) :cycle cycle})))))))
 
 (defn- edge-negation-cycle
-  "The cycle through negation that adding this `genl` / `genlContext` sentence would
+  "The cycle through negation that adding this `genl` / `genlCx` sentence would
   create among the **stored** rules, or nil.  Nil for anything that is not one of
   those two edges.
 
@@ -1484,14 +1484,14 @@
   cached closures untouched as well as the store."
   [kb sentence]
   (let [f (nm/functor sentence)]
-    (when (or (= f 'genl) (= f 'genlContext))
+    (when (or (= f 'genl) (= f 'genlCx))
       (let [excepted (p/exception-rules (:index kb))]
         (when (seq excepted)
           (let [[_ a b]    sentence
                 probe      (tax/detached-copy (:taxonomy kb))
                 _          (if (= f 'genl)
                              (tax/add-genl probe a b ::probe)
-                             (tax/add-genlContext probe a b ::probe))
+                             (tax/add-genlCx probe a b ::probe))
                 concluders (stratification-concluders kb)]
             (some #(some->> (stored-rule-node kb %)
                             (wff/negation-cycle probe concluders))
@@ -1518,7 +1518,7 @@
 ;; the special-predicate table, which sits a layer above this namespace.)
 
 (defn edge-stratification-violation
-  "The same check as a **value**, for a `genl` / `genlContext` edge a rule *derived*
+  "The same check as a **value**, for a `genl` / `genlCx` edge a rule *derived*
   rather than one a caller asserted: nil when the edge is admissible, else a
   violation map in the shape `constraint-violation` returns.
 

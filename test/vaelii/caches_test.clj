@@ -96,10 +96,10 @@
       (v/clear-caches kb {:counters? true})
       (is (= :kb      (:scope    (lit kb))))
       (is (= :process (:counters (lit kb))))
-      (tu/with-terms [parentOf Tom Bob FarmContext]
-        (v/assert other (list parentOf Tom Bob) FarmContext)
+      (tu/with-terms [parentOf Tom Bob CxFarm]
+        (v/assert other (list parentOf Tom Bob) CxFarm)
         (v/clear-caches other {:counters? true})
-        (dotimes [_ 2] (doall (v/prove other (list parentOf Tom '?y) FarmContext)))
+        (dotimes [_ 2] (doall (v/prove other (list parentOf Tom '?y) CxFarm)))
         (is (pos? (:hits (lit other))) "the second ask of one literal is served")
         (is (= (:hits (lit other)) (:hits (lit kb)))
             (str "the counters are the mechanism's, not the store's — so this KB reports "
@@ -150,9 +150,9 @@
                 :clear (fn [_] (throw (ex-info "the clear blew up" {})))}]
     (with-registered broken
       (fn []
-        (tu/with-terms [parentOf Tom Bob FarmContext]
-          (v/assert kb (list parentOf Tom Bob) FarmContext)
-          (doall (v/prove kb (list parentOf Tom '?y) FarmContext))
+        (tu/with-terms [parentOf Tom Bob CxFarm]
+          (v/assert kb (list parentOf Tom Bob) CxFarm)
+          (doall (v/prove kb (list parentOf Tom '?y) CxFarm))
           (let [{:keys [cleared entries]} (v/clear-caches kb)
                 by-id (into {} (map (juxt :cache identity)) cleared)]
             (is (pos? entries) "the caches that could be dropped were")
@@ -167,10 +167,10 @@
   ;; The claim behind "it can be polled": a row is a count off a map the engine already
   ;; holds, never a query.  A page that queried the KB to describe it would report its
   ;; own reads, and a poll would climb the miss counter it is displaying.
-  (tu/with-terms [parentOf Tom Bob FarmContext]
-    (v/assert kb (list parentOf Tom Bob) FarmContext)
+  (tu/with-terms [parentOf Tom Bob CxFarm]
+    (v/assert kb (list parentOf Tom Bob) CxFarm)
     (v/clear-caches kb)
-    (doall (v/prove kb (list parentOf Tom '?y) FarmContext))
+    (doall (v/prove kb (list parentOf Tom '?y) CxFarm))
     (let [before (row kb :literal-matches)]
       (dotimes [_ 5] (v/caches kb))
       (let [after (row kb :literal-matches)]
@@ -181,11 +181,11 @@
 ;; ---- the clear ----------------------------------------------------------
 
 (tu/deftest-kb a-clear-costs-the-next-ask-a-miss-and-costs-belief-nothing
-  (tu/with-terms [parentOf Tom Bob FarmContext]
-    (v/assert kb (list parentOf Tom Bob) FarmContext)
+  (tu/with-terms [parentOf Tom Bob CxFarm]
+    (v/assert kb (list parentOf Tom Bob) CxFarm)
     (v/clear-caches kb {:counters? true})
-    (doall (v/prove kb (list parentOf Tom '?y) FarmContext))
-    (doall (v/prove kb (list parentOf Tom '?y) FarmContext))
+    (doall (v/prove kb (list parentOf Tom '?y) CxFarm))
+    (doall (v/prove kb (list parentOf Tom '?y) CxFarm))
     (let [warm (row kb :literal-matches)]
       (is (pos? (:hits warm)) "the second ask was served from the cache")
       (is (pos? (:hit-rate warm)))
@@ -198,11 +198,11 @@
                     (:cleared report)))
         (is (zero? (:entries cold)))
         (is (zero? (:hits cold)))
-        (doall (v/prove kb (list parentOf Tom '?y) FarmContext))
+        (doall (v/prove kb (list parentOf Tom '?y) CxFarm))
         (is (pos? (:misses (row kb :literal-matches)))
             (str "the ask that was a hit is a miss again — which is what makes a clear "
                  "a measuring instrument rather than an edit"))
-        (is (v/ask? kb (list parentOf Tom Bob) FarmContext)
+        (is (v/ask? kb (list parentOf Tom Bob) CxFarm)
             "and nothing that was believed stopped being believed")))))
 
 (tu/deftest-kb a-clear-is-scoped-to-its-argument-and-the-counter-reset-is-asked-for
@@ -214,10 +214,10 @@
   (let [other (v/open-kb tu/plain-memory-space)
         lit   #(row % :literal-matches)]
     (try
-      (tu/with-terms [parentOf Tom Bob FarmContext]
-        (v/assert other (list parentOf Tom Bob) FarmContext)
+      (tu/with-terms [parentOf Tom Bob CxFarm]
+        (v/assert other (list parentOf Tom Bob) CxFarm)
         (v/clear-caches other {:counters? true})
-        (dotimes [_ 2] (doall (v/prove other (list parentOf Tom '?y) FarmContext)))
+        (dotimes [_ 2] (doall (v/prove other (list parentOf Tom '?y) CxFarm)))
         (is (pos? (:hits (lit other))))
         (let [held (:entries (lit other))
               rate (:hits (lit other))]
@@ -231,7 +231,7 @@
                    "for separately"))
           (is (= held (:entries (lit other)))
               "and did not touch a single entry of the other KB's")
-          (is (v/ask? other (list parentOf Tom Bob) FarmContext)
+          (is (v/ask? other (list parentOf Tom Bob) CxFarm)
               "nor anything it believed")
           ;; and the opt-in half: asked for, it does reach, and says what it zeroed
           (let [report (v/clear-caches kb {:counters? true})]

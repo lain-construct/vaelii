@@ -66,12 +66,12 @@
   ;; THE discriminating test for the `[rule negative?]` state.  Changing `seen` to key
   ;; on `(:id r)` — a plausible simplification, and one every other stratification test
   ;; survives — accepts this rule set instead of refusing it.
-  (tu/with-terms [p q r MaskContext]
+  (tu/with-terms [p q r CxMask]
     (testing "the two positive rules are fine on their own — no exception exists yet"
-      (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) MaskContext))
-      (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) MaskContext)))
+      (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CxMask))
+      (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxMask)))
     (let [data (refusal kb (except-rule (list r '?x) [(list q '?x)] (list p '?x))
-                        MaskContext)]
+                        CxMask)]
       (testing "the excepted rule closes a cycle whose only negative route to the
                 closing edge runs through a node already reached positively"
         (is (= :not-stratified (:type data))))
@@ -85,12 +85,12 @@
   ;; — except R2 now depends on a predicate no rule concludes, so nothing returns to
   ;; the start.  The refusal above is therefore attributable to the cycle and not to
   ;; the search visiting a node twice, and the extra state is shown not to invent one.
-  (tu/with-terms [p q r base OpenContext]
-    (is (v/assert kb (vr/rule-sentence [(list base '?x)] (list q '?x)) OpenContext))
-    (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) OpenContext))
+  (tu/with-terms [p q r base CxOpen]
+    (is (v/assert kb (vr/rule-sentence [(list base '?x)] (list q '?x)) CxOpen))
+    (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxOpen))
     (testing "the walk reaches q's rule twice and terminates with no cycle"
       (is (v/assert kb (except-rule (list r '?x) [(list q '?x)] (list p '?x))
-                    OpenContext)))))
+                    CxOpen)))))
 
 ;; ---- positive recursion survives a negative edge pointing into it ------------
 ;;
@@ -105,22 +105,22 @@
   ;; The "reject everything" guard.  A check that treated any negatively-reached node
   ;; on a cycle as a violation would refuse this, and ordinary mutual recursion would
   ;; become unwritable next to any excepted rule.
-  (tu/with-terms [a b c base LoopContext]
-    (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) LoopContext))
-    (is (v/assert kb (vr/rule-sentence [(list a '?x)] (list b '?x)) LoopContext)
+  (tu/with-terms [a b c base CxLoop]
+    (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxLoop))
+    (is (v/assert kb (vr/rule-sentence [(list a '?x)] (list b '?x)) CxLoop)
         "a purely positive two-rule cycle: ordinary recursion")
     (testing "an exception on a predicate the cycle concludes is not a cycle through
               negation — the negative edge leads into the loop, never back to the rule"
       (is (v/assert kb (except-rule (list a '?x) [(list base '?x)] (list c '?x))
-                    LoopContext)))))
+                    CxLoop)))))
 
 (tu/deftest-kb a-positive-cycle-the-exception-can-reach-back-through-is-refused
   ;; The dual of the test above, and the reason it cannot simply be "cycles are fine":
   ;; the same positive loop, but now the excepted rule's own consequent feeds it, so
   ;; the negative edge does return.  Accepting this one would be the real bug.
-  (tu/with-terms [a b c LoopContext]
-    (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) LoopContext))
-    (is (v/assert kb (vr/rule-sentence [(list c '?x)] (list b '?x)) LoopContext))
+  (tu/with-terms [a b c CxLoop]
+    (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxLoop))
+    (is (v/assert kb (vr/rule-sentence [(list c '?x)] (list b '?x)) CxLoop))
     (let [data (refusal kb (except-rule (list a '?x) [(list b '?x)] (list c '?x))
-                        LoopContext)]
+                        CxLoop)]
       (is (= :not-stratified (:type data))))))

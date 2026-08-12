@@ -5,7 +5,7 @@
 
   The wff dispatch (the `:wff` column of `vaelii.impl.special`'s table, walked by
   `special/wff-problems`) routes each special predicate to its checker.  `genl` and
-  `argIsa` are covered; `genlContext`'s cycle branch, `disjointMetatype`, the six
+  `argIsa` are covered; `genlCx`'s cycle branch, `disjointMetatype`, the six
   predicate properties routed through `prop-problems`, and `inverse` are not — so a
   predicate whose entry loses its `:wff` arm falls through to `[]` and is accepted
   unchecked, with nothing to notice.
@@ -31,55 +31,55 @@
   [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
-;; ---- genlContext: the cycle branch --------------------------------------
+;; ---- genlCx: the cycle branch --------------------------------------
 
-(tu/deftest-kb genlContext-rejects-a-context-seeing-itself
-  (tu/with-terms [AlphaContext]
+(tu/deftest-kb genlCx-rejects-a-context-seeing-itself
+  (tu/with-terms [CxAlpha]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'genlContext AlphaContext AlphaContext) 'UniverseContext)))
-        "a context that genlContexts itself")))
+           (ex-type #(v/assert kb (list 'genlCx CxAlpha CxAlpha) 'CxUniverse)))
+        "a context that genlCxs itself")))
 
-(tu/deftest-kb genlContext-admits-a-cycle-through-another-context
+(tu/deftest-kb genlCx-admits-a-cycle-through-another-context
   ;; Unlike `genl`, a context cycle is a claim rather than a contradiction: it says the
   ;; two contexts see each other, which is what OpenCyc's `genlMt` states of
   ;; BaseKB and UniversalVocabularyMt.  Visibility is reachability, and reachability
   ;; over a cycle is perfectly well defined — see the note atop `wff`.
-  (tu/with-terms [AlphaContext BetaContext]
-    (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext BetaContext AlphaContext) 'UniverseContext)
-    (is (v/sees? kb BetaContext AlphaContext))
-    (is (not (v/sees? kb AlphaContext BetaContext)) "before the loop is closed")
+  (tu/with-terms [CxAlpha CxBeta]
+    (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxBeta CxAlpha) 'CxUniverse)
+    (is (v/sees? kb CxBeta CxAlpha))
+    (is (not (v/sees? kb CxAlpha CxBeta)) "before the loop is closed")
     (testing "closing the loop is admitted, and both directions then hold"
-      (v/assert kb (list 'genlContext AlphaContext BetaContext) 'UniverseContext)
-      (is (v/sees? kb AlphaContext BetaContext))
-      (is (v/sees? kb BetaContext AlphaContext)))
+      (v/assert kb (list 'genlCx CxAlpha CxBeta) 'CxUniverse)
+      (is (v/sees? kb CxAlpha CxBeta))
+      (is (v/sees? kb CxBeta CxAlpha)))
     (testing "and each still sees what the other saw"
-      (is (v/sees? kb AlphaContext 'UniverseContext))
-      (is (v/sees? kb BetaContext 'UniverseContext))
-      (is (contains? (v/context-up kb BetaContext) AlphaContext))
-      (is (contains? (v/context-up kb AlphaContext) BetaContext))
-      (is (contains? (v/context-down kb AlphaContext) BetaContext)))
+      (is (v/sees? kb CxAlpha 'CxUniverse))
+      (is (v/sees? kb CxBeta 'CxUniverse))
+      (is (contains? (v/context-up kb CxBeta) CxAlpha))
+      (is (contains? (v/context-up kb CxAlpha) CxBeta))
+      (is (contains? (v/context-down kb CxAlpha) CxBeta)))
     (testing "and retracting the back edge restores the one-way answer"
-      (v/retract! kb (v/handle-of kb (list 'genlContext AlphaContext BetaContext)
-                                  'UniverseContext))
-      (is (not (v/sees? kb AlphaContext BetaContext)))
-      (is (v/sees? kb BetaContext AlphaContext)))))
+      (v/retract! kb (v/handle-of kb (list 'genlCx CxAlpha CxBeta)
+                                  'CxUniverse))
+      (is (not (v/sees? kb CxAlpha CxBeta)))
+      (is (v/sees? kb CxBeta CxAlpha)))))
 
-(tu/deftest-kb genlContext-rejects-a-non-context-argument
-  (tu/with-terms [AlphaContext]
+(tu/deftest-kb genlCx-rejects-a-non-context-argument
+  (tu/with-terms [CxAlpha]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'genlContext AlphaContext 'PlainIndividual) 'UniverseContext))))))
+           (ex-type #(v/assert kb (list 'genlCx CxAlpha 'PlainIndividual) 'CxUniverse))))))
 
 ;; ---- the checkers with no tests at all ----------------------------------
 
 (tu/deftest-kb disjointMetatype-must-mark-a-metatype-not-an-individual
   (tu/with-terms [Muffet animalSpecies]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'disjointMetatype Muffet) 'UniverseContext)))
+           (ex-type #(v/assert kb (list 'disjointMetatype Muffet) 'CxUniverse)))
         "an individual is not a metatype")
     (testing "and it takes exactly one argument"
       (is (= :not-well-formed
-             (ex-type #(v/assert kb (list 'disjointMetatype animalSpecies 'Extra) 'UniverseContext)))))))
+             (ex-type #(v/assert kb (list 'disjointMetatype animalSpecies 'Extra) 'CxUniverse)))))))
 
 (tu/deftest-kb the-predicate-properties-reject-an-individual-argument
   ;; All six route through `prop-problems`.  A predicate dropped from that `case`
@@ -87,7 +87,7 @@
   (tu/with-terms [Muffet]
     (doseq [prop '[transitive symmetric reflexive functional
                    decontextualizedPredicate forcedDecontextualizedPredicate]]
-      (is (= :not-well-formed (ex-type #(v/assert kb (list prop Muffet) 'UniverseContext)))
+      (is (= :not-well-formed (ex-type #(v/assert kb (list prop Muffet) 'CxUniverse)))
           (str prop " must reject an individual")))))
 
 (tu/deftest-kb the-predicate-properties-take-exactly-one-argument
@@ -95,78 +95,78 @@
     (doseq [prop '[transitive symmetric reflexive functional
                    decontextualizedPredicate forcedDecontextualizedPredicate]]
       (is (= :not-well-formed
-             (ex-type #(v/assert kb (list prop partOf otherPred) 'UniverseContext)))
+             (ex-type #(v/assert kb (list prop partOf otherPred) 'CxUniverse)))
           (str prop " takes one argument")))))
 
 (tu/deftest-kb inverse-relates-two-predicates
   (tu/with-terms [parentOf childOf Muffet]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'inverse Muffet childOf) 'UniverseContext)))
+           (ex-type #(v/assert kb (list 'inverse Muffet childOf) 'CxUniverse)))
         "an individual in argument 1")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'inverse parentOf Muffet) 'UniverseContext)))
+           (ex-type #(v/assert kb (list 'inverse parentOf Muffet) 'CxUniverse)))
         "an individual in argument 2")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'inverse parentOf) 'UniverseContext)))
+           (ex-type #(v/assert kb (list 'inverse parentOf) 'CxUniverse)))
         "and it takes two")))
 
 (tu/deftest-kb argIsa-checks-the-shape-of-all-three-arguments
   (tu/with-terms [parentOf person Muffet]
-    (is (nil? (ex-type #(v/assert kb (list 'argIsa Muffet 1 person) 'UniverseContext)))
+    (is (nil? (ex-type #(v/assert kb (list 'argIsa Muffet 1 person) 'CxUniverse)))
         "argument 1 is not held to a spelling: a function has argument positions like a
          predicate does and is spelled like an individual, so no spelling test separates
          the two — and a constraint on a term that never heads a sentence is inert")
     (is (nil? (ex-type #(v/assert kb (list 'argIsa (list 'RoleFn parentOf) 1 person)
-                                  'UniverseContext)))
+                                  'CxUniverse)))
         "a relation may be denoted by a NAT rather than named, and that is a term too")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'argIsa 7 1 person) 'UniverseContext)))
+           (ex-type #(v/assert kb (list 'argIsa 7 1 person) 'CxUniverse)))
         "but a number is no kind of term for a relation to be")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'argIsa parentOf 0 person) 'UniverseContext)))
+           (ex-type #(v/assert kb (list 'argIsa parentOf 0 person) 'CxUniverse)))
         "the position is 1-based, so 0 is out of range")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'argIsa parentOf 'one person) 'UniverseContext)))
+           (ex-type #(v/assert kb (list 'argIsa parentOf 'one person) 'CxUniverse)))
         "and it must be an integer")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'argIsa parentOf 1 Muffet) 'UniverseContext)))
+           (ex-type #(v/assert kb (list 'argIsa parentOf 1 Muffet) 'CxUniverse)))
         "argument 3 must be a type, not an individual")
     (testing "a well-formed argIsa is accepted"
-      (is (nil? (ex-type #(v/assert kb (list 'argIsa parentOf 1 person) 'UniverseContext)))))))
+      (is (nil? (ex-type #(v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)))))))
 
 ;; ---- the ex-info :type contract ----------------------------------------
 
 (tu/deftest-kb a-naming-violation-is-typed-naming
   (tu/with-terms [dog Muffet]
     (is (= :naming (ex-type #(v/assert kb (list dog Muffet) 'SomewhereElse)))
-        "a context that does not end in Context")))
+        "a context that does not start with Cx")))
 
 (tu/deftest-kb a-non-ground-fact-is-typed-not-ground
   (tu/with-terms [mortal]
-    (is (= :not-ground (ex-type #(v/assert kb (list mortal '?x) 'UniverseContext))))))
+    (is (= :not-ground (ex-type #(v/assert kb (list mortal '?x) 'CxUniverse))))))
 
 (tu/deftest-kb a-disjointness-violation-is-typed-disjoint
   ;; Everything in one context, like the argIsa test below: the constraint checks
   ;; are context-scoped — disjointness included — and this KB is fresh, so a
-  ;; declaration in an unwired UniverseContext would simply be invisible here.
+  ;; declaration in an unwired CxUniverse would simply be invisible here.
   (tu/with-terms [dog cat Felix]
-    (v/assert kb (list 'disjoint dog cat) 'NaturalWorldContext)
-    (v/assert kb (list cat Felix) 'NaturalWorldContext)
-    (is (= :disjoint (ex-type #(v/assert kb (list dog Felix) 'NaturalWorldContext))))))
+    (v/assert kb (list 'disjoint dog cat) 'CxNaturalWorld)
+    (v/assert kb (list cat Felix) 'CxNaturalWorld)
+    (is (= :disjoint (ex-type #(v/assert kb (list dog Felix) 'CxNaturalWorld))))))
 
 (tu/deftest-kb an-argIsa-violation-is-typed-arg-type
   ;; Everything in one context on purpose: the constraint checks are context-scoped,
-  ;; and this KB is fresh, so `NaturalWorldContext` has no genlContext edge to
-  ;; UniverseContext and a constraint declared there would simply be invisible.
+  ;; and this KB is fresh, so `CxNaturalWorld` has no genlCx edge to
+  ;; CxUniverse and a constraint declared there would simply be invisible.
   (tu/with-terms [parentOf person rock Muffet Boulder]
     ;; `checks/args-problem` is open-world: it only bites when the argument is provably a
     ;; `thing`, so an untyped individual can never violate a constraint.  The genl
     ;; edge is what makes Boulder checkable at all.
-    (v/assert kb (list 'genl rock 'thing) 'UniverseContext)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'UniverseContext)
-    (v/assert kb (list rock Boulder) 'UniverseContext)
+    (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list rock Boulder) 'CxUniverse)
     (is (= :arg-type
-           (ex-type #(v/assert kb (list parentOf Boulder Muffet) 'UniverseContext)))
+           (ex-type #(v/assert kb (list parentOf Boulder Muffet) 'CxUniverse)))
         "Boulder is a rock, and rock does not reach person through genl")))
 
 ;; The values are **numbers**, and that is the point rather than an incidental
@@ -178,26 +178,26 @@
 ;; `equality_test` owns the other half.
 (tu/deftest-kb a-functional-violation-is-typed-functional
   (tu/with-terms [birthYearOf Ann]
-    (v/assert kb (list 'functional birthYearOf) 'NaturalWorldContext)
-    (v/assert kb (list birthYearOf Ann 1980) 'NaturalWorldContext)
+    (v/assert kb (list 'functional birthYearOf) 'CxNaturalWorld)
+    (v/assert kb (list birthYearOf Ann 1980) 'CxNaturalWorld)
     (is (= :functional
-           (ex-type #(v/assert kb (list birthYearOf Ann 1990) 'NaturalWorldContext)))
+           (ex-type #(v/assert kb (list birthYearOf Ann 1990) 'CxNaturalWorld)))
         "a second, different value for the same first argument")))
 
 (tu/deftest-kb a-malformed-special-predicate-is-typed-not-well-formed
   (tu/with-terms [dog Muffet]
-    (is (= :not-well-formed (ex-type #(v/assert kb (list 'genl dog Muffet) 'UniverseContext)))
+    (is (= :not-well-formed (ex-type #(v/assert kb (list 'genl dog Muffet) 'CxUniverse)))
         "genl relates types, and Muffet is an individual")))
 
 (tu/deftest-kb the-error-payload-carries-more-than-the-type
   ;; The diagnostic keys are the whole value of ex-info over a bare throw; a caller
   ;; that reports "argument 2 of parentOf should be a person" needs them.
   (tu/with-terms [parentOf person rock Muffet Boulder]
-    (v/assert kb (list 'genl rock 'thing) 'UniverseContext)
-    (v/assert kb (list 'argIsa parentOf 2 person) 'UniverseContext)
-    (v/assert kb (list rock Boulder) 'UniverseContext)
+    (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa parentOf 2 person) 'CxUniverse)
+    (v/assert kb (list rock Boulder) 'CxUniverse)
     (try
-      (v/assert kb (list parentOf Muffet Boulder) 'UniverseContext)
+      (v/assert kb (list parentOf Muffet Boulder) 'CxUniverse)
       (is false "expected the argIsa constraint to reject this")
       (catch clojure.lang.ExceptionInfo e
         (let [d (ex-data e)]

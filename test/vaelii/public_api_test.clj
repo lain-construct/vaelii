@@ -16,9 +16,9 @@
 
 (tu/deftest-kb genl-closure-is-readable-from-core
   (tu/with-terms [dog mammal animal cat Muffet]
-    (v/assert kb (list 'genl dog mammal)    'UniverseContext)
-    (v/assert kb (list 'genl mammal animal) 'UniverseContext)
-    (v/assert kb (list 'genl cat mammal)    'UniverseContext)
+    (v/assert kb (list 'genl dog mammal)    'CxUniverse)
+    (v/assert kb (list 'genl mammal animal) 'CxUniverse)
+    (v/assert kb (list 'genl cat mammal)    'CxUniverse)
     (testing "genls is the reflexive up-closure, specs the reflexive down-closure"
       (is (= #{dog mammal animal} (v/genls kb dog)))
       (is (= #{dog cat mammal}    (v/specs kb mammal)))
@@ -34,27 +34,27 @@
         (is (every? ts [dog cat mammal animal]))
         (is (not (contains? ts Muffet)))))))            ; an individual is not a type
 
-(tu/deftest-kb genlContext-closure-is-readable-from-core
-  (tu/with-terms [LeafContext MidContext TopContext OtherContext]
-    (v/assert kb (list 'genlContext LeafContext MidContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext MidContext TopContext)  'UniverseContext)
+(tu/deftest-kb genlCx-closure-is-readable-from-core
+  (tu/with-terms [CxLeaf CxMid CxTop CxOther]
+    (v/assert kb (list 'genlCx CxLeaf CxMid) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxMid CxTop)  'CxUniverse)
     (testing "context-up is what a context sees; context-down who sees it"
-      (is (= #{LeafContext MidContext TopContext} (v/context-up kb LeafContext)))
-      (is (= #{LeafContext MidContext} (v/context-down kb MidContext))))
+      (is (= #{CxLeaf CxMid CxTop} (v/context-up kb CxLeaf)))
+      (is (= #{CxLeaf CxMid} (v/context-down kb CxMid))))
     (testing "sees? is the up-closure membership test, reflexively"
-      (is (v/sees? kb LeafContext TopContext))
-      (is (v/sees? kb LeafContext LeafContext))
-      (is (not (v/sees? kb TopContext LeafContext)))
-      (is (not (v/sees? kb LeafContext OtherContext))))
+      (is (v/sees? kb CxLeaf CxTop))
+      (is (v/sees? kb CxLeaf CxLeaf))
+      (is (not (v/sees? kb CxTop CxLeaf)))
+      (is (not (v/sees? kb CxLeaf CxOther))))
     (testing "contexts enumerates the context hierarchy's nodes"
       (let [cs (set (v/contexts kb))]
-        (is (every? cs [LeafContext MidContext TopContext]))))))
+        (is (every? cs [CxLeaf CxMid CxTop]))))))
 
 (tu/deftest-kb predicate-metadata-is-readable-from-core
   (tu/with-terms [siblingOf ancestorOf parentOf childOf spouseOf]
-    (v/assert kb (list 'symmetric siblingOf)   'UniverseContext)
-    (v/assert kb (list 'transitive ancestorOf) 'UniverseContext)
-    (v/assert kb (list 'inverse parentOf childOf) 'UniverseContext)
+    (v/assert kb (list 'symmetric siblingOf)   'CxUniverse)
+    (v/assert kb (list 'transitive ancestorOf) 'CxUniverse)
+    (v/assert kb (list 'inverse parentOf childOf) 'CxUniverse)
     (testing "has-prop? reads the metadata a declaration cached"
       (is (v/has-prop? kb :symmetric siblingOf))
       (is (v/has-prop? kb :transitive ancestorOf))
@@ -71,39 +71,39 @@
 ;; ---- handle-of: the non-creating counterpart to ist ---------------------
 
 (tu/deftest-kb handle-of-finds-without-creating
-  (tu/with-terms [dog Muffet Rex StoryContext]
-    (let [h (v/assert kb (list dog Muffet) StoryContext)]
+  (tu/with-terms [dog Muffet Rex CxStory]
+    (let [h (v/assert kb (list dog Muffet) CxStory)]
       (testing "an existing sentence resolves to its handle"
-        (is (= h (v/handle-of kb (list dog Muffet) StoryContext))))
+        (is (= h (v/handle-of kb (list dog Muffet) CxStory))))
       (testing "a sentence that is not stored is nil — and stays not stored"
         (let [before (tu/sentex-ids kb)]
-          (is (nil? (v/handle-of kb (list dog Rex) StoryContext)))
-          (is (nil? (v/handle-of kb (list dog Muffet) 'UniverseContext)))   ; wrong context
+          (is (nil? (v/handle-of kb (list dog Rex) CxStory)))
+          (is (nil? (v/handle-of kb (list dog Muffet) 'CxUniverse)))   ; wrong context
           (is (= before (tu/sentex-ids kb))
               "handle-of must not create — that is the whole difference from ist")))
       (testing "ist, by contrast, creates on a miss (which is why handle-of exists)"
-        (let [created (v/ist kb StoryContext (list dog Rex))]
-          (is (= created (v/handle-of kb (list dog Rex) StoryContext)))
+        (let [created (v/ist kb CxStory (list dog Rex))]
+          (is (= created (v/handle-of kb (list dog Rex) CxStory)))
           (v/retract! kb created))))))
 
 (tu/deftest-kb handle-of-probes-a-symmetric-mirror-and-sees-defeated-sentexes
-  (tu/with-terms [siblingOf dog Ann Bob Muffet StoryContext]
-    (v/assert kb (list 'symmetric siblingOf) 'UniverseContext)
-    (let [h (v/assert kb (list siblingOf Ann Bob) StoryContext)]
+  (tu/with-terms [siblingOf dog Ann Bob Muffet CxStory]
+    (v/assert kb (list 'symmetric siblingOf) 'CxUniverse)
+    (let [h (v/assert kb (list siblingOf Ann Bob) CxStory)]
       (testing "a ground symmetric literal is found in either argument order"
-        (is (= h (v/handle-of kb (list siblingOf Bob Ann) StoryContext)))))
+        (is (= h (v/handle-of kb (list siblingOf Bob Ann) CxStory)))))
     (testing "storage, not belief: a defeated sentex still has a handle"
-      (let [d (v/assert kb (list dog Muffet) StoryContext)]
-        (v/assert kb (list 'not (list dog Muffet)) StoryContext {:strength :monotonic})
+      (let [d (v/assert kb (list dog Muffet) CxStory)]
+        (v/assert kb (list 'not (list dog Muffet)) CxStory {:strength :monotonic})
         (is (false? (v/in? kb d)))
-        (is (empty? (v/sentexes-matching kb (list dog Muffet) StoryContext)))     ; query filters belief
-        (is (= d (v/handle-of kb (list dog Muffet) StoryContext)))))))  ; handle-of does not
+        (is (empty? (v/sentexes-matching kb (list dog Muffet) CxStory)))     ; query filters belief
+        (is (= d (v/handle-of kb (list dog Muffet) CxStory)))))))  ; handle-of does not
 
 (tu/deftest-kb believed-answers-in?-for-a-whole-batch-at-once
-  (tu/with-terms [flies dog Tweety Muffet BatchContext]
-    (let [ok   (v/assert kb (list dog Muffet) BatchContext)
-          out  (v/assert kb (list flies Tweety) BatchContext)]
-      (v/assert kb (list 'not (list flies Tweety)) BatchContext {:strength :monotonic})
+  (tu/with-terms [flies dog Tweety Muffet CxBatch]
+    (let [ok   (v/assert kb (list dog Muffet) CxBatch)
+          out  (v/assert kb (list flies Tweety) CxBatch)]
+      (v/assert kb (list 'not (list flies Tweety)) CxBatch {:strength :monotonic})
       (is (false? (v/in? kb out)) "the default lost to the monotonic negation")
       (testing "the batch answers exactly the handles in? answers true for"
         (is (= #{ok} (v/believed kb [ok out]))))
@@ -117,27 +117,27 @@
 ;; ---- stored vs believed: the counts and the extents ---------------------
 
 (tu/deftest-kb counts-are-stored-extents-and-say-so
-  (tu/with-terms [flies Tweety CountContext]
-    (v/assert kb (list flies Tweety) CountContext)                     ; default
-    (v/assert kb (list 'not (list flies Tweety)) CountContext {:strength :monotonic})
-    (let [h (v/handle-of kb (list flies Tweety) CountContext)]
+  (tu/with-terms [flies Tweety CxCount]
+    (v/assert kb (list flies Tweety) CxCount)                     ; default
+    (v/assert kb (list 'not (list flies Tweety)) CxCount {:strength :monotonic})
+    (let [h (v/handle-of kb (list flies Tweety) CxCount)]
       (is (false? (v/in? kb h)))
       (testing "the O(1) count includes the defeated sentex — it counts storage"
         ;; the negation roots under its positive body's functor, so both sit here
         (is (= 2 (v/count-with-functor kb flies)))
         (is (= 2 (count (v/sentexes-with-functor kb flies))))
         (testing "while query, which filters belief, sees only the winner"
-          (is (empty? (v/sentexes-matching kb (list flies Tweety) CountContext)))
-          (is (= 1 (count (v/sentexes-matching kb (list 'not (list flies Tweety)) CountContext))))))
+          (is (empty? (v/sentexes-matching kb (list flies Tweety) CxCount)))
+          (is (= 1 (count (v/sentexes-matching kb (list 'not (list flies Tweety)) CxCount))))))
       (testing "the extent fns take {:believed? true} to close the gap, at O(n)"
         (is (= 1 (count (v/sentexes-with-functor kb flies {:believed? true}))))
         (is (= 1 (count (v/sentexes-with-arg kb 1 Tweety {:believed? true}))))
         (is (= 2 (count (v/sentexes-with-arg kb 1 Tweety))))
-        (is (< (count (v/sentexes-in-context kb CountContext {:believed? true}))
-               (v/count-in-context kb CountContext))))
+        (is (< (count (v/sentexes-in-context kb CxCount {:believed? true}))
+               (v/count-in-context kb CxCount))))
       (testing "count-in-context counts every stored sentex in the context, rules included"
-        (is (= (v/count-in-context kb CountContext)
-               (count (v/sentexes-in-context kb CountContext))))))))
+        (is (= (v/count-in-context kb CxCount)
+               (count (v/sentexes-in-context kb CxCount))))))))
 
 ;; ---- qualitative constraint reasoning, read from core -------------------
 ;; The networks are reachable from `vaelii.core` alone, and they answer whether or not
@@ -159,49 +159,49 @@
         (is (every? base identity) (str calculus "'s identity is a base relation"))))))
 
 (tu/deftest-kb the-network-and-a-scenario-are-readable-from-core
-  (tu/with-terms [RegA RegB RegC PublicSpaceContext]
-    (v/assert kb (list 'genlContext PublicSpaceContext 'WellContext) 'UniverseContext
+  (tu/with-terms [RegA RegB RegC CxPublicSpace]
+    (v/assert kb (list 'genlCx CxPublicSpace 'CxWell) 'CxUniverse
               {:strength :monotonic})
     (doseq [[a b] [[RegA RegB] [RegB RegC]]]
-      (v/assert kb (list 'nonTangentialProperPart a b) PublicSpaceContext
+      (v/assert kb (list 'nonTangentialProperPart a b) CxPublicSpace
                 {:strength :monotonic}))
-    (let [net (v/qualitative-network kb :rcc8 PublicSpaceContext)]
+    (let [net (v/qualitative-network kb :rcc8 CxPublicSpace)]
       (testing "the network names its nodes and says it is satisfiable"
         (is (true? (:consistent? net)))
         (is (= (set [RegA RegB RegC]) (set (:nodes net))))
         (is (nil? (:unsatisfiable net)) "nothing to blame when nothing clashes"))
       (testing "and carries the transitive relation nobody asserted"
         (is (nil? (v/handle-of kb (list 'nonTangentialProperPart RegA RegC)
-                               PublicSpaceContext)))
+                               CxPublicSpace)))
         (is (= #{:ntpp} (get (:constraints net) [RegA RegC])))
-        (is (= #{:ntpp} (v/possible-relations kb :rcc8 PublicSpaceContext RegA RegC)))))
+        (is (= #{:ntpp} (v/possible-relations kb :rcc8 CxPublicSpace RegA RegC)))))
     (testing "a scenario picks one relation per pair, and is a function of the facts"
-      (let [s (v/qualitative-scenario kb :rcc8 PublicSpaceContext)]
+      (let [s (v/qualitative-scenario kb :rcc8 CxPublicSpace)]
         (is (= :ntpp (get s [RegA RegC])))
         (is (every? keyword? (vals s)))
-        (is (= s (v/qualitative-scenario kb :rcc8 PublicSpaceContext))
+        (is (= s (v/qualitative-scenario kb :rcc8 CxPublicSpace))
             "repeatable, so it never depends on arrival order")))
     (testing "the bounded enumeration honours its bound"
-      (is (<= (count (v/qualitative-scenarios kb :rcc8 PublicSpaceContext 2)) 2)))))
+      (is (<= (count (v/qualitative-scenarios kb :rcc8 CxPublicSpace 2)) 2)))))
 
 (tu/deftest-kb an-unsatisfiable-network-answers-nothing-and-says-which-pair
-  (tu/with-terms [RegA RegB PublicClashContext]
-    (v/assert kb (list 'genlContext PublicClashContext 'WellContext) 'UniverseContext
+  (tu/with-terms [RegA RegB CxPublicClash]
+    (v/assert kb (list 'genlCx CxPublicClash 'CxWell) 'CxUniverse
               {:strength :monotonic})
-    (v/assert kb (list 'nonTangentialProperPart RegA RegB) PublicClashContext
+    (v/assert kb (list 'nonTangentialProperPart RegA RegB) CxPublicClash
               {:strength :monotonic})
-    (v/assert kb (list 'spatiallyDisconnected RegA RegB) PublicClashContext
+    (v/assert kb (list 'spatiallyDisconnected RegA RegB) CxPublicClash
               {:strength :monotonic})
-    (let [net (v/qualitative-network kb :rcc8 PublicClashContext)]
+    (let [net (v/qualitative-network kb :rcc8 CxPublicClash)]
       (is (false? (:consistent? net)))
       (is (= #{[RegA RegB] [RegB RegA]} (set (:unsatisfiable net)))
           "one pair carries this clash, so it is named")
-      (is (empty? (v/possible-relations kb :rcc8 PublicClashContext RegA RegB)))
-      (is (nil? (v/qualitative-scenario kb :rcc8 PublicClashContext))
+      (is (empty? (v/possible-relations kb :rcc8 CxPublicClash RegA RegB)))
+      (is (nil? (v/qualitative-scenario kb :rcc8 CxPublicClash))
           "no arrangement of a world that cannot exist"))))
 
 (tu/deftest-kb naming-a-calculus-that-does-not-exist-is-a-bad-argument
-  (let [e (try (v/qualitative-network kb :nope 'UniverseContext)
+  (let [e (try (v/qualitative-network kb :nope 'CxUniverse)
                (catch clojure.lang.ExceptionInfo e (ex-data e)))]
     (testing "it reports as a bad option, not as a check problem — a sentence can never
               be checked into this, so it does not belong in the :type vocabulary the
@@ -236,34 +236,34 @@
   ;; The behavioural difference registration buys, from the public surface only: two
   ;; stored `before` facts, and the third relation the algebra entails between them.
   (tu/with-terms [EarlyEvent MidEvent LateEvent]
-    (v/assert kb (list 'before EarlyEvent MidEvent) 'UniverseContext)
-    (v/assert kb (list 'before MidEvent LateEvent) 'UniverseContext)
+    (v/assert kb (list 'before EarlyEvent MidEvent) 'CxUniverse)
+    (v/assert kb (list 'before MidEvent LateEvent) 'CxUniverse)
     (testing "unregistered, the facts are ordinary facts and nothing composes them"
-      (is (not (v/ask? kb (list 'before EarlyEvent LateEvent) 'UniverseContext))))
+      (is (not (v/ask? kb (list 'before EarlyEvent LateEvent) 'CxUniverse))))
     (v/add-reasoner kb :allen)
     (testing "registered, the composition is entailed"
-      (is (v/ask? kb (list 'before EarlyEvent LateEvent) 'UniverseContext)))))
+      (is (v/ask? kb (list 'before EarlyEvent LateEvent) 'CxUniverse)))))
 
 (tu/deftest-kb add-reasoner-registers-several-and-repeats-none
   ;; Sameness has to be the prover *value*: the six algebras share one record type, so a
   ;; class check would register the first and silently drop the rest.  Asked behaviourally
   ;; — two algebras, one call, and both still answering after a repeat.
   (tu/with-terms [EarlyEvent MidEvent LateEvent RegA RegB RegC]
-    (v/assert kb (list 'before EarlyEvent MidEvent) 'UniverseContext)
-    (v/assert kb (list 'before MidEvent LateEvent) 'UniverseContext)
-    (v/assert kb (list 'partOfRegion RegA RegB) 'UniverseContext)
-    (v/assert kb (list 'partOfRegion RegB RegC) 'UniverseContext)
+    (v/assert kb (list 'before EarlyEvent MidEvent) 'CxUniverse)
+    (v/assert kb (list 'before MidEvent LateEvent) 'CxUniverse)
+    (v/assert kb (list 'partOfRegion RegA RegB) 'CxUniverse)
+    (v/assert kb (list 'partOfRegion RegB RegC) 'CxUniverse)
     (v/add-reasoner kb :allen :rcc8)
     (testing "both algebras answer after one call — neither shadowed the other"
-      (is (v/ask? kb (list 'before EarlyEvent LateEvent) 'UniverseContext))
-      (is (v/ask? kb (list 'partOfRegion RegA RegC) 'UniverseContext)))
+      (is (v/ask? kb (list 'before EarlyEvent LateEvent) 'CxUniverse))
+      (is (v/ask? kb (list 'partOfRegion RegA RegC) 'CxUniverse)))
     (testing "and registering the same two again changes no answer"
       (v/add-reasoner kb :allen :rcc8)
-      (is (v/ask? kb (list 'before EarlyEvent LateEvent) 'UniverseContext))
-      (is (v/ask? kb (list 'partOfRegion RegA RegC) 'UniverseContext)))
+      (is (v/ask? kb (list 'before EarlyEvent LateEvent) 'CxUniverse))
+      (is (v/ask? kb (list 'partOfRegion RegA RegC) 'CxUniverse)))
     (testing "a bad name in the list registers none of it"
       (is (thrown? clojure.lang.ExceptionInfo (v/add-reasoner kb :duration :nope)))
-      (is (not (v/ask? kb (list 'totalDuration EarlyEvent '?d) 'UniverseContext))
+      (is (not (v/ask? kb (list 'totalDuration EarlyEvent '?d) 'CxUniverse))
           "the :duration reasoner named beside the bad one did not register"))))
 
 ;; ---- naming the edge solver from core -----------------------------------
@@ -322,10 +322,10 @@
   ;; failure is the filter silently off: `{:believed true}` (missing the `?`) reads as
   ;; no key at all and the stored extent comes back whole, defeated defaults included —
   ;; indistinguishable from a believed extent with nothing defeated in it.
-  (tu/with-terms [flies Tweety ExtentContext]
-    (v/assert kb (list flies Tweety) ExtentContext)
+  (tu/with-terms [flies Tweety CxExtent]
+    (v/assert kb (list flies Tweety) CxExtent)
     (testing "the missing-? typo is refused at all three doors, naming the roster"
-      (doseq [call [#(v/sentexes-in-context kb ExtentContext {:believed true})
+      (doseq [call [#(v/sentexes-in-context kb CxExtent {:believed true})
                     #(v/sentexes-with-functor kb flies {:believed true})
                     #(v/sentexes-with-arg kb 1 Tweety {:believed true})]]
         (let [e (is (thrown? clojure.lang.ExceptionInfo (call)))]
@@ -338,7 +338,7 @@
       ;; type mismatch clj-kondo sees is the test's subject, not a defect.
       #_{:clj-kondo/ignore [:type-mismatch]}
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
-                            (v/sentexes-in-context kb ExtentContext :believed?))))
+                            (v/sentexes-in-context kb CxExtent :believed?))))
     (testing "the rostered spelling still filters"
       (is (= 1 (count (v/sentexes-with-functor kb flies {:believed? true}))))
-      (is (= 1 (count (v/sentexes-in-context kb ExtentContext {:believed? true})))))))
+      (is (= 1 (count (v/sentexes-in-context kb CxExtent {:believed? true})))))))

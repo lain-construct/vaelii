@@ -153,8 +153,8 @@ terminus, so the skip can never cross into a leaf handle or read a marker as one
 
 **Handles get their own key because the trie is ragged.** Arity varies, and one
 sentex's whole path can be a proper prefix of another's, so a node is leaf and
-interior at once: `(rel A B)` in `CeeContext` keys as `[rel A B CeeContext]`, and
-`(rel A B CeeContext X)` in `DeeContext` keys as `[rel A B CeeContext X DeeContext]`
+interior at once: `(rel A B)` in `CxCee` keys as `[rel A B CxCee]`, and
+`(rel A B CxCee X)` in `CxDee` keys as `[rel A B CxCee X CxDee]`
 — the first path is an interior node of the second. If handles shared the `:s` token
 set they would be indistinguishable from tokens (a handle is an integer, and so is
 the token `1970`), so `lookup [bornIn Tom]` on a stored `(bornIn Tom 1970)` would
@@ -336,7 +336,7 @@ index exists only to decide *when*:
 A fact on `P` arriving or leaving looks up `[:exception-index P]` and re-checks those rules'
 conclusions. An exception can also flip with no matching fact ever arriving — assert
 `(genl penguin flightlessBird)` and `(flightlessBird ?b)` starts holding — so any
-`genl` / `genlContext` edge change re-checks `[:exception-index :rules]` wholesale. Edge changes
+`genl` / `genlCx` edge change re-checks `[:exception-index :rules]` wholesale. Edge changes
 are rare and exception-bearing rules are few, so the coarse trigger is cheaper than
 tracking which closures a query touched, and it cannot be subtly wrong.
 
@@ -554,7 +554,7 @@ than failing:
   **refused** at `assert` with `:not-indexable`: canonicalization numbers the functor to
   `?var0`, no arriving fact and no goal can spell that, and the rule would answer
   nothing while reporting as accepted.  An `:inert` rule is exempt, since it runs in
-  neither engine; `CoreContext`'s `(implies (?pred . ?args) (ist UniverseContext (?pred
+  neither engine; `CxCore`'s `(implies (?pred . ?args) (ist CxUniverse (?pred
   . ?args)))` is one, stating for a reader what the decontextualized-predicate lift does
   in code.
 

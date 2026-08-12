@@ -24,8 +24,8 @@
 (use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
 (use-fixtures :each (tu/neutral))
 
-(def ^:private B 'BiologyContext)
-(def ^:private N 'NaturalWorldContext)
+(def ^:private B 'CxBiology)
+(def ^:private N 'CxNaturalWorld)
 
 ;; ---- capabilities are related to a kind, not spelled as predicates -------
 
@@ -107,7 +107,7 @@
             argument to a marked instance half, and this one is mixed"
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/assert kb '(typeToInstancePred capabilityType hasCapability)
-                           'LifeContext))))
+                           'CxLife))))
   (testing "and neither reading answers the other's question"
     (is (not (v/ask? kb '(hasCapability bird flying) B)))
     (is (not (v/ask? kb '(capabilityType Sam flying) N)))))
@@ -145,32 +145,32 @@
   ;; depend on what else got said, and the strength is exactly the author saying it must
   ;; not.  Two independent hierarchies so neither answer can come from the other.
   (tu/with-terms [carriesLoad pack_animal mule_kind hauler_kind cart_kind]
-    (v/assert kb (list 'binaryPredicate carriesLoad) 'UniverseContext)
-    (v/assert kb (list 'argPreserving carriesLoad 1 'genl) 'UniverseContext)
-    (v/assert kb (list 'genl pack_animal 'animal) 'UniverseContext)
-    (v/assert kb (list 'genl mule_kind pack_animal) 'UniverseContext)
-    (v/assert kb (list 'genl hauler_kind 'animal) 'UniverseContext)
-    (v/assert kb (list 'genl cart_kind hauler_kind) 'UniverseContext)
+    (v/assert kb (list 'binaryPredicate carriesLoad) 'CxUniverse)
+    (v/assert kb (list 'argPreserving carriesLoad 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'genl pack_animal 'animal) 'CxUniverse)
+    (v/assert kb (list 'genl mule_kind pack_animal) 'CxUniverse)
+    (v/assert kb (list 'genl hauler_kind 'animal) 'CxUniverse)
+    (v/assert kb (list 'genl cart_kind hauler_kind) 'CxUniverse)
     (testing "a default reaches the subkind"
-      (v/assert kb (list carriesLoad pack_animal 'Bone1) 'UniverseContext)
-      (is (v/ask? kb (list carriesLoad mule_kind 'Bone1) 'UniverseContext)))
+      (v/assert kb (list carriesLoad pack_animal 'Bone1) 'CxUniverse)
+      (is (v/ask? kb (list carriesLoad mule_kind 'Bone1) 'CxUniverse)))
     (testing "and a nearer claim stops it there"
-      (v/assert kb (list 'not (list carriesLoad mule_kind 'Bone1)) 'UniverseContext)
-      (is (not (v/ask? kb (list carriesLoad mule_kind 'Bone1) 'UniverseContext)))
-      (is (v/ask? kb (list carriesLoad pack_animal 'Bone1) 'UniverseContext)))
+      (v/assert kb (list 'not (list carriesLoad mule_kind 'Bone1)) 'CxUniverse)
+      (is (not (v/ask? kb (list carriesLoad mule_kind 'Bone1) 'CxUniverse)))
+      (is (v/ask? kb (list carriesLoad pack_animal 'Bone1) 'CxUniverse)))
     (testing "a monotonic claim reaches the subkind the same way"
-      (v/assert kb (list carriesLoad hauler_kind 'Bone1) 'UniverseContext {:strength :monotonic})
-      (is (v/ask? kb (list carriesLoad cart_kind 'Bone1) 'UniverseContext)))
+      (v/assert kb (list carriesLoad hauler_kind 'Bone1) 'CxUniverse {:strength :monotonic})
+      (is (v/ask? kb (list carriesLoad cart_kind 'Bone1) 'CxUniverse)))
     (testing "and a nearer default does NOT displace it — the general claim still stands"
-      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) 'UniverseContext)
-      (is (v/ask? kb (list carriesLoad hauler_kind 'Bone1) 'UniverseContext)
+      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) 'CxUniverse)
+      (is (v/ask? kb (list carriesLoad hauler_kind 'Bone1) 'CxUniverse)
           "the monotonic claim is not undercut, which is inherit/undercut?'s contract"))
     (testing "the disagreement is a dilemma, and asking the subkind answers nothing"
       ;; Both claims survive `undercut?` — the monotonic one because it is known-true,
       ;; the negative one because nothing is more specific than it — so `verdict` sees
       ;; both polarities and returns `:ambiguous`, which `ask?` renders as false.  Not
       ;; the same as the negative winning: the general claim above is still believed.
-      (is (not (v/ask? kb (list carriesLoad cart_kind 'Bone1) 'UniverseContext))))
+      (is (not (v/ask? kb (list carriesLoad cart_kind 'Bone1) 'CxUniverse))))
     (testing "and the dilemma is not reported anywhere a caller would find it"
       ;; `inherit`'s own docstring calls a contrary specific claim against a monotonic
       ;; one "a contradiction to report rather than a refinement to defer to".  Nothing

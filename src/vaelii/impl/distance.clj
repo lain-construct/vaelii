@@ -66,8 +66,8 @@
   reported here is real while a *non*-entailment means \"not provable\", never \"provably
   false\" — the same open-world reading `argIsa` and `exceptWhen` take.
 
-  The vocabulary ships in `kb/upper/SpaceContext.txt` beside the topology, the compass and
-  the frames of reference — all of them are *about* space, so CoreContext keeps only the
+  The vocabulary ships in `kb/upper/CxSpace.txt` beside the topology, the compass and
+  the frames of reference — all of them are *about* space, so CxCore keeps only the
   grammar they are declared in.  The prover is **opt-in** on top of it: register it with
   `vaelii.core/add-prover`, and until then a KB stores and retrieves distances as ordinary
   facts without paying for the network."

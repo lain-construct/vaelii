@@ -22,7 +22,7 @@
     of n standing definitional dilemmas it separates nothing of.  Every edge write bumps
     the relation's generation, so a memo keyed on that generation re-derives every
     standing pair — two `checks/arbitrable-violations` calls apiece, one per side.
-  * a lone `genlContext` edge with nothing below it, on a KB of n standing P/¬P dilemmas
+  * a lone `genlCx` edge with nothing below it, on a KB of n standing P/¬P dilemmas
     whose contexts it does not reach.  Same shape through the other relation: a memo
     keyed on the generation re-derives every opposed body, at two belief-filtered reads
     and a cross product apiece.
@@ -55,13 +55,13 @@
   definitional dilemmas — plus the two victims: one `genl` edge with nothing above or
   below it, and one plain fact."
   [kb]
-  (v/assert kb '(disjoint srca_t srcb_t) 'UniverseContext {:strength :monotonic})
+  (v/assert kb '(disjoint srca_t srcb_t) 'CxUniverse {:strength :monotonic})
   (dotimes [i n]
     (let [x (symbol (str "SRC" i))]
-      (v/assert kb (list 'srca_t x) 'UniverseContext {})
-      (v/assert kb (list 'srcb_t x) 'UniverseContext {})))
-  (v/assert kb '(genl srcvictim_t srctop_t) 'UniverseContext {:strength :monotonic})
-  (v/assert kb '(srcPlain SrcTarget) 'UniverseContext {})
+      (v/assert kb (list 'srca_t x) 'CxUniverse {})
+      (v/assert kb (list 'srcb_t x) 'CxUniverse {})))
+  (v/assert kb '(genl srcvictim_t srctop_t) 'CxUniverse {:strength :monotonic})
+  (v/assert kb '(srcPlain SrcTarget) 'CxUniverse {})
   kb)
 
 (defn- arbitrable-calls
@@ -84,14 +84,14 @@
         (is (= n (count (v/contradictions kb)))
             "the standing set is standing, or the counts below are about an empty memo")
         (testing "retracting the lone genl edge asks the checks nothing"
-          (let [h (v/handle-of kb '(genl srcvictim_t srctop_t) 'UniverseContext)]
+          (let [h (v/handle-of kb '(genl srcvictim_t srctop_t) 'CxUniverse)]
             (is (zero? (arbitrable-calls #(v/retract! kb h))))))
         (testing "and asserting it back asks them nothing either"
           (is (zero? (arbitrable-calls
-                      #(v/assert kb '(genl srcvictim_t srctop_t) 'UniverseContext
+                      #(v/assert kb '(genl srcvictim_t srctop_t) 'CxUniverse
                                  {:strength :monotonic})))))
         (testing "the control: a plain fact leaving is already free"
-          (let [h (v/handle-of kb '(srcPlain SrcTarget) 'UniverseContext)]
+          (let [h (v/handle-of kb '(srcPlain SrcTarget) 'CxUniverse)]
             (is (zero? (arbitrable-calls #(v/retract! kb h))))))
         (is (= n (count (v/contradictions kb)))
             "and every standing dilemma is still reported"))
@@ -101,7 +101,7 @@
 
 (defn- negation-kb
   "n independent P/¬P dilemmas — a fresh predicate and a fresh individual apiece, so no
-  pair shares a body with any other — plus the two victims: one `genlContext` edge with
+  pair shares a body with any other — plus the two victims: one `genlCx` edge with
   nothing below it, and one plain fact.
 
   No separation anywhere, so `constraint-nogoods` short-circuits and the clash memo is
@@ -110,10 +110,10 @@
   (dotimes [i n]
     (let [pr (symbol (str "srneg" i))
           x  (symbol (str "SRN" i))]
-      (v/assert kb (list pr x) 'UniverseContext {})
-      (v/assert kb (list 'not (list pr x)) 'UniverseContext {})))
-  (v/assert kb '(genlContext SrVictimContext UniverseContext) 'UniverseContext {})
-  (v/assert kb '(srPlain SrTarget) 'UniverseContext {})
+      (v/assert kb (list pr x) 'CxUniverse {})
+      (v/assert kb (list 'not (list pr x)) 'CxUniverse {})))
+  (v/assert kb '(genlCx CxSrVictim CxUniverse) 'CxUniverse {})
+  (v/assert kb '(srPlain SrTarget) 'CxUniverse {})
   kb)
 
 (defn- rederived-bodies
@@ -126,22 +126,22 @@
       (f))
     @calls))
 
-(deftest a-genlContext-edge-elsewhere-re-derives-no-standing-pairing
+(deftest a-genlCx-edge-elsewhere-re-derives-no-standing-pairing
   (let [kb (tu/fresh)]
     (try
       (negation-kb kb)
       (is (= n (count (v/contradictions kb)))
           "the standing set is standing, or the counts below are about an empty memo")
-      (testing "retracting the lone genlContext edge re-derives no body"
-        (let [h (v/handle-of kb '(genlContext SrVictimContext UniverseContext)
-                             'UniverseContext)]
+      (testing "retracting the lone genlCx edge re-derives no body"
+        (let [h (v/handle-of kb '(genlCx CxSrVictim CxUniverse)
+                             'CxUniverse)]
           (is (zero? (rederived-bodies #(v/retract! kb h))))))
       (testing "and asserting it back re-derives none either"
         (is (zero? (rederived-bodies
-                    #(v/assert kb '(genlContext SrVictimContext UniverseContext)
-                               'UniverseContext {})))))
+                    #(v/assert kb '(genlCx CxSrVictim CxUniverse)
+                               'CxUniverse {})))))
       (testing "the control: a plain fact leaving is already free"
-        (let [h (v/handle-of kb '(srPlain SrTarget) 'UniverseContext)]
+        (let [h (v/handle-of kb '(srPlain SrTarget) 'CxUniverse)]
           (is (zero? (rederived-bodies #(v/retract! kb h))))))
       (is (= n (count (v/contradictions kb)))
           "and every standing dilemma is still reported")

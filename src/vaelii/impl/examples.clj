@@ -41,9 +41,9 @@
     :shows "Two stored edges, one question they never state. Transitivity is a cached
             closure rather than a rule, so the answer costs a set lookup and no chaining
             at all — and no (genl penguin animal) sentex is ever materialized."
-    :rests-on [['(genl penguin bird) 'OrganismContext]
-               ['(genl bird animal) 'OrganismContext]]
-    :goal '(genl penguin animal) :context 'WellContext :expect :yes}
+    :rests-on [['(genl penguin bird) 'CxOrganism]
+               ['(genl bird animal) 'CxOrganism]]
+    :goal '(genl penguin animal) :context 'CxWell :expect :yes}
 
    {:id "disjoint-metatype" :group "Taxonomy"
     :title "Ten separations from one declaration"
@@ -51,10 +51,10 @@
             five vertebrate classes pairwise, and genl carries each separation down to
             every subtype. The pairs are consulted, never stored: retract the metatype
             and all ten go at once."
-    :rests-on [['(disjointMetatype vertebrateClass) 'OrganismContext]
-               ['(vertebrateClass bird) 'OrganismContext]
-               ['(vertebrateClass mammal) 'OrganismContext]]
-    :goal '(disjoint penguin dog) :context 'WellContext :expect :yes}
+    :rests-on [['(disjointMetatype vertebrateClass) 'CxOrganism]
+               ['(vertebrateClass bird) 'CxOrganism]
+               ['(vertebrateClass mammal) 'CxOrganism]]
+    :goal '(disjoint penguin dog) :context 'CxWell :expect :yes}
 
    {:id "arg-preserving" :group "Taxonomy"
     :title "A claim about kinds, reaching kinds it never mentions"
@@ -62,30 +62,30 @@
             declared argPreserving along genl on both positions, it answers about every
             pair of subkinds beneath it — here dogs and ants, about whose sizes the KB
             holds nothing whatever."
-    :rests-on [['(largerThan mammal insect) 'SizeContext]
-               ['(argPreserving largerThan 1 genl) 'AbstractContext]
-               ['(argPreserving largerThan 2 genl) 'AbstractContext]]
-    :goal '(largerThan dog ant) :context 'WellContext :expect :yes}
+    :rests-on [['(largerThan mammal insect) 'CxSize]
+               ['(argPreserving largerThan 1 genl) 'CxAbstract]
+               ['(argPreserving largerThan 2 genl) 'CxAbstract]]
+    :goal '(largerThan dog ant) :context 'CxWell :expect :yes}
 
    {:id "arg-preserving-stops" :group "Taxonomy"
     :title "…and does not reach the other way"
     :shows "The same declaration, the converse question. Preservation moves an argument
             down the hierarchy; it does not make the relation symmetric, and largerThan
             is declared asymmetric besides. A KB that answered this would be inventing."
-    :rests-on [['(largerThan mammal insect) 'SizeContext]
-               ['(asymmetric largerThan) 'AbstractContext]]
-    :goal '(largerThan ant dog) :context 'WellContext :expect :no}
+    :rests-on [['(largerThan mammal insect) 'CxSize]
+               ['(asymmetric largerThan) 'CxAbstract]]
+    :goal '(largerThan ant dog) :context 'CxWell :expect :no}
 
    ;; ---- the vocabulary reasoning about itself -------------------------
    {:id "metadata-to-type" :group "Predicates about predicates"
     :title "Declaring a property concludes a type"
     :shows "(symmetric friendOf) is metadata the engine reads. It is also an ordinary
-            antecedent: a CoreContext rule concludes the predicate-type membership from
-            it, into UniverseContext by an ist consequent. So the type hierarchy over
+            antecedent: a CxCore rule concludes the predicate-type membership from
+            it, into CxUniverse by an ist consequent. So the type hierarchy over
             predicates is derived, not maintained."
-    :rests-on [['(symmetric friendOf) 'SocietyContext]
-               ['(implies (and (symmetric ?p)) (symmetricPredicate ?p)) 'CoreContext]]
-    :goal '(symmetricPredicate friendOf) :context 'WellContext :expect :yes}
+    :rests-on [['(symmetric friendOf) 'CxSociety]
+               ['(implies (and (symmetric ?p)) (symmetricPredicate ?p)) 'CxCore]]
+    :goal '(symmetricPredicate friendOf) :context 'CxWell :expect :yes}
 
    {:id "arity-cycle" :group "Predicates about predicates"
     :title "Two rules that derive each other"
@@ -93,9 +93,9 @@
             asserting either keeps the whole cycle believed. Positive recursion is
             ordinary — it is a cycle through negation that the stratification check
             refuses."
-    :rests-on [['(binaryPredicate largerThan) 'AbstractContext]
-               ['(implies (and (binaryPredicate ?p)) (arity ?p 2)) 'CoreContext]]
-    :goal '(arity largerThan 2) :context 'WellContext :expect :yes}
+    :rests-on [['(binaryPredicate largerThan) 'CxAbstract]
+               ['(implies (and (binaryPredicate ?p)) (arity ?p 2)) 'CxCore]]
+    :goal '(arity largerThan 2) :context 'CxWell :expect :yes}
 
    {:id "type-level" :group "Predicates about predicates"
     :title "A relation between kinds, marked as one"
@@ -103,9 +103,9 @@
             which is which. relationKind is a disjointMetatype over the two, so a
             predicate is at most one of them — asking whether largerThan relates
             individuals is answered no, not merely left unanswered."
-    :rests-on [['(typeRelationPredicate largerThan) 'AbstractContext]
-               ['(disjointMetatype relationKind) 'CoreContext]]
-    :goal '(instanceRelationPredicate largerThan) :context 'WellContext :expect :no}
+    :rests-on [['(typeRelationPredicate largerThan) 'CxAbstract]
+               ['(disjointMetatype relationKind) 'CxCore]]
+    :goal '(instanceRelationPredicate largerThan) :context 'CxWell :expect :no}
 
    {:id "part-type" :group "Predicates about predicates"
     :title "Preserved on one position and not the other"
@@ -114,10 +114,10 @@
             kind of bird has whatever parts birds have, while birds having wings says
             nothing about which kinds of wing. Compare largerThan, which is declared on
             both — each position is a separate decision about the relation."
-    :rests-on [['(partType bird wing) 'AnatomyContext]
-               ['(argPreserving partType 1 genl) 'AbstractContext]
-               ['(genl penguin bird) 'OrganismContext]]
-    :goal '(partType penguin wing) :context 'WellContext :expect :yes}
+    :rests-on [['(partType bird wing) 'CxAnatomy]
+               ['(argPreserving partType 1 genl) 'CxAbstract]
+               ['(genl penguin bird) 'CxOrganism]]
+    :goal '(partType penguin wing) :context 'CxWell :expect :yes}
 
    ;; ---- defaults and their exceptions ---------------------------------
    {:id "default-alive" :group "Defaults and exceptions"
@@ -128,7 +128,7 @@
             conclusion is defeasible, which the next card is about."
     :rests-on [['(exceptWhen (dead ?x)
                              (set/defaultRule (implies (and (living_thing ?x)) (alive ?x))))
-                'BiologyContext]]
+                'CxBiology]]
     :premises '[(dog RexEx)]
     :goal '(alive RexEx) :expect :yes}
 
@@ -139,7 +139,7 @@
             separate rule concludes the negation, so the KB ends up holding that Max is
             not alive rather than merely failing to conclude that he is. Those are
             different claims, and only the first supports an argument."
-    :rests-on [['(implies (and (dead ?x)) (not (alive ?x))) 'BiologyContext]]
+    :rests-on [['(implies (and (dead ?x)) (not (alive ?x))) 'CxBiology]]
     ;; a different dog from the card above, deliberately: the reader's sandbox holds
     ;; every example at once, so killing that one would turn the card above into a
     ;; verdict the example above does not expect
@@ -154,7 +154,7 @@
             ever hold, with no upkeep."
     :rests-on [['(exceptWhen (fish ?x)
                              (set/defaultRule (implies (and (animal ?x)) (breathesAir ?x))))
-                'BiologyContext]]
+                'CxBiology]]
     :premises '[(fish NemoEx)]
     :goal '(breathesAir NemoEx) :expect :no}
 
@@ -163,7 +163,7 @@
     :shows "Nothing is stored about Shelly's blood. Warm-bloodedness follows from the
             vertebrate class, the five classes are pairwise disjoint, so exactly one of
             the five rules fires and the KB cannot hold both halves."
-    :rests-on [['(implies (and (reptile ?x)) (not (warmBlooded ?x))) 'BiologyContext]]
+    :rests-on [['(implies (and (reptile ?x)) (not (warmBlooded ?x))) 'CxBiology]]
     :premises '[(tortoise ShellyEx)]
     :goal '(not (warmBlooded ShellyEx)) :expect :yes}
 
@@ -174,7 +174,7 @@
             on the shared middle variable, and the planner orders the antecedents by
             estimated fan-out before running them."
     :rests-on [['(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z))
-                'KinshipContext]]
+                'CxKinship]]
     :premises '[(person AdaEx) (person BenEx) (person CalEx)
                 (parentOf AdaEx BenEx) (parentOf BenEx CalEx)]
     :goal '(grandparentOf AdaEx CalEx) :expect :yes}
@@ -186,7 +186,7 @@
             justification names both, so the sweep is dependency-directed."
     :rests-on [['(implies (and (partOf ?part ?whole) (locatedIn ?whole ?place))
                           (locatedIn ?part ?place))
-                'MereologyContext]]
+                'CxMereology]]
     :premises '[(vehicle CarEx) (artifact WheelEx) (building GarageEx)
                 (partOf WheelEx CarEx) (locatedIn CarEx GarageEx)]
     :goal '(locatedIn WheelEx GarageEx) :expect :yes}
@@ -196,7 +196,7 @@
     :shows "The same join shape on a social relation rather than a spatial one. One
             rule, and every part of everything anyone owns follows."
     :rests-on [['(implies (and (owns ?p ?whole) (partOf ?part ?whole)) (owns ?p ?part))
-                'MereologyContext]]
+                'CxMereology]]
     :premises '[(person AdaEx) (vehicle CarEx) (artifact WheelEx)
                 (owns AdaEx CarEx) (partOf WheelEx CarEx)]
     :goal '(owns AdaEx WheelEx) :expect :yes}
@@ -209,8 +209,8 @@
             fact, probing both argument orders. knows is deliberately not symmetric:
             declaring it so would have the KB assert the converse of every acquaintance
             it ever learned."
-    :rests-on [['(symmetric friendOf) 'SocietyContext]
-               ['(implies (and (friendOf ?x ?y)) (knows ?x ?y)) 'SocialContext]]
+    :rests-on [['(symmetric friendOf) 'CxSociety]
+               ['(implies (and (friendOf ?x ?y)) (knows ?x ?y)) 'CxSocial]]
     :premises '[(person AdaEx) (person BenEx) (friendOf AdaEx BenEx)]
     :goal '(knows BenEx AdaEx) :expect :yes}
 
@@ -222,7 +222,7 @@
     :rests-on [['(set/backwardRule
                   (implies (and (birthYearOf ?x ?bx) (birthYearOf ?y ?by) (lessThan ?bx ?by))
                            (olderThan ?x ?y)))
-                'KinshipContext]]
+                'CxKinship]]
     :premises '[(person AdaEx) (person BenEx)
                 (birthYearOf AdaEx 1970) (birthYearOf BenEx 1980)]
     :goal '(olderThan AdaEx BenEx) :expect :yes}
@@ -233,7 +233,7 @@
     :shows "Rex is a dog, dog and cat are disjoint, so the KB refuses to be told he is
             also a cat. Not a warning and not a contradiction to arbitrate later —
             check reports it and nothing is stored."
-    :rests-on [['(disjoint dog cat) 'OrganismContext]]
+    :rests-on [['(disjoint dog cat) 'CxOrganism]]
     :premises '[(dog RexEx)]
     :kind :refusal
     :refuse '(cat RexEx)}
@@ -244,8 +244,8 @@
             constraint is open-world — an argument whose type is unknown cannot violate
             it — so this is refused for what the KB knows the garage to be, not for
             what it has not been told."
-    :rests-on [['(argIsa eats 2 food) 'LifeContext]
-               ['(genl building artifact) 'AbstractContext]]
+    :rests-on [['(argIsa eats 2 food) 'CxLife]
+               ['(genl building artifact) 'CxAbstract]]
     :premises '[(dog RexEx) (building GarageEx)]
     :kind :refusal
     :refuse '(eats RexEx GarageEx)}
@@ -257,7 +257,7 @@
             so facts must be ground and universals are written as rules, where
             range-restriction governs the variables."
     :rests-on [['(set/defaultRule (implies (and (living_thing ?x)) (mortal ?x)))
-                'BiologyContext]]
+                'CxBiology]]
     :kind :refusal
     :refuse '(mortal ?x)}])
 

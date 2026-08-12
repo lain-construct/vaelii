@@ -40,7 +40,7 @@ Two ordinary stored facts drive normalization, both read through
 (conversionFactor Gram Kilogram 0.001) ; one Gram = 0.001 of the base unit Kilogram
 ```
 
-Put them in a context every querent sees (e.g. `UniverseContext`) so the prover finds
+Put them in a context every querent sees (e.g. `CxUniverse`) so the prover finds
 them from any asking context. That is not only convenience: a quantity comparison in a
 **rule antecedent** is a deferred literal, and the forward join asks the registry at the
 wildcard `'?ctx` where a backward search asks at its goal's context
@@ -48,9 +48,9 @@ wildcard `'?ctx` where a backward search asks at its goal's context
 forward and per-cone backward, and one stated where every reader sees it is the one
 arrangement under which the two agree.
 
-**Three dimensions ship filled in.** `resources/kb/upper/MeasureContext.txt` states Length in
+**Three dimensions ship filled in.** `resources/kb/upper/CxMeasure.txt` states Length in
 `Meter`, Mass in `Kilogram` and Duration in `Second`, with the ordinary units of each,
-and `UniverseContext` sees it — so a KB that loads the starter compares measures without
+and `CxUniverse` sees it — so a KB that loads the starter compares measures without
 declaring anything first. The test for a shipped unit is that its factor is a
 *definition*: a minute is sixty seconds by stipulation, where how heavy a particular
 thing is, is a measurement and belongs wherever that thing's facts do. A KB measuring
@@ -148,11 +148,11 @@ in a normalization the prover has not run.
 
 - `vaelii.impl.provers` — `QuantityProver`, `normalize-quantity`, `measure-comparisons`,
   `*quantity-tolerance*`. Registered in `default-provers`, so every KB has it.
-- `resources/kb/upper/MeasureContext.txt` — the vocabulary: `QuantityFn` /
+- `resources/kb/upper/CxMeasure.txt` — the vocabulary: `QuantityFn` /
   `QuantityIntervalFn` (`unreifiableFunction`), `dimensionOf` / `conversionFactor` (the
   table predicates), and the five comparisons, each documented by a comment sentex. An
   *upper* context, not the vocabulary head: measurement is subject matter, and only the
-  grammar it is declared in (`unreifiableFunction`, `binaryPredicate`, …) is CoreContext's.
+  grammar it is declared in (`unreifiableFunction`, `binaryPredicate`, …) is CxCore's.
 - `vaelii.impl.sentex/deferred-predicates` — the five comparisons, for rule-antecedent
   planning.
 

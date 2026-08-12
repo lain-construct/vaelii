@@ -71,38 +71,38 @@
   "One scripted KB session, returning a handle-free record of everything it observed.
   Every backend must produce an equal map."
   [kb]
-  (v/assert kb '(genl dog animal) 'ParityContext {:strength :monotonic})
-  (v/assert kb '(genl animal thing) 'ParityContext {:strength :monotonic})
-  (v/assert kb '(argIsa ownerOf 2 animal) 'ParityContext {:strength :monotonic})
-  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'ParityContext)
-  (v/assert kb '(dog Rex) 'ParityContext {:strength :monotonic})
-  (v/assert kb '(dog Muffet) 'ParityContext {:strength :monotonic})
-  (v/assert kb '(cat Tom) 'ParityContext {:strength :monotonic})
-  (v/assert kb '(ownerOf Ann Rex) 'ParityContext {:strength :monotonic})
-  (v/assert kb '(bornIn Rex 1970) 'ParityContext {:strength :monotonic})
-  (v/assert kb '(not (dog Tom)) 'ParityContext {:strength :monotonic})
-  (let [derived (v/handle-of kb '(mammal Rex) 'ParityContext)
+  (v/assert kb '(genl dog animal) 'CxParity {:strength :monotonic})
+  (v/assert kb '(genl animal thing) 'CxParity {:strength :monotonic})
+  (v/assert kb '(argIsa ownerOf 2 animal) 'CxParity {:strength :monotonic})
+  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxParity)
+  (v/assert kb '(dog Rex) 'CxParity {:strength :monotonic})
+  (v/assert kb '(dog Muffet) 'CxParity {:strength :monotonic})
+  (v/assert kb '(cat Tom) 'CxParity {:strength :monotonic})
+  (v/assert kb '(ownerOf Ann Rex) 'CxParity {:strength :monotonic})
+  (v/assert kb '(bornIn Rex 1970) 'CxParity {:strength :monotonic})
+  (v/assert kb '(not (dog Tom)) 'CxParity {:strength :monotonic})
+  (let [derived (v/handle-of kb '(mammal Rex) 'CxParity)
         ix      (:index kb)
         result
         {;; matching and the type walk
-         :query-dog      (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'ParityContext)))
+         :query-dog      (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'CxParity)))
          ;; `query` is a level-2 literal match, so the genl spec walk is NOT its job —
          ;; `ask` and level 4 are where a supertype goal reaches a subtype fact
-         :ask-animal     (bindings-of (v/ask kb '(animal ?x) 'ParityContext))
-         :level4-animal  (set (map :sentence (v/lookup kb 4 '(animal ?x) 'ParityContext)))
-         :query-arg      (set (map :sentence (v/sentexes-matching kb '(ownerOf ?who Rex) 'ParityContext)))
-         :query-number   (set (map :sentence (v/sentexes-matching kb '(bornIn ?x 1970) 'ParityContext)))
+         :ask-animal     (bindings-of (v/ask kb '(animal ?x) 'CxParity))
+         :level4-animal  (set (map :sentence (v/lookup kb 4 '(animal ?x) 'CxParity)))
+         :query-arg      (set (map :sentence (v/sentexes-matching kb '(ownerOf ?who Rex) 'CxParity)))
+         :query-number   (set (map :sentence (v/sentexes-matching kb '(bornIn ?x 1970) 'CxParity)))
          ;; ground: a negative pattern holding a variable matches nothing anywhere in
          ;; the stack, so it would compare empty-to-empty and prove nothing
-         :query-negative (set (map :sentence (v/sentexes-matching kb '(not (dog Tom)) 'ParityContext)))
+         :query-negative (set (map :sentence (v/sentexes-matching kb '(not (dog Tom)) 'CxParity)))
          ;; the prover stack
-         :ask-mammal     (bindings-of (v/ask kb '(mammal ?x) 'ParityContext))
-         :provable       [(v/provable? kb '(mammal Rex) 'ParityContext)
-                          (v/provable? kb '(mammal Tom) 'ParityContext)]
+         :ask-mammal     (bindings-of (v/ask kb '(mammal ?x) 'CxParity))
+         :provable       [(v/provable? kb '(mammal Rex) 'CxParity)
+                          (v/provable? kb '(mammal Tom) 'CxParity)]
          ;; the taxonomy
-         :isa            [(v/isa? kb 'Rex 'animal 'ParityContext)
-                          (v/isa? kb 'Rex 'thing 'ParityContext)
-                          (v/isa? kb 'Tom 'animal 'ParityContext)]
+         :isa            [(v/isa? kb 'Rex 'animal 'CxParity)
+                          (v/isa? kb 'Rex 'thing 'CxParity)
+                          (v/isa? kb 'Tom 'animal 'CxParity)]
          :genls          (v/genls kb 'dog)
          :specs          (v/specs kb 'animal)
          ;; the index reads the engine leans on
@@ -110,26 +110,26 @@
          :count-functor  (p/count-with-functor ix 'dog)
          :by-arg         (sentences kb (p/sentexes-with-arg ix 2 'Rex))
          :by-args        (sentences kb (p/sentexes-with-args ix 'ownerOf [[1 'Ann] [2 'Rex]]))
-         :in-context     (count (p/sentexes-in-context ix 'ParityContext))
+         :in-context     (count (p/sentexes-in-context ix 'CxParity))
          :by-term        (sentences kb (p/sentexes-with-term ix 'Rex))
          :find-sentexes  (sentences kb (v/find-sentexes kb 'Muffet))
          ;; the trie itself, through the protocol
-         :lookup-0       (sentences kb (v/lookup kb 0 '(dog Rex) 'ParityContext))
+         :lookup-0       (sentences kb (v/lookup kb 0 '(dog Rex) 'CxParity))
          :count-at       (p/count-at ix '[dog])
          :children       (set (p/children ix '[dog]))
          :count-children (p/count-children ix '[dog])
          ;; the lookup-to-query stack and belief
          :levels         (into {} (for [n (range 2 8)]
-                                    [n (count (v/lookup kb n '(mammal Rex) 'ParityContext))]))
+                                    [n (count (v/lookup kb n '(mammal Rex) 'CxParity))]))
          :derived-believed (v/in? kb derived)
          :derived-why-rule (-> (v/why kb derived) :support first :rule)}]
     ;; retraction: the derived consequence must fall away with its premise, everywhere
-    (v/retract! kb (v/handle-of kb '(dog Rex) 'ParityContext))
+    (v/retract! kb (v/handle-of kb '(dog Rex) 'CxParity))
     (assoc result
-           :after-retract-query (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'ParityContext)))
-           :after-retract-mammal (v/provable? kb '(mammal Rex) 'ParityContext)
-           :after-retract-stored (some? (v/handle-of kb '(mammal Rex) 'ParityContext))
-           :after-retract-isa   (v/isa? kb 'Rex 'animal 'ParityContext))))
+           :after-retract-query (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'CxParity)))
+           :after-retract-mammal (v/provable? kb '(mammal Rex) 'CxParity)
+           :after-retract-stored (some? (v/handle-of kb '(mammal Rex) 'CxParity))
+           :after-retract-isa   (v/isa? kb 'Rex 'animal 'CxParity))))
 
 (defn- run-session [opts]
   (let [kb (v/open-kb (assoc opts :recover? false))]
@@ -137,7 +137,7 @@
     ;; The script's expectations are hand-written, and this namespace's question is
     ;; whether eight storage backends answer them alike — not what the engine derives.
     ;; Assertive argument types would change the script itself: `(argIsa ownerOf 2
-    ;; animal)` and `(ownerOf Ann Rex)` both sit in ParityContext, so Rex would carry a
+    ;; animal)` and `(ownerOf Ann Rex)` both sit in CxParity, so Rex would carry a
     ;; second, independent `animal` membership and retracting `(dog Rex)` would no
     ;; longer take his type with it.  That is the feature working, and it is tested
     ;; where it belongs (`vaelii.argtype-entail-test`); pinned off here so the parity

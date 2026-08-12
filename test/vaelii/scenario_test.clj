@@ -28,10 +28,10 @@
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'TimeContext "upper")
-                        (seed/load-context 'SpaceContext "upper"))))
+                        (seed/load-context 'CxTime "upper")
+                        (seed/load-context 'CxSpace "upper"))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 (defn- consistent?
   "Does `scen` survive path consistency — is it an arrangement rather than a wish?  The
@@ -175,8 +175,8 @@
       (is (= [{}] (scen/scenarios iv/allen kb C {:limit 3}))))))
 
 (tu/deftest-kb a-context-with-nothing-in-it-has-the-empty-scenario
-  (tu/with-terms [EmptyContext]
-    (v/assert kb (list 'genlContext EmptyContext C) C)
+  (tu/with-terms [CxEmpty]
+    (v/assert kb (list 'genlCx CxEmpty C) C)
     (testing "no nodes means no pairs to decide, which is one arrangement and not none"
-      (is (= [{}] (scen/scenarios iv/allen kb EmptyContext {:limit 3})))
-      (is (= {} (scen/scenario iv/allen kb EmptyContext))))))
+      (is (= [{}] (scen/scenarios iv/allen kb CxEmpty {:limit 3})))
+      (is (= {} (scen/scenario iv/allen kb CxEmpty))))))

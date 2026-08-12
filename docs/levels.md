@@ -17,8 +17,8 @@ just **names them and gives them one call shape**, so the cost of an answer is
 legible instead of implicit.
 
 ```clojure
-(v/lookup kb 4 '(animal ?x) 'MantleContext)
-;=> ({:level 4 :handle 41 :sentence (dog Muffet) :context MantleContext :bindings {?x Muffet}})
+(v/lookup kb 4 '(animal ?x) 'CxMantle)
+;=> ({:level 4 :handle 41 :sentence (dog Muffet) :context CxMantle :bindings {?x Muffet}})
 ```
 
 ## The eight levels
@@ -32,7 +32,7 @@ mechanism and nothing else.
 | 0 | `:raw` | nothing — handles at an index location | `p/lookup` |
 | 1 | `:extent` | one literal context, narrowed by functor | the context + functor roots |
 | 2 | `:local` | unification + the symmetric mirror | `res/raw-match` |
-| 3 | `:visible` | context inheritance (`genlContext` up-closure) | `res/raw-match` per context |
+| 3 | `:visible` | context inheritance (`genlCx` up-closure) | `res/raw-match` per context |
 | 4 | `:typed` | predicate inheritance (the `genl` spec walk) | `res/matches-visible` |
 | 5 | `:closed` | transitive closure for transitive predicates | + the transitive provers |
 | 6 | `:solved` | the whole prover registry, no member of which expands a rule | `provers/solve-goal-with` — what `ask` runs |
@@ -47,7 +47,7 @@ Level 1 is candidate retrieval, not matching: it intersects the context root wit
 the functor root and does **not** look at arguments. Both roots carry O(1)
 cardinality, so it drives from whichever is smaller.
 
-Level 3's fan-out up the `genlContext` cone is also what *creates* a retired spelling,
+Level 3's fan-out up the `genlCx` cone is also what *creates* a retired spelling,
 so the reader-scoped filter that drops one belongs to it: a fact stated above an
 equality merge is believed where it lives — its own context was told nothing — while a
 context below the merge sees both it and the twin migration placed there. Reading up
@@ -103,7 +103,7 @@ goal-rewrite are exactly what distinguishes them.
 Every level yields the same map, with `nil` where a level cannot supply a field:
 
 ```clojure
-{:level 4 :handle 41 :sentence (dog Muffet) :context MantleContext :bindings {?x Muffet}}
+{:level 4 :handle 41 :sentence (dog Muffet) :context CxMantle :bindings {?x Muffet}}
 ```
 
 Levels 0–4 answer from a stored sentex and carry its `:handle`. Levels 5–7 answer
@@ -176,7 +176,7 @@ that reads the store.
 the cheapest machinery sufficient for a goal:
 
 ```clojure
-(v/escalate kb '(animal ?x) 'MantleContext)
+(v/escalate kb '(animal ?x) 'CxMantle)
 ;=> {:level 4 :name :typed :results (...) :tried [2 3 4]}
 ```
 
@@ -201,7 +201,7 @@ That depends on the KB rather than on the level, so no floor rules it out.
 count first rises is the mechanism the answer depends on:
 
 ```clojure
-(v/explain-levels kb '(animal ?x) 'MantleContext)
+(v/explain-levels kb '(animal ?x) 'CxMantle)
 ;=> ({:level 3 :name :visible :count 0}
 ;    {:level 4 :name :typed   :count 3}   ; <- the genl spec walk is what answers this
 ;    ...)

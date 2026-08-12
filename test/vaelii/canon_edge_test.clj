@@ -66,22 +66,22 @@
   ;; correct, which is exactly why the cutoff never surfaced.
   (tu/with-terms [linksTo spans]
     (testing "seven tied literals — 5040 orderings, seven times the old cutoff"
-      (let [h1 (v/assert-rule kb (chain linksTo 7 "?p") (list spans '?p0 '?p7) 'UContext)
+      (let [h1 (v/assert-rule kb (chain linksTo 7 "?p") (list spans '?p0 '?p7) 'CxU)
             n1 (sentex-count kb)
             h2 (v/assert-rule kb (vec (reverse (chain linksTo 7 "?w")))
-                              (list spans '?w0 '?w7) 'UContext)]
+                              (list spans '?w0 '?w7) 'CxU)]
         (is (= h1 h2) "the same chain written backwards is the same rule")
         (is (= n1 (sentex-count kb)) "and stored nothing new")))
     (testing "and the reversed *join* is still a genuinely different rule"
-      (is (not= (v/assert-rule kb (chain linksTo 7 "?p") (list spans '?p0 '?p7) 'UContext)
-                (v/assert-rule kb (chain linksTo 7 "?p") (list spans '?p7 '?p0) 'UContext)))))
+      (is (not= (v/assert-rule kb (chain linksTo 7 "?p") (list spans '?p0 '?p7) 'CxU)
+                (v/assert-rule kb (chain linksTo 7 "?p") (list spans '?p7 '?p0) 'CxU)))))
   (tu/with-terms [aTo bTo cTo dTo spans]
     (testing "four tie groups of three — 1296 candidates, also past the old cutoff"
       (let [gs (mapcat (fn [pd pfx] (chain pd 3 pfx))
                        [aTo bTo cTo dTo] ["?a" "?b" "?c" "?d"])
-            h1 (v/assert-rule kb (vec gs) (list spans '?a0 '?d3) 'UContext)
+            h1 (v/assert-rule kb (vec gs) (list spans '?a0 '?d3) 'CxU)
             n1 (sentex-count kb)
-            h2 (v/assert-rule kb (vec (reverse gs)) (list spans '?a0 '?d3) 'UContext)]
+            h2 (v/assert-rule kb (vec (reverse gs)) (list spans '?a0 '?d3) 'CxU)]
         (is (= h1 h2))
         (is (= n1 (sentex-count kb)))))))
 
@@ -92,7 +92,7 @@
   ;; the antecedents alone produces *five* here — the 120 orderings enumerate fine under
   ;; the cutoff, and the tiebreak is what fails (see the next test).
   (let [lits '[(p ?a ?b) (p ?b ?c) (p ?c ?d) (p ?d ?e) (p ?e ?a)]
-        forms (into #{} (map #(:sentence (sx/sentex (list 'implies (cons 'and %) '(out ?a)) 'AContext)))
+        forms (into #{} (map #(:sentence (sx/sentex (list 'implies (cons 'and %) '(out ?a)) 'CxA)))
                     (permutations lits))]
     (is (= 1 (count forms)) (str "one canonical form, got " (count forms) ": " (pr-str forms)))))
 
@@ -106,8 +106,8 @@
   ;; (p ?a ?b) and (p ?c ?d) share nothing, so both orders give
   ;; [(p ?var0 ?var1) (p ?var2 ?var3)]; only (q ?var0 ?var2) vs (q ?var2 ?var0) differ,
   ;; and they are the same rule up to renaming.
-  (let [s1 (sx/sentex '(implies (and (p ?a ?b) (p ?c ?d)) (q ?a ?c)) 'AContext)
-        s2 (sx/sentex '(implies (and (p ?c ?d) (p ?a ?b)) (q ?a ?c)) 'AContext)]
+  (let [s1 (sx/sentex '(implies (and (p ?a ?b) (p ?c ?d)) (q ?a ?c)) 'CxA)
+        s2 (sx/sentex '(implies (and (p ?c ?d) (p ?a ?b)) (q ?a ?c)) 'CxA)]
     (testing "the antecedents alone cannot separate them"
       (is (= '[(p ?var0 ?var1) (p ?var2 ?var3)] (:antecedent s1) (:antecedent s2))))
     (testing "so the consequent decides, the same way round both times"
@@ -121,7 +121,7 @@
     ;; four disconnected copies of one predicate: every ordering renders the same
     ;; antecedents, and only the consequent says which copy matters
     (let [lits '[(p ?a ?b) (p ?c ?d) (p ?e ?f) (p ?g ?h)]
-          forms (into #{} (map #(:sentence (sx/sentex (list 'implies (cons 'and %) '(out ?e)) 'AContext)))
+          forms (into #{} (map #(:sentence (sx/sentex (list 'implies (cons 'and %) '(out ?e)) 'CxA)))
                       (permutations lits))]
       (is (= 1 (count forms))))))
 
@@ -142,16 +142,16 @@
   (testing "all 720 orderings of six joinless literals land on one form"
     (let [antes (joinless-antes 6)
           rule  (fn [a] (list 'implies (cons 'and a) (cons 'q (map second a))))  ; consequent refs each first arg
-          forms (into #{} (map #(:sentence (sx/sentex (rule (vec %)) 'AContext)))
+          forms (into #{} (map #(:sentence (sx/sentex (rule (vec %)) 'CxA)))
                       (permutations antes))]
       (is (= 1 (count forms)) (str "expected one canonical form, got " (count forms)))
       (testing "and it is the minimal numbering — each antecedent's first var in consequent order"
         (is (= '(q ?var0 ?var2 ?var4 ?var6 ?var8 ?var10)
-               (:consequent (sx/sentex (rule antes) 'AContext)))))))
+               (:consequent (sx/sentex (rule antes) 'CxA)))))))
   (testing "twelve literals canonicalize in milliseconds where k! would take hours"
     (let [rule (fn [a] (list 'implies (cons 'and a) (cons 'q (map second a))))
           t0   (System/nanoTime)
-          _    (sx/sentex (rule (joinless-antes 12)) 'AContext)
+          _    (sx/sentex (rule (joinless-antes 12)) 'CxA)
           ms   (/ (- (System/nanoTime) t0) 1e6)]
       (is (< ms 1000) (str "k=12 took " ms " ms — a factorial search would not return")))))
 
@@ -168,7 +168,7 @@
                  '(q ?a3 ?a0 ?a5)                     ; mixed first/second
                  '(out Constant)]]                    ; none — wholly interchangeable
     (doseq [conseq conseqs]
-      (let [forms (into #{} (map #(:sentence (sx/sentex (list 'implies (cons 'and %) conseq) 'AContext)))
+      (let [forms (into #{} (map #(:sentence (sx/sentex (list 'implies (cons 'and %) conseq) 'CxA)))
                         (permutations antes))]
         (is (= 1 (count forms))
             (str "consequent " (pr-str conseq) " gave " (count forms) " forms across orderings"))))))
@@ -181,7 +181,7 @@
   (let [xprod (joinless-antes 2)                      ; (rel ?a0 ?a1)(rel ?a2 ?a3)
         chn   (chain 'edge 3 "?p")                    ; (edge ?p0 ?p1)(edge ?p1 ?p2)(edge ?p2 ?p3)
         conseq '(q ?a0 ?p0 ?p3)
-        canon (fn [lits] (:sentence (sx/sentex (list 'implies (cons 'and (vec lits)) conseq) 'AContext)))
+        canon (fn [lits] (:sentence (sx/sentex (list 'implies (cons 'and (vec lits)) conseq) 'CxA)))
         forms (into #{} (map canon)
                     [(into (vec xprod) chn)                                  ; xprod then chain
                      (into (vec chn) xprod)                                  ; chain then xprod
@@ -197,9 +197,9 @@
   (tu/with-terms [linksTo spans]
     (let [lits (chain linksTo 3 "?p")
           conseq (list spans '?p0 '?p3)
-          h1 (v/assert-rule kb lits conseq 'UContext)
+          h1 (v/assert-rule kb lits conseq 'CxU)
           n1 (sentex-count kb)
-          hs (mapv #(v/assert-rule kb (vec %) conseq 'UContext) (permutations lits))]
+          hs (mapv #(v/assert-rule kb (vec %) conseq 'CxU) (permutations lits))]
       (testing "all six spellings resolve to the one handle"
         (is (= #{h1} (set hs)))
         (is (= n1 (sentex-count kb))))
@@ -218,11 +218,11 @@
   ;; the second evaluate would run before the first bound its input.  Only an
   ;; end-to-end firing catches that, so this test does both halves.
   (tu/with-terms [startsAt twoOn A]
-    (v/assert kb (list startsAt A 1) 'UContext)
+    (v/assert kb (list startsAt A 1) 'CxU)
     (let [h (v/assert-rule kb [(list startsAt '?x '?n)
                                (list 'evaluate '?a (list '+ '?n 1))
                                (list 'evaluate '?b (list '+ '?a 1))]   ; ?b needs ?a
-                           (list twoOn '?x '?b) 'UContext {:direction :backward})
+                           (list twoOn '?x '?b) 'CxU {:direction :backward})
           ante (:antecedent (v/sentex kb h))]
       (testing "the generator leads, and the two evaluables keep their written order"
         (is (= startsAt (ffirst ante)))
@@ -230,12 +230,12 @@
                (vec (rest ante)))
             "the second computation reads the variable the first produced"))
       (testing "and the chain actually computes: 1 + 1 + 1"
-        (is (= [{'?z 3}] (vec (v/query kb (list twoOn A '?z) 'UContext {:max-depth 2}))))
-        (is (v/query? kb (list twoOn A 3) 'UContext {:max-depth 2}))
-        (is (not (v/query? kb (list twoOn A 4) 'UContext {:max-depth 2}))))))
+        (is (= [{'?z 3}] (vec (v/query kb (list twoOn A '?z) 'CxU {:max-depth 2}))))
+        (is (v/query? kb (list twoOn A 3) 'CxU {:max-depth 2}))
+        (is (not (v/query? kb (list twoOn A 4) 'CxU {:max-depth 2}))))))
   (testing "written before its generator, the pair is still held back in its own order"
     (let [s (sx/sentex '(implies (and (evaluate ?a (+ ?x 1)) (evaluate ?b (+ ?a 1)) (foo ?x))
-                                 (bar ?b)) 'AContext)]
+                                 (bar ?b)) 'CxA)]
       (is (= '[(foo ?var0) (evaluate ?var1 (+ ?var0 1)) (evaluate ?var2 (+ ?var1 1))]
              (:antecedent s))))))
 
@@ -247,22 +247,22 @@
   ;; flat list — but a dotted form's arguments are a *splice*, and treating the tail
   ;; variable as an argument produces a literal that quietly matches nothing.
   (testing "a dotted greaterThan is not reversed onto lessThan"
-    (is (= '(greaterThan ?a . ?rest) (:sentence (sx/sentex '(greaterThan ?a . ?rest) 'AContext))))
+    (is (= '(greaterThan ?a . ?rest) (:sentence (sx/sentex '(greaterThan ?a . ?rest) 'CxA))))
     (testing "while the ordinary form still folds"
-      (is (= '(lessThan 3 5) (:sentence (sx/sentex '(greaterThan 5 3) 'AContext))))))
+      (is (= '(lessThan 3 5) (:sentence (sx/sentex '(greaterThan 5 3) 'CxA))))))
   (testing "two dotted lessThans do not merge into one variable-arity literal"
     ;; the shape that *would* merge: the tail of the first is the head of the second,
     ;; which is exactly the (a<b)+(b<c) test `collapse-comparison-chains` looks for.
     ;; Splicing them yields (lessThan ?a . ?r . ?s) — a literal with two rest markers,
     ;; which nothing can ever match.
     (let [s (sx/sentex '(implies (and (foo ?a ?r ?s) (lessThan ?a . ?r) (lessThan ?r . ?s))
-                                 (bar ?a)) 'AContext)
+                                 (bar ?a)) 'CxA)
           lts (filterv #(= 'lessThan (first %)) (:antecedent s))]
       (is (= 2 (count lts)) "both survive")
       (is (every? #(= 1 (count (filter #{'.} %))) lts) "each with exactly one dot marker"))
     (testing "while the undotted chain over the same shape still collapses"
       (let [s (sx/sentex '(implies (and (foo ?a ?b ?c) (lessThan ?a ?b) (lessThan ?b ?c))
-                                   (bar ?a)) 'AContext)]
+                                   (bar ?a)) 'CxA)]
         (is (= 1 (count (filterv #(= 'lessThan (first %)) (:antecedent s)))))))))
 
 ;; ---- symmetric arguments: only a *ground* literal is reordered -----------
@@ -276,15 +276,15 @@
   ;; answering correctly while the stored antecedent was wrong.
   (let [sym #{'sib}]
     (testing "a pattern is left exactly as written, either way round"
-      (is (= '(sib ?x B) (:sentence (sx/sentex '(sib ?x B) 'AContext {:symmetric? sym}))))
-      (is (= '(sib B ?x) (:sentence (sx/sentex '(sib B ?x) 'AContext {:symmetric? sym})))))
+      (is (= '(sib ?x B) (:sentence (sx/sentex '(sib ?x B) 'CxA {:symmetric? sym}))))
+      (is (= '(sib B ?x) (:sentence (sx/sentex '(sib B ?x) 'CxA {:symmetric? sym})))))
     (testing "a variable nested inside a compound argument counts as non-ground too"
-      (is (= '(sib (f ?x) B) (:sentence (sx/sentex '(sib (f ?x) B) 'AContext {:symmetric? sym})))))
+      (is (= '(sib (f ?x) B) (:sentence (sx/sentex '(sib (f ?x) B) 'CxA {:symmetric? sym})))))
     (testing "while a fully ground literal is sorted, which is what dedups the pair"
-      (is (= '(sib Ann Zed) (:sentence (sx/sentex '(sib Zed Ann) 'AContext {:symmetric? sym}))))
-      (is (= '(sib Ann Zed) (:sentence (sx/sentex '(sib Ann Zed) 'AContext {:symmetric? sym})))))
+      (is (= '(sib Ann Zed) (:sentence (sx/sentex '(sib Zed Ann) 'CxA {:symmetric? sym}))))
+      (is (= '(sib Ann Zed) (:sentence (sx/sentex '(sib Ann Zed) 'CxA {:symmetric? sym})))))
     (testing "and an undeclared predicate is never touched"
-      (is (= '(ord Zed Ann) (:sentence (sx/sentex '(ord Zed Ann) 'AContext {:symmetric? sym})))))))
+      (is (= '(ord Zed Ann) (:sentence (sx/sentex '(ord Zed Ann) 'CxA {:symmetric? sym})))))))
 
 ;; ---- nested exceptions conjoin ------------------------------------------
 
@@ -299,8 +299,8 @@
                                   (list 'exceptWhen (list penguin '?b)
                                         (list 'set/defaultRule
                                               (list 'implies (list bird '?b) (list flies '?b)))))
-                         'UContext)
-        rh (v/handle-of kb rule-form 'UContext)]
+                         'CxU)
+        rh (v/handle-of kb rule-form 'CxU)]
     (testing "both exceptions survive as one sorted, deduplicated conjunction"
       (is (= 1 (count (provers/rule-exceptions kb rh))))
       (is (= #{(list penguin '?var0) (list young '?var0)}
@@ -309,7 +309,7 @@
       (let [single (v/assert kb (list 'exceptWhen [(list penguin '?z) (list young '?z)]
                                       (list 'set/defaultRule
                                             (list 'implies (list bird '?z) (list flies '?z))))
-                             'UContext)]
+                             'CxU)]
         (is (= nested single))))
     (testing "and the wrappers underneath still reach the rule's own fields"
       (is (true? (:defeasible (v/sentex kb rh))))
@@ -322,13 +322,13 @@
                                (list 'exceptWhen (list b1 '?b)
                                      (list 'exceptWhen (list c1 '?b)
                                            (list 'implies (list bird '?b) (list flies '?b)))))
-                      'UContext)
+                      'CxU)
           b (v/assert kb (list 'exceptWhen (list c1 '?x)
                                (list 'exceptWhen (list a1 '?x)
                                      (list 'exceptWhen (list b1 '?x)
                                            (list 'implies (list bird '?x) (list flies '?x)))))
-                      'UContext)
-          rh (v/handle-of kb rule-form 'UContext)]
+                      'CxU)
+          rh (v/handle-of kb rule-form 'CxU)]
       (is (= a b))
       (is (= 3 (count (first (provers/rule-exceptions kb rh))))))))
 
@@ -340,21 +340,21 @@
   ;; and turns two literals differing only in a ground constant into a *tie group* —
   ;; handing their order back to the author and breaking dedup.
   (testing "two literals separated only by a constant symbol are ordered, not tied"
-    (let [s (sx/sentex '(implies (and (p Zed) (p Ann)) (q Zed)) 'AContext)]
+    (let [s (sx/sentex '(implies (and (p Zed) (p Ann)) (q Zed)) 'CxA)]
       (is (= '[(p Ann) (p Zed)] (:antecedent s)) "lexically ascending, not as written")))
   (testing "so the two spellings are one rule"
-    (is (= (:sentence (sx/sentex '(implies (and (p Zed) (p Ann)) (q Zed)) 'AContext))
-           (:sentence (sx/sentex '(implies (and (p Ann) (p Zed)) (q Zed)) 'AContext)))))
+    (is (= (:sentence (sx/sentex '(implies (and (p Zed) (p Ann)) (q Zed)) 'CxA))
+           (:sentence (sx/sentex '(implies (and (p Ann) (p Zed)) (q Zed)) 'CxA)))))
   (tu/with-terms [holds noted Zed Ann]
     ;; the consequent takes its own predicate: a literal sharing the consequent's
     ;; predicate is held back as the recursive one, which would decide the order for a
     ;; reason that has nothing to do with the tiebreak under test
     (testing "and they resolve to one handle in the store"
       (let [h1 (v/assert-rule kb [(list holds Zed) (list holds Ann)]
-                              (list noted Zed) 'UContext)
+                              (list noted Zed) 'CxU)
             n1 (sentex-count kb)
             h2 (v/assert-rule kb [(list holds Ann) (list holds Zed)]
-                              (list noted Zed) 'UContext)]
+                              (list noted Zed) 'CxU)]
         (is (= h1 h2))
         (is (= n1 (sentex-count kb)))))))
 
@@ -374,9 +374,9 @@
   (testing "an unbound context slot is rejected"
     (is (= :not-range-restricted (range-refusal '[(p ?x)] '(ist ?ctx (p ?x))))))
   (testing "an unbound variable in the *embedded* sentence is rejected"
-    (is (= :not-range-restricted (range-refusal '[(p ?x)] '(ist SomeContext (q ?y))))))
+    (is (= :not-range-restricted (range-refusal '[(p ?x)] '(ist CxSome (q ?y))))))
   (testing "the anonymous wildcard is rejected in either slot"
-    (is (= :not-range-restricted (range-refusal '[(p ?x)] '(ist SomeContext (q _)))))
+    (is (= :not-range-restricted (range-refusal '[(p ?x)] '(ist CxSome (q _)))))
     (is (= :not-range-restricted (range-refusal '[(p ?x)] '(ist _ (q ?x))))))
   (testing "an antecedent that binds the context is the accepted form"
     (is (nil? (vr/check-range-restricted '[(p ?x) (ctxOf ?x ?ctx)] '(ist ?ctx (p ?x)))))))
@@ -386,7 +386,7 @@
     (testing "assert refuses the rule"
       (is (= :not-range-restricted
              (try (v/assert-rule kb [(list holds '?x)]
-                                 (list 'ist '?ctx (list noted '?x)) 'UContext)
+                                 (list 'ist '?ctx (list noted '?x)) 'CxU)
                   nil
                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
     (testing "and stored nothing — a refused rule leaves no residue to match against"

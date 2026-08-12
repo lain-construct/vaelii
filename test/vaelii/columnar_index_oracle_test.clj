@@ -208,7 +208,7 @@
           col  (columnar/columnar-index-store {:space 74})
           trie (:trie col)]
       (p/clear-index! mem) (p/clear-index! col)
-      (let [sent   (fn [i] (sx/sentex (list 'pwide (symbol (str "W" i))) 'WideContext))
+      (let [sent   (fn [i] (sx/sentex (list 'pwide (symbol (str "W" i))) 'CxWide))
             ops    (mapv (fn [i] [(sent i) (inc i)]) (range 40))
             wide   (subvec (sx/path (first (first ops))) 0 1)   ; holds one child per W
             apply! (fn [f xs] (doseq [[s h] xs] (f mem s h) (f col s h)))
@@ -271,8 +271,8 @@
   ;; This is the read the random oracle above cannot make: it generates one boxing.
   (let [mem (mem/memory-index-store       {:space 78})
         col (columnar/columnar-index-store {:space 78})
-        as-int  (sx/sentex (list 'nCount 'NAnn (int 2)) 'NCountContext)
-        as-long (sx/sentex (list 'nCount 'NAnn (long 2)) 'NCountContext)]
+        as-int  (sx/sentex (list 'nCount 'NAnn (int 2)) 'CxNCount)
+        as-long (sx/sentex (list 'nCount 'NAnn (long 2)) 'CxNCount)]
     (p/clear-index! mem) (p/clear-index! col)
     (is (= (sx/path as-int) (sx/path as-long)) "the two paths are Clojure-equal")
     (doseq [store [mem col]] (p/index-sentex store as-int 4242))

@@ -25,7 +25,7 @@
   (let [a (tu/tmp-pred) b (tu/tmp-pred) c (tu/tmp-pred) chain4 (tu/tmp-pred)
         X (tu/tmp-ind) Y1 (tu/tmp-ind) Y2 (tu/tmp-ind)
         Z1 (tu/tmp-ind) Z2 (tu/tmp-ind) W1 (tu/tmp-ind) W2 (tu/tmp-ind)
-        ctx 'FamContext
+        ctx 'CxFam
         scenario
         (fn [kb]
           ;; chain4(?x,?w) :- a(?x,?y) ∧ b(?y,?z) ∧ c(?z,?w) — a three-way join, so
@@ -48,7 +48,7 @@
   ;; literal after what binds its inputs (canonical order did), so the derived set is
   ;; unchanged whether planning is on or off.
   (let [birthYear (tu/tmp-pred) olderThan (tu/tmp-pred)
-        P1 (tu/tmp-ind) P2 (tu/tmp-ind) ctx 'FamContext
+        P1 (tu/tmp-ind) P2 (tu/tmp-ind) ctx 'CxFam
         scenario
         (fn [kb]
           ;; olderThan(?a,?b) :- birthYear(?a,?ya) ∧ birthYear(?b,?yb) ∧ lessThan(?ya,?yb)

@@ -72,12 +72,12 @@
   taxonomy roots (genl edges), the rule index (a forward rule, and the conclusion it
   derives), the argument roots and the term index."
   [kb]
-  (v/assert kb '(genl dog animal) 'MixedContext {:strength :monotonic})
-  (v/assert kb '(genl animal thing) 'MixedContext {:strength :monotonic})
-  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'MixedContext)
-  (v/assert kb '(dog Muffet) 'MixedContext {:strength :monotonic})
-  (v/assert kb '(cat Tom) 'MixedContext {:strength :monotonic})
-  (v/assert kb '(ownerOf Ann Muffet) 'MixedContext {:strength :monotonic})
+  (v/assert kb '(genl dog animal) 'CxMixed {:strength :monotonic})
+  (v/assert kb '(genl animal thing) 'CxMixed {:strength :monotonic})
+  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxMixed)
+  (v/assert kb '(dog Muffet) 'CxMixed {:strength :monotonic})
+  (v/assert kb '(cat Tom) 'CxMixed {:strength :monotonic})
+  (v/assert kb '(ownerOf Ann Muffet) 'CxMixed {:strength :monotonic})
   kb)
 
 (defn- observations
@@ -85,15 +85,15 @@
   allocation order.  Spans storage (the term index), belief (the TMS), the taxonomy, and
   derivation (the rule's conclusion and its proof)."
   [kb]
-  {:dogs      (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'MixedContext)))
-   :owner     (set (map :sentence (v/sentexes-matching kb '(ownerOf ?who Muffet) 'MixedContext)))
-   :mammals   (set (map :sentence (v/sentexes-matching kb '(mammal ?x) 'MixedContext)))
+  {:dogs      (set (map :sentence (v/sentexes-matching kb '(dog ?x) 'CxMixed)))
+   :owner     (set (map :sentence (v/sentexes-matching kb '(ownerOf ?who Muffet) 'CxMixed)))
+   :mammals   (set (map :sentence (v/sentexes-matching kb '(mammal ?x) 'CxMixed)))
    :isa       [(v/isa? kb 'Muffet 'animal) (v/isa? kb 'Muffet 'thing) (v/isa? kb 'Tom 'animal)]
    :specs     (v/specs kb 'animal)
    :terms     (set (map :sentence (v/find-sentexes kb 'Muffet)))
    :count     (v/sentex-count kb)
-   :ask       (set (map #(dissoc % :handle) (v/ask kb '(animal ?x) 'MixedContext)))
-   :why-rule  (-> (v/why kb (v/handle-of kb '(mammal Muffet) 'MixedContext))
+   :ask       (set (map #(dissoc % :handle) (v/ask kb '(animal ?x) 'CxMixed)))
+   :why-rule  (-> (v/why kb (v/handle-of kb '(mammal Muffet) 'CxMixed))
                   :support first :rule)})
 
 ;; ---- the axis split -------------------------------------------------------
@@ -130,13 +130,13 @@
   ;; stale, and leaves the first KB unable to find sentexes it is still holding.
   (let [a (doto (v/open-kb {:space 289 :recover? false}) v/clear!)]
     (try
-      (let [h (v/assert a '(dog Muffet) 'MixedContext {:strength :monotonic})
+      (let [h (v/assert a '(dog Muffet) 'CxMixed {:strength :monotonic})
             b (v/open-kb {:space 289 :recover? false})]
-        (is (= h (v/handle-of b '(dog Muffet) 'MixedContext))
+        (is (= h (v/handle-of b '(dog Muffet) 'CxMixed))
             "the second KB reads the first's postings, because it holds the records too")
-        (is (= h (v/handle-of a '(dog Muffet) 'MixedContext))
+        (is (= h (v/handle-of a '(dog Muffet) 'CxMixed))
             "and the first still finds its own sentex — nothing was dropped under it")
-        (is (= h (v/assert a '(dog Muffet) 'MixedContext {:strength :monotonic}))
+        (is (= h (v/assert a '(dog Muffet) 'CxMixed {:strength :monotonic}))
             "so asserting it again finds that sentex rather than minting a second handle")
         (is (= 1 (v/sentex-count a))))
       (finally (v/clear! a)))))
@@ -152,7 +152,7 @@
       (v/clear! a)
       (v/clear! b)
       (populate! a)
-      (v/assert b '(cat Tom) 'MixedContext {:strength :monotonic})
+      (v/assert b '(cat Tom) 'CxMixed {:strength :monotonic})
       (let [held (v/sentex-count a)]
         (is (pos? held))
         (is (= 1 (v/sentex-count b)) "b holds its own one fact, not a's as well")
@@ -312,7 +312,7 @@
       (let [kb (v/open-kb {:backend :disk-memory :dir dir :recover? false})]
         (testing "recover alone, over an index that opened empty, recovers nothing"
           (v/recover kb)
-          (is (empty? (v/sentexes-matching kb '(dog ?x) 'MixedContext)))
+          (is (empty? (v/sentexes-matching kb '(dog ?x) 'CxMixed)))
           (is (not (v/isa? kb 'Muffet 'animal))))
         (testing "reindex-then-recover — what :recover? :auto runs — restores it whole"
           (v/reindex kb)
@@ -325,13 +325,13 @@
     (fn [dir] (populate! (v/open-kb {:backend :disk-memory :dir dir :recover? false})) nil)
     (fn [dir _]
       (let [kb (v/open-kb {:backend :disk-memory :dir dir :recover? :auto})]
-        (v/assert kb '(dog Rex) 'MixedContext {:strength :monotonic})
-        (is (seq (v/sentexes-matching kb '(mammal Rex) 'MixedContext))
+        (v/assert kb '(dog Rex) 'CxMixed {:strength :monotonic})
+        (is (seq (v/sentexes-matching kb '(mammal Rex) 'CxMixed))
             "the recovered rule fired over the new fact")
-        (is (= 2 (count (v/sentexes-matching kb '(dog ?x) 'MixedContext)))
+        (is (= 2 (count (v/sentexes-matching kb '(dog ?x) 'CxMixed)))
             "and the new record did not land on an existing handle")
-        (v/retract! kb (v/handle-of kb '(dog Muffet) 'MixedContext))
-        (is (empty? (v/sentexes-matching kb '(mammal Muffet) 'MixedContext))
+        (v/retract! kb (v/handle-of kb '(dog Muffet) 'CxMixed))
+        (is (empty? (v/sentexes-matching kb '(mammal Muffet) 'CxMixed))
             "retraction reaches a conclusion the rebuilt justification graph carries")))))
 
 ;; ---- crossing between a durable and a derived index -----------------------
@@ -358,7 +358,7 @@
     (fn [dir] (observations (populate! (v/open-kb {:backend :disk-memory :dir dir :recover? false}))))
     (fn [dir before]
       (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
-        (is (empty? (v/sentexes-matching kb '(dog ?x) 'MixedContext))
+        (is (empty? (v/sentexes-matching kb '(dog ?x) 'CxMixed))
             "the disk index for these records was never written")
         (v/reindex kb)
         (is (= before (observations kb)) "and one reindex populates it")
@@ -378,10 +378,10 @@
       (rm-rf! dir)
       (let [kb (v/open-kb {:backend :disk-memory :dir dir :recover? :auto})]
         (is (zero? (v/sentex-count kb)) "the stale index went with the records")
-        (is (empty? (v/sentexes-matching kb '(dog ?x) 'MixedContext)))
+        (is (empty? (v/sentexes-matching kb '(dog ?x) 'CxMixed)))
         ;; and the store is usable, at handles nothing else claims
-        (v/assert kb '(dog Muffet) 'MixedContext {:strength :monotonic})
-        (is (= 1 (count (v/sentexes-matching kb '(dog ?x) 'MixedContext))))))))
+        (v/assert kb '(dog Muffet) 'CxMixed {:strength :monotonic})
+        (is (= 1 (count (v/sentexes-matching kb '(dog ?x) 'CxMixed))))))))
 
 (deftest one-directory-opened-both-ways-shares-records-and-not-the-index
   ;; The registry is keyed by directory *and component*: a second KB over the same dir

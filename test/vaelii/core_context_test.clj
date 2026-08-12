@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.core-context-test
-  "The CoreContext ontology loads and documents the core predicates."
+  "The CxCore ontology loads and documents the core predicates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
@@ -10,12 +10,12 @@
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
 
 (tu/deftest-kb core-predicates-are-documented
-  (testing "every core predicate has a comment sentex in CoreContext"
-    (doseq [term '[thing genl genlContext argIsa comment implies]]
+  (testing "every core predicate has a comment sentex in CxCore"
+    (doseq [term '[thing genl genlCx argIsa comment implies]]
       (is (= 1 (count (core-context/comment-of kb term))) (str "comment for " term))
       (is (string? (first (core-context/comment-of kb term))))))
-  (testing "comments are ordinary sentexes living in CoreContext"
-    (is (seq (v/sentexes-matching kb '(comment genl ?text) 'CoreContext)))))
+  (testing "comments are ordinary sentexes living in CxCore"
+    (is (seq (v/sentexes-matching kb '(comment genl ?text) 'CxCore)))))
 
 (tu/deftest-kb extended-core-vocabulary-is-documented
   (testing "metadata, negation, and virtual rule wrappers each have a comment"
@@ -30,21 +30,21 @@
 
 (tu/deftest-kb argisa-constraints-are-enforced-on-assert
   ;; argIsa is a core predicate the engine interprets, so a constraint on it is checked
-  ;; on assert.  (The starter's domain argIsa live in the upper RelationContext now, not
+  ;; on assert.  (The starter's domain argIsa live in the upper CxRelation now, not
   ;; the vocabulary head, so this defines its own vocabulary — wiring a data context to
-  ;; see CoreContext directly, since a CoreContext-only KB has no spindle bands.)
+  ;; see CxCore directly, since a CxCore-only KB has no spindle bands.)
   (let [animal (tu/tmp-type) rock (tu/tmp-type) kin (tu/tmp-pred)
         tom (tu/tmp-ind) boulder (tu/tmp-ind)]
-    (v/assert kb '(genlContext DataContext CoreContext) 'UniverseContext)   ; a data context that sees core
-    (v/assert kb (list 'genl animal 'thing) 'CoreContext)
-    (v/assert kb (list 'genl rock   'thing) 'CoreContext)
-    (v/assert kb (list 'argIsa kin 1 animal) 'CoreContext)                  ; the constraint
-    (v/assert kb (list animal tom)    'DataContext)
-    (v/assert kb (list rock   boulder) 'DataContext)
+    (v/assert kb '(genlCx CxData CxCore) 'CxUniverse)   ; a data context that sees core
+    (v/assert kb (list 'genl animal 'thing) 'CxCore)
+    (v/assert kb (list 'genl rock   'thing) 'CxCore)
+    (v/assert kb (list 'argIsa kin 1 animal) 'CxCore)                  ; the constraint
+    (v/assert kb (list animal tom)    'CxData)
+    (v/assert kb (list rock   boulder) 'CxData)
     (testing "the argIsa constraint applies on assert"
-      (is (v/assert kb (list kin tom tom) 'DataContext))                    ; tom is an animal: OK
+      (is (v/assert kb (list kin tom tom) 'CxData))                    ; tom is an animal: OK
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list kin boulder tom) 'DataContext))))))   ; a rock is not an animal
+                   (v/assert kb (list kin boulder tom) 'CxData))))))   ; a rock is not an animal
 
 (tu/deftest-kb arity-is-declared-functional
   ;; a predicate has one arity, and the two spellings derive each other — so a second,
@@ -52,6 +52,6 @@
   ;; never merge into one thing, so this is the hard rejection, not an equality.
   (is (v/has-prop? kb :functional 'arity))
   (let [rel (tu/tmp-pred)]
-    (v/assert kb (list 'binaryPredicate rel) 'CoreContext)
+    (v/assert kb (list 'binaryPredicate rel) 'CxCore)
     (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list 'arity rel 7) 'CoreContext)))))
+                 (v/assert kb (list 'arity rel 7) 'CxCore)))))

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.taxonomy-depth-test
-  "The `genl` / `genlContext` **depth potential** — the topological ranking that lets
+  "The `genl` / `genlCx` **depth potential** — the topological ranking that lets
   `reachable?` reject most pairs in O(1) — and what a deferred batch does to it.
 
   The potential is derived state with one invariant, over the **condensation**:
@@ -49,7 +49,7 @@
 (defn- loose? [t k] (boolean (:loose? (rel t k))))
 
 (defn- ty [i] (symbol (str "d" i "_t")))
-(defn- ctx [i] (symbol (str "D" i "Context")))
+(defn- ctx [i] (symbol (str "CxD" i)))
 
 (defn- chain-edges
   "A `d0 ← d1 ← … ← dn` chain as `[sub super handle]` triples, parent-first (the order
@@ -97,40 +97,40 @@
       (is (not (tax/genl? t (ty 0) (ty 40))))
       (is (= (into #{} (map ty) (range 0 41)) (tax/genls t (ty 40)))))))
 
-(deftest genlContext-gets-the-same-treatment-as-genl
+(deftest genlCx-gets-the-same-treatment-as-genl
   ;; Both relations run through one `activate`, so the deferral covers both — and
-  ;; `genlContext` is the one that matters most for a corpus load, whose topology file
+  ;; `genlCx` is the one that matters most for a corpus load, whose topology file
   ;; is written depth-sorted, i.e. exactly parent-first.
   (let [edges (map (fn [i] [(ctx i) (ctx (dec i)) i]) (range 1 41))
         build-ctx (fn [es defer?]
                     (let [t (tax/create-taxonomy)]
                       (binding [tax/*defer-depths?* defer?]
-                        (doseq [[a b h] es] (tax/add-genlContext t a b h)))
+                        (doseq [[a b h] es] (tax/add-genlCx t a b h)))
                       t))]
     (testing "parent-first stays sound with no repair"
       (let [t (build-ctx edges true)]
-        (is (not (loose? t :genlContext)))
-        (is (sound? t :genlContext))
+        (is (not (loose? t :genlCx)))
+        (is (sound? t :genlCx))
         (is (tax/sees? t (ctx 40) (ctx 0)))))
     (testing "child-first goes loose, reads survive, and the repair fixes it"
       (let [t (build-ctx (reverse edges) true)]
-        (is (loose? t :genlContext))
+        (is (loose? t :genlCx))
         (is (tax/sees? t (ctx 40) (ctx 0)))
         (is (not (tax/sees? t (ctx 0) (ctx 40))))
         (tax/restore-depths t)
-        (is (sound? t :genlContext))
-        (is (not (loose? t :genlContext)))
+        (is (sound? t :genlCx))
+        (is (not (loose? t :genlCx)))
         (is (tax/sees? t (ctx 40) (ctx 0)))))
     (testing "the two relations go loose independently"
       (let [t (tax/create-taxonomy)]
         (binding [tax/*defer-depths?* true]
-          (doseq [[a b h] (reverse edges)] (tax/add-genlContext t a b h))   ; child-first
+          (doseq [[a b h] (reverse edges)] (tax/add-genlCx t a b h))   ; child-first
           (doseq [[a b h] (chain-edges 40 :parent-first)] (tax/add-genl t a b h)))
-        (is (loose? t :genlContext))
-        (is (not (loose? t :genl)) "a loose genlContext does not drag genl down with it")
+        (is (loose? t :genlCx))
+        (is (not (loose? t :genl)) "a loose genlCx does not drag genl down with it")
         (tax/restore-depths t)
         (is (sound? t :genl))
-        (is (sound? t :genlContext))))))
+        (is (sound? t :genlCx))))))
 
 (deftest deferred-and-eager-agree-whatever-the-arrival-order
   ;; Belief must not depend on arrival order.  Depth *numbers* may; the relation the
@@ -182,7 +182,7 @@
 
 (deftest a-cycle-is-ranked-as-one-component
   ;; `wff` refuses a cyclic `genl` edge, but the *taxonomy* must hold one anyway: a
-  ;; `genlContext` cycle is admitted, and a rebuild replays whatever is stored either
+  ;; `genlCx` cycle is admitted, and a rebuild replays whatever is stored either
   ;; way.  The pass condenses, so it terminates **and** leaves a sound potential —
   ;; the members level with each other, everything else strictly ranked around them —
   ;; and the depth-pruned reads stay exact, which the old raw-graph pass could not
@@ -223,26 +223,26 @@
   ;; `settle` cannot repair only *before* it reconciles belief (the KB test at the end
   ;; of this file).
   (let [t   (tax/create-taxonomy)
-        scc #(:scc (rel t :genlContext))]
-    (tax/add-genlContext t 'CyAContext 'CyBContext 1)
-    (tax/add-genlContext t 'CyBContext 'CyAContext 2)
+        scc #(:scc (rel t :genlCx))]
+    (tax/add-genlCx t 'CxCyA 'CxCyB 1)
+    (tax/add-genlCx t 'CxCyB 'CxCyA 2)
     (tax/restore-depths t)
-    (is (= 1 (count (distinct (map (scc) '[CyAContext CyBContext])))))
+    (is (= 1 (count (distinct (map (scc) '[CxCyA CxCyB])))))
     (testing "the edge leaving splits the component, and the split is repaired in place"
       (tax/refresh-beliefs t #(not= % 2))
       (is (empty? (scc)) "not trusted: a split is the one staleness that answers true")
-      (is (not (loose? t :genlContext)) "and the rest of the relation was never in doubt")
-      (is (sound? t :genlContext) "the two are ranked against each other again")
-      (is (tax/sees? t 'CyAContext 'CyBContext))
-      (is (not (tax/sees? t 'CyBContext 'CyAContext)))
+      (is (not (loose? t :genlCx)) "and the rest of the relation was never in doubt")
+      (is (sound? t :genlCx) "the two are ranked against each other again")
+      (is (tax/sees? t 'CxCyA 'CxCyB))
+      (is (not (tax/sees? t 'CxCyB 'CxCyA)))
       (tax/restore-depths t)
       (is (empty? (scc)) "and there is genuinely no component to find"))
     (testing "and it coming back closes one again"
       (tax/refresh-beliefs t (constantly true))
-      (is (loose? t :genlContext) "the reconcile surrendered the potential")
+      (is (loose? t :genlCx) "the reconcile surrendered the potential")
       (tax/restore-depths t)
-      (is (sound? t :genlContext))
-      (is (= 1 (count (distinct (map (scc) '[CyAContext CyBContext]))))
+      (is (sound? t :genlCx))
+      (is (= 1 (count (distinct (map (scc) '[CxCyA CxCyB]))))
           "one component again, and one name for it"))))
 
 ;; ---- a lift out of a component ------------------------------------------
@@ -264,21 +264,21 @@
   ;; comes back.  The whole component moves together, which both terminates and stays
   ;; sound.
   (let [t (tax/create-taxonomy)]
-    (tax/add-genlContext t 'LfAContext 'LfBContext 1)
-    (tax/add-genlContext t 'LfBContext 'LfAContext 2)
+    (tax/add-genlCx t 'CxLfA 'CxLfB 1)
+    (tax/add-genlCx t 'CxLfB 'CxLfA 2)
     (tax/restore-depths t)
-    (is (within? 10000 #(tax/add-genlContext t 'LfAContext 'LfZContext 3))
+    (is (within? 10000 #(tax/add-genlCx t 'CxLfA 'CxLfZ 3))
         "the lift terminates")
-    (is (sound? t :genlContext))
-    (is (not (loose? t :genlContext)))
+    (is (sound? t :genlCx))
+    (is (not (loose? t :genlCx)))
     (testing "both members sit above what one of them points at"
-      (let [{:keys [depth]} (rel t :genlContext)]
-        (is (= (depth 'LfAContext) (depth 'LfBContext)) "level, as one component")
-        (is (> (depth 'LfAContext) (depth 'LfZContext)))))
+      (let [{:keys [depth]} (rel t :genlCx)]
+        (is (= (depth 'CxLfA) (depth 'CxLfB)) "level, as one component")
+        (is (> (depth 'CxLfA) (depth 'CxLfZ)))))
     (testing "and the pruned reads answer through the component"
-      (is (tax/sees? t 'LfAContext 'LfZContext))
-      (is (tax/sees? t 'LfBContext 'LfZContext))
-      (is (not (tax/sees? t 'LfZContext 'LfAContext))))))
+      (is (tax/sees? t 'CxLfA 'CxLfZ))
+      (is (tax/sees? t 'CxLfB 'CxLfZ))
+      (is (not (tax/sees? t 'CxLfZ 'CxLfA))))))
 
 (deftest a-deletion-that-cannot-split-a-component-leaves-it-alone
   ;; A component's strong connectivity is a property of its own induced subgraph, so an
@@ -287,21 +287,21 @@
   ;; cost of a deletion the size of what it removed rather than the size of the
   ;; relation.
   (let [t   (tax/create-taxonomy)
-        scc #(:scc (rel t :genlContext))]
-    (tax/add-genlContext t 'DsAContext 'DsBContext 1)
-    (tax/add-genlContext t 'DsBContext 'DsAContext 2)
-    (tax/add-genlContext t 'DsAContext 'DsTopContext 3)     ; out of the component
-    (tax/add-genlContext t 'DsLowContext 'DsAContext 4)     ; into it
+        scc #(:scc (rel t :genlCx))]
+    (tax/add-genlCx t 'CxDsA 'CxDsB 1)
+    (tax/add-genlCx t 'CxDsB 'CxDsA 2)
+    (tax/add-genlCx t 'CxDsA 'CxDsTop 3)     ; out of the component
+    (tax/add-genlCx t 'CxDsLow 'CxDsA 4)     ; into it
     (tax/restore-depths t)
     (let [before (scc)]
-      (doseq [[a b h] '[[DsAContext DsTopContext 3] [DsLowContext DsAContext 4]]]
-        (tax/del-genlContext! t a b h))
+      (doseq [[a b h] '[[CxDsA CxDsTop 3] [CxDsLow CxDsA 4]]]
+        (tax/del-genlCx! t a b h))
       (is (= before (scc)) "the component is exactly the one it was")
-      (is (not (loose? t :genlContext)))
-      (is (sound? t :genlContext))
-      (is (tax/sees? t 'DsAContext 'DsBContext))
-      (is (tax/sees? t 'DsBContext 'DsAContext))
-      (is (not (tax/sees? t 'DsAContext 'DsTopContext))))))
+      (is (not (loose? t :genlCx)))
+      (is (sound? t :genlCx))
+      (is (tax/sees? t 'CxDsA 'CxDsB))
+      (is (tax/sees? t 'CxDsB 'CxDsA))
+      (is (not (tax/sees? t 'CxDsA 'CxDsTop))))))
 
 (deftest a-split-ranks-the-pieces-against-each-other-without-going-loose
   ;; The measured case: a three-context ring, one edge of it retracted.  What is left
@@ -310,37 +310,37 @@
   ;; the component that split, so the relation keeps its pruning and every unrelated
   ;; context is untouched.
   (let [t   (tax/create-taxonomy)
-        scc #(:scc (rel t :genlContext))]
-    (tax/add-genlContext t 'SpAContext 'SpBContext 1)
-    (tax/add-genlContext t 'SpBContext 'SpCContext 2)
-    (tax/add-genlContext t 'SpCContext 'SpAContext 3)
-    (tax/add-genlContext t 'SpAContext 'SpTopContext 4)
-    (dotimes [i 20] (tax/add-genlContext t (ctx (+ 100 i)) 'SpTopContext (+ 200 i)))
+        scc #(:scc (rel t :genlCx))]
+    (tax/add-genlCx t 'CxSpA 'CxSpB 1)
+    (tax/add-genlCx t 'CxSpB 'CxSpC 2)
+    (tax/add-genlCx t 'CxSpC 'CxSpA 3)
+    (tax/add-genlCx t 'CxSpA 'CxSpTop 4)
+    (dotimes [i 20] (tax/add-genlCx t (ctx (+ 100 i)) 'CxSpTop (+ 200 i)))
     (tax/restore-depths t)
-    (is (= 1 (count (distinct (map (scc) '[SpAContext SpBContext SpCContext])))))
-    (tax/del-genlContext! t 'SpCContext 'SpAContext 3)
+    (is (= 1 (count (distinct (map (scc) '[CxSpA CxSpB CxSpC])))))
+    (tax/del-genlCx! t 'CxSpC 'CxSpA 3)
     (testing "the ring is a chain now, and nothing claims a component"
       (is (empty? (scc)))
-      (is (not (loose? t :genlContext)))
-      (is (sound? t :genlContext)))
+      (is (not (loose? t :genlCx)))
+      (is (sound? t :genlCx)))
     (testing "and the chain reads one way only"
-      (is (tax/sees? t 'SpAContext 'SpCContext))
-      (is (not (tax/sees? t 'SpCContext 'SpAContext)))
-      (is (tax/sees? t 'SpAContext 'SpTopContext))
-      (is (not (tax/sees? t 'SpCContext 'SpTopContext))
+      (is (tax/sees? t 'CxSpA 'CxSpC))
+      (is (not (tax/sees? t 'CxSpC 'CxSpA)))
+      (is (tax/sees? t 'CxSpA 'CxSpTop))
+      (is (not (tax/sees? t 'CxSpC 'CxSpTop))
           "the ring was what carried SpC up to the top")
-      (is (not (tax/sees? t 'SpTopContext 'SpAContext))))))
+      (is (not (tax/sees? t 'CxSpTop 'CxSpA))))))
 
 ;; ---- the same thing through the KB ---------------------------------------
 
 (defn- kb-sound? [kb] (and (sound? (:taxonomy kb) :genl)
-                           (sound? (:taxonomy kb) :genlContext)))
+                           (sound? (:taxonomy kb) :genlCx)))
 
 (tu/deftest-kb a-batch-through-the-kb-leaves-a-sound-potential
   (tu/with-terms [a_t b_t c_t]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl a_t b_t) 'UniverseContext)
-      (v/assert kb (list 'genl b_t c_t) 'UniverseContext))
+      (v/assert kb (list 'genl a_t b_t) 'CxUniverse)
+      (v/assert kb (list 'genl b_t c_t) 'CxUniverse))
     (is (kb-sound? kb))
     (is (not (loose? (:taxonomy kb) :genl)))
     (is (v/genl? kb a_t c_t))))
@@ -353,9 +353,9 @@
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/with-deferred-settle kb
                    ;; child-first, so the batch is genuinely loose when it aborts
-                   (v/assert kb (list 'genl r_t s_t) 'UniverseContext)
-                   (v/assert kb (list 'genl q_t r_t) 'UniverseContext)
-                   (v/assert kb (list 'genl p_t q_t) 'UniverseContext)
+                   (v/assert kb (list 'genl r_t s_t) 'CxUniverse)
+                   (v/assert kb (list 'genl q_t r_t) 'CxUniverse)
+                   (v/assert kb (list 'genl p_t q_t) 'CxUniverse)
                    (throw (ex-info "cancelled" {:type :cancelled})))))
     (is (not (loose? (:taxonomy kb) :genl)) "repaired on the way out")
     (is (kb-sound? kb))
@@ -370,31 +370,31 @@
   ;; until some later settle repaired it.  That is how many settles have run deciding
   ;; where a conclusion lands, which is exactly what content-keyed placement exists to
   ;; rule out (docs/contexts.md).
-  (tu/with-terms [AlphaContext BetaContext]
+  (tu/with-terms [CxAlpha CxBeta]
     (let [tx    (:taxonomy kb)
           place #(tax/maximal-common-descendant-contexts tx [%])]
-      (v/assert kb (list 'genlContext BetaContext AlphaContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext AlphaContext BetaContext) 'UniverseContext)
-      (let [group (place BetaContext)]
+      (v/assert kb (list 'genlCx CxBeta CxAlpha) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxAlpha CxBeta) 'CxUniverse)
+      (let [group (place CxBeta)]
         (is (= 1 (count group)) "the cycle is one place to stand")
-        (is (= group (place AlphaContext)) "wearing one name")
-        (let [h (v/assert kb (list 'not (list 'genlContext AlphaContext BetaContext))
-                          'UniverseContext {:strength :monotonic})]
-          (is (= #{BetaContext} (place BetaContext))
+        (is (= group (place CxAlpha)) "wearing one name")
+        (let [h (v/assert kb (list 'not (list 'genlCx CxAlpha CxBeta))
+                          'CxUniverse {:strength :monotonic})]
+          (is (= #{CxBeta} (place CxBeta))
               "with one edge defeated there is no cycle and no group")
           (v/retract! kb h)
-          (is (not (loose? tx :genlContext)) "the revival repaired in the settle that made it")
-          (is (= group (place BetaContext)) "and the group answers to one name again")
-          (is (= group (place AlphaContext))))))))
+          (is (not (loose? tx :genlCx)) "the revival repaired in the settle that made it")
+          (is (= group (place CxBeta)) "and the group answers to one name again")
+          (is (= group (place CxAlpha))))))))
 
 (tu/deftest-kb recover-rebuilds-a-sound-potential
   ;; `recover` replays every stored edge, which is a bulk load and is deferred like
   ;; one; the repair runs before anything reads the relation back.
   (tu/with-terms [w_t x_t y_t z_t]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl w_t x_t) 'UniverseContext)
-      (v/assert kb (list 'genl x_t y_t) 'UniverseContext)
-      (v/assert kb (list 'genl y_t z_t) 'UniverseContext))
+      (v/assert kb (list 'genl w_t x_t) 'CxUniverse)
+      (v/assert kb (list 'genl x_t y_t) 'CxUniverse)
+      (v/assert kb (list 'genl y_t z_t) 'CxUniverse))
     (let [before (into {} (for [t [w_t x_t y_t z_t]] [t (v/genls kb t)]))]
       (v/recover kb)
       (is (not (loose? (:taxonomy kb) :genl)))

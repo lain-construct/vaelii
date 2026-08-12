@@ -34,24 +34,24 @@
 ;; ---- 1. the property everything rests on ---------------------------------
 
 (tu/deftest-kb a-preview-leaves-the-kb-byte-identical
-  (tu/with-terms [dog friendly Rex StoryContext]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) StoryContext)
+  (tu/with-terms [dog friendly Rex CxStory]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
     (let [before (content kb)
-          _      (v/preview kb {:add [[(list dog Rex) StoryContext]]})]
+          _      (v/preview kb {:add [[(list dog Rex) CxStory]]})]
       (testing "same live sentexes and justifications, at the same handles"
         (is (= before (content kb))))
       (testing "and nothing the batch would have stored is findable"
-        (is (nil? (v/handle-of kb (list dog Rex) StoryContext)))
-        (is (nil? (v/handle-of kb (list friendly Rex) StoryContext)))))))
+        (is (nil? (v/handle-of kb (list dog Rex) CxStory)))
+        (is (nil? (v/handle-of kb (list friendly Rex) CxStory)))))))
 
 ;; ---- 2. what a batch would derive ----------------------------------------
 
 (tu/deftest-kb a-batch-that-derives-reports-what-it-derives
-  (tu/with-terms [dog friendly Rex StoryContext]
+  (tu/with-terms [dog friendly Rex CxStory]
     (let [rh     (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x))
-                           StoryContext)
+                           CxStory)
           before (content kb)
-          r      (v/preview kb {:add [[(list dog Rex) StoryContext]]})]
+          r      (v/preview kb {:add [[(list dog Rex) CxStory]]})]
       (testing "the premise and its consequence both come back"
         (is (= [(list dog Rex) (list friendly Rex)] (sentences (:believed-added r)))))
       (testing "nothing is reported removed, refused, or dropped"
@@ -70,18 +70,18 @@
       (is (= before (content kb))))))
 
 (tu/deftest-kb content-the-batch-would-create-is-reported-without-a-handle
-  (tu/with-terms [dog Rex StoryContext]
-    (let [r (v/preview kb {:add [[(list dog Rex) StoryContext]]})]
+  (tu/with-terms [dog Rex CxStory]
+    (let [r (v/preview kb {:add [[(list dog Rex) CxStory]]})]
       (testing "a handle that no longer names anything is worse than none"
         (is (nil? (:handle (first (:believed-added r)))))))))
 
 ;; ---- 3. what a batch would take away -------------------------------------
 
 (tu/deftest-kb a-batch-that-defeats-an-existing-belief-reports-the-removal
-  (tu/with-terms [flies Tweety StoryContext]
-    (let [h      (v/assert kb (list flies Tweety) StoryContext)
+  (tu/with-terms [flies Tweety CxStory]
+    (let [h      (v/assert kb (list flies Tweety) CxStory)
           before (content kb)
-          r      (v/preview kb {:add [[(list 'not (list flies Tweety)) StoryContext
+          r      (v/preview kb {:add [[(list 'not (list flies Tweety)) CxStory
                                        {:strength :monotonic}]]})]
       (testing "the defeated belief is named, with its handle — it is still stored"
         (is (= [(list flies Tweety)] (sentences (:believed-removed r))))
@@ -94,10 +94,10 @@
       (is (= before (content kb))))))
 
 (tu/deftest-kb previewing-a-removal-reports-what-loses-its-support
-  (tu/with-terms [dog friendly Rex StoryContext]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) StoryContext)
-    (let [h      (v/assert kb (list dog Rex) StoryContext)
-          ch     (v/handle-of kb (list friendly Rex) StoryContext)
+  (tu/with-terms [dog friendly Rex CxStory]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (let [h      (v/assert kb (list dog Rex) CxStory)
+          ch     (v/handle-of kb (list friendly Rex) CxStory)
           before (content kb)
           r      (v/preview kb {:remove [h]})]
       (testing "the premise and everything solely resting on it"
@@ -111,11 +111,11 @@
         (is (= before (content kb)))))))
 
 (tu/deftest-kb a-removal-with-another-witness-is-not-reported-removed
-  (tu/with-terms [dog canine friendly Rex StoryContext]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) StoryContext)
-    (v/assert kb (vr/rule-sentence [(list canine '?x)] (list friendly '?x)) StoryContext)
-    (v/assert kb (list dog Rex) StoryContext)
-    (let [h      (v/assert kb (list canine Rex) StoryContext)
+  (tu/with-terms [dog canine friendly Rex CxStory]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list canine '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (list dog Rex) CxStory)
+    (let [h      (v/assert kb (list canine Rex) CxStory)
           before (content kb)
           r      (v/preview kb {:remove [h]})]
       (testing "the conclusion keeps its other derivation, so only the premise goes"
@@ -128,29 +128,29 @@
 ;; to answer both without either happening for real.
 
 (tu/deftest-kb previewing-the-fact-that-triggers-an-exception-reports-the-block
-  (tu/with-terms [bird penguin flies Opus StoryContext]
+  (tu/with-terms [bird penguin flies Opus CxStory]
     (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
-              StoryContext)
-    (v/assert kb (list bird Opus) StoryContext)
-    (let [ch     (v/handle-of kb (list flies Opus) StoryContext)
+              CxStory)
+    (v/assert kb (list bird Opus) CxStory)
+    (let [ch     (v/handle-of kb (list flies Opus) CxStory)
           before (content kb)
-          r      (v/preview kb {:add [[(list penguin Opus) StoryContext]]})]
+          r      (v/preview kb {:add [[(list penguin Opus) CxStory]]})]
       (testing "the conclusion the exception would block"
         (is (= [(list flies Opus)] (sentences (:believed-removed r))))
         (is (= ch (:handle (first (:believed-removed r))))))
       (testing "and it is still there, at the same handle, still believed"
-        (is (= ch (v/handle-of kb (list flies Opus) StoryContext)))
+        (is (= ch (v/handle-of kb (list flies Opus) CxStory)))
         (is (true? (v/in? kb ch))))
       (testing "the sweep is suppressed for the preview, so nothing was deleted"
         (is (= before (content kb)))))))
 
 (tu/deftest-kb previewing-a-removal-that-releases-an-exception-reports-the-revival
-  (tu/with-terms [bird penguin flies Opus StoryContext]
+  (tu/with-terms [bird penguin flies Opus CxStory]
     (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
-              StoryContext)
-    (v/assert kb (list bird Opus) StoryContext)
-    (let [ph     (v/assert kb (list penguin Opus) StoryContext)
-          _      (is (empty? (v/sentexes-matching kb (list flies Opus) StoryContext))
+              CxStory)
+    (v/assert kb (list bird Opus) CxStory)
+    (let [ph     (v/assert kb (list penguin Opus) CxStory)
+          _      (is (empty? (v/sentexes-matching kb (list flies Opus) CxStory))
                      "the exception holds, so there is no conclusion to start from")
           before (content kb)
           r      (v/preview kb {:remove [ph]})]
@@ -160,7 +160,7 @@
         (is (nil? (:handle (first (filter #(= (list flies Opus) (:sentence %))
                                           (:believed-added r)))))))
       (testing "and the rollback collects it: the exception blocks again"
-        (is (empty? (v/sentexes-matching kb (list flies Opus) StoryContext)))
+        (is (empty? (v/sentexes-matching kb (list flies Opus) CxStory)))
         (is (= before (content kb)))))))
 
 ;; ---- 5. the derivation path's own refusals -------------------------------
@@ -168,14 +168,14 @@
 (tu/deftest-kb a-conclusion-the-derivation-path-would-drop-is-reported-as-a-violation
   ;; an `argIsa` conviction has no opposing sentex to weigh against, so the derivation
   ;; path drops it — and a preview says so before the write happens
-  (tu/with-terms [person rock parentOf looksLike Boulder Muffet StoryContext]
-    (v/assert kb (list 'genl person 'thing) StoryContext)
-    (v/assert kb (list 'genl rock 'thing) StoryContext)
-    (v/assert kb (list 'argIsa parentOf 1 person) StoryContext)
-    (v/assert kb (list rock Boulder) StoryContext)
-    (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) StoryContext)
+  (tu/with-terms [person rock parentOf looksLike Boulder Muffet CxStory]
+    (v/assert kb (list 'genl person 'thing) CxStory)
+    (v/assert kb (list 'genl rock 'thing) CxStory)
+    (v/assert kb (list 'argIsa parentOf 1 person) CxStory)
+    (v/assert kb (list rock Boulder) CxStory)
+    (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory)
     (let [before (content kb)
-          r      (v/preview kb {:add [[(list looksLike Boulder) StoryContext]]})]
+          r      (v/preview kb {:add [[(list looksLike Boulder) CxStory]]})]
       (testing "the drop is reported where a real run would report it"
         (is (= [:arg-type] (mapv :violation (:violations r))))
         (is (= [(list parentOf Boulder Muffet)] (mapv :sentence (:violations r)))))
@@ -189,12 +189,12 @@
   ;; the counterpart: a disjointness clash names an opposing sentex, so the firing is
   ;; placed and `settle` arbitrates it — and what a reviewer needs to see before the
   ;; commit is the *dilemma* it would open, not a drop that will not happen
-  (tu/with-terms [fish mammal swims Willy StoryContext]
-    (v/assert kb (list 'disjoint fish mammal) StoryContext)
-    (v/assert kb (vr/rule-sentence [(list swims '?x)] (list fish '?x)) StoryContext)
-    (v/assert kb (list mammal Willy) StoryContext)
+  (tu/with-terms [fish mammal swims Willy CxStory]
+    (v/assert kb (list 'disjoint fish mammal) CxStory)
+    (v/assert kb (vr/rule-sentence [(list swims '?x)] (list fish '?x)) CxStory)
+    (v/assert kb (list mammal Willy) CxStory)
     (let [before (content kb)
-          r      (v/preview kb {:add [[(list swims Willy) StoryContext]]})]
+          r      (v/preview kb {:add [[(list swims Willy) CxStory]]})]
       (testing "nothing is dropped — the conclusion is admissible, it is merely contested"
         (is (empty? (:violations r))))
       (testing "both the trigger and the contested conclusion would be believed"
@@ -207,10 +207,10 @@
 ;; ---- 6. refusals -------------------------------------------------------
 
 (tu/deftest-kb a-refused-line-is-reported-and-the-rest-of-the-batch-is-previewed
-  (tu/with-terms [dog Rex StoryContext]
+  (tu/with-terms [dog Rex CxStory]
     (let [before (content kb)
-          r      (v/preview kb {:add [['(lives_in ?x ?y) StoryContext]
-                                      [(list dog Rex) StoryContext]]})]
+          r      (v/preview kb {:add [['(lives_in ?x ?y) CxStory]
+                                      [(list dog Rex) CxStory]]})]
       (testing "the bad line is named by position, in check-edit's shape"
         (is (= [[:add 0 :naming]] (mapv (juxt :in :index :type) (:refused r)))))
       (testing "the good line is still previewed"
@@ -230,12 +230,12 @@
 ;; leave a derived datum standing as an asserted one.
 
 (tu/deftest-kb previewing-a-sentence-the-kb-already-derives-adds-nothing-and-marks-nothing
-  (tu/with-terms [dog friendly Rex StoryContext]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) StoryContext)
-    (v/assert kb (list dog Rex) StoryContext)
-    (let [ch     (v/handle-of kb (list friendly Rex) StoryContext)
+  (tu/with-terms [dog friendly Rex CxStory]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (list dog Rex) CxStory)
+    (let [ch     (v/handle-of kb (list friendly Rex) CxStory)
           before (content kb)
-          r      (v/preview kb {:add [[(list friendly Rex) StoryContext]]})]
+          r      (v/preview kb {:add [[(list friendly Rex) CxStory]]})]
       (testing "it is already believed, so the diff is empty"
         (is (empty? (:believed-added r)))
         (is (empty? (:believed-removed r))))
@@ -244,10 +244,10 @@
       (is (= before (content kb))))))
 
 (tu/deftest-kb previewing-a-premise-the-kb-already-holds-restores-its-strength
-  (tu/with-terms [dog Rex StoryContext]
-    (let [h      (v/assert kb (list dog Rex) StoryContext {:strength :monotonic})
+  (tu/with-terms [dog Rex CxStory]
+    (let [h      (v/assert kb (list dog Rex) CxStory {:strength :monotonic})
           before (content kb)]
-      (v/preview kb {:add [[(list dog Rex) StoryContext {:strength :default}]]})
+      (v/preview kb {:add [[(list dog Rex) CxStory {:strength :default}]]})
       (testing "the weaker restatement does not survive the preview"
         (is (true? (v/premise? kb h)))
         (is (= :monotonic (v/defeat-class kb h))))
@@ -256,17 +256,17 @@
 ;; ---- 8. bounds ---------------------------------------------------------
 
 (tu/deftest-kb max-results-caps-each-half-of-the-diff-and-says-so
-  (tu/with-terms [dog friendly Rex StoryContext]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) StoryContext)
+  (tu/with-terms [dog friendly Rex CxStory]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
     (let [before (content kb)
-          r      (v/preview kb {:add [[(list dog Rex) StoryContext]]} {:max-results 1})]
+          r      (v/preview kb {:add [[(list dog Rex) CxStory]]} {:max-results 1})]
       (is (= 1 (count (:believed-added r))))
       (is (true? (:bounded? r)) "a capped answer must not read as a complete one")
       (is (= before (content kb))))))
 
 (tu/deftest-kb an-unbounded-run-says-it-was-unbounded
-  (tu/with-terms [dog Rex StoryContext]
-    (is (false? (:bounded? (v/preview kb {:add [[(list dog Rex) StoryContext]]}))))))
+  (tu/with-terms [dog Rex CxStory]
+    (is (false? (:bounded? (v/preview kb {:add [[(list dog Rex) CxStory]]}))))))
 
 (tu/deftest-kb the-cap-takes-the-content-first-entries-not-the-first-stored
   ;; The cap is what makes the diff's order load-bearing: it decides *which* entries the
@@ -277,9 +277,9 @@
   ;; The batch lists its facts in the **reverse** of their content order, so the two
   ;; rankings disagree: by handle the first line reported is the first one written, by
   ;; content it is the one whose sentence sorts first.
-  (tu/with-terms [likes Subject StoryContext]
+  (tu/with-terms [likes Subject CxStory]
     (let [objs (mapv #(tu/tmp-ind %) ["Alpha" "Beta" "Gamma"])
-          fact (fn [o] [(list likes Subject o) StoryContext])
+          fact (fn [o] [(list likes Subject o) CxStory])
           r    (v/preview kb {:add (mapv fact (reverse objs))} {:max-results 1})]
       (is (= 1 (count (:believed-added r))))
       (is (true? (:bounded? r)))
@@ -301,13 +301,13 @@
 ;; ---- 10. the mixed batch -----------------------------------------------
 
 (tu/deftest-kb adds-land-before-removes-in-a-preview-as-they-do-in-an-edit
-  (tu/with-terms [dog canine friendly Rex StoryContext]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) StoryContext)
-    (v/assert kb (vr/rule-sentence [(list canine '?x)] (list friendly '?x)) StoryContext)
-    (let [h      (v/assert kb (list dog Rex) StoryContext)
-          ch     (v/handle-of kb (list friendly Rex) StoryContext)
+  (tu/with-terms [dog canine friendly Rex CxStory]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list canine '?x)] (list friendly '?x)) CxStory)
+    (let [h      (v/assert kb (list dog Rex) CxStory)
+          ch     (v/handle-of kb (list friendly Rex) CxStory)
           before (content kb)
-          r      (v/preview kb {:add    [[(list canine Rex) StoryContext]]
+          r      (v/preview kb {:add    [[(list canine Rex) CxStory]]
                                 :remove [h]})]
       (testing "the added premise re-derives what the removed one was supporting"
         (is (= #{(list canine Rex)} (set (sentences (:believed-added r)))))
@@ -344,39 +344,39 @@
    :removed (set (sentences (:believed-removed r)))})
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-derives
-  (tu/with-terms [dog friendly Rex StoryContext]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) StoryContext)
-    (let [batch {:add [[(list dog Rex) StoryContext]]}]
+  (tu/with-terms [dog friendly Rex CxStory]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (let [batch {:add [[(list dog Rex) CxStory]]}]
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-defeats
-  (tu/with-terms [flies Tweety StoryContext]
-    (v/assert kb (list flies Tweety) StoryContext)
-    (let [batch {:add [[(list 'not (list flies Tweety)) StoryContext
+  (tu/with-terms [flies Tweety CxStory]
+    (v/assert kb (list flies Tweety) CxStory)
+    (let [batch {:add [[(list 'not (list flies Tweety)) CxStory
                         {:strength :monotonic}]]}]
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-blocks-a-conclusion
-  (tu/with-terms [bird penguin flies Opus StoryContext]
+  (tu/with-terms [bird penguin flies Opus CxStory]
     (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
-              StoryContext)
-    (v/assert kb (list bird Opus) StoryContext)
-    (let [batch {:add [[(list penguin Opus) StoryContext]]}]
+              CxStory)
+    (v/assert kb (list bird Opus) CxStory)
+    (let [batch {:add [[(list penguin Opus) CxStory]]}]
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-removes-a-premise
-  (tu/with-terms [dog friendly Rex StoryContext]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) StoryContext)
-    (let [h     (v/assert kb (list dog Rex) StoryContext)
+  (tu/with-terms [dog friendly Rex CxStory]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (let [h     (v/assert kb (list dog Rex) CxStory)
           batch {:remove [h]}]
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-releases-an-exception
-  (tu/with-terms [bird penguin flies Opus StoryContext]
+  (tu/with-terms [bird penguin flies Opus CxStory]
     (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
-              StoryContext)
-    (v/assert kb (list bird Opus) StoryContext)
-    (let [ph    (v/assert kb (list penguin Opus) StoryContext)
+              CxStory)
+    (v/assert kb (list bird Opus) CxStory)
+    (let [ph    (v/assert kb (list penguin Opus) CxStory)
           batch {:remove [ph]}]
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
 
@@ -386,10 +386,10 @@
 ;; and a caller reading only those would be told the line simply arrived.
 
 (tu/deftest-kb a-batch-that-opens-a-dilemma-reports-it-rather-than-a-withdrawal
-  (tu/with-terms [flies Tweety StoryContext]
-    (let [h      (v/assert kb (list flies Tweety) StoryContext)
+  (tu/with-terms [flies Tweety CxStory]
+    (let [h      (v/assert kb (list flies Tweety) CxStory)
           before (content kb)
-          r      (v/preview kb {:add [[(list 'not (list flies Tweety)) StoryContext]]})]
+          r      (v/preview kb {:add [[(list 'not (list flies Tweety)) CxStory]]})]
       (testing "nothing was withdrawn, because nothing was defeated"
         (is (empty? (:believed-removed r)))
         (is (true? (v/in? kb h))))
@@ -400,21 +400,21 @@
       (is (= before (content kb))))))
 
 (tu/deftest-kb a-dilemma-the-kb-already-has-is-not-the-batch-s-doing
-  (tu/with-terms [flies Tweety dog Rex StoryContext]
-    (v/assert kb (list flies Tweety) StoryContext)
-    (v/assert kb (list 'not (list flies Tweety)) StoryContext)
+  (tu/with-terms [flies Tweety dog Rex CxStory]
+    (v/assert kb (list flies Tweety) CxStory)
+    (v/assert kb (list 'not (list flies Tweety)) CxStory)
     (is (= 1 (count (v/contradictions kb))) "the standing dilemma is the baseline")
-    (let [r (v/preview kb {:add [[(list dog Rex) StoryContext]]})]
+    (let [r (v/preview kb {:add [[(list dog Rex) CxStory]]})]
       (is (empty? (:contradictions r))
           "an unrelated line is not answerable for a clash that was already there"))))
 
 ;; ---- 13. equality: the second way a belief stops being one ---------------
 
 (tu/deftest-kb a-merge-reports-the-spelling-it-supersedes
-  (tu/with-terms [barks Rex Rexy StoryContext]
-    (let [h      (v/assert kb (list barks Rexy) StoryContext)
+  (tu/with-terms [barks Rex Rexy CxStory]
+    (let [h      (v/assert kb (list barks Rexy) CxStory)
           before (content kb)
-          r      (v/preview kb {:add [[(list 'sameAs Rex Rexy) StoryContext]]})]
+          r      (v/preview kb {:add [[(list 'sameAs Rex Rexy) CxStory]]})]
       (testing "the retired spelling stops being believed, and says why"
         (let [e (first (filter #(= (list barks Rexy) (:sentence %)) (:believed-removed r)))]
           (is (some? e) "the superseded spelling was not reported")
@@ -434,11 +434,11 @@
 ;; propagating it, and still rolls back.
 
 (tu/deftest-kb a-line-that-throws-only-once-an-earlier-line-lands-is-reported-not-thrown
-  (tu/with-terms [fish mammal Willy StoryContext]
-    (v/assert kb (list 'disjoint fish mammal) StoryContext)
+  (tu/with-terms [fish mammal Willy CxStory]
+    (v/assert kb (list 'disjoint fish mammal) CxStory)
     (let [before (content kb)
-          r      (v/preview kb {:add [[(list fish Willy) StoryContext]
-                                      [(list mammal Willy) StoryContext]]})]
+          r      (v/preview kb {:add [[(list fish Willy) CxStory]
+                                      [(list mammal Willy) CxStory]]})]
       (testing "the pre-flight passed it — the KB it was checked against had neither"
         (is (= [(list fish Willy)] (sentences (:believed-added r)))))
       (testing "so the refusal comes from the application, at its own index"
@@ -452,8 +452,8 @@
   ;; silent-default failure is a cap silently off: `{:max-result 5}` reads as no key at
   ;; all, the diff comes back uncapped, and `:bounded?` says false as though the whole
   ;; answer had been asked for.
-  (tu/with-terms [dog Muffet CapContext]
-    (let [batch {:add [[(list dog Muffet) CapContext]]}]
+  (tu/with-terms [dog Muffet CxCap]
+    (let [batch {:add [[(list dog Muffet) CxCap]]}]
       (testing "preview refuses the singular typo, naming its roster"
         (let [e (is (thrown? clojure.lang.ExceptionInfo
                              (v/preview kb batch {:max-result 5})))]

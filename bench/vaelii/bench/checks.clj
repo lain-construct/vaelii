@@ -59,8 +59,8 @@
   and every sample does the full walk rather than short-circuiting on a refusal), and
   binary predicates with `argIsa` on both positions."
   [kb {:keys [types branching individuals memberships predicates disjoints]}]
-  (let [ctx 'BenchContext]
-    (v/assert kb (list 'genlContext ctx 'CoreContext) 'CoreContext {:chain? false})
+  (let [ctx 'CxBench]
+    (v/assert kb (list 'genlCx ctx 'CxCore) 'CxCore {:chain? false})
     (v/with-deferred-settle kb
       (doseq [i (range types)]
         (v/assert kb (list 'genl (type-name i) (parent-of branching i)) ctx {:chain? false}))

@@ -27,58 +27,58 @@
 
 (tu/deftest-kb default-withdrawn-when-negation-arrives-later
   (let [bird (tu/tmp-type) animal (tu/tmp-type) flies (tu/tmp-pred) sky (tu/tmp-ind)]
-    (v/assert kb (list 'genl bird animal) 'UniverseContext)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'UniverseContext)
-    (v/assert kb (list bird sky) 'UniverseContext)
+    (v/assert kb (list 'genl bird animal) 'CxUniverse)
+    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (list bird sky) 'CxUniverse)
     (testing "the default conclusion holds first"
-      (is (seq (v/sentexes-matching kb (list flies sky) 'UniverseContext))))
+      (is (seq (v/sentexes-matching kb (list flies sky) 'CxUniverse))))
     (testing "a stronger negation asserted LATER withdraws it (the old JTMS could not)"
-      (v/assert kb (list 'not (list flies sky)) 'UniverseContext {:strength :monotonic})
-      (is (empty? (v/sentexes-matching kb (list flies sky) 'UniverseContext)))
-      (is (seq (v/sentexes-matching kb (list 'not (list flies sky)) 'UniverseContext)))
+      (v/assert kb (list 'not (list flies sky)) 'CxUniverse {:strength :monotonic})
+      (is (empty? (v/sentexes-matching kb (list flies sky) 'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list 'not (list flies sky)) 'CxUniverse)))
       (is (empty? (v/conflicts kb))))))
 
 (tu/deftest-kb defeated-default-revives-when-defeater-retracted
   (let [bird (tu/tmp-type) animal (tu/tmp-type) flies (tu/tmp-pred) sky (tu/tmp-ind)]
-    (v/assert kb (list 'genl bird animal) 'UniverseContext)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'UniverseContext)
-    (v/assert kb (list bird sky) 'UniverseContext)
-    (let [no-fly (v/assert kb (list 'not (list flies sky)) 'UniverseContext {:strength :monotonic})]
-      (is (empty? (v/sentexes-matching kb (list flies sky) 'UniverseContext)))       ; defeated
+    (v/assert kb (list 'genl bird animal) 'CxUniverse)
+    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (list bird sky) 'CxUniverse)
+    (let [no-fly (v/assert kb (list 'not (list flies sky)) 'CxUniverse {:strength :monotonic})]
+      (is (empty? (v/sentexes-matching kb (list flies sky) 'CxUniverse)))       ; defeated
       (v/retract! kb no-fly)
       (testing "removing the defeater revives the default conclusion"
-        (is (seq (v/sentexes-matching kb (list flies sky) 'UniverseContext)))
-        (is (empty? (v/sentexes-matching kb (list 'not (list flies sky)) 'UniverseContext)))))))
+        (is (seq (v/sentexes-matching kb (list flies sky) 'CxUniverse)))
+        (is (empty? (v/sentexes-matching kb (list 'not (list flies sky)) 'CxUniverse)))))))
 
 ;; ---- penguins, now order-independent ------------------------------------
 
 (tu/deftest-kb penguin-asserted-after-the-default-still-does-not-fly
   (let [penguin (tu/tmp-type) bird (tu/tmp-type) animal (tu/tmp-type)
         flies (tu/tmp-pred) robin (tu/tmp-ind) tweety (tu/tmp-ind)]
-    (v/assert kb (list 'genl penguin bird) 'UniverseContext)
-    (v/assert kb (list 'genl bird animal)  'UniverseContext)
-    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) 'UniverseContext)   ; bare rule
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'UniverseContext)  ; defeasible default
-    (v/assert kb (list bird robin) 'UniverseContext)
+    (v/assert kb (list 'genl penguin bird) 'CxUniverse)
+    (v/assert kb (list 'genl bird animal)  'CxUniverse)
+    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) 'CxUniverse)   ; bare rule
+    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)  ; defeasible default
+    (v/assert kb (list bird robin) 'CxUniverse)
     (testing "Robin flies by default"
-      (is (seq (v/sentexes-matching kb (list flies robin) 'UniverseContext))))
+      (is (seq (v/sentexes-matching kb (list flies robin) 'CxUniverse))))
     (testing "Tweety, learned to be a penguin AFTER the default fired, does not fly"
       ;; Known-true, so the bare rule concludes at :monotonic and out-ranks the
       ;; :default flight conclusion.  What this pins is that the *withdrawal* happens
       ;; even though the default fired first — belief is recomputed, not accumulated.
-      (v/assert kb (list penguin tweety) 'UniverseContext {:strength :monotonic})
-      (is (empty? (v/sentexes-matching kb (list flies tweety) 'UniverseContext)))
-      (is (seq (v/sentexes-matching kb (list 'not (list flies tweety)) 'UniverseContext)))
-      (is (seq (v/sentexes-matching kb (list flies robin) 'UniverseContext))))))         ; Robin unaffected
+      (v/assert kb (list penguin tweety) 'CxUniverse {:strength :monotonic})
+      (is (empty? (v/sentexes-matching kb (list flies tweety) 'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list 'not (list flies tweety)) 'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list flies robin) 'CxUniverse))))))         ; Robin unaffected
 
 (tu/deftest-kb retracting-the-support-of-a-defeated-default-sweeps-it
   ;; A defeated default kept "for revival" must still be swept when the SAME
   ;; retraction removes its only derivation — otherwise it leaks an unrevivable
   ;; orphan into the stores (regression for the retract* groundability sweep).
   (let [foo (tu/tmp-pred) bar (tu/tmp-pred) x (tu/tmp-ind)]
-    (v/assert kb (list foo x) 'UniverseContext)
-    (v/assert kb (default-rule [(list foo '?x)] (list bar '?x)) 'UniverseContext)
-    (v/assert kb (list 'not (list bar x)) 'UniverseContext {:strength :monotonic})   ; defeats (bar X)
+    (v/assert kb (list foo x) 'CxUniverse)
+    (v/assert kb (default-rule [(list foo '?x)] (list bar '?x)) 'CxUniverse)
+    (v/assert kb (list 'not (list bar x)) 'CxUniverse {:strength :monotonic})   ; defeats (bar X)
     (let [handle-of (fn [sen] (:id (first (filter #(= sen (:sentence %))
                                                   (v/find-sentexes kb x)))))
           foo-h (handle-of (list foo x))
@@ -100,12 +100,12 @@
   ;; handles and both sides' justifications, and never through `conflicts`.
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'UniverseContext)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'UniverseContext)
-    (v/assert kb (list quaker nixon)     'UniverseContext)
-    (v/assert kb (list republican nixon) 'UniverseContext)
-    (let [pos (v/handle-of kb (list pacifist nixon)             'UniverseContext)
-          neg (v/handle-of kb (list 'not (list pacifist nixon)) 'UniverseContext)]
+    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
+    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (list quaker nixon)     'CxUniverse)
+    (v/assert kb (list republican nixon) 'CxUniverse)
+    (let [pos (v/handle-of kb (list pacifist nixon)             'CxUniverse)
+          neg (v/handle-of kb (list 'not (list pacifist nixon)) 'CxUniverse)]
       (testing "both sides survive settle — neither is defeated"
         (is (true? (v/in? kb pos)))
         (is (true? (v/in? kb neg)))
@@ -132,15 +132,15 @@
   ;; Two known-true facts contradict: nothing can defeat either, so the
   ;; contradiction sentence IS the result — reported, never an exception.
   (let [happy (tu/tmp-pred) tom (tu/tmp-ind)]
-    (v/assert kb (list happy tom) 'UniverseContext {:strength :monotonic})
-    (is (some? (v/assert kb (list 'not (list happy tom)) 'UniverseContext {:strength :monotonic})))
+    (v/assert kb (list happy tom) 'CxUniverse {:strength :monotonic})
+    (is (some? (v/assert kb (list 'not (list happy tom)) 'CxUniverse {:strength :monotonic})))
     (let [conflicts (v/conflicts kb)]
       (testing "the clash surfaces as a prioritized contradiction sentence"
         (is (= 1 (count conflicts)))
         (is (= 'contradicts (first (:sentence (first conflicts))))))
       (testing "neither known-true belief was silently dropped"
-        (is (seq (v/sentexes-matching kb (list happy tom) 'UniverseContext)))
-        (is (seq (v/sentexes-matching kb (list 'not (list happy tom)) 'UniverseContext)))))))
+        (is (seq (v/sentexes-matching kb (list happy tom) 'CxUniverse)))
+        (is (seq (v/sentexes-matching kb (list 'not (list happy tom)) 'CxUniverse)))))))
 
 (tu/deftest-kb hard-clash-reported-once-even-alongside-a-dilemma
   ;; A persistent hard clash reappears in every settle round; it must be reported
@@ -149,32 +149,32 @@
   ;; stay separate even when both have something to say about the same settle.
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind) happy (tu/tmp-pred) tom (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'UniverseContext)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'UniverseContext)
-    (v/assert kb (list quaker nixon)     'UniverseContext)
-    (v/assert kb (list republican nixon) 'UniverseContext)                       ; default/default → dilemma
-    (v/assert kb (list happy tom) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'not (list happy tom)) 'UniverseContext {:strength :monotonic}) ; irreducible clash
+    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
+    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (list quaker nixon)     'CxUniverse)
+    (v/assert kb (list republican nixon) 'CxUniverse)                       ; default/default → dilemma
+    (v/assert kb (list happy tom) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'not (list happy tom)) 'CxUniverse {:strength :monotonic}) ; irreducible clash
     (testing "the hard clash is reported exactly once, and only it"
       (is (= 1 (count (v/conflicts kb))))
-      (is (= #{(v/handle-of kb (list happy tom)             'UniverseContext)
-               (v/handle-of kb (list 'not (list happy tom)) 'UniverseContext)}
+      (is (= #{(v/handle-of kb (list happy tom)             'CxUniverse)
+               (v/handle-of kb (list 'not (list happy tom)) 'CxUniverse)}
              (:nogood (first (v/conflicts kb))))
           "the dilemma's handles must not appear in the conflict report"))
     (testing "and the dilemma is reported exactly once, on the other reader"
       (is (= 1 (count (v/contradictions kb))))
-      (is (seq (v/sentexes-matching kb (list pacifist nixon) 'UniverseContext)))
-      (is (seq (v/sentexes-matching kb (list 'not (list pacifist nixon)) 'UniverseContext))))))
+      (is (seq (v/sentexes-matching kb (list pacifist nixon) 'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list 'not (list pacifist nixon)) 'CxUniverse))))))
 
 (tu/deftest-kb contradiction-detected-when-positive-sits-in-a-more-specific-context
   ;; Detection is context-symmetric: the negation is in the general context, the
   ;; positive in a context that sees it — the clash still surfaces (and is resolved).
   (let [flies (tu/tmp-pred) sky (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext 'SpecificContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'not (list flies sky)) 'UniverseContext {:strength :monotonic})  ; general
-    (v/assert kb (list flies sky) 'SpecificContext)                              ; specific sees general
-    (testing "SpecificContext sees both, so the default is defeated there"
-      (is (empty? (v/sentexes-matching kb (list flies sky) 'SpecificContext)))
+    (v/assert kb (list 'genlCx 'CxSpecific 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'not (list flies sky)) 'CxUniverse {:strength :monotonic})  ; general
+    (v/assert kb (list flies sky) 'CxSpecific)                              ; specific sees general
+    (testing "CxSpecific sees both, so the default is defeated there"
+      (is (empty? (v/sentexes-matching kb (list flies sky) 'CxSpecific)))
       (is (empty? (v/conflicts kb))))))
 
 ;; ---- the report is republished each settle, and must not go stale -------
@@ -193,15 +193,15 @@
   ;; are exactly what it is being asked to rank in a dilemma the engine declines to
   ;; decide.
   (tu/with-terms [quaker pacifist republican churchgoer Nixon]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))            'UniverseContext)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'UniverseContext)
-    (v/assert kb (list quaker Nixon)     'UniverseContext)
-    (v/assert kb (list republican Nixon) 'UniverseContext)
-    (let [pos (v/handle-of kb (list pacifist Nixon) 'UniverseContext)]
+    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))            'CxUniverse)
+    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (list quaker Nixon)     'CxUniverse)
+    (v/assert kb (list republican Nixon) 'CxUniverse)
+    (let [pos (v/handle-of kb (list pacifist Nixon) 'CxUniverse)]
       (is (= 1 (count (v/contradictions kb))) "the dilemma is reported")
       ;; a second rule reaching the same conclusion: no belief moves, no label moves
-      (v/assert kb (default-rule [(list churchgoer '?x)] (list pacifist '?x)) 'UniverseContext)
-      (v/assert kb (list churchgoer Nixon) 'UniverseContext)
+      (v/assert kb (default-rule [(list churchgoer '?x)] (list pacifist '?x)) 'CxUniverse)
+      (v/assert kb (list churchgoer Nixon) 'CxUniverse)
       (is (= 2 (count (v/supporting-justifications kb pos)))
           "the KB now holds two derivations of the positive side")
       (let [side (some (fn [c] (some #(when (= pos (:handle %)) %) (:sides c)))
@@ -224,8 +224,8 @@
   ;; never consulted", which only a solver that *records being called* can witness.
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind) called (atom 0)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'UniverseContext)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'UniverseContext)
+    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
+    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
     (v/set-solver kb
                   (reify vaelii.impl.solve/Solver
                     (solve [_ {:keys [assumptions contradictions]}]
@@ -235,12 +235,12 @@
                                                (filter #(= pacifist (first (:sentence (v/sentex kb %))))))
                                      contradictions)
                        :violated []})))
-    (v/assert kb (list quaker nixon)     'UniverseContext)
-    (v/assert kb (list republican nixon) 'UniverseContext)
+    (v/assert kb (list quaker nixon)     'CxUniverse)
+    (v/assert kb (list republican nixon) 'CxUniverse)
     (testing "the solver was never invoked"
       (is (zero? @called))
       (is (nil? (v/last-program kb))))
     (testing "so belief is what the engine decided, not what the plugin would have"
-      (is (seq (v/sentexes-matching kb (list pacifist nixon) 'UniverseContext)))
-      (is (seq (v/sentexes-matching kb (list 'not (list pacifist nixon)) 'UniverseContext)))
+      (is (seq (v/sentexes-matching kb (list pacifist nixon) 'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list 'not (list pacifist nixon)) 'CxUniverse)))
       (is (= 1 (count (v/contradictions kb)))))))

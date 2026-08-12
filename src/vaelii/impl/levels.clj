@@ -14,7 +14,7 @@
     0 :raw      handles at an index location — no sentence semantics at all
     1 :extent   one literal context, narrowed by functor; no unification
     2 :local    + unification and the symmetric mirror, one literal context
-    3 :visible  + context inheritance (the genlContext up-closure)
+    3 :visible  + context inheritance (the genlCx up-closure)
     4 :typed    + predicate inheritance (the genl spec walk)
     5 :closed   + transitive closure for transitive predicates
     6 :solved   the whole prover registry — no member of it expands a rule
@@ -73,7 +73,7 @@
   [{:level 0 :name :raw     :below nil       :adds "raw handles at an index location"}
    {:level 1 :name :extent  :below :raw      :adds "one literal context, narrowed by functor"}
    {:level 2 :name :local   :below :extent   :adds "unification + the symmetric mirror"}
-   {:level 3 :name :visible :below :local    :adds "context inheritance via genlContext"}
+   {:level 3 :name :visible :below :local    :adds "context inheritance via genlCx"}
    {:level 4 :name :typed   :below :visible  :adds "predicate inheritance via the genl spec walk"}
    {:level 5 :name :closed  :below :typed    :adds "transitive closure for transitive predicates"}
    {:level 6 :name :solved  :below :closed   :adds "the whole prover registry"}
@@ -217,8 +217,8 @@
 
 (defn- level-3
   "Level 2 plus **context inheritance**: the goal is matched in every context the
-  view context sees, i.e. its genlContext up-closure.  Still no subtype fan-out, so
-  this isolates what genlContext alone contributes.  A variable context already means
+  view context sees, i.e. its genlCx up-closure.  Still no subtype fan-out, so
+  this isolates what genlCx alone contributes.  A variable context already means
   'any context', so there is nothing to add.
 
   Reading up the cone is also what *creates* a retired spelling, which is why the
@@ -249,7 +249,7 @@
   (map (fn [[h b s]] (stored-result 4 h b s)) (res/matches-visible kb goal context)))
 
 (defn- level-5
-  "Level 4 plus **transitive closure**: the cached genl/genlContext closures and any
+  "Level 4 plus **transitive closure**: the cached genl/genlCx closures and any
   predicate declared `(transitive P)`.  A closure has no partial answer — computing
   one link computes the fixpoint — so the closure half forces itself, but level 4's
   stored matches stream first and answer alone if they suffice.

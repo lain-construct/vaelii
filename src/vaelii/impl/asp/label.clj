@@ -208,7 +208,7 @@
 
   **`ctx` sees `base`, and the labeling is recorded by strengthening.**  Each kept
   assumption is re-asserted inside `ctx` at `:monotonic`, so `ctx` is a real world: the
-  uncontested background is inherited through `genlContext` (reachable with `ask` /
+  uncontested background is inherited through `genlCx` (reachable with `ask` /
   `lookup` at level 3 and above — note `query` is context-exact and will not show it),
   and the contested atoms are decided within it.  Nothing needs to be said about the
   side that lost: the strengthened copy out-ranks it, and `decide-nogood` defeats the
@@ -237,7 +237,7 @@
       ;; the two came from separate solves; refuse to commit if they disagree
       (check-agrees program keep-set classification)
       (reset! (:program kb) program)
-      (v/assert kb (list 'genlContext ctx base) base {:strength :monotonic})
+      (v/assert kb (list 'genlCx ctx base) base {:strength :monotonic})
       {:context ctx
        :program program
        :classification classification
@@ -266,7 +266,7 @@
   — not from a fresh solve, so the context is guaranteed to say what the engine
   actually decided rather than what a second solve might have chosen.
 
-  `ctx` sees `base` through `genlContext`, so it inherits the whole KB; what it adds
+  `ctx` sees `base` through `genlCx`, so it inherits the whole KB; what it adds
   is an explicit, queryable record of one arbitration. Two labelings of the same tie
   can therefore be built as sibling contexts and compared.
 
@@ -289,7 +289,7 @@
         ;; `:handles` a caller retracts — in an order that tracks assertion order
         believed (sort-by #(solve/content-key program %)
                           (filter #(jtms/in? tms %) (:assumptions program)))]
-    (v/assert kb (list 'genlContext ctx base) base {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx base) base {:strength :monotonic})
     {:context ctx
      :handles (into [] (keep (fn [h]
                                (when-let [s (p/get-sentex (:records kb) h)]

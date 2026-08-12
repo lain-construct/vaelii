@@ -583,7 +583,7 @@ silently took `:warn` answers `[]` to everything and reads like an empty store. 
 way recovery is these two steps:
 
 - **taxonomy** — re-integrate the special-predicate sentexes (`rebuild-taxonomy`
-  queries `genl`/`genlContext`/`disjoint`/`disjointMetatype`/predicate-props/`inverse`).
+  queries `genl`/`genlCx`/`disjoint`/`disjointMetatype`/predicate-props/`inverse`).
 - **JTMS** — the record store tracks live sentex ids, justification ids, and premise
   ids; each premise's assumption strength rides on its own sentex record (the
   `:strength` field, no side hash). `rebuild-tms` recreates a node per sentex, marks

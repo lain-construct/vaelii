@@ -27,7 +27,7 @@
             [vaelii.impl.settle :as settle]
             [vaelii.test-util :as tu]))
 
-(def ^:private ctx 'RevivedDatumContext)
+(def ^:private ctx 'CxRevivedDatum)
 
 (defn- join-rule!
   "`(pa ?x ?z) ∧ (qa ?z ?y) => (ra ?x ?y)` — the two-antecedent shape, where one

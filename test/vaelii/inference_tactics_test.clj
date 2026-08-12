@@ -68,37 +68,37 @@
 (tu/deftest-kb the-base-term-is-the-plan-the-query-would-run
   ;; One cost model, two readers.  A node ordering that disagreed with the join plan it
   ;; is about to run would be a cost model arguing with itself.
-  (tu/with-terms [dog parentOf BaseContext]
+  (tu/with-terms [dog parentOf CxBase]
     (tu/with-terms [BsTom BsRex BsMuffet]
-      (v/assert kb (list dog BsRex) BaseContext)
-      (v/assert kb (list dog BsMuffet) BaseContext)
-      (v/assert kb (list parentOf BsTom BsRex) BaseContext)
+      (v/assert kb (list dog BsRex) CxBase)
+      (v/assert kb (list dog BsMuffet) CxBase)
+      (v/assert kb (list parentOf BsTom BsRex) CxBase)
       (let [goals [(list dog '?y) (list parentOf BsTom '?y)]
-            n     (node BaseContext (mapv #(vector % 3) goals))]
+            n     (node CxBase (mapv #(vector % 3) goals))]
         (doseq [strat [(tac/strategy nil) (tac/strategy :cost)]]
-          (is (= (reduce + (map :est-matches (v/query-plan kb goals BaseContext)))
-                 (tac/base-estimate kb n BaseContext strat))
+          (is (= (reduce + (map :est-matches (v/query-plan kb goals CxBase)))
+                 (tac/base-estimate kb n CxBase strat))
               "the base term and query-plan must read the same numbers"))
         (testing "and under :cost — signs at zero — the estimate is that plus the size penalty"
           (let [strat (tac/strategy :cost)]
-            (is (= (+ (tac/base-estimate kb n BaseContext strat)
+            (is (= (+ (tac/base-estimate kb n CxBase strat)
                       (* (:size-penalty strat) 2))
                    (tac/estimate kb strat n)))))
         (testing "the default adds its depth term to the same base"
           (let [strat (tac/strategy nil)]
-            (is (= (+ (tac/base-estimate kb n BaseContext strat)
+            (is (= (+ (tac/base-estimate kb n CxBase strat)
                       (* (:size-penalty strat) 2)
                       (* (:depth-weight strat) 6))          ; two literals at depth 3
                    (tac/estimate kb strat n)))))))))
 
 (tu/deftest-kb a-shorter-conjunction-sorts-ahead-of-a-longer-one-at-equal-cost
-  (tu/with-terms [pOne pTwo SizeContext]
+  (tu/with-terms [pOne pTwo CxSize]
     (tu/with-terms [SzInd]
-      (v/assert kb (list pOne SzInd) SizeContext)
-      (v/assert kb (list pTwo SzInd) SizeContext)
+      (v/assert kb (list pOne SzInd) CxSize)
+      (v/assert kb (list pTwo SzInd) CxSize)
       (let [strat (tac/strategy nil)
-            one   (node SizeContext [[(list pOne '?x) 3]])
-            two   (node SizeContext [[(list pOne '?x) 3] [(list pTwo '?x) 3]])]
+            one   (node CxSize [[(list pOne '?x) 3]])
+            two   (node CxSize [[(list pOne '?x) 3] [(list pTwo '?x) 3]])]
         (is (< (tac/estimate kb strat one) (tac/estimate kb strat two))
             "two literals must sort after one")))))
 
@@ -121,31 +121,31 @@
 (tu/deftest-kb ^:slow every-complete-tactician-returns-the-same-answers
   ;; The gate.  Every tactician reorders the frontier and none of them drops a node, so
   ;; the answer set is the same seven times over; only the order of arrival differs.
-  (tu/with-terms [edgeOf anc reach mid1 mid2 SweepContext]
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxSweep]
     (tu/with-terms [SwA SwB SwC SwD]
-      (branching-kb! kb edgeOf anc reach mid1 mid2 SweepContext [SwA SwB SwC SwD])
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxSweep [SwA SwB SwC SwD])
       (doseq [goals [[(list anc '?x '?z)]
                      [(list anc SwA '?z)]
                      [(list reach '?x '?z)]
                      [(list anc '?x '?y) (list anc '?y '?z)]]]
-        (let [baseline (answers kb goals SweepContext :cost)]
+        (let [baseline (answers kb goals CxSweep :cost)]
           (is (seq baseline) (str "nothing to compare for " goals))
           (doseq [t (keys tac/tacticians)]
-            (is (= baseline (answers kb goals SweepContext t))
+            (is (= baseline (answers kb goals CxSweep t))
                 (str t " disagreed with :cost about " goals)))
           (testing "and a bent weight is still the same search"
-            (is (= baseline (answers kb goals SweepContext
+            (is (= baseline (answers kb goals CxSweep
                                      {:tactician :budget-first :breadth-bias 4.0})))
-            (is (= baseline (answers kb goals SweepContext
+            (is (= baseline (answers kb goals CxSweep
                                      {:tactician :cost :size-penalty 250})))))))))
 
 (tu/deftest-kb the-frontier-pops-in-the-order-the-signs-imply
-  (tu/with-terms [edgeOf anc reach mid1 mid2 OrderContext]
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxOrder]
     (tu/with-terms [OrA OrB OrC]
-      (branching-kb! kb edgeOf anc reach mid1 mid2 OrderContext [OrA OrB OrC])
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxOrder [OrA OrB OrC])
       (let [goals [(list reach '?x '?z)]
             order (fn [t] (mapv :tree-depth
-                                (pop-order (inf/session kb goals OrderContext
+                                (pop-order (inf/session kb goals CxOrder
                                                         {:strategy t :max-depth 4}))))
             bf    (order :breadth-first)
             df    (order :depth-first)]
@@ -156,21 +156,21 @@
             ":depth-first must reach the deepest node before :breadth-first does")))))
 
 (tu/deftest-kb flipping-the-depth-sign-changes-the-order-and-not-the-results
-  (tu/with-terms [edgeOf anc reach mid1 mid2 SignContext]
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxSign]
     (tu/with-terms [SgA SgB SgC]
-      (branching-kb! kb edgeOf anc reach mid1 mid2 SignContext [SgA SgB SgC])
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxSign [SgA SgB SgC])
       (let [goals [(list reach '?x '?z)]
-            ids   (fn [t] (mapv :id (pop-order (inf/session kb goals SignContext
+            ids   (fn [t] (mapv :id (pop-order (inf/session kb goals CxSign
                                                             {:strategy t :max-depth 4}))))]
         (is (not= (ids :budget-first) (ids :ground-first)) "the sign decided nothing")
-        (is (= (answers kb goals SignContext :budget-first 4)
-               (answers kb goals SignContext :ground-first 4)))))))
+        (is (= (answers kb goals CxSign :budget-first 4)
+               (answers kb goals CxSign :ground-first 4)))))))
 
 (tu/deftest-kb breadth-bias-scales-the-depth-term-and-nothing-else
-  (tu/with-terms [pBias BiasContext]
+  (tu/with-terms [pBias CxBias]
     (tu/with-terms [BiInd]
-      (v/assert kb (list pBias BiInd) BiasContext)
-      (let [n    (node BiasContext [[(list pBias '?x) 3]] 2)
+      (v/assert kb (list pBias BiInd) CxBias)
+      (let [n    (node CxBias [[(list pBias '?x) 3]] 2)
             flat (tac/estimate kb (tac/strategy :cost) n)
             one  (tac/estimate kb (tac/strategy {:tactician :ground-first}) n)
             two  (tac/estimate kb (tac/strategy {:tactician :ground-first :breadth-bias 2.0}) n)]
@@ -191,11 +191,11 @@
                  {:direction :backward}))
 
 (tu/deftest-kb a-productive-nodes-children-carry-the-tacticians-bias
-  (tu/with-terms [edgeOf anc GateContext]
+  (tu/with-terms [edgeOf anc CxGate]
     (tu/with-terms [GtA GtB GtC GtD]
-      (productive-kb! kb edgeOf anc GateContext GtA GtB GtC GtD)
+      (productive-kb! kb edgeOf anc CxGate GtA GtB GtC GtD)
       (let [goals [(list anc '?x '?y)]
-            after (fn [t] (let [s (inf/session kb goals GateContext
+            after (fn [t] (let [s (inf/session kb goals CxGate
                                                {:strategy t :max-depth 3})]
                             (is (seq (inf/step! s)) "the root produced nothing to bias on")
                             (mapv first @(:queue s))))
@@ -210,21 +210,21 @@
         (is (< (apply max up) (apply min flat))
             ":transformation-first must hoist them above it")
         (testing "and sinking is not dropping"
-          (is (= (answers kb goals GateContext :cost 3)
-                 (answers kb goals GateContext :removal-first 3)
-                 (answers kb goals GateContext :transformation-first 3))))))))
+          (is (= (answers kb goals CxGate :cost 3)
+                 (answers kb goals CxGate :removal-first 3)
+                 (answers kb goals CxGate :transformation-first 3))))))))
 
 (tu/deftest-kb first-result-mode-stops-the-frontier-growing-and-says-so
   ;; The one strategy that returns fewer answers.  It is excluded from the completeness
   ;; sweep by name, and this is the test that keeps the exclusion honest.
-  (tu/with-terms [edgeOf anc FirstContext]
+  (tu/with-terms [edgeOf anc CxFirst]
     (tu/with-terms [FsA FsB FsC FsD]
-      (productive-kb! kb edgeOf anc FirstContext FsA FsB FsC FsD)
+      (productive-kb! kb edgeOf anc CxFirst FsA FsB FsC FsD)
       (let [goals [(list anc '?x '?y)]
-            sess  (inf/session kb goals FirstContext
+            sess  (inf/session kb goals CxFirst
                                {:strategy {:first-result? true} :max-depth 3})
             sols  (set (doall (inf/search-seq sess)))
-            whole (answers kb goals FirstContext :cost 3)]
+            whole (answers kb goals CxFirst :cost 3)]
         (is (false? (tac/complete? (tac/strategy {:first-result? true}))))
         (is (true? (tac/complete? (tac/strategy :cost))))
         (is (zero? (:frontier (inf/tree-stats sess))) "the search did not drain")
@@ -247,36 +247,36 @@
   (v/assert-rule kb [(list other '?x)] (list derived '?x) context {:direction :backward}))
 
 (tu/deftest-kb a-backchain-estimate-costs-a-goal-by-the-rules-that-conclude-it
-  (tu/with-terms [base other derived BcContext]
+  (tu/with-terms [base other derived CxBc]
     (tu/with-terms [BcOne BcTwo BcThree]
-      (rule-only-kb! kb base other derived BcContext [BcOne BcTwo BcThree])
+      (rule-only-kb! kb base other derived CxBc [BcOne BcTwo BcThree])
       (let [g (list derived '?x)]
-        (is (zero? (plan/est-matches kb g #{} {:context BcContext}))
+        (is (zero? (plan/est-matches kb g #{} {:context CxBc}))
             "the index must cost a rule-only predicate at nothing")
-        (is (= 1 (tac/backchain-estimate kb g BcContext {}))
+        (is (= 1 (tac/backchain-estimate kb g CxBc {}))
             "the cheapest route is the one-fact rule")
         (testing "a goal no rule concludes has no backchain estimate at all"
-          (is (nil? (tac/backchain-estimate kb (list base '?x) BcContext {}))))
+          (is (nil? (tac/backchain-estimate kb (list base '?x) CxBc {}))))
         (testing "and neither has a deferred literal, or an exhausted depth"
-          (is (nil? (tac/backchain-estimate kb (list 'different '?x '?y) BcContext {})))
-          (is (nil? (tac/backchain-estimate kb g BcContext {:depth 0}))))))))
+          (is (nil? (tac/backchain-estimate kb (list 'different '?x '?y) CxBc {})))
+          (is (nil? (tac/backchain-estimate kb g CxBc {:depth 0}))))))))
 
 (tu/deftest-kb first-takes-the-cheapest-route-and-all-pays-for-every-one
-  (tu/with-terms [base other derived AggContext]
+  (tu/with-terms [base other derived CxAgg]
     (tu/with-terms [AgOne AgTwo AgThree]
-      (rule-only-kb! kb base other derived AggContext [AgOne AgTwo AgThree])
+      (rule-only-kb! kb base other derived CxAgg [AgOne AgTwo AgThree])
       (let [g (list derived '?x)]
-        (is (= 1 (tac/backchain-estimate kb g AggContext {:aggregate :first}))
+        (is (= 1 (tac/backchain-estimate kb g CxAgg {:aggregate :first}))
             ":first is the min — any one rule suffices")
-        (is (= 4 (tac/backchain-estimate kb g AggContext {:aggregate :all}))
+        (is (= 4 (tac/backchain-estimate kb g CxAgg {:aggregate :all}))
             ":all is the sum — a complete search runs every candidate")))))
 
 (tu/deftest-kb the-backchain-estimate-reorders-what-the-index-would-rank-backwards
-  (tu/with-terms [base other derived RankContext]
+  (tu/with-terms [base other derived CxRank]
     (tu/with-terms [RkOne RkTwo RkThree]
-      (rule-only-kb! kb base other derived RankContext [RkOne RkTwo RkThree])
-      (let [cheap  (node RankContext [[(list base '?x) 3]])       ; one stored fact
-            rulely (node RankContext [[(list derived '?x) 3]])    ; no stored facts at all
+      (rule-only-kb! kb base other derived CxRank [RkOne RkTwo RkThree])
+      (let [cheap  (node CxRank [[(list base '?x) 3]])       ; one stored fact
+            rulely (node CxRank [[(list derived '?x) 3]])    ; no stored facts at all
             off    (tac/strategy :cost)
             on     (tac/strategy {:estimate-backchain? :all})]
         (is (< (tac/estimate kb off rulely) (tac/estimate kb off cheap))
@@ -284,22 +284,22 @@
         (is (> (tac/estimate kb on rulely) (tac/estimate kb on cheap))
             "costing it through its rules must put it back where it belongs")
         (testing "and a literal with no allowance left is not asked"
-          (is (= (tac/estimate kb off (node RankContext [[(list derived '?x) 0]]))
-                 (tac/estimate kb on (node RankContext [[(list derived '?x) 0]])))))))))
+          (is (= (tac/estimate kb off (node CxRank [[(list derived '?x) 0]]))
+                 (tac/estimate kb on (node CxRank [[(list derived '?x) 0]])))))))))
 
 (tu/deftest-kb the-backchain-estimate-terminates-on-a-cyclic-rule-set
-  (tu/with-terms [pingOf pongOf CycEstContext]
+  (tu/with-terms [pingOf pongOf CxCycEst]
     (tu/with-terms [CeInd]
-      (v/assert kb (list pongOf CeInd) CycEstContext)
-      (v/assert-rule kb [(list pongOf '?x)] (list pingOf '?x) CycEstContext
+      (v/assert kb (list pongOf CeInd) CxCycEst)
+      (v/assert-rule kb [(list pongOf '?x)] (list pingOf '?x) CxCycEst
                      {:direction :backward})
-      (v/assert-rule kb [(list pingOf '?x)] (list pongOf '?x) CycEstContext
+      (v/assert-rule kb [(list pingOf '?x)] (list pongOf '?x) CxCycEst
                      {:direction :backward})
-      (is (number? (tac/backchain-estimate kb (list pingOf '?x) CycEstContext {:depth 12}))
+      (is (number? (tac/backchain-estimate kb (list pingOf '?x) CxCycEst {:depth 12}))
           "a repeated goal must cap the recursion, not deepen it")
       (testing "and a whole search under it still answers"
         (is (= #{{'?x CeInd}}
-               (answers kb [(list pingOf '?x)] CycEstContext
+               (answers kb [(list pingOf '?x)] CxCycEst
                         {:estimate-backchain? :first} 3)))))))
 
 ;; ---- the portfolio -------------------------------------------------------
@@ -308,34 +308,34 @@
   ;; A portfolio is a bet that one ordering finds the answer sooner, never a way to find
   ;; more answers.  Every racer is a complete search, so a racer that contributed
   ;; something the others missed would be a bug in the others.
-  (tu/with-terms [edgeOf anc reach mid1 mid2 PortContext]
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxPort]
     (tu/with-terms [PtA PtB PtC]
-      (branching-kb! kb edgeOf anc reach mid1 mid2 PortContext [PtA PtB PtC])
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxPort [PtA PtB PtC])
       (let [goals [(list reach '?x '?z)]
-            union (set (inf/portfolio-solutions kb goals PortContext {:max-depth 4}))
+            union (set (inf/portfolio-solutions kb goals CxPort {:max-depth 4}))
             before (tu/content-count kb)]
         (is (seq union))
         (doseq [t inf/default-racers]
-          (is (= union (answers kb goals PortContext t 4))
+          (is (= union (answers kb goals CxPort t 4))
               (str "racer " t " does not agree with the union")))
         (testing "racing readers writes nothing"
           (is (= before (tu/content-count kb))))
         (testing "and an incomplete racer is refused rather than raced"
           (is (= :incomplete-racer
-                 (:type (try (inf/portfolio-solutions kb goals PortContext
+                 (:type (try (inf/portfolio-solutions kb goals CxPort
                                                       {:strategy {:first-result? true}})
                              (catch clojure.lang.ExceptionInfo e (ex-data e)))))))
         (testing "solutions routes to it on request"
-          (is (= union (set (inf/solutions kb goals PortContext
+          (is (= union (set (inf/solutions kb goals CxPort
                                            {:portfolio? true :max-depth 4})))))))))
 
 ;; ---- choosing one without a caller ---------------------------------------
 
 (tu/deftest-kb auto-strategy-reads-the-shape-of-the-query
-  (tu/with-terms [edgeOf anc reach mid1 mid2 AutoContext]
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxAuto]
     (tu/with-terms [AuA AuB AuC]
-      (branching-kb! kb edgeOf anc reach mid1 mid2 AutoContext [AuA AuB AuC])
-      (let [pick #(tac/auto-strategy kb %1 AutoContext %2)]
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxAuto [AuA AuB AuC])
+      (let [pick #(tac/auto-strategy kb %1 CxAuto %2)]
         (is (= :cost (pick [(list reach '?x '?z)] 0))
             "with no rewriting allowance the root is the whole search")
         (is (= :portfolio (pick [(list anc '?x '?y) (list anc '?y '?z)] 4))
@@ -348,47 +348,47 @@
             "no rule concludes edgeOf either"))
       (testing "and an explicit strategy turns the probe off"
         (let [goals [(list reach '?x '?z)]]
-          (is (= (answers kb goals AutoContext :cost 4)
-                 (set (inf/solutions kb goals AutoContext
+          (is (= (answers kb goals CxAuto :cost 4)
+                 (set (inf/solutions kb goals CxAuto
                                      {:auto? true :strategy :cost :max-depth 4}))
-                 (set (inf/solutions kb goals AutoContext
+                 (set (inf/solutions kb goals CxAuto
                                      {:auto? true :max-depth 4})))))))))
 
 ;; ---- the seam ------------------------------------------------------------
 
 (tu/deftest-kb the-strategy-reaches-the-engine-through-a-dynamic-var-too
-  (tu/with-terms [edgeOf anc reach mid1 mid2 SeamContext]
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxSeam]
     (tu/with-terms [SmA SmB SmC]
-      (branching-kb! kb edgeOf anc reach mid1 mid2 SeamContext [SmA SmB SmC])
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxSeam [SmA SmB SmC])
       (let [goals [(list reach '?x '?z)]]
-        (is (= :ground-first (:tactician (:strategy (inf/session kb goals SeamContext {:max-depth 4})))))
+        (is (= :ground-first (:tactician (:strategy (inf/session kb goals CxSeam {:max-depth 4})))))
         (binding [inf/*strategy* :breadth-first]
-          (is (= :breadth-first (:tactician (:strategy (inf/session kb goals SeamContext {:max-depth 4})))))
-          (is (= (answers kb goals SeamContext :cost 4)
-                 (set (inf/solutions kb goals SeamContext {:max-depth 4})))
+          (is (= :breadth-first (:tactician (:strategy (inf/session kb goals CxSeam {:max-depth 4})))))
+          (is (= (answers kb goals CxSeam :cost 4)
+                 (set (inf/solutions kb goals CxSeam {:max-depth 4})))
               "and it must not change what comes back"))))))
 
 (tu/deftest-kb the-public-surface-carries-the-strategy-to-whichever-engine-runs
-  (tu/with-terms [edgeOf anc reach mid1 mid2 OptContext]
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxOpt]
     (tu/with-terms [OpA OpB OpC]
-      (branching-kb! kb edgeOf anc reach mid1 mid2 OptContext [OpA OpB OpC])
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxOpt [OpA OpB OpC])
       (let [goal (list reach '?x '?z)]
         (binding [v/*query-engine* :inference, inf/*max-depth* 8]
-          (let [baseline (set (v/prove kb goal OptContext))]
+          (let [baseline (set (v/prove kb goal CxOpt))]
             (is (seq baseline))
             (doseq [opts [:depth-first
                           {:strategy :breadth-first}
                           {:portfolio? true}
                           {:auto? true}]]
               (binding [v/*query-options* opts]
-                (is (= baseline (set (v/prove kb goal OptContext)))
+                (is (= baseline (set (v/prove kb goal CxOpt)))
                     (str opts " changed the answer set"))))
             (testing "and a bounded run takes the strategy without losing its tail"
               (binding [v/*query-options* :ground-first]
-                (let [r (v/prove-within kb goal OptContext {:max-results 1})]
+                (let [r (v/prove-within kb goal CxOpt {:max-results 1})]
                   (is (= :capped (:status r)))
                   (is (= baseline (into (set (:results r))
                                         (:results (v/resume r {}))))))))))
         (testing "the DFS ignores it entirely"
           (binding [v/*query-engine* :dfs v/*query-options* {:portfolio? true}]
-            (is (seq (v/prove kb goal OptContext)))))))))
+            (is (seq (v/prove kb goal CxOpt)))))))))

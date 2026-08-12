@@ -43,19 +43,19 @@
 ;; control, so a run in which the rule never fires at all cannot pass vacuously.
 
 (tu/deftest-kb an-exception-that-holds-blocks-the-conclusion-for-that-binding
-  (tu/with-terms [bird penguin flies Tweety Opus BirdContext]
+  (tu/with-terms [bird penguin flies Tweety Opus CxBird]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Tweety) BirdContext)
-    (v/assert kb (list bird Opus)   BirdContext)
-    (v/assert kb (list penguin Opus) BirdContext)
+              CxBird)
+    (v/assert kb (list bird Tweety) CxBird)
+    (v/assert kb (list bird Opus)   CxBird)
+    (v/assert kb (list penguin Opus) CxBird)
     (testing "the binding whose exception does not hold concludes normally"
-      (is (seq (v/sentexes-matching kb (list flies Tweety) BirdContext))))
+      (is (seq (v/sentexes-matching kb (list flies Tweety) CxBird))))
     (testing "the binding whose exception holds concludes nothing"
-      (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext))))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
     (testing "blocking is not rebutting — no competing negation was derived"
-      (is (empty? (v/sentexes-matching kb (list 'not (list flies Opus)) BirdContext))))
+      (is (empty? (v/sentexes-matching kb (list 'not (list flies Opus)) CxBird))))
     (testing "and nothing was arbitrated, because there was never a contradiction"
       (is (empty? (v/conflicts kb))))))
 
@@ -65,12 +65,12 @@
 ;; conclusion is derived and believed at :default.
 
 (tu/deftest-kb an-exception-that-does-not-hold-leaves-the-rule-firing-normally
-  (tu/with-terms [bird penguin flies Tweety BirdContext]
+  (tu/with-terms [bird penguin flies Tweety CxBird]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Tweety) BirdContext)
-    (let [h (v/handle-of kb (list flies Tweety) BirdContext)]
+              CxBird)
+    (v/assert kb (list bird Tweety) CxBird)
+    (let [h (v/handle-of kb (list flies Tweety) CxBird)]
       (testing "the conclusion is stored, believed, and derived (not a premise)"
         (is (some? h))
         (is (true? (v/in? kb h)))
@@ -86,22 +86,22 @@
 ;; also fails `query` while staying stored — so storage is asserted directly.
 
 (tu/deftest-kb asserting-the-exception-later-deletes-the-conclusion-from-the-store
-  (tu/with-terms [bird penguin flies Opus BirdContext]
+  (tu/with-terms [bird penguin flies Opus CxBird]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Opus) BirdContext)
-    (let [h (v/handle-of kb (list flies Opus) BirdContext)]
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (let [h (v/handle-of kb (list flies Opus) CxBird)]
       (testing "the conclusion exists before the exception arrives"
         (is (some? h))
-        (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext))))
-      (v/assert kb (list penguin Opus) BirdContext)
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
+      (v/assert kb (list penguin Opus) CxBird)
       (testing "belief is gone"
-        (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext))))
+        (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
       (testing "and so is the storage — swept, not merely disbelieved"
         (is (nil? (v/sentex kb h))
             "the sentex record survived; exceptWhen sweeps, it does not defeat")
-        (is (nil? (v/handle-of kb (list flies Opus) BirdContext))
+        (is (nil? (v/handle-of kb (list flies Opus) CxBird))
             "handle-of still finds it, so it is stored-but-out rather than deleted"))
       (testing "its justification went with it"
         (is (empty? (v/supporting-justifications kb h)))))))
@@ -113,18 +113,18 @@
 ;; need not, and this test deliberately does not require it.
 
 (tu/deftest-kb retracting-the-exception-re-derives-the-conclusion
-  (tu/with-terms [bird penguin flies Opus BirdContext]
+  (tu/with-terms [bird penguin flies Opus CxBird]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Opus) BirdContext)
-    (let [ph (v/assert kb (list penguin Opus) BirdContext)]
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (let [ph (v/assert kb (list penguin Opus) CxBird)]
       (testing "while the exception holds there is no conclusion"
-        (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext))))
+        (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
       (v/retract! kb ph)
       (testing "retracting it chains the conclusion again"
-        (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext)))
-        (let [h (v/handle-of kb (list flies Opus) BirdContext)]
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird)))
+        (let [h (v/handle-of kb (list flies Opus) CxBird)]
           (is (some? h))
           (is (true? (v/in? kb h)))
           (is (seq (v/supporting-justifications kb h))
@@ -136,21 +136,21 @@
 ;; excepted conclusion; blocking the first must take the second's output too.
 
 (tu/deftest-kb sweeping-an-excepted-conclusion-takes-its-consequences-with-it
-  (tu/with-terms [bird penguin flies airborne Opus BirdContext]
+  (tu/with-terms [bird penguin flies airborne Opus CxBird]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (default-rule [(list flies '?b)] (list airborne '?b)) BirdContext)
-    (v/assert kb (list bird Opus) BirdContext)
-    (let [fh (v/handle-of kb (list flies Opus)    BirdContext)
-          ah (v/handle-of kb (list airborne Opus) BirdContext)]
+              CxBird)
+    (v/assert kb (default-rule [(list flies '?b)] (list airborne '?b)) CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (let [fh (v/handle-of kb (list flies Opus)    CxBird)
+          ah (v/handle-of kb (list airborne Opus) CxBird)]
       (testing "both links of the chain are derived first"
         (is (some? fh))
         (is (some? ah)))
-      (v/assert kb (list penguin Opus) BirdContext)
+      (v/assert kb (list penguin Opus) CxBird)
       (testing "blocking the first rule removes the conclusion that rested on it"
-        (is (empty? (v/sentexes-matching kb (list flies Opus)    BirdContext)))
-        (is (empty? (v/sentexes-matching kb (list airborne Opus) BirdContext))))
+        (is (empty? (v/sentexes-matching kb (list flies Opus)    CxBird)))
+        (is (empty? (v/sentexes-matching kb (list airborne Opus) CxBird))))
       (testing "the cascade is a sweep, so neither is stored any more"
         (is (nil? (v/sentex kb fh)))
         (is (nil? (v/sentex kb ah))
@@ -162,56 +162,56 @@
 ;; ground checks, so all must hold and one alone must leave the rule firing.
 
 (tu/deftest-kb a-conjunctive-exception-blocks-only-when-every-conjunct-holds
-  (tu/with-terms [bird penguin young flies Opus BirdContext]
+  (tu/with-terms [bird penguin young flies Opus CxBird]
     (v/assert kb (except-rule [(list penguin '?b) (list young '?b)]
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Opus) BirdContext)
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
     (testing "with neither conjunct, the rule fires"
-      (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext))))
-    (v/assert kb (list penguin Opus) BirdContext)
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
+    (v/assert kb (list penguin Opus) CxBird)
     (testing "one conjunct is not the exception — the rule still fires"
-      (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext))))
-    (v/assert kb (list young Opus) BirdContext)
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
+    (v/assert kb (list young Opus) CxBird)
     (testing "both conjuncts hold, so the exception holds and the conclusion goes"
-      (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext)))
-      (is (nil? (v/handle-of kb (list flies Opus) BirdContext))))))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird)))
+      (is (nil? (v/handle-of kb (list flies Opus) CxBird))))))
 
 ;; ---- 7. the exception is a level-6 query, not a literal lookup ----------
 ;; DECISION (The exception is a query, not a literal): "an exception may reach
-;; through genl specificity, the genlContext visibility closure, transitive /
+;; through genl specificity, the genlCx visibility closure, transitive /
 ;; symmetric / inverse metadata, disjointness, and evaluable arithmetic."  These
 ;; two are what distinguish the feature from matching a stored fact: in neither
 ;; case is the exception sentence itself ever asserted.
 
 (tu/deftest-kb an-exception-holding-only-through-genl-specificity-blocks
-  (tu/with-terms [bird penguin flightless flies Opus BirdContext]
-    (v/assert kb (list 'genl penguin flightless) BirdContext)
+  (tu/with-terms [bird penguin flightless flies Opus CxBird]
+    (v/assert kb (list 'genl penguin flightless) CxBird)
     (v/assert kb (except-rule (list flightless '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Opus)    BirdContext)
-    (v/assert kb (list penguin Opus) BirdContext)
+              CxBird)
+    (v/assert kb (list bird Opus)    CxBird)
+    (v/assert kb (list penguin Opus) CxBird)
     (testing "no (flightless Opus) fact exists — only the subtype membership"
-      (is (empty? (v/lookup kb 2 (list flightless Opus) BirdContext))))
+      (is (empty? (v/lookup kb 2 (list flightless Opus) CxBird))))
     (testing "but level 6 answers it through the spec walk, so the rule is blocked"
-      (is (seq (v/lookup kb 6 (list flightless Opus) BirdContext)))
-      (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext))))))
+      (is (seq (v/lookup kb 6 (list flightless Opus) CxBird)))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))))
 
 (tu/deftest-kb an-exception-holding-only-through-a-transitive-closure-blocks
-  (tu/with-terms [widget shiny insideOf Gem Box Vault VaultContext]
-    (v/assert kb (list 'transitive insideOf) VaultContext)
+  (tu/with-terms [widget shiny insideOf Gem Box Vault CxVault]
+    (v/assert kb (list 'transitive insideOf) CxVault)
     (v/assert kb (except-rule (list insideOf '?x Vault)
                               [(list widget '?x)] (list shiny '?x))
-              VaultContext)
-    (v/assert kb (list widget Gem)        VaultContext)
-    (v/assert kb (list insideOf Gem Box)  VaultContext)
-    (v/assert kb (list insideOf Box Vault) VaultContext)
+              CxVault)
+    (v/assert kb (list widget Gem)        CxVault)
+    (v/assert kb (list insideOf Gem Box)  CxVault)
+    (v/assert kb (list insideOf Box Vault) CxVault)
     (testing "the exception is nowhere stored — it exists only in the closure"
-      (is (empty? (v/lookup kb 2 (list insideOf Gem Vault) VaultContext)))
-      (is (seq    (v/lookup kb 6 (list insideOf Gem Vault) VaultContext))))
+      (is (empty? (v/lookup kb 2 (list insideOf Gem Vault) CxVault)))
+      (is (seq    (v/lookup kb 6 (list insideOf Gem Vault) CxVault))))
     (testing "so the closure blocks the rule"
-      (is (empty? (v/sentexes-matching kb (list shiny Gem) VaultContext))))))
+      (is (empty? (v/sentexes-matching kb (list shiny Gem) CxVault))))))
 
 ;; ---- 8. a taxonomy edge is a re-check trigger ---------------------------
 ;; DECISION (Taxonomy changes re-check everything): "An exception like
@@ -221,20 +221,20 @@
 ;; never firing.
 
 (tu/deftest-kb a-genl-edge-that-makes-the-exception-true-removes-the-conclusion
-  (tu/with-terms [bird penguin flightless flies Opus BirdContext]
+  (tu/with-terms [bird penguin flightless flies Opus CxBird]
     (v/assert kb (except-rule (list flightless '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Opus)    BirdContext)
-    (v/assert kb (list penguin Opus) BirdContext)
+              CxBird)
+    (v/assert kb (list bird Opus)    CxBird)
+    (v/assert kb (list penguin Opus) CxBird)
     (testing "penguin is not yet a flightless bird, so the rule fires"
-      (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext))))
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
     ;; the only thing that changes is a genl edge — no (flightless ...) fact,
     ;; and nothing with the exception's predicate is ever asserted
-    (v/assert kb (list 'genl penguin flightless) BirdContext)
+    (v/assert kb (list 'genl penguin flightless) CxBird)
     (testing "the edge alone makes the exception hold, and the conclusion is swept"
-      (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext)))
-      (is (nil? (v/handle-of kb (list flies Opus) BirdContext))))))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird)))
+      (is (nil? (v/handle-of kb (list flies Opus) CxBird))))))
 
 ;; ---- 9. no backchaining -------------------------------------------------
 ;; DECISION (The exception is a query, not a literal): "**No backchaining.**  An
@@ -244,19 +244,19 @@
 ;; no answer and the conclusion must be derived.
 
 (tu/deftest-kb an-exception-derivable-only-by-backchaining-does-not-block
-  (tu/with-terms [dog pet loud scary Muffet PetContext]
+  (tu/with-terms [dog pet loud scary Muffet CxPet]
     ;; backward-only, so forward chaining never materializes (scary Muffet)
-    (v/assert-rule kb [(list loud '?x)] (list scary '?x) PetContext {:direction :backward})
+    (v/assert-rule kb [(list loud '?x)] (list scary '?x) CxPet {:direction :backward})
     (v/assert kb (except-rule (list scary '?x)
                               [(list dog '?x)] (list pet '?x))
-              PetContext)
-    (v/assert kb (list dog Muffet)  PetContext)
-    (v/assert kb (list loud Muffet) PetContext)
+              CxPet)
+    (v/assert kb (list dog Muffet)  CxPet)
+    (v/assert kb (list loud Muffet) CxPet)
     (testing "the exception is a level-7 answer and nothing less"
-      (is (empty? (v/lookup kb 6 (list scary Muffet) PetContext)))
-      (is (seq    (v/lookup kb 7 (list scary Muffet) PetContext))))
+      (is (empty? (v/lookup kb 6 (list scary Muffet) CxPet)))
+      (is (seq    (v/lookup kb 7 (list scary Muffet) CxPet))))
     (testing "so it does not hold, and the rule fires (the open-world reading)"
-      (is (seq (v/sentexes-matching kb (list pet Muffet) PetContext))))))
+      (is (seq (v/sentexes-matching kb (list pet Muffet) CxPet))))))
 
 ;; ---- 10. backward inference and why-not ---------------------------------
 ;; DECISION (Semantics): "under backward chaining the argument is constructed and
@@ -265,22 +265,22 @@
 ;; contradiction it never recorded."
 
 (tu/deftest-kb backward-inference-does-not-return-an-excepted-conclusion
-  (tu/with-terms [bird penguin flies Tweety Opus BirdContext]
+  (tu/with-terms [bird penguin flies Tweety Opus CxBird]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Tweety)  BirdContext)
-    (v/assert kb (list bird Opus)    BirdContext)
-    (v/assert kb (list penguin Opus) BirdContext)
+              CxBird)
+    (v/assert kb (list bird Tweety)  CxBird)
+    (v/assert kb (list bird Opus)    CxBird)
+    (v/assert kb (list penguin Opus) CxBird)
     (testing "the unexcepted binding is provable both ways"
-      (is (true? (v/provable? kb (list flies Tweety) BirdContext)))
-      (is (true? (v/ask?      kb (list flies Tweety) BirdContext))))
+      (is (true? (v/provable? kb (list flies Tweety) CxBird)))
+      (is (true? (v/ask?      kb (list flies Tweety) CxBird))))
     (testing "the excepted one is not — blocking is not a forward-chaining artifact"
-      (is (false? (v/provable? kb (list flies Opus) BirdContext)))
-      (is (false? (v/ask?      kb (list flies Opus) BirdContext))))
+      (is (false? (v/provable? kb (list flies Opus) CxBird)))
+      (is (false? (v/ask?      kb (list flies Opus) CxBird))))
     (testing "and an open goal returns only the unexcepted binding"
       (is (= #{Tweety} (set (map #(get % '?who)
-                                 (v/ask kb (list flies '?who) BirdContext))))))))
+                                 (v/ask kb (list flies '?who) CxBird))))))))
 
 ;; SPEC NOTE — this test cannot be written against today's API and is written in
 ;; the form it must take.  `why-not` takes a **handle**, and an excepted
@@ -291,15 +291,15 @@
 ;; until `why-not` grows the sentence arity.
 
 (tu/deftest-kb why-not-reports-an-excepted-conclusion-as-excepted-not-unsupported
-  (tu/with-terms [bird penguin flies Opus BirdContext]
+  (tu/with-terms [bird penguin flies Opus CxBird]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (v/assert kb (list bird Opus)    BirdContext)
-    (v/assert kb (list penguin Opus) BirdContext)
+              CxBird)
+    (v/assert kb (list bird Opus)    CxBird)
+    (v/assert kb (list penguin Opus) CxBird)
     (testing "there is no handle to ask about — the conclusion was never stored"
-      (is (nil? (v/handle-of kb (list flies Opus) BirdContext))))
-    (let [wn (v/why-not kb (list flies Opus) BirdContext)]
+      (is (nil? (v/handle-of kb (list flies Opus) CxBird))))
+    (let [wn (v/why-not kb (list flies Opus) CxBird)]
       (testing "the reason names the exception, not a missing support"
         (is (false? (:believed? wn)))
         (is (= :excepted (:reason wn))
@@ -315,21 +315,21 @@
 ;; feature against over-reaching into rebutting defeat.
 
 (tu/deftest-kb two-unexcepted-rules-concluding-opposites-remain-a-dilemma
-  (tu/with-terms [quaker republican pacifist Nixon PolContext]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))              PolContext)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x)))  PolContext)
-    (v/assert kb (list quaker Nixon)     PolContext)
-    (v/assert kb (list republican Nixon) PolContext)
-    (let [pos (v/handle-of kb (list pacifist Nixon)              PolContext)
-          neg (v/handle-of kb (list 'not (list pacifist Nixon))  PolContext)]
+  (tu/with-terms [quaker republican pacifist Nixon CxPol]
+    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))              CxPol)
+    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x)))  CxPol)
+    (v/assert kb (list quaker Nixon)     CxPol)
+    (v/assert kb (list republican Nixon) CxPol)
+    (let [pos (v/handle-of kb (list pacifist Nixon)              CxPol)
+          neg (v/handle-of kb (list 'not (list pacifist Nixon))  CxPol)]
       (testing "both conclusions are derived"
         (is (some? pos))
         (is (some? neg)))
       (testing "and both stay believed — neither rule named the other's case"
         (is (true? (v/in? kb pos)))
         (is (true? (v/in? kb neg)))
-        (is (seq (v/sentexes-matching kb (list pacifist Nixon)             PolContext)))
-        (is (seq (v/sentexes-matching kb (list 'not (list pacifist Nixon)) PolContext))))
+        (is (seq (v/sentexes-matching kb (list pacifist Nixon)             CxPol)))
+        (is (seq (v/sentexes-matching kb (list 'not (list pacifist Nixon)) CxPol))))
       (testing "both at :default — the dilemma is represented, not decided"
         (is (= :default (v/defeat-class kb pos)))
         (is (= :default (v/defeat-class kb neg)))))))
@@ -341,23 +341,23 @@
 ;; blocking it."
 
 (tu/deftest-kb an-exception-invisible-from-the-placement-context-does-not-block
-  (tu/with-terms [bird penguin flies Opus HomeContext FarContext]
+  (tu/with-terms [bird penguin flies Opus CxHome CxFar]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              HomeContext)
-    (v/assert kb (list bird Opus) HomeContext)
-    ;; FarContext is unrelated to HomeContext: no genlContext edge either way
-    (is (not (v/sees? kb HomeContext FarContext)) "test precondition")
-    (v/assert kb (list penguin Opus) FarContext)
-    (testing "the conclusion is placed in HomeContext, which cannot see FarContext"
-      (is (= HomeContext (:context (v/sentex kb (v/handle-of kb (list flies Opus)
-                                                             HomeContext))))))
+              CxHome)
+    (v/assert kb (list bird Opus) CxHome)
+    ;; CxFar is unrelated to CxHome: no genlCx edge either way
+    (is (not (v/sees? kb CxHome CxFar)) "test precondition")
+    (v/assert kb (list penguin Opus) CxFar)
+    (testing "the conclusion is placed in CxHome, which cannot see CxFar"
+      (is (= CxHome (:context (v/sentex kb (v/handle-of kb (list flies Opus)
+                                                        CxHome))))))
     (testing "so the far exception does not block"
-      (is (seq (v/sentexes-matching kb (list flies Opus) HomeContext))))
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxHome))))
     (testing "the same exception asserted where the conclusion lives does block"
-      (v/assert kb (list penguin Opus) HomeContext)
-      (is (empty? (v/sentexes-matching kb (list flies Opus) HomeContext)))
-      (is (nil? (v/handle-of kb (list flies Opus) HomeContext))))))
+      (v/assert kb (list penguin Opus) CxHome)
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxHome)))
+      (is (nil? (v/handle-of kb (list flies Opus) CxHome))))))
 
 ;; ---- 13. the exception is not materialized per-instance -----------------
 ;; DECISION (The exception is never materialized): materializing the ground
@@ -367,13 +367,13 @@
 ;; per-instance probe is ever recorded.
 
 (tu/deftest-kb an-exception-that-does-not-hold-materializes-nothing
-  (tu/with-terms [bird penguin flies Tweety Robin Wren BirdContext]
+  (tu/with-terms [bird penguin flies Tweety Robin Wren CxBird]
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
-              BirdContext)
-    (doseq [b [Tweety Robin Wren]] (v/assert kb (list bird b) BirdContext))
+              CxBird)
+    (doseq [b [Tweety Robin Wren]] (v/assert kb (list bird b) CxBird))
     (testing "every bird flies"
-      (is (= 3 (count (v/sentexes-matching kb (list flies '?b) BirdContext)))))
+      (is (= 3 (count (v/sentexes-matching kb (list flies '?b) CxBird)))))
     (testing "not one penguin *fact* was stored for the birds that are not one"
       (is (zero? (v/count-with-functor kb penguin)))
       (is (empty? (v/sentexes-with-functor kb penguin))))
@@ -387,23 +387,23 @@
 ;; and retracting the exception restores it.
 
 (tu/deftest-kb an-exception-amends-the-rule-in-place-sharing-one-handle
-  (tu/with-terms [bird penguin flies Opus BirdContext]
+  (tu/with-terms [bird penguin flies Opus CxBird]
     (let [rule-form (vr/rule-sentence [(list bird '?b)] (list flies '?b))
-          plain (v/assert kb (default-rule [(list bird '?b)] (list flies '?b)) BirdContext)
+          plain (v/assert kb (default-rule [(list bird '?b)] (list flies '?b)) CxBird)
           exc   (v/assert kb (except-rule (list penguin '?b)
                                           [(list bird '?b)] (list flies '?b))
-                          BirdContext)]
+                          CxBird)]
       (testing "the exceptWhen is a separate meta-sentex, not the rule"
         (is (not= plain exc)))
       (testing "the rule keeps its one handle; the exception names it"
-        (is (= plain (v/handle-of kb rule-form BirdContext))))
-      (v/assert kb (list bird Opus)    BirdContext)
-      (v/assert kb (list penguin Opus) BirdContext)
+        (is (= plain (v/handle-of kb rule-form CxBird))))
+      (v/assert kb (list bird Opus)    CxBird)
+      (v/assert kb (list penguin Opus) CxBird)
       (testing "the exception amends the one rule, so the penguin does not fly"
-        (is (empty? (v/sentexes-matching kb (list flies Opus) BirdContext))))
+        (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
       (v/retract! kb exc)
       (testing "retract the exception and the one rule concludes again"
-        (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext)))))))
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird)))))))
 
 ;; DECISION (Stratification): "a rule set with a cycle through negation is
 ;; **rejected at assert time**, as a well-formedness check over the rule dependency
@@ -411,9 +411,9 @@
 ;; concludes and vice versa.
 
 (tu/deftest-kb a-cycle-through-negation-across-two-rules-is-rejected-at-assert-time
-  (tu/with-terms [base p q CycContext]
-    (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CycContext)
+  (tu/with-terms [base p q CxCyc]
+    (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CxCyc)
     (testing "the second rule closes a cycle through negation and must be refused"
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (except-rule (list p '?x) [(list base '?x)] (list q '?x))
-                             CycContext))))))
+                             CxCyc))))))

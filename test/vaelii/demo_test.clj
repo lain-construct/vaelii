@@ -86,7 +86,7 @@
   "The sandbox the page says it is writing to — read off the page, not computed, so the
   test is checking what a reader would see."
   [body]
-  (some-> (re-find #"Sandbox[0-9a-f]+Context" body) symbol))
+  (some-> (re-find #"CxSandbox[0-9a-f]+" body) symbol))
 
 (defn- carried
   "The `first`-handle the page threads through its step forms."

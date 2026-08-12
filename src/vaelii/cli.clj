@@ -24,8 +24,8 @@
 (defn -main
   "Run one command and print its result.
 
-    lein cli assert '(dog Muffet)' NaturalWorldContext --dir /var/lib/vaelii
-    lein cli match  '(dog ?x)'   NaturalWorldContext --dir /var/lib/vaelii
+    lein cli assert '(dog Muffet)' CxNaturalWorld --dir /var/lib/vaelii
+    lein cli match  '(dog ?x)'   CxNaturalWorld --dir /var/lib/vaelii
     lein cli repl --starter"
   [& args]
   (apply cli/-main args))

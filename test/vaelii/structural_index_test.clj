@@ -49,7 +49,7 @@
               (parentOf Tom Bob)
               (parentOf Tom Ann)
               (bornIn Tom 1970)]]
-    (v/assert kb s 'MantleContext {:strength :monotonic}))
+    (v/assert kb s 'CxMantle {:strength :monotonic}))
   kb)
 
 (use-fixtures :once (tu/loaded load-corpus))
@@ -106,7 +106,7 @@
 
 (deftest matches-visible-structural-equals-functor-extent
   (tu/with-kb [kb]
-    (doseq [ctx '[MantleContext UniverseContext]
+    (doseq [ctx '[CxMantle CxUniverse]
             pat patterns]
       (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
         (is (= off on) (str "matches-visible diverged on " (pr-str pat) " @ " ctx))))))
@@ -167,23 +167,23 @@
   (tu/with-kb [kb]
     (tu/with-terms [weighs Thing kg]
       ;; Thing has three weighings; two share the deep prefix (Qt 5 …)
-      (v/assert kb (list weighs Thing (list 'Qt 5 kg))     'MantleContext {:strength :monotonic})
-      (v/assert kb (list weighs Thing (list 'Qt 9 kg))     'MantleContext {:strength :monotonic})
-      (v/assert kb (list weighs Thing (list 'Qt 5 'Gram))  'MantleContext {:strength :monotonic})
+      (v/assert kb (list weighs Thing (list 'Qt 5 kg))     'CxMantle {:strength :monotonic})
+      (v/assert kb (list weighs Thing (list 'Qt 9 kg))     'CxMantle {:strength :monotonic})
+      (v/assert kb (list weighs Thing (list 'Qt 5 'Gram))  'CxMantle {:strength :monotonic})
       (testing "a known prefix into a compound is costed by the deep trie level"
         ;; [weighs Thing <marker> Qt 5] narrows to 2; the old planner stopped at
         ;; [weighs Thing] and would have costed the whole extent, 3
         (is (= 3 (count (v/sentexes-matching kb (list weighs Thing '?w) '?ctx))) "the extent")
         (is (= 2 (:est-matches (first (plan/explain kb [(list weighs Thing (list 'Qt 5 '?u))]
-                                                    'MantleContext)))))))))
+                                                    'CxMantle)))))))))
 
 ;; ---- dedup + reindex -----------------------------------------------------
 
 (deftest compound-argument-dedup-is-unaffected
   (tu/with-kb [kb]
     (tu/with-terms [weighs Thing kg]
-      (let [h1 (v/assert kb (list weighs Thing (list 'QFn 7 kg)) 'MantleContext {:strength :monotonic})
-            h2 (v/assert kb (list weighs Thing (list 'QFn 7 kg)) 'MantleContext {:strength :monotonic})]
+      (let [h1 (v/assert kb (list weighs Thing (list 'QFn 7 kg)) 'CxMantle {:strength :monotonic})
+            h2 (v/assert kb (list weighs Thing (list 'QFn 7 kg)) 'CxMantle {:strength :monotonic})]
         (is (= h1 h2) "re-asserting a compound-argument fact dedups to one handle")))))
 
 (deftest a-rule-with-a-compound-antecedent-dedups
@@ -192,9 +192,9 @@
   (tu/with-kb [kb]
     (tu/with-terms [heavy weighs kg]
       (let [h1 (v/assert kb (list 'implies (list weighs '?x (list 'QFn '?n kg)) (list heavy '?x))
-                         'MantleContext)
+                         'CxMantle)
             h2 (v/assert kb (list 'implies (list weighs '?thing (list 'QFn '?amt kg)) (list heavy '?thing))
-                         'MantleContext)]
+                         'CxMantle)]
         (is (= h1 h2) "α-equivalent rules with a compound antecedent dedup to one handle")))))
 
 (deftest ragged-arity-with-markers-is-safe
@@ -202,8 +202,8 @@
   ;; a whole-subterm skip cross into an unrelated node or read a marker as a handle
   (tu/with-kb [kb]
     (tu/with-terms [q F]
-      (v/assert kb (list q (list F 'a))    'MantleContext {:strength :monotonic})   ; arity 1
-      (v/assert kb (list q (list F 'a) 'b) 'MantleContext {:strength :monotonic})   ; arity 2, same F a
+      (v/assert kb (list q (list F 'a))    'CxMantle {:strength :monotonic})   ; arity 1
+      (v/assert kb (list q (list F 'a) 'b) 'CxMantle {:strength :monotonic})   ; arity 2, same F a
       (testing "a whole-subterm variable binds only same-arity facts"
         (is (= #{(list F 'a)}
                (into #{} (map '?y) (v/ask kb (list q '?y) '?ctx)))

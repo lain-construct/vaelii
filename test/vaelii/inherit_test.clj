@@ -23,13 +23,13 @@
   [kb {:keys [dog cat gr chi mc sia]}]
   (v/with-deferred-settle kb
     (doseq [[sub sup] [[gr dog] [chi dog] [mc cat] [sia cat]]]
-      (v/assert kb (list 'genl sub sup) 'UniverseContext))))
+      (v/assert kb (list 'genl sub sup) 'CxUniverse))))
 
 (defn- preserving! [kb pred]
   (v/with-deferred-settle kb
-    (v/assert kb (list 'asymmetric pred) 'UniverseContext)
-    (v/assert kb (list 'argPreserving pred 1 'genl) 'UniverseContext)
-    (v/assert kb (list 'argPreserving pred 2 'genl) 'UniverseContext)))
+    (v/assert kb (list 'asymmetric pred) 'CxUniverse)
+    (v/assert kb (list 'argPreserving pred 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'argPreserving pred 2 'genl) 'CxUniverse)))
 
 ;; ---- the inheritance itself ----------------------------------------------
 
@@ -38,15 +38,15 @@
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (preserving! kb largerThan)
-    (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext)
+    (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
     (testing "both positions inherit, together and singly"
-      (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'UniverseContext))
-      (is (v/ask? kb (list largerThan golden_retriever_t cat_t) 'UniverseContext))
-      (is (v/ask? kb (list largerThan dog_t maine_coon_t) 'UniverseContext))
-      (is (v/ask? kb (list largerThan dog_t cat_t) 'UniverseContext)))
+      (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'CxUniverse))
+      (is (v/ask? kb (list largerThan golden_retriever_t cat_t) 'CxUniverse))
+      (is (v/ask? kb (list largerThan dog_t maine_coon_t) 'CxUniverse))
+      (is (v/ask? kb (list largerThan dog_t cat_t) 'CxUniverse)))
     (testing "and it does not run backwards, or sideways to an unrelated kind"
-      (is (not (v/ask? kb (list largerThan maine_coon_t golden_retriever_t) 'UniverseContext)))
-      (is (not (v/ask? kb (list largerThan cat_t dog_t) 'UniverseContext))))))
+      (is (not (v/ask? kb (list largerThan maine_coon_t golden_retriever_t) 'CxUniverse)))
+      (is (not (v/ask? kb (list largerThan cat_t dog_t) 'CxUniverse))))))
 
 (tu/deftest-kb no-declaration-means-no-inheritance
   ;; The default for every predicate: a claim about two kinds says nothing about their
@@ -54,20 +54,20 @@
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t largerThan]
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
-    (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext)
-    (is (v/ask? kb (list largerThan dog_t cat_t) 'UniverseContext))
-    (is (not (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'UniverseContext)))
+    (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
+    (is (v/ask? kb (list largerThan dog_t cat_t) 'CxUniverse))
+    (is (not (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'CxUniverse)))
     (is (nil? (inherit/verdict kb (list largerThan golden_retriever_t maine_coon_t)
-                               'UniverseContext)))))
+                               'CxUniverse)))))
 
 (tu/deftest-kb one-position-can-be-preserved-without-the-other
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t chases]
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
-    (v/assert kb (list 'argPreserving chases 1 'genl) 'UniverseContext)
-    (v/assert kb (list chases dog_t cat_t) 'UniverseContext)
-    (is (v/ask? kb (list chases golden_retriever_t cat_t) 'UniverseContext))
-    (is (not (v/ask? kb (list chases dog_t maine_coon_t) 'UniverseContext))
+    (v/assert kb (list 'argPreserving chases 1 'genl) 'CxUniverse)
+    (v/assert kb (list chases dog_t cat_t) 'CxUniverse)
+    (is (v/ask? kb (list chases golden_retriever_t cat_t) 'CxUniverse))
+    (is (not (v/ask? kb (list chases dog_t maine_coon_t) 'CxUniverse))
         "position 2 was not declared, so it is pinned")))
 
 ;; ---- the relation is a parameter -----------------------------------------
@@ -77,16 +77,16 @@
   ;; predicate over individuals, with no types in sight.
   (tu/with-terms [partOf needsMaintenance Car Engine Piston]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'transitive partOf) 'UniverseContext)
-      (v/assert kb (list partOf Engine Car) 'UniverseContext)
-      (v/assert kb (list partOf Piston Engine) 'UniverseContext)
-      (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'UniverseContext)
-      (v/assert kb (list needsMaintenance Car) 'UniverseContext))
+      (v/assert kb (list 'transitive partOf) 'CxUniverse)
+      (v/assert kb (list partOf Engine Car) 'CxUniverse)
+      (v/assert kb (list partOf Piston Engine) 'CxUniverse)
+      (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'CxUniverse)
+      (v/assert kb (list needsMaintenance Car) 'CxUniverse))
     (testing "one hop and two, through the transitive relation that was named"
-      (is (v/ask? kb (list needsMaintenance Engine) 'UniverseContext))
-      (is (v/ask? kb (list needsMaintenance Piston) 'UniverseContext)))
+      (is (v/ask? kb (list needsMaintenance Engine) 'CxUniverse))
+      (is (v/ask? kb (list needsMaintenance Piston) 'CxUniverse)))
     (testing "and not upward"
-      (is (not (v/ask? kb (list needsMaintenance 'TmpUnrelatedThing) 'UniverseContext))))))
+      (is (not (v/ask? kb (list needsMaintenance 'TmpUnrelatedThing) 'CxUniverse))))))
 
 (tu/deftest-kb the-inverse-form-reads-the-relation-backwards
   ;; So the other direction never needs an inverse predicate declared for its own sake.
@@ -94,50 +94,50 @@
                   hasMemberSomewhere Earth]
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
-    (v/assert kb (list 'argPreservingInverse hasMemberSomewhere 1 'genl) 'UniverseContext)
-    (v/assert kb (list hasMemberSomewhere chihuahua_t Earth) 'UniverseContext)
-    (is (v/ask? kb (list hasMemberSomewhere dog_t Earth) 'UniverseContext)
+    (v/assert kb (list 'argPreservingInverse hasMemberSomewhere 1 'genl) 'CxUniverse)
+    (v/assert kb (list hasMemberSomewhere chihuahua_t Earth) 'CxUniverse)
+    (is (v/ask? kb (list hasMemberSomewhere dog_t Earth) 'CxUniverse)
         "upward: a subkind's claim reaches the kind")
-    (is (not (v/ask? kb (list hasMemberSomewhere siamese_t Earth) 'UniverseContext))
+    (is (not (v/ask? kb (list hasMemberSomewhere siamese_t Earth) 'CxUniverse))
         "but not back down to a sibling")))
 
 (tu/deftest-kb the-preserved-relation-can-be-the-context-hierarchy
   ;; The other closure the engine owns: an argument that names a *context* can be
-  ;; preserved along `genlContext`, so a claim about a wide context reaches the
+  ;; preserved along `genlCx`, so a claim about a wide context reaches the
   ;; contexts below it — and the inverse form reads the lattice upward.  No
-  ;; `(transitive genlContext)` declaration exists or is needed: the walk reads the
+  ;; `(transitive genlCx)` declaration exists or is needed: the walk reads the
   ;; cached context closure, exactly as `genl` reads the type closure.
-  (tu/with-terms [appliesIn reportedBelow TheDecree WideContext MidContext NarrowContext
-                  SideContext]
+  (tu/with-terms [appliesIn reportedBelow TheDecree CxWide CxMid CxNarrow
+                  CxSide]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genlContext WideContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext MidContext WideContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext NarrowContext MidContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext SideContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) 'UniverseContext)
-      (v/assert kb (list appliesIn TheDecree WideContext) 'UniverseContext))
+      (v/assert kb (list 'genlCx CxWide 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxMid CxWide) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxNarrow CxMid) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxSide 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'argPreserving appliesIn 2 'genlCx) 'CxUniverse)
+      (v/assert kb (list appliesIn TheDecree CxWide) 'CxUniverse))
     (testing "one hop and two, down the cached context closure"
-      (is (v/ask? kb (list appliesIn TheDecree MidContext) 'UniverseContext))
-      (is (v/ask? kb (list appliesIn TheDecree NarrowContext) 'UniverseContext)))
+      (is (v/ask? kb (list appliesIn TheDecree CxMid) 'CxUniverse))
+      (is (v/ask? kb (list appliesIn TheDecree CxNarrow) 'CxUniverse)))
     (testing "and not upward, or sideways to an incomparable context"
-      (is (not (v/ask? kb (list appliesIn TheDecree 'UniverseContext) 'UniverseContext)))
-      (is (not (v/ask? kb (list appliesIn TheDecree SideContext) 'UniverseContext))))
+      (is (not (v/ask? kb (list appliesIn TheDecree 'CxUniverse) 'CxUniverse)))
+      (is (not (v/ask? kb (list appliesIn TheDecree CxSide) 'CxUniverse))))
     (testing "the inverse form reads the lattice upward"
       (v/with-deferred-settle kb
-        (v/assert kb (list 'argPreservingInverse reportedBelow 2 'genlContext)
-                  'UniverseContext)
-        (v/assert kb (list reportedBelow TheDecree NarrowContext) 'UniverseContext))
-      (is (v/ask? kb (list reportedBelow TheDecree MidContext) 'UniverseContext) "one hop")
-      (is (v/ask? kb (list reportedBelow TheDecree WideContext) 'UniverseContext) "two")
-      (is (not (v/ask? kb (list reportedBelow TheDecree SideContext) 'UniverseContext))
+        (v/assert kb (list 'argPreservingInverse reportedBelow 2 'genlCx)
+                  'CxUniverse)
+        (v/assert kb (list reportedBelow TheDecree CxNarrow) 'CxUniverse))
+      (is (v/ask? kb (list reportedBelow TheDecree CxMid) 'CxUniverse) "one hop")
+      (is (v/ask? kb (list reportedBelow TheDecree CxWide) 'CxUniverse) "two")
+      (is (not (v/ask? kb (list reportedBelow TheDecree CxSide) 'CxUniverse))
           "and not to a context with nothing below it"))
     (testing "a late edge extends the reach, and retracting it takes the reach back"
-      (v/assert kb (list 'genlContext SideContext MidContext) 'UniverseContext)
-      (is (v/ask? kb (list appliesIn TheDecree SideContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx CxSide CxMid) 'CxUniverse)
+      (is (v/ask? kb (list appliesIn TheDecree CxSide) 'CxUniverse)
           "the incomparable context is now below the wide one, and the claim arrives")
-      (v/retract! kb (v/handle-of kb (list 'genlContext SideContext MidContext)
-                                  'UniverseContext))
-      (is (not (v/ask? kb (list appliesIn TheDecree SideContext) 'UniverseContext))))))
+      (v/retract! kb (v/handle-of kb (list 'genlCx CxSide CxMid)
+                                  'CxUniverse))
+      (is (not (v/ask? kb (list appliesIn TheDecree CxSide) 'CxUniverse))))))
 
 (tu/deftest-kb the-inverse-form-walks-a-declared-relation-too
   ;; The direction and the relation are independent axes: `argPreservingInverse` along
@@ -145,14 +145,14 @@
   ;; a part reaches the assemblies it sits in.
   (tu/with-terms [partOf dirty Car Engine Piston]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'transitive partOf) 'UniverseContext)
-      (v/assert kb (list partOf Engine Car) 'UniverseContext)
-      (v/assert kb (list partOf Piston Engine) 'UniverseContext)
-      (v/assert kb (list 'argPreservingInverse dirty 1 partOf) 'UniverseContext)
-      (v/assert kb (list dirty Piston) 'UniverseContext))
-    (is (v/ask? kb (list dirty Engine) 'UniverseContext) "one hop up the part chain")
-    (is (v/ask? kb (list dirty Car) 'UniverseContext) "and two")
-    (is (not (v/ask? kb (list dirty 'TmpOtherThing) 'UniverseContext))
+      (v/assert kb (list 'transitive partOf) 'CxUniverse)
+      (v/assert kb (list partOf Engine Car) 'CxUniverse)
+      (v/assert kb (list partOf Piston Engine) 'CxUniverse)
+      (v/assert kb (list 'argPreservingInverse dirty 1 partOf) 'CxUniverse)
+      (v/assert kb (list dirty Piston) 'CxUniverse))
+    (is (v/ask? kb (list dirty Engine) 'CxUniverse) "one hop up the part chain")
+    (is (v/ask? kb (list dirty Car) 'CxUniverse) "and two")
+    (is (not (v/ask? kb (list dirty 'TmpOtherThing) 'CxUniverse))
         "a thing on no chain inherits nothing")))
 
 ;; ---- the semantics travel with the relation --------------------------------
@@ -163,34 +163,34 @@
 
 (tu/deftest-kb a-specific-claim-undercuts-along-the-relation-it-travelled
   (testing "along the context lattice"
-    (tu/with-terms [appliesIn TheDecree WideContext MidContext NarrowContext SideContext]
+    (tu/with-terms [appliesIn TheDecree CxWide CxMid CxNarrow CxSide]
       (v/with-deferred-settle kb
-        (v/assert kb (list 'genlContext WideContext 'UniverseContext) 'UniverseContext)
-        (v/assert kb (list 'genlContext MidContext WideContext) 'UniverseContext)
-        (v/assert kb (list 'genlContext NarrowContext MidContext) 'UniverseContext)
-        (v/assert kb (list 'genlContext SideContext WideContext) 'UniverseContext)
-        (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) 'UniverseContext)
-        (v/assert kb (list appliesIn TheDecree WideContext) 'UniverseContext))
-      (is (v/ask? kb (list appliesIn TheDecree NarrowContext) 'UniverseContext))
-      (v/assert kb (list 'not (list appliesIn TheDecree MidContext)) 'UniverseContext)
-      (is (not (v/ask? kb (list appliesIn TheDecree NarrowContext) 'UniverseContext))
+        (v/assert kb (list 'genlCx CxWide 'CxUniverse) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxMid CxWide) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxNarrow CxMid) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxSide CxWide) 'CxUniverse)
+        (v/assert kb (list 'argPreserving appliesIn 2 'genlCx) 'CxUniverse)
+        (v/assert kb (list appliesIn TheDecree CxWide) 'CxUniverse))
+      (is (v/ask? kb (list appliesIn TheDecree CxNarrow) 'CxUniverse))
+      (v/assert kb (list 'not (list appliesIn TheDecree CxMid)) 'CxUniverse)
+      (is (not (v/ask? kb (list appliesIn TheDecree CxNarrow) 'CxUniverse))
           "below the denial the nearer claim decides")
-      (is (v/ask? kb (list appliesIn TheDecree SideContext) 'UniverseContext)
+      (is (v/ask? kb (list appliesIn TheDecree CxSide) 'CxUniverse)
           "a branch the denial says nothing about still inherits")))
   (testing "along a declared fact-relation"
     (tu/with-terms [partOf needsMaintenance Car Engine Piston Wheel]
       (v/with-deferred-settle kb
-        (v/assert kb (list 'transitive partOf) 'UniverseContext)
-        (v/assert kb (list partOf Engine Car) 'UniverseContext)
-        (v/assert kb (list partOf Piston Engine) 'UniverseContext)
-        (v/assert kb (list partOf Wheel Car) 'UniverseContext)
-        (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'UniverseContext)
-        (v/assert kb (list needsMaintenance Car) 'UniverseContext))
-      (is (v/ask? kb (list needsMaintenance Piston) 'UniverseContext))
-      (v/assert kb (list 'not (list needsMaintenance Engine)) 'UniverseContext)
-      (is (not (v/ask? kb (list needsMaintenance Piston) 'UniverseContext))
+        (v/assert kb (list 'transitive partOf) 'CxUniverse)
+        (v/assert kb (list partOf Engine Car) 'CxUniverse)
+        (v/assert kb (list partOf Piston Engine) 'CxUniverse)
+        (v/assert kb (list partOf Wheel Car) 'CxUniverse)
+        (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'CxUniverse)
+        (v/assert kb (list needsMaintenance Car) 'CxUniverse))
+      (is (v/ask? kb (list needsMaintenance Piston) 'CxUniverse))
+      (v/assert kb (list 'not (list needsMaintenance Engine)) 'CxUniverse)
+      (is (not (v/ask? kb (list needsMaintenance Piston) 'CxUniverse))
           "the denial at the engine stops what only the engine's chain carried")
-      (is (v/ask? kb (list needsMaintenance Wheel) 'UniverseContext)
+      (is (v/ask? kb (list needsMaintenance Wheel) 'CxUniverse)
           "the wheel's chain does not pass the engine"))))
 
 (tu/deftest-kb specificity-under-the-inverse-form-follows-the-travel-direction
@@ -200,15 +200,15 @@
   ;; is the one that decides — it sits closer to the upward goal than the subtype's.
   (tu/with-terms [dog_t animal_t thing_t hasMemberSomewhere]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl dog_t animal_t) 'UniverseContext)
-      (v/assert kb (list 'genl animal_t thing_t) 'UniverseContext)
-      (v/assert kb (list 'argPreservingInverse hasMemberSomewhere 1 'genl) 'UniverseContext)
-      (v/assert kb (list hasMemberSomewhere dog_t) 'UniverseContext))
-    (is (v/ask? kb (list hasMemberSomewhere thing_t) 'UniverseContext) "the chain reaches up")
-    (v/assert kb (list 'not (list hasMemberSomewhere animal_t)) 'UniverseContext)
-    (is (= :against (inherit/verdict kb (list hasMemberSomewhere animal_t) 'UniverseContext))
+      (v/assert kb (list 'genl dog_t animal_t) 'CxUniverse)
+      (v/assert kb (list 'genl animal_t thing_t) 'CxUniverse)
+      (v/assert kb (list 'argPreservingInverse hasMemberSomewhere 1 'genl) 'CxUniverse)
+      (v/assert kb (list hasMemberSomewhere dog_t) 'CxUniverse))
+    (is (v/ask? kb (list hasMemberSomewhere thing_t) 'CxUniverse) "the chain reaches up")
+    (v/assert kb (list 'not (list hasMemberSomewhere animal_t)) 'CxUniverse)
+    (is (= :against (inherit/verdict kb (list hasMemberSomewhere animal_t) 'CxUniverse))
         "at the denial's own tuple the stated claim wins over the inherited one")
-    (is (not (v/ask? kb (list hasMemberSomewhere thing_t) 'UniverseContext))
+    (is (not (v/ask? kb (list hasMemberSomewhere thing_t) 'CxUniverse))
         "and above it, the claim nearer the goal along the travelled direction decides")))
 
 (tu/deftest-kb known-true-content-does-not-yield-off-genl
@@ -217,35 +217,35 @@
   ;; standing rather than silently overriding the fixed background.
   (tu/with-terms [partOf needsMaintenance Car Engine Piston]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'transitive partOf) 'UniverseContext)
-      (v/assert kb (list partOf Engine Car) 'UniverseContext)
-      (v/assert kb (list partOf Piston Engine) 'UniverseContext)
-      (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'UniverseContext))
-    (v/assert kb (list needsMaintenance Car) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'not (list needsMaintenance Engine)) 'UniverseContext)
-    (is (= :ambiguous (inherit/verdict kb (list needsMaintenance Piston) 'UniverseContext))
+      (v/assert kb (list 'transitive partOf) 'CxUniverse)
+      (v/assert kb (list partOf Engine Car) 'CxUniverse)
+      (v/assert kb (list partOf Piston Engine) 'CxUniverse)
+      (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'CxUniverse))
+    (v/assert kb (list needsMaintenance Car) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'not (list needsMaintenance Engine)) 'CxUniverse)
+    (is (= :ambiguous (inherit/verdict kb (list needsMaintenance Piston) 'CxUniverse))
         "the monotonic general claim does not yield, so the disagreement is represented")
-    (is (not (v/ask? kb (list needsMaintenance Piston) 'UniverseContext))
+    (is (not (v/ask? kb (list needsMaintenance Piston) 'CxUniverse))
         "and the prover answers neither way")))
 
 (tu/deftest-kb a-negation-blocks-the-walk-whatever-relation-it-travels
   ;; The negation probe is relation-generic: a believed `(not (P …))` at a tuple in
-  ;; range argues `:against` along `genlContext` and a fact-relation exactly as along
+  ;; range argues `:against` along `genlCx` and a fact-relation exactly as along
   ;; `genl` — and the negated *goal* stays unanswered either way, because an
   ;; inheritance that only licenses claims has nothing to say about refutation.
-  (tu/with-terms [appliesIn TheDecree WideContext NarrowContext]
+  (tu/with-terms [appliesIn TheDecree CxWide CxNarrow]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genlContext WideContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext NarrowContext WideContext) 'UniverseContext)
-      (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) 'UniverseContext)
-      (v/assert kb (list appliesIn TheDecree WideContext) 'UniverseContext)
-      (v/assert kb (list 'not (list appliesIn TheDecree WideContext)) 'UniverseContext))
-    (is (= :ambiguous (inherit/verdict kb (list appliesIn TheDecree NarrowContext)
-                                       'UniverseContext))
+      (v/assert kb (list 'genlCx CxWide 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxNarrow CxWide) 'CxUniverse)
+      (v/assert kb (list 'argPreserving appliesIn 2 'genlCx) 'CxUniverse)
+      (v/assert kb (list appliesIn TheDecree CxWide) 'CxUniverse)
+      (v/assert kb (list 'not (list appliesIn TheDecree CxWide)) 'CxUniverse))
+    (is (= :ambiguous (inherit/verdict kb (list appliesIn TheDecree CxNarrow)
+                                       'CxUniverse))
         "a claim and its negation at one tuple are not a clean for, down the lattice either")
-    (is (not (v/ask? kb (list appliesIn TheDecree NarrowContext) 'UniverseContext)))
-    (is (not (v/ask? kb (list 'not (list appliesIn TheDecree NarrowContext))
-                     'UniverseContext))
+    (is (not (v/ask? kb (list appliesIn TheDecree CxNarrow) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'not (list appliesIn TheDecree CxNarrow))
+                     'CxUniverse))
         "the negated goal is not answered by preservation: :against is open-world")))
 
 (tu/deftest-kb the-mirror-and-the-hop-compose-under-the-inverse-form
@@ -254,17 +254,17 @@
   ;; preserved position, then walked up the part chain.
   (tu/with-terms [partOf adjacentTo Garden Car Engine Piston]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'transitive partOf) 'UniverseContext)
-      (v/assert kb (list partOf Engine Car) 'UniverseContext)
-      (v/assert kb (list partOf Piston Engine) 'UniverseContext)
-      (v/assert kb (list 'symmetric adjacentTo) 'UniverseContext)
-      (v/assert kb (list 'argPreservingInverse adjacentTo 1 partOf) 'UniverseContext))
-    (v/assert kb (list adjacentTo Garden Piston) 'UniverseContext)
-    (is (v/ask? kb (list adjacentTo Engine Garden) 'UniverseContext) "one hop, mirrored")
-    (is (v/ask? kb (list adjacentTo Car Garden) 'UniverseContext) "and two")
-    (is (v/ask? kb (list adjacentTo Garden Car) 'UniverseContext)
+      (v/assert kb (list 'transitive partOf) 'CxUniverse)
+      (v/assert kb (list partOf Engine Car) 'CxUniverse)
+      (v/assert kb (list partOf Piston Engine) 'CxUniverse)
+      (v/assert kb (list 'symmetric adjacentTo) 'CxUniverse)
+      (v/assert kb (list 'argPreservingInverse adjacentTo 1 partOf) 'CxUniverse))
+    (v/assert kb (list adjacentTo Garden Piston) 'CxUniverse)
+    (is (v/ask? kb (list adjacentTo Engine Garden) 'CxUniverse) "one hop, mirrored")
+    (is (v/ask? kb (list adjacentTo Car Garden) 'CxUniverse) "and two")
+    (is (v/ask? kb (list adjacentTo Garden Car) 'CxUniverse)
         "and the inherited claim has a mirror of its own")
-    (is (not (v/ask? kb (list adjacentTo Garden 'TmpElsewhere) 'UniverseContext)))))
+    (is (not (v/ask? kb (list adjacentTo Garden 'TmpElsewhere) 'CxUniverse)))))
 
 (tu/deftest-kb a-position-past-the-arity-preserves-nothing
   ;; `wff` checks the position is a positive integer and not that the predicate has
@@ -273,15 +273,15 @@
   ;; end, or takes the declaration's existence for a licence, is caught here.
   (tu/with-terms [dog_t cat_t golden_retriever_t chases]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl golden_retriever_t dog_t) 'UniverseContext)
-      (v/assert kb (list 'binaryPredicate chases) 'UniverseContext))
-    (is (integer? (v/assert kb (list 'argPreserving chases 3 'genl) 'UniverseContext))
+      (v/assert kb (list 'genl golden_retriever_t dog_t) 'CxUniverse)
+      (v/assert kb (list 'binaryPredicate chases) 'CxUniverse))
+    (is (integer? (v/assert kb (list 'argPreserving chases 3 'genl) 'CxUniverse))
         "admitted: the structural check does not read the arity")
-    (v/assert kb (list chases dog_t cat_t) 'UniverseContext)
-    (is (not (v/ask? kb (list chases golden_retriever_t cat_t) 'UniverseContext))
+    (v/assert kb (list chases dog_t cat_t) 'CxUniverse)
+    (is (not (v/ask? kb (list chases golden_retriever_t cat_t) 'CxUniverse))
         "no position it names exists, so nothing inherits")
-    (is (nil? (inherit/verdict kb (list chases golden_retriever_t cat_t) 'UniverseContext)))
-    (is (v/ask? kb (list chases dog_t cat_t) 'UniverseContext)
+    (is (nil? (inherit/verdict kb (list chases golden_retriever_t cat_t) 'CxUniverse)))
+    (is (v/ask? kb (list chases dog_t cat_t) 'CxUniverse)
         "the stored fact still answers, by the ordinary matcher")))
 
 (tu/deftest-kb an-open-goal-returns-the-stored-tuples-and-only-those
@@ -291,17 +291,17 @@
   ;; enumerator changes this test deliberately or not at all.
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t largerThan]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl golden_retriever_t dog_t) 'UniverseContext)
-      (v/assert kb (list 'genl maine_coon_t cat_t) 'UniverseContext)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'UniverseContext)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'UniverseContext)
-      (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext))
-    (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'UniverseContext)
+      (v/assert kb (list 'genl golden_retriever_t dog_t) 'CxUniverse)
+      (v/assert kb (list 'genl maine_coon_t cat_t) 'CxUniverse)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'CxUniverse)
+      (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
+    (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'CxUniverse)
         "each licensed ground tuple answers")
     (is (= [{'?x dog_t '?y cat_t}]
-           (vec (v/ask kb (list largerThan '?x '?y) 'UniverseContext)))
+           (vec (v/ask kb (list largerThan '?x '?y) 'CxUniverse)))
         "the open goal enumerates the stored extent and no licensed tuple")
-    (is (empty? (v/ask kb (list largerThan '?x maine_coon_t) 'UniverseContext))
+    (is (empty? (v/ask kb (list largerThan '?x maine_coon_t) 'CxUniverse))
         "a half-open goal pinned off the stored extent enumerates nothing")))
 
 (tu/deftest-kb the-licence-stays-with-the-predicate-it-names
@@ -318,12 +318,12 @@
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (preserving! kb largerThan)
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl muchLargerThan largerThan) 'UniverseContext)
-      (v/assert kb (list muchLargerThan dog_t cat_t) 'UniverseContext))
-    (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'UniverseContext)
+      (v/assert kb (list 'genl muchLargerThan largerThan) 'CxUniverse)
+      (v/assert kb (list muchLargerThan dog_t cat_t) 'CxUniverse))
+    (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'CxUniverse)
         "the super-predicate's goal inherits, reading the sub-predicate's fact")
     (is (not (v/ask? kb (list muchLargerThan golden_retriever_t maine_coon_t)
-                     'UniverseContext))
+                     'CxUniverse))
         "the sub-predicate's goal does not: nobody declared muchLargerThan preserving")))
 
 (tu/deftest-kb a-relation-nobody-declared-transitive-is-refused
@@ -336,24 +336,24 @@
   (tu/with-terms [cursed begat sired A B D]
     (doseq [[what rel] [["untyped" begat] ["typed" sired]]]
       (when (= "typed" what)
-        (v/assert kb (list 'binaryPredicate sired) 'UniverseContext))
-      (let [e (try (v/assert kb (list 'argPreserving cursed 1 rel) 'UniverseContext)
+        (v/assert kb (list 'binaryPredicate sired) 'CxUniverse))
+      (let [e (try (v/assert kb (list 'argPreserving cursed 1 rel) 'CxUniverse)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) (str what " relation: the declaration is refused"))
         (is (= :not-well-formed (:type (ex-data e))) what)))
     (testing "nothing was stored, so no closure is walked"
       (v/with-deferred-settle kb
-        (v/assert kb (list begat A B) 'UniverseContext)
-        (v/assert kb (list begat B D) 'UniverseContext)
-        (v/assert kb (list cursed D) 'UniverseContext))
-      (is (not (v/ask? kb (list cursed A) 'UniverseContext)))
-      (is (not (v/ask? kb (list cursed B) 'UniverseContext))))
+        (v/assert kb (list begat A B) 'CxUniverse)
+        (v/assert kb (list begat B D) 'CxUniverse)
+        (v/assert kb (list cursed D) 'CxUniverse))
+      (is (not (v/ask? kb (list cursed A) 'CxUniverse)))
+      (is (not (v/ask? kb (list cursed B) 'CxUniverse))))
     (testing "declaring the transitivity first admits it, and then it walks"
-      (v/assert kb (list 'transitive begat) 'UniverseContext)
-      (is (integer? (v/assert kb (list 'argPreserving cursed 1 begat) 'UniverseContext)))
-      (is (v/ask? kb (list cursed B) 'UniverseContext) "one hop")
-      (is (v/ask? kb (list cursed A) 'UniverseContext) "two"))))
+      (v/assert kb (list 'transitive begat) 'CxUniverse)
+      (is (integer? (v/assert kb (list 'argPreserving cursed 1 begat) 'CxUniverse)))
+      (is (v/ask? kb (list cursed B) 'CxUniverse) "one hop")
+      (is (v/ask? kb (list cursed A) 'CxUniverse) "two"))))
 
 (tu/deftest-kb the-declaration-is-about-a-relation-however-that-relation-is-written
   ;; The inheriting relation is held to what `argIsa`'s first argument is held to, and
@@ -362,18 +362,18 @@
   ;; backwards — a compound is not an individual, so it refuses the conventional
   ;; CapitalCamelCase spelling and waves the exotic one through.
   (tu/with-terms [Milli inheritsAlong chases]
-    (v/assert kb (list 'transitive inheritsAlong) 'UniverseContext)
+    (v/assert kb (list 'transitive inheritsAlong) 'CxUniverse)
     (testing "a CapitalCamelCase relation — a function name — is admitted, as argIsa's is"
-      (is (integer? (v/assert kb (list 'argIsa Milli 1 'thing) 'UniverseContext)))
+      (is (integer? (v/assert kb (list 'argIsa Milli 1 'thing) 'CxUniverse)))
       (is (integer? (v/assert kb (list 'argPreserving Milli 1 inheritsAlong)
-                              'UniverseContext))))
+                              'CxUniverse))))
     (testing "and so is a relation a NAT denotes"
       (is (integer? (v/assert kb (list 'argPreserving (list Milli 'thing) 1 inheritsAlong)
-                              'UniverseContext))))
+                              'CxUniverse))))
     (testing "but the relation preserved *along* stays a symbol: the reach walk builds
               (R x ?v) from it, and there is no transitivity to read off a compound"
       (let [e (try (v/assert kb (list 'argPreserving chases 1 (list Milli 'thing))
-                             'UniverseContext)
+                             'CxUniverse)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e))
@@ -385,22 +385,22 @@
   ;; `contradictions` says nothing about it, and neither should this.
   (tu/with-terms [outranks Ann]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'asymmetric outranks) 'UniverseContext)
-      (v/assert kb (list 'argPreserving outranks 1 'genl) 'UniverseContext)
-      (v/assert kb (list 'argPreserving outranks 2 'genl) 'UniverseContext)
-      (v/assert kb (list outranks Ann Ann) 'UniverseContext))
+      (v/assert kb (list 'asymmetric outranks) 'CxUniverse)
+      (v/assert kb (list 'argPreserving outranks 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'argPreserving outranks 2 'genl) 'CxUniverse)
+      (v/assert kb (list outranks Ann Ann) 'CxUniverse))
     (is (empty? (v/contradictions kb)) "the KB reports no clash here")
-    (is (= :for (inherit/verdict kb (list outranks Ann Ann) 'UniverseContext))
+    (is (= :for (inherit/verdict kb (list outranks Ann Ann) 'CxUniverse))
         "so the one believed claim is what bears on it")
     (testing "a converse at a tuple of two different terms still denies"
       (tu/with-terms [Bob]
-        (v/assert kb (list outranks Bob Ann) 'UniverseContext)
-        (is (= :against (inherit/verdict kb (list outranks Ann Bob) 'UniverseContext))
+        (v/assert kb (list outranks Bob Ann) 'CxUniverse)
+        (is (= :against (inherit/verdict kb (list outranks Ann Bob) 'CxUniverse))
             "nothing states (outranks Ann Bob), and its mirror is believed")
         (testing "and once both directions are believed, that is the dilemma"
-          (v/assert kb (list outranks Ann Bob) 'UniverseContext)
+          (v/assert kb (list outranks Ann Bob) 'CxUniverse)
           (is (= :ambiguous (inherit/verdict kb (list outranks Ann Bob)
-                                             'UniverseContext))))))))
+                                             'CxUniverse))))))))
 
 (tu/deftest-kb the-transitivity-licence-is-read-from-the-asking-context
   ;; `usable-relation?` reads `(transitive R)` from the vantage, exactly as the
@@ -408,24 +408,24 @@
   ;; states is not a licence it holds.
   ;;
   ;; The pair lives here rather than in `context_scoping_test` because it cannot be
-  ;; built on a KB carrying CoreContext: `transitive` is a `decontextualizedPredicate`
-  ;; there, so every declaration is lifted into UniverseContext and every context sees
+  ;; built on a KB carrying CxCore: `transitive` is a `decontextualizedPredicate`
+  ;; there, so every declaration is lifted into CxUniverse and every context sees
   ;; it (that is the *control*, and it is stated over there).  This KB has no such
   ;; declaration, so nothing lifts and the scoped read is observable.
-  (tu/with-terms [cursed3 begat3 A3 B3 AContext BContext]
-    (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'transitive begat3) AContext)
-    (is (integer? (v/assert kb (list 'argPreserving cursed3 1 begat3) BContext))
+  (tu/with-terms [cursed3 begat3 A3 B3 CxA CxB]
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'transitive begat3) CxA)
+    (is (integer? (v/assert kb (list 'argPreserving cursed3 1 begat3) CxB))
         "admitted: the structural check asks whether the relation is transitive at all,
          and leaves what this writer may do with it to the read")
-    (v/assert kb (list begat3 A3 B3) BContext)
-    (v/assert kb (list cursed3 B3) BContext)
-    (is (not (v/ask? kb (list cursed3 A3) BContext))
+    (v/assert kb (list begat3 A3 B3) CxB)
+    (v/assert kb (list cursed3 B3) CxB)
+    (is (not (v/ask? kb (list cursed3 A3) CxB))
         "B holds the claim and the edge, and no licence to walk the relation")
     (testing "and the same declaration walks once the licence is where B can see it"
-      (v/assert kb (list 'transitive begat3) 'UniverseContext)
-      (is (v/ask? kb (list cursed3 A3) BContext)))))
+      (v/assert kb (list 'transitive begat3) 'CxUniverse)
+      (is (v/ask? kb (list cursed3 A3) CxB)))))
 
 (tu/deftest-kb all-three-transitivities-compose-in-one-goal
   ;; Subsumption, preservation and visibility meet in one read: the claim is stored
@@ -436,48 +436,48 @@
   ;; has to fan to the sub-predicate *as seen from the asking context* for a tuple the
   ;; argument walk proposed.
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t largerThan muchLargerThan
-                  TopContext AskContext]
+                  CxTop CxAsk]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genlContext TopContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext AskContext TopContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx CxTop 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxAsk CxTop) 'CxUniverse)
       ;; the kinds and the claim, where every context sees them
-      (v/assert kb (list 'genl golden_retriever_t dog_t) 'UniverseContext)
-      (v/assert kb (list 'genl maine_coon_t cat_t) 'UniverseContext)
-      (v/assert kb (list muchLargerThan dog_t cat_t) 'UniverseContext)
+      (v/assert kb (list 'genl golden_retriever_t dog_t) 'CxUniverse)
+      (v/assert kb (list 'genl maine_coon_t cat_t) 'CxUniverse)
+      (v/assert kb (list muchLargerThan dog_t cat_t) 'CxUniverse)
       ;; the licence partway up the cone, the predicate edge at its bottom
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) TopContext)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) TopContext)
-      (v/assert kb (list 'genl muchLargerThan largerThan) AskContext))
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) CxTop)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) CxTop)
+      (v/assert kb (list 'genl muchLargerThan largerThan) CxAsk))
     (testing "where every piece is visible, the goal needing all three answers"
-      (is (v/ask? kb (list largerThan dog_t cat_t) AskContext)
+      (is (v/ask? kb (list largerThan dog_t cat_t) CxAsk)
           "subsumption alone: the kinds-level goal under the super-predicate")
-      (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) AskContext)
+      (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) CxAsk)
           "subsumption and preservation together: the subkinds under the super-predicate"))
     (testing "one level up, exactly the predicate edge is out of sight"
-      (is (v/ask? kb (list muchLargerThan dog_t cat_t) TopContext)
+      (is (v/ask? kb (list muchLargerThan dog_t cat_t) CxTop)
           "the stored claim itself is visible")
-      (is (not (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) TopContext))
+      (is (not (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) CxTop))
           "but no visible edge puts it under the goal's predicate"))
     (testing "at the root the licence is out of sight too, and nothing walks"
       (is (not (v/ask? kb (list largerThan golden_retriever_t maine_coon_t)
-                       'UniverseContext))))))
+                       'CxUniverse))))))
 
 (tu/deftest-kb withdrawing-the-transitivity-withdraws-the-inheritance
   ;; Read at use and not only at assert: the declaration is still stored, but a relation
   ;; nobody currently says composes is one whose reach we have no right to close.
   (tu/with-terms [cursed begat A B D]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'transitive begat) 'UniverseContext)
-      (v/assert kb (list 'argPreserving cursed 1 begat) 'UniverseContext)
-      (v/assert kb (list begat A B) 'UniverseContext)
-      (v/assert kb (list begat B D) 'UniverseContext)
-      (v/assert kb (list cursed D) 'UniverseContext))
-    (is (v/ask? kb (list cursed A) 'UniverseContext))
-    (v/retract! kb (v/handle-of kb (list 'transitive begat) 'UniverseContext))
-    (is (not (v/ask? kb (list cursed A) 'UniverseContext)))
-    (is (nil? (inherit/verdict kb (list cursed A) 'UniverseContext))
+      (v/assert kb (list 'transitive begat) 'CxUniverse)
+      (v/assert kb (list 'argPreserving cursed 1 begat) 'CxUniverse)
+      (v/assert kb (list begat A B) 'CxUniverse)
+      (v/assert kb (list begat B D) 'CxUniverse)
+      (v/assert kb (list cursed D) 'CxUniverse))
+    (is (v/ask? kb (list cursed A) 'CxUniverse))
+    (v/retract! kb (v/handle-of kb (list 'transitive begat) 'CxUniverse))
+    (is (not (v/ask? kb (list cursed A) 'CxUniverse)))
+    (is (nil? (inherit/verdict kb (list cursed A) 'CxUniverse))
         "the position is not walked at all, so the predicate inherits nothing")
-    (is (v/ask? kb (list cursed D) 'UniverseContext) "the stated claim is untouched")))
+    (is (v/ask? kb (list cursed D) 'CxUniverse) "the stated claim is untouched")))
 
 ;; ---- the scope: kinds, and not their members -----------------------------
 
@@ -495,16 +495,16 @@
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (v/with-deferred-settle kb
-      (v/assert kb (list golden_retriever_t Rex) 'UniverseContext)
-      (v/assert kb (list maine_coon_t Whiskers) 'UniverseContext)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'UniverseContext)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'UniverseContext)
-      (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext))
-    (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'UniverseContext)
+      (v/assert kb (list golden_retriever_t Rex) 'CxUniverse)
+      (v/assert kb (list maine_coon_t Whiskers) 'CxUniverse)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'CxUniverse)
+      (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
+    (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'CxUniverse)
         "the subkinds")
-    (is (not (v/ask? kb (list largerThan Rex Whiskers) 'UniverseContext))
+    (is (not (v/ask? kb (list largerThan Rex Whiskers) 'CxUniverse))
         "and not their members")
-    (is (nil? (inherit/verdict kb (list largerThan Rex Whiskers) 'UniverseContext))
+    (is (nil? (inherit/verdict kb (list largerThan Rex Whiskers) 'CxUniverse))
         "nothing bears on the pair at all — it is not an ambiguity, it is silence")))
 
 (tu/deftest-kb two-declarations-at-one-position-union-their-reaches
@@ -513,17 +513,17 @@
   ;; the first.
   (tu/with-terms [partOf locatedIn needsAttention Car Engine Garage Bike]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'transitive partOf) 'UniverseContext)
-      (v/assert kb (list 'transitive locatedIn) 'UniverseContext)
-      (v/assert kb (list partOf Engine Car) 'UniverseContext)
-      (v/assert kb (list locatedIn Bike Garage) 'UniverseContext)
-      (v/assert kb (list 'argPreserving needsAttention 1 partOf) 'UniverseContext)
-      (v/assert kb (list 'argPreserving needsAttention 1 locatedIn) 'UniverseContext)
-      (v/assert kb (list needsAttention Car) 'UniverseContext)
-      (v/assert kb (list needsAttention Garage) 'UniverseContext))
-    (is (v/ask? kb (list needsAttention Engine) 'UniverseContext)
+      (v/assert kb (list 'transitive partOf) 'CxUniverse)
+      (v/assert kb (list 'transitive locatedIn) 'CxUniverse)
+      (v/assert kb (list partOf Engine Car) 'CxUniverse)
+      (v/assert kb (list locatedIn Bike Garage) 'CxUniverse)
+      (v/assert kb (list 'argPreserving needsAttention 1 partOf) 'CxUniverse)
+      (v/assert kb (list 'argPreserving needsAttention 1 locatedIn) 'CxUniverse)
+      (v/assert kb (list needsAttention Car) 'CxUniverse)
+      (v/assert kb (list needsAttention Garage) 'CxUniverse))
+    (is (v/ask? kb (list needsAttention Engine) 'CxUniverse)
         "the first declaration reaches, down partOf")
-    (is (v/ask? kb (list needsAttention Bike) 'UniverseContext)
+    (is (v/ask? kb (list needsAttention Bike) 'CxUniverse)
         "and so does the second, along locatedIn — from the same argument position")))
 
 ;; ---- specificity: the stated claim overrides the inherited one -----------
@@ -534,36 +534,36 @@
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (preserving! kb typicallyLargerThan)
-    (v/assert kb (list typicallyLargerThan dog_t cat_t) 'UniverseContext)   ; :default
-    (is (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) 'UniverseContext)
+    (v/assert kb (list typicallyLargerThan dog_t cat_t) 'CxUniverse)   ; :default
+    (is (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) 'CxUniverse)
         "inherited before anything contradicts it")
     (testing "the more specific contrary claim is accepted, not refused"
       (is (integer? (v/assert kb (list typicallyLargerThan maine_coon_t chihuahua_t)
-                              'UniverseContext))))
+                              'CxUniverse))))
     (testing "and it wins for that pair"
-      (is (v/ask? kb (list typicallyLargerThan maine_coon_t chihuahua_t) 'UniverseContext))
-      (is (not (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) 'UniverseContext))))
+      (is (v/ask? kb (list typicallyLargerThan maine_coon_t chihuahua_t) 'CxUniverse))
+      (is (not (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) 'CxUniverse))))
     (testing "without defeating the general claim or leaving anything to arbitrate"
-      (is (v/ask? kb (list typicallyLargerThan dog_t cat_t) 'UniverseContext))
+      (is (v/ask? kb (list typicallyLargerThan dog_t cat_t) 'CxUniverse))
       (is (empty? (v/contradictions kb)))
       (is (empty? (v/conflicts kb))))
     (testing "and untouched pairs still inherit"
-      (is (v/ask? kb (list typicallyLargerThan golden_retriever_t siamese_t) 'UniverseContext))
-      (is (v/ask? kb (list typicallyLargerThan golden_retriever_t maine_coon_t) 'UniverseContext)))))
+      (is (v/ask? kb (list typicallyLargerThan golden_retriever_t siamese_t) 'CxUniverse))
+      (is (v/ask? kb (list typicallyLargerThan golden_retriever_t maine_coon_t) 'CxUniverse)))))
 
 (tu/deftest-kb an-explicit-negation-undercuts-the-same-way
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t
                   typicallyLargerThan]
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
-    (v/assert kb (list 'argPreserving typicallyLargerThan 1 'genl) 'UniverseContext)
-    (v/assert kb (list 'argPreserving typicallyLargerThan 2 'genl) 'UniverseContext)
-    (v/assert kb (list typicallyLargerThan dog_t cat_t) 'UniverseContext)
-    (is (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) 'UniverseContext))
-    (v/assert kb (list 'not (list typicallyLargerThan chihuahua_t maine_coon_t)) 'UniverseContext)
-    (is (not (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) 'UniverseContext))
+    (v/assert kb (list 'argPreserving typicallyLargerThan 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'argPreserving typicallyLargerThan 2 'genl) 'CxUniverse)
+    (v/assert kb (list typicallyLargerThan dog_t cat_t) 'CxUniverse)
+    (is (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) 'CxUniverse))
+    (v/assert kb (list 'not (list typicallyLargerThan chihuahua_t maine_coon_t)) 'CxUniverse)
+    (is (not (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) 'CxUniverse))
         "the negation is the most specific claim about that pair")
-    (is (v/ask? kb (list typicallyLargerThan golden_retriever_t maine_coon_t) 'UniverseContext)
+    (is (v/ask? kb (list typicallyLargerThan golden_retriever_t maine_coon_t) 'CxUniverse)
         "and says nothing about any other")))
 
 (tu/deftest-kb a-claim-and-its-negation-at-one-tuple-are-not-a-clean-for
@@ -577,20 +577,20 @@
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (v/with-deferred-settle kb
-      (v/assert kb (list 'argPreserving rankedOver 1 'genl) 'UniverseContext)
-      (v/assert kb (list 'argPreserving rankedOver 2 'genl) 'UniverseContext)
-      (v/assert kb (list rankedOver dog_t cat_t) 'UniverseContext)
-      (v/assert kb (list 'not (list rankedOver dog_t cat_t)) 'UniverseContext))
+      (v/assert kb (list 'argPreserving rankedOver 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'argPreserving rankedOver 2 'genl) 'CxUniverse)
+      (v/assert kb (list rankedOver dog_t cat_t) 'CxUniverse)
+      (v/assert kb (list 'not (list rankedOver dog_t cat_t)) 'CxUniverse))
     (is (seq (v/contradictions kb))
         "the engine represents the pair rather than deciding it")
-    (is (= :ambiguous (inherit/verdict kb (list rankedOver dog_t cat_t) 'UniverseContext))
+    (is (= :ambiguous (inherit/verdict kb (list rankedOver dog_t cat_t) 'CxUniverse))
         "and so does this, about the same two sentexes")
     (is (= :ambiguous (inherit/verdict kb (list rankedOver chihuahua_t maine_coon_t)
-                                       'UniverseContext))
+                                       'CxUniverse))
         "the pair the contradictory tuple reaches inherits the ambiguity, not the :for")
-    (is (not (v/ask? kb (list rankedOver chihuahua_t maine_coon_t) 'UniverseContext))
+    (is (not (v/ask? kb (list rankedOver chihuahua_t maine_coon_t) 'CxUniverse))
         "so nothing is answered for the inherited pair")
-    (is (v/ask? kb (list rankedOver dog_t cat_t) 'UniverseContext)
+    (is (v/ask? kb (list rankedOver dog_t cat_t) 'CxUniverse)
         "while the stated pair is still answered — by the fact prover, which reads the
          believed positive sentex and is not this prover")))
 
@@ -603,16 +603,16 @@
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl chihuahua_t pet_t) 'UniverseContext)
-      (v/assert kb (list 'genl maine_coon_t predator_t) 'UniverseContext)
-      (v/assert kb (list 'argPreserving rankedOver 1 'genl) 'UniverseContext)
-      (v/assert kb (list 'argPreserving rankedOver 2 'genl) 'UniverseContext)
-      (v/assert kb (list rankedOver dog_t cat_t) 'UniverseContext)
-      (v/assert kb (list 'not (list rankedOver pet_t predator_t)) 'UniverseContext))
+      (v/assert kb (list 'genl chihuahua_t pet_t) 'CxUniverse)
+      (v/assert kb (list 'genl maine_coon_t predator_t) 'CxUniverse)
+      (v/assert kb (list 'argPreserving rankedOver 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'argPreserving rankedOver 2 'genl) 'CxUniverse)
+      (v/assert kb (list rankedOver dog_t cat_t) 'CxUniverse)
+      (v/assert kb (list 'not (list rankedOver pet_t predator_t)) 'CxUniverse))
     (is (= :ambiguous (inherit/verdict kb (list rankedOver chihuahua_t maine_coon_t)
-                                       'UniverseContext))
+                                       'CxUniverse))
         "[dog cat] and [pet predator] both reach the pair and neither is below the other")
-    (is (not (v/ask? kb (list rankedOver chihuahua_t maine_coon_t) 'UniverseContext))
+    (is (not (v/ask? kb (list rankedOver chihuahua_t maine_coon_t) 'CxUniverse))
         "so nothing is answered")))
 
 ;; ---- strict: the same shape, refused instead of overridden ---------------
@@ -622,9 +622,9 @@
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (preserving! kb largerThan)
-    (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse {:strength :monotonic})
     (testing "the inherited claim is as binding as the one that was written"
-      (let [e (try (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'UniverseContext)
+      (let [e (try (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e))
@@ -633,19 +633,19 @@
             "the message names the general claim actually responsible")))
     (testing "and so is the plain converse of a directly-stated one"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list largerThan cat_t dog_t) 'UniverseContext))))
+                   (v/assert kb (list largerThan cat_t dog_t) 'CxUniverse))))
     (testing "nothing was stored by either refusal"
-      (is (not (v/ask? kb (list largerThan maine_coon_t chihuahua_t) 'UniverseContext)))
-      (is (v/ask? kb (list largerThan chihuahua_t maine_coon_t) 'UniverseContext)))))
+      (is (not (v/ask? kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)))
+      (is (v/ask? kb (list largerThan chihuahua_t maine_coon_t) 'CxUniverse)))))
 
 (tu/deftest-kb asymmetry-alone-catches-a-converse-with-no-inheritance
   ;; The check does not need a preserved position: an asymmetric predicate's converse
   ;; contradicts it wherever both are known true.
   (tu/with-terms [dog_t cat_t largerThan]
-    (v/assert kb (list 'asymmetric largerThan) 'UniverseContext)
-    (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'asymmetric largerThan) 'CxUniverse)
+    (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse {:strength :monotonic})
     (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list largerThan cat_t dog_t) 'UniverseContext)))))
+                 (v/assert kb (list largerThan cat_t dog_t) 'CxUniverse)))))
 
 (tu/deftest-kb a-default-general-claim-does-not-refuse-anything
   ;; The whole strict/typical difference, isolated: same vocabulary, same declarations,
@@ -654,8 +654,8 @@
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (preserving! kb largerThan)
-    (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext)     ; :default, not monotonic
-    (is (integer? (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'UniverseContext))
+    (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)     ; :default, not monotonic
+    (is (integer? (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse))
         "accepted, where the monotonic version refuses")))
 
 ;; ---- order independence ---------------------------------------------------
@@ -664,13 +664,13 @@
   "State `(P a b)` in a super-context and a sub-context at the two given strengths, in
   the given order, then report whether the converse is admitted from the sub-context."
   [kb {:keys [pred a b super sub order]}]
-  ;; the declarations below live in UniverseContext, and the asymmetry check reads
+  ;; the declarations below live in CxUniverse, and the asymmetry check reads
   ;; them from the asserting context's cone — so the lattice is wired below it
-  (v/assert kb (list 'genlContext super 'UniverseContext) 'UniverseContext)
-  (v/assert kb (list 'genlContext sub super) 'UniverseContext)
-  (v/assert kb (list 'asymmetric pred) 'UniverseContext)
-  (v/assert kb (list 'argPreserving pred 1 'genl) 'UniverseContext)
-  (v/assert kb (list 'argPreserving pred 2 'genl) 'UniverseContext)
+  (v/assert kb (list 'genlCx super 'CxUniverse) 'CxUniverse)
+  (v/assert kb (list 'genlCx sub super) 'CxUniverse)
+  (v/assert kb (list 'asymmetric pred) 'CxUniverse)
+  (v/assert kb (list 'argPreserving pred 1 'genl) 'CxUniverse)
+  (v/assert kb (list 'argPreserving pred 2 'genl) 'CxUniverse)
   (doseq [[where strength] order]
     (v/assert kb (list pred a b) (if (= where :super) super sub) {:strength strength}))
   (try (v/assert kb (list pred b a) sub) true
@@ -695,15 +695,15 @@
   ;; that is known true anywhere the asking context can see is a fixed background.
   (doseq [[i strong] (map-indexed vector [:super :sub])
           [j first-where] (map-indexed vector [:super :sub])]
-    (tu/with-terms [dog_t cat_t largerThan SuperContext SubContext]
-      (v/assert kb (list 'genl dog_t 'thing) 'UniverseContext)
-      (v/assert kb (list 'genl cat_t 'thing) 'UniverseContext)
+    (tu/with-terms [dog_t cat_t largerThan CxSuper CxSub]
+      (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
       (let [strength (fn [w] (if (= w strong) :monotonic :default))
             order    (if (= first-where :super)
                        [[:super (strength :super)] [:sub (strength :sub)]]
                        [[:sub (strength :sub)] [:super (strength :super)]])]
         (is (false? (admits-converse? kb {:pred largerThan :a dog_t :b cat_t
-                                          :super SuperContext :sub SubContext
+                                          :super CxSuper :sub CxSub
                                           :order order}))
             (str "monotonic in " (name strong) ", " (name first-where) " asserted first ["
                  i j "]: the converse of known-true content is refused either way"))))))
@@ -718,27 +718,27 @@
   ;; conclusion the firings after it correctly drop.
   (tu/with-terms [dog_t cat_t maine_coon_t chihuahua_t largerThan fitsIn Tiny Other]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl maine_coon_t cat_t) 'UniverseContext)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'UniverseContext)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'UniverseContext)
-      (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext))
+      (v/assert kb (list 'genl maine_coon_t cat_t) 'CxUniverse)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'CxUniverse)
+      (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
     ;; a chihuahua fits in the box, unless a chihuahua is larger than a maine coon
     (v/assert kb (list 'exceptWhen (list largerThan chihuahua_t maine_coon_t)
                        (list 'set/defaultRule
                              (list 'implies (list 'and (list chihuahua_t '?x))
                                    (list fitsIn '?x))))
-              'UniverseContext)
-    (v/assert kb (list chihuahua_t Tiny) 'UniverseContext)
-    (is (seq (v/sentexes-matching kb (list fitsIn Tiny) 'UniverseContext))
+              'CxUniverse)
+    (v/assert kb (list chihuahua_t Tiny) 'CxUniverse)
+    (is (seq (v/sentexes-matching kb (list fitsIn Tiny) 'CxUniverse))
         "baseline: the exception does not hold, so the rule fires")
 
     ;; the edge makes the exception hold, by inheritance from (largerThan dog cat)
-    (v/assert kb (list 'genl chihuahua_t dog_t) 'UniverseContext)
-    (is (v/ask? kb (list largerThan chihuahua_t maine_coon_t) 'UniverseContext)
+    (v/assert kb (list 'genl chihuahua_t dog_t) 'CxUniverse)
+    (is (v/ask? kb (list largerThan chihuahua_t maine_coon_t) 'CxUniverse)
         "the exception's query is now answered by argument preservation")
-    (is (empty? (v/sentexes-matching kb (list fitsIn Tiny) 'UniverseContext))
+    (is (empty? (v/sentexes-matching kb (list fitsIn Tiny) 'CxUniverse))
         "so the conclusion that predates the edge is withdrawn")
 
-    (v/assert kb (list chihuahua_t Other) 'UniverseContext)
-    (is (empty? (v/sentexes-matching kb (list fitsIn Other) 'UniverseContext))
+    (v/assert kb (list chihuahua_t Other) 'CxUniverse)
+    (is (empty? (v/sentexes-matching kb (list fitsIn Other) 'CxUniverse))
         "and a fresh firing agrees with it")))

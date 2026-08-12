@@ -25,7 +25,7 @@
 
 (deftest atomic-round-trips
   (doseq [a [(sx/->AtomicSentex '(dog Muffet) 'C 7 :true :monotonic)
-             (sx/->AtomicSentex '(bornIn Tom 1970) 'WellContext 12 :true nil)
+             (sx/->AtomicSentex '(bornIn Tom 1970) 'CxWell 12 :true nil)
              (sx/->AtomicSentex '(likes Ann (mother (father Bob))) 'C 3 :false :default)
              (sx/->AtomicSentex '(exceptWhen (penguin ?var0) (sentexHandle 9)) 'C 4 :true nil)
              ;; every nil-able field nil at once — the shape a bare derived fact has
@@ -43,7 +43,7 @@
              ;; multi-antecedent, every optional field set
              (sx/->RuleSentex '(implies (and (parentOf ?var0 ?var1) (parentOf ?var1 ?var2))
                                         (grandparentOf ?var0 ?var2))
-                              'KinshipContext 9 :true
+                              'CxKinship 9 :true
                               '[(parentOf ?var0 ?var1) (parentOf ?var1 ?var2)]
                               '(grandparentOf ?var0 ?var2) :default '{?var0 ?a ?var1 ?b ?var2 ?c}
                               :backward true true :hard)
@@ -68,11 +68,11 @@
 (deftest decoding-interns-the-vocabulary
   ;; a record paged off disk must share the one pooled object per name, or every fetch
   ;; mints its own copies and the hot cache retains them
-  (let [a (sx/->AtomicSentex (list 'parentOf 'Tom 'Ann) 'WellContext 1 :true nil)
+  (let [a (sx/->AtomicSentex (list 'parentOf 'Tom 'Ann) 'CxWell 1 :true nil)
         r (sx-trip a)]
     (is (identical? (sx/intern-sym 'parentOf) (first (:sentence r))))
     (is (identical? (sx/intern-sym 'Tom) (second (:sentence r))))
-    (is (identical? (sx/intern-sym 'WellContext) (:context r)))))
+    (is (identical? (sx/intern-sym 'CxWell) (:context r)))))
 
 (deftest non-record-values-pass-through
   (testing "a plain map is not an Atomic and must round-trip as the map it is"
@@ -97,7 +97,7 @@
 (deftest the-codec-is-what-shrinks-the-frame
   ;; the point of the codec, asserted rather than assumed: a positional frame is
   ;; materially smaller than the record frame it replaces
-  (let [a     (sx/->AtomicSentex '(parentOf Tom Ann) 'NaturalWorldContext 7 :true :monotonic)
+  (let [a     (sx/->AtomicSentex '(parentOf Tom Ann) 'CxNaturalWorld 7 :true :monotonic)
         rec-b (alength ^bytes (nippy/freeze a))
         pos-b (alength ^bytes (nippy/freeze (codec/encode-sentex a)))]
     (is (< pos-b rec-b)
@@ -119,8 +119,8 @@
 
 (def ^:private shapes
   [(sx/->AtomicSentex '(dog Muffet) 'C 7 :true :monotonic)
-   (sx/->AtomicSentex '(bornIn Tom 1970) 'WellContext 12 :true nil)
-   (sx/->AtomicSentex '(comment dog "a domestic canine") 'CoreContext 13 :true :default)
+   (sx/->AtomicSentex '(bornIn Tom 1970) 'CxWell 12 :true nil)
+   (sx/->AtomicSentex '(comment dog "a domestic canine") 'CxCore 13 :true :default)
    (sx/->AtomicSentex '(likes Ann (mother (father Bob))) 'C 3 :false :default)
    (sx/->AtomicSentex '(measures Rod 1.5) 'C 14 :true nil)
    (sx/->AtomicSentex '(p A) 'C nil :true nil)
@@ -128,7 +128,7 @@
                     '[(dog ?var0)] '(mammal ?var0) :monotonic '{?var0 ?x} :forward true nil nil)
    (sx/->RuleSentex '(implies (and (parentOf ?var0 ?var1) (parentOf ?var1 ?var2))
                               (grandparentOf ?var0 ?var2))
-                    'KinshipContext 9 :true
+                    'CxKinship 9 :true
                     '[(parentOf ?var0 ?var1) (parentOf ?var1 ?var2)]
                     '(grandparentOf ?var0 ?var2) :default '{?var0 ?a ?var1 ?b ?var2 ?c}
                     :backward true true :hard)
@@ -153,7 +153,7 @@
   (with-dict
     (fn [d _]
       (let [tok  (get (codec/by-kind d true) "sentexes")
-            a    (sx/->AtomicSentex '(parentOf Tom Ann) 'NaturalWorldContext 7 :true :monotonic)
+            a    (sx/->AtomicSentex '(parentOf Tom Ann) 'CxNaturalWorld 7 :true :monotonic)
             rec-b (alength ^bytes (nippy/freeze a))
             pos-b (alength ^bytes (nippy/freeze (codec/encode-sentex a)))
             tok-b (alength ^bytes (nippy/freeze ((:enc tok) a)))]

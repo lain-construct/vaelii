@@ -369,7 +369,7 @@
   "May a rule stored in `rule-ctx` answer a goal asked from `context`?
 
   A rule is a sentex, so it is inherited like any other: a context reasons with the
-  rules its `genlContext` up-cone holds and no others.  This is the backward dual of
+  rules its `genlCx` up-cone holds and no others.  This is the backward dual of
   forward chaining refusing to place a conclusion in a context that cannot see the
   rule — without it a context proves `(ancestorOf Tom Bob)` from a rule some
   sibling theory wrote, while the *forward* firing of that same rule correctly
@@ -499,7 +499,7 @@
           (candidate-handles kb pat))))
 
 (defn raw-match
-  "Match a literal in one **literal** context — no genlContext inheritance, no subtype
+  "Match a literal in one **literal** context — no genlCx inheritance, no subtype
   fan-out — trying **both argument orders for a symmetric predicate**.  Only
   fully-ground symmetric literals are stored sorted (see `vaelii.impl.sentex`), so the
   mirrored probe is what makes lookup order-insensitive: it retrieves `(siblingOf
@@ -746,7 +746,7 @@
                 (when-let [stored (p/get-sentex (:records kb) h)]
                   (let [f' (some-> (sx/body stored) first)]
                     ;; predicate-hierarchy filter (the sub-predicate closure) and
-                    ;; context-hierarchy filter (the genlContext up-closure), in memory;
+                    ;; context-hierarchy filter (the genlCx up-closure), in memory;
                     ;; an exceptWhen meta-sentex is internal bookkeeping and skipped, as
                     ;; in `match-one` (the one non-ground stored Atomic)
                     (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
@@ -768,7 +768,7 @@
 
 (defn excepted-handles
   "The handles hidden from `view-context` by believed `(except (sentexHandle H))`
-  facts: an `except` asserted in a context `view-context` sees (its genlContext
+  facts: an `except` asserted in a context `view-context` sees (its genlCx
   up-closure) hides its target there and in every descendant.  Empty — the common,
   fast-path case — when nothing is excepted, or when `view-context` is a variable (an
   `except` in some context hides its target *there and below*, not from the more
@@ -916,7 +916,7 @@
 (defn matches-visible
   "Type-aware matches of `sentence` *visible from* `view-context`.  A variable
   context means any context; a concrete context sees a fact iff the fact's
-  context is in view-context's genlContext up-closure — this is how inference in a
+  context is in view-context's genlCx up-closure — this is how inference in a
   specific context can use facts asserted in the general contexts it inherits.
 
   A positive literal is answered by the set-algebra path (`matches-hierarchical`,

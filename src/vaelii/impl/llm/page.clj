@@ -113,10 +113,10 @@
 
 (defn page-context
   "The context new assertions are filed in: the caller's `:context` when given, else the
-  context most of the page's own sentexes are in, else `UniverseContext`.
+  context most of the page's own sentexes are in, else `CxUniverse`.
 
   A modal context is the honest default — a page about `penguin` whose sentexes sit in
-  `OrganismContext` is a page about `OrganismContext` — and ties break on the context name so
+  `CxOrganism` is a page about `CxOrganism` — and ties break on the context name so
   the choice cannot depend on arrival order.  The **vocabulary head is never chosen**: a term
   carries derived bookkeeping there (`(arity penguin 1)`, `(unaryPredicate penguin)`) which can
   outnumber its definitional sentexes, and new domain knowledge does not belong in the
@@ -131,7 +131,7 @@
            frequencies
            (sort-by (fn [[c n]] [(- n) (str c)]))
            ffirst)
-      'UniverseContext))
+      'CxUniverse))
 
 ;; ---- the output contract ------------------------------------------------
 

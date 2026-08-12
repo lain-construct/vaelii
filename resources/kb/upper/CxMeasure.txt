@@ -1,16 +1,16 @@
-;; MeasureContext — the theory of measurement: the two measure terms (QuantityFn and
+;; CxMeasure — the theory of measurement: the two measure terms (QuantityFn and
 ;; QuantityIntervalFn, unreifiableFunction applications that stay structural so a
 ;; magnitude and its unit remain readable), the unit table the quantity provers
 ;; normalize against (dimensionOf / conversionFactor), and the five comparisons they
 ;; compute (sameQuantity / quantityLessThan / quantityGreaterThan and the two
-;; or-equal forms). Sees CoreContext; UniverseContext sees it, so a measure is
+;; or-equal forms). Sees CxCore; CxUniverse sees it, so a measure is
 ;; comparable from every context.
 ;;
 ;; A comparison is never stored — the provers compute it from ground measures against
 ;; the table, and two measures of different dimensions are simply not comparable. See
 ;; docs/quantity.md.
 ;;
-;; The units themselves ship, and the test for one is the same test CoreContext applies
+;; The units themselves ship, and the test for one is the same test CxCore applies
 ;; to its vocabulary: a unit belongs here when its factor is a **definition** rather than
 ;; a measurement. A minute is sixty seconds by stipulation, so the table can state it;
 ;; how much a particular dog weighs is a measurement, so it cannot. Three dimensions are
@@ -20,8 +20,8 @@
 ;; fragmentation this KB exists to prevent, and it is the difference between a grammar
 ;; nobody can compute with and one that answers.
 
-(genlContext MeasureContext CoreContext)
-(genlContext UniverseContext MeasureContext)
+(genlCx CxMeasure CxCore)
+(genlCx CxUniverse CxMeasure)
 
 (comment Centimeter "A hundredth of a metre.")
 (dimensionOf Centimeter Length)

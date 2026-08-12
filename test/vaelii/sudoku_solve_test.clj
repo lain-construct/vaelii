@@ -19,7 +19,7 @@
   Each round: `do/label` enumerates the optimal worlds over the surviving candidates,
   `do/classify` splits them into forced (kept in every world — a naked single) and
   supportable (a genuinely open cell), and the forced values are promoted as real
-  `filled` facts into the *next* round's context, a `genlContext` child of the current
+  `filled` facts into the *next* round's context, a `genlCx` child of the current
   one.  New clues fire the `ruledOut` rules, the next grounding offers fewer choices,
   and the loop terminates when nothing is left to choose.  The chain of round contexts
   then proves the unique solution; the base KB never believed a single choice.
@@ -55,10 +55,10 @@
        (or (= (a 0) (b 0)) (= (a 1) (b 1)) (= (box-of a) (box-of b)))))
 
 (defn- load-sudoku
-  "The timeless structure and rules into SudokuContext; the given clues into
-  Round1Context, which sees it."
+  "The timeless structure and rules into CxSudoku; the given clues into
+  CxRound1, which sees it."
   [kb]
-  (let [S 'SudokuContext]
+  (let [S 'CxSudoku]
     ;; metadata first — it governs the facts and choices below
     (v/assert kb '(symmetric peerOf) S {:strength :monotonic})
     (v/assert kb '(functional cellValue) S {:strength :monotonic})
@@ -84,16 +84,16 @@
                                         (cellValue ?c ?v))))
               S {:strength :monotonic})
     ;; round 1 sees the structure and adds the clues
-    (v/assert kb '(genlContext Round1Context SudokuContext) S {:strength :monotonic})
+    (v/assert kb '(genlCx CxRound1 CxSudoku) S {:strength :monotonic})
     (doseq [rc all-cells :when (not (open-cells rc))]
       (v/assert kb (list 'filled (cell-sym rc) (val-sym (solution rc)))
-                'Round1Context {:strength :monotonic}))))
+                'CxRound1 {:strength :monotonic}))))
 
 (defn- promote
   "Record newly forced cell values as real clues in `ctx`, the next round's context —
-  a genlContext child of `prev`, so the next grounding sees everything so far."
+  a genlCx child of `prev`, so the next grounding sees everything so far."
   [kb forced ctx prev]
-  (v/assert kb (list 'genlContext ctx prev) prev {:strength :monotonic})
+  (v/assert kb (list 'genlCx ctx prev) prev {:strength :monotonic})
   (doseq [s forced
           :let [[_ c vv] (vec s)]]
     (v/assert kb (list 'filled c vv) ctx {:strength :monotonic})))
@@ -103,8 +103,8 @@
     (tu/with-cleared-kb [kb tu/fresh]
       (load-sudoku kb)
 
-      (let [r1 (v/assert kb '(do/label Round1Context RoundOnePlanContext) 'Round1Context)
-            c1 (v/assert kb '(do/classify RoundOnePlanContext) 'Round1Context)]
+      (let [r1 (v/assert kb '(do/label CxRound1 CxRoundOnePlan) 'CxRound1)
+            c1 (v/assert kb '(do/classify CxRoundOnePlan) 'CxRound1)]
         (testing "round 1: C11 is open three ways, the other four open cells are naked singles"
           (is (= 3 (:count r1)))
           (is (= #{'(cellValue C12 V2) '(cellValue C13 V3)
@@ -124,20 +124,20 @@
                                    (:true l)))
                            (:labelings r1))))))
         (testing "the labeling contexts hang under the round that produced them"
-          (is (every? #(v/sees? kb % 'Round1Context)
+          (is (every? #(v/sees? kb % 'CxRound1)
                       (map :context (:labelings r1)))))
 
-        (promote kb (:forced c1) 'Round2Context 'Round1Context)
-        (let [r2 (v/assert kb '(do/label Round2Context RoundTwoPlanContext) 'Round2Context)
-              c2 (v/assert kb '(do/classify RoundTwoPlanContext) 'Round2Context)]
+        (promote kb (:forced c1) 'CxRound2 'CxRound1)
+        (let [r2 (v/assert kb '(do/label CxRound2 CxRoundTwoPlan) 'CxRound2)
+              c2 (v/assert kb '(do/classify CxRoundTwoPlan) 'CxRound2)]
           (testing "round 2: the promoted clues squeeze C11 to a single — one world, one forced value"
             (is (= 1 (:count r2)))
             (is (= ['(cellValue C11 V1)] (:forced c2)))
             (is (empty? (:supportable c2))))
 
-          (promote kb (:forced c2) 'Round3Context 'Round2Context)
+          (promote kb (:forced c2) 'CxRound3 'CxRound2)
           (testing "round 3: every cell is decided, so grounding offers nothing"
-            (let [r3 (v/assert kb '(do/label Round3Context RoundThreePlanContext) 'Round3Context)]
+            (let [r3 (v/assert kb '(do/label CxRound3 CxRoundThreePlan) 'CxRound3)]
               (is (zero? (:count r3)))
               (is (= :no-choices (:reason r3)))))
 
@@ -145,19 +145,19 @@
             (doseq [rc all-cells]
               (let [vs (distinct (map #(get % '?v)
                                       (v/prove kb (list 'filled (cell-sym rc) '?v)
-                                               'Round3Context)))]
+                                               'CxRound3)))]
                 (is (= [(val-sym (solution rc))] vs)
                     (str "cell " rc)))))
 
           (testing "no choice ever leaked into belief, and nothing contradicts"
-            (is (empty? (v/prove kb '(cellValue ?c ?v) 'Round3Context)))
+            (is (empty? (v/prove kb '(cellValue ?c ?v) 'CxRound3)))
             (is (zero? (count (v/contradictions kb)))))
 
           (testing "re-running a round replaces its labelings instead of accreting"
-            ;; Round1Context's up-closure is unchanged by the later rounds (they sit
+            ;; CxRound1's up-closure is unchanged by the later rounds (they sit
             ;; below it), so the same three worlds come back — into freshly rewritten
             ;; contexts, each holding exactly one grounding's truth values
-            (let [r1b (v/assert kb '(do/label Round1Context RoundOnePlanContext) 'Round1Context)]
+            (let [r1b (v/assert kb '(do/label CxRound1 CxRoundOnePlan) 'CxRound1)]
               (is (= 3 (:count r1b)))
               ;; five kept + two rejected truth values + the labelingOf marker
               (doseq [l (:labelings r1b)]

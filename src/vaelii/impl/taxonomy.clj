@@ -5,7 +5,7 @@
   common-sense reasoning:
 
     genl    relates unary *types*    (genl dog animal)   — the type hierarchy
-    genlContext  relates *contexts*       (genlContext AContext BContext)     — context inheritance
+    genlCx  relates *contexts*       (genlCx CxA CxB)     — context inheritance
 
   Transitivity is not done with rules (too central, too hot); instead we store the
   **direct adjacency** of each relation and answer the reflexive-transitive up/down
@@ -30,7 +30,7 @@
   - **Cycle safety.** `genl?` / `sees?` answer reachability with an early-exit walk
     pruned by `:depth`: a real path `x → … → y` has strictly decreasing depth, so
     `depth[x] ≤ depth[y]` rejects the pair in O(1).  `wff` rejects `genl` /
-    `genlContext` cycles up front, so the closures stay acyclic; `reach` guards with a `seen` set
+    `genlCx` cycles up front, so the closures stay acyclic; `reach` guards with a `seen` set
     regardless, so a stray cycle terminates rather than being subtly wrong.
 
   `closures` (the from-scratch materialized build) survives as the **reference
@@ -38,7 +38,7 @@
   `taxonomy_test` compares `genls` / `specs` for every node against it after every
   random edit.
 
-  Context semantics: (genlContext Sub Super) means Sub *sees* Super's assertions, so a
+  Context semantics: (genlCx Sub Super) means Sub *sees* Super's assertions, so a
   context K sees a sentex in context Y iff Y is in genls-of-contexts(K).
 
   ## Edges are supported, and support is belief-sensitive
@@ -113,7 +113,7 @@
   `y` lie in different components and by equality inside one.  `scc` maps a node to
   its component's representative, and holds an entry **only for a node in a
   non-trivial component**; an acyclic relation (which `genl` always is, and
-  `genlContext` usually is) has an empty one and pays a nil check.
+  `genlCx` usually is) has an empty one and pays a nil check.
 
   Three O(1) consequences make this cheap in the overwhelmingly common case:
 
@@ -260,7 +260,7 @@
   move an answer without the main map having moved first."
   []
   (doto
-   (atom {:genl (empty-relation) :genlContext (empty-relation)
+   (atom {:genl (empty-relation) :genlCx (empty-relation)
           :equality (empty-equality)
           :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
           :props {} :inverse {} :arity {}
@@ -279,7 +279,7 @@
           ;; miss, so an edge change needs only to bump `:gen`, never to clear this.
           :closure-memo (atom {})
           ;; The interned visible-context sets the scoped reads key on — one entry
-          ;; per [relation context], stamped [genlContext-gen ctxs-gen] and recomputed
+          ;; per [relation context], stamped [genlCx-gen ctxs-gen] and recomputed
           ;; on a stamp mismatch.  A side atom for the same reasons as the memo; its
           ;; population is bounded by the context count, never by the read count.
           :vis-index (atom {})
@@ -342,11 +342,11 @@
 ;; ---- scoped reads: the visibility filter over the same closures ----------
 ;;
 ;; A read asked from context K uses exactly the edges K can see — an edge counts
-;; iff some believed supporter asserts it from a context in K's genlContext
+;; iff some believed supporter asserts it from a context in K's genlCx
 ;; up-cone (`:edge-ctxs`), the same filter `matches-visible` applies to facts.
-;; The genlContext closure itself is never filtered: visibility scoped by
+;; The genlCx closure itself is never filtered: visibility scoped by
 ;; visibility would be circular, and `forcedDecontextualizedPredicate` already
-;; forces every genlContext edge universal.
+;; forces every genlCx edge universal.
 ;;
 ;; The filter is keyed on `vis = up(K) ∩ ctxs`, where `ctxs` is the relation's
 ;; context census (`:ctx-counts` keys).  Since every edge's context set is a
@@ -365,7 +365,7 @@
 (defn visible-ctxs
   "`up(K) ∩ ctxs` for relation `rel-key` — the supporting contexts `context` can
   see — or nil when the scoped answer could not differ from the global one.
-  Interned per `[genlContext-gen ctxs-gen]`, so repeated reads from one context
+  Interned per `[genlCx-gen ctxs-gen]`, so repeated reads from one context
   share one set object (O(1) hash for the memo level keyed on it) and the
   intersection runs once per context per taxonomy epoch, not once per call."
   [tax rel-key context]
@@ -374,12 +374,12 @@
           rel  (get t rel-key)
           ctxs (:ctx-counts rel)]
       (when (seq ctxs)
-        (let [stamp  [(:gen (:genlContext t)) (:ctxs-gen rel)]
+        (let [stamp  [(:gen (:genlCx t)) (:ctxs-gen rel)]
               vidx   (:vis-index t)
               cached (get @vidx [rel-key context])]
           (if (= stamp (:stamp cached))
             (:vis cached)
-            (let [up  (closure-of tax :genlContext :fwd context)
+            (let [up  (closure-of tax :genlCx :fwd context)
                   vis (into #{} (filter up) (keys ctxs))
                   ;; vis ⊆ ctxs, so equal counts mean equal sets: every asserting
                   ;; context is visible and the filter would keep every edge
@@ -495,13 +495,13 @@
 
 ;; ---- supporter reference counting for the non-transitive caches ---------
 ;;
-;; `genl` and `genlContext` carry their own `:support` map inside the relation (see
+;; `genl` and `genlCx` carry their own `:support` map inside the relation (see
 ;; the ns docstring).  The other four caches — `disjoint`, the disjoint metatypes,
 ;; the predicate properties, and `inverse` — are flat sets and maps with no such
 ;; record, so they need reference counting of their own.
 ;;
 ;; Tearing one down unconditionally drifts, because none of those predicates is
-;; *forced* universal: only `genlContext` is (core_context.clj), so only it is guaranteed
+;; *forced* universal: only `genlCx` is (core_context.clj), so only it is guaranteed
 ;; one sentex per claim.  `(disjoint dog cat)` asserted in two contexts is two
 ;; sentexes, both folding into one cache entry — so retracting either one must not
 ;; delete it while the other is still stored and believed, or the cache would say the
@@ -937,7 +937,7 @@
 
   Condensing is what makes the pass total.  Walking the raw graph, a node on a cycle
   is never ready and would keep a stale depth — sound only for a graph that has none,
-  which `genlContext` no longer is (a `genlMt` cycle is a claim OpenCyc makes 49 times,
+  which `genlCx` no longer is (a `genlMt` cycle is a claim OpenCyc makes 49 times,
   and it means the contexts see each other)."
   [rel]
   (let [nodes (:nodes rel)
@@ -992,7 +992,7 @@
                            (update t k (comp bump-gen repair-depths))
                            t))
                        t
-                       [:genl :genlContext])))
+                       [:genl :genlCx])))
   tax)
 
 (defn- prune-node
@@ -1321,10 +1321,10 @@
   ([tax sub super handle] (add-genl tax sub super handle nil))
   ([tax sub super handle ctx] (swap! tax update :genl add-edge sub super handle ctx) tax))
 (defn del-genl! [tax sub super handle] (swap! tax update :genl del-edge sub super handle) tax)
-(defn add-genlContext
-  ([tax sub super handle] (add-genlContext tax sub super handle nil))
-  ([tax sub super handle ctx] (swap! tax update :genlContext add-edge sub super handle ctx) tax))
-(defn del-genlContext! [tax sub super handle] (swap! tax update :genlContext del-edge sub super handle) tax)
+(defn add-genlCx
+  ([tax sub super handle] (add-genlCx tax sub super handle nil))
+  ([tax sub super handle ctx] (swap! tax update :genlCx add-edge sub super handle ctx) tax))
+(defn del-genlCx! [tax sub super handle] (swap! tax update :genlCx del-edge sub super handle) tax)
 
 ;; ---- equality: rewriteOf / sameAs / equals, one partition ----------------
 ;;
@@ -1611,7 +1611,7 @@
   on exactly the case that needs the slow one.
 
   This is the common shape rather than an optimisation for a corner: a KB states its
-  merges in `CoreContext`, or in the context doing the reading, and either way every
+  merges in `CxCore`, or in the context doing the reading, and either way every
   supporter is visible.  A reader pays one memoized `visible?` per supporter of a class
   that is a handful of terms — against `scoped-class`'s reachability walk and preference
   election, which is the cost this exists to skip."
@@ -1892,7 +1892,7 @@
   ([tax believed? moved]
    (swap! tax (fn [t] (-> t
                           (update :genl        refresh-relation believed? moved)
-                          (update :genlContext refresh-relation believed? moved)
+                          (update :genlCx refresh-relation believed? moved)
                           (update :equality    refresh-equality believed? moved)
                           (refresh-rewrite believed? moved)
                           (refresh-cache-support believed? moved))))
@@ -1919,7 +1919,7 @@
   could never revive the entry."
   [tax]
   (swap! tax assoc
-         :genl (empty-relation) :genlContext (empty-relation)
+         :genl (empty-relation) :genlCx (empty-relation)
          :equality (empty-equality)
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
          :props {} :inverse {} :arity {}
@@ -1939,7 +1939,7 @@
 ;; ---- introspection (for rendering) --------------------------------------
 
 (defn genl-edges   [tax] (get-in @tax [:genl :edges] #{}))
-(defn genlContext-edges [tax] (get-in @tax [:genlContext :edges] #{}))
+(defn genlCx-edges [tax] (get-in @tax [:genlCx :edges] #{}))
 
 (defn edge-contexts
   "The supporting contexts of active edge `[a b]` in relation `rel-key` — the
@@ -1956,11 +1956,11 @@
   [tax k]
   (get-in @tax [:cache-ctxs k] #{}))
 (defn types        [tax] (get-in @tax [:genl :nodes] #{}))
-(defn contexts     [tax] (get-in @tax [:genlContext :nodes] #{}))
+(defn contexts     [tax] (get-in @tax [:genlCx :nodes] #{}))
 (defn disjoint-pairs [tax] (:disjoint @tax))
 
 (defn relation-gen
-  "The generation counter of a cached relation (`:genl` / `:genlContext`), bumped on
+  "The generation counter of a cached relation (`:genl` / `:genlCx`), bumped on
   every edge change.  A caller memoizing something derived from a closure reads this to
   notice it must recompute, without comparing edge sets — which is the whole point,
   since the edge set is the thing that is too big to compare."
@@ -2054,7 +2054,7 @@
   [tax cands]
   (or (first (filter (fn [[_ c]] (nil? c)) cands))
       (first (filter (fn [[_ c]]
-                       (every? (fn [[_ c2]] (contains? (closure-of tax :genlContext :fwd c2) c))
+                       (every? (fn [[_ c2]] (contains? (closure-of tax :genlCx :fwd c2) c))
                                cands))
                      cands))))
 
@@ -2078,7 +2078,7 @@
   An edge with a **single** supporter takes neither the ordering nor the comparison: it
   is trivially the most general, and that is the overwhelming common case.  The
   short-circuit is not a micro-optimization — `more-general-supporter` reads the
-  genlContext closure, whose memo a bulk load retires on every context edge it asserts,
+  genlCx closure, whose memo a bulk load retires on every context edge it asserts,
   so paying it per edge per subsuming firing cost a fifth of the schema load."
   [tax rel e vis]
   (let [cands (into [] (filter (let [live (get (:edge-ctxs rel) e #{})]
@@ -2126,12 +2126,12 @@
               (recur (into (pop q) fresh)
                      (reduce (fn [m x] (assoc m x n)) parent fresh)))))))))
 
-;; ---- genlContext (contexts) ---------------------------------------------------
+;; ---- genlCx (contexts) ---------------------------------------------------
 
-(defn context-up   "Contexts c inherits from, incl c." [tax c] (closure-of tax :genlContext :fwd c))
-(defn context-down "Contexts that inherit from c, incl c." [tax c] (closure-of tax :genlContext :rev c))
+(defn context-up   "Contexts c inherits from, incl c." [tax c] (closure-of tax :genlCx :fwd c))
+(defn context-down "Contexts that inherit from c, incl c." [tax c] (closure-of tax :genlCx :rev c))
 (defn sees?   "Does context k see assertions in context y?" [tax k y]
-  (reachable-in? tax :genlContext k y))
+  (reachable-in? tax :genlCx k y))
 
 (defn- seeing-member
   "The member of `ctxs` that sees every other member, or nil.  When one exists it is a
@@ -2156,10 +2156,10 @@
   conclusion so can every one of them, and all of them equally: the group is one place
   to stand wearing several names.  Which name is `term-min`'s — content, never arrival
   order — and it is applied to **both** of the function below's exits, or the same
-  firing would land in `AlphaContext` when its antecedents named the cycle and in
-  `BetaContext` when they named something above it."
+  firing would land in `CxAlpha` when its antecedents named the cycle and in
+  `CxBeta` when they named something above it."
   [tax k]
-  (get-in @tax [:genlContext :scc k] k))
+  (get-in @tax [:genlCx :scc k] k))
 
 (defn- common-descendant-set
   "Every context that sees all of `cs` — the intersection of the down closures,
@@ -2204,7 +2204,7 @@
 
   **Mutually visible contexts are one maximum, not none and not two.**  A common
   ancestor only dominates `k` if it does not see `k` back; two contexts in a
-  `genlContext` cycle are equally general, so each would otherwise strike the other
+  `genlCx` cycle are equally general, so each would otherwise strike the other
   out and the firing would have nowhere to land.  They are collapsed to one by
   `term-min` — the same content-keyed choice `seeing-member` makes — since placing the
   conclusion in every member of a cycle would store one claim several times over in
@@ -2218,7 +2218,7 @@
       ;; (its `sees?` probe is reflexive, so a single distinct member always passes
       ;; it), reached without building the distinct vector or filtering it.  This is
       ;; nearly every forward firing (rule and facts in one context).  `placement-rep`
-      ;; still runs: a member of a `genlContext` cycle places at the group's one name
+      ;; still runs: a member of a `genlCx` cycle places at the group's one name
       ;; here as everywhere, and a context the taxonomy has never heard of comes back
       ;; as itself on both paths.
       #{(placement-rep tax c0)}
@@ -2395,7 +2395,7 @@
         t       @tax
         members (:metatype-members t)
         cctxs   (:cache-ctxs t)
-        up      (when scoped? (closure-of tax :genlContext :fwd context))
+        up      (when scoped? (closure-of tax :genlCx :fwd context))
         pair-vis?   (if scoped?
                       (fn [x y] (ctxs-visible? (get cctxs [:disjoint #{x y}]) up))
                       (fn [_ _] true))
@@ -2497,7 +2497,7 @@
   (let [scoped? (scoped-context? context)
         t       @tax
         cctxs   (:cache-ctxs t)
-        up      (when scoped? (closure-of tax :genlContext :fwd context))
+        up      (when scoped? (closure-of tax :genlCx :fwd context))
         vis?    (if scoped? (fn [k] (ctxs-visible? (get cctxs k) up)) (fn [_] true))]
     (concat
      (for [s (:disjoint t)
@@ -2640,7 +2640,7 @@
      (and (contains? (get-in t [:props kind]) pred)
           (or (not (scoped-context? context))
               (ctxs-visible? (get-in t [:cache-ctxs [:prop kind pred]])
-                             (closure-of tax :genlContext :fwd context)))))))
+                             (closure-of tax :genlCx :fwd context)))))))
 (defn props "The set of predicates carrying property `kind`." [tax kind] (get-in @tax [:props kind] #{}))
 
 ;; The supporters behind a flat-cache entry, read back.  A consumer that *justifies*
@@ -2709,7 +2709,7 @@
   ([tax pred context]
    (let [ns'  (get-in @tax [:arity pred])
          seen (if (scoped-context? context)
-                (let [up (closure-of tax :genlContext :fwd context)]
+                (let [up (closure-of tax :genlCx :fwd context)]
                   (filterv #(ctxs-visible? (get-in @tax [:cache-ctxs [:arity pred %]]) up)
                            ns'))
                 (vec ns'))]
@@ -2729,11 +2729,11 @@
    (let [qs (get-in @tax [:inverse p] #{})]
      ;; the empty case first, and it is the overwhelmingly common one: a transitive walk
      ;; asks this per node, so reaching `closure-of` before finding out there is no
-     ;; partner would charge every ordinary walk a genlContext closure lookup per hop for
+     ;; partner would charge every ordinary walk a genlCx closure lookup per hop for
      ;; an answer that is empty either way
      (if (or (empty? qs) (not (scoped-context? context)))
        qs
-       (let [up (closure-of tax :genlContext :fwd context)]
+       (let [up (closure-of tax :genlCx :fwd context)]
          (into #{} (filter #(ctxs-visible? (get-in @tax [:cache-ctxs (inverse-key p %)]) up))
                qs))))))
 
@@ -2811,7 +2811,7 @@
   :limit    nil
   :counters nil
   :note     (str "One reflexive-transitive reach set per type or context ever asked "
-                 "about, up and down. Retired by a genl or genlContext edge changing — "
+                 "about, up and down. Retired by a genl or genlCx edge changing — "
                  "a generation bump invalidates the level without touching it — and by "
                  "nothing else, so this is the one cache here with no count bound: it "
                  "grows to the vocabulary a reader has walked.")

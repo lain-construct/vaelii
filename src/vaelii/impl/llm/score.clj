@@ -51,7 +51,7 @@
   `context`.
 
   Two filters, both load-bearing.  **Its own context**, not the cone above it — a story
-  context sees the upper ontology through `genlContext`, and scoring a reader of one fable
+  context sees the upper ontology through `genlCx`, and scoring a reader of one fable
   against the whole shipped schema would measure a recall it was never asked for.  And
   **premises only**: a forward-chained conclusion like `(repaidKindness MouseA LionA)` is
   the engine's contribution rather than the modeller's, so asking a reader to produce it

@@ -15,17 +15,17 @@
             [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu]))
 
-;; a fresh KB per test: the CoreContext grammar (`unreifiableFunction`,
-;; `binaryPredicate`, …) plus MeasureContext, the upper context that declares
+;; a fresh KB per test: the CxCore grammar (`unreifiableFunction`,
+;; `binaryPredicate`, …) plus CxMeasure, the upper context that declares
 ;; QuantityFn / QuantityIntervalFn unreifiable and documents the comparison and table
 ;; predicates.  Measurement is subject matter, not grammar, so it is nobody's business
 ;; but its own context's.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'MeasureContext "upper"))))
+                        (seed/load-context 'CxMeasure "upper"))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 ;; ---- same unit -----------------------------------------------------------
 
@@ -147,17 +147,17 @@
     [dim lo (provers/base-unit-of kb unit C)]))
 
 (tu/deftest-kb one-declaration-restated-is-still-one-declaration
-  (tu/with-terms [InnerContext]
-    (v/assert kb (list 'genlContext InnerContext C) C)
+  (tu/with-terms [CxInner]
+    (v/assert kb (list 'genlCx CxInner C) C)
     (v/assert kb '(dimensionOf Gram Mass) C)
     (v/assert kb '(conversionFactor Gram Kilogram 0.001) C)
-    (v/assert kb '(conversionFactor Gram Kilogram 0.001) InnerContext)
+    (v/assert kb '(conversionFactor Gram Kilogram 0.001) CxInner)
     (testing "restating a factor in a context of the cone is not a disagreement — the
               matches carry the same bindings and collapse to one"
       (is (= '[Mass 0.001 Kilogram] (factor-of kb 'Gram)))
       (is (= '[Mass 0.001 Kilogram]
-             (let [[dim lo _] (provers/normalize-quantity kb '(QuantityFn 1 Gram) InnerContext)]
-               [dim lo (provers/base-unit-of kb 'Gram InnerContext)]))))))
+             (let [[dim lo _] (provers/normalize-quantity kb '(QuantityFn 1 Gram) CxInner)]
+               [dim lo (provers/base-unit-of kb 'Gram CxInner)]))))))
 
 (tu/deftest-kb two-conversion-factors-for-one-unit-are-no-conversion-factor
   (v/assert kb '(dimensionOf Gram Mass) C)
@@ -196,7 +196,7 @@
   (let [forward (factor-of kb 'Gram)]
     (tu/with-neutral-kb [other #(doto (tu/isolated-fresh)
                                   (core-context/load-into)
-                                  (seed/load-context 'MeasureContext "upper"))]
+                                  (seed/load-context 'CxMeasure "upper"))]
       (v/assert other '(conversionFactor Gram Kilogram 0.002) C)
       (v/assert other '(conversionFactor Gram Kilogram 0.001) C)
       (v/assert other '(dimensionOf Gram Mass) C)

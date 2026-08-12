@@ -49,12 +49,12 @@
                        (fn [k] (require 'vaelii.core) ((resolve 'vaelii.core/reindex) k)))]
     (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
     (when enable? (rete/track! kb))
-    (v/assert-rule kb ['(parentOf ?x ?y) '(parentOf ?y ?z)] '(grandparentOf ?x ?z) 'BenchContext {:direction :forward})
-    (v/assert-rule kb ['(parentOf ?x ?y) '(parentOf ?y ?z) '(parentOf ?z ?w)] '(greatGrandparentOf ?x ?w) 'BenchContext {:direction :forward})
+    (v/assert-rule kb ['(parentOf ?x ?y) '(parentOf ?y ?z)] '(grandparentOf ?x ?z) 'CxBench {:direction :forward})
+    (v/assert-rule kb ['(parentOf ?x ?y) '(parentOf ?y ?z) '(parentOf ?z ?w)] '(greatGrandparentOf ?x ?w) 'CxBench {:direction :forward})
     (let [edges (gen-parents rng n (max 50 (quot n 2)))
           t0    (System/nanoTime)
           _     (v/with-deferred-settle kb
-                  (doseq [[a b] edges] (v/assert kb (list 'parentOf a b) 'BenchContext)))
+                  (doseq [[a b] edges] (v/assert kb (list 'parentOf a b) 'CxBench)))
           elapsed (ms t0)
           ix    (:index kb)
           gp    (p/count-with-functor ix 'grandparentOf)

@@ -70,7 +70,7 @@ list `exceptWhen` uses. This is a deliberate choice, and it is the same one
 [exceptions.md](exceptions.md) makes: closed-world reasoning must read what the KB
 **derives without an unbounded proof search**. So a forward-derived fact counts — it is
 stored and believed by the time the query runs — while something reachable only by
-backward chaining does not. The registry reaches genl specificity, the genlContext
+backward chaining does not. The registry reaches genl specificity, the genlCx
 visibility closure, the transitive/symmetric/inverse metadata, disjointness and the
 evaluables, and no member of it expands a rule — so nothing here can start a proof
 search from inside a relabel loop.

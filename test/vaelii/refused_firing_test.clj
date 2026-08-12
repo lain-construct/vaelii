@@ -8,7 +8,7 @@
   is therefore blind to it, and without a second record it never comes back — which
   makes belief depend on whether the exception's answer moved before or after the facts
   arrived.  These pin the three orderings of one shape: the release arriving late by a
-  fact, by a `genlContext` edge, and the order that never needed a record at all, which
+  fact, by a `genlCx` edge, and the order that never needed a record at all, which
   is the oracle the other two are scored against.
 
   Each test builds its own KB on the **isolated** database pair: it rebuilds in a loop,
@@ -19,7 +19,7 @@
             [vaelii.impl.chain :as chain]
             [vaelii.test-util :as tu]))
 
-(def ^:private ctx 'RefusedFiringContext)
+(def ^:private ctx 'CxRefusedFiring)
 
 (defn- recorded
   "How many refusals stand against the one rule in `kb`'s record."
@@ -82,12 +82,12 @@
           "released first, both firings conclude"))))
 
 (deftest a-firing-refused-at-derive-time-is-re-derived-when-an-edge-releases-it
-  (testing "a genlContext edge makes the more specific claim visible"
+  (testing "a genlCx edge makes the more specific claim visible"
     ;; No inheritance and no declaration: the converse is stated in a context the
     ;; rule's context cannot see, so the exception holds and the firing is refused.
     ;; Wiring the two contexts together is what brings the converse into view.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      (v/assert kb (list 'genlContext 'FSubContext ctx) ctx {:strength :monotonic})
+      (v/assert kb (list 'genlCx 'CxFSub ctx) ctx {:strength :monotonic})
       (v/assert kb '(argPreserving ebigger 1 genl) ctx)
       (v/assert kb '(argPreserving ebigger 2 genl) ctx)
       (v/assert kb '(asymmetric ebigger) ctx)
@@ -98,12 +98,12 @@
                                 (set/defaultRule (implies (and (emark ?x)) (eseen ?x))))
                 ctx)
       ;; the converse lives where the rule's own context cannot see it
-      (v/assert kb '(ebigger emc echi) 'FAsideContext)
-      (v/assert kb '(emark EM1) 'FSubContext)
+      (v/assert kb '(ebigger emc echi) 'CxFAside)
+      (v/assert kb '(emark EM1) 'CxFSub)
       (is (empty? (v/sentexes-matching kb '(eseen EM1) '?ctx))
           "the exception holds where the conclusion would land, so the firing is refused")
-      (v/assert kb '(genlContext FSubContext FAsideContext) ctx {:strength :monotonic})
-      (is (not (v/ask? kb '(ebigger echi emc) 'FSubContext))
+      (v/assert kb '(genlCx CxFSub CxFAside) ctx {:strength :monotonic})
+      (is (not (v/ask? kb '(ebigger echi emc) 'CxFSub))
           "the sub-context now sees the converse, which undercuts the general claim")
       (is (seq (v/sentexes-matching kb '(eseen EM1) '?ctx))
           "so the refused firing is re-derived"))))

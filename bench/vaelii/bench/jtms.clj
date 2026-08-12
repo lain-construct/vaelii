@@ -82,17 +82,17 @@
          rng (java.util.Random. 20260724)]
      (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
      (doseq [s (gen-facts rng n)]
-       (try (v/assert kb s 'BenchContext {:chain? false :strength strength})
+       (try (v/assert kb s 'CxBench {:chain? false :strength strength})
             (catch Exception _ nil)))
      ;; a rule and facts that fire it, so :justs and the derived nodes are populated
-     (v/assert-rule kb '[(likes ?x ?y)] '(knows ?x ?y) 'BenchContext)
+     (v/assert-rule kb '[(likes ?x ?y)] '(knows ?x ?y) 'CxBench)
      (let [inds (u/terms "J" (max 10 (quot m 2)))
            icum (u/zipf-cumulative (count inds) 1.1)]
        (doseq [_ (range m)]
          (try (v/assert kb (list 'likes
                                  (nth inds (u/zipf-sample icum rng))
                                  (nth inds (u/zipf-sample icum rng)))
-                        'BenchContext {:strength strength})
+                        'CxBench {:strength strength})
               (catch Exception _ nil))))
      kb)))
 
@@ -225,10 +225,10 @@
          rng (java.util.Random. 20260725)
          who (u/terms "K" inds)]
      (p/clear-records! (:records kb)) (p/clear-index! (:index kb))
-     (v/assert-rule kb '[(rel ?x ?y) (rel ?y ?z)] '(linked ?x ?z) 'BenchContext)
+     (v/assert-rule kb '[(rel ?x ?y) (rel ?y ?z)] '(linked ?x ?z) 'CxBench)
      (doseq [_ (range edges)]
        (try (v/assert kb (list 'rel (nth who (.nextInt rng inds)) (nth who (.nextInt rng inds)))
-                      'BenchContext {:strength strength})
+                      'CxBench {:strength strength})
             (catch Exception _ nil)))
      kb)))
 

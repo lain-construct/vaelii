@@ -81,10 +81,10 @@
   ;; listeners are handed that one answer.  What this can still catch is the transport —
   ;; a sentence arriving as a vector, a record reaching a client that cannot read it, a
   ;; lazy seq realized after the reply closed.
-  (tu/with-terms [dog animal barks Muffet WireFeedContext]
+  (tu/with-terms [dog animal barks Muffet CxWireFeed]
     (let [handler  (open-app kb)
           [seen f] (recorder)]
-      (v/assert kb (list 'genl dog animal) WireFeedContext)
+      (v/assert kb (list 'genl dog animal) CxWireFeed)
       (v/watch kb f)
       (let [{:keys [token cursor]} (ok! (post handler :watch []))]
         (testing "a fresh subscription starts at nothing"
@@ -94,11 +94,11 @@
         ;; every write goes through the daemon, so the events being compared are the
         ;; daemon's own writes rather than a listener watching something else's
         (ok! (post handler :assert-rule [[(list dog '?x)] (list barks '?x)
-                                         WireFeedContext]))
-        (ok! (post handler :assert [(list dog Muffet) WireFeedContext]))
+                                         CxWireFeed]))
+        (ok! (post handler :assert [(list dog Muffet) CxWireFeed]))
         ;; and a defeat, so both halves of an event cross the wire: known-true content
         ;; takes the default conclusion out of belief with its record left standing
-        (ok! (post handler :assert [(list 'not (list barks Muffet)) WireFeedContext
+        (ok! (post handler :assert [(list 'not (list barks Muffet)) CxWireFeed
                                     {:strength :monotonic}]))
         (let [{:keys [events lagged]} (ok! (post handler :poll [token 0]))]
           (is (zero? lagged))
@@ -117,10 +117,10 @@
                       (mapcat :believed-removed events)))))))))
 
 (tu/deftest-kb the-cursor-advances-and-never-repeats-an-event
-  (tu/with-terms [dog Muffet Rex WireFeedContext]
+  (tu/with-terms [dog Muffet Rex CxWireFeed]
     (let [handler (open-app kb)
           {:keys [token]} (ok! (post handler :watch []))]
-      (ok! (post handler :assert [(list dog Muffet) WireFeedContext]))
+      (ok! (post handler :assert [(list dog Muffet) CxWireFeed]))
       (let [first-poll (ok! (post handler :poll [token 0]))]
         (is (= 1 (count (:events first-poll))))
         (is (= 1 (:cursor first-poll)))
@@ -128,7 +128,7 @@
           (let [again (ok! (post handler :poll [token (:cursor first-poll)]))]
             (is (empty? (:events again)))
             (is (= 1 (:cursor again)))))
-        (ok! (post handler :assert [(list dog Rex) WireFeedContext]))
+        (ok! (post handler :assert [(list dog Rex) CxWireFeed]))
         (testing "and the next write picks up exactly where it left off"
           (let [next-poll (ok! (post handler :poll [token (:cursor first-poll)]))]
             (is (= [(list dog Rex)]
@@ -139,14 +139,14 @@
   ;; The wire subscription is `core/watch`'s standing query with a cursor bolted on, so
   ;; what has to hold is that the filter survives the trip: an unrelated write is
   ;; silence, and a matching one arrives with the solution that matched.
-  (tu/with-terms [dog animal cat Muffet Tom WireFeedContext]
+  (tu/with-terms [dog animal cat Muffet Tom CxWireFeed]
     (let [handler (open-app kb)]
-      (v/assert kb (list 'genl dog animal) WireFeedContext)
-      (let [{:keys [token]} (ok! (post handler :watch [(list animal '?x) WireFeedContext]))]
-        (ok! (post handler :assert [(list cat Tom) WireFeedContext]))
+      (v/assert kb (list 'genl dog animal) CxWireFeed)
+      (let [{:keys [token]} (ok! (post handler :watch [(list animal '?x) CxWireFeed]))]
+        (ok! (post handler :assert [(list cat Tom) CxWireFeed]))
         (is (empty? (:events (ok! (post handler :poll [token 0]))))
             "a write the goal does not answer is silence, not an empty event")
-        (ok! (post handler :assert [(list dog Muffet) WireFeedContext]))
+        (ok! (post handler :assert [(list dog Muffet) CxWireFeed]))
         (let [{:keys [events]} (ok! (post handler :poll [token 0]))
               entry (first (mapcat :believed-added events))]
           (is (= 1 (count events)))
@@ -162,14 +162,14 @@
   ;; stops reading from growing the daemon's heap; a bounded ring that drops silently is
   ;; worse than no feed at all, because the caller believes it is current and has no way
   ;; to find out otherwise.
-  (tu/with-terms [dog WireFeedContext]
+  (tu/with-terms [dog CxWireFeed]
     (let [handler (open-app kb)]
       (with-redefs [sub/max-events 3]
         (let [{:keys [token max-events]} (ok! (post handler :watch []))
               names (mapv #(symbol (str "Lagger" %)) (range 8))]
           (is (= 3 max-events) "the caller is told the depth it has to keep up with")
           (doseq [n names]
-            (ok! (post handler :assert [(list dog n) WireFeedContext])))
+            (ok! (post handler :assert [(list dog n) CxWireFeed])))
           (let [{:keys [events cursor lagged]} (ok! (post handler :poll [token 0]))]
             (is (= 8 cursor) "the cursor counts every event, dropped ones included")
             (is (= 3 (count events)) "the ring held its bound and no more")
@@ -184,13 +184,13 @@
               (is (zero? (:lagged r))))))))))
 
 (tu/deftest-kb an-abandoned-subscription-holds-a-bounded-ring-and-then-is-reaped
-  (tu/with-terms [dog WireFeedContext]
+  (tu/with-terms [dog CxWireFeed]
     (let [handler (open-app kb)]
       (with-redefs [sub/max-events 4]
         (let [{:keys [token]} (ok! (post handler :watch []))]
           (dotimes [i 40]
             (ok! (post handler :assert [(list dog (symbol (str "Gone" i)))
-                                        WireFeedContext])))
+                                        CxWireFeed])))
           (testing "forty events into a subscriber that never reads, the daemon holds four"
             (let [[held] (ok! (post handler :watchers []))]
               (is (= 4 (:pending held)))
@@ -211,18 +211,18 @@
 ;;; ── the refusals ───────────────────────────────────────────────────────
 
 (tu/deftest-kb a-goal-refused-in-process-is-refused-on-the-wire-the-same-way
-  (tu/with-terms [dog cat Muffet WireFeedContext]
+  (tu/with-terms [dog cat Muffet CxWireFeed]
     (let [handler (open-app kb)]
       (doseq [[label goal] [["a conjunction"  [(list dog '?x) (list cat '?y)]]
                             ["an aggregate"   (list 'agg/count (list dog '?x))]
                             ["unknown"        (list 'unknown (list dog '?x))]
                             ["thereExists"    (list 'thereExists '?x (list dog '?x))]
                             ["an evaluable"   (list 'lessThan '?x 3)]
-                            ["an ist"         (list 'ist WireFeedContext (list dog '?x))]]]
+                            ["an ist"         (list 'ist CxWireFeed (list dog '?x))]]]
         (testing label
           (let [in-process (is (thrown? clojure.lang.ExceptionInfo
-                                        (v/watch kb goal WireFeedContext (fn [_]))))
-                remote     (post handler :watch [goal WireFeedContext])]
+                                        (v/watch kb goal CxWireFeed (fn [_]))))
+                remote     (post handler :watch [goal CxWireFeed])]
             (is (= :not-watchable (:type (ex-data in-process))) label)
             (is (= :not-watchable (:type remote)) label)
             (is (= 400 (:status remote)) label))))
@@ -235,10 +235,10 @@
         (is (empty? (ok! (post handler :watchers []))))))))
 
 (tu/deftest-kb the-feed-refusals-are-a-status-and-a-type-like-every-other
-  (tu/with-terms [dog Muffet WireFeedContext]
+  (tu/with-terms [dog Muffet CxWireFeed]
     (let [handler (open-app kb)
           {:keys [token]} (ok! (post handler :watch []))]
-      (ok! (post handler :assert [(list dog Muffet) WireFeedContext]))
+      (ok! (post handler :assert [(list dog Muffet) CxWireFeed]))
       (doseq [[label reply ty]
               [["a token naming no subscription"  (post handler :poll [4200 0])
                 :unknown-subscription]
@@ -303,7 +303,7 @@
   ;; its wait — a feature about liveness turned into a global stall.  Two things are
   ;; asserted, and they are different claims: the write *returns* while the poll is still
   ;; parked, and the poll then wakes with what the write moved rather than timing out.
-  (tu/with-terms [dog Muffet WireFeedContext]
+  (tu/with-terms [dog Muffet CxWireFeed]
     (let [handler  (open-app kb)
           {:keys [token]} (ok! (post handler :watch []))
           polled   (promise)
@@ -315,7 +315,7 @@
       @parked
       ;; the poll is parked (or about to be); the write must not wait behind it
       (let [began (System/currentTimeMillis)
-            _     (ok! (post handler :assert [(list dog Muffet) WireFeedContext]))
+            _     (ok! (post handler :assert [(list dog Muffet) CxWireFeed]))
             took  (- (System/currentTimeMillis) began)]
         (is (< took 5000)
             (str "the write took " took "ms — a parked poll is holding the daemon's "
@@ -374,11 +374,11 @@
   ;; inheritance is real rather than assumed.  A preview through a feed would send a
   ;; change and then its exact reverse; a recover would hand a reconnecting client the
   ;; whole KB as newly believed.
-  (tu/with-terms [dog Muffet Rex WireFeedContext]
+  (tu/with-terms [dog Muffet Rex CxWireFeed]
     (let [handler (open-app kb)]
-      (v/assert kb (list dog Muffet) WireFeedContext)
+      (v/assert kb (list dog Muffet) CxWireFeed)
       (let [{:keys [token]} (ok! (post handler :watch []))]
-        (ok! (post handler :preview [{:add [[(list dog Rex) WireFeedContext]]}]))
+        (ok! (post handler :preview [{:add [[(list dog Rex) CxWireFeed]]}]))
         (is (empty? (:events (ok! (post handler :poll [token 0]))))
             "a preview stores, reads and takes it all back — a feed through one reports
              a change and then its reverse")
@@ -393,11 +393,11 @@
   ;; The registry is per handler, beside the monitor, and this is what that means: a
   ;; token means nothing to the daemon that did not issue it.  Answered rather than
   ;; refused, it would hand one caller another's feed.
-  (tu/with-terms [dog Muffet WireFeedContext]
+  (tu/with-terms [dog Muffet CxWireFeed]
     (let [a (open-app kb)
           b (open-app kb)
           {:keys [token]} (ok! (post a :watch []))]
-      (ok! (post a :assert [(list dog Muffet) WireFeedContext]))
+      (ok! (post a :assert [(list dog Muffet) CxWireFeed]))
       (is (= 1 (count (:events (ok! (post a :poll [token 0]))))))
       (is (= :unknown-subscription (:type (post b :poll [token 0])))
           "b never issued this token, so it refuses it rather than guessing")
@@ -424,7 +424,7 @@
   ;; The one full loop: `vaelii.client`'s three wrappers against a real daemon, which is
   ;; what proves the long poll's read timeout is extended to cover the wait — a claim the
   ;; in-process handler cannot make, because there is no socket to time out.
-  (tu/with-terms [dog animal Muffet Rex WireFeedContext]
+  (tu/with-terms [dog animal Muffet Rex CxWireFeed]
     (let [^Server server (serve/start kb {:port 0 :token nil})]
       (try
         (let [conn (vc/client "localhost" (serve/port server) {:token nil :timeout-ms 2000})
@@ -433,7 +433,7 @@
           (is (zero? cursor))
           (is (= sub/max-events max-events))
           (testing "a write and the poll that reports it"
-            (vc/assert conn (list dog Muffet) WireFeedContext)
+            (vc/assert conn (list dog Muffet) CxWireFeed)
             (let [{:keys [events cursor lagged]} (vc/poll conn token 0)]
               (is (zero? lagged))
               (is (= 1 cursor))
@@ -447,9 +447,9 @@
                   "it waited the whole time rather than failing at the conn's timeout")
               (is (empty? (:events r)))))
           (testing "a standing query over the socket, with its bindings"
-            (vc/assert conn (list 'genl dog animal) WireFeedContext)
-            (let [{q :token} (vc/watch conn (list animal '?x) WireFeedContext)]
-              (vc/assert conn (list dog Rex) WireFeedContext)
+            (vc/assert conn (list 'genl dog animal) CxWireFeed)
+            (let [{q :token} (vc/watch conn (list animal '?x) CxWireFeed)]
+              (vc/assert conn (list dog Rex) CxWireFeed)
               (let [{:keys [events]} (vc/poll conn q 0)]
                 (is (= [{'?x Rex}] (map :bindings (mapcat :believed-added events)))))
               (testing "watchers names both, and unwatch takes them down"
@@ -484,7 +484,7 @@
           (is (= [] (:events r)))
           (is (= 0 (:lagged r)))))
       (testing "and neither is one whose events are already there, since it will not block"
-        (v/assert kb (list 'genlContext 'TmpWaitContext 'UniverseContext) 'UniverseContext)
+        (v/assert kb (list 'genlCx 'CxTmpWait 'CxUniverse) 'CxUniverse)
         (let [r (ok! (post handler :poll [token 0 {:wait-ms 5000}]))]
           (is (seq (:events r)) "the wait was never entered, so no permit was wanted"))))))
 

@@ -19,19 +19,19 @@
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.duration DurationProver]))
 
-;; a fresh KB per test: the CoreContext grammar, MeasureContext (the measure structural NATs and
+;; a fresh KB per test: the CxCore grammar, CxMeasure (the measure structural NATs and
 ;; the dimensionOf / conversionFactor table the magnitudes normalize through),
-;; TimeContext (the interval relations plus length / totalDuration / overlapDuration),
+;; CxTime (the interval relations plus length / totalDuration / overlapDuration),
 ;; and the prover registered — it is opt-in, so registering it is what turns stored
 ;; lengths into arithmetic.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'MeasureContext "upper")
-                        (seed/load-context 'TimeContext "upper")
+                        (seed/load-context 'CxMeasure "upper")
+                        (seed/load-context 'CxTime "upper")
                         (v/add-prover (dur/duration-prover)))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 (defn- load-time-units
   "Three units of one dimension, all converting direct to Second — the direct-to-base
@@ -129,10 +129,10 @@
 
 (tu/deftest-kb the-same-length-said-twice-is-still-one-length
   (load-time-units kb)
-  (tu/with-terms [A B InnerContext]
-    (v/assert kb (list 'genlContext InnerContext C) C)
+  (tu/with-terms [A B CxInner]
+    (v/assert kb (list 'genlCx CxInner C) C)
     (v/assert kb (list 'length A '(QuantityFn 2 Hour)) C)
-    (v/assert kb (list 'length A '(QuantityFn 120 Minute)) InnerContext)
+    (v/assert kb (list 'length A '(QuantityFn 120 Minute)) CxInner)
     (v/assert kb (list 'length B '(QuantityFn 30 Minute)) C)
     (testing "duplicates collapse once normalized, whether restated or reworded, so a
               redundant fact does not read as a disagreement"
@@ -141,19 +141,19 @@
 
 (tu/deftest-kb the-lengths-are-read-under-belief-and-visibility
   (load-time-units kb)
-  (tu/with-terms [A B InnerContext]
-    (v/assert kb (list 'genlContext InnerContext C) C)
+  (tu/with-terms [A B CxInner]
+    (v/assert kb (list 'genlCx CxInner C) C)
     (v/assert kb (list 'length A '(QuantityFn 2 Hour)) C)
-    (v/assert kb (list 'length B '(QuantityFn 30 Minute)) InnerContext)
+    (v/assert kb (list 'length B '(QuantityFn 30 Minute)) CxInner)
     (testing "the inner context sees both lengths"
       (is (= '(QuantityFn 9000 Second)
-             (get (first (v/ask kb (list 'totalDuration (list 'list A B) '?d) InnerContext))
+             (get (first (v/ask kb (list 'totalDuration (list 'list A B) '?d) CxInner))
                   '?d))))
     (testing "the outer sees only its own, so the total has a component it cannot read"
       (is (empty? (v/ask kb (list 'totalDuration (list 'list A B) '?d) C))))
     (testing "retracting a length takes the total with it"
-      (v/retract! kb (v/handle-of kb (list 'length B '(QuantityFn 30 Minute)) InnerContext))
-      (is (empty? (v/ask kb (list 'totalDuration (list 'list A B) '?d) InnerContext))))))
+      (v/retract! kb (v/handle-of kb (list 'length B '(QuantityFn 30 Minute)) CxInner))
+      (is (empty? (v/ask kb (list 'totalDuration (list 'list A B) '?d) CxInner))))))
 
 ;; ---- overlap-bounds, without a KB ----------------------------------------
 
@@ -380,7 +380,7 @@
 (tu/deftest-kb the-list-of-components-is-one-argument
   ;; the declared arity is what a stored sentence is held to, so it has to agree with the
   ;; shape the prover reads: `(totalDuration (list …) D)` is binary, the components being
-  ;; a single term, and TimeContext declares it so
+  ;; a single term, and CxTime declares it so
   (load-time-units kb)
   (tu/with-terms [A B]
     (v/assert kb (list 'length A '(QuantityFn 2 Hour)) C)
@@ -432,13 +432,13 @@
   ;; every duration and metric goal in the context threw a raw NumberFormatException
   ;; out of the magnitude arithmetic.  Both doors refuse it before storage; a
   ;; variable magnitude stays legal, since a rule antecedent binds it.
-  (tu/with-terms [lengthOf IvA DurContext]
+  (tu/with-terms [lengthOf IvA CxDur]
     (doseq [s [(list lengthOf IvA (list 'QuantityIntervalFn 0 ##Inf 'Second))
                (list lengthOf IvA (list 'QuantityFn ##NaN 'Second))]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"finite"
-                            (v/assert kb s DurContext))
+                            (v/assert kb s CxDur))
           (pr-str s))
-      (is (= [:not-well-formed] (mapv :type (v/check kb s DurContext))) (pr-str s)))
+      (is (= [:not-well-formed] (mapv :type (v/check kb s CxDur))) (pr-str s)))
     (testing "a variable magnitude is a pattern, not a measure — still legal"
       (is (some? (v/assert-rule kb [(list lengthOf '?i (list 'QuantityFn '?n 'Second))]
-                                (list 'quantifiedInterval '?i) DurContext))))))
+                                (list 'quantifiedInterval '?i) CxDur))))))

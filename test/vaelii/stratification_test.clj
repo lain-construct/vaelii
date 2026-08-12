@@ -47,11 +47,11 @@
   ;; R1 excepts on what R2 concludes; R2 excepts on what R1 concludes.  Neither rule
   ;; is objectionable alone — it is the second one that closes the cycle, and the
   ;; second one is what has to be refused.
-  (tu/with-terms [base p q CycContext]
-    (is (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CycContext)
+  (tu/with-terms [base p q CxCyc]
+    (is (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CxCyc)
         "the first rule is fine: nothing concludes its exception's predicate yet")
     (let [data (refusal kb (except-rule (list p '?x) [(list base '?x)] (list q '?x))
-                        CycContext)]
+                        CxCyc)]
       (testing "the rule closing the cycle is refused, and says so"
         (is (= :not-stratified (:type data))))
       (testing "the refusal names the cycle"
@@ -63,10 +63,10 @@
   ;; One negative edge is enough, however long the positive stretch that closes it:
   ;;   R1 excepts-on r -> R3 concludes r, depends on q -> R2 concludes q, depends on
   ;;   p -> R1 concludes p.
-  (tu/with-terms [base p q r CycContext]
-    (is (v/assert kb (except-rule (list r '?x) [(list base '?x)] (list p '?x)) CycContext))
-    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CycContext))
-    (let [data (refusal kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CycContext)]
+  (tu/with-terms [base p q r CxCyc]
+    (is (v/assert kb (except-rule (list r '?x) [(list base '?x)] (list p '?x)) CxCyc))
+    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CxCyc))
+    (let [data (refusal kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxCyc)]
       (testing "the third rule closes a cycle with one negative edge in it"
         (is (= :not-stratified (:type data)))))))
 
@@ -74,9 +74,9 @@
   ;; The degenerate case: a rule whose exception mentions the predicate it concludes
   ;; is a one-rule cycle.  It is refused on its *first* assert, which is only
   ;; possible because the graph counts the rule being added — it is not stored yet.
-  (tu/with-terms [base p SelfContext]
+  (tu/with-terms [base p CxSelf]
     (let [data (refusal kb (except-rule (list p '?x) [(list base '?x)] (list p '?x))
-                        SelfContext)]
+                        CxSelf)]
       (is (= :not-stratified (:type data))))))
 
 ;; ---- the genl closure is part of the graph -------------------------------
@@ -85,11 +85,11 @@
 ;; graph follows the spec closure the way the re-check trigger does.
 
 (tu/deftest-kb a-cycle-that-closes-only-through-a-genl-subtype-is-refused
-  (tu/with-terms [base flightless penguin p BirdContext]
-    (v/assert kb (list 'genl penguin flightless) BirdContext)
+  (tu/with-terms [base flightless penguin p CxBird]
+    (v/assert kb (list 'genl penguin flightless) CxBird)
     (is (v/assert kb (except-rule (list flightless '?x) [(list base '?x)] (list p '?x))
-                  BirdContext))
-    (let [data (refusal kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) BirdContext)]
+                  CxBird))
+    (let [data (refusal kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxBird)]
       (testing "concluding a *subtype* of the exception's predicate closes the cycle"
         (is (= :not-stratified (:type data)))))))
 
@@ -97,10 +97,10 @@
   ;; The control for the test above: identical rules, no genl edge, and the cycle
   ;; does not exist — so the refusal there is attributable to the subtype and not to
   ;; the shape of the rules.
-  (tu/with-terms [base flightless penguin p BirdContext]
+  (tu/with-terms [base flightless penguin p CxBird]
     (is (v/assert kb (except-rule (list flightless '?x) [(list base '?x)] (list p '?x))
-                  BirdContext))
-    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) BirdContext))))
+                  CxBird))
+    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxBird))))
 
 ;; ---- positive recursion is not a cycle through negation ------------------
 ;; DECISION: "A purely positive cycle is ordinary recursion, which the engine
@@ -117,28 +117,28 @@
               context)))
 
 (tu/deftest-kb direct-positive-recursion-is-accepted
-  (tu/with-terms [path link RecContext]
-    (unrelated-excepted-rule! kb RecContext)
+  (tu/with-terms [path link CxRec]
+    (unrelated-excepted-rule! kb CxRec)
     (testing "a rule whose antecedent is its own consequent's predicate is recursion"
       (is (v/assert kb (vr/rule-sentence [(list path '?x '?y) (list link '?y '?z)]
                                          (list path '?x '?z))
-                    RecContext)))))
+                    CxRec)))))
 
 (tu/deftest-kb mutual-positive-recursion-is-accepted
-  (tu/with-terms [a b MutContext]
-    (unrelated-excepted-rule! kb MutContext)
-    (is (v/assert kb (vr/rule-sentence [(list a '?x)] (list b '?x)) MutContext))
+  (tu/with-terms [a b CxMut]
+    (unrelated-excepted-rule! kb CxMut)
+    (is (v/assert kb (vr/rule-sentence [(list a '?x)] (list b '?x)) CxMut))
     (testing "the rule closing the positive loop is accepted — it crosses no negation"
-      (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) MutContext)))))
+      (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxMut)))))
 
 (tu/deftest-kb a-recursive-rule-may-carry-an-exception-on-something-outside-the-loop
   ;; The negative edge exists and leads out of the cycle rather than around it, so
   ;; the program is stratified: the exception's predicate is concluded by no rule.
-  (tu/with-terms [path link tooLong RecContext]
+  (tu/with-terms [path link tooLong CxRec]
     (is (v/assert kb (except-rule (list tooLong '?x)
                                   [(list path '?x '?y) (list link '?y '?z)]
                                   (list path '?x '?z))
-                  RecContext))))
+                  CxRec))))
 
 ;; ---- a refused rule stores nothing ---------------------------------------
 
@@ -147,12 +147,12 @@
   ;; neutral fixture makes the same claim for the namespace as a whole; this pins it
   ;; to the refusal itself, where a half-stored rule would also leave a stale posting
   ;; in the rule and exception indexes.
-  (tu/with-terms [base p q CycContext]
-    (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CycContext)
+  (tu/with-terms [base p q CxCyc]
+    (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CxCyc)
     (let [before-sx (tu/sentex-ids kb)
           before-dd (tu/justification-ids kb)
           data      (refusal kb (except-rule (list p '?x) [(list base '?x)] (list q '?x))
-                             CycContext)]
+                             CxCyc)]
       (is (= :not-stratified (:type data)))
       (is (= before-sx (tu/sentex-ids kb))    "no sentex was stored")
       (is (= before-dd (tu/justification-ids kb)) "no justification was stored")
@@ -161,4 +161,4 @@
         ;; the rule concluding q is not there (the surviving first rule's *exception*
         ;; legitimately mentions q, so probe the refused rule's own form)
         (is (nil? (v/handle-of kb (vr/rule-sentence [(list base '?x)] (list q '?x))
-                               CycContext)))))))
+                               CxCyc)))))))

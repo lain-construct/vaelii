@@ -106,7 +106,7 @@
   context the entry names**, or nil.
 
   `(ist Ctx S)` is find-or-create in `Ctx`, so an entry
-  `[(ist CriedWolfContext (dog Sneaky)) LionMouseContext]` stores in `CriedWolfContext`
+  `[(ist CxCriedWolf (dog Sneaky)) CxLionMouse]` stores in `CxCriedWolf`
   and the context column a reviewer reads is a lie.  Nothing in the check chain objects —
   the sentence is well-formed and every name in it is legal — so this is checked here,
   where the entry and its intended context are both in hand.
@@ -873,7 +873,7 @@
     :term         the page's term, a symbol (required)
     :message      the reader's instruction (required)
     :context      the context new assertions are filed in.  Defaults to the context most
-                  of the term's own sentexes are in, else `UniverseContext`; the choice is
+                  of the term's own sentexes are in, else `CxUniverse`; the choice is
                   reported back as `:context`
     :provider     a `Provider` (default: the offline stub)
     :num-ctx      the context window to size the request against (default 8192)

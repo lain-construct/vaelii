@@ -5,7 +5,7 @@
   reader in one without asking them to choose a context.
 
   The property that matters is asymmetric visibility, and it is not a permission check:
-  the sandbox hangs below `WellContext`, so `genlContext` — the same relation that decides
+  the sandbox hangs below `CxWell`, so `genlCx` — the same relation that decides
   what any context can see — gives it every shipped type and rule while giving nothing
   shipped a way to look back in. These tests assert both directions, because only having
   half of it is a sandbox that either cannot be used or cannot be trusted."
@@ -31,7 +31,7 @@
     (sandbox/open kb sbx)
     (try
       (testing "it sees the whole shipped spindle, so every type and rule is usable"
-        (doseq [c ['WellContext 'BiologyContext 'UniverseContext 'CoreContext]]
+        (doseq [c ['CxWell 'CxBiology 'CxUniverse 'CxCore]]
           (is (v/sees? kb sbx c) (str "the sandbox should see " c))))
       (testing "and nothing sees it — no shipped context, and no other sandbox"
         (is (empty? (into [] (comp (remove #{sbx}) (filter #(v/sees? kb % sbx)))
@@ -39,7 +39,7 @@
       (testing "a shipped type is usable from inside, and the shipped rule fires there"
         (v/assert kb '(living_thing SandboxRufus) sbx)
         (is (v/ask? kb '(mortal SandboxRufus) sbx)
-            "BiologyContext's default rule reached content in the sandbox")
+            "CxBiology's default rule reached content in the sandbox")
         (testing "and the conclusion was placed in the sandbox, not in the rule's context"
           (is (= sbx (:context (first (v/sentexes-matching kb '(mortal SandboxRufus) '?ctx)))))))
       (finally (sandbox/reset! kb sbx)))))
@@ -54,7 +54,7 @@
       (try
         (is (sandbox/live? kb sbx))
         (is (= 1 (- (count (tu/sentex-ids kb)) (count before)))
-            "exactly one sentex: the genlContext edge that makes it a context")
+            "exactly one sentex: the genlCx edge that makes it a context")
         (finally (sandbox/reset! kb sbx))))))
 
 (tu/deftest-kb opening-twice-is-the-same-sandbox
@@ -117,7 +117,7 @@
   (let [tokens (repeatedly 200 sandbox/mint-token)]
     (is (= 200 (count (set tokens))) "tokens are distinct")
     (is (= 200 (count (set (map sandbox/context-for tokens)))) "and so are their contexts")
-    (is (every? #(re-matches #"Sandbox[0-9a-f]+Context" (str %))
+    (is (every? #(re-matches #"CxSandbox[0-9a-f]+" (str %))
                 (map sandbox/context-for tokens))
         "each is a well-formed context name")))
 
@@ -125,7 +125,7 @@
   (testing "the token is interpolated into a symbol, so an unvalidated one is an
             injection — a crafted cookie naming a shipped context would make the assert
             form write straight into the ontology"
-    (doseq [bad ["WellContext" "../../etc" "abc" "" "0123456789abcdef0123456789abcdef0"
+    (doseq [bad ["CxWell" "../../etc" "abc" "" "0123456789abcdef0123456789abcdef0"
                  "Universe" "deadbeefZZZZ"]]
       (is (nil? (sandbox/context-for bad)) (str "refused: " (pr-str bad)))))
   (testing "and a token we did mint is accepted"
@@ -151,7 +151,7 @@
       (is (= before (tu/sentex-ids kb))))
     (testing "the context field is pre-filled with the sandbox, so the safe thing is the
               default rather than a choice the reader has to know to make"
-      (is (re-find #"id=\"assert-ctx\"[^>]*value=\"Sandbox[0-9a-f]+Context\"" (:body r))))
+      (is (re-find #"id=\"assert-ctx\"[^>]*value=\"CxSandbox[0-9a-f]+\"" (:body r))))
     (testing "a returning request keeps the same sandbox rather than being handed a new one"
       (let [c  (cookie-of r)
             r2 (app {:request-method :get :uri "/assert" :headers {"cookie" c}})]
@@ -163,7 +163,7 @@
         before (tu/sentex-ids kb)
         r      (app {:request-method :get :uri "/assert" :headers {}})
         cookie (cookie-of r)
-        sbx    (second (re-find #"value=\"(Sandbox[0-9a-f]+Context)\"" (:body r)))
+        sbx    (second (re-find #"value=\"(CxSandbox[0-9a-f]+)\"" (:body r)))
         hdrs   {"cookie" cookie "host" "localhost:3000"}
         post   #(app {:request-method :post :uri %1 :params %2 :headers hdrs})]
     (testing "the first write brings the context into being and the rules run in it"
@@ -185,7 +185,7 @@
         before (tu/sentex-ids kb)
         open   (fn [] (let [r (app {:request-method :get :uri "/assert" :headers {}})]
                         {:cookie (cookie-of r)
-                         :ctx    (second (re-find #"value=\"(Sandbox[0-9a-f]+Context)\"" (:body r)))}))
+                         :ctx    (second (re-find #"value=\"(CxSandbox[0-9a-f]+)\"" (:body r)))}))
         a      (open)
         b      (open)]
     (is (not= (:ctx a) (:ctx b)) "two readers of one process are not in one sandbox")

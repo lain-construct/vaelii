@@ -21,8 +21,8 @@
   (is (= '(parentOf Tom Bob)
          (res/substitute '(?pred . ?args) '{?pred parentOf ?args (Tom Bob)})))
   (testing "nested inside another form"
-    (is (= '(ist UniverseContext (parentOf Tom Bob))
-           (res/substitute '(ist UniverseContext (?pred . ?args))
+    (is (= '(ist CxUniverse (parentOf Tom Bob))
+           (res/substitute '(ist CxUniverse (?pred . ?args))
                            '{?pred parentOf ?args (Tom Bob)})))))
 
 (deftest ordinary-unify-unaffected

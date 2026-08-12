@@ -189,7 +189,7 @@ Six readings come out, and they answer different questions:
   conclusion has no antecedent either, and re-asserting one as a premise is refused by the
   checks the rule was allowed to conclude past.
 
-  Two samples, and the split is the arm's whole reading. A `genl` or `genlContext`
+  Two samples, and the split is the arm's whole reading. A `genl` or `genlCx`
   sentence *is* a taxonomy edge, so churning one moves the cached closures
   ([taxonomy.md](taxonomy.md)) rather than the trie under it — on the OpenCyc conversion
   `genl` is the largest predicate of the 7,550 and the two are a fifth of everything
@@ -354,7 +354,7 @@ drives the same layout table.
 
 In the harness's own namespace docstring, at more length. A read-only workload cannot see
 a layout that moves cost to the write path; every probe is asked at `?ctx`, so nothing
-walks the `genlContext` up-closure; the term index and the term roster are read by
+walks the `genlCx` up-closure; the term index and the term roster are read by
 `terms` / `find-terms` / `find-sentexes` and by no reasoning at all, so a layout that
 moves them shows up as bytes and as nothing else; the q-error arm's corpus is 1:1, where a
 correct estimator scores exactly 1.00, so it fails a layout rather than ranking one; and a

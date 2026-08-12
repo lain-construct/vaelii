@@ -59,31 +59,31 @@ Both backward chainers thread one binding map down a derivation path and hand it
   ;; instance's ?x has to be the child where the first's was the grandchild.  Sharing
   ;; the name asks unify to make them equal, which fails, and the query answers only at
   ;; distance one.
-  (tu/with-terms [parentOf anc ChainContext]
+  (tu/with-terms [parentOf anc CxChain]
     (let [n (fn [i] (symbol (str "ChainN" i)))]
       (doseq [i (range 4)]
-        (v/assert kb (list parentOf (n i) (n (inc i))) ChainContext))
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) ChainContext
+        (v/assert kb (list parentOf (n i) (n (inc i))) CxChain))
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxChain
                      {:direction :backward})
       (v/assert-rule kb [(list parentOf '?x '?y) (list anc '?y '?z)] (list anc '?x '?z)
-                     ChainContext {:direction :backward})
+                     CxChain {:direction :backward})
       (testing "the whole ancestor chain, not just the parent"
-        (agree kb (list anc (n 0) '?z) ChainContext '?z
+        (agree kb (list anc (n 0) '?z) CxChain '?z
                (set (map n (range 1 5)))))
       (testing "and read from the other end"
-        (agree kb (list anc '?x (n 4)) ChainContext '?x
+        (agree kb (list anc '?x (n 4)) CxChain '?x
                (set (map n (range 0 4))))))))
 
 (tu/deftest-kb a-left-recursive-rule-meets-itself-too
-  (tu/with-terms [parentOf lanc LeftContext]
+  (tu/with-terms [parentOf lanc CxLeft]
     (let [n (fn [i] (symbol (str "LeftN" i)))]
       (doseq [i (range 4)]
-        (v/assert kb (list parentOf (n i) (n (inc i))) LeftContext))
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list lanc '?x '?z) LeftContext
+        (v/assert kb (list parentOf (n i) (n (inc i))) CxLeft))
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list lanc '?x '?z) CxLeft
                      {:direction :backward})
       (v/assert-rule kb [(list lanc '?x '?y) (list parentOf '?y '?z)] (list lanc '?x '?z)
-                     LeftContext {:direction :backward})
-      (agree kb (list lanc (n 0) '?z) LeftContext '?z (set (map n (range 1 5)))))))
+                     CxLeft {:direction :backward})
+      (agree kb (list lanc (n 0) '?z) CxLeft '?z (set (map n (range 1 5)))))))
 
 (tu/deftest-kb an-inner-rules-variable-does-not-bind-an-outer-rules-sibling
   ;; The outer rule's second conjunct is still unsolved when the first is expanded, so
@@ -91,78 +91,78 @@ Both backward chainers thread one binding map down a derivation path and hand it
   ;; one more variable than the goal asked about (an existential in its antecedent)
   ;; occupies the very same canonical slot.  Merging its answer whole binds the outer
   ;; conjunct's ?var2 to the existential's value, and the conjunct then matches nothing.
-  (tu/with-terms [linkA linkB reach side ReachContext]
+  (tu/with-terms [linkA linkB reach side CxReach]
     (tu/with-terms [Start Middle Target Existential]
       (v/assert-rule kb [(list linkA '?a '?b) (list linkB '?b '?c)] (list reach '?a '?c)
-                     ReachContext {:direction :backward})
-      (v/assert-rule kb [(list side '?p '?q '?r)] (list linkA '?p '?q) ReachContext
+                     CxReach {:direction :backward})
+      (v/assert-rule kb [(list side '?p '?q '?r)] (list linkA '?p '?q) CxReach
                      {:direction :backward})
-      (v/assert kb (list side Start Middle Existential) ReachContext)
-      (v/assert kb (list linkB Middle Target) ReachContext)
-      (agree kb (list reach Start '?c) ReachContext '?c #{Target}))))
+      (v/assert kb (list side Start Middle Existential) CxReach)
+      (v/assert kb (list linkB Middle Target) CxReach)
+      (agree kb (list reach Start '?c) CxReach '?c #{Target}))))
 
 (tu/deftest-kb a-query-may-use-the-names-stored-rules-are-spelled-with
   ;; Nothing stops a caller writing ?var0 / ?var1, and a rule's consequent is stored in
   ;; exactly those.  Crossed over, the two are asked to unify with each other, and the
   ;; occurs check — correctly — refuses the cycle, so the rule does not fire at all.
-  (tu/with-terms [edgeX hopX HopContext]
+  (tu/with-terms [edgeX hopX CxHop]
     (tu/with-terms [HopFrom HopTo]
-      (v/assert kb (list edgeX HopFrom HopTo) HopContext)
-      (v/assert-rule kb [(list edgeX '?m '?n)] (list hopX '?m '?n) HopContext
+      (v/assert kb (list edgeX HopFrom HopTo) CxHop)
+      (v/assert-rule kb [(list edgeX '?m '?n)] (list hopX '?m '?n) CxHop
                      {:direction :backward})
       (testing "straight through"
-        (agree kb (list hopX HopFrom '?var1) HopContext '?var1 #{HopTo}))
+        (agree kb (list hopX HopFrom '?var1) CxHop '?var1 #{HopTo}))
       (testing "crossed over — the goal's ?var1 sits where the rule's ?var0 does"
-        (agree kb (list hopX '?var1 '?var0) HopContext '?var1 #{HopFrom})
-        (agree kb (list hopX '?var1 '?var0) HopContext '?var0 #{HopTo})))))
+        (agree kb (list hopX '?var1 '?var0) CxHop '?var1 #{HopFrom})
+        (agree kb (list hopX '?var1 '?var0) CxHop '?var0 #{HopTo})))))
 
 (tu/deftest-kb an-exception-still-blocks-a-renamed-instance
   ;; A guard reads the rule's *own* variable names out of the completed bindings, so a
   ;; renamed instance has to bind them back before asking.  A guard that stopped firing
   ;; under renaming would be an exception that silently lapsed at depth.
-  (tu/with-terms [parentOf anc estranged GuardContext]
+  (tu/with-terms [parentOf anc estranged CxGuard]
     (tu/with-terms [GuardA GuardB GuardC]
-      (v/assert kb (list parentOf GuardA GuardB) GuardContext)
-      (v/assert kb (list parentOf GuardB GuardC) GuardContext)
-      (v/assert kb (list estranged GuardB) GuardContext)
+      (v/assert kb (list parentOf GuardA GuardB) CxGuard)
+      (v/assert kb (list parentOf GuardB GuardC) CxGuard)
+      (v/assert kb (list estranged GuardB) CxGuard)
       (v/assert kb (list 'exceptWhen (list estranged '?x)
                          (list 'set/defaultRule
                                (list 'implies (list parentOf '?x '?z) (list anc '?x '?z))))
-                GuardContext)
+                CxGuard)
       (v/assert-rule kb [(list parentOf '?x '?y) (list anc '?y '?z)] (list anc '?x '?z)
-                     GuardContext {:direction :backward})
+                     CxGuard {:direction :backward})
       (testing "the base rule is blocked for the estranged parent at every depth"
         ;; GuardA reaches GuardB by the base rule; the recursive rule would take it on
         ;; to GuardC through (anc GuardB ?z), and *that* firing of the base rule is the
         ;; excepted one.
-        (agree kb (list anc GuardA '?z) GuardContext '?z #{GuardB})
-        (agree kb (list anc GuardB '?z) GuardContext '?z #{})))))
+        (agree kb (list anc GuardA '?z) CxGuard '?z #{GuardB})
+        (agree kb (list anc GuardB '?z) CxGuard '?z #{})))))
 
 (tu/deftest-kb renaming-is-deterministic
   ;; The renamed variables reach the caller — `prove` returns raw binding maps — so a
   ;; gensym would make the same query answer differently on every run, in an engine
   ;; whose contract is that it does not.
-  (tu/with-terms [parentOf anc DetContext]
+  (tu/with-terms [parentOf anc CxDet]
     (let [n (fn [i] (symbol (str "DetN" i)))]
       (doseq [i (range 3)]
-        (v/assert kb (list parentOf (n i) (n (inc i))) DetContext))
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) DetContext
+        (v/assert kb (list parentOf (n i) (n (inc i))) CxDet))
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxDet
                      {:direction :backward})
       (v/assert-rule kb [(list parentOf '?x '?y) (list anc '?y '?z)] (list anc '?x '?z)
-                     DetContext {:direction :backward})
+                     CxDet {:direction :backward})
       ;; the renamed variables are visible only in the DFS's *raw* binding maps; the
       ;; node engine projects onto the query's variables, so it has none to be
       ;; deterministic about
       (let [goal  (list anc (n 0) '?z)
-            once  (binding [v/*query-engine* :dfs] (set (v/prove kb goal DetContext)))
-            twice (binding [v/*query-engine* :dfs] (set (v/prove kb goal DetContext)))]
+            once  (binding [v/*query-engine* :dfs] (set (v/prove kb goal CxDet)))
+            twice (binding [v/*query-engine* :dfs] (set (v/prove kb goal CxDet)))]
         (is (= once twice) "the same query returned different binding maps"))
       ;; The renamed names are not observable through an engine any more — a solution is
       ;; projected onto the query's own variables — so determinism is asserted where it
       ;; is decided.  A gensym here would give an engine whose contract is order
       ;; independence a different answer on every run of one query.
       (testing "and the renaming behind it is deterministic where it happens"
-        (let [rule  (first (provers/candidate-rules kb (list anc (n 0) '?z) DetContext))
+        (let [rule  (first (provers/candidate-rules kb (list anc (n 0) '?z) CxDet))
               taken '#{?var0 ?var1}
               a     (res/freshen-rule rule taken)
               b     (res/freshen-rule rule taken)]
@@ -179,36 +179,36 @@ Both backward chainers thread one binding map down a derivation path and hand it
   ;; what it was asked — so a solution is cut down to the query's own variables at the
   ;; moment it is finished.  Without that the three engines return three different maps
   ;; for one question, and only `ask` returns the one the asker can read.
-  (tu/with-terms [edgeOf anc ProjContext]
+  (tu/with-terms [edgeOf anc CxProj]
     (tu/with-terms [PjA PjB PjC]
-      (v/assert kb (list edgeOf PjA PjB) ProjContext)
-      (v/assert kb (list edgeOf PjB PjC) ProjContext)
-      (v/assert-rule kb [(list edgeOf '?x '?z)] (list anc '?x '?z) ProjContext
+      (v/assert kb (list edgeOf PjA PjB) CxProj)
+      (v/assert kb (list edgeOf PjB PjC) CxProj)
+      (v/assert-rule kb [(list edgeOf '?x '?z)] (list anc '?x '?z) CxProj
                      {:direction :backward})
       (v/assert-rule kb [(list edgeOf '?x '?y) (list anc '?y '?z)] (list anc '?x '?z)
-                     ProjContext {:direction :backward})
+                     CxProj {:direction :backward})
       (testing "every engine keys its answers by the query's variables and nothing else"
         (doseq [[label f] [["prove" v/prove] ["level 7" level-7-prove]
                            ["node engine" node-prove]]]
-          (let [sols (doall (f kb (list anc PjA '?z) ProjContext))]
+          (let [sols (doall (f kb (list anc PjA '?z) CxProj))]
             (is (seq sols) label)
             (is (every? #(= #{'?z} (set (keys %))) sols)
                 (str label " leaked a variable the asker never wrote: " (pr-str sols))))))
       (testing "and the three of them return the same maps, not merely the same answers"
-        (is (= (set (v/prove kb (list anc PjA '?z) ProjContext))
-               (set (node-prove kb (list anc PjA '?z) ProjContext))
-               (set (level-7-prove kb (list anc PjA '?z) ProjContext))
+        (is (= (set (v/prove kb (list anc PjA '?z) CxProj))
+               (set (node-prove kb (list anc PjA '?z) CxProj))
+               (set (level-7-prove kb (list anc PjA '?z) CxProj))
                #{{'?z PjB} {'?z PjC}})))
       (testing "a ground query asks about no variables, so it answers with an empty map"
-        (is (= [{}] (v/prove kb (list anc PjA PjC) ProjContext)))
-        (is (= [{}] (vec (node-prove kb (list anc PjA PjC) ProjContext)))))
+        (is (= [{}] (v/prove kb (list anc PjA PjC) CxProj)))
+        (is (= [{}] (vec (node-prove kb (list anc PjA PjC) CxProj)))))
       (testing "a query that writes the canonical names is asking about them"
         ;; `?var0` is a spelling, not a reservation: a variable belongs to whoever
         ;; wrote it, and a query using the rules' own names must still be answered.
         (is (= #{{'?var1 PjA '?var0 PjB} {'?var1 PjB '?var0 PjC} {'?var1 PjA '?var0 PjC}}
-               (set (v/prove kb (list anc '?var1 '?var0) ProjContext)))))
+               (set (v/prove kb (list anc '?var1 '?var0) CxProj)))))
       (testing "a bounded run projects too, and resuming it keeps the projection"
-        (let [r (v/prove-within kb (list anc PjA '?z) ProjContext {:max-results 1})]
+        (let [r (v/prove-within kb (list anc PjA '?z) CxProj {:max-results 1})]
           (is (= :capped (:status r)))
           (is (= #{{'?z PjB} {'?z PjC}}
                  (into (set (:results r)) (:results (v/resume r {}))))))))))

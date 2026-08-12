@@ -62,7 +62,7 @@
 
 (tu/deftest-kb every-pattern-shape-finds-what-is-stored
   (tu/with-terms [dog cat parentOf rel bornIn note
-                  Muffet Rex Tom Sam Ann Bob Cid A B C X ProbeContext]
+                  Muffet Rex Tom Sam Ann Bob Cid A B C X CxProbe]
     (let [facts [(list dog Muffet) (list dog Rex) (list cat Tom)
                  (list parentOf Ann Bob) (list parentOf Bob Cid) (list parentOf Ann Cid)
                  (list rel A B C) (list rel A X C)
@@ -86,24 +86,24 @@
                   (list 'not (list parentOf Cid '?y)) ; ground arg in a LEFT PREFIX
                   (list 'not (list '?p '?x))          ; nothing pinned at all
                   (list 'not (list '?p Tom))]]
-      (v/assert-many kb facts ProbeContext {:strength :monotonic})
+      (v/assert-many kb facts CxProbe {:strength :monotonic})
       (doseq [[label bindings]
               [["default" {}]
                ["hierarchical off" {#'res/*hierarchical-retrieval* false}]
                ["argument roots off" {#'res/*arg-root-retrieval* false}]]]
         (with-bindings bindings
-          (doseq [pat shapes, ctx [ProbeContext '?ctx]]
+          (doseq [pat shapes, ctx [CxProbe '?ctx]]
             (let [b (brute kb pat ctx)
                   g (got kb pat ctx)]
               (is (= b g)
                   (str label " lost " (pr-str (set/difference b g))
                        " on " (pr-str pat) " @ " ctx))))))
       (testing "the negative shapes are not vacuously equal — they do match something"
-        (is (= 2 (count (got kb (list 'not (list dog '?x)) ProbeContext))))
-        (is (= 1 (count (got kb (list 'not (list parentOf Cid '?y)) ProbeContext))))
+        (is (= 2 (count (got kb (list 'not (list dog '?x)) CxProbe))))
+        (is (= 1 (count (got kb (list 'not (list parentOf Cid '?y)) CxProbe))))
         ;; two, not three: this pattern is *unary*, so the stored binary
         ;; `(not (parentOf Cid Ann))` does not unify with it
-        (is (= 2 (count (got kb (list 'not (list '?p '?x)) ProbeContext)))))
+        (is (= 2 (count (got kb (list 'not (list '?p '?x)) CxProbe)))))
       (testing "and the public query answers them too"
-        (is (= 2 (count (v/sentexes-matching kb (list 'not (list dog '?x)) ProbeContext))))
-        (is (= 1 (count (v/sentexes-matching kb (list 'not (list parentOf Cid '?y)) ProbeContext))))))))
+        (is (= 2 (count (v/sentexes-matching kb (list 'not (list dog '?x)) CxProbe))))
+        (is (= 1 (count (v/sentexes-matching kb (list 'not (list parentOf Cid '?y)) CxProbe))))))))

@@ -127,7 +127,7 @@
     read-only.  Build time is the only write reading, and it is one number for a whole
     corpus rather than a per-family count: `assert_cost_test` is the instrument for that.
   * **What the context cone costs.**  Every probe is asked at `?ctx`, so the
-    `genlContext` up-closure is never walked.  A layout question about the context level
+    `genlCx` up-closure is never walked.  A layout question about the context level
     is not answered by these numbers.
   * **Allocations, objects and bytes on the walk.**  Retrieval time is wall-clock, and
     wall-clock is the reading docs/density.md declines to trust under contention, so the
@@ -811,7 +811,7 @@
       (println "  * allocations and bytes on the walk — vaelii.bench.alloc, which drives these")
       (println "    same layouts through #'vaelii.bench.index/layouts.")
       (println "  * the context cone: every probe is asked at ?ctx, so nothing here walks the")
-      (println "    genlContext up-closure.")
+      (println "    genlCx up-closure.")
       (println "  * a family this workload never reads.  The term index and the term roster are")
       (println "    read by terms / find-terms / find-sentexes and by no reasoning at all, so a")
       (println "    layout that moves them shows up here as bytes and as nothing else.")

@@ -73,7 +73,7 @@ See [naf.md](naf.md).
 The exception is **any closed level-6 query** once the rule's bindings are
 substituted in — see [levels.md](levels.md). Level 6 (`:solved`) is the full prover
 stack *minus* rule backchaining, so an exception may reach through genl
-specificity, the genlContext visibility closure, transitive/symmetric/inverse
+specificity, the genlCx visibility closure, transitive/symmetric/inverse
 metadata, disjointness, and evaluable arithmetic.
 
 Two properties make this affordable:
@@ -229,7 +229,7 @@ firings are filtered before a single query is paid for:
 
 **Every "cannot tell" answers keep.** A literal that is not flat and ground, a nested
 subterm, a predicate whose truth a level-6 prover can derive from *different* arguments
-(the `genl`/`genlContext` closures, disjointness, anything declared transitive or
+(the `genl`/`genlCx` closures, disjointness, anything declared transitive or
 reflexive or holding an inverse, anything with a **preserved argument position**, the
 evaluables) — each of those skips the filter and keeps every candidate. A spurious
 re-check costs one query; a missed one is a conclusion that should have been swept and
@@ -247,7 +247,7 @@ arm of the answer is an index read that the filter's whole claim — that decidi
 touches nothing but memory — does not allow inside the per-firing loop.
 
 **Four paths have no triggering sentence to narrow by**, and all four queue `:all`
-rather than a set of sentences: a `genl`/`genlContext` edge change (the next section), a
+rather than a set of sentences: a `genl`/`genlCx` edge change (the next section), a
 **declaration** whose subject is the exception's predicate ("Four channels" below), an
 **equality** moving the closure (same section), and a rule that has just been indexed. In
 each the sentence that moved — an edge, a `(symmetric P)`, a `(sameAs A B)`, nothing at
@@ -448,7 +448,7 @@ an answer differently.
   What the keying is worth is the alternative: queued on the functor alone, such a rule
   takes `:all`, which is one level-6 query per firing it ever made, on every `genl` edge
   written anywhere in the KB.
-- A **`genlContext`** edge `[sub super]` moves what contexts *see*, and an exception is
+- A **`genlCx`** edge `[sub super]` moves what contexts *see*, and an exception is
   evaluated in its conclusion's placement context — so an exception is affected iff one
   of its rule's firings is placed in `context-down(sub)`. Each excepted rule's firings
   are checked for one, a context lookup apiece and no query. Keyed on where a firing
@@ -462,9 +462,9 @@ an answer differently.
   whatever a widened cone can change always left a firing to find; an aggregate binds a
   **value**, and a census that rises licenses a firing that never existed — no placed
   conclusion, no context to read, nothing for the cone test to match. A count taken in
-  `SubContext` before it inherited `UpContext` would simply stay taken. It is the same
+  `CxSub` before it inherited `CxUp` would simply stay taken. It is the same
   asymmetry the settle loop re-joins a queued aggregate rule for, met the same way, and
-  costs one record fetch per excepted rule on a `genlContext` edge.
+  costs one record fetch per excepted rule on a `genlCx` edge.
 
 Both are gated on the `[:exception-index :rules]` roster being non-empty, so a KB using
 no `exceptWhen` pays one set read per edge and stops — which matters, because that guard
@@ -526,7 +526,7 @@ another, so the sentence could not narrow the right firings anyway.
 
   It keys on the **merged class**, and on the firings rather than the rules: a firing is
   reached when it *binds* a term of the class, which is a set membership apiece and no
-  query — the twin of the `genlContext` trigger's placement test, and asked of the
+  query — the twin of the `genlCx` trigger's placement test, and asked of the
   rule's recorded refusals as well as of its justifications, since a refused firing's
   bindings are recorded too. Three things take the blanket instead. An **aggregate**
   rule, because a census can move with no term the firing names appearing in the merge
@@ -682,7 +682,7 @@ the graph has no negative edge at all and the walk is skipped. That is every rul
 ontology that uses no exceptions, which is most of them. The guard is the KB's whole
 exception index rather than the rule at hand, so **one** exception anywhere ends the
 fast path for everything asserted after it: the bundled starter takes it until
-`BiologyContext`'s `dead` exception loads, and pays the walk from there on. The walk is
+`CxBiology`'s `dead` exception loads, and pays the walk from there on. The walk is
 cheap and the ordering is alphabetical, so this is a cost note, not a limit.
 
 ### A taxonomy edge closes a cycle too
@@ -693,7 +693,7 @@ concluding `penguin` the moment `(genl penguin flightless)` holds, and it does n
 matter which of the three arrived last. Walking on rule assert alone would accept an
 unstratified program silently whenever the **edge** is the newcomer.
 
-So the walk runs on `genl` / `genlContext` assert as well. `checks/edge-negation-cycle`
+So the walk runs on `genl` / `genlCx` assert as well. `checks/edge-negation-cycle`
 takes the coarse route this document already proposed for the re-check trigger, and
 for the same reason — an edge change has no rule and no fact to narrow by:
 
@@ -721,7 +721,7 @@ and stops — which is every `genl` assert in the bundled starter.
 
 The trigger sits on both transitive relations, so the two edge kinds cannot drift
 apart. Today only `genl` can actually move the graph: the dependency graph is over
-**predicates** and mentions no context at all, so a `genlContext` edge adds no graph
+**predicates** and mentions no context at all, so a `genlCx` edge adds no graph
 edge and the walk finds nothing. That is a fact about the current graph rather than a
 missing hook, and the test asserts both halves of it — the check runs, and it accepts.
 
@@ -807,7 +807,7 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
   behind them — that is the only point at which "the argument is now complete" is
   observable.
 - **Triggers.** A fact arriving or leaving queues the rules whose exception mentions
-  its predicate **or any supertype of it**; a `genl`/`genlContext` edge change queues
+  its predicate **or any supertype of it**; a `genl`/`genlCx` edge change queues
   the rules its own closure reaches; a declaration queues the rules whose exception
   mentions its subject predicate. The genl fan-out is not over-caution: an exception
   `(flightless ?b)` is satisfied by a stored `(penguin Opus)` through the spec walk,
@@ -836,7 +836,7 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
   place of it. `stratification_test` covers the two-, three- and one-rule cycles, the
   cycle that closes only through a genl subtype (with the no-genl control), direct
   and mutual positive recursion staying accepted, and the empty teardown.
-- **Stratification on a taxonomy edge.** The same walk runs on `genl` / `genlContext`
+- **Stratification on a taxonomy edge.** The same walk runs on `genl` / `genlCx`
   assert, started at each excepted rule, because the edge is as capable of closing a
   cycle as the rule is. An asserted edge that closes one is **refused** like a cyclic
   `genl`; a *derived* one is dropped and reported in `violations`, since chaining

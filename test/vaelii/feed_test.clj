@@ -21,7 +21,7 @@
     something outside the moved region is refused rather than watched for nothing.
 
   House rules as everywhere: gensym'd temporaries through `tu/with-terms`, engine
-  vocabulary (`genl`, `genlContext`, `set/defaultRule`, `exceptWhen`) literal, and the
+  vocabulary (`genl`, `genlCx`, `set/defaultRule`, `exceptWhen`) literal, and the
   neutral fixture asserts the KB is restored."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -51,22 +51,22 @@
   (tu/with-terms [dog Muffet]
     (let [[seen f] (recorder)]
       (v/watch kb f)
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= 1 (count @seen)) "one settle, one event")
       (is (= [(list dog Muffet)] (added @seen)))
       (is (empty? (removed @seen)))
       (let [e (first (:believed-added (first @seen)))]
-        (is (= 'UniverseContext (:context e)))
+        (is (= 'CxUniverse (:context e)))
         (is (true? (:premise? e)) "an asserted fact is a premise")
-        (is (= (v/handle-of kb (list dog Muffet) 'UniverseContext) (:handle e))
+        (is (= (v/handle-of kb (list dog Muffet) 'CxUniverse) (:handle e))
             "the entry is addressable")))))
 
 (tu/deftest-kb a-derived-conclusion-arrives-with-the-rule-that-derived-it
   (tu/with-terms [dog barks Muffet]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
       (v/watch kb f)
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= 1 (count @seen)))
       (is (= #{(list dog Muffet) (list barks Muffet)} (set (added @seen)))
           "the premise and what followed from it are one event")
@@ -81,21 +81,21 @@
 (tu/deftest-kb nothing-arrives-for-a-mutation-that-moved-no-belief
   (tu/with-terms [dog Muffet cat Tom]
     (let [[seen f] (recorder)]
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (v/watch kb f)
       (testing "re-asserting a stored sentex is not news"
-        (v/assert kb (list dog Muffet) 'UniverseContext)
+        (v/assert kb (list dog Muffet) 'CxUniverse)
         (is (empty? @seen)))
       (testing "...but an unrelated fact is, to a plain listener"
-        (v/assert kb (list cat Tom) 'UniverseContext)
+        (v/assert kb (list cat Tom) 'CxUniverse)
         (is (= [(list cat Tom)] (added @seen)))))))
 
 (tu/deftest-kb a-batch-settles-once-and-is-one-event
   (tu/with-terms [dog barks Muffet Rex Spot]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
       (v/watch kb f)
-      (v/assert-many kb (mapv #(list dog %) [Muffet Rex Spot]) 'UniverseContext)
+      (v/assert-many kb (mapv #(list dog %) [Muffet Rex Spot]) 'CxUniverse)
       (is (= 1 (count @seen)) "three asserts, one settle, one event")
       (is (= 6 (count (added @seen))) "three premises and three conclusions"))))
 
@@ -104,9 +104,9 @@
   ;; tell which one was the KB's.
   (tu/with-terms [dog barks Muffet]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
       (v/watch kb f)
-      (let [report (v/edit-with-consequences! kb {:add [[(list dog Muffet) 'UniverseContext]]})]
+      (let [report (v/edit-with-consequences! kb {:add [[(list dog Muffet) 'CxUniverse]]})]
         (is (= 1 (count @seen)))
         (is (= (set (map :sentence (:believed-added report))) (set (added @seen))))
         (is (= (set (map :sentence (:believed-removed report))) (set (removed @seen))))))))
@@ -116,10 +116,10 @@
 (tu/deftest-kb a-defeat-and-its-revival-both-arrive
   (tu/with-terms [dog barks Muffet]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (v/watch kb f)
-      (let [neg (v/assert kb (list 'not (list barks Muffet)) 'UniverseContext
+      (let [neg (v/assert kb (list 'not (list barks Muffet)) 'CxUniverse
                           {:strength :monotonic})]
         (is (= 1 (count @seen)))
         (is (= [(list barks Muffet)] (removed @seen)) "the default lost to known-true content")
@@ -136,9 +136,9 @@
   ;; through one would send a change and then its exact reverse.
   (tu/with-terms [dog barks Muffet]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
       (v/watch kb f)
-      (let [pv (v/preview kb {:add [[(list dog Muffet) 'UniverseContext]]})]
+      (let [pv (v/preview kb {:add [[(list dog Muffet) 'CxUniverse]]})]
         (is (= 2 (count (:believed-added pv))) "the preview itself still answers")
         (is (empty? @seen) "and the listener heard none of it")))))
 
@@ -146,13 +146,13 @@
   ;; `recover` relabels everything, so a feed through one would hand a reconnecting
   ;; application the whole KB as newly believed.
   (tu/with-terms [dog barks Muffet]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
-    (v/assert kb (list dog Muffet) 'UniverseContext)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+    (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [[seen f] (recorder)]
       (v/watch kb f)
       (v/recover kb)
       (is (empty? @seen))
-      (is (v/ask? kb (list barks Muffet) 'UniverseContext) "the rebuild did happen"))))
+      (is (v/ask? kb (list barks Muffet) 'CxUniverse) "the rebuild did happen"))))
 
 (tu/deftest-kb a-teardown-that-re-derives-what-it-swept-is-still-one-event
   ;; The exception's evidence leaves, so the block lifts, so the conclusion is
@@ -162,27 +162,27 @@
     (v/assert kb (list 'exceptWhen [(list sick '?x)]
                        (list 'set/defaultRule
                              (vr/rule-sentence [(list dog '?x)] (list barks '?x))))
-              'UniverseContext)
-    (v/assert kb (list dog Muffet) 'UniverseContext)
-    (let [h (v/assert kb (list sick Muffet) 'UniverseContext)]
-      (is (not (v/ask? kb (list barks Muffet) 'UniverseContext)) "the exception holds")
+              'CxUniverse)
+    (v/assert kb (list dog Muffet) 'CxUniverse)
+    (let [h (v/assert kb (list sick Muffet) 'CxUniverse)]
+      (is (not (v/ask? kb (list barks Muffet) 'CxUniverse)) "the exception holds")
       (let [[seen f] (recorder)]
         (v/watch kb f)
         (v/retract! kb h)
         (is (= 1 (count @seen)) "one operation, one event")
         (is (= [(list barks Muffet)] (added @seen)))
-        (is (v/ask? kb (list barks Muffet) 'UniverseContext))))))
+        (is (v/ask? kb (list barks Muffet) 'CxUniverse))))))
 
 (tu/deftest-kb a-reindex-fires-nothing-either
   ;; `recover`'s sibling: it rebuilds the index and then recovers, so it relabels
   ;; everything twice over.
   (tu/with-terms [dog Muffet]
-    (v/assert kb (list dog Muffet) 'UniverseContext)
+    (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [[seen f] (recorder)]
       (v/watch kb f)
       (v/reindex kb)
       (is (empty? @seen))
-      (is (v/ask? kb (list dog Muffet) 'UniverseContext) "the rebuild did happen"))))
+      (is (v/ask? kb (list dog Muffet) 'CxUniverse) "the rebuild did happen"))))
 
 (tu/deftest-kb an-inert-sentex-arrives-nowhere
   ;; `assert-inert` stores without making a TMS datum, so there is no label to move and
@@ -190,7 +190,7 @@
   (tu/with-terms [dog Muffet]
     (let [[seen f] (recorder)]
       (v/watch kb f)
-      (let [h (v/assert-inert kb (list dog Muffet) 'UniverseContext)]
+      (let [h (v/assert-inert kb (list dog Muffet) 'CxUniverse)]
         (is (some? h) "it was stored")
         (is (empty? @seen) "and no belief moved, so nothing arrived")
         ;; retracted here rather than by the fixture: an inert sentex is not a premise,
@@ -202,9 +202,9 @@
   ;; A second entry point into a settle, so it must feed too — `assert` is not the only
   ;; door.
   (tu/with-terms [dog barks Muffet]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse
               {:chain? false})
-    (v/assert kb (list dog Muffet) 'UniverseContext {:chain? false})
+    (v/assert kb (list dog Muffet) 'CxUniverse {:chain? false})
     (let [[seen f] (recorder)]
       (v/watch kb f)
       (is (= 1 (:derived (v/forward-chain kb))))
@@ -218,10 +218,10 @@
     (let [[seen f] (recorder)]
       (v/watch kb f)
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/edit! kb {:add [[(list dog Muffet) 'UniverseContext]
-                                      ['(notGround ?x) 'UniverseContext]]})))
+                   (v/edit! kb {:add [[(list dog Muffet) 'CxUniverse]
+                                      ['(notGround ?x) 'CxUniverse]]})))
       (is (empty? @seen) "nothing settled, so nothing was reported")
-      (v/assert kb (list cat Tom) 'UniverseContext)
+      (v/assert kb (list cat Tom) 'CxUniverse)
       (is (= #{(list dog Muffet) (list cat Tom)} (set (added @seen)))
           "and the next settle reports the belief the half-applied batch left behind"))))
 
@@ -232,12 +232,12 @@
   ;; supersedes — an equality merge installs its supersession on the assert path.  So
   ;; neither reports it, `preview` does, and this test is what keeps the two that must
   ;; agree agreeing (and names the third).
-  (tu/with-terms [dog Pref Dep NameContext]
-    (v/assert kb (list dog Pref) NameContext)
+  (tu/with-terms [dog Pref Dep CxName]
+    (v/assert kb (list dog Pref) CxName)
     (let [[seen f] (recorder)]
       (v/watch kb f)
       (let [report (v/edit-with-consequences!
-                    kb {:add [[(list 'sameAs Pref Dep) NameContext]]})]
+                    kb {:add [[(list 'sameAs Pref Dep) CxName]]})]
         (is (= 1 (count @seen)))
         (is (= (set (map :sentence (:believed-added report))) (set (added @seen))))
         (is (= (set (map :sentence (:believed-removed report))) (set (removed @seen))))
@@ -248,13 +248,13 @@
 (tu/deftest-kb registering-a-listener-does-not-move-belief
   ;; A feed is a read.  If registering one moved an `in?`, the delivery point is wrong.
   (tu/with-terms [dog barks Muffet Rex]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
-    (v/assert kb (list dog Muffet) 'UniverseContext)
-    (let [quiet (mapv #(v/ask? kb % 'UniverseContext)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+    (v/assert kb (list dog Muffet) 'CxUniverse)
+    (let [quiet (mapv #(v/ask? kb % 'CxUniverse)
                       [(list dog Muffet) (list barks Muffet)])]
       (v/watch kb (fn [_] nil))
-      (v/assert kb (list dog Rex) 'UniverseContext)
-      (is (= quiet (mapv #(v/ask? kb % 'UniverseContext)
+      (v/assert kb (list dog Rex) 'CxUniverse)
+      (is (= quiet (mapv #(v/ask? kb % 'CxUniverse)
                          [(list dog Rex) (list barks Rex)]))
           "the same scenario believes the same things with a listener attached"))))
 
@@ -264,7 +264,7 @@
   (tu/with-terms [dog Muffet]
     (let [order (atom [])]
       (doseq [k [:a :b :c]] (v/watch kb (fn [_] (swap! order conj k))))
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= [:a :b :c] @order)))))
 
 (tu/deftest-kb a-listener-that-throws-loses-its-own-event-and-nothing-else
@@ -272,7 +272,7 @@
     (let [[seen f] (recorder)]
       (v/watch kb (fn [_] (throw (ex-info "a listener's bug" {}))))
       (v/watch kb f)
-      (let [h (v/assert kb (list dog Muffet) 'UniverseContext)]
+      (let [h (v/assert kb (list dog Muffet) 'CxUniverse)]
         (is (v/in? kb h) "the settle was already committed; the write stands")
         (is (= [(list dog Muffet)] (added @seen))
             "and the listener registered after the thrower still ran")))))
@@ -286,12 +286,12 @@
       (v/watch kb (fn [e]
                     (swap! seen conj e)
                     (when (compare-and-set! wrote? false true)
-                      (v/assert kb (list pet Muffet) 'UniverseContext))))
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+                      (v/assert kb (list pet Muffet) 'CxUniverse))))
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= [[(list dog Muffet)] [(list pet Muffet)]]
              (mapv #(mapv :sentence (:believed-added %)) @seen))
           "two rounds, the second being what the listener itself wrote")
-      (is (v/ask? kb (list pet Muffet) 'UniverseContext)))))
+      (is (v/ask? kb (list pet Muffet) 'CxUniverse)))))
 
 (tu/deftest-kb a-listeners-own-writes-are-not-the-batchs-consequences
   ;; A listener's `assert` settles, and that settle would fold its region into whatever
@@ -301,12 +301,12 @@
   (tu/with-terms [dog Muffet sideEffect Yes]
     (let [wrote? (atom false)]
       (v/watch kb (fn [_] (when (compare-and-set! wrote? false true)
-                            (v/assert kb (list sideEffect Yes) 'UniverseContext))))
+                            (v/assert kb (list sideEffect Yes) 'CxUniverse))))
       (let [report (v/edit-with-consequences!
-                    kb {:add [[(list dog Muffet) 'UniverseContext]]})]
+                    kb {:add [[(list dog Muffet) 'CxUniverse]]})]
         (is (= [(list dog Muffet)] (mapv :sentence (:believed-added report)))
             "the report is about the batch, not about what a listener did in response")
-        (is (v/ask? kb (list sideEffect Yes) 'UniverseContext)
+        (is (v/ask? kb (list sideEffect Yes) 'CxUniverse)
             "and the listener's write did happen")))))
 
 (tu/deftest-kb a-listener-that-writes-on-every-event-terminates-at-the-bound
@@ -319,12 +319,12 @@
       (reset! token (v/watch kb (fn [_]
                                   (swap! rounds inc)
                                   (v/assert kb (list dog (tu/tmp-ind "Round"))
-                                            'UniverseContext))))
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+                                            'CxUniverse))))
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (v/unwatch kb @token)
       (is (= @#'feed/max-delivery-rounds @rounds)
           "it stops at the documented bound instead of spinning")
-      (is (v/ask? kb (list dog Muffet) 'UniverseContext) "and the KB is usable after"))))
+      (is (v/ask? kb (list dog Muffet) 'CxUniverse) "and the KB is usable after"))))
 
 (tu/deftest-kb a-listener-may-unwatch-itself-mid-delivery
   ;; The registry is read once per event, so a listener editing it cannot make the
@@ -335,10 +335,10 @@
           token   (atom nil)]
       (reset! token (v/watch kb (fn [e] (f e) (v/unwatch kb @token))))
       (v/watch kb (fn [_] (swap! also inc)))
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= 1 (count @seen)))
       (is (= 1 @also) "the neighbour registered after it still ran for that event")
-      (v/assert kb (list dog Rex) 'UniverseContext)
+      (v/assert kb (list dog Rex) 'CxUniverse)
       (is (= 1 (count @seen)) "and the self-dropped one heard nothing more")
       (is (= 2 @also)))))
 
@@ -351,15 +351,15 @@
     (let [calls (atom 0)
           real  @#'v/preview-added-entry]
       (with-redefs [v/preview-added-entry (fn [kb h] (swap! calls inc) (real kb h))]
-        (let [token (v/watch kb (list cat '?x) 'UniverseContext (fn [_] nil))]
-          (v/assert kb (list dog Muffet) 'UniverseContext)
+        (let [token (v/watch kb (list cat '?x) 'CxUniverse (fn [_] nil))]
+          (v/assert kb (list dog Muffet) 'CxUniverse)
           (is (zero? @calls) "nothing the goal answers moved, so nothing was rendered")
-          (v/assert kb (list cat Tom) 'UniverseContext)
+          (v/assert kb (list cat Tom) 'CxUniverse)
           (is (= 1 @calls) "and a match renders exactly itself")
           (v/unwatch kb token))
         (reset! calls 0)
         (let [token (v/watch kb (fn [_] nil))]
-          (v/assert kb (list dog (tu/tmp-ind "Plain")) 'UniverseContext)
+          (v/assert kb (list dog (tu/tmp-ind "Plain")) 'CxUniverse)
           (is (pos? @calls) "a plain listener does want the whole diff")
           (v/unwatch kb token))))))
 
@@ -374,8 +374,8 @@
             [there tf] (recorder)]
         (v/watch kb hf)
         (v/watch other tf)
-        (v/assert kb (list dog Muffet) 'UniverseContext)
-        (v/assert other (list dog Rex) 'UniverseContext)
+        (v/assert kb (list dog Muffet) 'CxUniverse)
+        (v/assert other (list dog Rex) 'CxUniverse)
         (is (= [(list dog Muffet)] (added @here)))
         (is (= [(list dog Rex)] (added @there)))
         (is (= [{:token 0}] (v/watchers kb)) "each registry counts its own tokens")
@@ -392,15 +392,15 @@
   (let [base (doto (v/open-kb {:backend :memory :space [::base] :recover? false})
                tu/clear-kb!)]
     (tu/with-terms [dog Muffet cat Tom]
-      (v/assert base (list dog Muffet) 'UniverseContext)
+      (v/assert base (list dog Muffet) 'CxUniverse)
       (let [[seen f] (recorder)]
         (v/watch base f)
         (let [forked (v/fork base {:backend :memory :space [::fork]})]
           (is (empty? (v/watchers forked)) "a fork inherits no listeners")
           (is (empty? @seen) "and taking one is a rebuild, so the base heard nothing")
-          (v/assert forked (list cat Tom) 'UniverseContext)
+          (v/assert forked (list cat Tom) 'CxUniverse)
           (is (empty? @seen) "nor does a write into the fork reach the base's listeners")
-          (is (v/ask? forked (list cat Tom) 'UniverseContext) "the fork did take the write")
+          (is (v/ask? forked (list cat Tom) 'CxUniverse) "the fork did take the write")
           (tu/clear-kb! forked))))
     (tu/clear-kb! base)))
 
@@ -408,18 +408,18 @@
   (tu/with-terms [dog Muffet Rex]
     (let [[seen f] (recorder)
           token    (v/watch kb f)]
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= 1 (count @seen)))
       (is (true? (v/unwatch kb token)))
       (is (false? (v/unwatch kb token)) "idempotent — a token is not reissued")
-      (v/assert kb (list dog Rex) 'UniverseContext)
+      (v/assert kb (list dog Rex) 'CxUniverse)
       (is (= 1 (count @seen)) "nothing arrived after the token was dropped"))))
 
 (tu/deftest-kb watchers-lists-what-is-registered-without-the-functions
   (tu/with-terms [dog]
     (let [a (v/watch kb (fn [_] nil))
-          b (v/watch kb (list dog '?x) 'UniverseContext (fn [_] nil))]
-      (is (= [{:token a} {:token b :goal (list dog '?x) :context 'UniverseContext}]
+          b (v/watch kb (list dog '?x) 'CxUniverse (fn [_] nil))]
+      (is (= [{:token a} {:token b :goal (list dog '?x) :context 'CxUniverse}]
              (v/watchers kb)))
       (v/unwatch kb a)
       (is (= [b] (mapv :token (v/watchers kb)))))))
@@ -429,10 +429,10 @@
 (tu/deftest-kb a-standing-query-fires-only-on-what-answers-it
   (tu/with-terms [dog cat Muffet Tom]
     (let [[seen f] (recorder)]
-      (v/watch kb (list dog '?x) 'UniverseContext f)
-      (v/assert kb (list cat Tom) 'UniverseContext)
+      (v/watch kb (list dog '?x) 'CxUniverse f)
+      (v/assert kb (list cat Tom) 'CxUniverse)
       (is (empty? @seen) "no call at all when nothing the goal answers moved")
-      (v/assert kb (list dog Muffet) 'UniverseContext)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= [(list dog Muffet)] (added @seen)))
       (is (= [{'?x Muffet}] (mapv :bindings (:believed-added (first @seen))))
           "the entry says which solution moved"))))
@@ -443,12 +443,12 @@
   (tu/with-terms [animal_ dog_ Muffet parentOf fatherOf Tom Bob]
     (let [[types tf] (recorder)
           [rels rf]  (recorder)]
-      (v/assert kb (list 'genl dog_ animal_) 'UniverseContext)
-      (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)
-      (v/watch kb (list animal_ '?x) 'UniverseContext tf)
-      (v/watch kb (list parentOf '?a '?b) 'UniverseContext rf)
-      (v/assert kb (list dog_ Muffet) 'UniverseContext)
-      (v/assert kb (list fatherOf Tom Bob) 'UniverseContext)
+      (v/assert kb (list 'genl dog_ animal_) 'CxUniverse)
+      (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+      (v/watch kb (list animal_ '?x) 'CxUniverse tf)
+      (v/watch kb (list parentOf '?a '?b) 'CxUniverse rf)
+      (v/assert kb (list dog_ Muffet) 'CxUniverse)
+      (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
       (is (= [(list dog_ Muffet)] (added @types)) "a subtype answers a supertype goal")
       (is (= [{'?x Muffet}] (mapv :bindings (:believed-added (first @types)))))
       (is (= [(list fatherOf Tom Bob)] (added @rels))
@@ -456,33 +456,33 @@
       (is (= [{'?a Tom '?b Bob}] (mapv :bindings (:believed-added (first @rels))))))))
 
 (tu/deftest-kb a-standing-query-sees-what-its-context-sees-and-no-more
-  (tu/with-terms [dog Muffet Rex ChildContext ParentContext SiblingContext]
-    (v/assert kb (list 'genlContext ChildContext ParentContext) 'UniverseContext)
+  (tu/with-terms [dog Muffet Rex CxChild CxParent CxSibling]
+    (v/assert kb (list 'genlCx CxChild CxParent) 'CxUniverse)
     (let [[seen f] (recorder)]
-      (v/watch kb (list dog '?x) ChildContext f)
-      (v/assert kb (list dog Muffet) ParentContext)
-      (is (= [(list dog Muffet)] (added @seen)) "up the genlContext cone, as any read is")
-      (v/assert kb (list dog Rex) SiblingContext)
+      (v/watch kb (list dog '?x) CxChild f)
+      (v/assert kb (list dog Muffet) CxParent)
+      (is (= [(list dog Muffet)] (added @seen)) "up the genlCx cone, as any read is")
+      (v/assert kb (list dog Rex) CxSibling)
       (is (= [(list dog Muffet)] (added @seen))
           "a context the watch cannot see is not its business"))))
 
 (tu/deftest-kb a-variable-context-watches-every-context-and-binds-the-one-that-answered
-  (tu/with-terms [dog Muffet Rex StoryContext OtherContext]
+  (tu/with-terms [dog Muffet Rex CxStory CxOther]
     (let [[seen f] (recorder)]
       (v/watch kb (list dog '?x) '?ctx f)
-      (v/assert kb (list dog Muffet) StoryContext)
-      (v/assert kb (list dog Rex) OtherContext)
+      (v/assert kb (list dog Muffet) CxStory)
+      (v/assert kb (list dog Rex) CxOther)
       (is (= [(list dog Muffet) (list dog Rex)] (added @seen)))
-      (is (= [{'?x Muffet '?ctx StoryContext} {'?x Rex '?ctx OtherContext}]
+      (is (= [{'?x Muffet '?ctx CxStory} {'?x Rex '?ctx CxOther}]
              (mapv #(:bindings (first (:believed-added %))) @seen))))))
 
 (tu/deftest-kb a-standing-query-reports-what-left-belief-too
   (tu/with-terms [dog barks Muffet]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'UniverseContext)
-    (v/assert kb (list dog Muffet) 'UniverseContext)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+    (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [[seen f] (recorder)]
-      (v/watch kb (list barks '?x) 'UniverseContext f)
-      (v/assert kb (list 'not (list barks Muffet)) 'UniverseContext {:strength :monotonic})
+      (v/watch kb (list barks '?x) 'CxUniverse f)
+      (v/assert kb (list 'not (list barks Muffet)) 'CxUniverse {:strength :monotonic})
       (is (= [(list barks Muffet)] (removed @seen)))
       (is (= [{'?x Muffet}] (mapv :bindings (:believed-removed (first @seen)))))
       (is (= :defeated (:reason (first (:believed-removed (first @seen)))))))))
@@ -493,9 +493,9 @@
   (tu/with-terms [dog Muffet]
     (let [[pos pf] (recorder)
           [neg nf] (recorder)]
-      (v/watch kb (list dog '?x) 'UniverseContext pf)
-      (v/watch kb (list 'not (list dog '?x)) 'UniverseContext nf)
-      (v/assert kb (list 'not (list dog Muffet)) 'UniverseContext)
+      (v/watch kb (list dog '?x) 'CxUniverse pf)
+      (v/watch kb (list 'not (list dog '?x)) 'CxUniverse nf)
+      (v/assert kb (list 'not (list dog Muffet)) 'CxUniverse)
       (is (empty? @pos))
       (is (= [(list 'not (list dog Muffet))] (added @neg)))
       (is (= [{'?x Muffet}] (mapv :bindings (:believed-added (first @neg))))))))
@@ -509,10 +509,10 @@
                   (list 'unknown (list dog '?x))
                   (list 'thereExists '?x (list dog '?x))
                   (list 'evaluate '?z '(+ 1 2))
-                  (list 'ist 'UniverseContext (list dog '?x))
+                  (list 'ist 'CxUniverse (list dog '?x))
                   (list 'lessThan '?a '?b)
                   'notASentence]]
-      (let [e (try (v/watch kb goal 'UniverseContext (fn [_] nil))
+      (let [e (try (v/watch kb goal 'CxUniverse (fn [_] nil))
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (instance? clojure.lang.ExceptionInfo e)
             (str "watch accepted a goal it cannot answer: " (pr-str goal)))
@@ -536,7 +536,7 @@
   ;; A context that names nothing sees nothing, so the watch would match forever and
   ;; report never — the same silent-nothing the goal refusals exist to prevent.
   (tu/with-terms [dog]
-    (doseq [ctx [nil "UniverseContext" 7]]
+    (doseq [ctx [nil "CxUniverse" 7]]
       (let [e (try (v/watch kb (list dog '?x) ctx (fn [_] nil))
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (instance? clojure.lang.ExceptionInfo e) (pr-str ctx))

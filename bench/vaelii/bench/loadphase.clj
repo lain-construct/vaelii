@@ -47,7 +47,7 @@
             [vaelii.impl.special :as special]
             [vaelii.impl.violations :as violations]))
 
-(def ^:private bench-context 'LoadPhaseContext)
+(def ^:private bench-context 'CxLoadPhase)
 (def ^:private edge-pred 'benchEdge)
 
 ;; ---- the corpus ---------------------------------------------------------

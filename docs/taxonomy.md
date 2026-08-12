@@ -3,7 +3,7 @@
 - **Covers:** how the `genl` type hierarchy is cached and queried, how `disjoint` /
   `disjointMetatype` are enforced, and how `argIsa` / `argGenl` constrain arguments as a
   rejection check.
-- **Not here:** `genlContext`, the sibling closure over contexts rather than types →
+- **Not here:** `genlCx`, the sibling closure over contexts rather than types →
   [contexts.md](contexts.md); `argIsa` / `argGenl` read as an entailment that mints a
   stored, justified fact → [argtypes.md](argtypes.md).
 - **Assumes:** sentex, context, belief, justification → [glossary.md](glossary.md).
@@ -22,7 +22,7 @@ the same rule bare would not be documentation but a forward rule materializing w
 cache already answers, one derived sentex per pair.
 
 What the shipped ontology states this way today is the global lifting rule in
-`CoreContext.txt`, not `genl`'s transitivity: `genl` carries its account in the
+`CxCore.txt`, not `genl`'s transitivity: `genl` carries its account in the
 `comment` on the predicate instead, where the closure is described rather than written
 as a sentence.
 
@@ -43,7 +43,7 @@ at `thing`. We cache the reflexive-transitive closure both ways:
 2. **Specificity.** Matching a unary type predicate fans out over `specs`, so an
    antecedent `(animal ?x)` is satisfied by a stored `(dog Muffet)` — no need to
    materialize `(animal Muffet)`. `isa?` answers membership on demand.
-3. **(genlContext is the sibling relation over contexts — see contexts.md.)**
+3. **(genlCx is the sibling relation over contexts — see contexts.md.)**
 
 ## The closures are derived state
 
@@ -184,7 +184,7 @@ and `genls` / `specs` walk it on demand.
   has no descendants, and O(descendants) when it is not (which is what a batch defers;
   see below). The O(1) is conditioned on an empty `:scc`: the lift moves whole
   components, and finding a component's members reads the `:scc` map, so it holds
-  always for `genl` (cycles are refused there) and for `genlContext` only while no
+  always for `genl` (cycles are refused there) and for `genlCx` only while no
   context cycle stands — with cyclic contexts in the map, an insert pays a walk of
   the cyclic population. The lift moves whole **components**, since the potential ranks the
   condensation: a member raised alone would sit above its own mates, each of which then
@@ -203,7 +203,7 @@ and `genls` / `specs` walk it on demand.
   reachability with a `:depth`-pruned early-exit walk (`depth[src] ≤ depth[tgt]` rejects
   a pair in O(1)), which is what keeps the per-assert `wff` cycle check flat on a deep
   load.
-- A **cycle** is refused for `genl` and admitted for `genlContext`, and the potential is
+- A **cycle** is refused for `genl` and admitted for `genlCx`, and the potential is
   what makes both work. `wff` (assert path) and `special/wff-violation` (derivation path)
   refuse a `genl` edge that would close one, because a type cycle claims two types are
   coextensive — a claim about *terms*, which is the equality partition's job, and which
@@ -241,7 +241,7 @@ and `genls` / `specs` walk it on demand.
 ### Reads are scoped by the asking context
 
 A read asked from context K uses exactly the edges K can see: an edge counts iff some
-**believed** supporter asserts it from K's `genlContext` up-cone, the same filter
+**believed** supporter asserts it from K's `genlCx` up-cone, the same filter
 `matches-visible` applies to facts. Every supporter records its asserting context
 (`:support` is `{[a b] {handle ctx}}`), the active edges carry theirs in `:edge-ctxs`
 (reconciled with belief by `refresh-relation`, whose third arm catches a supporter's
@@ -254,7 +254,7 @@ probe) constrains everywhere.
 The filter keys on `vis = up(K) ∩ ctxs`, where `ctxs` is the relation's context
 census (`:ctx-counts`): every edge's context set is a subset of the census, so two
 readers with the same `vis` induce the identical filtered edge set — `vis` is the
-memo key, interned per `[genlContext-gen ctxs-gen]` (`:vis-index`), and the scoped
+memo key, interned per `[genlCx-gen ctxs-gen]` (`:vis-index`), and the scoped
 walk memoizes one level deeper under it, bounded by `*scoped-memo-budget*` distinct
 vissets per relation (OpenCyc's census: 445 asserting contexts, 561 distinct vissets
 across 13,196 readers). Depth pruning survives unchanged — the potential holds over
@@ -272,10 +272,10 @@ the whole question a scoped read asks is which of those edges the reader can see
 component is a reason to keep walking and never an answer. (A `genl` cycle is refused at
 assert time and reachable anyway: defeat an edge, assert its reverse — the check reads
 the *active* adjacency, which no longer holds the defeated one — then revive the first.
-`genlContext` admits cycles outright.)
+`genlCx` admits cycles outright.)
 
-The **`genlContext` closure itself is the stated exception and stays global**:
-visibility scoped by visibility would be circular, every `genlContext` edge is forced
+The **`genlCx` closure itself is the stated exception and stays global**:
+visibility scoped by visibility would be circular, every `genlCx` edge is forced
 universal, and the interning above rests on it. So do the identity, storage, trigger,
 and stratification reads, each marked `global on purpose` at its site. The
 scoped-or-not split per check, and the exposure of clashes only a descendant can see
@@ -381,7 +381,7 @@ equality partition, and — through the shared `:cache-support` reference count,
 `[kind key]` — to the five flat caches too: `disjoint`, the disjoint metatypes and their
 members, the predicate properties
 (`transitive`/`symmetric`/`asymmetric`/`reflexive`/`functional`), `inverse`, and the
-declared `arity`. Only `genlContext` is forced-decontextualized, so only it is guaranteed one
+declared `arity`. Only `genlCx` is forced-decontextualized, so only it is guaranteed one
 sentex per claim; `(disjoint dog cat)` asserted in two contexts is two sentexes folding
 into one cache entry through that refcount. `refresh-beliefs` reconciles each cache
 entry against belief after every
@@ -504,7 +504,7 @@ an answer that silently stops existing, and two copies of this is how that happe
 
 **Which context it is asked from is a separate question from what it may see.** The
 answer is scoped and stays scoped, but a pair whose halves sit either side of a
-`genlContext` edge is visible from neither of the two contexts they are written in
+`genlCx` edge is visible from neither of the two contexts they are written in
 alone, so `settle` asks each candidate's question from the maximal common descendant of
 its context and each context holding a sentex it could pair with, beside its own
 (`settle/clash-askers`, and [nmtms.md](nmtms.md) for what the one-sided answer cost).
@@ -518,7 +518,7 @@ one re-examines the content written before it — or the KB would answer differe
 depending on whether the separation or the memberships were written first, which is
 the invariant [nmtms.md](nmtms.md) opens with. Seven sentence shapes reach back:
 `disjoint`, `disjointMetatype`, a new `(M T)` member of a metatype, `genl`,
-`genlContext`, and (for the nogood path) `functional` and `asymmetric`.
+`genlCx`, and (for the nogood path) `functional` and `asymmetric`.
 
 The reach is **two questions**, and keeping them apart is what makes a bounded sweep
 buy real coverage:
@@ -576,7 +576,7 @@ both halves of such a clash have to be stated. The consequence to keep in view i
 same one either way: a reader watching only the exposure entry would never learn that a
 predicate declared functional after its facts was swept short.
 
-**A third notice, covering two bounds that pass shares.** Its `genlContext` trigger
+**A third notice, covering two bounds that pass shares.** Its `genlCx` trigger
 reaches out of the region over the cone the edge newly sees, budgeted exactly as the
 disjointness sweep beside it; and its *entries* are not bounded by the region either — a
 functional slot filled from N contexts one vantage sees is N−1 pairs off a single
@@ -631,7 +631,7 @@ settle whose region holds 2,000 declarations leaves **536** of them unswept at t
 4,096-instance budget under the union rule and **69** under the intersection; raised to
 100,000 the two are 466 and 5.
 
-Two arms cannot narrow that far and say so. `genl` and `genlContext` move what a
+Two arms cannot narrow that far and say so. `genl` and `genlCx` move what a
 membership *means* rather than separating two named types, so the second half of a
 clash could be any other membership the term holds; all they can apply is the O(1)
 `pairable?` gate — a term with one fact about it at argument 1 cannot be half of a
@@ -676,7 +676,7 @@ maintained by `integrate-sentex`:
   predicate the way `wff` refuses a `genl` cycle — and a cycle there genuinely entails
   reflexivity around the loop rather than being an error.
 
-  `genl` and `genlContext` are cached instead precisely because the engine reads them on
+  `genl` and `genlCx` are cached instead precisely because the engine reads them on
   every match, placement and visibility check, where recomputing a reach per read would
   not survive. That is the whole difference, and it is why only those two carry the
   machinery above.
@@ -789,13 +789,13 @@ maintained by `integrate-sentex`:
   for the same first argument (`checks/functional-problems`). With equality this would
   instead unify the two values.
 - `(decontextualizedPredicate P)` — every `(P ...)`, asserted or concluded by a rule,
-  is also deduced into UniverseContext, which every context sees, so the fact stops
+  is also deduced into CxUniverse, which every context sees, so the fact stops
   being a claim of one theory. The target is fixed rather than named, because the
   definitional checks are context-scoped and only cover the copy when the stating
   context can see where it lands (see [contexts.md](contexts.md)).
 - `(forcedDecontextualizedPredicate P)` — stronger: every `(P ...)` is *stored* in
-  UniverseContext directly (its context forced there on assert, no justification). Declared
-  for `genlContext`, so the context topology has one canonical home (see
+  CxUniverse directly (its context forced there on assert, no justification). Declared
+  for `genlCx`, so the context topology has one canonical home (see
   [contexts.md](contexts.md)).
 
 Accessors: `has-prop?`, `inverse-of`, `props` (the set carrying a property).
@@ -810,13 +810,13 @@ Predicates are **reified** and classified in the genl hierarchy under `predicate
 - by algebra — `symmetricPredicate` / `asymmetricPredicate` / `transitivePredicate` /
   `reflexivePredicate` / `functionalPredicate`, all subtypes of `binaryPredicate`.
 
-The algebraic memberships are **derived from the metadata**: CoreContext carries rules
+The algebraic memberships are **derived from the metadata**: CxCore carries rules
 `(implies (and (symmetric ?p)) (symmetricPredicate ?p))` (and likewise for the others),
 so one declaration drives both the generic prover and the type membership. The rule
 names **no** context, and that is load-bearing rather than incidental — the conclusion
 places by the ordinary rule, in the context the declaration was made in, so a predicate
 declared symmetric privately gets its membership privately too
-([contexts.md](contexts.md), "Do not name CoreContext in them"). Arity memberships are asserted directly
+([contexts.md](contexts.md), "Do not name CxCore in them"). Arity memberships are asserted directly
 (every genl type is looped into `unaryPredicate`). So `isa? siblingOf
 symmetricPredicate`, `isa? siblingOf binaryPredicate`, and `isa? siblingOf
 predicate` all hold, and `isa? dog unaryPredicate` / `isa? argIsa ternaryPredicate`.
@@ -831,7 +831,7 @@ suspenders: `isa?` reads the facts, `ask` reads the metadata (see
 
 Before storing, `assert` checks the special predicates are structurally sound:
 
-- `genl` / `genlContext` — both arguments are types / contexts (not individuals), not
+- `genl` / `genlCx` — both arguments are types / contexts (not individuals), not
   equal, and don't create a cycle (the reverse relation must not already hold).
 - `disjoint` / `disjointMetatype` — arguments are types; two genl-related types can't
   be declared disjoint (one contains the other, so they overlap).
@@ -858,7 +858,7 @@ holds for both, with a global floor and a scoped one: an argument outside the
 hierarchy **everywhere** is excused unless it is an **individual** (which
 `wff/genl-problems` refuses `genl` of, so it can never acquire the edges that would
 excuse it — a global probe on purpose, since a reified NAT reads as an individual by
-spelling and is minted with real `genl` edges into `UniverseContext`, which not
+spelling and is minted with real `genl` edges into `CxUniverse`, which not
 every writer sees); and an argument whose edges are merely *out of the writer's
 sight* is excused too, since a NAF check that convicted on invisible evidence would
 convict harder the less a context sees.
@@ -867,7 +867,7 @@ convict harder the less a context sees.
 
 `checks/arity-problem` holds a sentence to the arity its predicate is declared with —
 from `(arity P N)` or from a `unaryPredicate` / `binaryPredicate` / `ternaryPredicate`
-membership, which the CoreContext rules derive from each other, so either spelling
+membership, which the CxCore rules derive from each other, so either spelling
 binds. The **top literal only**, exactly like `argIsa`: a rule reaches the check as its
 `implies` form, whose own arity is 2 and is checked as such, and its antecedents are
 not. Open-world in the same shape — a predicate the KB has never declared can be used
@@ -886,7 +886,7 @@ already says about its predicate:
 - **A position the predicate does not have** — `(argIsa parentOf 5 animal)` where
   `parentOf` is declared binary. The constraint would never fire, so it reads as
   enforced while enforcing nothing. The arity comes from `(arity P N)` or from a
-  `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` membership; the CoreContext
+  `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` membership; the CxCore
   rules derive each from the other, so either spelling is enough, and both are read
   because a `{:chain? false}` assert has only what was written.
 - **Both constraints on one position** — one asks the argument to be an instance of
@@ -909,7 +909,7 @@ how it is used, not only from a stored membership.
 ## What is cached, what is not, and why
 
 - **A transitive predicate's closure is not held as a *relation*, but the answer is
-  held.** The distinction from the `genl`/`genlContext` closures above is maintenance:
+  held.** The distinction from the `genl`/`genlCx` closures above is maintenance:
   those are adjacency the engine keeps current through every edge change, which is what
   earns them a `:gen` and a repair path. Nothing about a declared-transitive `P` is
   maintained. `reach` (in `vaelii.impl.provers`) walks the believed facts, and what it
@@ -973,7 +973,7 @@ stored and always will until somebody decides a wrong-arity fact may be admitted
 |---|---|---|---|
 | `disjoint` | refuses, or arbitrates under `:arbitrate` | reaches back: a nogood under `:arbitrate`, an exposure entry under `:refuse` | two memberships to weigh |
 | `disjointMetatype` | same | same | the members separate each other |
-| `genl` / `genlContext` | same | same | closes a separation over content already stored |
+| `genl` / `genlCx` | same | same | closes a separation over content already stored |
 | `functional` | refuses, or arbitrates | reaches back as a nogood under `:arbitrate` | two values to weigh |
 | `asymmetric` | refuses `:monotonic`, arbitrates `:default` | same | the converse is the second side |
 | `arity` | **refuses, under either policy** | **reaches back and reports** — one `:arity` entry per declaration, with `:count`, a `:sample`, and the declaration in `:declared-after` | names a second sentex, but it is the *vocabulary* one |

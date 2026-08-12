@@ -43,17 +43,17 @@
                        (list 'implies
                              (list 'and (list planOf '?a '?p) (list '?outcome '?a '?p))
                              (list feels '?a '?emotion)))
-              'UniverseContext)
-    (v/assert kb (list planVerb succeededAt) 'UniverseContext)
-    (v/assert kb (list planVerb failedAt) 'UniverseContext)
-    (v/assert kb (list outcomeEmotion succeededAt Joy) 'UniverseContext)
-    (v/assert kb (list outcomeEmotion failedAt Regret) 'UniverseContext)
+              'CxUniverse)
+    (v/assert kb (list planVerb succeededAt) 'CxUniverse)
+    (v/assert kb (list planVerb failedAt) 'CxUniverse)
+    (v/assert kb (list outcomeEmotion succeededAt Joy) 'CxUniverse)
+    (v/assert kb (list outcomeEmotion failedAt Regret) 'CxUniverse)
     (testing "one stamped rule per fill, and no more"
-      (is (= 2 (count (stamped kb 'UniverseContext)))))
+      (is (= 2 (count (stamped kb 'CxUniverse)))))
     (testing "the hole is ground in the mint and the stamped rule keeps its own variables"
       (let [s (:sentence (first (filter #(some #{succeededAt}
                                                (vr/antecedent-predicates (:sentence %)))
-                                        (stamped kb 'UniverseContext))))]
+                                        (stamped kb 'CxUniverse))))]
         (is (some? s) "a rule was stamped for succeededAt")
         ;; the stamped rule's own `?a` / `?p` survive as variables — canonically
         ;; renumbered, but variables
@@ -70,12 +70,12 @@
                        (list 'implies
                              (list 'and (list planOf '?a '?p) (list '?outcome '?a '?p))
                              (list feels '?a '?emotion)))
-              'UniverseContext)
-    (v/assert kb (list planVerb succeededAt) 'UniverseContext)
-    (v/assert kb (list outcomeEmotion succeededAt Joy) 'UniverseContext)
-    (v/assert kb (list planOf Tom Plan) 'UniverseContext)
-    (v/assert kb (list succeededAt Tom Plan) 'UniverseContext)
-    (is (= #{Joy} (into #{} (map '?e) (v/ask kb (list feels Tom '?e) 'UniverseContext))))))
+              'CxUniverse)
+    (v/assert kb (list planVerb succeededAt) 'CxUniverse)
+    (v/assert kb (list outcomeEmotion succeededAt Joy) 'CxUniverse)
+    (v/assert kb (list planOf Tom Plan) 'CxUniverse)
+    (v/assert kb (list succeededAt Tom Plan) 'CxUniverse)
+    (is (= #{Joy} (into #{} (map '?e) (v/ask kb (list feels Tom '?e) 'CxUniverse))))))
 
 (tu/deftest-kb both-arrival-orders-agree
   ;; order independence, the first invariant: whether the generator or the facts it
@@ -94,14 +94,14 @@
                                                       (list 'and (list subject '?a '?p)
                                                             (list '?o '?a '?p))
                                                       (list feels '?a '?e)))
-                                       'UniverseContext)
-                      facts #(do (v/assert kb (list marker src) 'UniverseContext)
-                                 (v/assert kb (list pairing src Joy) 'UniverseContext)
-                                 (v/assert kb (list subject Tom Plan) 'UniverseContext)
-                                 (v/assert kb (list src Tom Plan) 'UniverseContext))]
+                                       'CxUniverse)
+                      facts #(do (v/assert kb (list marker src) 'CxUniverse)
+                                 (v/assert kb (list pairing src Joy) 'CxUniverse)
+                                 (v/assert kb (list subject Tom Plan) 'CxUniverse)
+                                 (v/assert kb (list src Tom Plan) 'CxUniverse))]
                   (if generator-first? (do (gen) (facts)) (do (facts) (gen)))
                   {:derived (into #{} (map '?e) (v/ask kb (list feels Tom '?e)
-                                                       'UniverseContext))
+                                                       'CxUniverse))
                    :joy     Joy})))
         a   (run true)
         b   (run false)]
@@ -115,9 +115,9 @@
     (v/assert kb (list 'implies (list marker '?p)
                        (list 'set/defaultRule
                              (list 'implies (list '?p '?x) (list dst '?x))))
-              'UniverseContext)
-    (v/assert kb (list marker src) 'UniverseContext)
-    (let [minted (first (stamped kb 'UniverseContext))]
+              'CxUniverse)
+    (v/assert kb (list marker src) 'CxUniverse)
+    (let [minted (first (stamped kb 'CxUniverse))]
       (is (some? minted) "a rule was stamped")
       (is (:defeasible minted) "the stamped rule carries the defaultRule the template set")
       (is (= :both (:direction minted))))))
@@ -128,18 +128,18 @@
   (tu/with-terms [marker src dst Fido]
     (v/assert kb (list 'implies (list marker '?p)
                        (list 'implies (list '?p '?x) (list dst '?x)))
-              'UniverseContext)
-    (let [fill (v/assert kb (list marker src) 'UniverseContext)]
-      (v/assert kb (list src Fido) 'UniverseContext)
+              'CxUniverse)
+    (let [fill (v/assert kb (list marker src) 'CxUniverse)]
+      (v/assert kb (list src Fido) 'CxUniverse)
       (testing "the stamped rule fired"
-        (is (seq (v/sentexes-matching kb (list dst Fido) 'UniverseContext))))
-      (let [minted (:id (first (stamped kb 'UniverseContext)))]
+        (is (seq (v/sentexes-matching kb (list dst Fido) 'CxUniverse))))
+      (let [minted (:id (first (stamped kb 'CxUniverse)))]
         (is (some? minted))
         (v/retract! kb fill)
         (testing "the mint is no longer believed"
           (is (not (v/in? kb minted))))
         (testing "and neither is what it concluded"
-          (is (empty? (v/sentexes-matching kb (list dst Fido) 'UniverseContext))))))))
+          (is (empty? (v/sentexes-matching kb (list dst Fido) 'CxUniverse))))))))
 
 (tu/deftest-kb a-disbelieved-rule-does-not-fire
   ;; the belief filter on its own, with no generator in sight: this is the property
@@ -147,14 +147,14 @@
   (tu/with-terms [marker src dst Fido Rex]
     (v/assert kb (list 'implies (list marker '?p)
                        (list 'implies (list '?p '?x) (list dst '?x)))
-              'UniverseContext)
-    (let [fill (v/assert kb (list marker src) 'UniverseContext)]
-      (v/assert kb (list src Fido) 'UniverseContext)
+              'CxUniverse)
+    (let [fill (v/assert kb (list marker src) 'CxUniverse)]
+      (v/assert kb (list src Fido) 'CxUniverse)
       (v/retract! kb fill)
       (testing "a fact arriving after the mint lost its support draws nothing"
-        (v/assert kb (list src Rex) 'UniverseContext)
+        (v/assert kb (list src Rex) 'CxUniverse)
         (v/forward-chain kb)
-        (is (empty? (v/sentexes-matching kb (list dst Rex) 'UniverseContext)))))))
+        (is (empty? (v/sentexes-matching kb (list dst Rex) 'CxUniverse)))))))
 
 (tu/deftest-kb one-rule-stamped-two-ways-is-one-handle
   ;; dedup is the ordinary sentex dedup, so it costs nothing: two fills that substitute
@@ -163,12 +163,12 @@
     (doseq [m [markerA markerB]]
       (v/assert kb (list 'implies (list m '?p)
                          (list 'implies (list '?p '?x) (list dst '?x)))
-                'UniverseContext))
-    (v/assert kb (list markerA src) 'UniverseContext)
-    (v/assert kb (list markerB src) 'UniverseContext)
-    (is (= 1 (count (stamped kb 'UniverseContext)))
+                'CxUniverse))
+    (v/assert kb (list markerA src) 'CxUniverse)
+    (v/assert kb (list markerB src) 'CxUniverse)
+    (is (= 1 (count (stamped kb 'CxUniverse)))
         "the two generators stamped one rule, not two")
-    (let [h (:id (first (stamped kb 'UniverseContext)))]
+    (let [h (:id (first (stamped kb 'CxUniverse)))]
       (is (<= 2 (count (v/supporting-justifications kb h)))
           "and it rests on both firings"))))
 
@@ -177,7 +177,7 @@
 (defn- refusal
   "The `:type` `assert` throws for `sentence`, or `:accepted`."
   [kb sentence]
-  (try (v/assert kb sentence 'UniverseContext) :accepted
+  (try (v/assert kb sentence 'CxUniverse) :accepted
        (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
 (tu/deftest-kb a-generated-rule-cannot-itself-generate
@@ -240,12 +240,12 @@
              (refusal kb (list 'exceptWhen (list blocked '?p)
                                (list 'implies (list marker '?p)
                                      (list 'implies (list '?p '?x) (list dst '?x)))))))
-      (v/assert kb (list blocked src) 'UniverseContext)
-      (v/assert kb (list marker src) 'UniverseContext)
-      (is (empty? (stamped kb 'UniverseContext))
+      (v/assert kb (list blocked src) 'CxUniverse)
+      (v/assert kb (list marker src) 'CxUniverse)
+      (is (empty? (stamped kb 'CxUniverse))
           "the blocked fill stamped nothing")
-      (v/assert kb (list src Fido) 'UniverseContext)
-      (is (empty? (v/sentexes-matching kb (list dst Fido) 'UniverseContext))))))
+      (v/assert kb (list src Fido) 'CxUniverse)
+      (is (empty? (v/sentexes-matching kb (list dst Fido) 'CxUniverse))))))
 
 (tu/deftest-kb a-stamped-existential-head-skolemizes-when-the-stamped-rule-fires
   ;; the generator's firing must NOT skolemize — the stamped rule's variables are its
@@ -255,11 +255,11 @@
     (v/assert kb (list 'implies (list marker '?p)
                        (list 'implies (list '?p '?x)
                              (list 'exists '?y (list linked '?x '?y))))
-              'UniverseContext)
-    (v/assert kb (list marker src) 'UniverseContext)
-    (is (= 1 (count (stamped kb 'UniverseContext))))
-    (v/assert kb (list src Fido) 'UniverseContext)
-    (is (seq (v/sentexes-matching kb (list linked Fido '?y) 'UniverseContext))
+              'CxUniverse)
+    (v/assert kb (list marker src) 'CxUniverse)
+    (is (= 1 (count (stamped kb 'CxUniverse))))
+    (v/assert kb (list src Fido) 'CxUniverse)
+    (is (seq (v/sentexes-matching kb (list linked Fido '?y) 'CxUniverse))
         "the stamped rule minted its witness")))
 
 (tu/deftest-kb a-generator-cycle-is-refused
@@ -304,7 +304,7 @@
              ["loose var"    (list 'implies (list marker '?p)
                                    (list 'implies (list '?p '?x) (list dst '?x '?loose)))]]]
       (testing label
-        (let [predicted (v/check kb sentence 'UniverseContext)
+        (let [predicted (v/check kb sentence 'CxUniverse)
               thrown    (refusal kb sentence)]
           (is (seq predicted) "check reports a problem")
           (is (= thrown (:type (first predicted)))
@@ -319,12 +319,12 @@
   (tu/with-terms [marker dst]
     (v/assert kb (list 'implies (list marker '?p)
                        (list 'implies (list '?p '?x) (list dst '?x)))
-              'UniverseContext)
+              'CxUniverse)
     (v/clear-violations! kb)
     ;; a fill that is a *number* heads a literal no index can key
-    (v/assert kb (list marker 7) 'UniverseContext)
+    (v/assert kb (list marker 7) 'CxUniverse)
     (testing "nothing was stored for it"
-      (is (empty? (stamped kb 'UniverseContext))))
+      (is (empty? (stamped kb 'CxUniverse))))
     (testing "and the drop is readable"
       (is (seq (v/violations kb))))))
 
@@ -335,13 +335,13 @@
     (v/assert kb (list 'implies (list marker '?p)
                        (list 'implies (list '?p '?x)
                              (list 'and (list dstA '?x) (list dstB '?x))))
-              'UniverseContext)
-    (v/assert kb (list marker src) 'UniverseContext)
-    (is (= 2 (count (stamped kb 'UniverseContext)))
+              'CxUniverse)
+    (v/assert kb (list marker src) 'CxUniverse)
+    (is (= 2 (count (stamped kb 'CxUniverse)))
         "one stamped rule per conjunct")
     (is (= #{dstA dstB}
            (into #{} (map #(vr/consequent-predicate (:sentence %)))
-                 (stamped kb 'UniverseContext))))))
+                 (stamped kb 'CxUniverse))))))
 
 (tu/deftest-kb a-mint-is-reachable-by-the-index-both-ways
   ;; the whole point of minting rather than interpreting: what gets stored is an
@@ -349,16 +349,16 @@
   (tu/with-terms [marker src dst Fido]
     (v/assert kb (list 'implies (list marker '?p)
                        (list 'implies (list '?p '?x) (list dst '?x)))
-              'UniverseContext)
-    (v/assert kb (list marker src) 'UniverseContext)
-    (let [h (:id (first (stamped kb 'UniverseContext)))]
+              'CxUniverse)
+    (v/assert kb (list marker src) 'CxUniverse)
+    (let [h (:id (first (stamped kb 'CxUniverse)))]
       (testing "posted under the stamped antecedent, not under a variable"
         (is (contains? (set (p/rules-by-antecedent (:index kb) src)) h)))
       (testing "and under the stamped consequent"
         (is (contains? (set (p/rules-by-consequent (:index kb) dst)) h))))
     (testing "so a backward goal reaches it too"
-      (v/assert kb (list src Fido) 'UniverseContext)
-      (is (v/provable? kb (list dst Fido) 'UniverseContext)))))
+      (v/assert kb (list src Fido) 'CxUniverse)
+      (is (v/provable? kb (list dst Fido) 'CxUniverse)))))
 
 (tu/deftest-kb asserting-a-stamped-rule-gives-it-a-ground-of-its-own
   ;; A stamped rule is a *conclusion*: it rests on the generator's justification and
@@ -369,18 +369,18 @@
   (tu/with-terms [marker src dst Fido]
     (let [gh (v/assert kb (list 'implies (list marker '?p)
                                 (list 'implies (list '?p '?x) (list dst '?x)))
-                       'UniverseContext)]
-      (v/assert kb (list marker src) 'UniverseContext)
-      (let [sx (first (stamped kb 'UniverseContext))]
+                       'CxUniverse)]
+      (v/assert kb (list marker src) 'CxUniverse)
+      (let [sx (first (stamped kb 'CxUniverse))]
         (is (some? sx) "the generator stamped a rule")
         (is (false? (v/premise? kb (:id sx))) "a conclusion, resting on the generator")
-        (let [h (v/assert kb (:sentence sx) 'UniverseContext {:strength :monotonic})]
+        (let [h (v/assert kb (:sentence sx) 'CxUniverse {:strength :monotonic})]
           (is (= (:id sx) h) "one rule, one handle — the assertion is not a second sentex")
           (is (true? (v/premise? kb h)) "and now a premise in its own right")
           (is (= :monotonic (:strength (v/sentex kb h)))))
         (testing "so retracting the generator leaves the asserted rule standing"
           (v/retract! kb gh)
           (is (v/in? kb (:id sx)))
-          (v/assert kb (list src Fido) 'UniverseContext)
-          (is (seq (v/sentexes-matching kb (list dst Fido) 'UniverseContext))
+          (v/assert kb (list src Fido) 'CxUniverse)
+          (is (seq (v/sentexes-matching kb (list dst Fido) 'CxUniverse))
               "and still firing"))))))

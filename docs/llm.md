@@ -101,7 +101,7 @@ a write's name at all.
 ### 2. The KB documents itself, so the prompt is generated from it
 
 A hand-written copy of the ontology in a prompt string rots the moment someone drops a
-new `<Context>.txt` into `resources/kb/`. Every section of `prompt/system-prompt` is
+new `Cx<Name>.txt` into `resources/kb/`. Every section of `prompt/system-prompt` is
 read back out of the KB it describes:
 
 | section | read from |
@@ -131,8 +131,8 @@ every request.
 The final answer is one fenced `edn` block:
 
 ```edn
-{:add    [[(dog Muffet) WellContext]
-          [(parentOf Tom Ann) WellContext {:strength :monotonic}]]
+{:add    [[(dog Muffet) CxWell]
+          [(parentOf Tom Ann) CxWell {:strength :monotonic}]]
  :remove [4211]}
 ```
 
@@ -183,7 +183,7 @@ returns or throws a value without writing.
 
 `:context-escape` is the one row the chain cannot supply, because it is not a fact about
 the sentence. `(ist Ctx S)` is find-or-create **in `Ctx`**, so an entry
-`[(ist CriedWolfContext (dog Sneaky)) LionMouseContext]` is well-formed, legally named,
+`[(ist CxCriedWolf (dog Sneaky)) CxLionMouse]` is well-formed, legally named,
 and stores somewhere other than the context column a reviewer read. `assert` would carry
 it out correctly; the reviewer is the one who was misled. It is refused on every path —
 on the two that promise the context is the caller's (`propose-page`, `propose-text`) it is
@@ -387,8 +387,8 @@ proposing nothing.
                  :provider (anthropic/provider)          ; omit for the offline stub
                  :on-event (fn [ev] …)})                 ; omit for non-streaming
 ;; => {:status :ok
-;;     :batch  {:add [[(dog Muffet) WellContext] …] :remove []}
-;;     :edn    "{:add [[(dog Muffet) WellContext]] :remove []}"
+;;     :batch  {:add [[(dog Muffet) CxWell] …] :remove []}
+;;     :edn    "{:add [[(dog Muffet) CxWell]] :remove []}"
 ;;     :rejections [] :text "…" :attempts 1 :turns 2 :tool-calls 1
 ;;     :messages [ … the conversation, for a follow-up turn … ]}
 
@@ -592,8 +592,8 @@ reliability at 20.2 s. Both are per-call `:model` overrides.
                       :provider (provider/provider :ollama)
                       :num-ctx  8192})
 ;; => {:status  :ok
-;;     :lines   "[(fatherOf Tom Ann) WellContext]\n[(dog Muffet) WellContext]"
-;;     :batch   {:add [[(fatherOf Tom Ann) WellContext]] :remove [4211]}
+;;     :lines   "[(fatherOf Tom Ann) CxWell]\n[(dog Muffet) CxWell]"
+;;     :batch   {:add [[(fatherOf Tom Ann) CxWell]] :remove [4211]}
 ;;     :edn     "{:add [...] :remove [4211]}"
 ;;     :summary {:selected 3 :returned 3 :unchanged 2 :removed 1 :added 1}
 ;;     :coined     []                     ; vocabulary the proposal invents
@@ -602,7 +602,7 @@ reliability at 20.2 s. Both are per-call `:model` overrides.
 ;;     :budget  {:prompt 656 :reserved 400 :total 1056 :num-ctx 8192 :headroom 7136}
 ;;     :usage   {:input-tokens 580 :output-tokens 132 :eval-ms 1548 …}
 ;;     :elapsed-ms 1676 :rejections [] :attempts 1 :turns 1
-;;     :selection [{:handle 4211 :line "[(parentOf Tom Ann) WellContext]"} …]}
+;;     :selection [{:handle 4211 :line "[(parentOf Tom Ann) CxWell]"} …]}
 ```
 
 **`:lines` is the whole wiring.** It is the textarea content the editor already
@@ -629,18 +629,18 @@ answer is knowledge the KB does not have yet. `session/propose-page` is that tur
 (ollama/warm)                                    ; when the page opens
 
 (llm/propose-page kb {:term     'penguin
-                      :context  'OrganismContext          ; optional — see below
+                      :context  'CxOrganism          ; optional — see below
                       :message  "flesh out the capabilities of this"
                       :provider (ollama/generation-provider)
                       :on-event (fn [ev] …)})             ; optional, per assertion
 ;; => {:status  :ok
-;;     :batch   {:add [[(implies (penguin ?x) (livesIn ?x Antarctica)) OrganismContext] …]
+;;     :batch   {:add [[(implies (penguin ?x) (livesIn ?x Antarctica)) CxOrganism] …]
 ;;               :remove []}
-;;     :lines   "[(implies (penguin ?x) (livesIn ?x Antarctica)) OrganismContext]\n…"
+;;     :lines   "[(implies (penguin ?x) (livesIn ?x Antarctica)) CxOrganism]\n…"
 ;;     :summary {:proposed 24 :new 22 :known 2 :duplicate 0}
 ;;     :coined     [{:predicate livesIn :arity 2 :role :predicate :in :add :index 3} …]
 ;;     :vocabulary {:literals 47 :reused 37 :coined 10 :coined-types 0 :coined-relations 10}
-;;     :term penguin :context OrganismContext
+;;     :term penguin :context CxOrganism
 ;;     :page [{:handle 12 :line "(genl penguin bird)"} …]
 ;;     :page-found 6 :page-truncated? false :answer-truncated? false
 ;;     :first-assertion-ms 470 :elapsed-ms 3590
@@ -721,7 +721,7 @@ to `:on-event` as
 
 ```clojure
 {:type :assertion :index 0 :sentence (genl penguin aquatic_bird)
- :entry [(genl penguin aquatic_bird) OrganismContext]
+ :entry [(genl penguin aquatic_bird) CxOrganism]
  :problem nil          ; the critic's verdict on this one line
  :stored? false}       ; already in the KB, so not news
 ```
@@ -841,8 +841,8 @@ back, one per call; each is a full response map or a shorthand:
 
 ```clojure
 (stub/provider {:script [{:tool "kb_types_of" :input {"x" "Muffet"}}
-                         {:batch {:add [[(dog Muffet) WellContext]] :remove []}}
-                         {:lines [[(fatherOf Tom Ann) WellContext]]}   ; the selection path
+                         {:batch {:add [[(dog Muffet) CxWell]] :remove []}}
+                         {:lines [[(fatherOf Tom Ann) CxWell]]}   ; the selection path
                          "plain prose"]})
 ```
 

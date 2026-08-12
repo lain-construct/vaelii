@@ -5,7 +5,7 @@
 - **Not here:** the specific spatial algebras (RCC-8, direction, distance) →
   [space.md](space.md); the temporal algebras (Allen's intervals, the point algebra) →
   [time.md](time.md).
-- **Assumes:** sentex, context, genlContext, belief → [glossary.md](glossary.md).
+- **Assumes:** sentex, context, genlCx, belief → [glossary.md](glossary.md).
 
 `vaelii.impl.qcn` reasons about relations that have no numbers behind them: *inside*,
 *north of*, *before*. You rarely know where a region's boundary runs or what o'clock a
@@ -470,7 +470,7 @@ composed to narrow it, plus its own prior support. `qcn-kb/support` asks it of t
 asks the same of the pair that emptied in an impossible network.
 
 ```clojure
-(qkb/support space/rcc8 kb 'UniverseContext 'A 'D)   ; => #{h1 h2}, the chain behind A ⊏ D
+(qkb/support space/rcc8 kb 'CxUniverse 'A 'D)   ; => #{h1 h2}, the chain behind A ⊏ D
 ```
 
 Two things it is **not**, and both matter.
@@ -578,7 +578,7 @@ Two bulk operations bump it by hand, because they move a whole store without pas
 either choke point: `core/clear!` and `reindex/reindex`.
 
 Between them those cover what a network is a function of: which sentexes exist, which of
-them are believed, and the `genlContext` cone and `genl` spec fan the read looks through.
+them are believed, and the `genlCx` cone and `genl` spec fan the read looks through.
 So an unmoved clock says rebuilding would produce the identical map.
 
 The clock is deliberately **coarse** — it says only that something moved, never what, and
@@ -696,7 +696,7 @@ having been recorded in advance.
 
 There is one network per **reader**, not one per context that holds a fact, and the
 difference is the whole of `qcn-kb/reader-contexts`. A reader sees the entire
-`genlContext` cone above it, so a context inheriting two contexts holds both their
+`genlCx` cone above it, so a context inheriting two contexts holds both their
 facts in one network and composes what neither composes alone — `(ntpp A B)` in one and
 `(ntpp B D)` in the other entail `A ⊏ D` for that reader and for nobody else. `ask` has
 always answered there, because a query is asked *from* a context; a re-join has to be told

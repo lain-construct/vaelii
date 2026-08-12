@@ -14,7 +14,7 @@
 
   **The fixture loads the world, and every probe here depends on it.** The starter is
   schema: it declares `parentOf` and `siblingOf` and asserts no instance of either, and
-  the contexts these patterns name (`MantleContext`, `SocialWorldContext`, …) are the
+  the contexts these patterns name (`CxMantle`, `CxSocialWorld`, …) are the
   world's. Loaded without it, each comparison below is `#{}` against `#{}` — two paths
   agreeing about nothing, which is what an oracle looks like when it has stopped
   oracling. `probed` is the standing check against that: it counts the non-empty
@@ -73,8 +73,8 @@
              (for [i (range n)] (cons '?fn (open #{i})))
              [(cons '?fn (open (set (range n))))]))))
 
-(def ^:private ctxs '[?ctx MantleContext NaturalWorldContext SocialWorldContext
-                      UniverseContext StoriesContext])
+(def ^:private ctxs '[?ctx CxMantle CxNaturalWorld CxSocialWorld
+                      CxUniverse CxStories])
 
 (deftest ^:slow hierarchical-equals-nested-fanout
   (tu/with-kb [kb]
@@ -104,12 +104,12 @@
   ;; the mirror the symmetric sub earned, and the two retrieval paths must agree.
   (tu/with-kb [kb]
     (tu/with-terms [likes adores Karl Lena Mio]
-      (v/assert kb (list 'symmetric adores) 'UniverseContext)
-      (v/assert kb (list 'genl adores likes) 'UniverseContext)
-      (v/assert kb (list likes Karl Lena) 'UniverseContext)     ; plain super, one way
-      (v/assert kb (list adores Mio Karl) 'UniverseContext)     ; symmetric sub
+      (v/assert kb (list 'symmetric adores) 'CxUniverse)
+      (v/assert kb (list 'genl adores likes) 'CxUniverse)
+      (v/assert kb (list likes Karl Lena) 'CxUniverse)     ; plain super, one way
+      (v/assert kb (list adores Mio Karl) 'CxUniverse)     ; symmetric sub
       (let [answers (fn [pat]
-                      (let [[off on] (both-ways #(res/matches-visible kb pat 'UniverseContext))]
+                      (let [[off on] (both-ways #(res/matches-visible kb pat 'CxUniverse))]
                         (is (= off on) (str "the two paths diverged on " (pr-str pat)))
                         (into #{} (map #(get (second %) '?x)) on)))]
         ;; the sub's own fact answers directly; the super's `(likes Karl Lena)` must
@@ -140,13 +140,13 @@
   ;; a temporary sub-predicate of the real parentOf: the hierarchical path must fan the
   ;; predicate dimension exactly as the nested one does
   (tu/with-terms [fatherOf A B]
-    (v/assert kb (list 'genl fatherOf 'parentOf) 'MantleContext {:strength :monotonic})
-    (v/assert kb (list fatherOf A B) 'SocialWorldContext {:strength :monotonic})
+    (v/assert kb (list 'genl fatherOf 'parentOf) 'CxMantle {:strength :monotonic})
+    (v/assert kb (list fatherOf A B) 'CxSocialWorld {:strength :monotonic})
     (doseq [pat (list (list 'parentOf (symbol "?x") (symbol "?y"))
                       (list 'parentOf A (symbol "?y"))
                       (list 'parentOf (symbol "?x") B)
                       (list 'parentOf A B))
-            ctx '[?ctx SocialWorldContext MantleContext UniverseContext]]
+            ctx '[?ctx CxSocialWorld CxMantle CxUniverse]]
       (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
         (is (= off on) (str "subsumption+hierarchical diverged on " (pr-str pat) " @ " ctx
                             "\n  off: " (pr-str off) "\n  on:  " (pr-str on)))))))
@@ -157,7 +157,7 @@
     (probed "end-to-end-ask-and-backward-unchanged"
             (for [goal '[(parentOf ?x Ann) (siblingOf Carol ?y) (animal ?x)
                          (grandparentOf ?x Ann) (ancestorOf Tom ?y)]
-                  ctx '[?ctx MantleContext NaturalWorldContext]]
+                  ctx '[?ctx CxMantle CxNaturalWorld]]
               (let [ask-off (binding [res/*hierarchical-retrieval* false] (set (v/ask kb goal ctx)))
                     ask-on  (binding [res/*hierarchical-retrieval* true]  (set (v/ask kb goal ctx)))]
                 (is (= ask-off ask-on) (str "ask diverged on " (pr-str goal) " @ " ctx))

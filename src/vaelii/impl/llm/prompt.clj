@@ -4,7 +4,7 @@
   "The system prompt, **generated from the live KB**.
 
   A hand-written copy of the ontology in a prompt string rots the moment someone
-  drops a new `<Context>.txt` into `resources/kb/`.  So every section here is read
+  drops a new `Cx<Name>.txt` into `resources/kb/`.  So every section here is read
   back out of the KB it is about: the context topology from `contexts` /
   `context-up`, the type hierarchy from `types` / `genls`, the predicate
   documentation from the `(comment <term> \"…\")` sentexes the vocabulary documents
@@ -27,7 +27,7 @@
 | predicate | camelCase, lowercase-initial | `parentOf`, `genl`, `argIsa` |
 | individual | CapitalCamelCase | `Muffet`, `Tom` |
 | type | snake_case, a **unary** predicate | `dog`, `physical_object` |
-| context | CapitalCamelCase ending in `Context` | `WellContext`, `CoreContext` |
+| context | `Cx` prefix, then CapitalCamelCase | `CxWell`, `CxCore` |
 
 Types are unary predicates: write `(dog Muffet)`, never `(isa Muffet Dog)`. `thing` is the
 root of the type hierarchy. A fact must be **ground** — `(mortal ?x)` asserts nothing
@@ -41,8 +41,8 @@ reviews and applies. Your final message must contain exactly one fenced `edn` bl
 holding a map of this shape:
 
 ```edn
-{:add    [[(dog Muffet) WellContext]
-          [(parentOf Tom Ann) WellContext {:strength :monotonic}]]
+{:add    [[(dog Muffet) CxWell]
+          [(parentOf Tom Ann) CxWell {:strength :monotonic}]]
  :remove [4211]}
 ```
 
@@ -70,7 +70,7 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
    `(set/forwardRule …)` / `(set/backwardRule …)` to fix its direction, or
    `(set/defaultRule …)` to make it defeasible.
 3. **Pick the most specific context that sees everything you need.** A context sees
-   its `genlContext` ancestors; content asserted low is invisible from above.
+   its `genlCx` ancestors; content asserted low is invisible from above.
 4. **Say what you are unsure of** in prose above the batch. A batch is a proposal, so
    an uncertain entry costs a reviewer's attention, not a corrupted KB.")
 
@@ -82,7 +82,7 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
   (let [cs (sort (v/contexts kb))]
     (str "## Contexts (" (count cs) ")\n\n"
          "A sentex holds in exactly one context, and a context sees everything its\n"
-         "`genlContext` ancestors hold. Listed with what each one sees:\n\n"
+         "`genlCx` ancestors hold. Listed with what each one sees:\n\n"
          (str/join "\n"
                    (for [c (take max-contexts cs)]
                      (let [up (sort (disj (set (v/context-up kb c)) c))]

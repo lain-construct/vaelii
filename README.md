@@ -22,8 +22,8 @@ with forward/backward inference and JTMS truth maintenance.
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.6.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.6.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.7.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.7.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
@@ -33,7 +33,8 @@ lein repl          # loads namespace vaelii.core
 ```
 
 Conventions: predicates are `camelCase`, individuals `CapitalCamelCase`, types
-`snake_case` (unary predicates, e.g. `(dog Muffet)`), contexts end with `Context`.
+`snake_case` (unary predicates, e.g. `(dog Muffet)`), contexts are `Cx` followed by
+CapitalCamelCase.
 
 ```clojure
 (require '[vaelii.core :as v] '[vaelii.starter :as starter])
@@ -41,23 +42,23 @@ Conventions: predicates are `camelCase`, individuals `CapitalCamelCase`, types
 (def kb (v/open-kb {}))                            ; in-memory records + index
                                                    ; {:backend :disk :dir "/path"} to persist
 
-;; a read sees what its context sees, up the genlContext cone — so say that the
+;; a read sees what its context sees, up the genlCx cone — so say that the
 ;; world context reads the general one, or the rules below are invisible from it
-(v/assert kb '(genlContext NaturalWorldContext UniverseContext) 'UniverseContext)
+(v/assert kb '(genlCx CxNaturalWorld CxUniverse) 'CxUniverse)
 
 ;; a type hierarchy + a typed individual; genl is transitive and cached
-(v/assert kb '(genl dog animal) 'UniverseContext)
-(v/assert kb '(genl animal thing) 'UniverseContext)
-(v/assert kb '(dog Muffet) 'NaturalWorldContext)
+(v/assert kb '(genl dog animal) 'CxUniverse)
+(v/assert kb '(genl animal thing) 'CxUniverse)
+(v/assert kb '(dog Muffet) 'CxNaturalWorld)
 (v/isa?    kb 'Muffet 'animal)                       ;=> true (via genl; no context arg, so unscoped — any context counts)
 
 ;; a rule is a sentex; forward chaining + truth maintenance
-(v/assert-rule kb '[(parentOf ?x ?y) (parentOf ?y ?z)] '(grandparentOf ?x ?z) 'UniverseContext)
-(v/assert kb '(parentOf Tom Bob) 'NaturalWorldContext)
-(v/assert kb '(parentOf Bob Ann) 'NaturalWorldContext)
-(v/sentexes-matching   kb '(grandparentOf Tom Ann) 'NaturalWorldContext)  ;=> derived, placed in NaturalWorldContext
+(v/assert-rule kb '[(parentOf ?x ?y) (parentOf ?y ?z)] '(grandparentOf ?x ?z) 'CxUniverse)
+(v/assert kb '(parentOf Tom Bob) 'CxNaturalWorld)
+(v/assert kb '(parentOf Bob Ann) 'CxNaturalWorld)
+(v/sentexes-matching   kb '(grandparentOf Tom Ann) 'CxNaturalWorld)  ;=> derived, placed in CxNaturalWorld
 
-(let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'NaturalWorldContext)))]
+(let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))]
   (v/retract! kb bob))                             ;=> tears down what it solely supported
 
 ;; or skip all of the above: the bundled starter ontology, on its own stores —
@@ -82,7 +83,7 @@ pointing at a conclusion and carrying the strength it confers; the JTMS reads th
 compute belief. Sentences identical up to variable names, antecedent order, symmetric
 argument order or comparison direction dedup to one handle.
 
-Transitivity is not done with rules. The `genl` closure over types and the `genlContext`
+Transitivity is not done with rules. The `genl` closure over types and the `genlCx`
 closure over contexts are cached and recomputed when an edge changes, as is the equality
 partition behind `rewriteOf` / `sameAs` / `equals`.
 
@@ -93,7 +94,7 @@ Four properties hold everywhere:
   content, never on a handle.
 - **Locality** — no operation recomputes the whole graph; a relabel is scoped to the
   affected region with the rest held fixed.
-- **Context scoping** — a read sees what its context sees, up the `genlContext` cone:
+- **Context scoping** — a read sees what its context sees, up the `genlCx` cone:
   facts, rules, taxonomy edges and definitional checks alike.
 - **Belief filtering** — a stored sentex is not a believed one. Matching, the taxonomy
   closures and the cached relations all follow belief.
@@ -130,8 +131,8 @@ and add nothing to it. See [docs/operations.md](docs/operations.md).
 
 ```sh
 # command line (--dir persists via the disk backend, recovered on open)
-lein cli assert '(dog Muffet)' NaturalWorldContext --dir /var/lib/vaelii
-lein cli match  '(dog ?x)'   NaturalWorldContext --dir /var/lib/vaelii   # => [(dog Muffet)]
+lein cli assert '(dog Muffet)' CxNaturalWorld --dir /var/lib/vaelii
+lein cli match  '(dog ?x)'   CxNaturalWorld --dir /var/lib/vaelii   # => [(dog Muffet)]
 lein cli repl --starter                                                   # interactive
 
 # headless daemon: one process owns one KB, serves it as EDN over HTTP
@@ -142,8 +143,8 @@ lein serve 4200 /var/lib/vaelii
 ;; a thin client (zero-dependency java.net.http), conn threaded explicitly
 (require '[vaelii.client :as c])
 (def conn (c/client "localhost" 4200))
-(c/assert  conn '(dog Muffet) 'NaturalWorldContext)
-(c/query   conn '(dog ?x)   'NaturalWorldContext)
+(c/assert  conn '(dog Muffet) 'CxNaturalWorld)
+(c/query   conn '(dog ?x)   'CxNaturalWorld)
 ```
 
 ## Documentation

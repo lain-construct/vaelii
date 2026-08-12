@@ -1,9 +1,9 @@
-;; MereologyContext — part/location/ownership theory: a part is located wherever
+;; CxMereology — part/location/ownership theory: a part is located wherever
 ;; its whole is, and owning a whole entails owning its parts. Sees the shared
-;; upper ontology via UniverseContext; WellContext sees it.
+;; upper ontology via CxUniverse; CxWell sees it.
 
-(genlContext MereologyContext UniverseContext)
-(genlContext WellContext MereologyContext)
+(genlCx CxMereology CxUniverse)
+(genlCx CxWell CxMereology)
 
 (implies (and (partOf ?part ?whole) (locatedIn ?whole ?place))
          (locatedIn ?part ?place))

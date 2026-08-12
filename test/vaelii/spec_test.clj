@@ -43,29 +43,29 @@
 
 (deftest instrumented-boundary-accepts-valid-and-rejects-malformed
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog Muffet Rex SpecContext]
+    (tu/with-terms [dog Muffet Rex CxSpec]
       (instrumented
        (testing "a well-formed assert (valid opts) passes instrumentation"
-         (is (some? (v/assert kb (list dog Muffet) SpecContext {:strength :monotonic}))))
+         (is (some? (v/assert kb (list dog Muffet) CxSpec {:strength :monotonic}))))
        (testing "an unknown :strength keyword is rejected at the boundary"
          (is (= :instrument
-                (rejection #(v/assert kb (list dog Rex) SpecContext {:strength :monotone})))))
+                (rejection #(v/assert kb (list dog Rex) CxSpec {:strength :monotone})))))
        (testing "a non-map opts is rejected"
          (is (= :instrument
-                (rejection #(v/assert kb (list dog Rex) SpecContext :nope)))))
+                (rejection #(v/assert kb (list dog Rex) CxSpec :nope)))))
        (testing "a non-symbol context is rejected"
          (is (= :instrument
-                (rejection #(v/assert kb (list dog Rex) (str SpecContext))))))
+                (rejection #(v/assert kb (list dog Rex) (str CxSpec))))))
        (testing "a malformed budget (string where a ms count belongs) is rejected"
          (is (= :instrument
-                (rejection #(v/ask-within kb (list dog Muffet) SpecContext {:max-ms "soon"})))))
+                (rejection #(v/ask-within kb (list dog Muffet) CxSpec {:max-ms "soon"})))))
        (testing "a bad :max-cost tier is rejected"
          (is (= :instrument
-                (rejection #(v/ask-within kb (list dog Muffet) SpecContext {:max-cost :instant})))))
+                (rejection #(v/ask-within kb (list dog Muffet) CxSpec {:max-cost :instant})))))
        (testing "a non-integer handle to retract! is rejected"
          (is (= :instrument (rejection #(v/retract! kb "not-a-handle")))))
        (testing "and none of the refusals stored anything"
-         (is (nil? (v/handle-of kb (list dog Rex) SpecContext))))))))
+         (is (nil? (v/handle-of kb (list dog Rex) CxSpec))))))))
 
 (deftest the-opts-taking-publics-outside-the-roster-are-the-named-ones
   ;; The roster's coverage claim, held to the API rather than to itself.  `public-syms`
@@ -102,34 +102,34 @@
   ;; both `why-not` arities, a `:direction` rule opt.  A wrong spec would reject a
   ;; call the engine accepts — this is what catches it.  Answers are irrelevant.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog cat animal Muffet Felix Rex parentOf childOf SpecContext]
+    (tu/with-terms [dog cat animal Muffet Felix Rex parentOf childOf CxSpec]
       (instrumented
        (testing "writes: rule direction opt + provenance"
-         (let [h (v/assert kb (list dog Muffet) SpecContext {:strength :monotonic})]
+         (let [h (v/assert kb (list dog Muffet) CxSpec {:strength :monotonic})]
            (is (nat-int? h))
            (is (map? (v/add-provenance kb h {:source :test})))
-           (is (nat-int? (v/ist kb SpecContext (list cat Felix))))
+           (is (nat-int? (v/ist kb CxSpec (list cat Felix))))
            (v/assert-rule kb [(list parentOf '?x '?y)] (list childOf '?y '?x)
-                          SpecContext {:direction :forward})))
+                          CxSpec {:direction :forward})))
        (testing "reads: query 2- and 3-arity, ask, prove single + vector goal"
          (is (some? (seq (concat (v/sentexes-matching kb (list dog '?x))
-                                 (v/sentexes-matching kb (list dog '?x) SpecContext)))))
-         (dorun (v/ask kb (list dog '?x) SpecContext))
-         (v/prove kb (list dog '?x) SpecContext)
-         (v/prove kb [(list parentOf '?x '?y) (list dog '?y)] SpecContext)
-         (is (boolean? (v/provable? kb (list dog Muffet) SpecContext)))
-         (v/query-plan kb [(list parentOf '?x '?y) (list dog '?y)] SpecContext))
+                                 (v/sentexes-matching kb (list dog '?x) CxSpec)))))
+         (dorun (v/ask kb (list dog '?x) CxSpec))
+         (v/prove kb (list dog '?x) CxSpec)
+         (v/prove kb [(list parentOf '?x '?y) (list dog '?y)] CxSpec)
+         (is (boolean? (v/provable? kb (list dog Muffet) CxSpec)))
+         (v/query-plan kb [(list parentOf '?x '?y) (list dog '?y)] CxSpec))
        (testing "the lookup-to-query stack: every level + escalate floor"
-         (doseq [lvl (range 0 8)] (dorun (v/lookup kb lvl (list dog '?x) SpecContext)))
-         (v/escalate kb (list dog Muffet) SpecContext)
-         (v/escalate kb (list dog Muffet) SpecContext 3)
-         (v/explain-levels kb (list dog Muffet) SpecContext))
+         (doseq [lvl (range 0 8)] (dorun (v/lookup kb lvl (list dog '?x) CxSpec)))
+         (v/escalate kb (list dog Muffet) CxSpec)
+         (v/escalate kb (list dog Muffet) CxSpec 3)
+         (v/explain-levels kb (list dog Muffet) CxSpec))
        (testing "taxonomy + equality + metadata reads"
          (v/genls kb animal) (v/specs kb animal) (v/genl? kb dog animal)
          (v/types kb) (v/contexts kb)
-         (v/context-up kb SpecContext) (v/sees? kb SpecContext SpecContext)
-         (is (boolean? (v/isa? kb Muffet dog SpecContext)))
-         (v/types-of kb Muffet SpecContext)
+         (v/context-up kb CxSpec) (v/sees? kb CxSpec CxSpec)
+         (is (boolean? (v/isa? kb Muffet dog CxSpec)))
+         (v/types-of kb Muffet CxSpec)
          ;; every kind, not a representative one: the spec gates the `kind` argument,
          ;; so a kind it omits is a documented call that instrumentation refuses —
          ;; and one exercised kind cannot tell you about the other nine.
@@ -144,17 +144,17 @@
          (is (boolean? (v/deprecated? kb Muffet))))
        (testing "browser-support reads: term-role, metatypes, readable, indexable"
          (is (= :individual (v/term-role Muffet)))
-         (is (= :context (v/term-role SpecContext)))
+         (is (= :context (v/term-role CxSpec)))
          (is (= :variable (v/term-role '?x)))
          (v/disjoint-metatypes kb)
          (v/metatype-members kb dog)
-         (let [sx (v/sentex kb (v/handle-of kb (list dog Muffet) SpecContext))]
+         (let [sx (v/sentex kb (v/handle-of kb (list dog Muffet) CxSpec))]
            (is (= (list dog Muffet) (v/readable-sentence sx)))
            (is (coll? (v/indexable-terms sx)))))
        (testing "term index + extents with the {:believed? true} opt"
          (v/find-sentexes kb Muffet) (v/find-sentexes-all kb [Muffet dog])
-         (v/sentexes-in-context kb SpecContext {:believed? true})
-         (is (nat-int? (v/count-in-context kb SpecContext)))
+         (v/sentexes-in-context kb CxSpec {:believed? true})
+         (is (nat-int? (v/count-in-context kb CxSpec)))
          (v/sentexes-with-functor kb dog)
          (is (nat-int? (v/count-with-functor kb dog)))
          (v/sentexes-with-arg kb 1 Muffet {:believed? true})
@@ -168,7 +168,7 @@
          (v/find-terms kb (subs (name Muffet) 1 4) {:match :substring})
          (v/find-terms kb (str "^" Muffet "$") {:match :regex :limit 5}))
        (testing "introspection + both why-not arities"
-         (let [h (v/handle-of kb (list dog Muffet) SpecContext)]
+         (let [h (v/handle-of kb (list dog Muffet) CxSpec)]
            (is (nat-int? h))
            (is (boolean? (v/in? kb h)))
            (is (map? (v/sentex kb h)))
@@ -176,7 +176,7 @@
            (v/supporting-justifications kb h) (v/dependent-justifications kb h)
            (is (map? (v/why kb h)))
            (is (map? (v/why-not kb h)))
-           (is (map? (v/why-not kb (list dog Rex) SpecContext)))
+           (is (map? (v/why-not kb (list dog Rex) CxSpec)))
            (v/contexts-of kb (list dog Muffet))))))))
 
 ;; ---- the guard instrumentation hides ------------------------------------
@@ -190,27 +190,27 @@
   ;; known-true was meant, and nothing downstream can tell it from one that was asked
   ;; for.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog Muffet SpecContext]
+    (tu/with-terms [dog Muffet CxSpec]
       (testing "a non-map opts is refused rather than ignored"
         (is (= :unknown-option
-               (rejection #(v/assert kb (list dog Muffet) SpecContext :nope)))))
+               (rejection #(v/assert kb (list dog Muffet) CxSpec :nope)))))
       (testing "an unread key, and a :strength that is not an assertable class, likewise"
         (is (= :unknown-option
-               (rejection #(v/assert kb (list dog Muffet) SpecContext {:strenth :monotonic}))))
+               (rejection #(v/assert kb (list dog Muffet) CxSpec {:strenth :monotonic}))))
         (is (= :unknown-option
-               (rejection #(v/assert kb (list dog Muffet) SpecContext {:strength :monotone})))))
+               (rejection #(v/assert kb (list dog Muffet) CxSpec {:strength :monotone})))))
       (testing "and `check` agrees with `assert` about the non-map — same refusal,
                 same `:type`, since `shape-problems` runs the same guard"
         (is (= [:unknown-option]
-               (mapv :type (v/check kb (list dog Muffet) SpecContext :nope)))))
+               (mapv :type (v/check kb (list dog Muffet) CxSpec :nope)))))
       (testing "with an unknown key *and* a non-sequential sentence, both doors read
                 the opts first — one precedence, so one answer"
         (is (= :unknown-option
-               (rejection #(v/assert kb "(dog Muffet)" SpecContext {:strenth :monotonic}))))
+               (rejection #(v/assert kb "(dog Muffet)" CxSpec {:strenth :monotonic}))))
         (is (= [:unknown-option]
-               (mapv :type (v/check kb "(dog Muffet)" SpecContext {:strenth :monotonic})))))
+               (mapv :type (v/check kb "(dog Muffet)" CxSpec {:strenth :monotonic})))))
       (testing "none of them stored the sentence"
-        (is (nil? (v/handle-of kb (list dog Muffet) SpecContext)))))))
+        (is (nil? (v/handle-of kb (list dog Muffet) CxSpec)))))))
 
 (deftest a-direction-refusal-is-predicted-by-check
   ;; `assert` acts on `:direction`, so every refusal it makes must be one `check`
@@ -218,30 +218,30 @@
   ;; then throws mid-`edit` leaves its earlier adds stored, the half-applied state
   ;; the dry run exists to prevent.  Both doors read `direction-opt-problem`.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog cat Muffet SpecContext]
+    (tu/with-terms [dog cat Muffet CxSpec]
       (let [rule (list 'implies (list dog '?x) (list cat '?x))]
         (testing "a value outside the roster is refused, not silently wrapped as nothing"
           (is (= :unknown-option
-                 (rejection #(v/assert kb rule SpecContext {:direction :backwards}))))
+                 (rejection #(v/assert kb rule CxSpec {:direction :backwards}))))
           (is (= [:unknown-option]
-                 (mapv :type (v/check kb rule SpecContext {:direction :backwards}))))
-          (is (nil? (v/handle-of kb rule SpecContext)) "and nothing was stored"))
+                 (mapv :type (v/check kb rule CxSpec {:direction :backwards}))))
+          (is (nil? (v/handle-of kb rule CxSpec)) "and nothing was stored"))
         (testing "a direction on a non-rule, and one contradicting the wrapper, likewise"
           (is (= :unknown-option
-                 (rejection #(v/assert kb (list dog Muffet) SpecContext
+                 (rejection #(v/assert kb (list dog Muffet) CxSpec
                                        {:direction :backward}))))
           (is (= [:unknown-option]
-                 (mapv :type (v/check kb (list dog Muffet) SpecContext
+                 (mapv :type (v/check kb (list dog Muffet) CxSpec
                                       {:direction :backward}))))
           (is (= :unknown-option
-                 (rejection #(v/assert kb (list 'set/forwardRule rule) SpecContext
+                 (rejection #(v/assert kb (list 'set/forwardRule rule) CxSpec
                                        {:direction :backward}))))
           (is (= [:unknown-option]
-                 (mapv :type (v/check kb (list 'set/forwardRule rule) SpecContext
+                 (mapv :type (v/check kb (list 'set/forwardRule rule) CxSpec
                                       {:direction :backward})))))
         (testing "an applicable direction passes both doors and lands on the record"
-          (is (empty? (v/check kb rule SpecContext {:direction :backward})))
-          (let [h (v/assert kb rule SpecContext {:direction :backward})]
+          (is (empty? (v/check kb rule CxSpec {:direction :backward})))
+          (let [h (v/assert kb rule CxSpec {:direction :backward})]
             (is (= :backward (:direction (v/sentex kb h))))))))))
 
 ;; ---- the connective frames --------------------------------------------------
@@ -253,23 +253,23 @@
   ;; index disagreed), a bare-symbol rule literal, and a head-only `exists` in
   ;; antecedent position are all one `:not-well-formed` — and `check` predicts each.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [pp qq rr Aa SpecContext]
+    (tu/with-terms [pp qq rr Aa CxSpec]
       (doseq [s [(list 'implies (list pp '?x))
                  (list 'implies (list pp '?x) (list qq '?x) (list rr '?x))
                  (list 'not (list pp Aa) (list qq Aa))
                  (list 'and (list pp Aa) (list qq Aa))
                  (list 'implies (list 'exists '?y (list pp '?y)) (list qq '?y))]]
-        (is (= :not-well-formed (rejection #(v/assert kb s SpecContext)))
+        (is (= :not-well-formed (rejection #(v/assert kb s CxSpec)))
             (pr-str s))
-        (is (= [:not-well-formed] (mapv :type (v/check kb s SpecContext)))
+        (is (= [:not-well-formed] (mapv :type (v/check kb s CxSpec)))
             (pr-str s)))
       (testing "assert-rule refuses a bare symbol standing as a literal"
         (is (= :not-well-formed
                (rejection #(v/assert-rule kb [(list pp '?x) 'implies]
-                                          (list qq '?x) SpecContext))))
+                                          (list qq '?x) CxSpec))))
         (is (= :not-well-formed
-               (rejection #(v/assert-rule kb [(list pp '?x)] 'BareSymbol SpecContext)))))
+               (rejection #(v/assert-rule kb [(list pp '?x)] 'BareSymbol CxSpec)))))
       (testing "assert-inert refuses the same frames"
         (is (= :not-well-formed
                (rejection #(v/assert-inert kb (list 'not (list pp Aa) (list qq Aa))
-                                           SpecContext))))))))
+                                           CxSpec))))))))

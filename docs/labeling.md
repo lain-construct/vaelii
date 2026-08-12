@@ -38,7 +38,7 @@ fact about the world but an instruction about what to do with one.
 | namespace | meaning | example |
 |---|---|---|
 | `set/` | set a field on the enclosed rule | `(set/forwardRule (implies …))` |
-| `do/` | perform an action; store nothing | `(do/labeling LabelContext)` |
+| `do/` | perform an action; store nothing | `(do/labeling CxLabel)` |
 
 Why the assert channel at all, when this could be a plain function call:
 
@@ -46,7 +46,7 @@ Why the assert channel at all, when this could be a plain function call:
   labels, and replayed by the same loader.
 * It is *about* the KB in the KB's own language, which is the same argument that put
   the vocabulary's documentation in `comment` sentexes.
-* What labeling actually does is assert — a `genlContext` edge and a set of
+* What labeling actually does is assert — a `genlCx` edge and a set of
   strengthened copies — so the handles it made come back in the answer. `imperative/run`
   returns the imperative's **result map**, though, not a handle: an imperative stores
   nothing of its own, and `assert` returning one is the third shape it can answer with.
@@ -110,7 +110,7 @@ no committed answer to be faithful to, so the solve is the only thing that decid
 
 ### `Ctx` inherits, and the labeling is recorded by strengthening
 
-`Ctx` is a `genlContext` specialization of the base, and each kept assumption is
+`Ctx` is a `genlCx` specialization of the base, and each kept assumption is
 re-asserted inside it at `:monotonic`. Nothing needs to be said about the side that
 lost: the strengthened copy out-ranks it and `decide-nogood` defeats the strictly
 weaker member. So `Ctx` is a **world** — the uncontested background is inherited, and

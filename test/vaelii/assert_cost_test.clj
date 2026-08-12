@@ -133,16 +133,16 @@
   []
   (let [kb (fresh)]
     (fn [] (dotimes [i n]
-             (v/assert kb (list 'acPlain (ind "AcA" i) (ind "AcB" i)) 'PerfContext {})))))
+             (v/assert kb (list 'acPlain (ind "AcA" i) (ind "AcB" i)) 'CxPerf {})))))
 
 (defn- membership
   "A type membership into a declared taxonomy — the arriving fact `settle` does real work
   for, since the disjointness arm reads the term's own argument-1 root."
   []
   (let [kb (fresh)]
-    (v/assert kb '(genl acm_t thing) 'PerfContext {:strength :monotonic})
+    (v/assert kb '(genl acm_t thing) 'CxPerf {:strength :monotonic})
     (fn [] (dotimes [i n]
-             (v/assert kb (list 'acm_t (ind "AcM" i)) 'PerfContext {})))))
+             (v/assert kb (list 'acm_t (ind "AcM" i)) 'CxPerf {})))))
 
 (defn- declared
   "A fact of a predicate carrying an `argIsa` declaration at both positions, over
@@ -151,12 +151,12 @@
   so a fourth declaration kind read unconditionally lands here first."
   []
   (let [kb (fresh)]
-    (v/assert kb '(genl acd_t thing) 'PerfContext {:strength :monotonic})
-    (v/assert kb '(argIsa acDecl 1 acd_t) 'PerfContext {:strength :monotonic})
-    (v/assert kb '(argIsa acDecl 2 acd_t) 'PerfContext {:strength :monotonic})
-    (dotimes [i n] (v/assert kb (list 'acd_t (ind "AcD" i)) 'PerfContext {}))
+    (v/assert kb '(genl acd_t thing) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(argIsa acDecl 1 acd_t) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(argIsa acDecl 2 acd_t) 'CxPerf {:strength :monotonic})
+    (dotimes [i n] (v/assert kb (list 'acd_t (ind "AcD" i)) 'CxPerf {}))
     (fn [] (dotimes [i n]
-             (v/assert kb (list 'acDecl (ind "AcD" i) (ind "AcD" i)) 'PerfContext {})))))
+             (v/assert kb (list 'acDecl (ind "AcD" i) (ind "AcD" i)) 'CxPerf {})))))
 
 (defn- negative
   "A negative fact with no positive twin.  Its own workload because the `:false` node is a
@@ -165,7 +165,7 @@
   []
   (let [kb (fresh)]
     (fn [] (dotimes [i n]
-             (v/assert kb (list 'not (list 'acNeg (ind "AcN" i) 'AcNval)) 'PerfContext {})))))
+             (v/assert kb (list 'not (list 'acNeg (ind "AcN" i) 'AcNval)) 'CxPerf {})))))
 
 (defn- compound
   "A fact carrying a compound argument, which is the write side of the structural trie and
@@ -175,7 +175,7 @@
   (let [kb (fresh)]
     (fn [] (dotimes [i n]
              (v/assert kb (list 'acCmp (ind "AcC" i) (list 'acFn (ind "AcC" i) 'AcUnit))
-                       'PerfContext {})))))
+                       'CxPerf {})))))
 
 (defn- rule-fired
   "A fact arriving through one forward rule, so each assert indexes **two** sentexes — the
@@ -184,9 +184,9 @@
   []
   (let [kb (fresh)]
     (v/assert kb (rules/rule-sentence ['(acSrc ?x ?y)] '(acDst ?x ?y))
-              'PerfContext {:strength :monotonic})
+              'CxPerf {:strength :monotonic})
     (fn [] (dotimes [i n]
-             (v/assert kb (list 'acSrc (ind "AcR" i) (ind "AcS" i)) 'PerfContext {})))))
+             (v/assert kb (list 'acSrc (ind "AcR" i) (ind "AcS" i)) 'CxPerf {})))))
 
 ;; ---- the retraction workloads --------------------------------------------
 ;;
@@ -217,7 +217,7 @@
   []
   (let [kb (fresh)
         hs (mapv (fn [i] (v/assert kb (list 'acPlain (ind "AcA" i) (ind "AcB" i))
-                                   'PerfContext {}))
+                                   'CxPerf {}))
                  (range n))]
     (fn [] (doseq [h hs] (v/retract! kb h)))))
 
@@ -229,9 +229,9 @@
   []
   (let [kb (fresh)]
     (v/assert kb (rules/rule-sentence ['(acSrc ?x ?y)] '(acDst ?x ?y))
-              'PerfContext {:strength :monotonic})
+              'CxPerf {:strength :monotonic})
     (let [hs (mapv (fn [i] (v/assert kb (list 'acSrc (ind "AcR" i) (ind "AcS" i))
-                                     'PerfContext {}))
+                                     'CxPerf {}))
                    (range n))]
       (fn [] (doseq [h hs] (v/retract! kb h))))))
 
@@ -253,12 +253,12 @@
   delta is what the narrowing bought."
   []
   (let [kb (fresh)]
-    (v/assert kb '(reifiableFunction AcNatFn) 'UniverseContext {:strength :monotonic})
+    (v/assert kb '(reifiableFunction AcNatFn) 'CxUniverse {:strength :monotonic})
     (dotimes [i nat-population]
       (v/assert kb (list 'acNatUse (ind "AcNU" i) (list 'AcNatFn (ind "AcNA" i)))
-                'PerfContext {}))
+                'CxPerf {}))
     (let [hs (mapv (fn [i] (v/assert kb (list 'acBystand (ind "AcBy" i) 'AcByVal)
-                                     'PerfContext {}))
+                                     'CxPerf {}))
                    (range n))]
       (fn [] (doseq [h hs] (v/retract! kb h))))))
 
@@ -273,10 +273,10 @@
   wearing a performance win's clothes."
   []
   (let [kb (fresh)]
-    (v/assert kb '(reifiableFunction AcOrphFn) 'UniverseContext {:strength :monotonic})
+    (v/assert kb '(reifiableFunction AcOrphFn) 'CxUniverse {:strength :monotonic})
     (let [hs (mapv (fn [i] (v/assert kb (list 'acOrphUse (ind "AcOU" i)
                                               (list 'AcOrphFn (ind "AcOA" i)))
-                                     'PerfContext {}))
+                                     'CxPerf {}))
                    (range n))]
       (fn [] (doseq [h hs] (v/retract! kb h))))))
 
@@ -307,10 +307,10 @@
   []
   (let [kb (fresh)]
     (dotimes [i merge-population]
-      (v/assert kb (list 'acMergeBorn (ind "AcMHi" i) 'AcMPlace) 'PerfContext {})
-      (v/assert kb (list 'sameAs (ind "AcMAa" i) (ind "AcMHi" i)) 'PerfContext {}))
+      (v/assert kb (list 'acMergeBorn (ind "AcMHi" i) 'AcMPlace) 'CxPerf {})
+      (v/assert kb (list 'sameAs (ind "AcMAa" i) (ind "AcMHi" i)) 'CxPerf {}))
     (let [hs (mapv (fn [i] (v/assert kb (list 'acMergeBystand (ind "AcMBy" i) 'AcMByVal)
-                                     'PerfContext {}))
+                                     'CxPerf {}))
                    (range n))]
       (fn [] (doseq [h hs] (v/retract! kb h))))))
 

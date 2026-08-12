@@ -103,7 +103,7 @@
   (tu/with-kb [kb]
     ;; context-scoped retrieval walks the same match-one, so the context up-closure
     ;; must not change the answer either
-    (doseq [ctx '[MantleContext NaturalWorldContext SocialWorldContext UniverseContext]]
+    (doseq [ctx '[CxMantle CxNaturalWorld CxSocialWorld CxUniverse]]
       (doseq [pat (mapcat var-patterns (fact-sentences kb 120))]
         (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
           (is (= off on) (str "matches-visible diverged on " (pr-str pat) " @ " ctx)))))))
@@ -139,12 +139,12 @@
 (tu/deftest-kb multi-column-narrowing
   (tu/with-terms [Shared P1 P2 P3 X Z Other parentRel sibRel marRel rel]
     ;; Shared appears at position 2 across three binary predicates ...
-    (v/assert kb (list parentRel P1 Shared) 'MantleContext {:strength :monotonic})
-    (v/assert kb (list sibRel    P2 Shared) 'MantleContext {:strength :monotonic})
-    (v/assert kb (list marRel    P3 Shared) 'MantleContext {:strength :monotonic})
+    (v/assert kb (list parentRel P1 Shared) 'CxMantle {:strength :monotonic})
+    (v/assert kb (list sibRel    P2 Shared) 'CxMantle {:strength :monotonic})
+    (v/assert kb (list marRel    P3 Shared) 'CxMantle {:strength :monotonic})
     ;; ... and in a ternary predicate with two ground arguments to intersect
-    (v/assert kb (list rel X Shared Z) 'MantleContext {:strength :monotonic})
-    (v/assert kb (list rel X Other  Z) 'MantleContext {:strength :monotonic})
+    (v/assert kb (list rel X Shared Z) 'CxMantle {:strength :monotonic})
+    (v/assert kb (list rel X Other  Z) 'CxMantle {:strength :monotonic})
     (doseq [pat [(list parentRel (symbol "?x") Shared)   ; functor ∩ [2 Shared]
                  (list sibRel    (symbol "?x") Shared)
                  (list marRel    (symbol "?x") Shared)
@@ -162,15 +162,15 @@
 ;; the schema-only starter never loaded).
 (tu/deftest-kb query-shares-the-argument-root-chooser
   (tu/with-terms [Shared P1 P2 P3 X Z Other parentRel sibRel marRel rel]
-    (v/assert kb (list parentRel P1 Shared) 'MantleContext {:strength :monotonic})
-    (v/assert kb (list sibRel    P2 Shared) 'MantleContext {:strength :monotonic})
-    (v/assert kb (list marRel    P3 Shared) 'MantleContext {:strength :monotonic})
-    (v/assert kb (list rel X Shared Z) 'MantleContext {:strength :monotonic})
-    (v/assert kb (list rel X Other  Z) 'MantleContext {:strength :monotonic})
+    (v/assert kb (list parentRel P1 Shared) 'CxMantle {:strength :monotonic})
+    (v/assert kb (list sibRel    P2 Shared) 'CxMantle {:strength :monotonic})
+    (v/assert kb (list marRel    P3 Shared) 'CxMantle {:strength :monotonic})
+    (v/assert kb (list rel X Shared Z) 'CxMantle {:strength :monotonic})
+    (v/assert kb (list rel X Other  Z) 'CxMantle {:strength :monotonic})
     (letfn [(q [goal ctx flag]
               (binding [res/*arg-root-retrieval* flag]
                 (set (map :sentence (v/sentexes-matching kb goal ctx)))))]
-      (doseq [ctx  (list 'MantleContext '?ctx)                 ; concrete and wildcard context
+      (doseq [ctx  (list 'CxMantle '?ctx)                 ; concrete and wildcard context
               goal [(list parentRel (symbol "?x") Shared)      ; functor ∩ [2 Shared]
                     (list sibRel    (symbol "?x") Shared)
                     (list marRel    (symbol "?x") Shared)
@@ -199,9 +199,9 @@
       (doseq [goal '[(grandparentOf ?x Ann) (ancestorOf ?x Ann) (childOf Ann ?y)
                      (uncleOf ?x ?y)]]
         (let [bw-off (binding [res/*arg-root-retrieval* false]
-                       (set (v/prove kb goal 'MantleContext)))
+                       (set (v/prove kb goal 'CxMantle)))
               bw-on  (binding [res/*arg-root-retrieval* true]
-                       (set (v/prove kb goal 'MantleContext)))
+                       (set (v/prove kb goal 'CxMantle)))
               ask-off (binding [res/*arg-root-retrieval* false]
                         (set (v/ask kb goal '?ctx)))
               ask-on  (binding [res/*arg-root-retrieval* true]

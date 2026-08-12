@@ -69,7 +69,7 @@
 (def ^:private long-clause
   "Past this many characters a clause is worth cutting at its em dash as well as at its
   sentence end.  Cutting at the dash first would truncate mid-thought — \"every (P ...)\"
-  out of \"every (P ...) is deduced into UniverseContext — …\" — so the dash is the
+  out of \"every (P ...) is deduced into CxUniverse — …\" — so the dash is the
   second cut and only for a clause that is already too long to read."
   140)
 

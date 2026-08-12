@@ -33,17 +33,17 @@
 (tu/deftest-kb the-four-firing-outcomes-land-in-three-different-categories
   (tu/with-terms [bird ghost penguin sings hasWings glows flies hasBeak
                   Robin Tweety Waddles]
-    (let [fires   (v/assert-rule kb [(list bird '?x)] (list hasWings '?x) 'UniverseContext)
-          never   (v/assert-rule kb [(list ghost '?x)] (list glows '?x) 'UniverseContext)
+    (let [fires   (v/assert-rule kb [(list bird '?x)] (list hasWings '?x) 'CxUniverse)
+          never   (v/assert-rule kb [(list ghost '?x)] (list glows '?x) 'CxUniverse)
           beaten  (v/assert kb (default-rule [(list penguin '?x)] (list flies '?x))
-                            'UniverseContext)
-          undone  (v/assert-rule kb [(list sings '?x)] (list hasBeak '?x) 'UniverseContext)
-          sang    (v/assert kb (list sings Robin) 'UniverseContext)]
-      (v/assert kb (list bird Robin) 'UniverseContext)
-      (v/assert kb (list bird Tweety) 'UniverseContext)
-      (v/assert kb (list penguin Waddles) 'UniverseContext)
+                            'CxUniverse)
+          undone  (v/assert-rule kb [(list sings '?x)] (list hasBeak '?x) 'CxUniverse)
+          sang    (v/assert kb (list sings Robin) 'CxUniverse)]
+      (v/assert kb (list bird Robin) 'CxUniverse)
+      (v/assert kb (list bird Tweety) 'CxUniverse)
+      (v/assert kb (list penguin Waddles) 'CxUniverse)
       ;; known-true, so it out-ranks the default conclusion the rule just placed
-      (v/assert kb (list 'not (list flies Waddles)) 'UniverseContext {:strength :monotonic})
+      (v/assert kb (list 'not (list flies Waddles)) 'CxUniverse {:strength :monotonic})
       (v/retract! kb sang)
       (let [q (:rules (v/kb-quality kb))]
         (testing "a rule with two supported conclusions is live, and both firings count"
@@ -68,17 +68,17 @@
         (testing "each listed rule reads as its author wrote it, not as it is stored"
           (is (= (list 'implies (list ghost '?x) (list glows '?x))
                  (:sentence (first (filter #(= never (:handle %)) (:never q))))))
-          (is (= 'UniverseContext
+          (is (= 'CxUniverse
                  (:context (first (filter #(= never (:handle %)) (:never q)))))))))))
 
 (tu/deftest-kb every-rule-the-index-can-key-is-in-the-census
   ;; the claim the cost argument rests on: rules are enumerated from the rule index, not by
   ;; scanning the record store, and the two must agree on a KB whose rules are all keyable
   (tu/with-terms [a_type b_type c_type pOne pTwo pThree]
-    (v/assert-rule kb [(list a_type '?x)] (list pOne '?x) 'UniverseContext)
-    (v/assert-rule kb [(list b_type '?x)] (list pTwo '?x) 'UniverseContext)
-    (v/assert-rule kb [(list a_type '?x) (list b_type '?x)] (list pThree '?x) 'UniverseContext)
-    (v/assert kb (list 'genl c_type a_type) 'UniverseContext)
+    (v/assert-rule kb [(list a_type '?x)] (list pOne '?x) 'CxUniverse)
+    (v/assert-rule kb [(list b_type '?x)] (list pTwo '?x) 'CxUniverse)
+    (v/assert-rule kb [(list a_type '?x) (list b_type '?x)] (list pThree '?x) 'CxUniverse)
+    (v/assert kb (list 'genl c_type a_type) 'CxUniverse)
     (let [recs    (:records kb)
           scanned (into #{} (filter #(some-> (p/get-sentex recs %) vr/rule?))
                         (p/sentex-ids recs))]
@@ -102,9 +102,9 @@
 
 (tu/deftest-kb the-extents-are-stored-counts-bucketed-by-order-of-magnitude
   (tu/with-terms [manyOf fewOf onceOf Holder]
-    (dotimes [i 120] (v/assert kb (list manyOf Holder (symbol (str "QT" i))) 'UniverseContext))
-    (dotimes [i 12]  (v/assert kb (list fewOf Holder (symbol (str "QF" i))) 'UniverseContext))
-    (v/assert kb (list onceOf Holder Holder) 'UniverseContext)
+    (dotimes [i 120] (v/assert kb (list manyOf Holder (symbol (str "QT" i))) 'CxUniverse))
+    (dotimes [i 12]  (v/assert kb (list fewOf Holder (symbol (str "QF" i))) 'CxUniverse))
+    (v/assert kb (list onceOf Holder Holder) 'CxUniverse)
     (let [e (:extents (v/kb-quality kb))]
       (testing "one bucket per order of magnitude, and the count is what is stored"
         (is (= 1 (get (:buckets e) 2)) "120 sits in 10^2")
@@ -122,7 +122,7 @@
     ;; four *distinct* consequents: four rules identical up to variable names would
     ;; canonicalize to one handle, which is a different property and not this one
     (doseq [pred [pOne pTwo pThree pFour]]
-      (v/assert-rule kb [(list a_type '?x)] (list pred '?x) 'UniverseContext))
+      (v/assert-rule kb [(list a_type '?x)] (list pred '?x) 'CxUniverse))
     (let [q (:rules (v/kb-quality kb {:limit 2}))]
       (is (= 4 (:never-count q)) "the count is of the whole set")
       (is (= 2 (count (:never q))) "the list is not")
@@ -143,7 +143,7 @@
                        ["Alpha" "Beta" "Gamma" "Delta"])
           sorted (vec (sort-by str preds))]
       (doseq [p (reverse sorted)]
-        (v/assert-rule kb [(list a_type '?x)] (list p '?x) 'UniverseContext))
+        (v/assert-rule kb [(list a_type '?x)] (list p '?x) 'CxUniverse))
       (let [q       (:rules (v/kb-quality kb {:limit 2}))
             shown   (into #{} (map #(nth (:sentence %) 2)) (:never q))
             wanted  (into #{} (map #(list % '?x)) (take 2 sorted))]
@@ -159,9 +159,9 @@
     ;; a transitive rule is a self-loop in the functor graph, which is the commonest cycle
     ;; there is — `genl`'s own transitivity has this shape
     (v/assert-rule kb [(list chained '?x '?y) (list chained '?y '?z)]
-                   (list chained '?x '?z) 'UniverseContext)
-    (v/assert-rule kb [(list a_type '?x)] (list pMid '?x) 'UniverseContext)
-    (v/assert-rule kb [(list pMid '?x)] (list pTop '?x) 'UniverseContext)
+                   (list chained '?x '?z) 'CxUniverse)
+    (v/assert-rule kb [(list a_type '?x)] (list pMid '?x) 'CxUniverse)
+    (v/assert-rule kb [(list pMid '?x)] (list pTop '?x) 'CxUniverse)
     (let [c (:chains (v/kb-quality kb))]
       (is (= 3 (:rules c)))
       (is (<= 1 (:cyclic c)) "the self-loop is a cycle of one node, not an acyclic node")
@@ -202,13 +202,13 @@
 
 (tu/deftest-kb taxonomy-coverage-is-two-numbers-and-the-gap-between-them-is-the-finding
   (tu/with-terms [root_type mid_type leaf_type island_a island_b lonely_type Ownerless]
-    (v/assert kb (list 'genl leaf_type mid_type) 'UniverseContext)
-    (v/assert kb (list 'genl mid_type root_type) 'UniverseContext)
+    (v/assert kb (list 'genl leaf_type mid_type) 'CxUniverse)
+    (v/assert kb (list 'genl mid_type root_type) 'CxUniverse)
     ;; two types with an edge between them and no path to the root: covered by the first
     ;; number, not by the second, which is the whole reason there are two
-    (v/assert kb (list 'genl island_a island_b) 'UniverseContext)
+    (v/assert kb (list 'genl island_a island_b) 'CxUniverse)
     ;; a type-shaped name in the vocabulary that no edge mentions at all
-    (v/assert kb (list lonely_type Ownerless) 'UniverseContext)
+    (v/assert kb (list lonely_type Ownerless) 'CxUniverse)
     (let [t (:taxonomy (v/kb-quality kb))]
       (is (= root_type (:root t)) "the root is found, not assumed — nothing here is `thing`")
       (is (= 5 (:edged t)) "the five types some genl edge names")
@@ -248,7 +248,7 @@
   ;; hand-built here for exactly that reason
   (let [md (v/quality-report
             {:rules    {:total 3 :never [{:handle 7 :sentence '(implies (a ?x) (b ?x))
-                                          :context 'SomeContext}]
+                                          :context 'CxSome}]
                         :never-count 1 :all-defeated [] :all-defeated-count 0
                         :fired 2 :firings 9 :truncated? false}
              :extents  {:predicates 4 :with-extent 2 :stored 130 :gini 0.5

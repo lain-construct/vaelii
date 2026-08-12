@@ -4,8 +4,8 @@
   "Children's stories as contexts — worked examples, test-world data below the
   shipped schema (see vaelii.world).
 
-  Each fable is a context under StoriesContext (which sees the shipped upper ontology
-  through WellContext, so the characters get their types).  A story holds a few typed
+  Each fable is a context under CxStories (which sees the shipped upper ontology
+  through CxWell, so the characters get their types).  A story holds a few typed
   characters, the facts of
   the tale, and rules whose *connected conjunctive antecedents* join those facts to
   DERIVE the story's moral — the moral is a computed conclusion, not a stored string.
@@ -25,17 +25,17 @@
 ;; ---- contexts -----------------------------------------------------------
 
 (def context-links
-  "Each fable is an isolated leaf under StoriesContext, which hangs off WellContext.
-  A story sees the shared upper ontology and the middle theories (through WellContext)
+  "Each fable is an isolated leaf under CxStories, which hangs off CxWell.
+  A story sees the shared upper ontology and the middle theories (through CxWell)
   plus universally-lifted facts — but NOT the contingent facts of the sibling data
-  contexts (NaturalWorldContext, SocialWorldContext): a rule joining a story fact with
+  contexts (CxNaturalWorld, CxSocialWorld): a rule joining a story fact with
   a natural-world fact would never fire, since their placement intersection is empty.
   Each story is self-contained."
-  '[(genlContext StoriesContext        WellContext)
-    (genlContext LionMouseContext      StoriesContext)
-    (genlContext TortoiseHareContext   StoriesContext)
-    (genlContext AntGrasshopperContext StoriesContext)
-    (genlContext CriedWolfContext      StoriesContext)])
+  '[(genlCx CxStories        CxWell)
+    (genlCx CxLionMouse      CxStories)
+    (genlCx CxTortoiseHare   CxStories)
+    (genlCx CxAntGrasshopper CxStories)
+    (genlCx CxCriedWolf      CxStories)])
 
 ;; ---- the narrative predicates, documented -------------------------------
 
@@ -75,10 +75,10 @@
 
 (def morals
   "The human-readable moral of each fable, attached to its context."
-  '[(comment LionMouseContext      "The Lion and the Mouse — moral: no kindness, however small, is ever wasted.")
-    (comment TortoiseHareContext   "The Tortoise and the Hare — moral: slow and steady wins the race.")
-    (comment AntGrasshopperContext "The Ant and the Grasshopper — moral: prepare in the good times for the hard times.")
-    (comment CriedWolfContext      "The Boy Who Cried Wolf — moral: a liar is not believed even when he tells the truth.")])
+  '[(comment CxLionMouse      "The Lion and the Mouse — moral: no kindness, however small, is ever wasted.")
+    (comment CxTortoiseHare   "The Tortoise and the Hare — moral: slow and steady wins the race.")
+    (comment CxAntGrasshopper "The Ant and the Grasshopper — moral: prepare in the good times for the hard times.")
+    (comment CxCriedWolf      "The Boy Who Cried Wolf — moral: a liar is not believed even when he tells the truth.")])
 
 ;; ---- the same four stories, in English ----------------------------------
 
@@ -98,28 +98,28 @@
   (`spared`, `napped`, `preparedForWinter`), so resolving a word to a term is easier here
   than it would be on arbitrary prose.  The score is a floor on the formalism, not a claim
   about English."
-  {'LionMouseContext
+  {'CxLionMouse
    (str "A lion caught a mouse in his paw, but he spared the little creature and let "
         "it go. Not long afterwards the lion himself was trapped in a hunter's net. "
         "The mouse heard him roaring, came running, and freed him by gnawing through "
         "the ropes. Whoever is spared will, given the chance, free the one who spared "
         "them, and so repay the kindness.")
 
-   'TortoiseHareContext
+   'CxTortoiseHare
    (str "A tortoise and a hare raced each other along the road. The hare was "
         "overconfident, so certain of winning that he lay down and napped in the "
         "shade. The tortoise persevered, plodding on without once stopping. When two "
         "animals race, and the slower one perseveres while the faster one naps, the "
         "slower one wins.")
 
-   'AntGrasshopperContext
+   'CxAntGrasshopper
    (str "All through the warm months the ant prepared for winter, carrying grain down "
         "into her nest, while the grasshopper idled in summer and sang. Whoever "
         "prepared for winter survives winter. Whoever idled in summer suffers in "
         "winter. And one who survives the winter was better prepared than one who "
         "suffers it.")
 
-   'CriedWolfContext
+   'CxCriedWolf
    (str "The boy who watched the sheep had lied before, raising a false alarm for the "
         "fun of seeing the village run. A liar is a kind of person, one whose word is "
         "no longer trusted, and anyone who has lied before is a liar. Today the boy "
@@ -133,17 +133,17 @@
 (defn- assert-all [kb ctx forms] (doseq [s forms] (v/assert kb s ctx)))
 
 (defn- lion-and-mouse [kb]
-  (assert-all kb 'LionMouseContext
+  (assert-all kb 'CxLionMouse
               '[(lion LionA) (mouse MouseA)
                 (spared LionA MouseA)                 ; the lion let the mouse go
                 (trapped LionA)                       ; later the hunters catch the lion
                 (freed MouseA LionA)])                ; the mouse gnaws the net and frees him
   ;; a kindness given and later returned makes a repaid kindness (joined on both actors)
   (v/assert-rule kb '[(spared ?strong ?weak) (freed ?weak ?strong)]
-                 '(repaidKindness ?weak ?strong) 'LionMouseContext))
+                 '(repaidKindness ?weak ?strong) 'CxLionMouse))
 
 (defn- tortoise-and-hare [kb]
-  (assert-all kb 'TortoiseHareContext
+  (assert-all kb 'CxTortoiseHare
               '[(tortoise TortoiseA) (hare HareA)
                 (raced TortoiseA HareA)
                 (persevered TortoiseA)
@@ -151,32 +151,32 @@
                 (napped HareA)])
   ;; the steady racer beats the fast one who stops to sleep (a three-antecedent join)
   (v/assert-rule kb '[(raced ?slow ?fast) (persevered ?slow) (napped ?fast)]
-                 '(wins ?slow ?fast) 'TortoiseHareContext))
+                 '(wins ?slow ?fast) 'CxTortoiseHare))
 
 (defn- ant-and-grasshopper [kb]
-  (assert-all kb 'AntGrasshopperContext
+  (assert-all kb 'CxAntGrasshopper
               '[(ant AntA) (grasshopper GrasshopperA)
                 (preparedForWinter AntA)
                 (idledInSummer GrasshopperA)])
   ;; preparing carries you through; idling does not; the one who prepared fares better
-  (v/assert-rule kb '[(preparedForWinter ?x)] '(survivesWinter ?x)  'AntGrasshopperContext)
-  (v/assert-rule kb '[(idledInSummer ?x)]     '(suffersInWinter ?x) 'AntGrasshopperContext)
+  (v/assert-rule kb '[(preparedForWinter ?x)] '(survivesWinter ?x)  'CxAntGrasshopper)
+  (v/assert-rule kb '[(idledInSummer ?x)]     '(suffersInWinter ?x) 'CxAntGrasshopper)
   (v/assert-rule kb '[(survivesWinter ?a) (suffersInWinter ?b)]     ; derived facts joined
-                 '(betterPreparedThan ?a ?b) 'AntGrasshopperContext))
+                 '(betterPreparedThan ?a ?b) 'CxAntGrasshopper))
 
 (defn- boy-who-cried-wolf [kb]
   ;; A liar is a narrower kind of speaker than a person.  Nothing is arbitrated here:
   ;; the belief rule states its own exception with `exceptWhen`, so for a liar it
   ;; concludes nothing and there is no clash to resolve.  The `genl` edge is what lets
   ;; the exception be stated at the type rather than at every liar individually.
-  (v/assert kb '(genl liar person) 'CriedWolfContext)
-  (assert-all kb 'CriedWolfContext
+  (v/assert kb '(genl liar person) 'CxCriedWolf)
+  (assert-all kb 'CxCriedWolf
               '[(person BoyA) (wolf WolfA)
                 (liedBefore BoyA)                     ; he has raised false alarms
                 (criesWolf BoyA)                      ; now he cries wolf again
                 (approaches WolfA BoyA)])             ; and this time the wolf is real
   ;; having raised a false alarm is what makes him one
-  (v/assert-rule kb '[(liedBefore ?x)] '(liar ?x) 'CriedWolfContext)
+  (v/assert-rule kb '[(liedBefore ?x)] '(liar ?x) 'CxCriedWolf)
   ;; a cry is believed by default — **except** from a liar.  The exception rides on
   ;; the rule (`exceptWhen`), so for a liar the rule concludes nothing at all.
   ;;
@@ -187,23 +187,23 @@
   ;; docs/exceptions.md, Status, for what measuring this actually showed.
   (v/assert kb '(exceptWhen (liar ?x)
                             (set/defaultRule (implies (and (criesWolf ?x)) (believed ?x))))
-            'CriedWolfContext)
+            'CxCriedWolf)
   ;; … and the positive claim that a liar's cry is not believed stands on its own,
   ;; queryable, rather than existing only to defeat the rule above
-  (v/assert-rule kb '[(liar ?x) (criesWolf ?x)] '(not (believed ?x)) 'CriedWolfContext)
+  (v/assert-rule kb '[(liar ?x) (criesWolf ?x)] '(not (believed ?x)) 'CxCriedWolf)
   ;; the danger is real all the same: an approaching predator + the cry ⇒ real danger
   ;; (a joined rule with a constant character, WolfA, in an antecedent)
   (v/assert-rule kb '[(approaches WolfA ?victim) (criesWolf ?victim)]
-                 '(inDanger ?victim) 'CriedWolfContext))
+                 '(inDanger ?victim) 'CxCriedWolf))
 
 (defn load-into
   "Load the story contexts into `kb` (which must already have the starter
   ontology).  Returns kb."
   [kb]
-  (doseq [s context-links] (v/assert kb s 'UniverseContext))
-  (assert-all kb 'StoriesContext predicate-docs)
-  (assert-all kb 'StoriesContext predicate-types)
-  (assert-all kb 'StoriesContext morals)
+  (doseq [s context-links] (v/assert kb s 'CxUniverse))
+  (assert-all kb 'CxStories predicate-docs)
+  (assert-all kb 'CxStories predicate-types)
+  (assert-all kb 'CxStories morals)
   (lion-and-mouse kb)
   (tortoise-and-hare kb)
   (ant-and-grasshopper kb)

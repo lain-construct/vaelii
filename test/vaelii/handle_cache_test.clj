@@ -29,32 +29,32 @@
 
 (tu/deftest-kb handle-cache-answers-what-the-index-answers
   (testing "every lookup a bound cache serves equals the one the index serves"
-    (tu/with-terms [holds carries A B StoryContext]
+    (tu/with-terms [holds carries A B CxStory]
       (let [s1     (list holds A B)
             s2     (list carries B A)
             absent (list holds B A)
             probes [s1 s2 absent]]
-        (v/assert kb s1 StoryContext {:chain? false})
-        (v/assert kb s2 StoryContext {:chain? false})
-        (let [uncached (mapv #(kb/find-sentex-handle kb % StoryContext) probes)
+        (v/assert kb s1 CxStory {:chain? false})
+        (v/assert kb s2 CxStory {:chain? false})
+        (let [uncached (mapv #(kb/find-sentex-handle kb % CxStory) probes)
               cached   (observe/with-handle-cache
                          ;; twice through, so the second pass reads what the first stored
-                         (dorun (map #(kb/find-sentex-handle kb % StoryContext) probes))
-                         (mapv #(kb/find-sentex-handle kb % StoryContext) probes))]
+                         (dorun (map #(kb/find-sentex-handle kb % CxStory) probes))
+                         (mapv #(kb/find-sentex-handle kb % CxStory) probes))]
           (is (= uncached cached))
           (is (every? some? (take 2 cached)) "the two stored sentences resolve")
           (is (nil? (nth cached 2)) "and the absent one still resolves to nothing"))))))
 
 (tu/deftest-kb handle-cache-never-caches-an-absence
   (testing "a sentence looked up before it exists is found once it does"
-    (tu/with-terms [holds A B StoryContext]
+    (tu/with-terms [holds A B CxStory]
       (let [s (list holds A B)]
         (observe/with-handle-cache
-          (is (nil? (kb/find-sentex-handle kb s StoryContext)) "absent to begin with")
-          (v/assert kb s StoryContext {:chain? false})
+          (is (nil? (kb/find-sentex-handle kb s CxStory)) "absent to begin with")
+          (v/assert kb s CxStory {:chain? false})
           ;; the whole reason a miss is not cached: a firing stores its conclusion
           ;; microseconds after asking whether it was already there
-          (is (some? (kb/find-sentex-handle kb s StoryContext))
+          (is (some? (kb/find-sentex-handle kb s CxStory))
               "and present the moment it is stored, with the cache still bound"))))))
 
 (tu/deftest-kb the-cache-is-scoped-to-one-kb
@@ -62,96 +62,96 @@
   ;; declaring nothing symmetric once stamped the one shared empty set — a nested
   ;; run on a second KB (a chaining callback asserting elsewhere) read the first
   ;; KB's handles and justified against a handle in another store
-  (tu/with-terms [holds A StoryContext]
+  (tu/with-terms [holds A CxStory]
     (tu/with-cleared-kb [kb2 #(tu/isolated-fresh)]
       (let [s  (list holds A)
-            h1 (v/assert kb s StoryContext {:chain? false})]
+            h1 (v/assert kb s CxStory {:chain? false})]
         (observe/with-handle-cache
-          (is (= h1 (kb/find-sentex-handle kb s StoryContext)) "filled under the first KB")
-          (is (nil? (kb/find-sentex-handle kb2 s StoryContext))
+          (is (= h1 (kb/find-sentex-handle kb s CxStory)) "filled under the first KB")
+          (is (nil? (kb/find-sentex-handle kb2 s CxStory))
               "the second KB, sharing the cache, does not read the first's handle"))))))
 
 (tu/deftest-kb a-spelling-canonicalization-rewrites-is-never-cached
   ;; the removal choke point clears the **canonical** key, so an entry keyed on a
   ;; raw spelling canonicalization rewrites — a symmetric literal's unsorted
   ;; arguments — would outlive its sentex as a stale handle
-  (tu/with-terms [touches A B StoryContext]
-    (v/assert kb (list 'symmetric touches) StoryContext {:chain? false})
-    (let [h (v/assert kb (list touches B A) StoryContext {:chain? false})]
+  (tu/with-terms [touches A B CxStory]
+    (v/assert kb (list 'symmetric touches) CxStory {:chain? false})
+    (let [h (v/assert kb (list touches B A) CxStory {:chain? false})]
       (observe/with-handle-cache
-        (is (= h (kb/find-sentex-handle kb (list touches A B) StoryContext)))
-        (is (= h (kb/find-sentex-handle kb (list touches B A) StoryContext)))
+        (is (= h (kb/find-sentex-handle kb (list touches A B) CxStory)))
+        (is (= h (kb/find-sentex-handle kb (list touches B A) CxStory)))
         (v/retract! kb h)
-        (is (nil? (kb/find-sentex-handle kb (list touches A B) StoryContext))
+        (is (nil? (kb/find-sentex-handle kb (list touches A B) CxStory))
             "neither spelling survives the retraction")
-        (is (nil? (kb/find-sentex-handle kb (list touches B A) StoryContext)))))))
+        (is (nil? (kb/find-sentex-handle kb (list touches B A) CxStory)))))))
 
 (tu/deftest-kb handle-cache-is-invalidated-by-removal
   (testing "a retracted sentence stops resolving, cache bound or not"
-    (tu/with-terms [holds A B StoryContext]
+    (tu/with-terms [holds A B CxStory]
       (let [s (list holds A B)
-            h (v/assert kb s StoryContext {:chain? false})]
+            h (v/assert kb s CxStory {:chain? false})]
         (observe/with-handle-cache
-          (is (= h (kb/find-sentex-handle kb s StoryContext)) "cached on the way in")
+          (is (= h (kb/find-sentex-handle kb s CxStory)) "cached on the way in")
           (v/retract! kb h)
-          (is (nil? (kb/find-sentex-handle kb s StoryContext))
+          (is (nil? (kb/find-sentex-handle kb s CxStory))
               "the removal choke point cleared the entry"))))))
 
 (tu/deftest-kb a-symmetric-declaration-retires-the-cache
   (testing "a spelling cached before the declaration is not served after it"
-    (tu/with-terms [nextTo A B StoryContext]
+    (tu/with-terms [nextTo A B CxStory]
       ;; `(nextTo B A)` canonicalizes to itself while nothing is symmetric, and to
       ;; `(nextTo A B)` once the declaration lands — the same raw sentence reaching a
       ;; different handle, which is exactly what the stamp exists to catch
-      (v/assert kb (list nextTo B A) StoryContext {:chain? false})
+      (v/assert kb (list nextTo B A) CxStory {:chain? false})
       (let [asked (list nextTo B A)]
         (observe/with-handle-cache
-          (let [before (kb/find-sentex-handle kb asked StoryContext)]
+          (let [before (kb/find-sentex-handle kb asked CxStory)]
             (is (some? before) "cached under the pre-declaration canonicalization")
-            (is (= before (observe/cached-handle (kb/canon-stamp kb) asked StoryContext))
+            (is (= before (observe/cached-handle (kb/canon-stamp kb) asked CxStory))
                 "and served from the cache while that reading holds")
-            (v/assert kb (list 'symmetric nextTo) StoryContext)
-            (is (nil? (observe/cached-handle (kb/canon-stamp kb) asked StoryContext))
+            (v/assert kb (list 'symmetric nextTo) CxStory)
+            (is (nil? (observe/cached-handle (kb/canon-stamp kb) asked CxStory))
                 "the new stamp retires every entry filled under the old one")))
         ;; and what the index now says is what a cached run says: the sentence stored
         ;; under the old canonicalization is no longer what this spelling asks for.
         ;; That answer is the engine's, not the cache's — the cache only must not
         ;; contradict it
-        (is (= (kb/find-sentex-handle kb asked StoryContext)
-               (observe/with-handle-cache (kb/find-sentex-handle kb asked StoryContext)))
+        (is (= (kb/find-sentex-handle kb asked CxStory)
+               (observe/with-handle-cache (kb/find-sentex-handle kb asked CxStory)))
             "cached and uncached agree after the declaration")))))
 
 (deftest handle-cache-nests-without-shadowing
   (testing "an inner scope shares the outer map rather than starting an empty one"
     (let [stamp #{}]
       (observe/with-handle-cache
-        (observe/cache-handle! stamp '(holds A B) 'StoryContext 42)
+        (observe/cache-handle! stamp '(holds A B) 'CxStory 42)
         (observe/with-handle-cache
-          (is (= 42 (observe/cached-handle stamp '(holds A B) 'StoryContext)))
-          (observe/cache-handle! stamp '(holds B C) 'StoryContext 43))
-        (is (= 43 (observe/cached-handle stamp '(holds B C) 'StoryContext))
+          (is (= 42 (observe/cached-handle stamp '(holds A B) 'CxStory)))
+          (observe/cache-handle! stamp '(holds B C) 'CxStory 43))
+        (is (= 43 (observe/cached-handle stamp '(holds B C) 'CxStory))
             "and what the inner scope learned outlives it")))))
 
 (deftest handle-cache-empties-on-a-new-stamp
   (testing "a fill under a different stamp drops what the old one keyed"
     (let [s1 #{} s2 #{'nextTo}]
       (observe/with-handle-cache
-        (observe/cache-handle! s1 '(holds A B) 'StoryContext 42)
-        (observe/cache-handle! s2 '(holds B C) 'StoryContext 43)
-        (is (nil? (observe/cached-handle s2 '(holds A B) 'StoryContext))
+        (observe/cache-handle! s1 '(holds A B) 'CxStory 42)
+        (observe/cache-handle! s2 '(holds B C) 'CxStory 43)
+        (is (nil? (observe/cached-handle s2 '(holds A B) 'CxStory))
             "the entry from the old stamp is gone, not merely unreadable")
-        (is (nil? (observe/cached-handle s1 '(holds A B) 'StoryContext))
+        (is (nil? (observe/cached-handle s1 '(holds A B) 'CxStory))
             "and asking under the old stamp does not resurrect it")
-        (is (= 43 (observe/cached-handle s2 '(holds B C) 'StoryContext)))))))
+        (is (= 43 (observe/cached-handle s2 '(holds B C) 'CxStory)))))))
 
 (deftest handle-cache-off-by-default
   (testing "unbound, every operation is a no-op and every lookup a miss"
     (let [stamp #{}]
-      (is (nil? (observe/cached-handle stamp '(holds A B) 'StoryContext)))
-      (is (= 7 (observe/cache-handle! stamp '(holds A B) 'StoryContext 7))
+      (is (nil? (observe/cached-handle stamp '(holds A B) 'CxStory)))
+      (is (= 7 (observe/cache-handle! stamp '(holds A B) 'CxStory 7))
           "cache-handle! returns the handle whether or not it stored it")
-      (is (nil? (observe/forget-handle! '(holds A B) 'StoryContext)))
-      (is (nil? (observe/cached-handle stamp '(holds A B) 'StoryContext))))))
+      (is (nil? (observe/forget-handle! '(holds A B) 'CxStory)))
+      (is (nil? (observe/cached-handle stamp '(holds A B) 'CxStory))))))
 
 ;; ---- justification dedup ------------------------------------------------
 
@@ -175,23 +175,23 @@
 
 (tu/deftest-kb chaining-a-join-pyramid-keeps-one-justification-per-witness
   (testing "the cache changes neither what is derived nor how it is supported"
-    (tu/with-terms [linksTo leadsTo reaches nearBy spans X Y Z W StoryContext]
+    (tu/with-terms [linksTo leadsTo reaches nearBy spans X Y Z W CxStory]
       ;; two paths from X to Z (through Y and through W), so the `reaches` conclusion
       ;; is won by two witnesses and must carry two justifications; `spans` sits above
       ;; it, checking that a derived fact feeds the next rule exactly once per witness
       (doseq [f [(list linksTo X Y) (list leadsTo Y Z)
                  (list linksTo X W) (list leadsTo W Z)
                  (list nearBy Z Z)]]
-        (v/assert kb f StoryContext {:chain? false}))
+        (v/assert kb f CxStory {:chain? false}))
       (v/assert-rule kb [(list linksTo '?a '?m) (list leadsTo '?m '?b)]
-                     (list reaches '?a '?b) StoryContext
+                     (list reaches '?a '?b) CxStory
                      {:direction :forward :chain? false})
       (v/assert-rule kb [(list reaches '?a '?m) (list nearBy '?m '?b)]
-                     (list spans '?a '?b) StoryContext
+                     (list spans '?a '?b) CxStory
                      {:direction :forward :chain? false})
       (v/forward-chain kb)
-      (let [h1 (kb/find-sentex-handle kb (list reaches X Z) StoryContext)
-            h2 (kb/find-sentex-handle kb (list spans X Z) StoryContext)]
+      (let [h1 (kb/find-sentex-handle kb (list reaches X Z) CxStory)
+            h2 (kb/find-sentex-handle kb (list spans X Z) CxStory)]
         (is (some? h1) "the two-witness conclusion is derived")
         (is (some? h2) "and carries the rule above it")
         (is (= 2 (count (jtms/supports (:tms kb) h1)))

@@ -53,28 +53,28 @@
                    (jtms/justifications tms)))}))
 
 (deftest the-fast-paths-and-the-reference-derive-the-identical-fixpoint
-  (tu/with-terms [pa qa ra sa TopStoryContext SubStoryContext X Y Z1 Z2 Z3 W]
+  (tu/with-terms [pa qa ra sa CxTopStory CxSubStory X Y Z1 Z2 Z3 W]
     (let [load! (fn [kb]
                   ;; the sub-context sees the top one, so a firing whose ingredients
                   ;; span both takes the general placement path while an all-in-one
                   ;; firing takes the single-context fast exit
-                  (v/assert kb (list 'genlContext SubStoryContext TopStoryContext)
-                            'UniverseContext {:strength :monotonic})
+                  (v/assert kb (list 'genlCx CxSubStory CxTopStory)
+                            'CxUniverse {:strength :monotonic})
                   (v/assert kb (fwd [(list pa '?x '?z) (list qa '?z '?y)]
                                     (list ra '?x '?y))
-                            TopStoryContext {:chain? false})
+                            CxTopStory {:chain? false})
                   (v/assert kb (fwd [(list ra '?x '?y) (list qa '?y '?w)]
                                     (list sa '?x '?w))
-                            TopStoryContext {:chain? false})
+                            CxTopStory {:chain? false})
                   ;; ra(X,Y) through three witnesses — pa in the top context, qa in
                   ;; the sub, so each of these firings spans the two contexts
                   (doseq [z [Z1 Z2 Z3]]
-                    (v/assert kb (list pa X z) TopStoryContext {:chain? false})
-                    (v/assert kb (list qa z Y) SubStoryContext {:chain? false}))
+                    (v/assert kb (list pa X z) CxTopStory {:chain? false})
+                    (v/assert kb (list qa z Y) CxSubStory {:chain? false}))
                   ;; a second-level firing, and a pair wholly inside the top context
-                  (v/assert kb (list qa Y W) TopStoryContext {:chain? false})
-                  (v/assert kb (list pa Y Z3) TopStoryContext {:chain? false})
-                  (v/assert kb (list qa Z3 W) TopStoryContext {:chain? false}))
+                  (v/assert kb (list qa Y W) CxTopStory {:chain? false})
+                  (v/assert kb (list pa Y Z3) CxTopStory {:chain? false})
+                  (v/assert kb (list qa Z3 W) CxTopStory {:chain? false}))
           run   (fn [fast?]
                   (tu/with-cleared-kb [kb tu/fresh]
                     (load! kb)

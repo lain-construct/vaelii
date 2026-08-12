@@ -4,7 +4,7 @@
   "Vaelii — a contextualized common-sense knowledge base.
 
   A KB bundles a record store (the durable ground truth), an index store (derived
-  from it, rebuildable), a JTMS, and a taxonomy (cached genl / genlContext closures).
+  from it, rebuildable), a JTMS, and a taxonomy (cached genl / genlCx closures).
   The unit of knowledge is a *sentex*: a sentence plus the context it holds in.
   Rules are sentexes too.
 
@@ -239,7 +239,7 @@
   A count of what is **stored**, like the `count-*` trio: a defeated or unsupported
   sentex is included, as is a rule and a metadata declaration.  Summing `count-in-context`
   over `contexts` is not the same number — that counts only what is in a context the
-  *taxonomy* knows, so content in a context no `genlContext` edge mentions is invisible
+  *taxonomy* knows, so content in a context no `genlCx` edge mentions is invisible
   to it."
   [kb]
   (p/count-at (:index kb) []))
@@ -511,7 +511,7 @@
   (nat/nat-expression kb term))
 
 ;; ---- the taxonomy, read ------------------------------------------------
-;; The cached genl / genlContext closures and the predicate metadata are derived
+;; The cached genl / genlCx closures and the predicate metadata are derived
 ;; state the whole engine reasons from, so reading them is part of the public
 ;; surface — a KB nobody can ask "what is a dog?" is not introspectable.  These are
 ;; thin delegations to `vaelii.impl.taxonomy`; the closures are in-memory sets, so
@@ -550,12 +550,12 @@
   [kb] (tax/types (:taxonomy kb)))
 
 (defn contexts
-  "Every context currently in the genlContext hierarchy — the nodes of the closure."
+  "Every context currently in the genlCx hierarchy — the nodes of the closure."
   [kb] (tax/contexts (:taxonomy kb)))
 
 (defn context-up
   "The contexts `c` inherits from, reflexively — `c` plus everything it *sees* via
-  `genlContext`.  A sentex in any of these is visible from `c`."
+  `genlCx`.  A sentex in any of these is visible from `c`."
   [kb c] (tax/context-up (:taxonomy kb) c))
 
 (defn context-down
@@ -565,7 +565,7 @@
 
 (defn sees?
   "Does context `k` see assertions made in context `y`?  True iff `y` is in `k`'s
-  genlContext up-closure (reflexively, so a context sees itself)."
+  genlCx up-closure (reflexively, so a context sees itself)."
   [kb k y] (tax/sees? (:taxonomy kb) k y))
 
 (defn has-prop?
@@ -626,12 +626,12 @@
   read the mark).
 
   **Nil is not \"nothing reads it\".**  The question is asked of the engine's own grammar
-  — the terms `CoreContext` declares — so an ordinary domain predicate is simply not in
+  — the terms `CxCore` declares — so an ordinary domain predicate is simply not in
   scope.  `vocabulary-audit` is the whole picture, and what keeps this one honest."
   [term] (vocab/classify term))
 
 (defn vocabulary-audit
-  "Every term `CoreContext` declares in `kb`, classified — `{:enforced [[term why] …]
+  "Every term `CxCore` declares in `kb`, classified — `{:enforced [[term why] …]
   :inert [[term why] …] :unclassified [term …] :retired [term …] :contradicted [term
   …]}`.
 
@@ -714,7 +714,7 @@
   [quality] (quality/report quality))
 
 ;; ---- the equality closure, read -----------------------------------------
-;; `genl` has `genls` / `specs` / `genl?` and `genlContext` has `context-up` /
+;; `genl` has `genls` / `specs` / `genl?` and `genlCx` has `context-up` /
 ;; `sees?`; the equality partition gets the same treatment, or an application cannot
 ;; see what merged.  `deprecated?` in particular is what makes the `rewriteOf` /
 ;; `sameAs` distinction observable at all — both produce the same class, and only the
@@ -1143,8 +1143,8 @@
     ;; naming, argIsa, disjointness and functionality all matched nothing and passed
     ;; vacuously, and the stripped fact landed in the store unchecked.
     ;;
-    ;; A *forced* universal predicate (e.g. genlContext) has its extent placed in
-    ;; UniverseContext by force — no justification, the fact simply lives there.
+    ;; A *forced* universal predicate (e.g. genlCx) has its extent placed in
+    ;; CxUniverse by force — no justification, the fact simply lives there.
     (let [sentence (rules/inner-rule sentence)
           pred    (nm/functor sentence)
           ;; the global property read on purpose: this decides where the sentex is
@@ -1167,7 +1167,7 @@
                      (throw (ex-info (str "not well-formed: " (str/join "; " ps))
                                      {:type :not-well-formed :sentence sentence})))
                    ;; the rule-set half of well-formedness, for the *other* thing that can
-                   ;; close a cycle through negation: a genl / genlContext edge arriving
+                   ;; close a cycle through negation: a genl / genlCx edge arriving
                    ;; underneath rules already stored (docs/exceptions.md).  Before anything
                    ;; is written and before the taxonomy is touched, so a refusal leaves
                    ;; nothing behind.
@@ -1211,7 +1211,7 @@
           ;; per assertion — on OpenCyc, 1,489 merges re-examined 780,000 times.
           (when (seq (:superseded mig))
             (special/refresh-supersessions kb (:superseded mig)))
-          ;; the UniverseContext copy, if the predicate is decontextualized — a
+          ;; the CxUniverse copy, if the predicate is decontextualized — a
           ;; deduction off this sentex and the declaration, so it is a chaining seed
           ;; of its own, and it reports rather than throws when it cannot be admitted
           (let [lift  (special/deduce-lifts kb sentence h context)
@@ -1241,7 +1241,7 @@
                           ;; or the same knowledge would derive different things in
                           ;; different arrival orders
                           (into (special/subsumption-seeds kb sentence))
-                          ;; ...and a new genlContext edge makes stored facts visible to
+                          ;; ...and a new genlCx edge makes stored facts visible to
                           ;; a rule that could not see them, which is the same failure
                           ;; through the other closure
                           (into (special/visibility-seeds kb sentence)))]
@@ -1520,7 +1520,7 @@
                        :options (vec (sort strength/assertable))})))))
 
 (defn assert
-  "Assert `sentence` in `context` (default 'UniverseContext) as a JTMS premise: enforce
+  "Assert `sentence` in `context` (default 'CxUniverse) as a JTMS premise: enforce
   naming, arg, and disjointness constraints, persist, index (trie + term index),
   mark IN, integrate into the taxonomy / rule index, then forward-chain.  A
   virtual set/forwardRule|backwardRule|inertRule wrapper directs the enclosed
@@ -1539,7 +1539,7 @@
   `:strength` outside `{:default :monotonic}` — see `assert-opt-keys`.  Both would
   otherwise store the sentence at a defeat class the caller did not ask for, which
   nothing downstream can tell from one that was asked for."
-  ([kb sentence] (assert kb sentence 'UniverseContext nil))
+  ([kb sentence] (assert kb sentence 'CxUniverse nil))
   ([kb sentence context] (assert kb sentence context nil))
   ([kb sentence context opts]
    ;; In `shape-problems`' precedence, so `check` and `assert` refuse the same input for
@@ -1637,7 +1637,7 @@
   "Assert a rule (a sentex whose sentence is an implication) in `context`.
   `opts` may carry `:direction` (:forward | :backward | :inert | :both, default
   :both) — or use a set/*Rule virtual predicate with `assert`."
-  ([kb antecedents consequent] (assert-rule kb antecedents consequent 'UniverseContext nil))
+  ([kb antecedents consequent] (assert-rule kb antecedents consequent 'CxUniverse nil))
   ([kb antecedents consequent context] (assert-rule kb antecedents consequent context nil))
   ([kb antecedents consequent context opts]
    (rules/check-range-restricted antecedents consequent)
@@ -1811,7 +1811,7 @@
   Two things `assert` does that `check` deliberately does not: it does not reify a
   ground reifiable NAT (that mints a constant, which is a write), and it does not
   evaluate an imperative.  Everything else is the same code on the same KB."
-  ([kb sentence] (check kb sentence 'UniverseContext nil))
+  ([kb sentence] (check kb sentence 'CxUniverse nil))
   ([kb sentence context] (check kb sentence context nil))
   ([kb sentence context opts]
    (or (shape-problems sentence context opts)
@@ -2030,11 +2030,11 @@
   N.  Returns `body`'s value.
 
     (v/with-deferred-settle kb
-      (doseq [f facts] (v/assert kb f 'SomeContext))
-      (v/assert-rule kb ante conseq 'SomeContext))
+      (doseq [f facts] (v/assert kb f 'CxSome))
+      (v/assert-rule kb ante conseq 'CxSome))
 
   The taxonomy's **depth potential** is deferred with it (`taxonomy/*defer-depths?*`).
-  Repairing it as each `genl` / `genlContext` edge arrives is proportional to that
+  Repairing it as each `genl` / `genlCx` edge arrives is proportional to that
   edge's descendants, so a batch that lifts high nodes re-walks their subtrees over
   and over — a cost that depends on the order the edges arrive in, which is exactly
   what a batch is entitled not to pay.  A deferred insert lifts only the edge's own
@@ -2283,8 +2283,8 @@
 
   `ist` reads here for the reason it writes at `assert`: `(ist Ctx S)` names the context
   S is about, so a read resolves it exactly as the write door does, **the named context
-  winning over the argument**.  `(sentexes-matching kb '(ist AContext (p ?x)) 'BContext)`
-  asks AContext, as `(assert kb '(ist AContext S) 'BContext)` writes AContext; resolving
+  winning over the argument**.  `(sentexes-matching kb '(ist CxA (p ?x)) 'CxB)`
+  asks CxA, as `(assert kb '(ist CxA S) 'CxB)` writes CxA; resolving
   it the other way would answer about a context the caller did not name, and the two
   doors would disagree about what one form means.
 
@@ -2475,7 +2475,7 @@
   artifact of which chainer ran.
 
   A rule the asking context cannot see is not a candidate (`res/rule-visible-from?`):
-  a rule is a sentex, inherited by the ordinary `genlContext` up-cone like everything
+  a rule is a sentex, inherited by the ordinary `genlCx` up-cone like everything
   else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
   consequent index posts on storage, so belief is asked of the record here exactly as
   forward chaining asks it of a trigger."
@@ -2595,7 +2595,7 @@
   `goal` is either a single sentence — `(grandparentOf Tom ?who)` — or a **vector**
   of sentences, which is a **conjunctive query**:
 
-    (prove kb '[(parentOf ?x ?y) (dog ?y)] 'MantleContext)
+    (prove kb '[(parentOf ?x ?y) (dog ?y)] 'CxMantle)
 
   Conjuncts are solved with bindings threaded across them, so a variable shared
   between conjuncts **joins** them: `?y` above must be both the child and a dog.
@@ -2779,7 +2779,7 @@
       {:solutions   [binding-map …]     under the hypotheses, not instead of them
        :hypotheses  [{:sentence :context :handle} …]
        :refused     [sentence …]        dead ends the gate would not assume
-       :context     AbductionXContext
+       :context     CxAbductionX
        :status      :complete | :capped}
 
   An empty `:hypotheses` means the goal was proved outright.  Otherwise the solutions hold
@@ -2791,7 +2791,7 @@
   context, once by the rule expanded over the hypothesis.
 
   **A predicate is hypothesized only if it was granted.**  `(abduciblePredicate P)`
-  is what makes a `(P …)` assumable, read from the asking context's `genlContext`
+  is what makes a `(P …)` assumable, read from the asking context's `genlCx`
   up-cone; nothing else is, ever.  A hypothesis must also be **ground**, must pass every
   check an assertion passes, and must not contradict anything believed where it lands.
   An abducer without those explains everything and is worth nothing.
@@ -2809,7 +2809,7 @@
 
   The hypothesis set is **irredundant** — no single member can be dropped and still
   answer the goal — which is not the same as minimum.  See docs/abduction.md."
-  ([kb goal] (abduce kb goal 'UniverseContext nil))
+  ([kb goal] (abduce kb goal 'CxUniverse nil))
   ([kb goal context] (abduce kb goal context nil))
   ([kb goal context opts]
    ;; the caps are bounds and `:keep?` decides whether the scratch context survives,
@@ -2866,7 +2866,7 @@
   group of literals it moved with.  Literals sharing a variable are one block and run
   together, and a whole block can be held back the way a single literal is.
 
-    (query-plan kb '[(dog ?y) (parentOf Tom ?y)] 'MantleContext)
+    (query-plan kb '[(dog ?y) (parentOf Tom ?y)] 'CxMantle)
     ;; => ({:goal (parentOf Tom ?y) :est-matches 2 :bound-before #{}    ...}
     ;;     {:goal (dog ?y)          :est-matches 1 :bound-before #{?y}  ...})
 
@@ -3006,7 +3006,7 @@
   in `context`: every pair of terms its predicates relate, tightened by path
   consistency to the base relations still possible between them.
 
-    {:calculus :rcc8  :context WellContext
+    {:calculus :rcc8  :context CxWell
      :nodes [A B C]   :consistent? true
      :constraints {[A B] #{:ntpp} [B A] #{:ntppi} …}}
 
@@ -3169,7 +3169,7 @@
     0 :raw      handles at an index location  4 :typed    + genl spec walk
     1 :extent   one literal context           5 :closed   + transitive closure
     2 :local    + unification                 6 :solved   full provers, no rules
-    3 :visible  + genlContext inheritance     7 :proved   full stack
+    3 :visible  + genlCx inheritance     7 :proved   full stack
 
   A lazy seq of {:level :handle :sentence :context :bindings}; a field the level
   cannot supply is nil (levels 5-7 derive answers, so they carry no handle).  Each
@@ -3272,7 +3272,7 @@
   (settle/ranked @(:contradictions kb)))
 
 ;; Classifying a dilemma is an opt-in solve producing *persistent* inert contexts:
-;; `(do/label DilemmaCtx Into)` then `(do/classify Into)` (docs/solving.md).  Do not
+;; `(do/label CxDilemma Into)` then `(do/classify Into)` (docs/solving.md).  Do not
 ;; stamp a classification axis onto the TMS at settle instead: that makes the KB
 ;; compute a global forced/supportable/excluded map over every contested node, eagerly
 ;; and unpersisted, for a question most callers never ask.  Representing dilemmas is
@@ -4425,7 +4425,7 @@
   that would make every mutation cost a query per listener.
 
   Context-scoped like every other read: the sentex must sit in a context the watch's own
-  can see, up the `genlContext` cone.  A **variable** context watches every context and
+  can see, up the `genlCx` cone.  A **variable** context watches every context and
   binds to the one that answered, which is the `'?ctx` convention `ask` already takes."
   [kb goal context handle]
   (when-let [sx (p/get-sentex (:records kb) handle)]
@@ -4539,7 +4539,7 @@
   `preview`'s entry shapes, so an application renders a preview and a feed with one
   renderer.  A standing query's entries carry `:bindings` too, and `f` is not called at
   all when nothing its goal answers moved.  `context` scopes the goal up the
-  `genlContext` cone; a variable (`'?ctx`) watches every context and binds the one that
+  `genlCx` cone; a variable (`'?ctx`) watches every context and binds the one that
   answered.
 
   **The unit is the settle: one settle, one call.**  A batch under
@@ -4706,7 +4706,7 @@
   forward chaining)."
   [kb]
   (rebuild-tms kb)
-  ;; The rebuild replays every stored `genl` / `genlContext` edge, so it is a bulk load
+  ;; The rebuild replays every stored `genl` / `genlCx` edge, so it is a bulk load
   ;; and pays what one pays: repairing the depth potential per edge costs that edge's
   ;; descendants.  Defer it and repair once, exactly as `with-deferred-settle` does —
   ;; and repair *here* rather than leaning on the settle below, so the intervening

@@ -26,28 +26,28 @@
 ;; ---- shape ---------------------------------------------------------------
 
 (tu/deftest-kb a-node-that-solves-against-facts-alone-is-a-completed-proof
-  (tu/with-terms [parentOf ShapeContext]
+  (tu/with-terms [parentOf CxShape]
     (tu/with-terms [ShapeA ShapeB]
-      (v/assert kb (list parentOf ShapeA ShapeB) ShapeContext)
+      (v/assert kb (list parentOf ShapeA ShapeB) CxShape)
       (testing "depth 0 — no rewrite is possible, and the root still answers"
-        (is (= #{{'?y ShapeB}} (answers kb [(list parentOf ShapeA '?y)] ShapeContext 0))))
+        (is (= #{{'?y ShapeB}} (answers kb [(list parentOf ShapeA '?y)] CxShape 0))))
       (testing "a ground goal that holds proves once, with an empty binding"
-        (is (= #{{}} (answers kb [(list parentOf ShapeA ShapeB)] ShapeContext))))
+        (is (= #{{}} (answers kb [(list parentOf ShapeA ShapeB)] CxShape))))
       (testing "a goal nothing answers drains the frontier and returns nothing"
-        (let [sess (inf/session kb [(list parentOf ShapeB '?y)] ShapeContext {:max-depth 2})]
+        (let [sess (inf/session kb [(list parentOf ShapeB '?y)] CxShape {:max-depth 2})]
           (is (empty? (doall (inf/search-seq sess))))
           (is (zero? (:frontier (inf/tree-stats sess))) "the queue was not drained")
           (is (zero? (:solutions (inf/tree-stats sess)))))))))
 
 (tu/deftest-kb a-rule-is-rewritten-into-its-antecedents
-  (tu/with-terms [parentOf anc ShapeContext]
+  (tu/with-terms [parentOf anc CxShape]
     (tu/with-terms [RwA RwB]
-      (v/assert kb (list parentOf RwA RwB) ShapeContext)
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) ShapeContext
+      (v/assert kb (list parentOf RwA RwB) CxShape)
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxShape
                      {:direction :backward})
       (testing "one rewrite reaches it, none does not"
-        (is (= #{RwB} (values (answers kb [(list anc RwA '?z)] ShapeContext 1) '?z)))
-        (is (empty? (answers kb [(list anc RwA '?z)] ShapeContext 0)))))))
+        (is (= #{RwB} (values (answers kb [(list anc RwA '?z)] CxShape 1) '?z)))
+        (is (empty? (answers kb [(list anc RwA '?z)] CxShape 0)))))))
 
 ;; ---- residuals and per-literal depth -------------------------------------
 
@@ -63,79 +63,79 @@
                  {:direction :backward}))
 
 (tu/deftest-kb depth-bounds-the-rewrites-a-literal-may-take
-  (tu/with-terms [base DepthContext]
+  (tu/with-terms [base CxDepth]
     (tu/with-terms [DepthInd]
-      (chain-of-rules! kb base DepthInd "tmpDepthP" 2 DepthContext)
+      (chain-of-rules! kb base DepthInd "tmpDepthP" 2 CxDepth)
       (let [goal (list 'tmpDepthP0 DepthInd)]
-        (is (empty? (answers kb [goal] DepthContext 2)) "3 rewrites are needed")
-        (is (= #{{}} (answers kb [goal] DepthContext 3)))
-        (is (= #{{}} (answers kb [goal] DepthContext 5)) "a larger bound finds the same")))))
+        (is (empty? (answers kb [goal] CxDepth 2)) "3 rewrites are needed")
+        (is (= #{{}} (answers kb [goal] CxDepth 3)))
+        (is (= #{{}} (answers kb [goal] CxDepth 5)) "a larger bound finds the same")))))
 
 (tu/deftest-kb each-conjunct-carries-its-own-depth
   ;; The DFS gives a conjunction one budget for all of it, so whichever literal is
   ;; expanded first can spend the lot.  A node gives each conjunct its own, decremented
   ;; only for the one actually rewritten — so a cheap conjunct beside an expensive one
   ;; does not have to pay for it.
-  (tu/with-terms [base PerLitContext]
+  (tu/with-terms [base CxPerLit]
     (tu/with-terms [PerLitInd]
-      (chain-of-rules! kb base PerLitInd "tmpShallow" 0 PerLitContext)   ; 1 rewrite
-      (chain-of-rules! kb base PerLitInd "tmpDeeper" 2 PerLitContext)    ; 3 rewrites
+      (chain-of-rules! kb base PerLitInd "tmpShallow" 0 CxPerLit)   ; 1 rewrite
+      (chain-of-rules! kb base PerLitInd "tmpDeeper" 2 CxPerLit)    ; 3 rewrites
       (let [conj-goal [(list 'tmpShallow0 PerLitInd) (list 'tmpDeeper0 PerLitInd)]]
-        (is (empty? (answers kb conj-goal PerLitContext 2)))
-        (is (= #{{}} (answers kb conj-goal PerLitContext 3))
+        (is (empty? (answers kb conj-goal CxPerLit 2)))
+        (is (= #{{}} (answers kb conj-goal CxPerLit 3))
             "3 is what the deeper conjunct needs; the shallow one must not have spent it")))))
 
 (tu/deftest-kb two-copies-of-one-sentence-keep-independent-counters
-  (tu/with-terms [base DupContext]
+  (tu/with-terms [base CxDup]
     (tu/with-terms [DupInd]
-      (chain-of-rules! kb base DupInd "tmpDup" 1 DupContext)       ; 2 rewrites each
+      (chain-of-rules! kb base DupInd "tmpDup" 1 CxDup)       ; 2 rewrites each
       (let [g (list 'tmpDup0 DupInd)]
-        (is (empty? (answers kb [g g] DupContext 1)))
-        (is (= #{{}} (answers kb [g g] DupContext 2))
+        (is (empty? (answers kb [g g] CxDup 1)))
+        (is (= #{{}} (answers kb [g g] CxDup 2))
             "the first copy's rewrites must not be charged to the second")))))
 
 (tu/deftest-kb a-multi-antecedent-rule-gives-every-conjunct-the-same-remaining-depth
-  (tu/with-terms [leftOf rightOf between BetweenContext]
+  (tu/with-terms [leftOf rightOf between CxBetween]
     (tu/with-terms [BwA BwB BwC]
-      (v/assert kb (list leftOf BwA BwB) BetweenContext)
-      (v/assert kb (list rightOf BwC BwB) BetweenContext)
+      (v/assert kb (list leftOf BwA BwB) CxBetween)
+      (v/assert kb (list rightOf BwC BwB) CxBetween)
       (v/assert-rule kb [(list leftOf '?a '?b) (list rightOf '?c '?b)]
-                     (list between '?a '?b '?c) BetweenContext {:direction :backward})
+                     (list between '?a '?b '?c) CxBetween {:direction :backward})
       (is (= #{{'?a BwA '?b BwB '?c BwC}}
-             (answers kb [(list between '?a '?b '?c)] BetweenContext 1))))))
+             (answers kb [(list between '?a '?b '?c)] CxBetween 1))))))
 
 ;; ---- binding flow --------------------------------------------------------
 
 (tu/deftest-kb a-rewrite-carries-bindings-into-and-out-of-the-query-variables
-  (tu/with-terms [edgeOf hop BindContext]
+  (tu/with-terms [edgeOf hop CxBind]
     (tu/with-terms [BnP BnQ BnR]
-      (v/assert kb (list edgeOf BnP BnQ) BindContext)
-      (v/assert kb (list edgeOf BnQ BnR) BindContext)
-      (v/assert-rule kb [(list edgeOf '?x '?y)] (list hop '?x '?y) BindContext
+      (v/assert kb (list edgeOf BnP BnQ) CxBind)
+      (v/assert kb (list edgeOf BnQ BnR) CxBind)
+      (v/assert-rule kb [(list edgeOf '?x '?y)] (list hop '?x '?y) CxBind
                      {:direction :backward})
       (testing "the first argument bound, the second open"
-        (is (= #{BnQ} (values (answers kb [(list hop BnP '?y)] BindContext) '?y))))
+        (is (= #{BnQ} (values (answers kb [(list hop BnP '?y)] CxBind) '?y))))
       (testing "the second bound, the first open"
-        (is (= #{BnP} (values (answers kb [(list hop '?x BnQ)] BindContext) '?x))))
+        (is (= #{BnP} (values (answers kb [(list hop '?x BnQ)] CxBind) '?x))))
       (testing "both open"
         (is (= #{{'?x BnP '?y BnQ} {'?x BnQ '?y BnR}}
-               (answers kb [(list hop '?x '?y)] BindContext))))
+               (answers kb [(list hop '?x '?y)] CxBind))))
       (testing "both ground and disagreeing"
-        (is (empty? (answers kb [(list hop BnP BnR)] BindContext))))
+        (is (empty? (answers kb [(list hop BnP BnR)] CxBind))))
       (testing "a conjunctive query joins on the shared variable"
         (is (= #{{'?x BnP '?y BnQ '?z BnR}}
-               (answers kb [(list hop '?x '?y) (list hop '?y '?z)] BindContext)))))))
+               (answers kb [(list hop '?x '?y) (list hop '?y '?z)] CxBind)))))))
 
 (tu/deftest-kb two-rules-concluding-one-goal-both-answer-it
-  (tu/with-terms [byLand bySea reachable MultiContext]
+  (tu/with-terms [byLand bySea reachable CxMulti]
     (tu/with-terms [MtA MtB]
-      (v/assert kb (list byLand MtA) MultiContext)
-      (v/assert kb (list bySea MtB) MultiContext)
-      (v/assert-rule kb [(list byLand '?x)] (list reachable '?x) MultiContext
+      (v/assert kb (list byLand MtA) CxMulti)
+      (v/assert kb (list bySea MtB) CxMulti)
+      (v/assert-rule kb [(list byLand '?x)] (list reachable '?x) CxMulti
                      {:direction :backward})
-      (v/assert-rule kb [(list bySea '?x)] (list reachable '?x) MultiContext
+      (v/assert-rule kb [(list bySea '?x)] (list reachable '?x) CxMulti
                      {:direction :backward})
-      (is (= #{MtA MtB} (values (answers kb [(list reachable '?x)] MultiContext) '?x))))))
+      (is (= #{MtA MtB} (values (answers kb [(list reachable '?x)] CxMulti) '?x))))))
 
 ;; ---- joins and the diamond -----------------------------------------------
 
@@ -143,14 +143,14 @@
   ;; Two rules concluding `top` whose antecedents converge on one `base` literal.  The
   ;; two routes reach the same residual, and the second arrival is dropped before it is
   ;; enqueued rather than expanded again.
-  (tu/with-terms [base mid1 mid2 top DiaContext]
+  (tu/with-terms [base mid1 mid2 top CxDia]
     (tu/with-terms [DiaX]
-      (v/assert kb (list base DiaX) DiaContext)
-      (v/assert-rule kb [(list base '?x)] (list mid1 '?x) DiaContext {:direction :backward})
-      (v/assert-rule kb [(list base '?x)] (list mid2 '?x) DiaContext {:direction :backward})
-      (v/assert-rule kb [(list mid1 '?x)] (list top '?x) DiaContext {:direction :backward})
-      (v/assert-rule kb [(list mid2 '?x)] (list top '?x) DiaContext {:direction :backward})
-      (let [sess (inf/session kb [(list top '?x)] DiaContext {:max-depth 3})
+      (v/assert kb (list base DiaX) CxDia)
+      (v/assert-rule kb [(list base '?x)] (list mid1 '?x) CxDia {:direction :backward})
+      (v/assert-rule kb [(list base '?x)] (list mid2 '?x) CxDia {:direction :backward})
+      (v/assert-rule kb [(list mid1 '?x)] (list top '?x) CxDia {:direction :backward})
+      (v/assert-rule kb [(list mid2 '?x)] (list top '?x) CxDia {:direction :backward})
+      (let [sess (inf/session kb [(list top '?x)] CxDia {:max-depth 3})
             sols (set (doall (inf/search-seq sess)))
             st   (inf/tree-stats sess)]
         (is (= #{{'?x DiaX}} sols) "one answer, not two")
@@ -158,14 +158,14 @@
         (is (= (:nodes st) (:expanded st)) "a claimed node must be expanded exactly once")))))
 
 (tu/deftest-kb a-four-literal-conjunction-joins-across-all-of-them
-  (tu/with-terms [pA pB pC pD JoinContext]
+  (tu/with-terms [pA pB pC pD CxJoin]
     (tu/with-terms [JnOne JnTwo]
       (doseq [[p i] [[pA JnOne] [pB JnOne] [pC JnOne] [pD JnOne]
                      [pA JnTwo] [pB JnTwo] [pC JnTwo]]]
-        (v/assert kb (list p i) JoinContext))
+        (v/assert kb (list p i) CxJoin))
       (is (= #{JnOne}
              (values (answers kb [(list pA '?x) (list pB '?x) (list pC '?x) (list pD '?x)]
-                              JoinContext)
+                              CxJoin)
                      '?x))))))
 
 ;; ---- guards --------------------------------------------------------------
@@ -173,31 +173,31 @@
 (tu/deftest-kb an-exception-is-asked-at-the-nodes-own-solve
   ;; A node has no rule frame to check a guard in, and needs none: its inline solve is
   ;; the moment the argument is complete.
-  (tu/with-terms [wings flies odd GuardContext]
+  (tu/with-terms [wings flies odd CxGuard]
     (tu/with-terms [GdBird GdPenguin]
-      (v/assert kb (list wings GdBird) GuardContext)
-      (v/assert kb (list wings GdPenguin) GuardContext)
-      (v/assert kb (list odd GdPenguin) GuardContext)
+      (v/assert kb (list wings GdBird) CxGuard)
+      (v/assert kb (list wings GdPenguin) CxGuard)
+      (v/assert kb (list odd GdPenguin) CxGuard)
       (v/assert kb (list 'exceptWhen (list odd '?x)
                          (list 'set/defaultRule
                                (list 'implies (list wings '?x) (list flies '?x))))
-                GuardContext)
+                CxGuard)
       (testing "a variable exception blocks exactly the bindings it holds of"
-        (is (= #{GdBird} (values (answers kb [(list flies '?x)] GuardContext) '?x))))
+        (is (= #{GdBird} (values (answers kb [(list flies '?x)] CxGuard) '?x))))
       (testing "and the same asked of the excepted individual directly"
-        (is (empty? (answers kb [(list flies GdPenguin)] GuardContext)))
-        (is (= #{{}} (answers kb [(list flies GdBird)] GuardContext)))))))
+        (is (empty? (answers kb [(list flies GdPenguin)] CxGuard)))
+        (is (= #{{}} (answers kb [(list flies GdBird)] CxGuard)))))))
 
 ;; ---- termination ---------------------------------------------------------
 
 (tu/deftest-kb a-cyclic-rule-set-drains-the-frontier
-  (tu/with-terms [pingOf pongOf CycleContext]
+  (tu/with-terms [pingOf pongOf CxCycle]
     (tu/with-terms [CycInd]
-      (v/assert-rule kb [(list pongOf '?x)] (list pingOf '?x) CycleContext
+      (v/assert-rule kb [(list pongOf '?x)] (list pingOf '?x) CxCycle
                      {:direction :backward})
-      (v/assert-rule kb [(list pingOf '?x)] (list pongOf '?x) CycleContext
+      (v/assert-rule kb [(list pingOf '?x)] (list pongOf '?x) CxCycle
                      {:direction :backward})
-      (let [sess (inf/session kb [(list pingOf CycInd)] CycleContext {:max-depth 6})]
+      (let [sess (inf/session kb [(list pingOf CycInd)] CxCycle {:max-depth 6})]
         (is (empty? (doall (inf/search-seq sess))) "nothing supports either predicate")
         (is (zero? (:frontier (inf/tree-stats sess))) "the search did not terminate")))))
 
@@ -207,14 +207,14 @@
   ;; `different` / `evaluate` / `unknown` are not stored facts and not rule heads.  A
   ;; node must route them through the registry and must not build residual children for
   ;; them, or a rule with such an antecedent silently proves nothing.
-  (tu/with-terms [pairOf distinctPair DeferContext]
+  (tu/with-terms [pairOf distinctPair CxDefer]
     (tu/with-terms [DfA DfB]
-      (v/assert kb (list pairOf DfA DfB) DeferContext)
-      (v/assert kb (list pairOf DfA DfA) DeferContext)
+      (v/assert kb (list pairOf DfA DfB) CxDefer)
+      (v/assert kb (list pairOf DfA DfA) CxDefer)
       (v/assert-rule kb [(list pairOf '?x '?y) (list 'different '?x '?y)]
-                     (list distinctPair '?x '?y) DeferContext {:direction :backward})
+                     (list distinctPair '?x '?y) CxDefer {:direction :backward})
       (is (= #{{'?x DfA '?y DfB}}
-             (answers kb [(list distinctPair '?x '?y)] DeferContext))
+             (answers kb [(list distinctPair '?x '?y)] CxDefer))
           "the reflexive pair must be computed away, not matched"))))
 
 ;; ---- structure: the queue, the claim, the tree ---------------------------
@@ -230,12 +230,12 @@
       (is (nil? (inf/queue-pop q3))))))
 
 (tu/deftest-kb a-key-is-claimed-once-and-the-claim-is-what-stops-a-re-arrival
-  (tu/with-terms [parentOf anc KeyContext]
+  (tu/with-terms [parentOf anc CxKey]
     (tu/with-terms [KyA KyB]
-      (v/assert kb (list parentOf KyA KyB) KeyContext)
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) KeyContext
+      (v/assert kb (list parentOf KyA KyB) CxKey)
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxKey
                      {:direction :backward})
-      (let [sess (inf/session kb [(list anc '?x '?z)] KeyContext {:max-depth 2})
+      (let [sess (inf/session kb [(list anc '?x '?z)] CxKey {:max-depth 2})
             root (get @(:nodes sess) 0)]
         (is (= 1 (count @(:claimed sess))) "the root claims its key when it is enqueued")
         (is (contains? @(:claimed sess) (inf/node-key root)))
@@ -243,7 +243,7 @@
           (is (= [(list anc '?var0 '?var1)] (mapv :sentence (:literals root))))
           (is (= '{?x ?var0, ?z ?var1} (:answer-terms root))))
         (testing "two alpha-variant questions are one conjunction — that is what canonical buys"
-          (let [other (inf/session kb [(list anc '?who '?whom)] KeyContext {:max-depth 2})]
+          (let [other (inf/session kb [(list anc '?who '?whom)] CxKey {:max-depth 2})]
             (is (= (mapv :sentence (:literals root))
                    (mapv :sentence (:literals (get @(:nodes other) 0)))))))
         (testing "a constant reaching a literal changes the key, because it changes the question"
@@ -256,12 +256,12 @@
                     (inf/node-key (assoc root :answer-terms '{?x ?var1, ?z ?var0})))))))))
 
 (tu/deftest-kb the-search-tree-outlives-the-search
-  (tu/with-terms [parentOf anc TreeContext]
+  (tu/with-terms [parentOf anc CxTree]
     (tu/with-terms [TrA TrB]
-      (v/assert kb (list parentOf TrA TrB) TreeContext)
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) TreeContext
+      (v/assert kb (list parentOf TrA TrB) CxTree)
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxTree
                      {:direction :backward})
-      (let [sess (inf/session kb [(list anc '?x '?z)] TreeContext {:max-depth 2})
+      (let [sess (inf/session kb [(list anc '?x '?z)] CxTree {:max-depth 2})
             sols (doall (inf/search-seq sess))
             st   (inf/tree-stats sess)]
         (is (seq sols))
@@ -280,59 +280,59 @@
 
 (tu/deftest-kb a-query-leaves-the-kb-exactly-as-it-found-it
   ;; An engine that materializes its conclusions is a forward chainer in disguise.
-  (tu/with-terms [parentOf anc PureContext]
+  (tu/with-terms [parentOf anc CxPure]
     (tu/with-terms [PrA PrB PrC]
-      (v/assert kb (list parentOf PrA PrB) PureContext)
-      (v/assert kb (list parentOf PrB PrC) PureContext)
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) PureContext
+      (v/assert kb (list parentOf PrA PrB) CxPure)
+      (v/assert kb (list parentOf PrB PrC) CxPure)
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxPure
                      {:direction :backward})
       (v/assert-rule kb [(list parentOf '?x '?y) (list anc '?y '?z)] (list anc '?x '?z)
-                     PureContext {:direction :backward})
+                     CxPure {:direction :backward})
       (let [before (tu/content-count kb)]
-        (is (seq (answers kb [(list anc '?x '?z)] PureContext)))
+        (is (seq (answers kb [(list anc '?x '?z)] CxPure)))
         (is (= before (tu/content-count kb))
             "the search created sentexes or justifications")))))
 
 ;; ---- laziness ------------------------------------------------------------
 
 (tu/deftest-kb the-result-stream-expands-a-node-per-pull
-  (tu/with-terms [wideOf WideContext]
+  (tu/with-terms [wideOf CxWide]
     (let [inds (mapv #(symbol (str "TmpWide" % "Node")) (range 6))]
-      (doseq [i inds] (v/assert kb (list wideOf i) WideContext))
-      (let [sess (inf/session kb [(list wideOf '?x)] WideContext {:max-depth 2})
+      (doseq [i inds] (v/assert kb (list wideOf i) CxWide))
+      (let [sess (inf/session kb [(list wideOf '?x)] CxWide {:max-depth 2})
             two  (doall (take 2 (inf/search-seq sess)))]
         (is (= 2 (count two)))
         (is (<= (:expanded (inf/tree-stats sess)) 2)
             "a bounded consumer must not have driven the whole search"))
       (testing "and reading it dry returns everything"
         (is (= (set inds)
-               (values (answers kb [(list wideOf '?x)] WideContext) '?x)))))))
+               (values (answers kb [(list wideOf '?x)] CxWide) '?x)))))))
 
 ;; ---- the selector --------------------------------------------------------
 
 (tu/deftest-kb the-selector-routes-and-defaults-to-the-dfs
-  (tu/with-terms [parentOf anc SelContext]
+  (tu/with-terms [parentOf anc CxSel]
     (tu/with-terms [SlA SlB]
-      (v/assert kb (list parentOf SlA SlB) SelContext)
-      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) SelContext
+      (v/assert kb (list parentOf SlA SlB) CxSel)
+      (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxSel
                      {:direction :backward})
       (when-not (tu/query-engine-override)
         (is (= :dfs v/*query-engine*) "the default must stay :dfs"))
       (let [goal (list anc SlA '?z)]
         (testing ":inference answers what :dfs answers"
-          (is (= #{SlB} (values (set (v/prove kb goal SelContext)) '?z)))
+          (is (= #{SlB} (values (set (v/prove kb goal CxSel)) '?z)))
           (is (= #{SlB} (values (binding [v/*query-engine* :inference, inf/*max-depth* 8]
-                                  (set (v/prove kb goal SelContext)))
+                                  (set (v/prove kb goal CxSel)))
                                 '?z))))
         (testing ":hybrid sends a depth-0 budget to the DFS and anything deeper to the node engine"
           (binding [v/*query-engine* :hybrid]
-            (is (= :complete (:status (v/prove-within kb goal SelContext {:max-depth 0}))))
-            (let [r (v/prove-within kb goal SelContext {:max-depth 3})]
+            (is (= :complete (:status (v/prove-within kb goal CxSel {:max-depth 0}))))
+            (let [r (v/prove-within kb goal CxSel {:max-depth 3})]
               (is (= :complete (:status r)))
               (is (= #{SlB} (values (set (:results r)) '?z))))))
         (testing "a bounded run is a prefix, and resume continues it"
           (binding [v/*query-engine* :inference, inf/*max-depth* 8]
-            (let [r (v/prove-within kb goal SelContext {:max-results 0})]
+            (let [r (v/prove-within kb goal CxSel {:max-results 0})]
               (is (= :capped (:status r)))
               (is (= #{SlB} (values (set (:results (v/resume r {}))) '?z))))))))))
 
@@ -353,13 +353,13 @@
   (mapcat (fn [n] (if (= :leaf (:via n)) [(:goal n)] (leaves-in (:because n)))) tree))
 
 (tu/deftest-kb a-proof-names-the-rule-that-fired-and-the-literals-under-it
-  (tu/with-terms [parentOf grandparentOf Tom Bob Ann PfContext]
-    (v/assert kb (list parentOf Tom Bob) PfContext)
-    (v/assert kb (list parentOf Bob Ann) PfContext)
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxPf]
+    (v/assert kb (list parentOf Tom Bob) CxPf)
+    (v/assert kb (list parentOf Bob Ann) CxPf)
     (let [rh (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                            (list grandparentOf '?x '?z) PfContext
+                            (list grandparentOf '?x '?z) CxPf
                             {:direction :backward})
-          [r & more] (v/query kb (list grandparentOf Tom '?w) PfContext
+          [r & more] (v/query kb (list grandparentOf Tom '?w) CxPf
                               {:max-depth 2 :proof? true})]
       (testing "one answer, and it comes back with its bindings beside its proof"
         (is (empty? more))
@@ -385,15 +385,15 @@
   ;; assembled straight from the nodes would use `?var0` for a different variable at
   ;; every level.  The replay pushes each level forward into the next node's numbering,
   ;; which is what makes the finished tree readable as one derivation.
-  (tu/with-terms [parentOf anc Tom Bob Ann Zed PfContext]
+  (tu/with-terms [parentOf anc Tom Bob Ann Zed CxPf]
     (doseq [[a b] [[Tom Bob] [Bob Ann] [Ann Zed]]]
-      (v/assert kb (list parentOf a b) PfContext))
-    (let [base (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) PfContext
+      (v/assert kb (list parentOf a b) CxPf))
+    (let [base (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxPf
                               {:direction :backward})
           step (v/assert-rule kb [(list parentOf '?x '?y) (list anc '?y '?z)]
-                              (list anc '?x '?z) PfContext {:direction :backward})
+                              (list anc '?x '?z) CxPf {:direction :backward})
           by-answer (into {} (map (juxt (comp '?w :bindings) :proof))
-                          (v/query kb (list anc Tom '?w) PfContext
+                          (v/query kb (list anc Tom '?w) CxPf
                                    {:max-depth 4 :proof? true}))]
       (testing "every reachable ancestor is answered, each with a proof"
         (is (= #{Bob Ann Zed} (set (keys by-answer)))))
@@ -410,17 +410,17 @@
           (is (= (nth (nth ls 1) 2) (second (nth ls 2))) "second feeds the third"))))))
 
 (tu/deftest-kb without-the-option-nothing-changes-shape
-  (tu/with-terms [parentOf grandparentOf Tom Bob Ann PfContext]
-    (v/assert kb (list parentOf Tom Bob) PfContext)
-    (v/assert kb (list parentOf Bob Ann) PfContext)
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxPf]
+    (v/assert kb (list parentOf Tom Bob) CxPf)
+    (v/assert kb (list parentOf Bob Ann) CxPf)
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) PfContext {:direction :backward})
+                   (list grandparentOf '?x '?z) CxPf {:direction :backward})
     (let [goal (list grandparentOf Tom '?w)]
       (testing "the default result is binding maps, with no proof key anywhere"
-        (is (= [{'?w Ann}] (vec (v/query kb goal PfContext {:max-depth 2})))))
+        (is (= [{'?w Ann}] (vec (v/query kb goal CxPf {:max-depth 2})))))
       (testing "and asking for proofs does not change which answers come back"
-        (is (= (set (v/query kb goal PfContext {:max-depth 2}))
-               (set (map :bindings (v/query kb goal PfContext
+        (is (= (set (v/query kb goal CxPf {:max-depth 2}))
+               (set (map :bindings (v/query kb goal CxPf
                                             {:max-depth 2 :proof? true}))))))
       (testing "`query?` ignores it rather than testing a map for emptiness"
-        (is (v/query? kb goal PfContext {:max-depth 2 :proof? true}))))))
+        (is (v/query? kb goal CxPf {:max-depth 2 :proof? true}))))))

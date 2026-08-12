@@ -1,4 +1,4 @@
-;; CoreContext — Vaelii's vocabulary context: the engine-interpreted special
+;; CxCore — Vaelii's vocabulary context: the engine-interpreted special
 ;; predicates (types, contexts, rules, metadata, evaluables) and the predicate
 ;; meta-ontology, each documented via a comment sentex. Schema only — the domain
 ;; relations, individuals, and facts live in other contexts.
@@ -8,17 +8,17 @@
 ;; binaryPredicate, argIsa, genl and unreifiableFunction are grammar — every domain
 ;; declares its relations, constraints, types and functions with them. dimensionOf and
 ;; partOfRegion are not: they are *about* something (measurement, space), so they live
-;; in the one upper context that owns that subject (kb/upper/MeasureContext.txt,
-;; kb/upper/SpaceContext.txt). A term whose only user is a single upper context belongs
+;; in the one upper context that owns that subject (kb/upper/CxMeasure.txt,
+;; kb/upper/CxSpace.txt). A term whose only user is a single upper context belongs
 ;; in that context, whatever interprets it — being read by a prover does not make a term
 ;; part of the grammar.
 ;;
 ;; What that buys is separability, not omission: the starter loads every upper context
-;; it finds, but a KB assembled from CoreContext plus the layers it wants carries only
+;; it finds, but a KB assembled from CxCore plus the layers it wants carries only
 ;; the subjects it reasons about, and nothing here has to change to add or drop one.
 
 (comment abduciblePredicate
-         "(abduciblePredicate ?predicate) means that a (?predicate …) sentence may be hypothesized. When a backward proof dead-ends on one, abduce may assume it rather than fail. A grant, and the only thing that makes a predicate abducible: an undeclared one is never assumed, since an abducer that will hypothesize anything explains everything and is worth nothing. Read from the asking context's genlContext up-cone rather than universally, so it is a policy of the context that gives it — one theory may be willing to assume what another, reading the same vocabulary, will not.")
+         "(abduciblePredicate ?predicate) means that a (?predicate …) sentence may be hypothesized. When a backward proof dead-ends on one, abduce may assume it rather than fail. A grant, and the only thing that makes a predicate abducible: an undeclared one is never assumed, since an abducer that will hypothesize anything explains everything and is worth nothing. Read from the asking context's genlCx up-cone rather than universally, so it is a policy of the context that gives it — one theory may be willing to assume what another, reading the same vocabulary, will not.")
 (unaryPredicate abduciblePredicate)
 
 (comment agg/avg
@@ -74,8 +74,8 @@
 
 ;; The meta-ontology rules below conclude into the ORDINARY placement — the maximal
 ;; context that sees the rule and the declaration — and not into a named one.  Every
-;; context sees CoreContext, so a declaration made here still concludes here; one made
-;; in a context concludes there, where its author put it.  Naming CoreContext would
+;; context sees CxCore, so a declaration made here still concludes here; one made
+;; in a context concludes there, where its author put it.  Naming CxCore would
 ;; publish it: a private (symmetric myRel) would become vocabulary the whole KB reads,
 ;; while (has-prop? kb :symmetric myRel ctx) — asked of the same declaration from the
 ;; same context — answered false.  One KB cannot say both.
@@ -108,7 +108,7 @@
 (argIsa contradicts 2 thing)
 
 (comment decontextualizedPredicate
-         "(decontextualizedPredicate ?predicate) means that every (?predicate …) sentence, asserted or concluded by a rule, is also deduced into UniverseContext. Every context sees UniverseContext, so the fact stops being a claim of one theory and becomes a claim of the KB. The copy is supported by the placement sentex and this declaration together, so retracting either withdraws it. Conceptually the inert rule (implies (?pred . ?args) (ist UniverseContext (?pred . ?args))), implemented in code because it has to run wherever content is stored and not only where it is asserted.")
+         "(decontextualizedPredicate ?predicate) means that every (?predicate …) sentence, asserted or concluded by a rule, is also deduced into CxUniverse. Every context sees CxUniverse, so the fact stops being a claim of one theory and becomes a claim of the KB. The copy is supported by the placement sentex and this declaration together, so retracting either withdraws it. Conceptually the inert rule (implies (?pred . ?args) (ist CxUniverse (?pred . ?args))), implemented in code because it has to run wherever content is stored and not only where it is asserted.")
 (unaryPredicate decontextualizedPredicate)
 
 (comment disjoint
@@ -130,7 +130,7 @@
 (argIsa evaluate 2 thing)
 
 (comment forcedDecontextualizedPredicate
-         "(forcedDecontextualizedPredicate ?predicate) means that every (?predicate …) sentence is stored directly in UniverseContext by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlContext, so the context topology has one canonical home instead of a copy per context.")
+         "(forcedDecontextualizedPredicate ?predicate) means that every (?predicate …) sentence is stored directly in CxUniverse by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlCx, so the context topology has one canonical home instead of a copy per context.")
 (unaryPredicate forcedDecontextualizedPredicate)
 
 (comment functional
@@ -194,15 +194,15 @@
 (argIsa resultGenl 1 function)
 (argGenl resultGenl 2 thing)
 
-(comment genlContext
-         "(genlContext ?subcontext ?supercontext) means that ?subcontext inherits from and sees everything asserted in ?supercontext. Transitive, and what places every derived conclusion: a firing lands in the most general contexts that see the rule, the facts and the taxonomy edges it used. Stored in UniverseContext by force, so the topology has one canonical home. A cycle is admitted, mutual visibility being a claim an ontology may fairly make.")
-(binaryPredicate genlContext)
-(instanceRelationPredicate genlContext)
-(argIsa genlContext 1 context)
-(argIsa genlContext 2 context)
-(forcedDecontextualizedPredicate genlContext)
+(comment genlCx
+         "(genlCx ?subcontext ?supercontext) means that ?subcontext inherits from and sees everything asserted in ?supercontext. Transitive, and what places every derived conclusion: a firing lands in the most general contexts that see the rule, the facts and the taxonomy edges it used. Stored in CxUniverse by force, so the topology has one canonical home. A cycle is admitted, mutual visibility being a claim an ontology may fairly make.")
+(binaryPredicate genlCx)
+(instanceRelationPredicate genlCx)
+(argIsa genlCx 1 context)
+(argIsa genlCx 2 context)
+(forcedDecontextualizedPredicate genlCx)
 
-;; `(genlContext UniverseContext CoreContext)` belongs to this vocabulary and is NOT
+;; `(genlCx CxUniverse CxCore)` belongs to this vocabulary and is NOT
 ;; written here: `core-context/load-into` asserts it before reading the file, because a
 ;; `decontextualizedPredicate` lift needs the two contexts comparable *while* the file
 ;; is still being read.  See the docstring there.
@@ -286,7 +286,7 @@
 
 (comment set/inertRule
          "(set/inertRule ?rule) means that ?rule is asserted inert. Stored and documented but never used for inference in either direction, which is how a rule stating something the engine implements in code gets written down where a reader will find it. A virtual wrapper interpreted on assert.")
-(set/inertRule (implies (?pred . ?args) (ist UniverseContext (?pred . ?args))))
+(set/inertRule (implies (?pred . ?args) (ist CxUniverse (?pred . ?args))))
 
 (comment symmetric
          "(symmetric ?predicate) means that ?predicate is symmetric. Whenever (?predicate a b) holds so does (?predicate b a), and the two spellings of a ground fact store as one sentex, since the arguments of a symmetric predicate are sorted into canonical order. Declared of siblingOf and marriedTo, for instance.")
@@ -303,7 +303,7 @@
 (implies (and (asymmetric ?p)) (asymmetricPredicate ?p))
 
 (comment argPreserving
-         "(argPreserving ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlContext, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
+         "(argPreserving ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
 (ternaryPredicate argPreserving)
 (argIsa argPreserving 1 predicate)
 (argIsa argPreserving 2 integer)
@@ -334,7 +334,7 @@
 (comment transitivePredicate "A binary predicate P with (P a b) and (P b c) implying (P a c). Derived from (transitive P).")
 (genl transitivePredicate binaryPredicate)
 (implies (and (transitive ?p)) (transitivePredicate ?p))
-;; genl and genlContext ARE transitive predicates — the engine answers them from cached
+;; genl and genlCx ARE transitive predicates — the engine answers them from cached
 ;; closures rather than the generic closure prover, which is an implementation choice and
 ;; not a difference in what they mean.  Saying so is what lets them be named as the
 ;; relation an argument position is preserved along, like any other transitive relation.
@@ -348,7 +348,7 @@
 ;; same, by the other justification, but produced on whatever assert next joined the
 ;; rule over the extent rather than at load.
 (transitivePredicate genl)
-(transitivePredicate genlContext)
+(transitivePredicate genlCx)
 
 (comment typeRelationPredicate
          "(typeRelationPredicate ?predicate) means that ?predicate relates types rather than individuals. So (?predicate T1 T2) is a claim between two categories, and such a ground fact is replaced by one of the relation-pattern meta-predicates to pin down which quantifier reading is meant. The other half of the relationKind metatype.")

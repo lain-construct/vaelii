@@ -56,13 +56,13 @@
   (tu/with-terms [bird penguin animal flies feathered nests happy
                   parentOf grandparentOf ancestorOf
                   Tweety Opus Rex Ann Bob Cid Preferred Deprecated
-                  StoryContext SubStoryContext]
+                  CxStory CxSubStory]
     {:bird bird :penguin penguin :animal animal :flies flies :feathered feathered
      :nests nests :happy happy
      :parentOf parentOf :grandparentOf grandparentOf :ancestorOf ancestorOf
      :Tweety Tweety :Opus Opus :Rex Rex :Ann Ann :Bob Bob :Cid Cid
      :Preferred Preferred :Deprecated Deprecated
-     :ctx StoryContext :sub SubStoryContext}))
+     :ctx CxStory :sub CxSubStory}))
 
 (defn- build!
   "Every shape a round trip has ever dropped, in one KB."
@@ -74,7 +74,7 @@
     ;; a taxonomy to recover: a genl edge and a context edge
     (v/assert kb (list 'genl penguin bird) ctx {:strength :monotonic})
     (v/assert kb (list 'genl bird animal) ctx {:strength :monotonic})
-    (v/assert kb (list 'genlContext sub ctx) sub)
+    (v/assert kb (list 'genlCx sub ctx) sub)
     ;; a defeasible forward rule that states its own exception, and a second rule
     ;; concluding the same literal — so `(flies Tweety)` rests on two justifications
     (v/assert kb (list 'exceptWhen (list penguin '?b)
@@ -433,9 +433,9 @@
   (doto (v/open-kb (assoc tu/plain-memory-space :naming :off)) (tu/clear-kb!)))
 
 (def ^:private foreign-dialect
-  "Sentences shaped like the real imported corpus: a `Cx`-prefixed context rather than a
-  `Context`-suffixed one, namespaced predicates, and argument names carrying a hyphen or
-  a trailing apostrophe.  Every one is refused under `:strict` — on its *context* if
+  "Sentences shaped like the real imported corpus: a `Context`-suffixed context rather
+  than a `Cx`-prefixed one, namespaced predicates, and argument names carrying a hyphen
+  or a trailing apostrophe.  Every one is refused under `:strict` — on its *context* if
   nothing else — and not one is a name this build may quietly repair.
 
   The two kinds of name are refused for different reasons now, and the split is the
@@ -459,7 +459,7 @@
     (rm-rf! dump)
     (try
       (tu/with-cleared-kb [source lenient-kb]
-        (doseq [s foreign-dialect] (v/assert source s 'CxWell))
+        (doseq [s foreign-dialect] (v/assert source s 'WellContext))
         (is (= (count foreign-dialect) (v/sentex-count source)))
         (export/export! source dump {:compression :none})
         (let [store (temp-dir "foreign-dialect-store")]

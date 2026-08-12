@@ -17,14 +17,14 @@ This is the other reading: the declaration also *entails* what it constrains, an
 entailment is a derived, justified, retractable sentex under truth maintenance.
 
 ```clojure
-(v/assert kb '(genl animal thing) 'UniverseContext)   ; the declared type has to be one
+(v/assert kb '(genl animal thing) 'CxUniverse)   ; the declared type has to be one
                                                       ; the hierarchy holds — see below
 (binding [checks/*assertive-arg-types?* true]
-  (v/assert kb '(argIsa parentOf 1 animal) 'WorldContext)
-  (v/assert kb '(parentOf Fred Mary) 'WorldContext))
+  (v/assert kb '(argIsa parentOf 1 animal) 'CxWorld)
+  (v/assert kb '(parentOf Fred Mary) 'CxWorld))
 
-(v/isa? kb 'Fred 'animal 'WorldContext)          ; => true
-(v/why kb (v/handle-of kb '(animal Fred) 'WorldContext))
+(v/isa? kb 'Fred 'animal 'CxWorld)          ; => true
+(v/why kb (v/handle-of kb '(animal Fred) 'CxWorld))
 ;; {:premise? false
 ;;  :support [{:informant argIsa
 ;;             :because [{:sentence (parentOf Fred Mary) :premise? true}
@@ -118,18 +118,18 @@ below it. It does not **entail** there. An upper-band schema would otherwise spr
 derived `(T x)` memberships across every context that inherits it — claims no author of
 that context made.
 
-So only a declaration written in the context being checked, or in `UniverseContext`
+So only a declaration written in the context being checked, or in `CxUniverse`
 (which speaks for every context by construction), draws the entailment. Pure can express
 this because every supporter records the context it asserts from.
 
 This is also what keeps the **cast** quiet: the starter's `(argIsa parentOf 1 animal)`
-lives in `LifeContext` while the individuals live in `NaturalWorldContext`, so nothing is
+lives in `CxLife` while the individuals live in `CxNaturalWorld`, so nothing is
 minted over them however the toggle is set. The schema's own contexts are the other case
 and mint freely, because there a declaration and the facts it constrains are written side
-by side — `(genl animal thing)` sits in `CoreContext` beside `(argGenl genl 1 thing)`.
+by side — `(genl animal thing)` sits in `CxCore` beside `(argGenl genl 1 thing)`.
 Every argument position in the shipped ontology is declared, so the toggle-on starter load
 mints 222 memberships against 1571 stored (the table under [Cost](#cost)). The root's own
-`genl` supertype position is the single undeclared one, and `CoreContext` says why beside
+`genl` supertype position is the single undeclared one, and `CxCore` says why beside
 it: `thing` cannot be a proper subtype of itself, so the constraint the root would fail is
 the wrong constraint rather than a missing one.
 
@@ -242,7 +242,7 @@ doing less; it is evidence the feature is putting content in the KB.
 `backend_parity_test` pins the toggle off inside its scripted session. That namespace's
 question is whether eight storage backends answer hand-written expectations alike, and
 the entailment would change the script itself: `(argIsa ownerOf 2 animal)` and
-`(ownerOf Ann Rex)` both sit in `ParityContext`, so Rex would carry a second, independent
+`(ownerOf Ann Rex)` both sit in `CxParity`, so Rex would carry a second, independent
 `animal` membership and retracting `(dog Rex)` would no longer take his type with it.
 That is the feature working, tested where it belongs.
 

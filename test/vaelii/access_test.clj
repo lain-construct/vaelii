@@ -32,12 +32,12 @@
       ;; the world context is wired below the vocabulary one, as the starter wires
       ;; every real context: the matching fan-out and the disjointness check are
       ;; context-scoped, so an unwired reader would see the facts but not the edges
-      (v/assert kb '(genlContext NaturalWorldContext CoreContext) 'CoreContext)
-      (v/assert kb '(genl animal thing) 'CoreContext)
-      (v/assert kb '(genl dog animal) 'CoreContext)
-      (v/assert kb '(genl cat animal) 'CoreContext)
-      (v/assert kb '(disjoint dog cat) 'CoreContext)
-      (v/assert kb '(dog Muffet) 'NaturalWorldContext)
+      (v/assert kb '(genlCx CxNaturalWorld CxCore) 'CxCore)
+      (v/assert kb '(genl animal thing) 'CxCore)
+      (v/assert kb '(genl dog animal) 'CxCore)
+      (v/assert kb '(genl cat animal) 'CxCore)
+      (v/assert kb '(disjoint dog cat) 'CxCore)
+      (v/assert kb '(dog Muffet) 'CxNaturalWorld)
       (let [server (serve/start kb {:port 0})]
         (try
           (binding [tu/*kb* kb, *remote* (access/remote "localhost" (serve/port server))]
@@ -64,24 +64,24 @@
 ;; ---- dispatch: local, raw-kb, and remote agree ---------------------------
 
 (deftest a-raw-kb-and-local-access-answer-like-vaelii-core
-  (let [via-core   (map :sentence (v/sentexes-matching tu/*kb* '(dog ?x) 'NaturalWorldContext))
-        via-raw    (map :sentence (access/sentexes-matching tu/*kb* '(dog ?x) 'NaturalWorldContext))
-        via-local  (map :sentence (access/sentexes-matching (access/local tu/*kb*) '(dog ?x) 'NaturalWorldContext))]
+  (let [via-core   (map :sentence (v/sentexes-matching tu/*kb* '(dog ?x) 'CxNaturalWorld))
+        via-raw    (map :sentence (access/sentexes-matching tu/*kb* '(dog ?x) 'CxNaturalWorld))
+        via-local  (map :sentence (access/sentexes-matching (access/local tu/*kb*) '(dog ?x) 'CxNaturalWorld))]
     (is (= '[(dog Muffet)] (vec via-core)))
     (is (= (vec via-core) (vec via-raw) (vec via-local))
         "a raw KB and an explicit local access both take the in-process path")))
 
 (deftest remote-access-answers-across-the-wire-like-local
   (testing "a fact query"
-    (is (= (map :sentence (v/sentexes-matching tu/*kb* '(dog ?x) 'NaturalWorldContext))
-           (map :sentence (access/sentexes-matching *remote* '(dog ?x) 'NaturalWorldContext)))))
+    (is (= (map :sentence (v/sentexes-matching tu/*kb* '(dog ?x) 'CxNaturalWorld))
+           (map :sentence (access/sentexes-matching *remote* '(dog ?x) 'CxNaturalWorld)))))
   (testing "specificity — (dog Muffet) answers (animal ?x) — over the wire"
-    (is (some #(= 'Muffet (get % '?x)) (access/ask *remote* '(animal ?x) 'NaturalWorldContext))))
+    (is (some #(= 'Muffet (get % '?x)) (access/ask *remote* '(animal ?x) 'CxNaturalWorld))))
   (testing "a taxonomy read (a set of symbols) round-trips"
     (is (= (v/genls tu/*kb* 'dog) (set (access/genls *remote* 'dog)))))
   (testing "a sentence comes back a list, not a vector (wire-safe fidelity)"
     (is (seq? (:sentence (access/sentex *remote*
-                                        (access/handle-of *remote* '(dog Muffet) 'NaturalWorldContext)))))))
+                                        (access/handle-of *remote* '(dog Muffet) 'CxNaturalWorld)))))))
 
 (deftest the-vocabulary-reads-the-same-over-the-wire
   ;; a remote client has no records to scan, so term enumeration has to be an op of its
@@ -102,14 +102,14 @@
 
 (deftest editing-writes-through-the-daemon
   (testing "edit adds and removes over the wire (the browser's Save path), net-neutral"
-    (let [added (:added (access/edit! *remote* {:add [['(bird Sky) 'NaturalWorldContext]]
+    (let [added (:added (access/edit! *remote* {:add [['(bird Sky) 'CxNaturalWorld]]
                                                 :remove []}))
           h     (first added)]
       (is (some? h) "the remote assert returns a handle")
-      (is (seq (access/sentexes-matching *remote* '(bird Sky) 'NaturalWorldContext))
+      (is (seq (access/sentexes-matching *remote* '(bird Sky) 'CxNaturalWorld))
           "the asserted fact is visible over the wire")
       (access/edit! *remote* {:add [] :remove [h]})
-      (is (empty? (access/sentexes-matching *remote* '(bird Sky) 'NaturalWorldContext))
+      (is (empty? (access/sentexes-matching *remote* '(bird Sky) 'CxNaturalWorld))
           "and removing it over the wire takes it back out"))))
 
 ;; ---- the browser renders a daemon-owned KB identically -------------------
@@ -145,6 +145,6 @@
       (is (= (:body (GET local-app "/" nil))
              (:body (GET remote-app "/" nil)))))
     (testing "a sentex page (handle-addressed) matches"
-      (let [h (v/handle-of tu/*kb* '(dog Muffet) 'NaturalWorldContext)]
+      (let [h (v/handle-of tu/*kb* '(dog Muffet) 'CxNaturalWorld)]
         (is (= (:body (GET local-app (str "/sentex/" h) nil))
                (:body (GET remote-app (str "/sentex/" h) nil))))))))

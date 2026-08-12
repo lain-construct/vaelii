@@ -1,7 +1,7 @@
-;; SizeContext — comparative size, said the two ways it can be said: among *kinds* as
+;; CxSize — comparative size, said the two ways it can be said: among *kinds* as
 ;; stated `largerThan` claims, and between two particular objects as a comparison
-;; computed from their measures. Sees the shared upper ontology via UniverseContext;
-;; WellContext sees it.
+;; computed from their measures. Sees the shared upper ontology via CxUniverse;
+;; CxWell sees it.
 ;;
 ;; The kind-level half is the worked example of argument-position preservation
 ;; (docs/inherit.md). `largerThan` is declared argPreserving along `genl` on both
@@ -26,8 +26,8 @@
 ;; Both rules are backward-only, like `olderThan`, whose shape they share: an ordering
 ;; over every pair of measured objects is a great many facts nobody asked for.
 
-(genlContext SizeContext UniverseContext)
-(genlContext WellContext SizeContext)
+(genlCx CxSize CxUniverse)
+(genlCx CxWell CxSize)
 
 (set/backwardRule
   (implies (and (weightOf ?x ?wx) (weightOf ?y ?wy) (quantityGreaterThan ?wx ?wy))

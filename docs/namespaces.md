@@ -32,7 +32,7 @@ src/vaelii/impl/
   naming.clj        naming-invariant predicates + functor/args/arity
   sentex.clj        Atomic / Rule records (connectives → truth/antecedent/consequent), split so a fact drops the rule-only slots; canonical vars + varmap, literal order, symmetric args, comparison folding/chains; canon (+ symbol interning); α-renamed path; index-terms
   rules.clj         rule-as-sentex helpers (implies form, predicates, range check, exception closure, conjunctive-consequent expand, the generator's hole split — [generators.md](generators.md))
-  taxonomy.clj      cached genl / genlContext closures; the equality partition (representative / equiv-class / deprecated?); maximal-common-descendant-contexts
+  taxonomy.clj      cached genl / genlCx closures; the equality partition (representative / equiv-class / deprecated?); maximal-common-descendant-contexts
   strength.clj      assumption strengths + defeat-class lattice (monotonic>default)
   kv.clj            KvBackend protocol + the one KvIndexStore over it: trie + context/functor/arg roots + rule predicate index + exception re-check index + term index; `index-layout-version`, the number that says which key shapes a build reads
   memory.clj        default backend: in-memory RecordStore + MemoryKvBackend, shared per space number
@@ -59,7 +59,7 @@ src/vaelii/impl/
   inference.clj     the second backward chainer: a frontier of whole conjunctions ordered by cost, rewritten one literal at a time into a rule's residual; every node a *canonicalized* conjunction with a namespace of its own (a rule is numbered past it, so the two are disjoint by construction and nothing needs renaming apart), `:answer-terms` pushed forward per rewrite so an answer reads out in the asker's names, the rewrite each node records in its parent's namespace so a walk up `:parent-id` replays the derivation, per-literal depth (which is also the termination condition), globally claimed keys, guards lifted into the node that asks them, the search tree left behind as a value.  `core/*query-engine*` routes to it; the default is :dfs
   tactics.clj       the node engine's search policy: one additive estimate (the plan's own per-literal cost, a size penalty, the rewriting allowance, the tree level) whose signs name a tactician; the child bias a productive node's children carry; the opt-in backchain estimate and the shape probe that picks a tactician without a caller.  Every tactician returns the same answer set — ordering is a cost decision
   abduce.clj        abduction: the scratch-context lifecycle, the gate on what may be assumed, and the mint/re-prove loop over the dead ends `prove` reports
-  wff.clj           well-formedness of genl / genlContext / disjoint / argIsa / the equality relations (symbols only, no rewriteOf cycle, `different` not assertible); stratification (no rule-graph cycle through negation)
+  wff.clj           well-formedness of genl / genlCx / disjoint / argIsa / the equality relations (symbols only, no rewriteOf cycle, `different` not assertible); stratification (no rule-graph cycle through negation)
   provers.clj       Prover protocol (est-bindings + cost tier + completeness) + fact/transitivity/disjointness/metadata/evaluable/NAF/aggregate/argIsa + the `ask` engine; the completeness contract and what may shadow what; exceptWhen evaluation + rule guards; `candidate-rules` and `parse-rule`, which the two backward chainers read.  **No member of it expands a rule**, so `ask` never opens a proof search
   budget.clj        resource-bounded / anytime: bound a lazy answer stream (:max-ms/:max-results), the partial-result contract, the resumable tail
   plan.clj          conjunctive query planning: selectivity cost model + sideways information passing, with the cartesian factors (literals sharing no variable with the rest, and matching more than once, so they multiply it) held to the back on structure rather than on an estimate
@@ -93,7 +93,7 @@ src/vaelii/impl/
   asp/solver.clj    backend selector; lazy-resolves clingo so JNA stays optional
   asp/edge.clj      Program → ASPIF and back: the real edge solver
   asp/label.clj     brave/cautious classification (forced vs arbitrary); labeling contexts
-  core_context.clj  CoreContext: the vocabulary head (loads kb/CoreContext.txt), documented via comment sentexes; read back with comment-of
+  core_context.clj  CxCore: the vocabulary head (loads kb/CxCore.txt), documented via comment sentexes; read back with comment-of
   seed.clj          text KB loader: read-sentences / load-context / layer-contexts (classpath discovery of kb/*.txt)
   starter.clj       schema-only common-sense KB: loads every kb/ context on start (Core, then upper, then middle), then the type→unaryPredicate batch
   imperative.clj    the do/ imperative dispatch (do/labeling|label|classify): the one non-fact/non-rule shape `assert` takes, routed to asp.* labeling by lazy resolve
@@ -104,7 +104,7 @@ src/vaelii/impl/
   foreign.clj       THE SEAM for the formats we read and do not write, and the whole of them here: no reader ships in this tree, and a plugin declares `kind -> reader var` in one edn resource on the classpath, resolved by `requiring-resolve` so no compile-time reference to one exists ([foreign.md](foreign.md))
   catalog.clj       the KB catalog: sources (shipped / generated / corpus / dump / on-disk store, found on a search path), the background load with progress + cancel, and which loaded KB is active ([catalog.md](catalog.md))
   jobs.clj          the registry every long operation runs in — a load, an export, a chaining run: one status vocabulary, one progress reading, one cancel, and the claim that only one job writes at a time ([web.md](web.md))
-  sandbox.clj       a scratch context per browser session, below WellContext: sees everything shipped, nothing shipped sees it; created on the first write, discarded whole
+  sandbox.clj       a scratch context per browser session, below CxWell: sees everything shipped, nothing shipped sees it; created on the first write, discarded whole
   examples.clj      the worked examples `/reasoning` renders: a table of questions, each naming the stored sentexes it reasons from and what the ontology should answer, plus the one fn that runs one
   svg.clj           the concept graph's drawing layer: a node, an edge, an arrowhead, and the arithmetic for a row / column / ring — pure, no KB, no graph library
   guard.clj         the HTTP guards both servers hold to: the Host allowlist that closes DNS rebinding (the bind interface decides; VAELII_ALLOWED_HOSTS overrides) and the Origin/Referer same-origin check on writes
@@ -122,11 +122,11 @@ See [operations.md](operations.md).
 
 The children's fables and the story-understanding ontology are **test-world** content
 (`test/vaelii/world.clj` + `world_fables.clj` + `world_narrative.clj`), below
-WellContext — contingent data, not shipped schema.
+CxWell — contingent data, not shipped schema.
 
 ```
 resources/
-  kb/CoreContext.txt     the vocabulary head; kb/upper/*.txt (definitional), kb/middle/*.txt (theories) — the shipped schema, term-centric text (vaelii.impl.seed)
+  kb/CxCore.txt     the vocabulary head; kb/upper/*.txt (definitional), kb/middle/*.txt (theories) — the shipped schema, term-centric text (vaelii.impl.seed)
   public/vaelii.css      the browser's stylesheet, served at /vaelii.css
 ```
 

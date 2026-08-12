@@ -31,21 +31,21 @@
   ;; and lands here.  (Disjointness, functionality and asymmetry each *do* name an
   ;; opposing sentex, and are arbitrated instead — see `soundness_test`.)
   (tu/with-terms [person rock parentOf looksLike Boulder Muffet]
-    (v/assert kb (list 'genl person 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl rock 'thing) 'UniverseContext)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'UniverseContext)
-    (v/assert kb (list rock Boulder) 'UniverseContext)
-    (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'UniverseContext)
-    (v/assert kb (list looksLike Boulder) 'UniverseContext)
+    (v/assert kb (list 'genl person 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list rock Boulder) 'CxUniverse)
+    (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+    (v/assert kb (list looksLike Boulder) 'CxUniverse)
     (testing "the inadmissible conclusion is not believed"
-      (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'UniverseContext))))
+      (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'CxUniverse))))
     (let [vs (filter #(= :arg-type (:violation %)) (v/violations kb))]
       (testing "and it is reported, rather than dropped silently"
         (is (= 1 (count vs)) "exactly one conclusion was dropped")
         (let [{:keys [violation sentence context rule detail]} (first vs)]
           (is (= :arg-type violation))
           (is (= (list parentOf Boulder Muffet) sentence))
-          (is (= 'UniverseContext context))
+          (is (= 'CxUniverse context))
           (is (integer? rule) "the firing rule's handle, so the drop is attributable")
           (is (map? detail))
           (is (string? (:message detail))))))))
@@ -56,15 +56,15 @@
   ;; start of each chaining run instead would make a bulk load's drops unobservable by
   ;; its end — assert #38 erasing what #37 dropped.
   (tu/with-terms [person rock parentOf looksLike Boulder Muffet Other]
-    (v/assert kb (list 'genl person 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl rock 'thing) 'UniverseContext)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'UniverseContext)
-    (v/assert kb (list rock Boulder) 'UniverseContext)
-    (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'UniverseContext)
-    (v/assert kb (list looksLike Boulder) 'UniverseContext)
+    (v/assert kb (list 'genl person 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list rock Boulder) 'CxUniverse)
+    (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+    (v/assert kb (list looksLike Boulder) 'CxUniverse)
     (is (= 1 (count (v/violations kb))))
     (testing "an unrelated later assert re-runs chaining and the drop is still reported"
-      (v/assert kb (list rock Other) 'UniverseContext)
+      (v/assert kb (list rock Other) 'CxUniverse)
       (is (= 1 (count (v/violations kb))))
       (is (integer? (:run (first (v/violations kb))))
           "stamped with the run that dropped it, so \"current\" is decidable"))
@@ -80,13 +80,13 @@
   ;; would be invisible, since the conclusion is absent either way.
   (testing "an argIsa violation"
     (tu/with-terms [parentOf person rock looksLike Boulder Muffet]
-      (v/assert kb (list 'genl rock 'thing) 'UniverseContext)
-      (v/assert kb (list 'argIsa parentOf 1 person) 'UniverseContext)
-      (v/assert kb (list rock Boulder) 'UniverseContext)
-      (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'UniverseContext)
-      (v/assert kb (list looksLike Boulder) 'UniverseContext)
+      (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+      (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+      (v/assert kb (list rock Boulder) 'CxUniverse)
+      (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+      (v/assert kb (list looksLike Boulder) 'CxUniverse)
       (is (= [:arg-type] (map :violation (v/violations kb))))
-      (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'UniverseContext)))))
+      (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'CxUniverse)))))
 
   ;; No `:functional` case here on purpose.  `functional` is mid-redesign: a clash
   ;; between two *symbol* values now derives `(equals V1 V2)` and merges them rather
@@ -97,17 +97,17 @@
   (testing "a derived genl edge that would cycle the taxonomy"
     (v/clear-violations! kb)          ; the ledger accumulates; scope to this stage
     (tu/with-terms [dog animal relates]
-      (v/assert kb (list 'genl dog animal) 'UniverseContext)
-      (v/assert kb (fwd [(list relates '?x '?y)] (list 'genl '?x '?y)) 'UniverseContext)
-      (v/assert kb (list relates animal dog) 'UniverseContext)
+      (v/assert kb (list 'genl dog animal) 'CxUniverse)
+      (v/assert kb (fwd [(list relates '?x '?y)] (list 'genl '?x '?y)) 'CxUniverse)
+      (v/assert kb (list relates animal dog) 'CxUniverse)
       (is (= [:not-well-formed] (map :violation (v/violations kb))))
       (is (not (v/genl? kb animal dog)) "and the closure is intact"))))
 
 (tu/deftest-kb a-clean-run-reports-no-violations
   (tu/with-terms [bird flies Robin]
-    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'NaturalWorldContext)
-    (v/assert kb (list bird Robin) 'NaturalWorldContext)
-    (is (seq (v/sentexes-matching kb (list flies Robin) 'NaturalWorldContext)))
+    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
+    (v/assert kb (list bird Robin) 'CxNaturalWorld)
+    (is (seq (v/sentexes-matching kb (list flies Robin) 'CxNaturalWorld)))
     (is (empty? (v/violations kb)) "nothing was dropped, so nothing is reported")))
 
 ;; ---- settle-stats: the exception fixpoint's own meter -------------------
@@ -118,12 +118,12 @@
     (is (= {:iterations 0 :passes 0 :histogram {}} (v/settle-stats kb))
         "reset clears the counters and the histogram")
 
-    (v/assert kb (list 'genl penguin bird) 'UniverseContext)
+    (v/assert kb (list 'genl penguin bird) 'CxUniverse)
     (v/assert kb (list 'exceptWhen (list penguin '?x)
                        (list 'set/defaultRule (vr/rule-sentence [(list bird '?x)]
                                                                 (list flies '?x))))
-              'NaturalWorldContext)
-    (v/assert kb (list penguin Opus) 'NaturalWorldContext)
+              'CxNaturalWorld)
+    (v/assert kb (list penguin Opus) 'CxNaturalWorld)
 
     (let [{:keys [iterations passes histogram]} (v/settle-stats kb)]
       (testing "the loop always runs at least a confirming pass"
@@ -137,15 +137,15 @@
         (is (every? int? (keys histogram)))))
 
     (testing "the exception did its job — the penguin does not fly"
-      (is (empty? (v/sentexes-matching kb (list flies Opus) 'NaturalWorldContext))))))
+      (is (empty? (v/sentexes-matching kb (list flies Opus) 'CxNaturalWorld))))))
 
 ;; ---- types-of ------------------------------------------------------------
 
 (tu/deftest-kb types-of-reports-believed-unary-memberships-only
   (tu/with-terms [dog pet parentOf Muffet Rex]
-    (v/assert kb (list dog Muffet) 'NaturalWorldContext)
-    (v/assert kb (list pet Muffet) 'NaturalWorldContext)
-    (v/assert kb (list parentOf Muffet Rex) 'NaturalWorldContext)
+    (v/assert kb (list dog Muffet) 'CxNaturalWorld)
+    (v/assert kb (list pet Muffet) 'CxNaturalWorld)
+    (v/assert kb (list parentOf Muffet Rex) 'CxNaturalWorld)
     (let [ts (set (v/types-of kb Muffet))]
       (testing "every unary predicate asserted of the individual"
         (is (contains? ts dog))
@@ -160,24 +160,24 @@
   ;; The belief filter.  A membership that lost a contradiction is still *stored*,
   ;; so a version reading the index without consulting the TMS still finds it.
   (tu/with-terms [dog Muffet]
-    (v/assert kb (list dog Muffet) 'NaturalWorldContext {:strength :default})
+    (v/assert kb (list dog Muffet) 'CxNaturalWorld {:strength :default})
     (is (contains? (set (v/types-of kb Muffet)) dog))
-    (v/assert kb (list 'not (list dog Muffet)) 'NaturalWorldContext {:strength :monotonic})
+    (v/assert kb (list 'not (list dog Muffet)) 'CxNaturalWorld {:strength :monotonic})
     (testing "the defeated membership drops out of types-of"
       (is (not (contains? (set (v/types-of kb Muffet)) dog))
           "known-true negation beats the default, so dog is no longer believed of Muffet"))))
 
 (tu/deftest-kb types-of-is-scoped-to-what-the-context-sees
-  (tu/with-terms [dog Muffet AlphaContext BetaContext]
-    (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext BetaContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list dog Muffet) AlphaContext)
+  (tu/with-terms [dog Muffet CxAlpha CxBeta]
+    (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxBeta 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list dog Muffet) CxAlpha)
     (testing "the default arity sees any context"
       (is (contains? (set (v/types-of kb Muffet)) dog)))
     (testing "the asserting context sees its own membership"
-      (is (contains? (set (v/types-of kb Muffet AlphaContext)) dog)))
+      (is (contains? (set (v/types-of kb Muffet CxAlpha)) dog)))
     (testing "a sibling context does not"
-      (is (not (contains? (set (v/types-of kb Muffet BetaContext)) dog))
+      (is (not (contains? (set (v/types-of kb Muffet CxBeta)) dog))
           "Beta does not see Alpha, so Alpha's membership is invisible from it"))))
 
 ;; ---- justification / dependent-justifications -----------------------------------
@@ -188,9 +188,9 @@
   ;; undetectable — and this is the API a caller uses for impact analysis before a
   ;; retract.
   (tu/with-terms [bird flies Robin]
-    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'NaturalWorldContext)
-    (let [fact  (v/assert kb (list bird Robin) 'NaturalWorldContext)
-          concl (:id (first (v/sentexes-matching kb (list flies Robin) 'NaturalWorldContext)))]
+    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
+    (let [fact  (v/assert kb (list bird Robin) 'CxNaturalWorld)
+          concl (:id (first (v/sentexes-matching kb (list flies Robin) 'CxNaturalWorld)))]
       (is (integer? concl) "the rule fired")
       (testing "the conclusion is supported by a justification, and depends on nothing"
         (is (seq (v/supporting-justifications kb concl)))
@@ -204,9 +204,9 @@
 
 (tu/deftest-kb justification-looks-a-justification-up-by-id
   (tu/with-terms [bird flies Robin]
-    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'NaturalWorldContext)
-    (v/assert kb (list bird Robin) 'NaturalWorldContext)
-    (let [concl (:id (first (v/sentexes-matching kb (list flies Robin) 'NaturalWorldContext)))
+    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
+    (v/assert kb (list bird Robin) 'CxNaturalWorld)
+    (let [concl (:id (first (v/sentexes-matching kb (list flies Robin) 'CxNaturalWorld)))
           d     (first (v/supporting-justifications kb concl))]
       (is (= d (v/justification kb (:id d))) "round-trips by id")
       (is (= concl (:consequence d)))
@@ -215,25 +215,25 @@
 ;; ---- retroactive universal lift -----------------------------------------
 
 (tu/deftest-kb declaring-a-universal-predicate-lifts-facts-already-asserted
-  ;; `(decontextualizedPredicate P)` deduces every `(P ...)` into UniverseContext so it is
+  ;; `(decontextualizedPredicate P)` deduces every `(P ...)` into CxUniverse so it is
   ;; visible everywhere.  The forward path — declare, then assert — is what the
   ;; starter does and the only one covered.  The retroactive sweep runs when the
   ;; declaration arrives *after* the facts, and had no test at all: a broken sweep
   ;; looks like it works for everything asserted later and silently fails for
   ;; everything already there.
-  (tu/with-terms [marriedTo Ann Bob Cid Dee AlphaContext]
-    (v/assert kb (list 'genlContext AlphaContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list marriedTo Ann Bob) AlphaContext)
+  (tu/with-terms [marriedTo Ann Bob Cid Dee CxAlpha]
+    (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list marriedTo Ann Bob) CxAlpha)
     (testing "before the declaration the fact is confined to its own context"
-      (is (empty? (v/sentexes-matching kb (list marriedTo Ann Bob) 'UniverseContext))))
+      (is (empty? (v/sentexes-matching kb (list marriedTo Ann Bob) 'CxUniverse))))
 
-    (v/assert kb (list 'decontextualizedPredicate marriedTo) 'UniverseContext)
+    (v/assert kb (list 'decontextualizedPredicate marriedTo) 'CxUniverse)
     (testing "declaring it lifts the fact that was already there"
-      (is (seq (v/sentexes-matching kb (list marriedTo Ann Bob) 'UniverseContext))))
+      (is (seq (v/sentexes-matching kb (list marriedTo Ann Bob) 'CxUniverse))))
 
     (testing "and facts asserted afterwards are lifted too"
-      (v/assert kb (list marriedTo Cid Dee) AlphaContext)
-      (is (seq (v/sentexes-matching kb (list marriedTo Cid Dee) 'UniverseContext))))))
+      (v/assert kb (list marriedTo Cid Dee) CxAlpha)
+      (is (seq (v/sentexes-matching kb (list marriedTo Cid Dee) 'CxUniverse))))))
 
 ;; ---- rule idempotency covers defeasibility, not just direction ----------
 
@@ -243,13 +243,13 @@
   ;; already placed at :monotonic would keep a strength the rule no longer confers.
   (tu/with-terms [bird flies Robin]
     (let [bare (vr/rule-sentence [(list bird '?x)] (list flies '?x))
-          h1   (v/assert kb bare 'NaturalWorldContext)
-          h2   (v/assert kb (list 'set/defaultRule bare) 'NaturalWorldContext)]
+          h1   (v/assert kb bare 'CxNaturalWorld)
+          h2   (v/assert kb (list 'set/defaultRule bare) 'CxNaturalWorld)]
       (is (= h1 h2) "an α-equivalent rule resolves to the existing sentex")
       (is (not (:defeasible (v/sentex kb h1)))
           "it keeps the non-defeasible reading it was first given")
       (testing "and its conclusions still carry the bare rule's strength"
-        (v/assert kb (list bird Robin) 'NaturalWorldContext {:strength :monotonic})
-        (let [concl (:id (first (v/sentexes-matching kb (list flies Robin) 'NaturalWorldContext)))]
+        (v/assert kb (list bird Robin) 'CxNaturalWorld {:strength :monotonic})
+        (let [concl (:id (first (v/sentexes-matching kb (list flies Robin) 'CxNaturalWorld)))]
           (is (= :monotonic (v/defeat-class kb concl))
               "a bare rule over a known-true fact concludes known-true"))))))

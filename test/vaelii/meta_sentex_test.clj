@@ -58,7 +58,7 @@
   ;; same meta-sentex, the same block.
   (let [ctx (tu/tmp-ctx "Bird") bird (tu/tmp-type) penguin (tu/tmp-type)
         flies (tu/tmp-pred) Opus (tu/tmp-ind) Tweety (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [rh (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?b) (list flies '?b))) ctx)]
       (v/assert kb (list 'exceptWhen (list penguin '?b) (sx/sentex-handle rh)) ctx)
       (v/assert kb (list bird Opus) ctx)
@@ -76,7 +76,7 @@
   ;; leaves the other in force.
   (let [ctx (tu/tmp-ctx "Bird") bird (tu/tmp-type) penguin (tu/tmp-type) ostrich (tu/tmp-type)
         flies (tu/tmp-pred) P (tu/tmp-ind) O (tu/tmp-ind) R (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'exceptWhen (list penguin '?x)
                        (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x)))) ctx)
     (let [rh  (v/handle-of kb (list 'implies (list bird '?var0) (list flies '?var0)) ctx)
@@ -103,7 +103,7 @@
   ;; numbering, not the whole rule's — otherwise one conjunct checks the wrong argument.
   (let [ctx (tu/tmp-ctx "C") p (tu/tmp-type) q (tu/tmp-pred) r (tu/tmp-pred)
         bad (tu/tmp-type) Foo (tu/tmp-ind) Bar (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     ;; (p ?a),(p ?b) tie; consequent (and (q ?a) (r ?b)); exception (bad ?b)
     (v/assert kb (list 'exceptWhen (list bad '?b)
                        (list 'set/defaultRule
@@ -126,7 +126,7 @@
   ;; exception's predicate re-checking that dead handle must not error.
   (let [ctx (tu/tmp-ctx "B") bird (tu/tmp-type) penguin (tu/tmp-type)
         flies (tu/tmp-pred) Opus (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [rh (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?b) (list flies '?b))) ctx)
           mh (v/assert kb (list 'exceptWhen (list penguin '?b) (sx/sentex-handle rh)) ctx)]
       (v/assert kb (list bird Opus) ctx)
@@ -143,7 +143,7 @@
   ;; must re-block the same conclusions — `recover` re-checks every exception and settles.
   (let [ctx (tu/tmp-ctx "Bird") bird (tu/tmp-type) penguin (tu/tmp-type)
         flies (tu/tmp-pred) Opus (tu/tmp-ind) Tweety (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'exceptWhen (list penguin '?b)
                        (list 'set/defaultRule (list 'implies (list bird '?b) (list flies '?b)))) ctx)
     (v/assert kb (list bird Opus) ctx)
@@ -162,13 +162,13 @@
 (tu/deftest-kb except-hides-a-sentex-from-a-context-and-its-descendants
   ;; (except (sentexHandle H)) asserted in C removes visibility of sentex H from C and
   ;; every context that sees C (its descendants), leaving the more general contexts C
-  ;; sees untouched.  It rides the ordinary genlContext up-closure — the except is a
+  ;; sees untouched.  It rides the ordinary genlCx up-closure — the except is a
   ;; belief-following fact, visible from exactly where it hides its target.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm") cm (tu/tmp-ctx "Cm")
         shiny (tu/tmp-pred) gold (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext gp 'WellContext) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext pm gp) 'UniverseContext {:strength :monotonic})   ; pm sees gp
-    (v/assert kb (list 'genlContext cm pm) 'UniverseContext {:strength :monotonic})   ; cm sees pm
+    (v/assert kb (list 'genlCx gp 'CxWell) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx pm gp) 'CxUniverse {:strength :monotonic})   ; pm sees gp
+    (v/assert kb (list 'genlCx cm pm) 'CxUniverse {:strength :monotonic})   ; cm sees pm
     (let [h (v/assert kb (list shiny gold) gp {:strength :monotonic})]
       (testing "visible up and down the chain before any except"
         (is (v/ask? kb (list shiny gold) gp))
@@ -191,7 +191,7 @@
   ;; on these two: a hidden membership that still answered `types-of` would let
   ;; disjointness refuse a sentence on a ground its context cannot see.
   (let [ctx (tu/tmp-ctx "Sub") dog (tu/tmp-type "dog") Muffet (tu/tmp-ind "Muffet")]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list dog Muffet) ctx {:strength :monotonic})]
       (is (= [dog] (vec (v/types-of kb Muffet ctx))))
       (is (v/isa? kb Muffet dog ctx))
@@ -212,7 +212,7 @@
   ;; The filter reads *believed* excepts, so an except defeated by a stronger contrary
   ;; belief stops hiding — visibility follows belief, like every cached relation.
   (let [ctx (tu/tmp-ctx "Sub") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})]
       (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :default})
       (is (not (v/ask? kb (list shiny gold) ctx)) "the default except hides it")
@@ -228,7 +228,7 @@
   ;; which belief set the KB ends with depends on the order the except and its
   ;; defeater arrived.
   (let [ctx (tu/tmp-ctx "Sub") qq (tu/tmp-pred) pp (tu/tmp-pred) Aa (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list qq Aa) ctx {:strength :monotonic})]
       (v/assert kb (list 'implies (list qq '?x) (list pp '?x)) ctx)
       (is (seq (v/sentexes-matching kb (list pp Aa) ctx)) "the rule fired")
@@ -258,9 +258,9 @@
   ;; its cone) is untouched.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm") cm (tu/tmp-ctx "Cm")
         shiny (tu/tmp-pred) sparkles (tu/tmp-pred) gold (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext gp 'WellContext) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext pm gp) 'UniverseContext {:strength :monotonic})   ; pm sees gp
-    (v/assert kb (list 'genlContext cm pm) 'UniverseContext {:strength :monotonic})   ; cm sees pm
+    (v/assert kb (list 'genlCx gp 'CxWell) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx pm gp) 'CxUniverse {:strength :monotonic})   ; pm sees gp
+    (v/assert kb (list 'genlCx cm pm) 'CxUniverse {:strength :monotonic})   ; cm sees pm
     (let [h (v/assert kb (list shiny gold) gp {:strength :monotonic})]
       ;; a rule in cm derives (sparkles gold) in cm from the shiny fact it inherits from gp
       (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm)
@@ -278,18 +278,18 @@
           (v/retract! kb eh)
           (is (seq (v/sentexes-matching kb (list sparkles gold) cm))))))))
 
-(tu/deftest-kb a-genlContext-edge-re-checks-except-blocked-derivations
+(tu/deftest-kb a-genlCx-edge-re-checks-except-blocked-derivations
   ;; An `except` block depends on which contexts see the excepting context, so moving a
-  ;; genlContext edge can release it.  `cm` sees the fact's context `gp` **directly** and
+  ;; genlCx edge can release it.  `cm` sees the fact's context `gp` **directly** and
   ;; the excepting context `pm` separately; retracting only the `cm->pm` edge leaves the
   ;; fact visible (the rule still fires) but stops the except being seen from `cm`, so the
   ;; blocked derivation revives.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm") cm (tu/tmp-ctx "Cm")
         shiny (tu/tmp-pred) sparkles (tu/tmp-pred) gold (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext gp 'WellContext) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext pm gp) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext cm gp) 'UniverseContext {:strength :monotonic})   ; cm sees gp directly
-    (let [edge (v/assert kb (list 'genlContext cm pm) 'UniverseContext {:strength :monotonic})   ; ...and pm
+    (v/assert kb (list 'genlCx gp 'CxWell) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx pm gp) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx cm gp) 'CxUniverse {:strength :monotonic})   ; cm sees gp directly
+    (let [edge (v/assert kb (list 'genlCx cm pm) 'CxUniverse {:strength :monotonic})   ; ...and pm
           h    (v/assert kb (list shiny gold) gp {:strength :monotonic})]
       (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm)
       (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})
@@ -306,9 +306,9 @@
   ;; the sweep above.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm") cm (tu/tmp-ctx "Cm")
         shiny (tu/tmp-pred) sparkles (tu/tmp-pred) gold (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext gp 'WellContext) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext pm gp) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext cm pm) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx gp 'CxWell) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx pm gp) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx cm pm) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list shiny gold) gp {:strength :monotonic})]
       (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})
       ;; the rule arrives *after* the except; its conclusion in cm would rest on the
@@ -364,11 +364,11 @@
   ;; scan checked after each — an arrival, a second except in another context on the
   ;; same target, a defeat, a revival, a retraction, and the target's own removal.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm") cm (tu/tmp-ctx "Cm")
-        ctxs [gp pm cm 'WellContext 'UniverseContext '?ctx]
+        ctxs [gp pm cm 'CxWell 'CxUniverse '?ctx]
         shiny (tu/tmp-pred) gold (tu/tmp-ind) lead (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext gp 'WellContext) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext pm gp) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext cm pm) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx gp 'CxWell) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx pm gp) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx cm pm) 'CxUniverse {:strength :monotonic})
     (is (roster-agrees? kb ctxs) "an empty roster and an empty scan")
     (let [h  (v/assert kb (list shiny gold) gp {:strength :monotonic})
           h2 (v/assert kb (list shiny lead) gp {:strength :monotonic})]
@@ -404,14 +404,14 @@
   ;; a fork recovers over the merged view rather than inheriting its base's belief.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm")
         shiny (tu/tmp-pred) gold (tu/tmp-ind)]
-    (v/assert kb (list 'genlContext gp 'WellContext) 'UniverseContext {:strength :monotonic})
-    (v/assert kb (list 'genlContext pm gp) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlCx gp 'CxWell) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx pm gp) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list shiny gold) gp {:strength :monotonic})]
       (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})
       (is (= #{h} (res/excepted-handles kb pm)))
       (v/recover kb)
       (testing "the rebuilt roster hides exactly what the pre-recover one did"
         (is (= #{h} (res/excepted-handles kb pm)))
-        (is (roster-agrees? kb [gp pm 'WellContext]))
+        (is (roster-agrees? kb [gp pm 'CxWell]))
         (is (not (v/ask? kb (list shiny gold) pm)) "and the read still follows it")
         (is (v/ask? kb (list shiny gold) gp))))))

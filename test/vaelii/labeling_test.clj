@@ -39,21 +39,21 @@
   [kb]
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred)
         republican (tu/tmp-pred) nixon (tu/tmp-ind)]
-    (v/assert kb (default-rule (list quaker '?x) (list pacifist '?x)) 'UniverseContext)
-    (v/assert kb (default-rule (list republican '?x) (list 'not (list pacifist '?x))) 'UniverseContext)
-    (v/assert kb (list quaker nixon) 'UniverseContext)
-    (v/assert kb (list republican nixon) 'UniverseContext)
+    (v/assert kb (default-rule (list quaker '?x) (list pacifist '?x)) 'CxUniverse)
+    (v/assert kb (default-rule (list republican '?x) (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (list quaker nixon) 'CxUniverse)
+    (v/assert kb (list republican nixon) 'CxUniverse)
     {:pred pacifist
      :individual nixon
      :background (list quaker nixon)          ; uncontested, for inheritance checks
-     :positive (v/handle-of kb (list pacifist nixon) 'UniverseContext)
-     :negative (v/handle-of kb (list 'not (list pacifist nixon)) 'UniverseContext)}))
+     :positive (v/handle-of kb (list pacifist nixon) 'CxUniverse)
+     :negative (v/handle-of kb (list 'not (list pacifist nixon)) 'CxUniverse)}))
 
 (defn- belief-snapshot
   "What the base KB believes about a dilemma, and how many it reports."
   [kb {:keys [pred individual]}]
-  {:positive (boolean (seq (v/sentexes-matching kb (list pred individual) 'UniverseContext)))
-   :negative (boolean (seq (v/sentexes-matching kb (list 'not (list pred individual)) 'UniverseContext)))
+  {:positive (boolean (seq (v/sentexes-matching kb (list pred individual) 'CxUniverse)))
+   :negative (boolean (seq (v/sentexes-matching kb (list 'not (list pred individual)) 'CxUniverse)))
    :reported (count (v/contradictions kb))})
 
 ;; ---- 1. the do/ channel ------------------------------------------------
@@ -63,12 +63,12 @@
   ;; exists afterwards and no term index entry points at one.
   (tu/with-neutral-kb [kb tu/fresh]
     (let [ctx (tu/tmp-ctx "Labeling")
-          before (count (v/sentexes-in-context kb 'UniverseContext))]
-      (v/assert kb (list 'do/labeling ctx) 'UniverseContext)
+          before (count (v/sentexes-in-context kb 'CxUniverse))]
+      (v/assert kb (list 'do/labeling ctx) 'CxUniverse)
       (testing "no sentex was stored for the imperative itself"
-        (is (nil? (v/handle-of kb (list 'do/labeling ctx) 'UniverseContext)))
+        (is (nil? (v/handle-of kb (list 'do/labeling ctx) 'CxUniverse)))
         (is (empty? (v/find-sentexes kb 'do/labeling)))
-        (is (= before (count (v/sentexes-in-context kb 'UniverseContext))))))))
+        (is (= before (count (v/sentexes-in-context kb 'CxUniverse))))))))
 
 (deftest an-imperative-is-refused-inside-a-rule
   ;; The one hard constraint. A `do/` form in a rule would run inside the forward
@@ -87,16 +87,16 @@
                [:nested     (list 'implies (list p '?x) (list 'not imp))]]]
         (testing (str "refused in the " (name slot))
           (is (thrown? clojure.lang.ExceptionInfo
-                       (v/assert kb rule 'UniverseContext)))
+                       (v/assert kb rule 'CxUniverse)))
           (is (= :not-assertible
-                 (try (v/assert kb rule 'UniverseContext) nil
+                 (try (v/assert kb rule 'CxUniverse) nil
                       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))))))
 
 (deftest an-unknown-imperative-names-the-known-ones
   ;; A typo in the `do/` namespace must not read as a fact about a predicate called
   ;; `do/labelling`; it is a caller error and says so.
   (tu/with-neutral-kb [kb tu/fresh]
-    (let [e (try (v/assert kb (list 'do/frobnicate 'X) 'UniverseContext) nil
+    (let [e (try (v/assert kb (list 'do/frobnicate 'X) 'CxUniverse) nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
       (is (= :not-assertible (:type (ex-data e))))
@@ -109,12 +109,12 @@
                   (list 'do/labeling 42)
                   (list 'do/labeling (tu/tmp-ctx "A") (tu/tmp-ctx "B") (tu/tmp-ctx "C"))]]
       (is (= :not-assertible
-             (try (v/assert kb form 'UniverseContext) nil
+             (try (v/assert kb form 'CxUniverse) nil
                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
           (str "refused: " (pr-str form))))
     (testing "the two-argument form names the base explicitly"
-      (is (map? (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling") 'UniverseContext)
-                          'UniverseContext))))))
+      (is (map? (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling") 'CxUniverse)
+                          'CxUniverse))))))
 
 ;; ---- 2. the dilemma bridge ---------------------------------------------
 
@@ -128,7 +128,7 @@
       (testing "settle built no program for the dilemma"
         (is (= 1 (count (v/contradictions kb))))
         (is (nil? (v/last-program kb))))
-      (let [{:keys [program classification]} (v/assert kb (list 'do/labeling ctx) 'UniverseContext)]
+      (let [{:keys [program classification]} (v/assert kb (list 'do/labeling ctx) 'CxUniverse)]
         (testing "the imperative built one, over exactly the two contested sides"
           (is (= #{(:positive d) (:negative d)} (:assumptions program)))
           (is (= 1 (count (:contradictions program)))))
@@ -144,7 +144,7 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (let [d (dilemma kb)
             {:keys [classification]} (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling"))
-                                               'UniverseContext)]
+                                               'CxUniverse)]
         (is (= #{(:positive d) (:negative d)} (:supportable classification)))
         (is (empty? (:true classification)))
         (is (empty? (:false classification)))))))
@@ -154,7 +154,7 @@
   ;; that a choice was made where none was.
   (tu/with-neutral-kb [kb tu/fresh]
     (let [ctx (tu/tmp-ctx "Labeling")
-          res (v/assert kb (list 'do/labeling ctx) 'UniverseContext)]
+          res (v/assert kb (list 'do/labeling ctx) 'CxUniverse)]
       (is (empty? (:handles res)))
       (is (nil? (:program res)))
       (is (= {:true #{} :supportable #{} :false #{}} (:classification res)))
@@ -173,7 +173,7 @@
           ctx (tu/tmp-ctx "Labeling")]
       (is (= {:positive true :negative true :reported 1} (belief-snapshot kb d))
           "before: both sides believed, one dilemma reported")
-      (let [{:keys [handles]} (v/assert kb (list 'do/labeling ctx) 'UniverseContext)
+      (let [{:keys [handles]} (v/assert kb (list 'do/labeling ctx) 'CxUniverse)
             after (belief-snapshot kb d)]
         (testing "the dilemma is decided, not reported twice"
           (is (zero? (:reported after))))
@@ -185,7 +185,7 @@
 
 (deftest a-labeled-context-is-a-queryable-world
   ;; What committing buys over a detached record, and the reason it was chosen: `ctx`
-  ;; inherits the uncontested background through `genlContext`, so it can be asked
+  ;; inherits the uncontested background through `genlCx`, so it can be asked
   ;; about rather than merely read.
   ;;
   ;; Level 3 (`:visible`) throughout, and the level matters in both directions.
@@ -198,9 +198,9 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (let [{:keys [pred individual background]} (dilemma kb)
           ctx (tu/tmp-ctx "Labeling")]
-      (v/assert kb (list 'do/labeling ctx) 'UniverseContext)
+      (v/assert kb (list 'do/labeling ctx) 'CxUniverse)
       (testing "ctx sees the base"
-        (is (true? (v/sees? kb ctx 'UniverseContext))))
+        (is (true? (v/sees? kb ctx 'CxUniverse))))
       (testing "the uncontested background is inherited"
         (is (seq (v/lookup kb 3 background ctx)))
         (is (empty? (v/sentexes-matching kb background ctx))
@@ -210,8 +210,8 @@
               neg (seq (v/lookup kb 3 (list 'not (list pred individual)) ctx))]
           (is (not= (boolean pos) (boolean neg)))))
       (testing "and the same holds in the base, since the commitment is global"
-        (let [pos (seq (v/lookup kb 3 (list pred individual) 'UniverseContext))
-              neg (seq (v/lookup kb 3 (list 'not (list pred individual)) 'UniverseContext))]
+        (let [pos (seq (v/lookup kb 3 (list pred individual) 'CxUniverse))
+              neg (seq (v/lookup kb 3 (list 'not (list pred individual)) 'CxUniverse))]
           (is (not= (boolean pos) (boolean neg))))))))
 
 (deftest retracting-a-labeling-revives-the-dilemma
@@ -221,14 +221,14 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (let [d (dilemma kb)
           ctx (tu/tmp-ctx "Labeling")
-          {:keys [handles]} (v/assert kb (list 'do/labeling ctx) 'UniverseContext)]
+          {:keys [handles]} (v/assert kb (list 'do/labeling ctx) 'CxUniverse)]
       (is (zero? (:reported (belief-snapshot kb d))) "committed")
       (run! #(v/retract! kb %) handles)
       (testing "the dilemma is back, both sides believed again"
         (is (= {:positive true :negative true :reported 1} (belief-snapshot kb d))))
       (testing "so a rival labeling can be built over the revived dilemma"
         (let [ctx2 (tu/tmp-ctx "Rival")
-              {h2 :handles} (v/assert kb (list 'do/labeling ctx2) 'UniverseContext)]
+              {h2 :handles} (v/assert kb (list 'do/labeling ctx2) 'CxUniverse)]
           (is (= 1 (count h2)))
           (is (zero? (:reported (belief-snapshot kb d)))))))))
 
@@ -278,7 +278,7 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (dilemma kb)
       (let [{:keys [program classification handles]}
-            (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling")) 'UniverseContext)
+            (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling")) 'CxUniverse)
             labeled (set (map #(:id (v/sentex kb %)) handles))]
         (testing "nothing classified :false was committed to"
           (is (empty? (filter labeled (:false classification)))))
@@ -301,11 +301,11 @@
                           neg (default-rule (list republican '?x)
                                             (list 'not (list pacifist '?x)))]
                       (doseq [r (if flip? [neg pos] [pos neg])]
-                        (v/assert kb r 'UniverseContext))
-                      (v/assert kb (list quaker nixon) 'UniverseContext)
-                      (v/assert kb (list republican nixon) 'UniverseContext)
-                      (let [ctx 'TmpLblLabelingContext]
-                        (v/assert kb (list 'do/labeling ctx) 'UniverseContext)
+                        (v/assert kb r 'CxUniverse))
+                      (v/assert kb (list quaker nixon) 'CxUniverse)
+                      (v/assert kb (list republican nixon) 'CxUniverse)
+                      (let [ctx 'CxTmpLblLabeling]
+                        (v/assert kb (list 'do/labeling ctx) 'CxUniverse)
                         (set (map :sentence (v/sentexes-in-context kb ctx)))))))]
     (is (= (labeled false) (labeled true))
         "the same knowledge in either order labels the same sentence")))

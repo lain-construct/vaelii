@@ -21,7 +21,7 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(def ^:private ctx 'UniverseContext)
+(def ^:private ctx 'CxUniverse)
 
 (defn- holds?
   "Does the KB **hold** this sentence — is it in what the fixpoint derived, rather than
@@ -223,31 +223,31 @@
     (is (holds? kb (list aboutIt dog_t)) "the stated one, by the ordinary matcher")))
 
 (tu/deftest-kb a-context-argument-carries-a-firing-down-the-lattice
-  ;; The relation can be the context hierarchy: preserved along `genlContext`, a claim
+  ;; The relation can be the context hierarchy: preserved along `genlCx`, a claim
   ;; naming a wide context fires for the contexts below it, off the same cached closure
   ;; the backward door walks (`inherit_test`).
-  (tu/with-terms [appliesIn noticed TheDecree WideContext NarrowContext]
+  (tu/with-terms [appliesIn noticed TheDecree CxWide CxNarrow]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genlContext WideContext ctx) ctx)
-      (v/assert kb (list 'genlContext NarrowContext WideContext) ctx)
-      (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) ctx))
-    (v/assert kb (list appliesIn TheDecree WideContext) ctx)
+      (v/assert kb (list 'genlCx CxWide ctx) ctx)
+      (v/assert kb (list 'genlCx CxNarrow CxWide) ctx)
+      (v/assert kb (list 'argPreserving appliesIn 2 'genlCx) ctx))
+    (v/assert kb (list appliesIn TheDecree CxWide) ctx)
     (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c)) ctx)
     (testing "the subcontext, by inheritance — and both doors agree on it"
-      (is (holds? kb (list noticed NarrowContext)))
-      (is (v/ask? kb (list noticed NarrowContext) ctx)))
+      (is (holds? kb (list noticed CxNarrow)))
+      (is (v/ask? kb (list noticed CxNarrow) ctx)))
     (testing "the stated one, by the ordinary matcher"
-      (is (holds? kb (list noticed WideContext)))
-      (is (v/ask? kb (list noticed WideContext) ctx)))
+      (is (holds? kb (list noticed CxWide)))
+      (is (v/ask? kb (list noticed CxWide) ctx)))
     (testing "and nothing upward, through either door"
       (is (not (holds? kb (list noticed ctx))))
       (is (not (v/ask? kb (list noticed ctx) ctx))))
     (testing "the firing rests on the edge it travelled"
-      (v/retract! kb (v/handle-of kb (list 'genlContext NarrowContext WideContext) ctx))
-      (is (not (holds? kb (list noticed NarrowContext)))
+      (v/retract! kb (v/handle-of kb (list 'genlCx CxNarrow CxWide) ctx))
+      (is (not (holds? kb (list noticed CxNarrow)))
           "retracting the lattice edge withdraws the conclusion")
-      (v/assert kb (list 'genlContext NarrowContext WideContext) ctx)
-      (is (holds? kb (list noticed NarrowContext))
+      (v/assert kb (list 'genlCx CxNarrow CxWide) ctx)
+      (is (holds? kb (list noticed CxNarrow))
           "and the edge arriving last reconnects and re-fires it"))))
 
 (tu/deftest-kb a-defeated-witness-with-a-surviving-route-keeps-the-doors-agreeing
@@ -256,33 +256,33 @@
   ;; nothing, and a lattice edge arriving later exposes the pair.  The firing has to
   ;; re-derive through the route the named witness did not travel, in the very settle
   ;; that defeated it, or the fixpoint holds less than the backward door still proves.
-  (tu/with-terms [dog_t mid_t chi_t cat_t largerThan noted AContext BContext]
+  (tu/with-terms [dog_t mid_t chi_t cat_t largerThan noted CxA CxB]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
       ;; the long route, visible everywhere; the short edge, visible only from A
-      (v/assert kb (list 'genl mid_t dog_t) 'UniverseContext)
-      (v/assert kb (list 'genl chi_t mid_t) 'UniverseContext)
-      (v/assert kb (list 'genl chi_t dog_t) AContext)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'UniverseContext)
-      (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext))
+      (v/assert kb (list 'genl mid_t dog_t) 'CxUniverse)
+      (v/assert kb (list 'genl chi_t mid_t) 'CxUniverse)
+      (v/assert kb (list 'genl chi_t dog_t) CxA)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list noted '?x '?y))
-              'UniverseContext)
+              'CxUniverse)
     (let [goal (list noted chi_t cat_t)]
-      (is (seq (v/sentexes-matching kb goal AContext))
+      (is (seq (v/sentexes-matching kb goal CxA))
           "the firing lands beside the short edge it named")
       (testing "the denial lands where it sees nothing, and nothing moves"
-        (v/assert kb (list 'not (list 'genl chi_t dog_t)) BContext {:strength :monotonic})
-        (is (seq (v/sentexes-matching kb goal AContext))))
+        (v/assert kb (list 'not (list 'genl chi_t dog_t)) CxB {:strength :monotonic})
+        (is (seq (v/sentexes-matching kb goal CxA))))
       (testing "the lattice edge exposes the pair, and the firing re-derives on the
                 surviving route in the settle that defeated its witness"
-        (v/assert kb (list 'genlContext BContext AContext) 'UniverseContext)
-        (is (v/ask? kb (list largerThan chi_t cat_t) 'UniverseContext)
+        (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
+        (is (v/ask? kb (list largerThan chi_t cat_t) 'CxUniverse)
             "the backward door still proves the claim through the long route")
-        (is (seq (v/sentexes-matching kb goal 'UniverseContext))
+        (is (seq (v/sentexes-matching kb goal 'CxUniverse))
             "and the fixpoint holds it again, homed where the long route is visible")
-        (is (v/ask? kb goal 'UniverseContext))
-        (is (v/ask? kb goal AContext) "both vantages agree with the prover")))))
+        (is (v/ask? kb goal 'CxUniverse))
+        (is (v/ask? kb goal CxA) "both vantages agree with the prover")))))
 
 (tu/deftest-kb the-mirror-licenses-a-firing-in-either-order
   ;; A symmetric predicate's stored claim states both orientations, so the mirror
@@ -349,7 +349,7 @@
           (is (v/ask? kb goal ctx)))))))
 
 (tu/deftest-kb an-R-fact-arriving-last-connects-and-fires
-  ;; genl has the shuffled oracle and genlContext the relanding edge; this is the
+  ;; genl has the shuffled oracle and genlCx the relanding edge; this is the
   ;; declared relation's turn: the trigger index cannot connect `partOf` to the
   ;; preserved predicate, so only the preserving re-join fires these.
   (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston]
@@ -377,17 +377,17 @@
   (doseq [batch? [true false]]
     (testing (if batch? "one deferred batch" "one assert at a time")
       (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston
-                      appliesIn noticed TheDecree WideContext NarrowContext]
+                      appliesIn noticed TheDecree CxWide CxNarrow]
         (let [content [(list 'transitive partOf)
                        (list 'argPreserving needsMaintenance 1 partOf)
                        (list partOf Engine Car)
                        (list partOf Piston Engine)
                        (list needsMaintenance Car)
                        (list 'implies (list needsMaintenance '?x) (list schedule '?x))
-                       (list 'genlContext WideContext ctx)
-                       (list 'genlContext NarrowContext WideContext)
-                       (list 'argPreserving appliesIn 2 'genlContext)
-                       (list appliesIn TheDecree WideContext)
+                       (list 'genlCx CxWide ctx)
+                       (list 'genlCx CxNarrow CxWide)
+                       (list 'argPreserving appliesIn 2 'genlCx)
+                       (list appliesIn TheDecree CxWide)
                        (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c))]]
           (if batch?
             (v/with-deferred-settle kb
@@ -395,30 +395,30 @@
             (doseq [s content] (v/assert kb s ctx))))
         (is (holds? kb (list schedule Piston)) "the part chain fired")
         (is (holds? kb (list schedule Engine)))
-        (is (holds? kb (list noticed NarrowContext)) "and the lattice fired")
+        (is (holds? kb (list noticed CxNarrow)) "and the lattice fired")
         (is (not (holds? kb (list noticed ctx))))))))
 
-(tu/deftest-kb a-genlContext-carried-firing-descends-to-where-the-lattice-is-visible
+(tu/deftest-kb a-genlCx-carried-firing-descends-to-where-the-lattice-is-visible
   ;; Placement for the lattice relation: the claim in one branch, the edge in another,
   ;; and the conclusion lands only where both are visible — the context below the two.
-  (tu/with-terms [appliesIn noticed TheDecree WideContext NarrowContext
-                  LeftContext RightContext DownContext]
+  (tu/with-terms [appliesIn noticed TheDecree CxWide CxNarrow
+                  CxLeft CxRight CxDown]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genlContext LeftContext ctx) ctx)
-      (v/assert kb (list 'genlContext RightContext ctx) ctx)
-      (v/assert kb (list 'genlContext DownContext LeftContext) ctx)
-      (v/assert kb (list 'genlContext DownContext RightContext) ctx)
-      (v/assert kb (list 'genlContext WideContext ctx) ctx)
-      (v/assert kb (list 'genlContext NarrowContext WideContext) ctx)
-      (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) ctx))
-    (v/assert kb (list appliesIn TheDecree WideContext) LeftContext)
+      (v/assert kb (list 'genlCx CxLeft ctx) ctx)
+      (v/assert kb (list 'genlCx CxRight ctx) ctx)
+      (v/assert kb (list 'genlCx CxDown CxLeft) ctx)
+      (v/assert kb (list 'genlCx CxDown CxRight) ctx)
+      (v/assert kb (list 'genlCx CxWide ctx) ctx)
+      (v/assert kb (list 'genlCx CxNarrow CxWide) ctx)
+      (v/assert kb (list 'argPreserving appliesIn 2 'genlCx) ctx))
+    (v/assert kb (list appliesIn TheDecree CxWide) CxLeft)
     (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c))
-              RightContext)
-    (is (seq (v/sentexes-matching kb (list noticed NarrowContext) DownContext))
+              CxRight)
+    (is (seq (v/sentexes-matching kb (list noticed CxNarrow) CxDown))
         "the conclusion is homed below both branches")
-    (is (empty? (v/sentexes-matching kb (list noticed NarrowContext) LeftContext))
+    (is (empty? (v/sentexes-matching kb (list noticed CxNarrow) CxLeft))
         "and not in a branch that cannot see the rule")
-    (is (v/ask? kb (list noticed NarrowContext) DownContext))))
+    (is (v/ask? kb (list noticed CxNarrow) CxDown))))
 
 ;; ---- joining with an ordinary antecedent --------------------------------
 
@@ -462,47 +462,47 @@
 
 (tu/deftest-kb the-conclusion-lands-where-its-reasons-can-be-seen
   (tu/with-terms [dog_t cat_t chihuahua_t maine_coon_t largerThan outweighs
-                  UpperContext LowerContext]
+                  CxUpper CxLower]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genlContext UpperContext ctx) ctx)
-      (v/assert kb (list 'genlContext LowerContext UpperContext) ctx))
+      (v/assert kb (list 'genlCx CxUpper ctx) ctx)
+      (v/assert kb (list 'genlCx CxLower CxUpper) ctx))
     (v/with-deferred-settle kb
-      (v/assert kb (list 'asymmetric largerThan) UpperContext)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) UpperContext)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) UpperContext)
-      (v/assert kb (list largerThan dog_t cat_t) UpperContext))
+      (v/assert kb (list 'asymmetric largerThan) CxUpper)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) CxUpper)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) CxUpper)
+      (v/assert kb (list largerThan dog_t cat_t) CxUpper))
     ;; the edges are stated only in the lower context, so only it can see the reach
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genl chihuahua_t dog_t) LowerContext)
-      (v/assert kb (list 'genl maine_coon_t cat_t) LowerContext))
+      (v/assert kb (list 'genl chihuahua_t dog_t) CxLower)
+      (v/assert kb (list 'genl maine_coon_t cat_t) CxLower))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
-              UpperContext)
+              CxUpper)
     (let [sx (first (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t)
-                                         LowerContext))]
+                                         CxLower))]
       (is (some? sx) "derived, from the one context that sees the rule, the claim and both edges")
-      (is (= LowerContext (:context sx))
+      (is (= CxLower (:context sx))
           "and it descends to the edges rather than sitting above them"))
-    (is (empty? (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t) UpperContext))
+    (is (empty? (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t) CxUpper))
         "the context that cannot see the edges does not hold the conclusion")))
 
 (tu/deftest-kb a-firing-with-no-common-context-is-reported-rather-than-dropped
   (tu/with-terms [dog_t cat_t chihuahua_t maine_coon_t largerThan outweighs
-                  BaseContext LeftContext RightContext]
+                  CxBase CxLeft CxRight]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'genlContext BaseContext ctx) ctx)
-      (v/assert kb (list 'genlContext LeftContext BaseContext) ctx)
-      (v/assert kb (list 'genlContext RightContext BaseContext) ctx))
+      (v/assert kb (list 'genlCx CxBase ctx) ctx)
+      (v/assert kb (list 'genlCx CxLeft CxBase) ctx)
+      (v/assert kb (list 'genlCx CxRight CxBase) ctx))
     (v/with-deferred-settle kb
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) BaseContext)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) BaseContext)
-      (v/assert kb (list largerThan dog_t cat_t) BaseContext))
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) CxBase)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) CxBase)
+      (v/assert kb (list largerThan dog_t cat_t) CxBase))
     ;; incomparable contexts hold one edge each: no context sees both
-    (v/assert kb (list 'genl chihuahua_t dog_t) LeftContext)
-    (v/assert kb (list 'genl maine_coon_t cat_t) RightContext)
+    (v/assert kb (list 'genl chihuahua_t dog_t) CxLeft)
+    (v/assert kb (list 'genl maine_coon_t cat_t) CxRight)
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
-              BaseContext)
-    (is (empty? (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t) LeftContext)))
-    (is (empty? (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t) RightContext)))
+              CxBase)
+    (is (empty? (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t) CxLeft)))
+    (is (empty? (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t) CxRight)))
     (is (some #(and (= :no-placement (:violation %))
                     (= (list outweighs chihuahua_t maine_coon_t) (:sentence %)))
               (v/violations kb))

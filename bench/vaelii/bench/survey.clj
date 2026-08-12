@@ -205,18 +205,18 @@
 
   Ordered by what they **cost**, not by what they rescue.  Admitting a character to a
   role's alphabet costs nothing structural: the four roles are told apart by their initial
-  case, and no separator moves that.  Dropping the `Context` *suffix* is a different kind
-  of change — that suffix is the only thing distinguishing a context from an individual —
+  case, and no separator moves that.  Dropping the `Cx` *prefix* is a different kind
+  of change — that prefix is the only thing distinguishing a context from an individual —
   so it is priced last and on its own."
   [{:name "+ hyphen"
-    :ctx  #"[A-Z][A-Za-z0-9-]*Context"  :ind #"[A-Z][A-Za-z0-9-]*"
-    :pred #"[a-z][a-zA-Z0-9-]*"         :typ #"[a-z][a-z0-9_-]*"}
+    :ctx  #"Cx[A-Z][A-Za-z0-9-]*"  :ind #"[A-Z][A-Za-z0-9-]*"
+    :pred #"[a-z][a-zA-Z0-9-]*"    :typ #"[a-z][a-z0-9_-]*"}
    {:name "+ hyphen, apostrophe"
-    :ctx  #"[A-Z][A-Za-z0-9'-]*Context" :ind #"[A-Z][A-Za-z0-9'-]*"
-    :pred #"[a-z][a-zA-Z0-9'-]*"        :typ #"[a-z][a-z0-9_'-]*"}
+    :ctx  #"Cx[A-Z][A-Za-z0-9'-]*" :ind #"[A-Z][A-Za-z0-9'-]*"
+    :pred #"[a-z][a-zA-Z0-9'-]*"   :typ #"[a-z][a-z0-9_'-]*"}
    {:name "+ hyphen, apostrophe; and a context is any CapitalCamel"
-    :ctx  #"[A-Z][A-Za-z0-9'-]*"        :ind #"[A-Z][A-Za-z0-9'-]*"
-    :pred #"[a-z][a-zA-Z0-9'-]*"        :typ #"[a-z][a-z0-9_'-]*"}])
+    :ctx  #"[A-Z][A-Za-z0-9'-]*"   :ind #"[A-Z][A-Za-z0-9'-]*"
+    :pred #"[a-z][a-zA-Z0-9'-]*"   :typ #"[a-z][a-z0-9_'-]*"}])
 
 ;; total in `s`: a stored record can carry a context that is nil or not a symbol at all,
 ;; and an audit exists to find exactly that rather than to die on it.

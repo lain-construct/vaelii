@@ -31,35 +31,35 @@
 (deftest disjoint-clash-under-refuse
   (tu/with-neutral-kb [kb refusing-kb]
     (tu/with-terms [dog_t cat_t Muffet Whiskers]
-      (v/assert kb (list 'disjoint dog_t cat_t) 'UniverseContext)
-      (v/assert kb (list dog_t Muffet) 'UniverseContext)
+      (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
+      (v/assert kb (list dog_t Muffet) 'CxUniverse)
       (testing "a compatible individual is unaffected"
-        (is (v/assert kb (list cat_t Whiskers) 'UniverseContext)))
+        (is (v/assert kb (list cat_t Whiskers) 'CxUniverse)))
       (testing "check reports the clash, and assert throws it"
-        (is (seq (v/check kb (list cat_t Muffet) 'UniverseContext)))
+        (is (seq (v/check kb (list cat_t Muffet) 'CxUniverse)))
         (is (= [:disjoint]
-               (mapv :type (v/check kb (list cat_t Muffet) 'UniverseContext))))
+               (mapv :type (v/check kb (list cat_t Muffet) 'CxUniverse))))
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list cat_t Muffet) 'UniverseContext))))
+                     (v/assert kb (list cat_t Muffet) 'CxUniverse))))
       (testing "and nothing was stored"
-        (is (nil? (v/handle-of kb (list cat_t Muffet) 'UniverseContext)))
-        (is (v/ask? kb (list dog_t Muffet) 'UniverseContext))
-        (is (not (v/ask? kb (list cat_t Muffet) 'UniverseContext)))))))
+        (is (nil? (v/handle-of kb (list cat_t Muffet) 'CxUniverse)))
+        (is (v/ask? kb (list dog_t Muffet) 'CxUniverse))
+        (is (not (v/ask? kb (list cat_t Muffet) 'CxUniverse)))))))
 
 (deftest disjoint-clash-under-arbitrate
   (tu/with-neutral-kb [kb arbitrating-kb]
     (tu/with-terms [dog_t cat_t Muffet Whiskers]
-      (v/assert kb (list 'disjoint dog_t cat_t) 'UniverseContext)
-      (v/assert kb (list dog_t Muffet) 'UniverseContext)
+      (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
+      (v/assert kb (list dog_t Muffet) 'CxUniverse)
       (testing "a compatible individual is unaffected"
-        (is (v/assert kb (list cat_t Whiskers) 'UniverseContext)))
+        (is (v/assert kb (list cat_t Whiskers) 'CxUniverse)))
       (testing "check reports nothing, because assert would admit it"
-        (is (empty? (v/check kb (list cat_t Muffet) 'UniverseContext)))
-        (is (v/assert kb (list cat_t Muffet) 'UniverseContext)))
+        (is (empty? (v/check kb (list cat_t Muffet) 'CxUniverse)))
+        (is (v/assert kb (list cat_t Muffet) 'CxUniverse)))
       (testing "the pair is a represented dilemma, not a survivor and a casualty"
         (is (= 1 (count (v/contradictions kb))))
-        (is (v/ask? kb (list dog_t Muffet) 'UniverseContext))
-        (is (v/ask? kb (list cat_t Muffet) 'UniverseContext))))))
+        (is (v/ask? kb (list dog_t Muffet) 'CxUniverse))
+        (is (v/ask? kb (list cat_t Muffet) 'CxUniverse))))))
 
 (deftest check-still-reports-a-clash-against-known-true-under-either-policy
   ;; The line `:arbitrate` does not cross, and the one a reader of the policy is most
@@ -69,13 +69,13 @@
     (testing (str "under " policy)
       (tu/with-neutral-kb [kb build]
         (tu/with-terms [dog_t cat_t Muffet]
-          (v/assert kb (list 'disjoint dog_t cat_t) 'UniverseContext)
-          (v/assert kb (list dog_t Muffet) 'UniverseContext {:strength :monotonic})
+          (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
+          (v/assert kb (list dog_t Muffet) 'CxUniverse {:strength :monotonic})
           (is (= [:disjoint]
-                 (mapv :type (v/check kb (list cat_t Muffet) 'UniverseContext)))
+                 (mapv :type (v/check kb (list cat_t Muffet) 'CxUniverse)))
               "a known-true opponent is not arbitrable, so check predicts the refusal")
           (is (thrown? clojure.lang.ExceptionInfo
-                       (v/assert kb (list cat_t Muffet) 'UniverseContext)))
+                       (v/assert kb (list cat_t Muffet) 'CxUniverse)))
           (is (empty? (v/contradictions kb))))))))
 
 (deftest asymmetric-is-not-policy-dependent-at-all
@@ -86,17 +86,17 @@
     (testing (str "under " policy)
       (tu/with-neutral-kb [kb build]
         (tu/with-terms [biggerThan Alice Bob Carla Dana]
-          (v/assert kb (list 'asymmetric biggerThan) 'UniverseContext)
+          (v/assert kb (list 'asymmetric biggerThan) 'CxUniverse)
           (testing "a defeasible converse is admitted, and settled"
-            (v/assert kb (list biggerThan Alice Bob) 'UniverseContext)
-            (is (empty? (v/check kb (list biggerThan Bob Alice) 'UniverseContext)))
-            (is (v/assert kb (list biggerThan Bob Alice) 'UniverseContext)))
+            (v/assert kb (list biggerThan Alice Bob) 'CxUniverse)
+            (is (empty? (v/check kb (list biggerThan Bob Alice) 'CxUniverse)))
+            (is (v/assert kb (list biggerThan Bob Alice) 'CxUniverse)))
           (testing "a known-true converse is refused, and check says so"
-            (v/assert kb (list biggerThan Carla Dana) 'UniverseContext
+            (v/assert kb (list biggerThan Carla Dana) 'CxUniverse
                       {:strength :monotonic})
             (is (= [:asymmetric]
                    (mapv :type (v/check kb (list biggerThan Dana Carla)
-                                        'UniverseContext))))
+                                        'CxUniverse))))
             (is (thrown? clojure.lang.ExceptionInfo
                          (v/assert kb (list biggerThan Dana Carla)
-                                   'UniverseContext)))))))))
+                                   'CxUniverse)))))))))

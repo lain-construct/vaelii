@@ -65,13 +65,13 @@
   ;; declaration speaks for the position, and here it is what says both positions want the
   ;; same type: whether the reversed argument order is offered at all turns on that, and so
   ;; does whether the correction reads `:low` or `:medium`.
-  (tu/with-terms [chases OneContext TwoContext]
-    (v/assert kb (list 'genlContext OneContext 'CoreContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext TwoContext 'CoreContext) 'UniverseContext)
-    (v/assert kb (list 'binaryPredicate chases) OneContext)
-    (v/assert kb (list 'argIsa chases 1 'thing) OneContext)
-    (v/assert kb (list 'argIsa chases 1 'animal) TwoContext)
-    (v/assert kb (list 'argIsa chases 2 'animal) OneContext)
+  (tu/with-terms [chases CxOne CxTwo]
+    (v/assert kb (list 'genlCx CxOne 'CxCore) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxTwo 'CxCore) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate chases) CxOne)
+    (v/assert kb (list 'argIsa chases 1 'thing) CxOne)
+    (v/assert kb (list 'argIsa chases 1 'animal) CxTwo)
+    (v/assert kb (list 'argIsa chases 2 'animal) CxOne)
     (let [c    (for-sentence kb (list chases 'penguin 'fish))
           lift (symbol (str chases "Type"))]
       (is (= :relation-on-types (:rule c)))
@@ -115,27 +115,27 @@
     (is (nil? (for-sentence kb '(implies (parentOf ?x ?y) (ancestorOf ?x ?y)))))))
 
 (tu/deftest-kb corrections-carry-the-line-they-came-from
-  (let [entries [['(genl penguin bird) 'BiologyContext]
-                 ['(mortal penguin) 'BiologyContext]
-                 ['(eats penguin fish) 'BiologyContext]]
+  (let [entries [['(genl penguin bird) 'CxBiology]
+                 ['(mortal penguin) 'CxBiology]
+                 ['(eats penguin fish) 'CxBiology]]
         {:keys [corrections unchanged]} (correct/corrections kb entries)]
     (is (= 2 (count corrections)))
     (is (= 1 (count unchanged)))
     (is (= [1 2] (map :index corrections)) "so a caller can point at the line")
-    (is (every? #(= 'BiologyContext (:context %)) corrections))))
+    (is (every? #(= 'CxBiology (:context %)) corrections))))
 
 (tu/deftest-kb applying-a-correction-yields-a-storable-entry
   (let [c (for-sentence kb '(mortal penguin))
-        c (assoc c :context 'BiologyContext)]
-    (is (= ['(set/defaultRule (implies (penguin ?x) (mortal ?x))) 'BiologyContext]
+        c (assoc c :context 'CxBiology)]
+    (is (= ['(set/defaultRule (implies (penguin ?x) (mortal ?x))) 'CxBiology]
            (correct/apply-correction c)))
     (testing "and an alternative is selected by index"
-      (is (= ['(genl penguin mortal) 'BiologyContext]
+      (is (= ['(genl penguin mortal) 'CxBiology]
              (correct/apply-correction c 0))))
     (testing "a report-only correction yields nothing, so it cannot be stored blind"
       (is (nil? (correct/apply-correction
                  (assoc (for-sentence kb '(partOf penguin beak wing))
-                        :context 'BiologyContext)))))))
+                        :context 'CxBiology)))))))
 
 (tu/deftest-kb the-corrected-sentence-is-admissible
   ;; a correction the engine would refuse is worse than no correction
@@ -143,8 +143,8 @@
               (partOf penguin beak beak)]]
     (let [c (for-sentence kb s)]
       (when-let [to (:to c)]
-        (is (empty? (v/check kb to 'BiologyContext))
+        (is (empty? (v/check kb to 'CxBiology))
             (str (pr-str s) " -> " (pr-str to) " must be storable")))
       (doseq [alt (:alternatives c)]
-        (is (empty? (v/check kb alt 'BiologyContext))
+        (is (empty? (v/check kb alt 'CxBiology))
             (str (pr-str s) " alternative " (pr-str alt) " must be storable"))))))

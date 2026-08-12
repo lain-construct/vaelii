@@ -291,7 +291,7 @@
   "The spindle head — the context the engine's own vocabulary is documented in.  A term the
   head documents is **structural**: it is part of how you say a thing, not part of what
   there is to say."
-  'CoreContext)
+  'CxCore)
 
 (def structural-predicates
   "The structural predicates a type-level claim actually needs, and the only ones offered —

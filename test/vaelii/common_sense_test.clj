@@ -25,8 +25,8 @@
 (use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
 (use-fixtures :each (tu/neutral))
 
-(def ^:private N 'NaturalWorldContext)
-(def ^:private S 'SocialWorldContext)
+(def ^:private N 'CxNaturalWorld)
+(def ^:private S 'CxSocialWorld)
 
 (defn- refusal
   "The `:type` of the ex-info `assert` throws for `sentence`, or `:stored` when it takes
@@ -45,7 +45,7 @@
     (is (v/ask? kb '(childOf Ann Bob)))                 ; inverse of parentOf
     (is (v/ask? kb '(siblingOf Carol Ann))))            ; symmetric
   (testing "the mortality default reaches an individual known only by a subtype"
-    (is (seq (v/sentexes-matching kb '(mortal Muffet) 'NaturalWorldContext)))))
+    (is (seq (v/sentexes-matching kb '(mortal Muffet) 'CxNaturalWorld)))))
 
 (tu/deftest-kb one-thing-cannot-be-two-kinds-that-exclude-each-other
   ;; Common sense says a dog is not a cat.  The KB says it twice over: once from a
@@ -138,10 +138,10 @@
   ;; a penguin's flight is defeated, so the downstream conclusion never holds.
   (testing "the eagle inherits can-travel through the flight default"
     (is (v/ask? kb '(hasCapability Sam flying)))
-    (is (seq (v/sentexes-matching kb '(hasCapability Sam travelling) 'NaturalWorldContext))))
+    (is (seq (v/sentexes-matching kb '(hasCapability Sam travelling) 'CxNaturalWorld))))
   (testing "the penguin, defeated on flight, does not get can-travel"
-    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety flying) 'NaturalWorldContext)))
-    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety travelling) 'NaturalWorldContext)))))
+    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety flying) 'CxNaturalWorld)))
+    (is (empty? (v/sentexes-matching kb '(hasCapability Tweety travelling) 'CxNaturalWorld)))))
 
 (tu/deftest-kb being-told-an-animal-is-asleep-takes-back-what-was-assumed
   ;; Every animal is awake by default, which is the reading a story assumes without
@@ -230,7 +230,7 @@
 ;; ---- guessing, under a grant --------------------------------------------
 
 (tu/deftest-kb an-explanation-is-offered-only-for-what-the-theory-will-assume
-  ;; Why would a dog not be awake?  Because it is asleep — the one thing BiologyContext
+  ;; Why would a dog not be awake?  Because it is asleep — the one thing CxBiology
   ;; grants, and the abducer will hypothesize nothing else.  A grant is a policy of the
   ;; context rather than a capability of the engine, which is what keeps abduction
   ;; from explaining everything and therefore nothing.
@@ -329,7 +329,7 @@
   ;; inventing a name that looks like somebody's.
   (tu/with-terms [Stray]
     (v/assert kb (list 'dog Stray) N)
-    (v/assert kb '(implies (and (dog ?x)) (exists ?m (motherOf ?x ?m))) 'WellContext)
+    (v/assert kb '(implies (and (dog ?x)) (exists ?m (motherOf ?x ?m))) 'CxWell)
     (let [[sx] (v/sentexes-matching kb (list 'motherOf Stray '?m) N)]
       (is (some? sx) "the rule fired over the dog and left a witness")
       (testing "the witness is a minted constant and not a name anybody wrote"
@@ -395,7 +395,7 @@
     (is (seq (v/sentexes-matching kb '(partOf Engine1 Car1) N)))
     (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) '?ctx))))
   (testing "a context sees up its own cone and no further"
-    (is (v/sees? kb N 'BiologyContext))
+    (is (v/sees? kb N 'CxBiology))
     (is (not (v/sees? kb N S)))))
 
 ;; ---- how hard the answer was --------------------------------------------

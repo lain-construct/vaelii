@@ -14,7 +14,7 @@
       (argPreserving        P n R)   ; a stored (P … w …) licenses (P … a …) when (R a w)
       (argPreservingInverse P n R)   ; …licenses it when (R w a)
 
-  `R` is any **transitive** relation — `genl` and `genlContext` through their cached
+  `R` is any **transitive** relation — `genl` and `genlCx` through their cached
   closures, or a predicate declared `(transitive R)` walked over stored facts.  A
   declaration over anything else is refused at assert
   (`wff/arg-preserving-problems`): the reach is walked to a fixpoint, so a relation
@@ -124,7 +124,7 @@
   hierarchy.  Both are transitive by construction, so there is no `(transitive R)`
   declaration to demand of them and none possible; every other relation must carry
   one, which is what `wff/arg-preserving-problems` reads this set to decide."
-  '#{genl genlContext})
+  '#{genl genlCx})
 
 ;; ---- the declared positions ---------------------------------------------
 ;; Read as ordinary stored sentexes through `matches-visible`, exactly as `argIsa` and
@@ -282,7 +282,7 @@
   The `genl` walk is **scoped to `context`**, exactly as `fact-reach` is: a claim
   travels along the edges the asking context can see and no others, or a context
   would inherit `(largerThan dog cat)` down to a subtype some invisible theory
-  declared.  `genlContext` stays global — the context closure is (docs/taxonomy.md,
+  declared.  `genlCx` stays global — the context closure is (docs/taxonomy.md,
   the stated exception), and a preservation along it is a claim about the topology,
   which is universal.
 
@@ -296,7 +296,7 @@
               (let [tx (:taxonomy kb)]
                 (case rel
                   genl        (if inverse? (tax/specs tx x context) (tax/genls tx x context))
-                  genlContext (if inverse? (tax/context-down tx x) (tax/context-up tx x)) ; global on purpose
+                  genlCx (if inverse? (tax/context-down tx x) (tax/context-up tx x)) ; global on purpose
                   (fact-reach kb rel inverse? x context))))))
 
 (defn- reach
@@ -930,7 +930,7 @@
 
   * a **claim** on `P` (or on a sub-predicate of it) licenses a tuple nobody stated,
     and undercuts one somebody did;
-  * a fact on the **relation** `R` — a `genl` / `genlContext` edge included — moves
+  * a fact on the **relation** `R` — a `genl` / `genlCx` edge included — moves
     every reach walked along it, with neither of its terms appearing anywhere near `P`;
   * the **declaration** itself, which names `P` at argument 1;
   * `(transitive R)`, the licence `usable-relation?` reads at use, which names no `P`

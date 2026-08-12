@@ -13,18 +13,18 @@
 (deftest reindex-rebuilds-a-destroyed-index
   (tu/with-cleared-kb [kb tu/fresh]
     (tu/with-terms [dog animal barksAt growls Muffet Rex]
-      (v/assert kb (list 'genl dog animal) 'UniverseContext)
-      (v/assert kb (list dog Muffet) 'UniverseContext)
-      (v/assert kb (list barksAt Muffet Rex) 'UniverseContext)
-      (v/assert-rule kb [(list dog '?x)] (list growls '?x) 'UniverseContext)
+      (v/assert kb (list 'genl dog animal) 'CxUniverse)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
+      (v/assert kb (list barksAt Muffet Rex) 'CxUniverse)
+      (v/assert-rule kb [(list dog '?x)] (list growls '?x) 'CxUniverse)
       (let [snap (fn []
-                   {:dog-extent    (count (v/sentexes-matching kb (list dog '?x) 'UniverseContext))
+                   {:dog-extent    (count (v/sentexes-matching kb (list dog '?x) 'CxUniverse))
                     :functor-count (v/count-with-functor kb barksAt)
                     :arg-count     (v/count-with-arg kb 1 Muffet)
                     :term-find     (count (v/find-sentexes kb Muffet))
                     :isa?          (v/isa? kb Muffet animal)
-                    :derived?      (boolean (seq (v/sentexes-matching kb (list growls Muffet) 'UniverseContext)))
-                    :backward?     (v/provable? kb (list growls Muffet) 'UniverseContext)})
+                    :derived?      (boolean (seq (v/sentexes-matching kb (list growls Muffet) 'CxUniverse)))
+                    :backward?     (v/provable? kb (list growls Muffet) 'CxUniverse)})
             before (snap)]
         (testing "the content is really there before the damage"
           (is (:derived? before) "the rule fired forward")

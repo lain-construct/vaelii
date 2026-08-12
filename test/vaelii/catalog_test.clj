@@ -50,7 +50,7 @@
             store  (io/file root "a-store")
             plain  (io/file root "not-a-kb")]
         (doseq [^java.io.File d [corpus dump store plain]] (.mkdirs d))
-        (spit (io/file corpus "meta.edn") (pr-str {:context-order '[OneContext]}))
+        (spit (io/file corpus "meta.edn") (pr-str {:context-order '[CxOne]}))
         (spit (io/file dump "meta.edn")   (pr-str {:format-version 8 :sentex-count 42}))
         (.mkdirs (io/file store "records"))
         (.mkdirs (io/file store "index"))
@@ -203,7 +203,7 @@
   (let [spaces {:backend :memory :space 60 :recover? false}
         built  (v/open-kb spaces)]
     (try
-      (v/assert built '(dog Muffet) 'UniverseContext {})
+      (v/assert built '(dog Muffet) 'CxUniverse {})
       (let [reopened (v/open-kb spaces)]
         (cat/register! "beliefless" "Reopened without recover" reopened)
         (is (cat/activate "beliefless"))
@@ -325,7 +325,7 @@
         mk!  (fn [i] (let [d (io/file root (format "kb%04d" i))]
                        (.mkdirs d)
                        (spit (io/file d "meta.edn")
-                             (pr-str {:context-order ['UniverseContext]}))))]
+                             (pr-str {:context-order ['CxUniverse]}))))]
     (try
       (.mkdirs root)
       (dotimes [i n] (mk! i))
@@ -375,7 +375,7 @@
       (is (= (v/sentex-count kb) (:sentexes f)) "keyed on what the KB actually holds")
       (is (= (:total f) (+ (:index f) (:records f) (:tms f))))
       (testing "it grows with the KB, since it is read live rather than at load time"
-        (v/assert kb '(genl tmp_footprint_type thing) 'UniverseContext)
+        (v/assert kb '(genl tmp_footprint_type thing) 'CxUniverse)
         (is (> (:sentexes (cat/footprint "mine")) (:sentexes f)))
         (is (> (:total (cat/footprint "mine")) (:total f))))
       (testing "and the whole picture sums the entries it lists"
@@ -408,7 +408,7 @@
       (.mkdirs root)
       (System/setProperty "vaelii.kb.path" (.getAbsolutePath root))
       (tu/with-cleared-kb [kb tu/fresh]
-        (v/assert kb '(genl tmp_export_type thing) 'UniverseContext)
+        (v/assert kb '(genl tmp_export_type thing) 'CxUniverse)
         (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
         (testing "the job runs on its own thread and reports where it went"
           (is (= :running (:status (cat/export-entry! "mine" (.getPath dump) {:compression :none}))))

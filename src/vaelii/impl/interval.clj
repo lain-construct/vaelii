@@ -53,8 +53,8 @@
   reported here is real while a *non*-entailment means \"not provable\", never \"provably
   false\" — the same open-world reading `argIsa` and `exceptWhen` take.
 
-  The vocabulary ships as `kb/upper/TimeContext.txt`, an *upper* context rather than the
-  vocabulary head: these twenty predicates are *about* time, so CoreContext keeps only the
+  The vocabulary ships as `kb/upper/CxTime.txt`, an *upper* context rather than the
+  vocabulary head: these twenty predicates are *about* time, so CxCore keeps only the
   grammar they are declared in.  The prover is **opt-in** on top of it: register it with
   `vaelii.core/add-prover`, and until then a KB stores and retrieves interval relations as
   ordinary facts without paying for the network."

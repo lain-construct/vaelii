@@ -49,7 +49,7 @@
   and the context they live in."
   [kb]
   (let [[t ctx] [(tu/tmp-type "quokka") (tu/tmp-ctx "Marsupial")]]
-    (v/assert kb (list 'genlContext ctx 'WellContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse)
     (v/assert kb (list 'genl t 'animal) ctx)
     {:term t :ctx ctx}))
 
@@ -135,7 +135,7 @@
         ;; stated of the type symbol rather than of its instances
         [proposer _] (scripted {:assertions ['(mortal penguin)]})
         r (binding [web/*proposer* proposer]
-            (POST {"q" "penguin" "ctx" "OrganismContext" "message" "what is true of it"}))]
+            (POST {"q" "penguin" "ctx" "CxOrganism" "message" "what is true of it"}))]
     (is (= 200 (:status r)))
     (testing "the original is struck through rather than hidden — the author chooses"
       (is (re-find #"class=\"p-was\"" (:body r)))
@@ -166,7 +166,7 @@
         ;; is not inferable — that is a decision handed back, not a detail
         [proposer _] (scripted {:assertions ['(partOf penguin wing)]})
         r (binding [web/*proposer* proposer]
-            (POST {"q" "penguin" "ctx" "OrganismContext" "message" "what is it made of"}))]
+            (POST {"q" "penguin" "ctx" "CxOrganism" "message" "what is it made of"}))]
     (is (re-find #"class=\"p-line p-uncertain\"" (:body r)))
     (is (re-find #"chip chip-uncertain\"[^>]*>.*?direction</span>" (:body r)))))
 
@@ -195,7 +195,7 @@
   (let [_ (a-page kb)
         [proposer _] (scripted {:assertions ['(mortal penguin)]})
         r (binding [web/*proposer* proposer]
-            (POST {"q" "penguin" "ctx" "OrganismContext" "message" "what is true of it"}))]
+            (POST {"q" "penguin" "ctx" "CxOrganism" "message" "what is true of it"}))]
     (testing "three shapes: what the model wrote, the rewrite, and the definitional reading"
       (is (re-find #"data-n=\"1\"" (:body r)))
       (is (re-find #"data-n=\"2\"" (:body r)))
@@ -211,15 +211,15 @@
 (tu/deftest-kb choosing-a-shape-re-checks-the-sentence-that-would-be-stored
   (let [_ (a-page kb)
         row (fn [n] (:body (POST-to "/propose/line"
-                                    {"from" "(mortal penguin)" "ctx" "OrganismContext"
+                                    {"from" "(mortal penguin)" "ctx" "CxOrganism"
                                      "i" "0" "n" n})))]
     (testing "shape 3 is the genl edge, and the line to store follows the choice"
       (let [b (row "3")]
         (is (re-find #"aria-pressed=\"true\" class=\"p-opt on\" data-n=\"3\"" b))
-        (is (str/includes? b "value=\"[(genl penguin mortal) OrganismContext]\""))))
+        (is (str/includes? b "value=\"[(genl penguin mortal) CxOrganism]\""))))
     (testing "shape 1 is the sentence as written, and then nothing is superseded"
       (let [b (row "1")]
-        (is (str/includes? b "value=\"[(mortal penguin) OrganismContext]\""))
+        (is (str/includes? b "value=\"[(mortal penguin) CxOrganism]\""))
         (is (not (re-find #"class=\"p-was\"" b)))))
     (testing "a number the line does not have is clamped, not an error — it is a keystroke"
       (is (re-find #"data-n=\"3\"" (row "9"))))
@@ -229,12 +229,12 @@
       (is (re-find #"class=\"p-line p-ok\"" (row "3")))
       (is (not (re-find #"chip-refused" (row "3")))))
     (testing "and re-rendering a row stores nothing"
-      (is (nil? (v/handle-of kb '(genl penguin mortal) 'OrganismContext))))))
+      (is (nil? (v/handle-of kb '(genl penguin mortal) 'CxOrganism))))))
 
 (tu/deftest-kb a-shape-choice-is-re-derived-not-trusted
   ;; the request carries the original and a number; the sentence it renders comes from
   ;; `correct` reading the KB, so nothing arbitrary can be posted into the row
-  (let [b (:body (POST-to "/propose/line" {"from" "(mortal penguin)" "ctx" "OrganismContext"
+  (let [b (:body (POST-to "/propose/line" {"from" "(mortal penguin)" "ctx" "CxOrganism"
                                            "i" "0" "n" "2"}))]
     (is (str/includes? b "defaultRule"))
     (is (not (str/includes? b "(evil penguin)")))))
@@ -242,30 +242,30 @@
 ;; ---- accepting, and the one write --------------------------------------
 
 (tu/deftest-kb accepted-lines-are-stored-in-one-batch
-  (tu/with-terms [quokka QuokkaContext]
-    (v/assert kb (list 'genlContext QuokkaContext 'WellContext) 'UniverseContext)
-    (v/assert kb (list 'genl quokka 'animal) QuokkaContext)
-    (let [a (pr-str [(list 'genl quokka 'mammal) QuokkaContext])
-          b (pr-str [(list 'genl quokka 'herbivore) QuokkaContext])
+  (tu/with-terms [quokka CxQuokka]
+    (v/assert kb (list 'genlCx CxQuokka 'CxWell) 'CxUniverse)
+    (v/assert kb (list 'genl quokka 'animal) CxQuokka)
+    (let [a (pr-str [(list 'genl quokka 'mammal) CxQuokka])
+          b (pr-str [(list 'genl quokka 'herbivore) CxQuokka])
           before (count (tu/justification-ids kb))
           r (POST-to "/propose/apply" {"line" [a b]})]
       (is (= 200 (:status r)))
       (is (re-find #"Stored 2 lines" (:body r)))
       (testing "both are premises now"
-        (is (seq (v/sentexes-matching kb (list 'genl quokka 'mammal) QuokkaContext)))
-        (is (seq (v/sentexes-matching kb (list 'genl quokka 'herbivore) QuokkaContext))))
+        (is (seq (v/sentexes-matching kb (list 'genl quokka 'mammal) CxQuokka)))
+        (is (seq (v/sentexes-matching kb (list 'genl quokka 'herbivore) CxQuokka))))
       (testing "and the reader can reach them"
         (is (re-find #"/sentex/" (:body r))))
       (is (>= (count (tu/justification-ids kb)) before)))))
 
 (tu/deftest-kb a-single-accepted-line-arrives-as-a-bare-string
   ;; one accepted row means one `line` param, and ring hands that back unwrapped
-  (tu/with-terms [wombat WombatContext]
-    (v/assert kb (list 'genlContext WombatContext 'WellContext) 'UniverseContext)
+  (tu/with-terms [wombat CxWombat]
+    (v/assert kb (list 'genlCx CxWombat 'CxWell) 'CxUniverse)
     (let [r (POST-to "/propose/apply"
-                     {"line" (pr-str [(list 'genl wombat 'animal) WombatContext])})]
+                     {"line" (pr-str [(list 'genl wombat 'animal) CxWombat])})]
       (is (re-find #"Stored 1 line" (:body r)))
-      (is (seq (v/sentexes-matching kb (list 'genl wombat 'animal) WombatContext))))))
+      (is (seq (v/sentexes-matching kb (list 'genl wombat 'animal) CxWombat))))))
 
 (tu/deftest-kb accepting-nothing-writes-nothing
   (let [before (tu/sentex-ids kb)
@@ -275,15 +275,15 @@
     (is (= before (tu/sentex-ids kb)))))
 
 (tu/deftest-kb a-batch-with-one-bad-line-stores-none-of-it
-  (tu/with-terms [numbat NumbatContext]
-    (v/assert kb (list 'genlContext NumbatContext 'WellContext) 'UniverseContext)
-    (let [good (pr-str [(list 'genl numbat 'animal) NumbatContext])
-          bad  (pr-str [(list 'genl numbat 'Muffet) NumbatContext])
+  (tu/with-terms [numbat CxNumbat]
+    (v/assert kb (list 'genlCx CxNumbat 'CxWell) 'CxUniverse)
+    (let [good (pr-str [(list 'genl numbat 'animal) CxNumbat])
+          bad  (pr-str [(list 'genl numbat 'Muffet) CxNumbat])
           r (POST-to "/propose/apply" {"line" [good bad]})]
       (is (re-find #"Nothing was stored" (:body r)))
       (is (re-find #"not-well-formed" (:body r)))
       (testing "including the line that was fine — a half-applied review is nobody's answer"
-        (is (empty? (v/sentexes-matching kb (list 'genl numbat 'animal) NumbatContext)))))))
+        (is (empty? (v/sentexes-matching kb (list 'genl numbat 'animal) CxNumbat)))))))
 
 (tu/deftest-kb a-line-the-correction-can-only-report-cannot-be-stored
   ;; `partOf` is declared binary; a third argument is a surplus no rule can pick, so
@@ -292,16 +292,16 @@
         [proposer _] (scripted {:assertions ['(partOf penguin wing feather)]}
                                {:assertions ['(partOf penguin wing feather)]})
         r (binding [web/*proposer* proposer]
-            (POST {"q" "penguin" "ctx" "OrganismContext" "message" "what is it made of"}))]
+            (POST {"q" "penguin" "ctx" "CxOrganism" "message" "what is it made of"}))]
     (testing "the row offers no accept at all"
       (is (re-find #"report only|nothing to store" (:body r)))
       (is (not (re-find #"data-accept" (:body r))))))
   (testing "and the server refuses it even when the field is posted anyway — a check that
             only runs in the browser is not a check"
     (let [r (POST-to "/propose/apply"
-                     {"line" (pr-str ['(partOf penguin wing feather) 'OrganismContext])})]
+                     {"line" (pr-str ['(partOf penguin wing feather) 'CxOrganism])})]
       (is (re-find #"Nothing was stored" (:body r)))
-      (is (empty? (v/sentexes-matching kb '(partOf penguin wing feather) 'OrganismContext))))))
+      (is (empty? (v/sentexes-matching kb '(partOf penguin wing feather) 'CxOrganism))))))
 
 (tu/deftest-kb the-review-list-is-a-keyboard-grid
   (let [{:keys [term ctx]} (a-page kb)
@@ -331,12 +331,12 @@
   (:body (POST-to "/propose/preview" {"line" lines})))
 
 (tu/deftest-kb accepting-a-line-a-rule-fires-on-shows-the-conclusion
-  (tu/with-terms [dog friendly Rex DogContext]
-    (v/assert kb (list 'genlContext DogContext 'WellContext) 'UniverseContext)
+  (tu/with-terms [dog friendly Rex CxDog]
+    (v/assert kb (list 'genlCx CxDog 'CxWell) 'CxUniverse)
     (v/assert kb (list 'set/forwardRule (list 'implies (list dog '?x) (list friendly '?x)))
-              DogContext)
+              CxDog)
     (let [before (tu/sentex-ids kb)
-          body   (preview-body (pr-str [(list dog Rex) DogContext]))]
+          body   (preview-body (pr-str [(list dog Rex) CxDog]))]
       (testing "the line and what it would derive, counted and grouped"
         (is (re-find #"Consequences of accepting 1 line" body))
         (is (re-find #"2 newly believed" body))
@@ -351,16 +351,16 @@
 (tu/deftest-kb accepting-content-that-withdraws-a-belief-says-so
   ;; `exceptWhen` is where a withdrawal actually comes from: the fact that makes the
   ;; exception hold blocks the rule, and the conclusion resting on it goes.
-  (tu/with-terms [bird penguin flies Opus BirdContext]
-    (v/assert kb (list 'genlContext BirdContext 'WellContext) 'UniverseContext)
+  (tu/with-terms [bird penguin flies Opus CxBird]
+    (v/assert kb (list 'genlCx CxBird 'CxWell) 'CxUniverse)
     (v/assert kb (list 'exceptWhen (list penguin '?b)
                        (list 'set/defaultRule
                              (list 'implies (list bird '?b) (list flies '?b))))
-              BirdContext)
-    (v/assert kb (list bird Opus) BirdContext)
-    (let [h      (v/handle-of kb (list flies Opus) BirdContext)
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (let [h      (v/handle-of kb (list flies Opus) CxBird)
           before (tu/sentex-ids kb)
-          body   (preview-body (pr-str [(list penguin Opus) BirdContext]))]
+          body   (preview-body (pr-str [(list penguin Opus) CxBird]))]
       (is (some? h) "the conclusion has to exist for its withdrawal to be visible")
       (testing "the withdrawal is reported, with its reason and a link to why"
         (is (re-find #"1 no longer believed" body))
@@ -368,18 +368,18 @@
         (is (re-find #"tag-unsupported" body))
         (is (re-find (re-pattern (str "/why/" h)) body)))
       (testing "and it is still believed — the withdrawal was hypothetical"
-        (is (seq (v/sentexes-matching kb (list flies Opus) BirdContext))))
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
       (is (= before (tu/sentex-ids kb))))))
 
 (tu/deftest-kb accepting-the-negation-of-a-default-reports-the-dilemma-it-opens
   ;; A default against a default withdraws nothing — both sides stay believed and the
   ;; pair is represented (docs/nmtms.md).  Reporting only the two diff halves would tell
   ;; a reader the line simply arrived, which is the one thing that did not happen.
-  (tu/with-terms [flies Tweety BirdContext]
-    (v/assert kb (list 'genlContext BirdContext 'WellContext) 'UniverseContext)
-    (v/assert kb (list flies Tweety) BirdContext)
+  (tu/with-terms [flies Tweety CxBird]
+    (v/assert kb (list 'genlCx CxBird 'CxWell) 'CxUniverse)
+    (v/assert kb (list flies Tweety) CxBird)
     (let [before (tu/sentex-ids kb)
-          body   (preview-body (pr-str [(list 'not (list flies Tweety)) BirdContext]))]
+          body   (preview-body (pr-str [(list 'not (list flies Tweety)) CxBird]))]
       (is (re-find #"1 now contested" body))
       (is (re-find #"p-cons-tie" body))
       (testing "opened, because it is the answer that would otherwise be silence"
@@ -389,12 +389,12 @@
 (tu/deftest-kb two-lines-each-admissible-alone-are-refused-together
   ;; the case a per-line check cannot see, and the reason the preview is over the
   ;; accepted *set* rather than over each row
-  (tu/with-terms [fish mammal Willy SeaContext]
-    (v/assert kb (list 'genlContext SeaContext 'WellContext) 'UniverseContext)
-    (v/assert kb (list 'disjoint fish mammal) SeaContext)
+  (tu/with-terms [fish mammal Willy CxSea]
+    (v/assert kb (list 'genlCx CxSea 'CxWell) 'CxUniverse)
+    (v/assert kb (list 'disjoint fish mammal) CxSea)
     (let [before (tu/sentex-ids kb)
-          body   (preview-body [(pr-str [(list fish Willy) SeaContext])
-                                (pr-str [(list mammal Willy) SeaContext])])]
+          body   (preview-body [(pr-str [(list fish Willy) CxSea])
+                                (pr-str [(list mammal Willy) CxSea])])]
       (testing "the loud group, open, naming the line by its position"
         (is (re-find #"class=\"p-cons p-cons-bad\" open=\"open\"" body))
         (is (re-find #"1 refused" body))
@@ -403,10 +403,10 @@
       (is (= before (tu/sentex-ids kb))))))
 
 (tu/deftest-kb a-batch-that-follows-from-nothing-says-nothing-follows
-  (tu/with-terms [quoll QuollContext]
-    (v/assert kb (list 'genlContext QuollContext 'WellContext) 'UniverseContext)
-    (v/assert kb (list 'genl quoll 'animal) QuollContext)
-    (let [body (preview-body (pr-str [(list 'genl quoll 'animal) QuollContext]))]
+  (tu/with-terms [quoll CxQuoll]
+    (v/assert kb (list 'genlCx CxQuoll 'CxWell) 'CxUniverse)
+    (v/assert kb (list 'genl quoll 'animal) CxQuoll)
+    (let [body (preview-body (pr-str [(list 'genl quoll 'animal) CxQuoll]))]
       (is (re-find #"Nothing follows" body)
           "re-asserting what is already believed adds no belief and withdraws none"))))
 
@@ -418,7 +418,7 @@
 (tu/deftest-kb a-report-only-line-is-left-out-of-the-preview
   ;; the commit refuses it, so previewing it would promise a consequence the button
   ;; will not deliver
-  (let [body (preview-body (pr-str ['(partOf penguin wing feather) 'OrganismContext]))]
+  (let [body (preview-body (pr-str ['(partOf penguin wing feather) 'CxOrganism]))]
     (is (re-find #"report-only" body))
     (is (re-find #"Nothing left to preview" body))))
 
@@ -452,10 +452,10 @@
   ;; `preview` sets (`preview_test` pins that it sets it)
   (let [panel (fn [result]
                 (str (#'web/consequence-panel {:kb tu/*kb*} 1 result)))
-        capped (panel {:believed-added [{:sentence '(dog Muffet) :context 'WellContext}]
+        capped (panel {:believed-added [{:sentence '(dog Muffet) :context 'CxWell}]
                        :believed-removed [] :refused [] :violations []
                        :contradictions [] :bounded? true})
-        whole  (panel {:believed-added [{:sentence '(dog Muffet) :context 'WellContext}]
+        whole  (panel {:believed-added [{:sentence '(dog Muffet) :context 'CxWell}]
                        :believed-removed [] :refused [] :violations []
                        :contradictions [] :bounded? false})]
     (is (str/includes? capped "cut short"))
@@ -468,19 +468,19 @@
 (tu/deftest-kb the-preview-is-origin-checked-like-every-other-post
   (let [hdrs {"origin" "http://evil.example" "host" "localhost:3000"}]
     (is (= 403 (:status (POST-to "/propose/preview"
-                                 {"line" (pr-str ['(genl dog animal) 'WellContext])}
+                                 {"line" (pr-str ['(genl dog animal) 'CxWell])}
                                  hdrs))))))
 
 (tu/deftest-kb the-writes-are-origin-checked-like-every-other
   (let [hdrs {"origin" "http://evil.example" "host" "localhost:3000"}]
-    (tu/with-terms [bilby BilbyContext]
-      (v/assert kb (list 'genlContext BilbyContext 'WellContext) 'UniverseContext)
-      (let [line (pr-str [(list 'genl bilby 'animal) BilbyContext])]
+    (tu/with-terms [bilby CxBilby]
+      (v/assert kb (list 'genlCx CxBilby 'CxWell) 'CxUniverse)
+      (let [line (pr-str [(list 'genl bilby 'animal) CxBilby])]
         (is (= 403 (:status (POST-to "/propose/apply" {"line" line} hdrs))))
-        (is (empty? (v/sentexes-matching kb (list 'genl bilby 'animal) BilbyContext))
+        (is (empty? (v/sentexes-matching kb (list 'genl bilby 'animal) CxBilby))
             "a cross-origin commit writes nothing")
         (is (= 403 (:status (POST-to "/propose/line"
-                                     {"from" "(mortal penguin)" "ctx" "OrganismContext"
+                                     {"from" "(mortal penguin)" "ctx" "CxOrganism"
                                       "i" "0" "n" "2"} hdrs))))))))
 
 ;; ---- no problem type reaches the gutter as an exception string ----------

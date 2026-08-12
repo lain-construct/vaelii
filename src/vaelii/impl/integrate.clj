@@ -24,7 +24,7 @@
   The derivation path's twin (`special/derived-sentex-added`) sits beside the table
   instead, because the equality arms are themselves derivation sites and must reach
   it from below.  The triggers that are *not* store mutations stay explicit at
-  their own sites: a taxonomy edge change (posted inside the genl / genlContext
+  their own sites: a taxonomy edge change (posted inside the genl / genlCx
   arms — the trigger is the closure moving, not the sentex), rule indexing (posted
   in `special/index-rule-sentex` — the trigger is the rule gaining an exception to
   evaluate), and `recover` (nothing about blocking survives a restart, so it

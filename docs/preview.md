@@ -206,7 +206,7 @@ reads as a complete one.
 about a batch that landed:
 
 ```clojure
-(edit-with-consequences! kb {:add [['(dog Muffet) 'StoryContext]]})
+(edit-with-consequences! kb {:add [['(dog Muffet) 'CxStory]]})
 ;; => {:added [4] :removed {…}
 ;;     :believed-added   [{:sentence (dog Muffet)    :premise? true  :handle 4 …}
 ;;                        {:sentence (mortal Muffet) :premise? false :handle 5

@@ -40,14 +40,14 @@
 (defn- type-name [i] (symbol (str "bi" i "_t")))
 (defn- pred-name [k] (symbol (str "biP" k "Of")))   ; k = preserved positions
 
-(def ^:private ctx 'InheritBenchContext)
+(def ^:private ctx 'CxInheritBench)
 
 (defn- build!
   "For each arity k in 1..3, a predicate of arity k with all k positions preserved
   along `genl`, and `claims` stored claims at the **most general** end of the chain —
   so a goal at the specific end has to walk the whole reach to find them."
   [kb {:keys [depth branching claims]}]
-  (v/assert kb (list 'genlContext ctx 'CoreContext) 'CoreContext {:chain? false})
+  (v/assert kb (list 'genlCx ctx 'CxCore) 'CxCore {:chain? false})
   (v/with-deferred-settle kb
     (doseq [i (range depth)]
       (v/assert kb (list 'genl (type-name i)

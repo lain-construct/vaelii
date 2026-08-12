@@ -67,7 +67,7 @@
     (is (nil? (prof/stop)) "stopping a stopped instrument is not an error"))
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ctx)]
-      (v/assert kb (list 'genlContext c 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) c)
       (v/assert kb (list p a b) c)
       (testing "a whole assert-and-query round trip while off leaves no tally to read"
@@ -78,7 +78,7 @@
 (deftest start-clears-the-previous-run
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ctx)]
-      (v/assert kb (list 'genlContext c 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) c)
       (prof/start)
       (v/assert kb (list p a b) c)
@@ -98,7 +98,7 @@
     (let [p   (tu/tmp-pred) q (tu/tmp-pred)
           a   (tu/tmp-ind)  b (tu/tmp-ind)
           ctx (tu/tmp-ctx)]
-      (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) ctx)
       (v/assert kb (list 'binaryPredicate q) ctx)
       (v/assert kb (list p a b) ctx)
@@ -136,7 +136,7 @@
     (let [p   (tu/tmp-pred) f (tu/tmp-pred)
           a   (tu/tmp-ind)  u (tu/tmp-ind)
           ctx (tu/tmp-ctx)]
-      (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) ctx)
       (v/assert kb (list 'binaryPredicate f) ctx)
       (v/assert kb (list p a (list f u u)) ctx)
@@ -154,7 +154,7 @@
   (testing "the level-4 matcher decides its own candidate source, and it is not candidate-handles"
     (tu/with-neutral-kb [kb tu/fresh]
       (let [p   (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) ctx (tu/tmp-ctx)]
-        (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+        (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
         (v/assert kb (list 'binaryPredicate p) ctx)
         (v/assert kb (list p a b) ctx)
         (let [snap (collected #(doall (res/matches-hierarchical kb (list p a '?y) ctx)))]
@@ -186,7 +186,7 @@
 (deftest the-write-tally-counts-the-keys-the-index-wrote
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p   (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) ctx (tu/tmp-ctx)]
-      (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) ctx)
       (let [snap (collected #(v/assert kb (list p a b) ctx))
             row  (get (:writes snap) p)
@@ -204,7 +204,7 @@
 (deftest the-retraction-tally-is-its-own-tally
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) ctx (tu/tmp-ctx)]
-      (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) ctx)
       (let [h    (v/assert kb (list p a b) ctx)
             sx   (p/get-sentex (:records kb) h)
@@ -225,7 +225,7 @@
   (testing "the one quantity in the retraction tally the sentex does not decide"
     (tu/with-neutral-kb [kb tu/fresh]
       (let [p (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ind) ctx (tu/tmp-ctx)]
-        (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+        (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
         (v/assert kb (list 'binaryPredicate p) ctx)
         (let [h1     (v/assert kb (list p a b) ctx)
               h2     (v/assert kb (list p a c) ctx)
@@ -245,7 +245,7 @@
 (deftest the-read-tally-names-the-family-that-answered
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p   (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) ctx (tu/tmp-ctx)]
-      (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) ctx)
       (v/assert kb (list p a b) ctx)
       (let [ix (:index kb)]
@@ -271,7 +271,7 @@
     (let [p   (tu/tmp-pred) ctx (tu/tmp-ctx)
           inds (repeatedly 12 tu/tmp-ind)
           shared (tu/tmp-ind)]
-      (v/assert kb (list 'genlContext ctx 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) ctx)
       (doseq [i inds] (v/assert kb (list p i shared) ctx))
       (if (native-trie? kb)

@@ -92,41 +92,41 @@
 ;; ---- the answer set -----------------------------------------------------
 
 (tu/deftest-kb an-open-disjointness-goal-answers-what-a-vocabulary-scan-answers
-  (tu/with-terms [OracleContext kind]
-    (v/assert kb (list 'genlContext OracleContext 'UniverseContext) 'UniverseContext)
+  (tu/with-terms [CxOracle kind]
+    (v/assert kb (list 'genlCx CxOracle 'CxUniverse) 'CxUniverse)
     (let [rng    (java.util.Random. 20260804)
-          blocks (build-forest! kb OracleContext rng)
+          blocks (build-forest! kb CxOracle rng)
           root   (fn [i] (get-in blocks [i 0]))
           node   (fn [i j] (get-in blocks [i j]))]
       ;; four separations over 240 types: three declared pairs, one metatype.  The
       ;; second overlaps the first — one type separated from a partner *and* from one
       ;; of that partner's own subtypes, so two declarations convict one candidate
-      (v/assert kb (list 'disjoint (root 0) (root 1)) OracleContext)
-      (v/assert kb (list 'disjoint (root 0) (node 1 5)) OracleContext)
-      (v/assert kb (list 'disjoint (node 2 7) (root 3)) OracleContext)
-      (v/assert kb (list kind (root 4)) OracleContext)
-      (v/assert kb (list kind (root 5)) OracleContext)
-      (v/assert kb (list 'disjointMetatype kind) OracleContext)
+      (v/assert kb (list 'disjoint (root 0) (root 1)) CxOracle)
+      (v/assert kb (list 'disjoint (root 0) (node 1 5)) CxOracle)
+      (v/assert kb (list 'disjoint (node 2 7) (root 3)) CxOracle)
+      (v/assert kb (list kind (root 4)) CxOracle)
+      (v/assert kb (list kind (root 5)) CxOracle)
+      (v/assert kb (list 'disjointMetatype kind) CxOracle)
 
       (testing "every type's answer is the scan's, with either argument bound"
         (doseq [t (concat (map root (range trees))
                           [(node 0 13) (node 1 39) (node 2 7) (node 2 9)
                            (node 3 21) (node 4 5) (node 5 31)])]
-          (let [want (scan kb t OracleContext)]
-            (is (= want (answers kb (list 'disjoint t '?t) '?t OracleContext))
+          (let [want (scan kb t CxOracle)]
+            (is (= want (answers kb (list 'disjoint t '?t) '?t CxOracle))
                 (str "first argument bound: " t))
-            (is (= want (answers kb (list 'disjoint '?t t) '?t OracleContext))
+            (is (= want (answers kb (list 'disjoint '?t t) '?t CxOracle))
                 (str "second argument bound: " t)))))
 
       (testing "and the corpus is one where that says something"
-        (is (= per-tree (count (scan kb (root 0) OracleContext)))
+        (is (= per-tree (count (scan kb (root 0) CxOracle)))
             "a declaration convicts a whole subtree, or the comparison is vacuous")
-        (is (empty? (scan kb (node 2 9) OracleContext))
+        (is (empty? (scan kb (node 2 9) CxOracle))
             "and a type under no declaration is convicted by nothing"))
 
       (testing "both arguments open: the same pairs, and no others"
-        (is (= (scan-pairs kb OracleContext)
-               (pairs-of kb (list 'disjoint '?a '?b) OracleContext))))
+        (is (= (scan-pairs kb CxOracle)
+               (pairs-of kb (list 'disjoint '?a '?b) CxOracle))))
 
       (testing "the unscoped read agrees with its own scan too"
         (is (= (scan kb (root 0) '?ctx)
@@ -137,7 +137,7 @@
         ;; enumeration walks one closure per partner and they overlap here by
         ;; construction, so this is the prover's own `distinct` and nothing else
         (let [sols (provers/solve (provers/->DisjointnessProver)
-                                  kb (list 'disjoint (root 0) '?t) OracleContext)]
+                                  kb (list 'disjoint (root 0) '?t) CxOracle)]
           (is (seq sols))
           (is (= (count sols) (count (set sols)))))))))
 
@@ -148,76 +148,76 @@
   ;; index is the adjacency of every declaration in the KB and carries no context, so
   ;; the visibility filter has to be applied where the enumeration is, not left to the
   ;; lookup.  Two contexts that cannot see each other, the separation in one.
-  (tu/with-terms [a_place an_agent a_city PhysicalGeographyContext GeographyContext]
-    (v/assert kb (list 'genl a_place 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl an_agent 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl a_city a_place) 'UniverseContext)
-    (v/assert kb (list 'genlContext PhysicalGeographyContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext GeographyContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'disjoint a_place an_agent) PhysicalGeographyContext)
+  (tu/with-terms [a_place an_agent a_city CxPhysicalGeography CxGeography]
+    (v/assert kb (list 'genl a_place 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl an_agent 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl a_city a_place) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxPhysicalGeography 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxGeography 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'disjoint a_place an_agent) CxPhysicalGeography)
 
     (testing "where the declaration is visible, the subtree is convicted"
       (is (= #{an_agent}
-             (answers kb (list 'disjoint a_place '?t) '?t PhysicalGeographyContext)))
+             (answers kb (list 'disjoint a_place '?t) '?t CxPhysicalGeography)))
       (is (= #{a_place a_city}
-             (answers kb (list 'disjoint an_agent '?t) '?t PhysicalGeographyContext))))
+             (answers kb (list 'disjoint an_agent '?t) '?t CxPhysicalGeography))))
 
     (testing "in the sibling that never said it and cannot see it, nothing is"
-      (is (empty? (answers kb (list 'disjoint a_place '?t) '?t GeographyContext)))
-      (is (empty? (answers kb (list 'disjoint an_agent '?t) '?t GeographyContext)))
-      (is (empty? (pairs-of kb (list 'disjoint '?a '?b) GeographyContext))))
+      (is (empty? (answers kb (list 'disjoint a_place '?t) '?t CxGeography)))
+      (is (empty? (answers kb (list 'disjoint an_agent '?t) '?t CxGeography)))
+      (is (empty? (pairs-of kb (list 'disjoint '?a '?b) CxGeography))))
 
     (testing "while the unscoped read still reports every declaration in the KB"
       (is (= #{an_agent} (answers kb (list 'disjoint a_place '?t) '?t '?ctx))))
 
     (testing "the scan agrees on all three readings, which is what makes them checkable"
-      (is (= (scan kb a_place PhysicalGeographyContext)
-             (answers kb (list 'disjoint a_place '?t) '?t PhysicalGeographyContext)))
-      (is (= (scan kb a_place GeographyContext)
-             (answers kb (list 'disjoint a_place '?t) '?t GeographyContext))))))
+      (is (= (scan kb a_place CxPhysicalGeography)
+             (answers kb (list 'disjoint a_place '?t) '?t CxPhysicalGeography)))
+      (is (= (scan kb a_place CxGeography)
+             (answers kb (list 'disjoint a_place '?t) '?t CxGeography))))))
 
 (tu/deftest-kb a-retracted-declaration-stops-being-enumerated
   ;; Belief filtering, asked of the enumeration rather than of the predicate: the
   ;; declarations are read through the caches, which follow belief, so a retraction
   ;; empties the answer with nothing else to maintain.
-  (tu/with-terms [dog cat terrier RetractContext]
-    (v/assert kb (list 'genlContext RetractContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genl terrier dog) RetractContext)
-    (v/assert kb (list 'disjoint dog cat) RetractContext)
+  (tu/with-terms [dog cat terrier CxRetract]
+    (v/assert kb (list 'genlCx CxRetract 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genl terrier dog) CxRetract)
+    (v/assert kb (list 'disjoint dog cat) CxRetract)
     (testing "asserted: the pair and the subtype below it"
-      (is (= #{cat} (answers kb (list 'disjoint dog '?t) '?t RetractContext)))
-      (is (= #{dog terrier} (answers kb (list 'disjoint cat '?t) '?t RetractContext))))
-    (v/retract! kb (v/handle-of kb (list 'disjoint dog cat) RetractContext))
+      (is (= #{cat} (answers kb (list 'disjoint dog '?t) '?t CxRetract)))
+      (is (= #{dog terrier} (answers kb (list 'disjoint cat '?t) '?t CxRetract))))
+    (v/retract! kb (v/handle-of kb (list 'disjoint dog cat) CxRetract))
     (testing "retracted: nothing convicts anything"
-      (is (empty? (answers kb (list 'disjoint dog '?t) '?t RetractContext)))
-      (is (empty? (answers kb (list 'disjoint cat '?t) '?t RetractContext)))
-      (is (empty? (pairs-of kb (list 'disjoint '?a '?b) RetractContext)))
-      (is (empty? (scan kb dog RetractContext)) "and the scan says the same"))))
+      (is (empty? (answers kb (list 'disjoint dog '?t) '?t CxRetract)))
+      (is (empty? (answers kb (list 'disjoint cat '?t) '?t CxRetract)))
+      (is (empty? (pairs-of kb (list 'disjoint '?a '?b) CxRetract)))
+      (is (empty? (scan kb dog CxRetract)) "and the scan says the same"))))
 
 (tu/deftest-kb a-metatype-member-is-enumerated-though-no-genl-edge-reaches-it
   ;; A metatype's clique is consulted, never stored, and a member need not participate
   ;; in `genl` at all — so it is in no closure and in no declared pair.  The open goal
   ;; answers what the ground goal answers, which is the property that ties the two
   ;; arms of `solve` to one predicate.
-  (tu/with-terms [species dog cat fish MetaContext]
-    (v/assert kb (list 'genlContext MetaContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list species dog) MetaContext)
-    (v/assert kb (list species cat) MetaContext)
-    (v/assert kb (list species fish) MetaContext)
-    (v/assert kb (list 'disjointMetatype species) MetaContext)
+  (tu/with-terms [species dog cat fish CxMeta]
+    (v/assert kb (list 'genlCx CxMeta 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list species dog) CxMeta)
+    (v/assert kb (list species cat) CxMeta)
+    (v/assert kb (list species fish) CxMeta)
+    (v/assert kb (list 'disjointMetatype species) CxMeta)
     (testing "the ground goal convicts each pair"
-      (is (v/ask? kb (list 'disjoint dog cat) MetaContext))
-      (is (v/ask? kb (list 'disjoint dog fish) MetaContext)))
+      (is (v/ask? kb (list 'disjoint dog cat) CxMeta))
+      (is (v/ask? kb (list 'disjoint dog fish) CxMeta)))
     (testing "so the open goal binds them"
-      (is (= #{cat fish} (answers kb (list 'disjoint dog '?t) '?t MetaContext)))
-      (is (= #{dog fish} (answers kb (list 'disjoint '?t cat) '?t MetaContext))))
+      (is (= #{cat fish} (answers kb (list 'disjoint dog '?t) '?t CxMeta)))
+      (is (= #{dog fish} (answers kb (list 'disjoint '?t cat) '?t CxMeta))))
     (testing "and the pairs come out both ways round, disjoint being symmetric"
       (is (= #{[dog cat] [cat dog] [dog fish] [fish dog] [cat fish] [fish cat]}
-             (pairs-of kb (list 'disjoint '?a '?b) MetaContext))))
+             (pairs-of kb (list 'disjoint '?a '?b) CxMeta))))
     (testing "unmarking the metatype releases every pair at once"
-      (v/retract! kb (v/handle-of kb (list 'disjointMetatype species) MetaContext))
-      (is (empty? (answers kb (list 'disjoint dog '?t) '?t MetaContext)))
-      (is (empty? (pairs-of kb (list 'disjoint '?a '?b) MetaContext))))))
+      (v/retract! kb (v/handle-of kb (list 'disjointMetatype species) CxMeta))
+      (is (empty? (answers kb (list 'disjoint dog '?t) '?t CxMeta)))
+      (is (empty? (pairs-of kb (list 'disjoint '?a '?b) CxMeta))))))
 
 (tu/deftest-kb a-membership-defeated-before-the-metatype-is-declared-revives-with-it
   ;; The retroactive sweep records **supporters**, so it must read what is *stored*.
@@ -227,20 +227,20 @@
   ;; Belief would depend on whether the defeat or the declaration arrived first, and
   ;; permanently.  Assert in this order — defeat, then declare — since it is the order
   ;; a belief-filtered sweep cannot answer.
-  (tu/with-terms [species dog cat MetaContext]
-    (v/assert kb (list 'genlContext MetaContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list species dog) MetaContext)
-    (v/assert kb (list species cat) MetaContext)
+  (tu/with-terms [species dog cat CxMeta]
+    (v/assert kb (list 'genlCx CxMeta 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list species dog) CxMeta)
+    (v/assert kb (list species cat) CxMeta)
     ;; defeat the membership *before* the declaration: stored, disbelieved
-    (let [beaten (v/assert kb (list 'not (list species dog)) MetaContext
+    (let [beaten (v/assert kb (list 'not (list species dog)) CxMeta
                            {:strength :monotonic})]
-      (v/assert kb (list 'disjointMetatype species) MetaContext)
+      (v/assert kb (list 'disjointMetatype species) CxMeta)
       (testing "while the membership is defeated it separates nothing"
-        (is (not (v/ask? kb (list 'disjoint dog cat) MetaContext))))
+        (is (not (v/ask? kb (list 'disjoint dog cat) CxMeta))))
       (testing "and clearing the defeat revives it, the supporter having been recorded"
         (v/retract! kb beaten)
-        (is (v/ask? kb (list species dog) MetaContext) "the membership is believed again")
-        (is (v/ask? kb (list 'disjoint dog cat) MetaContext)
+        (is (v/ask? kb (list species dog) CxMeta) "the membership is believed again")
+        (is (v/ask? kb (list 'disjoint dog cat) CxMeta)
             (str "so the metatype separates its members — a belief-filtered sweep would "
                  "have dropped this supporter for good"))))))
 
@@ -248,14 +248,14 @@
   ;; `(disjoint ?x ?x)` — one variable in both places, so one binding rather than two.
   ;; A type below both sides of one declaration can have no instances, and that is
   ;; what the goal asks for; nothing else answers it.
-  (tu/with-terms [feathered scaled griffin sparrow SelfContext]
-    (v/assert kb (list 'genlContext SelfContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genl griffin feathered) SelfContext)
-    (v/assert kb (list 'genl griffin scaled) SelfContext)
-    (v/assert kb (list 'genl sparrow feathered) SelfContext)
-    (v/assert kb (list 'disjoint feathered scaled) SelfContext)
+  (tu/with-terms [feathered scaled griffin sparrow CxSelf]
+    (v/assert kb (list 'genlCx CxSelf 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genl griffin feathered) CxSelf)
+    (v/assert kb (list 'genl griffin scaled) CxSelf)
+    (v/assert kb (list 'genl sparrow feathered) CxSelf)
+    (v/assert kb (list 'disjoint feathered scaled) CxSelf)
     (testing "the empty type is bound, and only it"
-      (is (= #{griffin} (answers kb (list 'disjoint '?x '?x) '?x SelfContext))))
+      (is (= #{griffin} (answers kb (list 'disjoint '?x '?x) '?x CxSelf))))
     (testing "which is what the predicate says of it"
-      (is (v/ask? kb (list 'disjoint griffin griffin) SelfContext))
-      (is (not (v/ask? kb (list 'disjoint sparrow sparrow) SelfContext))))))
+      (is (v/ask? kb (list 'disjoint griffin griffin) CxSelf))
+      (is (not (v/ask? kb (list 'disjoint sparrow sparrow) CxSelf))))))

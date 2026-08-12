@@ -17,11 +17,11 @@
 
   Fixture recipes:
 
-    ;; a shared KB loaded once (starter / CoreContext), neutral per test
+    ;; a shared KB loaded once (starter / CxCore), neutral per test
     (use-fixtures :once (tu/loaded starter/load-into))
     (use-fixtures :each (tu/neutral))
 
-    ;; a fresh KB rebuilt per test (empty or CoreContext-loaded), neutral per test
+    ;; a fresh KB rebuilt per test (empty or CxCore-loaded), neutral per test
     (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
     ;; an inline KB inside one deftest (varied baselines in one file)
@@ -242,7 +242,7 @@
 ;; predicate  camelCase, lowercase-initial   -> tmpP1
 ;; individual CapitalCamelCase                -> Tmp2
 ;; type       lowercase, snake_case only when the base is  -> tmpdog3 / tmp_t3
-;; context    CapitalCamelCase ending Context -> Tmp4Context
+;; context    CapitalCamelCase, Cx prefix    -> CxTmp4
 
 (defn- alnum "Letters and digits only — individuals and predicates admit no underscore."
   [s] (str/replace (str s) #"[^A-Za-z0-9]" ""))
@@ -275,8 +275,7 @@
                     (gensym (str "tmp" n))))
     :predicate  (gensym (str "tmp" (cap (alnum base))))
     :individual (gensym (str "Tmp" (cap (alnum base))))
-    :context    (symbol (str (gensym (str "Tmp" (cap (alnum (str/replace (str base) #"Context$" "")))))
-                             "Context"))))
+    :context    (symbol (str "Cx" (gensym (str "Tmp" (cap (alnum (str/replace (str base) #"^Cx" "")))))))))
 
 (defn term-role
   "The role a symbol *looks* like, by the KB's own naming invariants — so a test
@@ -284,7 +283,7 @@
   [sym]
   (let [n (name sym)]
     (cond
-      (re-matches #"[A-Z][A-Za-z0-9]*Context" n) :context
+      (re-matches #"Cx[A-Z][A-Za-z0-9]*" n)      :context
       (re-matches #"[A-Z][A-Za-z0-9]*" n)        :individual
       (re-matches #"[a-z][a-z0-9_]*" n)          :type        ; all-lowercase => a type
       (re-matches #"[a-z][a-zA-Z0-9]*" n)        :predicate   ; camelCase => a predicate
@@ -294,10 +293,10 @@
   "Bind each symbol to a gensym'd temporary term, hiding the gensym plumbing.  The
   *role* is inferred from the symbol's own shape, and the generated name embeds it:
 
-    (with-terms [dog Muffet parentOf StoryContext]
-      (v/assert kb (list dog Muffet) StoryContext))
+    (with-terms [dog Muffet parentOf CxStory]
+      (v/assert kb (list dog Muffet) CxStory))
     ;; dog -> tmpdog17   Muffet -> TmpMuffet18
-    ;; parentOf -> tmpParentOf19   StoryContext -> TmpStory20Context
+    ;; parentOf -> tmpParentOf19   CxStory -> CxTmpStory20
 
   So the test reads like the ontology it is about, while every term stays unique and
   disposable (see the net-neutrality guarantee above).  A bare base like `dog` stays
@@ -312,7 +311,7 @@
 (defn tmp-ind  ([] (gensym "Tmp"))            ([base] (fresh-term :individual base)))
 (defn tmp-pred ([] (gensym "tmpP"))           ([base] (fresh-term :predicate  base)))
 (defn tmp-type ([] (gensym "tmp_t"))          ([base] (fresh-term :type       base)))
-(defn tmp-ctx  ([] (symbol (str (gensym "Tmp") "Context")))
+(defn tmp-ctx  ([] (symbol (str "Cx" (gensym "Tmp"))))
   ([base] (fresh-term :context base)))
 
 ;; ---- content snapshots + auto-teardown ----------------------------------
@@ -425,7 +424,7 @@
 
     (deftest-kb a-dog-is-an-animal
       (with-terms [dog Muffet]
-        (v/assert kb (list dog Muffet) 'UniverseContext)))"
+        (v/assert kb (list dog Muffet) 'CxUniverse)))"
   [name & body]
   `(clojure.test/deftest ~name (let [~'kb *kb*] ~@body)))
 

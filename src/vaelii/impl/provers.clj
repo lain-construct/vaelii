@@ -12,7 +12,7 @@
 
   `ask` runs the cheapest *complete* prover alone (fewest `est-bindings`);
   otherwise it unions the applicable provers cheapest first by `cost` tier.
-  Built-in provers: transitivity (genl/genlContext,
+  Built-in provers: transitivity (genl/genlCx,
   complete via the cached closures), disjointness (complete), `different` (the
   unique-name assumption read off the equality closure — ground only, see
   docs/equality.md), facts (the index), and rules (backward chaining through the same
@@ -210,14 +210,14 @@
   ;; lazy for the same reason.
   (solve           [_ kb goal context] (map second (res/matches-visible kb goal context))))
 
-;; ---- transitivity (genl / genlContext via the cached closures) ---------------
+;; ---- transitivity (genl / genlCx via the cached closures) ---------------
 
-(def transitive-predicates '#{genl genlContext})
+(def transitive-predicates '#{genl genlCx})
 
 (defn- trans-fns [kb pred context]
   (let [tx (:taxonomy kb)]
     (if (= pred 'genl)
-      ;; genl answers from the asking context's vantage; the genlContext closures
+      ;; genl answers from the asking context's vantage; the genlCx closures
       ;; are deliberately global — visibility scoped by visibility is circular
       {:up #(tax/genls tx % context) :down #(tax/specs tx % context) :all (tax/types tx)}
       {:up #(tax/context-up tx %) :down #(tax/context-down tx %) :all (tax/contexts tx)})))
@@ -576,7 +576,7 @@
         :else     (recur (conj seen x) (into (pop frontier) (step x))))
       false)))
 
-(defrecord TransitivePredicateProver []          ; declared-transitive predicates (not genl/genlContext)
+(defrecord TransitivePredicateProver []          ; declared-transitive predicates (not genl/genlCx)
   Prover
   (applicable? [_ kb goal context]
     (and (binary? goal)
@@ -843,7 +843,7 @@
 
 (def measure-comparisons
   "The measure-comparison predicates `QuantityProver` answers — check-only over two
-  ground measures, never stored (declared in the upper MeasureContext, computed here)."
+  ground measures, never stored (declared in the upper CxMeasure, computed here)."
   '#{sameQuantity quantityLessThan quantityGreaterThan
      quantityLessThanOrEqual quantityGreaterThanOrEqual})
 
@@ -1365,7 +1365,7 @@
   matching what forward chaining does before placing the conclusion.
 
   A rule the asking context cannot see is not a candidate (`res/rule-visible-from?`):
-  a rule is a sentex, inherited by the ordinary `genlContext` up-cone like everything
+  a rule is a sentex, inherited by the ordinary `genlCx` up-cone like everything
   else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
   consequent index posts on storage, so belief is asked of the record here exactly as
   forward chaining asks it of a trigger."
@@ -1413,7 +1413,7 @@
 ;; which belongs here, next to the records.
 
 (defn transitive-prover?
-  "Does this prover compute a transitive closure — genl/genlContext through the cached
+  "Does this prover compute a transitive closure — genl/genlCx through the cached
   taxonomy, or a predicate declared `(transitive P)`?"
   [pr] (or (instance? TransitivityProver pr) (instance? TransitivePredicateProver pr)))
 
@@ -1561,7 +1561,7 @@
   * **One answer suffices.**  `solve-goal-with` is lazy, so `take 1` stops the query at
     its first result instead of enumerating an extent.
   * **No backchaining.**  Nothing in the registry expands a rule, so an exception can
-    reach through genl specificity, the genlContext closure, the transitive / symmetric
+    reach through genl specificity, the genlCx closure, the transitive / symmetric
     / inverse metadata, disjointness and the evaluables — but never invokes an unbounded
     proof search from inside the relabel loop.
 

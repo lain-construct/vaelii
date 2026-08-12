@@ -350,7 +350,7 @@ assert / retract / `forward-chain` / `recover`:
      relabel (`jtms/touched` — a revival with no store behind it), a store or a removal
      (`kb/note-opposed!` — and a removal is the case only this covers, since the record
      is gone before a settle could ask the handle what body it was about), and a
-     `genlContext` edge, which can make standing pairs jointly visible without going near
+     `genlCx` edge, which can make standing pairs jointly visible without going near
      either side. The third is answered by the **verdict** rather than by the relation's
      generation: joint visibility is `common-descendant?` of one context from each
      polarity, so each memo entry records that verdict for the contexts it crosses, and a
@@ -379,7 +379,7 @@ assert / retract / `forward-chain` / `recover`:
      decides a clash that is too big to compare — so it is weighed **per pair** instead:
      a pair of unary memberships is decided by `disjoint?` of the two types its sentexes
      name, so what the memo stamps is those two supertype closures, and an edge that
-     leaves both standing is an edge the pair was not about. A `genlContext` edge still
+     leaves both standing is an edge the pair was not about. A `genlCx` edge still
      retires the whole carry, since which contexts can convict a pair is a question about
      the context relation rather than about either half's own reading of it.
 
@@ -638,7 +638,7 @@ justification, nothing believed — logged at `:warn`, and recorded in
 `(core/violations kb)` as
 `{:violation :arg-type|:disjoint|:functional :sentence :context :rule :detail}`.
 Two more kinds ride the same path: a completed firing with **no placement context**
-is recorded as `:no-placement`, and a *derived* `genl`/`genlContext` edge that would
+is recorded as `:no-placement`, and a *derived* `genl`/`genlCx` edge that would
 close a cycle through negation is dropped and recorded as `:not-stratified`.
 
 Four kinds in the ledger drop nothing, and report instead. `:arity` is a declaration
@@ -691,7 +691,7 @@ consistent side); only genuinely unsatisfiable contradictions are reported.
 
 `(contradicts X Y)` is a **report form**, not a sentex. Nothing asserts it, no handle
 resolves to it, and `(sentexes-matching kb '(contradicts ?a ?b) '?ctx)` is empty however many
-clashes the KB holds — `resources/kb/CoreContext.txt` says as much of the predicate
+clashes the KB holds — `resources/kb/CxCore.txt` says as much of the predicate
 itself, and `constraint_nogood_test` holds the engine to it, since the report *reads*
 like a sentence and the mistake would otherwise be invisible.
 
@@ -793,7 +793,7 @@ context they are asked in — a context is convicted only on grounds it can see
 enough: whichever side arrives second finds the pair, so the answer does not depend on
 which arrived first.
 
-A pair whose halves sit either side of a `genlContext` edge convicts one way only.
+A pair whose halves sit either side of a `genlCx` edge convicts one way only.
 `(animal X)` in a general context and `(plant X)` in one that sees it are each
 admissible where they are written, and only the seeing side has both in view. Asked from
 the arriving sentex's own context alone, the general side's check finds nothing at all,
@@ -825,7 +825,7 @@ separates, so the disjointness pass sweeps every trigger; a `functional` or `asy
 clash needs **both halves stated**, so on an ordinary write its candidates are the moved
 region's own binary facts and it sweeps nothing.
 
-**One trigger reaches past the region, and it has to.** A `genlContext` edge moves
+**One trigger reaches past the region, and it has to.** A `genlCx` edge moves
 *visibility*, so a pair whose halves are already stored and already believed becomes
 jointly visible without either half being relabelled — neither is in the region, and
 reporting the same knowledge only when the edges happened to arrive before the facts is

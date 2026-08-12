@@ -21,18 +21,18 @@
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.stp TemporalDistanceProver]))
 
-;; A fresh KB per test: the CoreContext grammar, MeasureContext (the measure structural NATs and the
-;; unit table the magnitudes normalize through), TimeContext (temporalDistance, startOf,
+;; A fresh KB per test: the CxCore grammar, CxMeasure (the measure structural NATs and the
+;; unit table the magnitudes normalize through), CxTime (temporalDistance, startOf,
 ;; endOf and the interval relations), and the prover registered — it is opt-in, so
 ;; registering it is what turns stored constraints into a closure.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'MeasureContext "upper")
-                        (seed/load-context 'TimeContext "upper")
+                        (seed/load-context 'CxMeasure "upper")
+                        (seed/load-context 'CxTime "upper")
                         (v/add-prover (stp/stp-prover)))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 (defn- load-time-units
   "Three units of one dimension, all converting direct to Second — the direct-to-base
@@ -310,19 +310,19 @@
 
 (tu/deftest-kb the-constraints-are-read-under-belief-and-visibility
   (load-time-units kb)
-  (tu/with-terms [P Q R InnerContext]
-    (v/assert kb (list 'genlContext InnerContext C) C)
+  (tu/with-terms [P Q R CxInner]
+    (v/assert kb (list 'genlCx CxInner C) C)
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C)
-    (v/assert kb (list 'temporalDistance Q R '(QuantityFn 1 Hour)) InnerContext)
+    (v/assert kb (list 'temporalDistance Q R '(QuantityFn 1 Hour)) CxInner)
     (testing "the inner context sees both, so it composes the chain"
       (is (= '(QuantityFn 7200 Second)
-             (get (first (v/ask kb (list 'temporalDistance P R '?d) InnerContext)) '?d))))
+             (get (first (v/ask kb (list 'temporalDistance P R '?d) CxInner)) '?d))))
     (testing "the outer sees only its own, so it composes nothing"
       (is (empty? (v/ask kb (list 'temporalDistance P R '?d) C))))
     (testing "retracting a link breaks the chain — the network is read, not cached"
       (v/retract! kb (v/handle-of kb (list 'temporalDistance Q R '(QuantityFn 1 Hour))
-                                  InnerContext))
-      (is (empty? (v/ask kb (list 'temporalDistance P R '?d) InnerContext))))))
+                                  CxInner))
+      (is (empty? (v/ask kb (list 'temporalDistance P R '?d) CxInner))))))
 
 ;; ---- one gap, written two ways -------------------------------------------
 ;; A magnitude reaches the network multiplied by a stored conversion factor, so two
@@ -411,19 +411,19 @@
 (tu/deftest-kb every-context-that-cannot-satisfy-the-constraints-is-told-so
   (load-time-units kb)
   (v/clear-violations! kb)
-  (tu/with-terms [P Q R InnerContext]
-    (v/assert kb (list 'genlContext InnerContext C) C)
+  (tu/with-terms [P Q R CxInner]
+    (v/assert kb (list 'genlCx CxInner C) C)
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C)
     (v/assert kb (list 'temporalDistance Q R '(QuantityFn 1 Hour)) C)
     (v/assert kb (list 'temporalDistance P R '(QuantityFn 1 Hour)) C)
     (testing "the inner context sees exactly the outer's constraints and nothing else, so
               the two reach one network and close it once between them"
-      (is (stp/inconsistent? kb InnerContext))
+      (is (stp/inconsistent? kb CxInner))
       (is (stp/inconsistent? kb C)))
     (let [es (filter #(= :metric-temporal-inconsistency (:violation %)) (v/violations kb))]
       (testing "and each is named — what a reader needs is where its own query stopped
                 being answered, not which context happened to ask first"
-        (is (= #{InnerContext C} (set (map :context es)))))
+        (is (= #{CxInner C} (set (map :context es)))))
       (testing "once each, since a query loop over one belief state reports once"
         (is (= 2 (count es)))))))
 
@@ -436,8 +436,8 @@
                  (list 'temporalDistance P R '(QuantityFn 1 Hour))]
           other (doto (tu/isolated-fresh)
                   (core-context/load-into)
-                  (seed/load-context 'MeasureContext "upper")
-                  (seed/load-context 'TimeContext "upper")
+                  (seed/load-context 'CxMeasure "upper")
+                  (seed/load-context 'CxTime "upper")
                   (v/add-prover (stp/stp-prover)))]
       (try
         (load-time-units other)

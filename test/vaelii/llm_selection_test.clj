@@ -46,11 +46,11 @@
         ann    (tu/fresh-term :individual :Ann)
         muffet   (tu/fresh-term :individual :Muffet)
         ctx    (tu/fresh-term :context :Story)]
-    (v/assert kb (list 'genlContext ctx 'CoreContext) 'UniverseContext)
-    (v/assert kb (list 'genl father parent) 'CoreContext)
+    (v/assert kb (list 'genlCx ctx 'CxCore) 'CxUniverse)
+    (v/assert kb (list 'genl father parent) 'CxCore)
     (v/assert kb (list 'comment parent
                        (str "(" parent " ?parent ?child) means that ?parent is a parent of ?child."))
-              'CoreContext)
+              'CxCore)
     {:dog dog :parentOf parent :fatherOf father :ctx ctx
      :Tom tom :Ann ann :Muffet muffet
      :h-parent (v/assert kb (list parent tom ann) ctx)
@@ -72,7 +72,7 @@
   (let [p   (tu/fresh-term :predicate :pp)
         q   (tu/fresh-term :predicate :qq)
         ctx (tu/fresh-term :context :Rules)]
-    (v/assert kb (list 'genlContext ctx 'CoreContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx ctx 'CxCore) 'CxUniverse)
     (let [h (v/assert kb (list 'set/defaultRule
                                (list 'set/forwardRule
                                      (list 'implies (list 'and (list p '?x)) (list q '?x))))
@@ -115,7 +115,7 @@
         before (sel/vocabulary-card kb rows)
         other  (tu/fresh-term :predicate :other)
         noise  (tu/fresh-term :context :Noise)]
-    (v/assert kb (list 'genlContext noise 'CoreContext) 'UniverseContext)
+    (v/assert kb (list 'genlCx noise 'CxCore) 'CxUniverse)
     (dotimes [i 100]
       (v/assert kb (list other (symbol (str "Noise" i)) (symbol (str "Thing" i))) noise))
     (is (= before (sel/vocabulary-card kb rows))
@@ -145,47 +145,47 @@
 
 (tu/deftest-kb the-contract-is-the-editors-line-format
   (let [{:keys [rows]} (session/parse-lines
-                        (str "[(dog Muffet) WellContext]\n"
-                             "[(parentOf Tom Ann) WellContext {:strength :monotonic}]"))]
+                        (str "[(dog Muffet) CxWell]\n"
+                             "[(parentOf Tom Ann) CxWell {:strength :monotonic}]"))]
     (is (= 2 (count rows)))
-    (is (= ['(dog Muffet) 'WellContext] (:key (first rows))))
-    (is (= ['(dog Muffet) 'WellContext] (:entry (first rows))))
+    (is (= ['(dog Muffet) 'CxWell] (:key (first rows))))
+    (is (= ['(dog Muffet) 'CxWell] (:entry (first rows))))
     (testing "strength rides across, so a known-true line is not silently downgraded"
-      (is (= ['(parentOf Tom Ann) 'WellContext {:strength :monotonic}] (:entry (second rows)))))
+      (is (= ['(parentOf Tom Ann) 'CxWell {:strength :monotonic}] (:entry (second rows)))))
     (testing "and it is not part of the key, so re-strengthening is not a rewrite"
-      (is (= ['(parentOf Tom Ann) 'WellContext] (:key (second rows)))))))
+      (is (= ['(parentOf Tom Ann) 'CxWell] (:key (second rows)))))))
 
 (tu/deftest-kb a-markdown-fence-is-stripped
   (testing "models fence unprompted — even while decoding under a schema that cannot express one"
     (let [{:keys [rows]} (session/parse-lines
-                          "Here you go:\n```\n[(dog Muffet) WellContext]\n```")]
+                          "Here you go:\n```\n[(dog Muffet) CxWell]\n```")]
       (is (= 1 (count rows)))
-      (is (= ['(dog Muffet) 'WellContext] (:entry (first rows))))))
+      (is (= ['(dog Muffet) 'CxWell] (:entry (first rows))))))
   (testing "including a ```json fence around the other shape"
     (let [{:keys [rows]} (session/parse-lines
                           (str "```json\n"
                                (json/generate-string
-                                {"lines" [{"sentence" "(dog Muffet)" "context" "WellContext"}]})
+                                {"lines" [{"sentence" "(dog Muffet)" "context" "CxWell"}]})
                                "\n```"))]
-      (is (= ['(dog Muffet) 'WellContext] (:entry (first rows)))))))
+      (is (= ['(dog Muffet) 'CxWell] (:entry (first rows)))))))
 
 (tu/deftest-kb a-json-envelope-is-tolerated-not-required
   (let [{:keys [rows notes]}
         (session/parse-lines
          (json/generate-string
-          {"lines" [{"sentence" "(dog Muffet)" "context" "WellContext"}
-                    {"sentence" "(parentOf Tom Ann)" "context" "WellContext"
+          {"lines" [{"sentence" "(dog Muffet)" "context" "CxWell"}
+                    {"sentence" "(parentOf Tom Ann)" "context" "CxWell"
                      "strength" "monotonic"}]
            "notes" "unsure about Ann"}))]
     (is (= 2 (count rows)))
-    (is (= ['(parentOf Tom Ann) 'WellContext {:strength :monotonic}] (:entry (second rows))))
+    (is (= ['(parentOf Tom Ann) 'CxWell {:strength :monotonic}] (:entry (second rows))))
     (is (= "unsure about Ann" notes))))
 
 (tu/deftest-kb prose-around-the-lines-becomes-notes
   (let [{:keys [rows notes]} (session/parse-lines
                               (str "I have rewritten the first line.\n\n"
-                                   "[(fatherOf Tom Ann) WellContext]\n"
-                                   "[(dog Muffet) WellContext]\n\n"
+                                   "[(fatherOf Tom Ann) CxWell]\n"
+                                   "[(dog Muffet) CxWell]\n\n"
                                    "Let me know if that is right."))]
     (is (= 2 (count rows)))
     (testing "prose is the only commentary channel the line format has, so it is kept"
@@ -196,17 +196,17 @@
   (testing "prose and nothing else is an error, not an empty line set — an empty line set is a mass retraction"
     (is (seq (:errors (session/parse-lines "Ann is a veterinarian.")))))
   (testing "a line that starts like an entry and is not one is an error, never a silent drop"
-    (is (seq (:errors (session/parse-lines "[(dog Muffet) WellContext]\n[(dog"))))
+    (is (seq (:errors (session/parse-lines "[(dog Muffet) CxWell]\n[(dog"))))
     (is (seq (:errors (session/parse-lines "[(dog Muffet)]"))))
-    (is (seq (:errors (session/parse-lines "[(dog Muffet) \"WellContext\"]")))))
+    (is (seq (:errors (session/parse-lines "[(dog Muffet) \"CxWell\"]")))))
   (testing "and so is a JSON envelope whose entries do not read"
     (is (seq (:errors (session/parse-lines
                        (json/generate-string
-                        {"lines" [{"sentence" "(dog" "context" "WellContext"}]})))))))
+                        {"lines" [{"sentence" "(dog" "context" "CxWell"}]})))))))
 
 (tu/deftest-kb parse-lines-cannot-evaluate-code
   (testing "a line is read as EDN, which has no reader-eval"
-    (is (seq (:errors (session/parse-lines "[#=(clojure.core/println \"pwned\") WellContext]"))))))
+    (is (seq (:errors (session/parse-lines "[#=(clojure.core/println \"pwned\") CxWell]"))))))
 
 (tu/deftest-kb the-output-schema-is-an-object-per-line
   (testing "when a caller opts into it, a bare string per line is what it must not be"
@@ -217,8 +217,8 @@
 
 (tu/deftest-kb the-prompt-demonstrates-the-formalism
   (testing "a small model coins new content in the shape it was shown, not the one it was told"
-    (is (str/includes? sel/system-prompt "[(fatherOf Tom Ann) WellContext]"))
-    (is (str/includes? sel/system-prompt "[(ownedBy Muffet Ann) WellContext]")
+    (is (str/includes? sel/system-prompt "[(fatherOf Tom Ann) CxWell]"))
+    (is (str/includes? sel/system-prompt "[(ownedBy Muffet Ann) CxWell]")
         "including a line invented from nothing, which is the weak case")))
 
 ;; ---- the content diff ---------------------------------------------------

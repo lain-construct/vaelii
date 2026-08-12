@@ -28,7 +28,7 @@
             [vaelii.impl.core-context :as core-context]))
 
 (defn- fresh-kb
-  "A KB with the CoreContext vocabulary and nothing else.  The in-memory stores are
+  "A KB with the CxCore vocabulary and nothing else.  The in-memory stores are
   shared per space number, so `clear!` is what makes each row independent."
   []
   (let [kb (v/open-kb {:backend :memory :space 30 :recover? false})]
@@ -49,7 +49,7 @@
   `forward-chain`) or `:edit` (the whole load as one batch)."
   [n when-rule mode]
   (let [kb   (fresh-kb)
-        ctx  'UniverseContext
+        ctx  'CxUniverse
         node #(symbol (str "Node" % "Individual"))
         opts (when (= :defer mode) {:chain? false})
         eds  (for [i (range 1 n)] [(list 'ancestorOf (node (dec i)) (node i)) ctx])]

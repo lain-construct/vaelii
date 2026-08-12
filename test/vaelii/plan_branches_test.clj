@@ -38,12 +38,12 @@
   ;; `recs` before `early` type-checks, keeps every literal, and throws away the only
   ;; reason this arm does anything at all — the test would then run once per recursive
   ;; solution instead of pruning before the recursion is entered.
-  (tu/with-terms [step reaches Aa Bb PlanContext]
-    (v/assert kb (list step Aa Bb) PlanContext)
+  (tu/with-terms [step reaches Aa Bb CxPlan]
+    (v/assert kb (list step Aa Bb) CxPlan)
     (let [gen (list step '?x '?y)
           rec (list reaches '?y '?z)
           flt (list 'lessThan '?x '?y)
-          ordered (plan/order kb [gen rec flt] PlanContext {:consequent-pred reaches})]
+          ordered (plan/order kb [gen rec flt] CxPlan {:consequent-pred reaches})]
       (testing "the deferred literal sits behind its binder and ahead of the recursion"
         (is (= [gen flt rec] ordered)))
       (testing "and nothing is dropped or duplicated by the reassembly"
@@ -55,12 +55,12 @@
   ;; literals being hoisted wholesale: `?z` is bound by the recursive literal alone, so
   ;; there is no early point to run the test at.  This is the `drop-i` call with an
   ;; empty `early` — every deferred literal has to come back out of the tail.
-  (tu/with-terms [step reaches Aa Bb PlanContext]
-    (v/assert kb (list step Aa Bb) PlanContext)
+  (tu/with-terms [step reaches Aa Bb CxPlan]
+    (v/assert kb (list step Aa Bb) CxPlan)
     (let [gen (list step '?x '?y)
           rec (list reaches '?y '?z)
           flt (list 'lessThan '?y '?z)
-          ordered (plan/order kb [gen rec flt] PlanContext {:consequent-pred reaches})]
+          ordered (plan/order kb [gen rec flt] CxPlan {:consequent-pred reaches})]
       (testing "an unbindable test cannot be pulled forward past what binds it"
         (is (= [gen rec flt] ordered)))
       (is (= 3 (count ordered))))))
@@ -69,10 +69,10 @@
   ;; `gens` empty — the degenerate end of the same arm.  The variables arrive from the
   ;; caller's `:bound` (a rule expanded under bindings already substituted in), so the
   ;; test is runnable immediately and belongs in front of the recursive literal.
-  (tu/with-terms [reaches PlanContext]
+  (tu/with-terms [reaches CxPlan]
     (let [rec (list reaches '?y '?z)
           flt (list 'lessThan '?x '?y)
-          ordered (plan/order kb [rec flt] PlanContext
+          ordered (plan/order kb [rec flt] CxPlan
                               {:consequent-pred reaches :bound '#{?x ?y}})]
       (is (= [flt rec] ordered))
       (is (= 2 (count ordered))))))
@@ -88,25 +88,25 @@
   ;; Driven straight at the prover, which is the same call a chainer makes on a deferred
   ;; antecedent whose bindings do not cover it.  `eval-expr` must reach its ::fail
   ;; arm on the unbound symbol; applying `+` to it would be a ClassCastException.
-  (tu/with-terms [EvalContext]
-    (is (empty? (v/ask kb (list 'evaluate '?z (list '+ '?q 1)) EvalContext)))
+  (tu/with-terms [CxEval]
+    (is (empty? (v/ask kb (list 'evaluate '?z (list '+ '?q 1)) CxEval)))
     (testing "and nested one level down, where the failure has to propagate outward"
-      (is (empty? (v/ask kb (list 'evaluate '?z (list '* 2 (list '+ '?q 1))) EvalContext))))
+      (is (empty? (v/ask kb (list 'evaluate '?z (list '* 2 (list '+ '?q 1))) CxEval))))
     (testing "the ground form of the same expression does compute — this is not
               vacuous"
       (is (= [3] (map #(get % '?z)
-                      (v/ask kb (list 'evaluate '?z (list '+ 2 1)) EvalContext)))))))
+                      (v/ask kb (list 'evaluate '?z (list '+ 2 1)) CxEval)))))))
 
 (tu/deftest-kb an-unbound-comparison-yields-no-solutions-rather-than-throwing
   ;; `EvaluableProver` refuses a goal whose arguments are not all numbers, so an
   ;; unbound `lessThan` falls through to the fact and rule provers and finds nothing.
   ;; Answering-with-nothing is the documented behaviour; `apply <` on a symbol is not.
-  (tu/with-terms [EvalContext]
-    (is (empty? (v/ask kb (list 'lessThan '?n 35) EvalContext)))
-    (is (empty? (v/ask kb (list 'greaterThan '?n 35) EvalContext)))
+  (tu/with-terms [CxEval]
+    (is (empty? (v/ask kb (list 'lessThan '?n 35) CxEval)))
+    (is (empty? (v/ask kb (list 'greaterThan '?n 35) CxEval)))
     (testing "the ground comparison still answers"
-      (is (seq (v/ask kb (list 'lessThan 1 35) EvalContext)))
-      (is (empty? (v/ask kb (list 'lessThan 35 1) EvalContext))))))
+      (is (seq (v/ask kb (list 'lessThan 1 35) CxEval)))
+      (is (empty? (v/ask kb (list 'lessThan 35 1) CxEval))))))
 
 ;; A bare *goal* nothing binds answers empty, above.  A rule *antecedent* nothing binds
 ;; is refused instead, and the difference is not inconsistency — a goal is asked and
@@ -120,12 +120,12 @@
 (tu/deftest-kb a-rule-antecedent-nothing-binds-is-refused-rather-than-stored
   ;; `?m` appears in no other antecedent, so however the planner arranges these the
   ;; comparison would run unbound.
-  (tu/with-terms [age young Tom Bob PlanContext]
-    (v/assert kb (list age Tom 30) PlanContext)
-    (v/assert kb (list age Bob 40) PlanContext)
+  (tu/with-terms [age young Tom Bob CxPlan]
+    (v/assert kb (list age Tom 30) CxPlan)
+    (v/assert kb (list age Bob 40) CxPlan)
     (let [before (v/sentex-count kb)
           e (try (v/assert-rule kb [(list age '?p '?n) (list 'lessThan '?m 35)]
-                                (list young '?p) PlanContext {:direction :backward})
+                                (list young '?p) CxPlan {:direction :backward})
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e) "nothing in the rule writes ?m")
@@ -136,22 +136,22 @@
       (is (= before (v/sentex-count kb)) "a refused rule stores nothing"))
     (testing "the bound comparison is stored and runs, so this is not vacuous"
       (v/assert-rule kb [(list age '?p '?n) (list 'lessThan '?n 35)]
-                     (list young '?p) PlanContext {:direction :backward})
+                     (list young '?p) CxPlan {:direction :backward})
       (is (= #{Tom} (set (map #(get % '?p)
-                              (v/query kb (list young '?p) PlanContext {:max-depth 2})))))
+                              (v/query kb (list young '?p) CxPlan {:max-depth 2})))))
       (testing "and identically with the planner inert"
         (is (= #{Tom} (binding [plan/*enabled* false]
                         (set (map #(get % '?p)
-                                  (v/query kb (list young '?p) PlanContext
+                                  (v/query kb (list young '?p) CxPlan
                                            {:max-depth 2}))))))))))
 
 (tu/deftest-kb an-evaluate-antecedent-nothing-binds-is-refused-too
   ;; `evaluate` writes its first argument and reads the rest, so `?z` is not an input
   ;; and `?q` is — the split `sentex/deferred-input-vars` makes.
-  (tu/with-terms [age bumped Tom PlanContext]
-    (v/assert kb (list age Tom 30) PlanContext)
+  (tu/with-terms [age bumped Tom CxPlan]
+    (v/assert kb (list age Tom 30) CxPlan)
     (let [e (try (v/assert-rule kb [(list age '?p '?n) (list 'evaluate '?z (list '+ '?q 1))]
-                                (list bumped '?p) PlanContext {:direction :backward})
+                                (list bumped '?p) CxPlan {:direction :backward})
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
@@ -161,9 +161,9 @@
     (testing "binding the expression's variable from the other antecedent stores it"
       (tu/with-terms [lifted]
         (v/assert-rule kb [(list age '?p '?n) (list 'evaluate '?z (list '+ '?n 1))]
-                       (list lifted '?p) PlanContext {:direction :backward})
+                       (list lifted '?p) CxPlan {:direction :backward})
         (is (= #{Tom} (set (map #(get % '?p)
-                                (v/query kb (list lifted '?p) PlanContext
+                                (v/query kb (list lifted '?p) CxPlan
                                          {:max-depth 2})))))))))
 
 (tu/deftest-kb one-evaluate-may-feed-another-but-only-downhill
@@ -171,21 +171,21 @@
   ;; order the join runs them in — `plan/order` pins deferred literals where the author
   ;; put them.  An aggregate's output is the exception (the placement phase reorders it
   ;; into dependency order), and nothing here is an aggregate, so written order decides.
-  (tu/with-terms [age chained Tom PlanContext]
-    (v/assert kb (list age Tom 30) PlanContext)
+  (tu/with-terms [age chained Tom CxPlan]
+    (v/assert kb (list age Tom 30) CxPlan)
     (testing "written in dependency order, the chain runs"
       (v/assert-rule kb [(list age '?p '?n)
                          (list 'evaluate '?q (list '+ '?n 1))
                          (list 'evaluate '?z (list '* '?q 2))]
-                     (list chained '?p '?z) PlanContext {:direction :backward})
+                     (list chained '?p '?z) CxPlan {:direction :backward})
       (is (= [62] (map #(get % '?z)
-                       (v/query kb (list chained Tom '?z) PlanContext {:max-depth 2})))))
+                       (v/query kb (list chained Tom '?z) CxPlan {:max-depth 2})))))
     (testing "written the other way up, it is refused rather than run unbound"
       (tu/with-terms [uphill]
         (let [e (try (v/assert-rule kb [(list age '?p '?n)
                                         (list 'evaluate '?z (list '* '?q 2))
                                         (list 'evaluate '?q (list '+ '?n 1))]
-                                    (list uphill '?p '?z) PlanContext {:direction :backward})
+                                    (list uphill '?p '?z) CxPlan {:direction :backward})
                      nil
                      (catch clojure.lang.ExceptionInfo e e))]
           (is (some? e))

@@ -36,7 +36,7 @@
 
 ;; ---- generation (well-formed for the real assert path) ------------------
 ;; Predicates lowercase-initial (camelCase), individuals Capitalized, contexts
-;; …Context — the naming invariants v/assert enforces.
+;; `Cx`-prefixed CapitalCamel — the naming invariants v/assert enforces.
 
 (defn- gen-fact
   "One synthetic fact `[sentence context]`: a Zipf predicate, 2-3 Zipf-individual
@@ -153,7 +153,7 @@
      :preds (u/terms "pr" P)
      :inds  (u/terms "Ind" M)
      :units (u/terms "unit" 10)
-     :ctxs  (mapv #(symbol (str "Ctx" % "Context")) (range 8))
+     :ctxs  (mapv #(symbol (str "CxCtx" %)) (range 8))
      :pred-cum (u/zipf-cumulative P 1.2)
      :ind-cum  (u/zipf-cumulative M 1.0)
      :compound-frac 0.1}))

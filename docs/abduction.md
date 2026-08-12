@@ -11,14 +11,14 @@ question — *what would have to be true for it to be provable?* — and mints t
 a **hypothesis**.
 
 ```clojure
-(v/assert kb '(abduciblePredicate wasWashed) 'LaundryContext)
-(v/assert kb '(implies (and (wasWashed ?x)) (clean ?x)) 'LaundryContext)
+(v/assert kb '(abduciblePredicate wasWashed) 'CxLaundry)
+(v/assert kb '(implies (and (wasWashed ?x)) (clean ?x)) 'CxLaundry)
 
-(v/abduce kb '(clean Shirt) 'LaundryContext)
+(v/abduce kb '(clean Shirt) 'CxLaundry)
 ;; {:solutions   [{} {}]
-;;  :hypotheses  [{:sentence (wasWashed Shirt) :context Abduction3a9d…Context :handle nil}]
+;;  :hypotheses  [{:sentence (wasWashed Shirt) :context CxAbduction3a9d… :handle nil}]
 ;;  :refused     []
-;;  :context     Abduction3a9d…Context
+;;  :context     CxAbduction3a9d…
 ;;  :status      :complete}
 ```
 
@@ -109,9 +109,9 @@ ratio of matches to dead ends it is not there at all.
    — cached in the taxonomy, belief-following, retractable — with one deliberate
    difference: it is **not** decontextualized.  Those are claims about a predicate that
    hold wherever it is mentioned; this is a **policy** of the context that grants it,
-   so it is read from the asking context's `genlContext` up-cone and one theory may be
+   so it is read from the asking context's `genlCx` up-cone and one theory may be
    willing to assume a predicate that another, reading the same vocabulary, will not.
-   The shipped schema grants exactly one: `BiologyContext` declares `(abduciblePredicate
+   The shipped schema grants exactly one: `CxBiology` declares `(abduciblePredicate
    asleep)`, so *why is this animal not awake* is answerable and *why does it not fly*
    comes back with `(bird …)` named as the dead end it refused to assume.
 3. **Legally assertible.**  The same triple every minted sentence passes
@@ -182,9 +182,9 @@ when the truth may be that a predicate was never granted:
 
 **An `abduce` call whose result you ignore leaves the KB as it found it.**  The scratch
 context is torn down before returning — the extent in one `edit!`, so it is one settle and
-the sweep takes the derived content with the premises it rested on, then the `genlContext`
-edge, which was never *in* the extent (`genlContext` is forced-decontextualized, so it
-lives in UniverseContext).  The teardown also runs on the way out of an exception, which
+the sweep takes the derived content with the premises it rested on, then the `genlCx`
+edge, which was never *in* the extent (`genlCx` is forced-decontextualized, so it
+lives in CxUniverse).  The teardown also runs on the way out of an exception, which
 is when isolation is easiest to lose.
 
 `{:keep? true}` leaves the context standing and the caller owns it: the handles are real,
@@ -209,7 +209,7 @@ An ordinary premise, and every part of that is load-bearing:
 | provenance | `{:abduced true :abduced-for <goal>}`, asserted with `:creator :vaelii.impl.abduce/hypothesis` beside it — a reader of the record can tell an assumption from something a person asserted, and can see what it was assumed *for* |
 | justification | none.  It is assumed, not derived; `premise?` is true and `why` reports it as one |
 
-The `genlContext` edge that makes the scratch context is `:monotonic`, and that is not an
+The `genlCx` edge that makes the scratch context is `:monotonic`, and that is not an
 inconsistency: which context sees which is a fact about the scratch space, and a
 defeasible one would let a contradiction among the hypotheses quietly unhook the
 context holding them.

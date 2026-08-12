@@ -110,14 +110,14 @@
 (deftest finds-a-hamiltonian-tour
   (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
-      (install-tsp! kb 'TspContext cities positions roads)
-      (let [r    (v/assert kb (list 'do/label 'TspContext 'TspPlanContext :sat) 'TspContext)
+      (install-tsp! kb 'CxTsp cities positions roads)
+      (let [r    (v/assert kb (list 'do/label 'CxTsp 'CxTspPlan :sat) 'CxTsp)
             lab  (first (:labelings r))
             tour (tour-of lab)]
         (testing ":sat returns one labeling and persists nothing"
           (is (= 1 (:count r)))
           (is (nil? (:context lab)))
-          (is (not (contains? (set (v/contexts kb)) 'Tsp1Context))))
+          (is (not (contains? (set (v/contexts kb)) 'CxTsp1))))
         (testing "the tour is a permutation: each position once, each city once"
           (is (= (set positions) (set (keys tour))))
           (is (= (set cities) (set (vals tour))) "every city visited exactly once")
@@ -127,7 +127,7 @@
             (is (contains? roads #{(tour pa) (tour pb)})
                 (str (tour pa) " -> " (tour pb) " must be a road"))))
         (testing "base belief is untouched — no tour position is believed"
-          (is (empty? (v/sentexes-matching kb (list 'tourStop 'P1 'A) 'TspContext)))
+          (is (empty? (v/sentexes-matching kb (list 'tourStop 'P1 'A) 'CxTsp)))
           (is (zero? (count (v/contradictions kb)))))))))
 
 ;; ---- a graph with no tour ------------------------------------------------
@@ -138,8 +138,8 @@
   ;; program UNSAT, so the solve places no city at all (like K4 leaving a node uncoloured).
   (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
-      (install-tsp! kb 'NoTourContext cities positions path-roads)
-      (let [r    (v/assert kb (list 'do/label 'NoTourContext 'NoTourPlanContext :sat) 'NoTourContext)
+      (install-tsp! kb 'CxNoTour cities positions path-roads)
+      (let [r    (v/assert kb (list 'do/label 'CxNoTour 'CxNoTourPlan :sat) 'CxNoTour)
             tour (tour-of (first (:labelings r)))]
         (testing "no full permutation tour exists, and the all-hard UNSAT keeps nothing"
           (is (< (count tour) (count cities)))

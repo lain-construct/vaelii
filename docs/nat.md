@@ -41,7 +41,7 @@ none, because a reified NAT is a symbol by the time the index sees it.
 ## The data model — all ordinary stored facts
 
 Nothing here is a KV side table. Every mapping is a normal sentex in
-**UniverseContext**, so it rides `put-sentex`, the functor / argument roots, and the
+**CxUniverse**, so it rides `put-sentex`, the functor / argument roots, and the
 inverted term index like any other fact.
 
 | Fact | Meaning |
@@ -130,7 +130,7 @@ correspondence has. A value in any other position needs the explicit form —
 `(functionCorrespondingPredicate StreetCornerFn streetCornerOf 1)`, so
 `(StreetCornerFn Xing North)` is the `Lot` of `(streetCornerOf Lot Xing North)`.
 
-The example is the shipped one: `resources/kb/upper/LifeContext.txt` states `motherOf` and
+The example is the shipped one: `resources/kb/upper/CxLife.txt` states `motherOf` and
 `fatherOf` with `MotherFn` and `FatherFn` beside them, so a KB that loads the starter can
 name somebody by their role before it knows their name.
 
@@ -294,7 +294,7 @@ and the loop ends on the round that removes nothing.
 - `vaelii.impl.wff` — `function-decl-problems`, `correspondence-problems`, the
   `:opaque` role a minted constant carries through the same-role check, and the
   `equality-problems` waiver for a compound-arg `rewriteOf`.
-- `resources/kb/CoreContext.txt` — the seven NAT predicates, declared and documented.
+- `resources/kb/CxCore.txt` — the seven NAT predicates, declared and documented.
 
 ## What reification does not cover
 

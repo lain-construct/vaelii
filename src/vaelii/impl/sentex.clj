@@ -1509,14 +1509,14 @@
 
   What such an author wants is for S to be **visible** where the rule is, and there are
   two ways to say that: `(decontextualizedPredicate P)` takes every `(P ...)` into
-  UniverseContext, which every context sees, and a `genlContext` edge puts Ctx in the
+  CxUniverse, which every context sees, and a `genlCx` edge puts Ctx in the
   rule's own cone.  Under either the literal is written plainly, and belief no longer
   turns on a frame the matcher cannot honor."
   [role]
   (str "ist places a conclusion and reads nothing: an (ist Ctx S) "
        (clojure.core/name role) " matches no stored sentex, so it decides the rule"
        " without ever consulting Ctx — make S visible with (decontextualizedPredicate P)"
-       " or a genlContext edge, and write S plainly"))
+       " or a genlCx edge, and write S plainly"))
 
 (defn connective-problems
   "Structural problems with `sentence`'s connective frames, as strings (empty if OK) —

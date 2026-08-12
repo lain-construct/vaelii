@@ -72,10 +72,10 @@
   which is what makes their dumps comparable."
   []
   (tu/with-terms [bird penguin flies feathered happy Tweety Opus Rex Preferred Deprecated
-                  ExportContext]
+                  CxExport]
     {:bird bird :penguin penguin :flies flies :feathered feathered :happy happy
      :Tweety Tweety :Opus Opus :Rex Rex
-     :Preferred Preferred :Deprecated Deprecated :ctx ExportContext}))
+     :Preferred Preferred :Deprecated Deprecated :ctx CxExport}))
 
 (defn- build!
   "Assert the awkward shapes into `kb`.  Everything an export can quietly drop is here:
@@ -283,9 +283,9 @@
 
 (deftest a-kb-with-no-provenance-writes-no-provenance-file
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [likes Ann Bob PlainContext]
+    (tu/with-terms [likes Ann Bob CxPlain]
       ;; the bulk path stamps no provenance, which is the case the optional file is for
-      (v/bulk-assert-facts! kb [(list likes Ann Bob)] PlainContext)
+      (v/bulk-assert-facts! kb [(list likes Ann Bob)] CxPlain)
       (with-dirs* 1 "noprov"
         (fn [dir]
           (rm-rf! dir)
@@ -400,7 +400,7 @@
     (justification-ids [_] #{})
     (get-sentex [_ id]
       (vswap! fetches inc)
-      (sx/->AtomicSentex (list 'synthetic (symbol (str "Ind" id))) 'SyntheticContext
+      (sx/->AtomicSentex (list 'synthetic (symbol (str "Ind" id))) 'CxSynthetic
                          id :true nil))
     (get-provenance [_ _] nil)))
 
@@ -471,9 +471,9 @@
     (with-dirs* 1 "import-roster"
       (fn [^File dir]
         (rm-rf! dir)
-        (tu/with-terms [dog Muffet Rex RosterContext]
-          (v/assert kb (list dog Muffet) RosterContext)
-          (v/assert kb (list dog Rex) RosterContext))
+        (tu/with-terms [dog Muffet Rex CxRoster]
+          (v/assert kb (list dog Muffet) CxRoster)
+          (v/assert kb (list dog Rex) CxRoster))
         (export/export! kb dir {:compression :none})
         (tu/with-cleared-kb [target #(tu/isolated-fresh)]
           (testing "import-dump refuses the misspelt flag before reading anything"

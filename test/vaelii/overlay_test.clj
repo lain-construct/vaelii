@@ -59,10 +59,10 @@
   "A small base: a taxonomy edge, a forward rule, and two facts — so a fork inherits
   something to match, something to subsume through, and something to fire."
   [kb]
-  (v/assert kb '(genl dog animal) 'OverlayContext {:strength :monotonic})
-  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'OverlayContext)
-  (v/assert kb '(dog Muffet) 'OverlayContext {:strength :monotonic})
-  (v/assert kb '(ownerOf Ann Muffet) 'OverlayContext {:strength :monotonic})
+  (v/assert kb '(genl dog animal) 'CxOverlay {:strength :monotonic})
+  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxOverlay)
+  (v/assert kb '(dog Muffet) 'CxOverlay {:strength :monotonic})
+  (v/assert kb '(ownerOf Ann Muffet) 'CxOverlay {:strength :monotonic})
   kb)
 
 (defn- fresh-base
@@ -150,9 +150,9 @@
   (let [base (fresh-base 1)
         f    (v/fork base)]
     (testing "stored content, belief and the taxonomy all arrive"
-      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching f '(dog ?x) 'OverlayContext))))
-      (is (= '#{(ownerOf Ann Muffet)} (sentences (v/sentexes-matching f '(ownerOf ?who Muffet) 'OverlayContext))))
-      (is (= '#{(mammal Muffet)} (sentences (v/sentexes-matching f '(mammal ?x) 'OverlayContext)))
+      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching f '(dog ?x) 'CxOverlay))))
+      (is (= '#{(ownerOf Ann Muffet)} (sentences (v/sentexes-matching f '(ownerOf ?who Muffet) 'CxOverlay))))
+      (is (= '#{(mammal Muffet)} (sentences (v/sentexes-matching f '(mammal ?x) 'CxOverlay)))
           "including what the base's rule derived")
       (is (v/isa? f 'Muffet 'animal) "and the genl closure the base's edge licenses"))
     (testing "the term index and the roots read through too"
@@ -168,34 +168,34 @@
   ;; back byte-identical.
   (let [base (doto (v/open-kb {:backend :memory :space [::preserve-base] :recover? false})
                (v/clear!))]
-    (v/assert base '(argPreserving tmpLargerThan 1 genl) 'UniverseContext)
-    (v/assert base '(tmpLargerThan tmp_dog tmp_cat) 'UniverseContext)
-    (v/assert base '(implies (tmpLargerThan ?x ?y) (tmpOutweighs ?x ?y)) 'UniverseContext)
+    (v/assert base '(argPreserving tmpLargerThan 1 genl) 'CxUniverse)
+    (v/assert base '(tmpLargerThan tmp_dog tmp_cat) 'CxUniverse)
+    (v/assert base '(implies (tmpLargerThan ?x ?y) (tmpOutweighs ?x ?y)) 'CxUniverse)
     (let [before (base-snapshot base)
           f      (v/fork base)]
-      (v/assert f '(genl tmp_chi tmp_dog) 'UniverseContext)
-      (is (seq (v/sentexes-matching f '(tmpOutweighs tmp_chi tmp_cat) 'UniverseContext))
+      (v/assert f '(genl tmp_chi tmp_dog) 'CxUniverse)
+      (is (seq (v/sentexes-matching f '(tmpOutweighs tmp_chi tmp_cat) 'CxUniverse))
           "the fork-local edge fired the base's rule through the base's declaration")
-      (is (empty? (v/sentexes-matching base '(tmpOutweighs tmp_chi tmp_cat) 'UniverseContext))
+      (is (empty? (v/sentexes-matching base '(tmpOutweighs tmp_chi tmp_cat) 'CxUniverse))
           "and the base derived nothing")
       (is (= before (base-snapshot base)) "byte-identical, not merely equivalent")
       (testing "retracting the fork-local edge withdraws what it licensed"
-        (v/retract! f (v/handle-of f '(genl tmp_chi tmp_dog) 'UniverseContext))
+        (v/retract! f (v/handle-of f '(genl tmp_chi tmp_dog) 'CxUniverse))
         (is (empty? (v/sentexes-matching f '(tmpOutweighs tmp_chi tmp_cat)
-                                         'UniverseContext)))))
+                                         'CxUniverse)))))
     (v/clear! base)))
 
 (deftest a-fork-writes-only-to-itself
   (let [base   (fresh-base 2)
         before (base-snapshot base)
         f      (v/fork base)]
-    (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+    (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
     (testing "the fork sees its own write joined to what it inherited"
-      (is (= '#{(dog Muffet) (dog Rex)} (sentences (v/sentexes-matching f '(dog ?x) 'OverlayContext))))
-      (is (= '#{(mammal Muffet) (mammal Rex)} (sentences (v/sentexes-matching f '(mammal ?x) 'OverlayContext)))
+      (is (= '#{(dog Muffet) (dog Rex)} (sentences (v/sentexes-matching f '(dog ?x) 'CxOverlay))))
+      (is (= '#{(mammal Muffet) (mammal Rex)} (sentences (v/sentexes-matching f '(mammal ?x) 'CxOverlay)))
           "the base's rule fired over the fork's fact"))
     (testing "and the base saw none of it"
-      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'OverlayContext))))
+      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'CxOverlay))))
       (is (= before (base-snapshot base)) "the base is byte-identical"))
     (v/clear! base)))
 
@@ -207,9 +207,9 @@
   (let [base (fresh-base 12)
         f1   (v/fork base {:backend :memory})
         f2   (v/fork base {:backend :memory})]
-    (v/assert f1 '(dog Rex) 'OverlayContext {:strength :monotonic})
-    (is (seq (v/sentexes-matching f1 '(dog Rex) 'OverlayContext)) "the writer sees it")
-    (is (empty? (v/sentexes-matching f2 '(dog Rex) 'OverlayContext))
+    (v/assert f1 '(dog Rex) 'CxOverlay {:strength :monotonic})
+    (is (seq (v/sentexes-matching f1 '(dog Rex) 'CxOverlay)) "the writer sees it")
+    (is (empty? (v/sentexes-matching f2 '(dog Rex) 'CxOverlay))
         "its sibling, taken with the same spelled-out default, does not")
     (v/clear! base)))
 
@@ -220,7 +220,7 @@
   ;; merged view — an export of such a fork died before its first frame
   (let [base (fresh-base 10)
         f    (v/fork base {:index :dense})]
-    (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+    (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
     (is (seq (doall (kv/kv-entries (:backend (:index f)))))
         "the merged projection realizes")
     (v/clear! base)))
@@ -229,16 +229,16 @@
   (let [base   (fresh-base 3)
         before (base-snapshot base)
         f      (v/fork base)
-        h      (v/handle-of f '(dog Muffet) 'OverlayContext)]
+        h      (v/handle-of f '(dog Muffet) 'CxOverlay)]
     (is (some? h) "the inherited premise is reachable by handle")
     (v/retract! f h)
     (testing "gone in the fork, with what it derived"
-      (is (empty? (v/sentexes-matching f '(dog ?x) 'OverlayContext)))
-      (is (empty? (v/sentexes-matching f '(mammal ?x) 'OverlayContext)) "the sweep reached the conclusion")
-      (is (nil? (v/handle-of f '(dog Muffet) 'OverlayContext)) "the tombstone hides it from lookup"))
+      (is (empty? (v/sentexes-matching f '(dog ?x) 'CxOverlay)))
+      (is (empty? (v/sentexes-matching f '(mammal ?x) 'CxOverlay)) "the sweep reached the conclusion")
+      (is (nil? (v/handle-of f '(dog Muffet) 'CxOverlay)) "the tombstone hides it from lookup"))
     (testing "present in the base"
-      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'OverlayContext))))
-      (is (= '#{(mammal Muffet)} (sentences (v/sentexes-matching base '(mammal ?x) 'OverlayContext))))
+      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'CxOverlay))))
+      (is (= '#{(mammal Muffet)} (sentences (v/sentexes-matching base '(mammal ?x) 'CxOverlay))))
       (is (= before (base-snapshot base))))
     (v/clear! base)))
 
@@ -249,10 +249,10 @@
         f      (v/fork base)
         recs   (:records f)]
     (testing "a new record gets a handle no base record holds"
-      (let [h (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})]
+      (let [h (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})]
         (is (> (long h) (long top)) (str "minted " h " over a base topping out at " top))))
     (testing "a record written at a base handle overrides it, in the fork only"
-      (let [h  (v/handle-of f '(ownerOf Ann Muffet) 'OverlayContext)
+      (let [h  (v/handle-of f '(ownerOf Ann Muffet) 'CxOverlay)
             sx (p/get-sentex recs h)]
         (is (<= (long h) (long top)) "the handle is in the base's range")
         (p/put-sentex recs (assoc sx :sentence '(ownerOf Bob Muffet)))
@@ -266,15 +266,15 @@
   (let [base   (fresh-base 5)
         before (base-snapshot base)
         f      (v/fork base)]
-    (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+    (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
     (v/clear! f)
     (testing "the fork reads empty"
       (is (zero? (v/sentex-count f)))
       (is (empty? (p/sentex-ids (:records f))))
-      (is (empty? (v/sentexes-matching f '(dog ?x) 'OverlayContext))))
+      (is (empty? (v/sentexes-matching f '(dog ?x) 'CxOverlay))))
     (testing "and is usable again, at handles nothing claims"
-      (v/assert f '(cat Tom) 'OverlayContext {:strength :monotonic})
-      (is (= '#{(cat Tom)} (sentences (v/sentexes-matching f '(cat ?x) 'OverlayContext)))))
+      (v/assert f '(cat Tom) 'CxOverlay {:strength :monotonic})
+      (is (= '#{(cat Tom)} (sentences (v/sentexes-matching f '(cat ?x) 'CxOverlay)))))
     (is (= before (base-snapshot base)) "the base survived the fork's clear")
     (v/clear! base)))
 
@@ -285,10 +285,10 @@
   (let [base   (fresh-base 11)
         before (base-snapshot base)
         f      (v/fork base)]
-    (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+    (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
     (let [{:keys [sentexes]} (v/reindex f)]
       (is (= sentexes (v/sentex-count f)) "every merged record was re-indexed, once")
-      (is (= '#{(dog Muffet) (dog Rex)} (sentences (v/sentexes-matching f '(dog ?x) 'OverlayContext))))
+      (is (= '#{(dog Muffet) (dog Rex)} (sentences (v/sentexes-matching f '(dog ?x) 'CxOverlay))))
       (is (= 2 (v/count-with-functor f 'dog)) "and no posting was double-counted")
       (is (v/isa? f 'Muffet 'animal) "the taxonomy came back with it"))
     (is (= before (base-snapshot base)) "and the base was not rebuilt into")
@@ -301,7 +301,7 @@
         f    (v/fork base)
         n0   (v/sentex-count base)]
     (is (= n0 (v/sentex-count f)) "a fresh fork counts what its base counts")
-    (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+    (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
     (testing "an add moves the fork's counts and not the base's"
       ;; (dog Rex) plus the (mammal Rex) the inherited rule derived from it
       (is (= (+ 2 (long n0)) (long (v/sentex-count f))))
@@ -310,13 +310,13 @@
       (is (= 1 (v/count-with-functor base 'dog)))
       (is (= 2 (v/count-with-arg f 1 'Rex)) "the argument root counts the merged view"))
     (testing "a delete of an inherited record moves them back"
-      (v/retract! f (v/handle-of f '(dog Muffet) 'OverlayContext))
+      (v/retract! f (v/handle-of f '(dog Muffet) 'CxOverlay))
       (is (= 1 (v/count-with-functor f 'dog)))
       (is (= 1 (v/count-with-functor base 'dog)))
-      (is (= n0 (v/count-in-context f 'OverlayContext))
+      (is (= n0 (v/count-in-context f 'CxOverlay))
           "the context root too — two records added, two swept, back where it started")
-      (is (= (count (p/sentexes-in-context (:index f) 'OverlayContext))
-             (v/count-in-context f 'OverlayContext))
+      (is (= (count (p/sentexes-in-context (:index f) 'CxOverlay))
+             (v/count-in-context f 'CxOverlay))
           "a count never disagrees with the extent it counts"))
     (v/clear! base)))
 
@@ -336,7 +336,7 @@
   ;; it took.
   (let [base (fresh-base 12)]
     (doseq [o '[Bob Cid]]
-      (v/assert base (list 'ownerOf o 'Rex) 'OverlayContext {:strength :monotonic}))
+      (v/assert base (list 'ownerOf o 'Rex) 'CxOverlay {:strength :monotonic}))
     (let [f     (v/fork base)
           ix    (:index f)
           bx    (:index base)
@@ -344,9 +344,9 @@
                   (is (= (count (p/children ix prefix)) (p/count-children ix prefix))
                       (str "count-children disagrees with the child set it counts at " prefix)))]
       (doseq [o '[Dee Eve]]
-        (v/assert f (list 'ownerOf o 'Rex) 'OverlayContext {:strength :monotonic}))
-      (v/retract! f (v/handle-of f '(ownerOf Bob Rex) 'OverlayContext))
-      (v/assert f '(likes Ann Rex) 'OverlayContext {:strength :monotonic})
+        (v/assert f (list 'ownerOf o 'Rex) 'CxOverlay {:strength :monotonic}))
+      (v/retract! f (v/handle-of f '(ownerOf Bob Rex) 'CxOverlay))
+      (v/assert f '(likes Ann Rex) 'CxOverlay {:strength :monotonic})
       (testing "an inherited interior prefix is the base's own answer"
         ;; the fork asserted no `dog`, so nothing was written under this prefix at all
         (agree '[dog])
@@ -375,8 +375,8 @@
         ;; the shapes `index_test` holds the two reads to on a plain backend, asked again
         ;; through the merge — a leaf has a handle under it and no children, and a merge
         ;; must turn neither absence into a count
-        (doseq [prefix ['[ownerOf Dee Rex OverlayContext]
-                        '[ownerOf Dee Rex NoSuchContext]
+        (doseq [prefix ['[ownerOf Dee Rex CxOverlay]
+                        '[ownerOf Dee Rex CxNoSuch]
                         '[ownerOf Nobody]
                         '[noSuchPredicate]]]
           (agree prefix)
@@ -391,11 +391,11 @@
   ;; the contract says entries arrive as Clojure sets, which is what makes it possible.
   (let [base (fresh-base 10)
         f    (v/fork base)]
-    (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
-    (v/retract! f (v/handle-of f '(ownerOf Ann Muffet) 'OverlayContext))
+    (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
+    (v/retract! f (v/handle-of f '(ownerOf Ann Muffet) 'CxOverlay))
     (let [entries (into {} (p/index-entries (:index f)))
-          fork-h  (v/handle-of f '(dog Rex) 'OverlayContext)
-          base-h  (v/handle-of base '(dog Muffet) 'OverlayContext)]
+          fork-h  (v/handle-of f '(dog Rex) 'CxOverlay)
+          base-h  (v/handle-of base '(dog Muffet) 'CxOverlay)]
       (testing "a root inherited from the base and extended by the fork comes out merged"
         (is (= #{fork-h base-h} (get entries '[:functor-root dog]))))
       (testing "and one the fork emptied of its inherited member is simply gone"
@@ -420,15 +420,15 @@
         before (base-snapshot base)
         forks  (mapv (fn [_] (v/fork base)) (range 3))]
     (doseq [[i f] (map-indexed vector forks)]
-      (v/assert f (list 'dog (symbol (str "Fork" i))) 'OverlayContext {:strength :monotonic}))
+      (v/assert f (list 'dog (symbol (str "Fork" i))) 'CxOverlay {:strength :monotonic}))
     ;; the middle fork also drops what it inherited, so the three differ in both directions
-    (v/retract! (nth forks 1) (v/handle-of (nth forks 1) '(dog Muffet) 'OverlayContext))
+    (v/retract! (nth forks 1) (v/handle-of (nth forks 1) '(dog Muffet) 'CxOverlay))
     (testing "each fork sees its own edit over the base and nobody else's"
-      (is (= '#{(dog Muffet) (dog Fork0)} (sentences (v/sentexes-matching (nth forks 0) '(dog ?x) 'OverlayContext))))
-      (is (= '#{(dog Fork1)}            (sentences (v/sentexes-matching (nth forks 1) '(dog ?x) 'OverlayContext))))
-      (is (= '#{(dog Muffet) (dog Fork2)} (sentences (v/sentexes-matching (nth forks 2) '(dog ?x) 'OverlayContext)))))
+      (is (= '#{(dog Muffet) (dog Fork0)} (sentences (v/sentexes-matching (nth forks 0) '(dog ?x) 'CxOverlay))))
+      (is (= '#{(dog Fork1)}            (sentences (v/sentexes-matching (nth forks 1) '(dog ?x) 'CxOverlay))))
+      (is (= '#{(dog Muffet) (dog Fork2)} (sentences (v/sentexes-matching (nth forks 2) '(dog ?x) 'CxOverlay)))))
     (testing "and the base is what it was"
-      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'OverlayContext))))
+      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'CxOverlay))))
       (is (= before (base-snapshot base))))
     (v/clear! base)))
 
@@ -443,20 +443,20 @@
         dir  (tmpdir)]
     (try
       (let [f (v/fork base {:backend :disk :dir dir})]
-        (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
-        (v/retract! f (v/handle-of f '(dog Muffet) 'OverlayContext))
-        (is (= '#{(dog Rex)} (sentences (v/sentexes-matching f '(dog ?x) 'OverlayContext)))))
+        (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
+        (v/retract! f (v/handle-of f '(dog Muffet) 'CxOverlay))
+        (is (= '#{(dog Rex)} (sentences (v/sentexes-matching f '(dog ?x) 'CxOverlay)))))
       (disk/close-dir! dir)
       (testing "remounted over the same base, the fork is where it was left"
         (let [f2 (v/fork base {:backend :disk :dir dir})]
-          (is (= '#{(dog Rex)} (sentences (v/sentexes-matching f2 '(dog ?x) 'OverlayContext)))
+          (is (= '#{(dog Rex)} (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay)))
               "the inherited premise stayed retracted and the fork's own fact came back")
-          (is (empty? (v/sentexes-matching f2 '(mammal Muffet) 'OverlayContext))
+          (is (empty? (v/sentexes-matching f2 '(mammal Muffet) 'CxOverlay))
               "and so did what the retraction swept")
-          (is (= '#{(mammal Rex)} (sentences (v/sentexes-matching f2 '(mammal ?x) 'OverlayContext)))
+          (is (= '#{(mammal Rex)} (sentences (v/sentexes-matching f2 '(mammal ?x) 'CxOverlay)))
               "the base's rule still fires over the fork's own fact")))
       (testing "while the base never learned any of it"
-        (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'OverlayContext)))))
+        (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'CxOverlay)))))
       (finally
         (disk/close-dir! dir)
         (rm-rf! dir)
@@ -471,7 +471,7 @@
         dir  (tmpdir)]
     (try
       (let [f (v/fork base {:backend :disk :dir dir})]
-        (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+        (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
         ;; canonical both sides — the store canonicalizes, so `/var` arrives as `/private/var`
         (is (= (.getCanonicalPath (File. (str dir)))
                (.getCanonicalPath (File. (str (:dir f)))))
@@ -480,11 +480,11 @@
       (testing "the directory is free, so it mounts again"
         (let [f2 (v/fork base {:backend :disk :dir dir})]
           (is (= '#{(dog Muffet) (dog Rex)}
-                 (sentences (v/sentexes-matching f2 '(dog ?x) 'OverlayContext)))
+                 (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay)))
               "with both halves of the merged view intact")
           (v/close! f2)))
       (testing "and the base is untouched — it is mounted read-only and shared"
-        (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'OverlayContext)))))
+        (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'CxOverlay)))))
       (finally
         (disk/close-dir! dir)
         (rm-rf! dir)
@@ -498,15 +498,15 @@
   ;; suite this way — see scripts/test-backends.sh.)
   (let [base (doto (v/open-kb (assoc (base-opts 9) :recover? false)) (v/clear!))
         f    (v/fork base (fork-opts 9))]
-    (tu/with-terms [dog Muffet ThisContext]
-      (v/assert f (list 'genl dog 'thing) ThisContext {:strength :monotonic})
-      (v/assert-rule f [(list dog '?x)] (list 'mammal '?x) ThisContext)
-      (v/assert f (list dog Muffet) ThisContext {:strength :monotonic})
-      (is (= 1 (count (v/sentexes-matching f (list dog '?x) ThisContext))))
-      (is (seq (v/sentexes-matching f (list 'mammal '?x) ThisContext)))
+    (tu/with-terms [dog Muffet CxThis]
+      (v/assert f (list 'genl dog 'thing) CxThis {:strength :monotonic})
+      (v/assert-rule f [(list dog '?x)] (list 'mammal '?x) CxThis)
+      (v/assert f (list dog Muffet) CxThis {:strength :monotonic})
+      (is (= 1 (count (v/sentexes-matching f (list dog '?x) CxThis))))
+      (is (seq (v/sentexes-matching f (list 'mammal '?x) CxThis)))
       (is (v/isa? f Muffet 'thing))
-      (v/retract! f (v/handle-of f (list dog Muffet) ThisContext))
-      (is (empty? (v/sentexes-matching f (list 'mammal '?x) ThisContext)) "and retraction sweeps"))
+      (v/retract! f (v/handle-of f (list dog Muffet) CxThis))
+      (is (empty? (v/sentexes-matching f (list 'mammal '?x) CxThis)) "and retraction sweeps"))
     (is (zero? (v/sentex-count base)) "the empty base stayed empty")
     (v/clear! f)))
 
@@ -523,10 +523,10 @@
         (is (= :warn (:naming f)))
         (is (= :arbitrate (:constraints f)))
         (testing "and the inherited policy is the one that acts"
-          (tu/with-terms [dog_t cat_t Muffet ThisContext]
-            (v/assert f (list 'disjoint dog_t cat_t) ThisContext)
-            (v/assert f (list dog_t Muffet) ThisContext)
-            (is (v/assert f (list cat_t Muffet) ThisContext)
+          (tu/with-terms [dog_t cat_t Muffet CxThis]
+            (v/assert f (list 'disjoint dog_t cat_t) CxThis)
+            (v/assert f (list dog_t Muffet) CxThis)
+            (is (v/assert f (list cat_t Muffet) CxThis)
                 "the base arbitrates, so the fork admits the clash rather than refusing")
             (is (= 1 (count (v/contradictions f))))))
         (v/clear! f))
@@ -590,7 +590,7 @@
         dir  (tmpdir)]
     (try
       (let [f (v/fork base {:backend :disk :dir dir})]
-        (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+        (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
         (is (.isFile (java.io.File. (str dir "/index/layout.edn")))
             "the fork's own index half is stamped at open"))
       (disk/close-dir! dir)
@@ -600,7 +600,7 @@
       (testing "remounted under a moved layout, the fork's own half is rebuilt"
         (let [f2 (v/fork base {:backend :disk :dir dir})]
           (is (= '#{(dog Muffet) (dog Rex)}
-                 (sentences (v/sentexes-matching f2 '(dog ?x) 'OverlayContext)))
+                 (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay)))
               "the fork-local fact is findable again")
           (is (= (pr-str {:index-layout kv/index-layout-version})
                  (slurp (str dir "/index/layout.edn")))

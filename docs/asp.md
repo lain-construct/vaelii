@@ -207,11 +207,11 @@ genuinely *is* one of several options, so this understates rather than overclaim
 `label-context` materializes one labeling as a specialization context:
 
 ```clojure
-(label/label-context kb 'NixonAContext 'UniverseContext)
-;; -> {:context NixonAContext :handles [10]}
+(label/label-context kb 'CxNixonA 'CxUniverse)
+;; -> {:context CxNixonA :handles [10]}
 ```
 
-`ctx` sees `base` through `genlContext`, so it inherits the whole KB; what it adds is
+`ctx` sees `base` through `genlCx`, so it inherits the whole KB; what it adds is
 an explicit, queryable record of one arbitration. Two labelings of the same tie can
 be built as sibling contexts and compared.
 

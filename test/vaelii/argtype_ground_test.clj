@@ -56,7 +56,7 @@
   ;; forced and `inferred-types` never runs.  Pre-change (ArgTypeProver first, eager
   ;; scan) this issued ~M argIsa probes before FactProver got a turn.
   (tu/with-terms [Muffet]
-    (let [ctx 'UniverseContext, m 30
+    (let [ctx 'CxUniverse, m 30
           dog (typed-individual-in-m-relations! kb Muffet m ctx)
           calls (atom 0)]
       (with-redefs [res/matches-visible (counting-argisa-probes calls)]
@@ -74,7 +74,7 @@
   ;; a single element realizes only the head of the believed-sentex scan, not all M.
   ;; Eager (`into #{}`) would issue one argIsa probe per relation regardless.
   (tu/with-terms [Blob]
-    (let [ctx 'UniverseContext, m 50
+    (let [ctx 'CxUniverse, m 50
           _   (typed-individual-in-m-relations! kb Blob m ctx)
           calls (atom 0)]
       (with-redefs [res/matches-visible (counting-argisa-probes calls)]
@@ -93,7 +93,7 @@
   ;; no stored (food Bone1) fact, so ArgTypeProver must still run when FactProver
   ;; yields nothing — the reorder and the lazy `some` must not lose this answer.
   (tu/with-terms [eats food Muffet Bone1]
-    (let [ctx 'UniverseContext]
+    (let [ctx 'CxUniverse]
       (v/assert kb (list 'argIsa eats 2 food) ctx)
       (v/assert kb (list eats Muffet Bone1) ctx)          ; Bone1 @ arg2, food-constrained
       (testing "the inferred membership is provable"
@@ -109,7 +109,7 @@
   ;; inferred type set (the lazy `for` consumed to the end), including genl supertypes.
   ;; And `types-of`, which bypasses the prover engine, is untouched.
   (tu/with-terms [eats food edible fruit Muffet Bone1]
-    (let [ctx 'UniverseContext]
+    (let [ctx 'CxUniverse]
       (v/assert kb (list 'genl food edible) ctx)
       (v/assert kb (list 'argIsa eats 2 food) ctx)
       (v/assert kb (list eats Muffet Bone1) ctx)          ; Bone1 inferred food, hence edible
@@ -128,7 +128,7 @@
   ;; (cat Muffet) with no stored fact and no argIsa path: ArgTypeProver's `some` exhausts
   ;; the witness stream and finds nothing, so the goal fails cleanly.
   (tu/with-terms [Muffet cat]
-    (let [ctx 'UniverseContext, m 5]
+    (let [ctx 'CxUniverse, m 5]
       (typed-individual-in-m-relations! kb Muffet m ctx)  ; Muffet is inferrably animal, never cat
       (testing "a type it neither stores nor can infer is not provable"
         (is (not (v/ask? kb (list cat Muffet) ctx)))))))
@@ -139,8 +139,8 @@
   ;; The union path breaks an equal-cost tie on registry order, so FactProver must sit
   ;; ahead of ArgTypeProver in the plan for a ground `(Type Individual)` goal.
   (tu/with-terms [dog Muffet]
-    (v/assert kb (list dog Muffet) 'UniverseContext)
-    (let [provs (mapv :prover (v/query-plan kb (list dog Muffet) 'UniverseContext))
+    (v/assert kb (list dog Muffet) 'CxUniverse)
+    (let [provs (mapv :prover (v/query-plan kb (list dog Muffet) 'CxUniverse))
           pos   (into {} (map-indexed (fn [i p] [p i]) provs))
           fact  (pos "FactProver")
           arg   (pos "ArgTypeProver")]

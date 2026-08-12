@@ -15,7 +15,7 @@
 | individual | CapitalCamelCase | `[A-Z][A-Za-z0-9]*` (not a context) | `Muffet`, `Tom` |
 | type | snake_case, a **unary** predicate | `[a-z][a-z0-9_]*` | `dog`, `physical_object` |
 | **sense** | a type, plus the disambiguator saying *which* sense | `[a-z._][…]*-[a-z0-9][…]*` | `abrasive-grit`, `abandonment-romantic` |
-| context | CapitalCamelCase ending in `Context` | `[A-Z][A-Za-z0-9]*Context` | `UniverseContext`, `CoreContext` |
+| context | `Cx` prefix, then CapitalCamelCase | `Cx[A-Z][A-Za-z0-9]*` | `CxUniverse`, `CxCore` |
 | **lexeme** | the `lex` **namespace**; the name is not ours to spell | `(namespace x)` = `"lex"` | `lex/fool's_gold` |
 
 ## Notes

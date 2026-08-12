@@ -47,7 +47,7 @@
 
   The prover is **opt-in**: register it with `vaelii.core/add-prover`, and until then a KB
   stores and retrieves `temporalDistance` facts as ordinary facts without paying for the
-  closure.  The vocabulary ships in `kb/upper/TimeContext.txt` either way.  See
+  closure.  The vocabulary ships in `kb/upper/CxTime.txt` either way.  See
   docs/stp.md."
   (:require [taoensso.trove :as trove]
             [vaelii.impl.caches :as caches]

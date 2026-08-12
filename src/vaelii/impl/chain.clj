@@ -117,7 +117,7 @@
 ;; ---- exceptWhen: evaluating the exception -------------------------------
 ;; The exception is **any closed level-6 query** once the rule's bindings are
 ;; substituted in.  Level 6 (`:solved`) is the full prover stack *minus* rule
-;; backchaining, so an exception reaches through genl specificity, the genlContext
+;; backchaining, so an exception reaches through genl specificity, the genlCx
 ;; visibility closure, the transitive / symmetric / inverse metadata, disjointness and
 ;; the evaluables — but never invokes an unbounded proof search from inside the
 ;; relabel loop.  See docs/exceptions.md, "The exception is a query, not a literal".
@@ -461,7 +461,7 @@
   are the networks an entailed antecedent is solved against.
 
   Collecting them walks the calculus's own extent, the same order as reading one
-  network, and where its facts span contexts a `genlContext` closure besides, so it
+  network, and where its facts span contexts a `genlCx` closure besides, so it
   is cached for the length of a chaining run rather than recomputed per antecedent per
   binding.  Bound by `chain`; nil outside one, where it simply recomputes."
   nil)
@@ -470,7 +470,7 @@
   "The networks worth re-joining `calc` against — `qcn-kb/reader-contexts`, cached for
   the length of a chaining run.
 
-  A network is what a **reader** sees, and a reader sees the whole `genlContext` cone
+  A network is what a **reader** sees, and a reader sees the whole `genlCx` cone
   above it, so the contexts that merely *hold* a fact are not the networks a forward
   rule may join on: a context inheriting two contexts composes what neither
   composes alone, and that entailment exists for no other reader.  `ask` has always
@@ -888,7 +888,7 @@
   concluded something the KB says cannot be.  They are checked here, on the
   derivation path, exactly as `assert-one` checks them on the assert path.  So does
   stratification, for the one conclusion that can break it: a derived `genl` /
-  `genlContext` edge that would close a cycle through negation.
+  `genlCx` edge that would close a cycle through negation.
 
   A failure is **dropped and recorded**, never thrown: chaining is a fixpoint and
   must not abort halfway through it, and an exception escaping a rule firing would
@@ -984,7 +984,7 @@
               ;; they did not have, exactly as an asserted one does — same seeds, or
               ;; the fixpoint would depend on which rule fired first
               (into (special/subsumption-seeds kb conseq))
-              ;; and a derived genlContext edge widens what a rule can see, for the
+              ;; and a derived genlCx edge widens what a rule can see, for the
               ;; same reason and with the same remedy
               (into (special/visibility-seeds kb conseq))))))))
 
@@ -1240,13 +1240,13 @@
                                                   (str "completed firing has no placement context — "
                                                        "no context sees the rule, all antecedent facts, "
                                                        "and the genl edges the match subsumed through.  "
-                                                       "Add the genlContext edges that put one context "
+                                                       "Add the genlCx edges that put one context "
                                                        "above all of them (:rule-context and "
                                                        ":fact-contexts below name what has to be seen, "
                                                        ":subsumed the edges)")
                                                   (str "completed firing has no placement context — "
                                                        "no context sees the rule and all antecedent facts.  "
-                                                       "Add the genlContext edges that put one context "
+                                                       "Add the genlCx edges that put one context "
                                                        "above both (:rule-context and :fact-contexts "
                                                        "below name what has to be seen)"))}
                                          (seq links)
@@ -1304,7 +1304,7 @@
   rule view — a bare rule confers :monotonic and so caps the conclusion at its
   weakest antecedent, a `set/defaultRule` confers :default).  The justification is placed
   in the *maximal* contexts that see the rule and all antecedent facts (via
-  genlContext); returns {:new [handles]} for any newly created sentexes.  The rule
+  genlCx); returns {:new [handles]} for any newly created sentexes.  The rule
   handle is part of the justification, so retracting the rule retracts its
   justifications.  A default conclusion is placed *unconditionally* — any defeat is
   decided at settle time, so belief is order-independent.

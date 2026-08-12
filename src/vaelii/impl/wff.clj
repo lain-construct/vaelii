@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.wff
-  "Well-formedness checks for the special predicates: genl / genlContext (the type and
+  "Well-formedness checks for the special predicates: genl / genlCx (the type and
   context hierarchies), disjoint / disjointMetatype, and argIsa (argument types).
   Each returns a seq of problem strings; `assert` throws if any are present.
   Ordinary sentences are checked for argument *types* by checks/constraint-checks.
@@ -30,7 +30,7 @@
 ;; is the same story one step out: `disjoint` of genl-related types is contradictory
 ;; wherever the edge path exists, not merely where it is visible.
 ;;
-;; **`genlContext` is the exception, and deliberately.**  A cycle between types says
+;; **`genlCx` is the exception, and deliberately.**  A cycle between types says
 ;; two types are coextensive — a claim about terms, which is what the equality
 ;; partition is for, and which would make a `disjoint` pair disjoint from itself.  A
 ;; cycle between *contexts* says only that each sees the other, which is a claim
@@ -51,15 +51,15 @@
     (conj (str "genl " sub " " super " creates a cycle (" super
                " is already a subtype of " sub ")"))))
 
-(defn genlContext-problems [_tax [_ sub super :as s]]
+(defn genlCx-problems [_tax [_ sub super :as s]]
   (cond-> []
-    (not= 3 (count s))        (conj "genlContext takes two arguments")
-    (not (nm/context? sub))   (conj (str sub " is not a context (must end in Context)"))
-    (not (nm/context? super)) (conj (str super " is not a context (must end in Context)"))
+    (not= 3 (count s))        (conj "genlCx takes two arguments")
+    (not (nm/context? sub))   (conj (str sub " is not a context (must start with Cx)"))
+    (not (nm/context? super)) (conj (str super " is not a context (must start with Cx)"))
     ;; a self-edge is refused because it claims nothing: the closure is reflexive, so
     ;; the edge was already true before it arrived.  A longer cycle *is* a claim
     ;; (mutual visibility) and is admitted — see the note above.
-    (= sub super)             (conj (str sub " genlContext itself"))))
+    (= sub super)             (conj (str sub " genlCx itself"))))
 
 (defn disjoint-problems [tax [_ a b :as s]]
   (cond-> []
@@ -388,7 +388,7 @@
 ;; edge is as capable of closing a cycle as a rule is — an exception on `flightless`
 ;; is reached by a stored `(penguin Opus)` the moment `(genl penguin flightless)`
 ;; holds.  `negation-cycle` is therefore run from two places in `core`: from the
-;; rule being asserted, and — when a genl / genlContext edge arrives — from each
+;; rule being asserted, and — when a genl / genlCx edge arrives — from each
 ;; stored rule carrying an exception, against a taxonomy with the edge added.  The
 ;; search itself does not care which; it is told a start node and a taxonomy.
 ;;

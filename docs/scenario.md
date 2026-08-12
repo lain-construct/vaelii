@@ -18,10 +18,10 @@ relation for *every* pair of nodes — a singleton-valued network that survives 
 consistency, and so an arrangement nothing believed rules out.
 
 ```clojure
-(scenario iv/allen kb 'UniverseContext)
+(scenario iv/allen kb 'CxUniverse)
 ;=> {[A B] #{:meets} [B A] #{:met-by} [A D] #{:equal} …}
 
-(relations (scenario iv/allen kb 'UniverseContext))
+(relations (scenario iv/allen kb 'CxUniverse))
 ;=> {[A B] :meets [B A] :met-by [A D] :equal …}
 ```
 

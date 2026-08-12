@@ -31,8 +31,8 @@
   (tu/with-terms [banned allowed Aa Bb Cc Dd]
     ;; many negative `banned` facts, one positive `allowed` fact
     (doseq [i [Aa Bb Cc Dd]]
-      (v/assert kb (list 'not (list banned i)) 'NaturalWorldContext {:chain? false}))
-    (v/assert kb (list allowed Aa) 'NaturalWorldContext {:chain? false})
+      (v/assert kb (list 'not (list banned i)) 'CxNaturalWorld {:chain? false}))
+    (v/assert kb (list allowed Aa) 'CxNaturalWorld {:chain? false})
     (let [neg-cost (plan/est-matches kb (list 'not (list banned '?x)) #{})
           pos-cost (plan/est-matches kb (list allowed '?y) #{})]
       (testing "the negative literal's cost reflects its real extent, not zero"
@@ -46,10 +46,10 @@
   ;; negative `banned` ones, the positive literal must lead.
   (tu/with-terms [banned allowed Aa Bb Cc Dd]
     (doseq [i [Aa Bb Cc Dd]]
-      (v/assert kb (list 'not (list banned i)) 'NaturalWorldContext {:chain? false}))
-    (v/assert kb (list allowed Aa) 'NaturalWorldContext {:chain? false})
+      (v/assert kb (list 'not (list banned i)) 'CxNaturalWorld {:chain? false}))
+    (v/assert kb (list allowed Aa) 'CxNaturalWorld {:chain? false})
     (let [ordered (plan/order kb [(list 'not (list banned '?x)) (list allowed '?x)]
-                              'NaturalWorldContext)]
+                              'CxNaturalWorld)]
       (is (= (list allowed '?x) (first ordered))
           "the single-fact literal binds ?x before the four-fact one is tested"))))
 
@@ -62,7 +62,7 @@
   ;; exist.
   (tu/with-terms [parentOf Ann Bob Cid Dee Eve]
     (doseq [[p c] [[Ann Bob] [Ann Cid] [Dee Eve] [Bob Eve] [Cid Eve]]]
-      (v/assert kb (list parentOf p c) 'NaturalWorldContext {:chain? false}))
+      (v/assert kb (list parentOf p c) 'CxNaturalWorld {:chain? false}))
     (let [open      (plan/est-matches kb (list parentOf '?x '?y) #{})
           after-var (plan/est-matches kb (list parentOf '?x Cid) #{})]
       (testing "fixing the second argument is tighter than leaving both open"
@@ -79,17 +79,17 @@
   ;; because what needs pinning is the two branches of the seam itself: that an override
   ;; is consulted and that ordering follows it, and that one declining falls back.
   (tu/with-terms [alpha beta Xx]
-    (v/assert kb (list alpha Xx) 'NaturalWorldContext {:chain? false})
-    (v/assert kb (list beta Xx)  'NaturalWorldContext {:chain? false})
+    (v/assert kb (list alpha Xx) 'CxNaturalWorld {:chain? false})
+    (v/assert kb (list beta Xx)  'CxNaturalWorld {:chain? false})
     (let [goals    [(list alpha '?x) (list beta '?x)]
           ;; declare beta absurdly cheap and alpha expensive, inverting the tie
           override (fn [g _bound] (if (= (first g) beta) 1 9999))
-          ordered  (plan/order kb goals 'NaturalWorldContext {:est-override override})]
+          ordered  (plan/order kb goals 'CxNaturalWorld {:est-override override})]
       (is (= (list beta '?x) (first ordered))
           "the override decided the order, so it was consulted"))
     (testing "an override that declines (nil) falls back to the index model"
       (let [goals   [(list alpha '?x) (list beta '?x)]
-            ordered (plan/order kb goals 'NaturalWorldContext
+            ordered (plan/order kb goals 'CxNaturalWorld
                                 {:est-override (fn [_ _] nil)})]
         (is (= (count goals) (count ordered))
             "every literal survives the fallback path")
@@ -103,9 +103,9 @@
   ;; than starting at 0 — and must still find an answer at a higher level rather than
   ;; reporting none.
   (tu/with-terms [dog Muffet]
-    (v/assert kb (list dog Muffet) 'NaturalWorldContext)
-    (let [low  (v/escalate kb (list dog Muffet) 'NaturalWorldContext)
-          high (v/escalate kb (list dog Muffet) 'NaturalWorldContext 5)]
+    (v/assert kb (list dog Muffet) 'CxNaturalWorld)
+    (let [low  (v/escalate kb (list dog Muffet) 'CxNaturalWorld)
+          high (v/escalate kb (list dog Muffet) 'CxNaturalWorld 5)]
       (testing "from the default floor the cheapest answering level is found"
         (is (some? (:level low)))
         (is (>= (:level low) 2)))
@@ -122,6 +122,6 @@
   ;; non-symbol functor there is no root to drive it, and the guard must yield an
   ;; empty result rather than throwing or enumerating the KB.
   (tu/with-terms [dog Muffet]
-    (v/assert kb (list dog Muffet) 'NaturalWorldContext)
+    (v/assert kb (list dog Muffet) 'CxNaturalWorld)
     (is (empty? (v/lookup kb 1 '(?p ?x) '?ctx))
         "nothing names a root, so level 1 has nothing to offer")))

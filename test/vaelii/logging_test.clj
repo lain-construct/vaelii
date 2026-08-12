@@ -102,7 +102,7 @@
     (alter-var-root #'trove/*log-fn* (constantly collector))
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [dog Muffet]
-        (v/assert kb (list dog Muffet) 'UniverseContext))
+        (v/assert kb (list dog Muffet) 'CxUniverse))
       (is (identical? collector (.getRawRoot #'trove/*log-fn*))
           "open-kb, assert, chain and settle left the host's backend in place")
       (is (some? kb)))))
@@ -147,8 +147,8 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [dog barks Muffet]
       (let [out (with-out-str
-                  (v/assert-rule kb [(list dog '?x)] (list barks '?x) 'UniverseContext)
-                  (v/assert kb (list dog Muffet) 'UniverseContext))]
+                  (v/assert-rule kb [(list dog '?x)] (list barks '?x) 'CxUniverse)
+                  (v/assert kb (list dog Muffet) 'CxUniverse))]
         (is (re-find #"::chain-run" out) "a chaining run reports, truncated or not")
         (is (re-find #":derived 1" out) "with what it concluded")
         (is (re-find #"::settled" out) "and a settle reports what it cost")
@@ -159,12 +159,12 @@
 
 (deftest a-dropped-conclusion-at-debug-names-the-rule-behind-the-handle
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog barksAt Muffet IslandAContext IslandBContext]
+    (tu/with-terms [dog barksAt Muffet CxIslandA CxIslandB]
       ;; rule and fact in island contexts with no common descendant: the join
       ;; completes and the conclusion has nowhere to land
-      (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) IslandAContext)
+      (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA)
       (v/set-log-level :debug)
-      (let [out (with-out-str (v/assert kb (list dog Muffet) IslandBContext))]
+      (let [out (with-out-str (v/assert kb (list dog Muffet) CxIslandB))]
         (is (re-find #"::dropped-conclusion" out) "the drop itself is a :warn")
         (is (re-find #"::dropping-rule" out)
             "and at :debug the rule the handle stands for follows it")
@@ -174,9 +174,9 @@
   (testing "at :warn the drop is reported and the rule lookup is not made"
     (v/set-log-level :warn)
     (tu/with-neutral-kb [kb tu/fresh]
-      (tu/with-terms [dog barksAt Muffet IslandAContext IslandBContext]
-        (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) IslandAContext)
-        (let [out (with-out-str (v/assert kb (list dog Muffet) IslandBContext))]
+      (tu/with-terms [dog barksAt Muffet CxIslandA CxIslandB]
+        (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA)
+        (let [out (with-out-str (v/assert kb (list dog Muffet) CxIslandB))]
           (is (re-find #"::dropped-conclusion" out))
           (is (not (re-find #"::dropping-rule" out))))))))
 

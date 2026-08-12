@@ -5,8 +5,8 @@
   `lein run -m vaelii.impl.cli <cmd> <args…>`.  It runs the engine in-process (no
   daemon); to talk to a running daemon use `vaelii.impl.client` instead.
 
-    lein run -m vaelii.impl.cli assert  '(dog Muffet)'  NaturalWorldContext --dir /tmp/kb
-    lein run -m vaelii.impl.cli query   '(dog ?x)'    NaturalWorldContext --dir /tmp/kb
+    lein run -m vaelii.impl.cli assert  '(dog Muffet)'  CxNaturalWorld --dir /tmp/kb
+    lein run -m vaelii.impl.cli query   '(dog ?x)'    CxNaturalWorld --dir /tmp/kb
     lein run -m vaelii.impl.cli why     3                                 --dir /tmp/kb
     lein run -m vaelii.impl.cli export  /tmp/dump                         --dir /tmp/kb
     lein run -m vaelii.impl.cli repl --starter          # interactive, starter schema
@@ -91,7 +91,7 @@
   (try (edn/read-string s) (catch Exception _ s)))
 
 (defn read-forms
-  "Every EDN form in `s`, in order — how a REPL line's args (`(dog ?x) MyContext`) are
+  "Every EDN form in `s`, in order — how a REPL line's args (`(dog ?x) CxMy`) are
   parsed into data."
   [s]
   (let [r (PushbackReader. (StringReader. s))]
@@ -112,23 +112,23 @@
   out of step is how a usage message starts lying — and `dispatch` reaches into `args`
   with `nth`, so an unchecked short line raises `IndexOutOfBoundsException`, whose
   message is the class name and names neither the command nor the argument."
-  [["assert"      2 2   "'<sentence>' <Context>"        "store a fact"]
-   ["assert-rule" 3 3   "'[<antecedents>]' '<consequent>' <Context>" "store a rule"]
-   ["match"       2 2   "'<pattern>' <Context>"         "stored, believed literals"]
-   ["query"       2 2   "'<goal>' <Context>"            "the default read (--depth N to expand rules)"]
-   ["query?"      2 2   "'<goal>' <Context>"            "the same, as a boolean"]
-   ["ask"         2 2   "'<goal>' <Context>"            "the prover registry, no rule expansion"]
-   ["prove"       2 2   "'<goal>' <Context>"            "backward chaining; one solution per derivation"]
-   ["provable?"   2 2   "'<goal>' <Context>"            "the same, as a boolean"]
+  [["assert"      2 2   "'<sentence>' <CxName>"        "store a fact"]
+   ["assert-rule" 3 3   "'[<antecedents>]' '<consequent>' <CxName>" "store a rule"]
+   ["match"       2 2   "'<pattern>' <CxName>"         "stored, believed literals"]
+   ["query"       2 2   "'<goal>' <CxName>"            "the default read (--depth N to expand rules)"]
+   ["query?"      2 2   "'<goal>' <CxName>"            "the same, as a boolean"]
+   ["ask"         2 2   "'<goal>' <CxName>"            "the prover registry, no rule expansion"]
+   ["prove"       2 2   "'<goal>' <CxName>"            "backward chaining; one solution per derivation"]
+   ["provable?"   2 2   "'<goal>' <CxName>"            "the same, as a boolean"]
    ["retract"     1 1   "<handle>"                      "remove a sentex and what it solely supported"]
    ["why"         1 1   "<handle>"                      "the proof tree behind a belief"]
-   ["why-not"     1 2   "'<goal>' [<Context>]"          "why a goal is not believed"]
+   ["why-not"     1 2   "'<goal>' [<CxName>]"          "why a goal is not believed"]
    ["in"          1 1   "<handle>"                      "is it believed?"]
-   ["isa"         2 3   "<Individual> <type> [<Context>]" "type membership, via genl"]
-   ["types-of"    1 2   "<Individual> [<Context>]"      "the types asserted of it, not their supertypes"]
-   ["handle-of"   2 2   "'<sentence>' <Context>"        "the handle a sentence is stored under"]
+   ["isa"         2 3   "<Individual> <type> [<CxName>]" "type membership, via genl"]
+   ["types-of"    1 2   "<Individual> [<CxName>]"      "the types asserted of it, not their supertypes"]
+   ["handle-of"   2 2   "'<sentence>' <CxName>"        "the handle a sentence is stored under"]
    ["types"       0 0   ""                              "types in the genl hierarchy"]
-   ["contexts"    0 0   ""                              "contexts in the genlContext hierarchy"]
+   ["contexts"    0 0   ""                              "contexts in the genlCx hierarchy"]
    ["conflicts"   0 0   ""                              "irreducible :monotonic clashes, both still believed"]
    ["contradictions" 0 0 ""                             "coexisting P/¬P pairs at :default"]
    ["quality"     0 0   ""                              "a report on the knowledge: unfired rules, skew, depth, coverage"]
@@ -222,8 +222,8 @@
     (str "vaelii — a command-line driver for a KB\n\n"
          "  lein cli <command> [args…] [--dir <path>] [--starter] [--memory]\n\n"
          "Quote every argument. A shell eats parens, brackets and `?`:\n"
-         "  lein cli assert '(dog Muffet)' NaturalWorldContext --dir /tmp/kb\n"
-         "  lein cli match  '(dog ?x)'   NaturalWorldContext --dir /tmp/kb\n\n"
+         "  lein cli assert '(dog Muffet)' CxNaturalWorld --dir /tmp/kb\n"
+         "  lein cli match  '(dog ?x)'   CxNaturalWorld --dir /tmp/kb\n\n"
          "Commands:\n"
          (str/join "\n"
                    (for [[c _ _ ops gloss] command-table]

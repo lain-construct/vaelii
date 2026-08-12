@@ -1,8 +1,8 @@
-;; AnatomyContext — what kinds of thing have what kinds of part. Every sentence here
+;; CxAnatomy — what kinds of thing have what kinds of part. Every sentence here
 ;; is a `partType` claim, which is the *type-level* reading of `partOf`: (partType bird
 ;; wing) says birds have wings, where (partOf LeftWing Pingu) would say one particular
-;; thing is part of another. Sees the shared upper ontology via UniverseContext;
-;; WellContext sees it.
+;; thing is part of another. Sees the shared upper ontology via CxUniverse;
+;; CxWell sees it.
 ;;
 ;; Nothing here concludes anything about an individual, and that is the point. Going
 ;; from "birds have wings" to "Pingu has a wing" needs a quantifier reading — every
@@ -11,8 +11,8 @@
 ;; partType and partOf are two readings of one relation without moving a claim between
 ;; them; a KB that wants the individual parts states them.
 
-(genlContext AnatomyContext UniverseContext)
-(genlContext WellContext AnatomyContext)
+(genlCx CxAnatomy CxUniverse)
+(genlCx CxWell CxAnatomy)
 
 (partType arachnid leg)
 

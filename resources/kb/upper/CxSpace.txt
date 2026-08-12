@@ -1,9 +1,9 @@
-;; SpaceContext — qualitative spatial relations. Four independent calculi: the RCC-8
+;; CxSpace — qualitative spatial relations. Four independent calculi: the RCC-8
 ;; TOPOLOGY of regions (do they touch, overlap, nest?), the cardinal DIRECTION of one
 ;; place from another (which way, and how far round the compass?), RELATIVE DIRECTION
 ;; (which way is one thing from another as seen from a point of view?) and qualitative
 ;; DISTANCE (how far apart, on a scale of classes rather than in numbers?). Sees
-;; CoreContext; UniverseContext sees it, so a spatial relation is stateable from every
+;; CxCore; CxUniverse sees it, so a spatial relation is stateable from every
 ;; context.
 ;;
 ;; Topology. Eight BASE relations, jointly exhaustive and pairwise disjoint, so exactly
@@ -27,7 +27,7 @@
 ;; rightwardOf, frontwardOf, rearwardOf. The FRAME OF REFERENCE IS THE CONTEXT: relative
 ;; direction is ternary in the literature (A is left of B from viewpoint C), and a
 ;; constraint network is binary, so the viewpoint is the context the facts are stated
-;; in. (leftOf Mouse Lion) in LionMouseContext is a claim in that frame and in no other;
+;; in. (leftOf Mouse Lion) in CxLionMouse is a claim in that frame and in no other;
 ;; two contexts looking from opposite sides state opposite facts and neither contaminates
 ;; the other. Nothing declares a viewpoint, because the context is the viewpoint.
 ;;
@@ -54,8 +54,8 @@
 ;; spatial_thing — the type the four calculi relate — and nothing narrower;
 ;; picking them out more finely is not this file's job. See docs/space.md.
 
-(genlContext SpaceContext CoreContext)
-(genlContext UniverseContext SpaceContext)
+(genlCx CxSpace CxCore)
+(genlCx CxUniverse CxSpace)
 
 (comment atSomeDistanceFrom
          "(atSomeDistanceFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are some distance apart. Any class of the distance chain but the zero one, so it is the complement of coLocatedWith and holds of nothing and itself.")

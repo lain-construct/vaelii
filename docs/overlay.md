@@ -34,7 +34,7 @@ both halves naming one store is refused outright (`:type :base-is-overlay`).
 (def f    (v/fork base))                             ; ephemeral: an in-RAM overlay
 (def g    (v/fork base {:backend :disk :dir "/kb/g"})) ; durable: remountable later
 
-(v/assert f '(penguin Pingu) 'BirdContext)   ; f believes it; base and g do not
+(v/assert f '(penguin Pingu) 'CxBird)   ; f believes it; base and g do not
 ```
 
 `opts` names the fork's *own* storage, as an ordinary opts map — so the two variants are

@@ -33,7 +33,7 @@
             [vaelii.impl.protocols :as p]
             [vaelii.test-util :as tu]))
 
-(def ^:private ctx 'UniverseContext)
+(def ^:private ctx 'CxUniverse)
 
 (defn- chain
   "A `depth`-long genl chain of temporary types, leaf first: `(genl c0 c1)`, `(genl c1

@@ -26,9 +26,9 @@
 
 (tu/deftest-kb round-trip-stores-an-opaque-constant
   (tu/with-terms [FruitFn AppleTree fruit]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext)
-    (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
       (testing "the stored sentence holds an opaque constant, not the compound"
         (is (nat/reified-nat-symbol? k))
@@ -42,30 +42,30 @@
         (is (= (list 'color (list FruitFn AppleTree) 'Red)
                (nat/expand-expression kb (:sentence (v/sentex kb h))))))
       (testing "an unknown NAT resolves to no-match and mints nothing"
-        (let [before (count (v/sentexes-matching kb (list 'termOfUnit '?k '?e) 'UniverseContext))]
+        (let [before (count (v/sentexes-matching kb (list 'termOfUnit '?k '?e) 'CxUniverse))]
           (is (empty? (v/sentexes-matching kb (list 'color (list FruitFn 'PearTree) '?c) '?ctx)))
-          (is (= before (count (v/sentexes-matching kb (list 'termOfUnit '?k '?e) 'UniverseContext)))))))))
+          (is (= before (count (v/sentexes-matching kb (list 'termOfUnit '?k '?e) 'CxUniverse)))))))))
 
 ;; ---- 2. dedup ------------------------------------------------------------
 
 (tu/deftest-kb the-same-nat-yields-the-same-constant
   (tu/with-terms [FruitFn AppleTree]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (let [h1 (v/assert kb (list 'color (list FruitFn AppleTree) 'Red)   'UniverseContext)
-          h2 (v/assert kb (list 'taste (list FruitFn AppleTree) 'Sweet) 'UniverseContext)]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (let [h1 (v/assert kb (list 'color (list FruitFn AppleTree) 'Red)   'CxUniverse)
+          h2 (v/assert kb (list 'taste (list FruitFn AppleTree) 'Sweet) 'CxUniverse)]
       (is (= (k-of kb h1) (k-of kb h2)))
       (testing "one termOfUnit maps the expression"
         (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k (list FruitFn AppleTree))
-                                             'UniverseContext))))))))
+                                             'CxUniverse))))))))
 
 ;; ---- 3. nested -----------------------------------------------------------
 
 (tu/deftest-kb a-nested-nat-reifies-inner-then-outer
   (tu/with-terms [FruitFn BestTreeIn Orchard1]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (v/assert kb (list 'reifiableFunction BestTreeIn) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiableFunction BestTreeIn) 'CxUniverse)
     (let [h        (v/assert kb (list 'color (list FruitFn (list BestTreeIn Orchard1)) 'Green)
-                             'UniverseContext)
+                             'CxUniverse)
           inner-k  (nat/dedup-constant kb (list BestTreeIn Orchard1))
           outer-k  (k-of kb h)]
       (testing "both the inner and outer NAT have a termOfUnit"
@@ -81,15 +81,15 @@
 
 (tu/deftest-kb rename-rewrites-the-expression-keeping-the-constant-stable
   (tu/with-terms [FruitFn AppleTree MalusTree]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
-      (v/assert kb (list 'rewriteOf MalusTree AppleTree) 'UniverseContext)   ; rename AppleTree -> MalusTree
+      (v/assert kb (list 'rewriteOf MalusTree AppleTree) 'CxUniverse)   ; rename AppleTree -> MalusTree
       (testing "the constant is stable and its expression is rewritten"
         (is (= (list FruitFn MalusTree) (nat/nat-expression kb k)))
         (is (= k (nat/dedup-constant kb (list FruitFn MalusTree))))
         (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k (list FruitFn MalusTree))
-                                             'UniverseContext)))))
+                                             'CxUniverse)))))
       (testing "the retired spelling stays a usable question, resolving to the same K"
         ;; AppleTree is deprecated to MalusTree, so a goal naming the old term rewrites
         ;; to the new expression before lookup (docs/equality.md) and still finds K
@@ -97,24 +97,24 @@
 
 (tu/deftest-kb rename-collision-merges-the-two-constants
   (tu/with-terms [FruitFn AppleTree MalusTree]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (let [ha (v/assert kb (list 'color (list FruitFn AppleTree) 'Red)   'UniverseContext)
-          hm (v/assert kb (list 'taste (list FruitFn MalusTree) 'Sweet) 'UniverseContext)]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (let [ha (v/assert kb (list 'color (list FruitFn AppleTree) 'Red)   'CxUniverse)
+          hm (v/assert kb (list 'taste (list FruitFn MalusTree) 'Sweet) 'CxUniverse)]
       (is (not= (k-of kb ha) (k-of kb hm)))
-      (v/assert kb (list 'rewriteOf MalusTree AppleTree) 'UniverseContext)
+      (v/assert kb (list 'rewriteOf MalusTree AppleTree) 'CxUniverse)
       (testing "the colliding constants merge to one"
         (is (empty? (nat/colliding-constant-groups kb)))
         (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k (list FruitFn MalusTree))
-                                             'UniverseContext))))
+                                             'CxUniverse))))
         (is (some? (nat/dedup-constant kb (list FruitFn MalusTree))))))))
 
 ;; ---- 5. remove -----------------------------------------------------------
 
 (tu/deftest-kb removing-the-last-use-collects-the-orphaned-reified-nat
   (tu/with-terms [FruitFn AppleTree fruit]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext)
-    (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
       (is (some? (nat/nat-expression kb k)))
       (v/retract! kb h)
@@ -131,17 +131,17 @@
 
 (tu/deftest-kb a-users-unary-claim-about-a-reified-nat-is-a-use-not-bookkeeping
   (tu/with-terms [FruitFn AppleTree prime noted Author]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (let [h  (v/assert kb (list noted Author (list FruitFn AppleTree)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (let [h  (v/assert kb (list noted Author (list FruitFn AppleTree)) 'CxUniverse)
           k  (nth (:sentence (v/sentex kb h)) 2)
-          hu (v/assert kb (list prime (list FruitFn AppleTree)) 'UniverseContext)]
+          hu (v/assert kb (list prime (list FruitFn AppleTree)) 'CxUniverse)]
       (testing "both facts stand on one constant, and neither is a declared result type"
         (is (nat/reified-nat-symbol? k))
         (is (= (list prime k) (:sentence (v/sentex kb hu))))
         (is (false? (nat/orphan? kb k))))
       (v/retract! kb h)
       (testing "the binary use goes and the unary claim survives, holding the constant"
-        (is (seq (v/sentexes-matching kb (list prime k) 'UniverseContext)))
+        (is (seq (v/sentexes-matching kb (list prime k) 'CxUniverse)))
         (is (= (list FruitFn AppleTree) (nat/nat-expression kb k)))
         (is (false? (nat/orphan? kb k))))
       (v/retract! kb hu)
@@ -152,22 +152,22 @@
 
 (tu/deftest-kb the-declaration-is-what-separates-a-materialized-type-from-a-claim
   (tu/with-terms [FruitFn AppleTree fruit ripe color]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext)
-    (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k  (k-of kb h)
-          hr (v/assert kb (list ripe k) 'UniverseContext)]
+          hr (v/assert kb (list ripe k) 'CxUniverse)]
       (testing "two unary sentexes of one shape stand on the constant"
-        (is (seq (v/sentexes-matching kb (list fruit k) 'UniverseContext)))
-        (is (seq (v/sentexes-matching kb (list ripe k) 'UniverseContext))))
+        (is (seq (v/sentexes-matching kb (list fruit k) 'CxUniverse)))
+        (is (seq (v/sentexes-matching kb (list ripe k) 'CxUniverse))))
       (v/retract! kb h)
       (testing "the undeclared one is a use, so the constant outlives its other use"
         (is (= (list FruitFn AppleTree) (nat/nat-expression kb k)))
-        (is (seq (v/sentexes-matching kb (list ripe k) 'UniverseContext))))
+        (is (seq (v/sentexes-matching kb (list ripe k) 'CxUniverse))))
       (v/retract! kb hr)
       (testing "the declared one is collected with the constant — no dangling nat/ symbol"
         (is (empty? (kb/find-sentexes kb k)))
-        (is (empty? (v/sentexes-matching kb (list fruit k) 'UniverseContext)))
+        (is (empty? (v/sentexes-matching kb (list fruit k) 'CxUniverse)))
         (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
         (is (empty? (nat/orphaned-constants kb)))))))
 
@@ -180,9 +180,9 @@
   ;; The order the term index yields decides whether it happens, so the two tests above
   ;; witness it only in some retrieval orders; this one pins the property instead.
   (tu/with-terms [FruitFn AppleTree fruit color]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext)
-    (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k  (k-of kb h)
           hs (nat/bookkeeping-handles kb k)]
       ;; the claim is that nothing in the answer is still pending, not that it is a
@@ -199,10 +199,10 @@
 
 (tu/deftest-kb collecting-an-orphan-cascades-to-the-nat-nested-in-its-expression
   (tu/with-terms [FruitFn BestTreeIn Orchard1]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (v/assert kb (list 'reifiableFunction BestTreeIn) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiableFunction BestTreeIn) 'CxUniverse)
     (let [h       (v/assert kb (list 'color (list FruitFn (list BestTreeIn Orchard1)) 'Green)
-                            'UniverseContext)
+                            'CxUniverse)
           outer-k (k-of kb h)
           inner-k (nat/dedup-constant kb (list BestTreeIn Orchard1))]
       (testing "the inner constant is referenced only by the outer one's expression"
@@ -225,27 +225,27 @@
 
 (tu/deftest-kb a-nat-whose-use-the-settle-swept-is-collected-too
   (tu/with-terms [FruitFn AppleTree fruity brightAs weather overcast Sunny Sun]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
     ;; `fruity` is the function's declared result type, so the sentence that mints the
     ;; constant is the constant's own materialized type — one sentex, and bookkeeping.
     ;; The exception is about the weather rather than about the fruit, so the rule's
     ;; conclusion is the only sentence in the whole test that names the constant.
-    (v/assert kb (list 'resultIsa FruitFn fruity) 'UniverseContext)
-    (let [h (v/assert kb (list fruity (list FruitFn AppleTree)) 'UniverseContext)
+    (v/assert kb (list 'resultIsa FruitFn fruity) 'CxUniverse)
+    (let [h (v/assert kb (list fruity (list FruitFn AppleTree)) 'CxUniverse)
           k (k-of kb h)]
-      (v/assert kb (list weather Sunny) 'UniverseContext)
+      (v/assert kb (list weather Sunny) 'CxUniverse)
       (v/assert kb (list 'exceptWhen (list overcast '?w)
                          (list 'set/defaultRule
                                (list 'implies (list 'and (list fruity '?x) (list weather '?w))
                                      (list brightAs '?x Sun))))
-                'UniverseContext)
+                'CxUniverse)
       (testing "the rule's conclusion is the constant's one live use"
         (is (nat/reified-nat-symbol? k))
-        (is (seq (v/sentexes-matching kb (list brightAs k Sun) 'UniverseContext)))
+        (is (seq (v/sentexes-matching kb (list brightAs k Sun) 'CxUniverse)))
         (is (false? (nat/orphan? kb k))))
-      (v/edit! kb {:add [[(list overcast Sunny) 'UniverseContext]]})
+      (v/edit! kb {:add [[(list overcast Sunny) 'CxUniverse]]})
       (testing "the exception blocks the rule and the settle sweeps the conclusion"
-        (is (empty? (v/sentexes-matching kb (list brightAs k Sun) 'UniverseContext))))
+        (is (empty? (v/sentexes-matching kb (list brightAs k Sun) 'CxUniverse))))
       (testing "and the constant it was the last use of goes with it"
         (is (nil? (nat/nat-expression kb k)))
         (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
@@ -255,9 +255,9 @@
 
 (tu/deftest-kb an-unreifiable-nat-stays-structural
   (tu/with-terms [QuantityFn Obj]
-    (v/assert kb (list 'unreifiableFunction QuantityFn) 'UniverseContext)
+    (v/assert kb (list 'unreifiableFunction QuantityFn) 'CxUniverse)
     (let [nut (list QuantityFn 5 'Kilogram)
-          h   (v/assert kb (list 'mass Obj nut) 'UniverseContext)]
+          h   (v/assert kb (list 'mass Obj nut) 'CxUniverse)]
       (testing "the compound is stored structurally, not minted"
         (is (= (list 'mass Obj nut) (:sentence (v/sentex kb h))))
         (is (nil? (nat/dedup-constant kb nut))))
@@ -271,7 +271,7 @@
     (testing "the gate is off and a plain compound is stored verbatim"
       (is (false? (nat/any-reifiable-functions? kb)))
       ;; a compound argument with no reifiableFunction declared is left structural
-      (let [h (v/assert kb (list 'grows (list FruitFn AppleTree) 'Spring) 'UniverseContext)]
+      (let [h (v/assert kb (list 'grows (list FruitFn AppleTree) 'Spring) 'CxUniverse)]
         (is (= (list 'grows (list FruitFn AppleTree) 'Spring) (:sentence (v/sentex kb h))))))))
 
 ;; ---- 8. every read path asks the same question ---------------------------
@@ -285,23 +285,23 @@
 
 (tu/deftest-kb every-read-path-reifies-the-nat-in-its-goal
   (tu/with-terms [CapitalOfFn France isCapital Yes]
-    (v/assert kb (list 'reifiableFunction CapitalOfFn) 'UniverseContext)
-    (let [h (v/assert kb (list isCapital (list CapitalOfFn France) Yes) 'UniverseContext)]
+    (v/assert kb (list 'reifiableFunction CapitalOfFn) 'CxUniverse)
+    (let [h (v/assert kb (list isCapital (list CapitalOfFn France) Yes) 'CxUniverse)]
       (testing "the store holds a constant, so a goal spelled as the NAT must be reified"
         (is (nat/reified-nat-symbol? (second (:sentence (v/sentex kb h)))))))
     (doseq [goal [(list isCapital (list CapitalOfFn France) Yes)
                   (list isCapital (list CapitalOfFn France) '?w)]]
       (testing (str "the ground and open forms of " (pr-str goal))
-        (is (= 1 (count (v/ask kb goal 'UniverseContext))))
-        (is (= 1 (count (v/sentexes-matching kb goal 'UniverseContext))))
-        (is (= 1 (count (v/prove kb [goal] 'UniverseContext))))
+        (is (= 1 (count (v/ask kb goal 'CxUniverse))))
+        (is (= 1 (count (v/sentexes-matching kb goal 'CxUniverse))))
+        (is (= 1 (count (v/prove kb [goal] 'CxUniverse))))
         (testing "the anytime ask is the same ask, not a differently-prepared one"
-          (let [r (v/ask-within kb goal 'UniverseContext {})]
+          (let [r (v/ask-within kb goal 'CxUniverse {})]
             (is (= :complete (:status r)))
-            (is (= (v/ask kb goal 'UniverseContext) (:results r)))))
+            (is (= (v/ask kb goal 'CxUniverse) (:results r)))))
         (testing "and so are the two levels that claim to be the engine's dispatch"
-          (is (= 1 (count (v/lookup kb 6 goal 'UniverseContext))))
-          (is (= 1 (count (v/lookup kb 7 goal 'UniverseContext)))))))))
+          (is (= 1 (count (v/lookup kb 6 goal 'CxUniverse))))
+          (is (= 1 (count (v/lookup kb 7 goal 'CxUniverse)))))))))
 
 (tu/deftest-kb an-exceptWhen-query-meets-the-constant-its-fact-was-stored-under
   ;; The write walk descends a rule's antecedents, so an `(unknown <NAT goal>)` reifies
@@ -311,32 +311,32 @@
   ;; (docs/exceptions.md, the open-world reading), so the rule fires unguarded and
   ;; nothing says so.  One evaluator, so all three chainers or none.
   (tu/with-terms [CapitalOfFn France isCapital Yes bird flies Tweety]
-    (v/assert kb (list 'reifiableFunction CapitalOfFn) 'UniverseContext)
-    (v/assert kb (list bird Tweety) 'UniverseContext)
-    (v/assert kb (list isCapital (list CapitalOfFn France) Yes) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction CapitalOfFn) 'CxUniverse)
+    (v/assert kb (list bird Tweety) 'CxUniverse)
+    (v/assert kb (list isCapital (list CapitalOfFn France) Yes) 'CxUniverse)
     (v/assert kb (list 'exceptWhen [(list isCapital (list CapitalOfFn France) Yes)]
                        (list 'set/defaultRule
                              (list 'implies (list bird '?x) (list flies '?x))))
-              'UniverseContext)
-    (is (v/ask? kb (list isCapital (list CapitalOfFn France) Yes) 'UniverseContext)
+              'CxUniverse)
+    (is (v/ask? kb (list isCapital (list CapitalOfFn France) Yes) 'CxUniverse)
         "the conjunct is answerable when it is asked as a goal")
-    (is (empty? (v/sentexes-matching kb (list flies '?x) 'UniverseContext))
+    (is (empty? (v/sentexes-matching kb (list flies '?x) 'CxUniverse))
         "so forward chaining concludes nothing")
-    (is (empty? (v/prove kb (list flies '?x) 'UniverseContext))
+    (is (empty? (v/prove kb (list flies '?x) 'CxUniverse))
         "and the DFS proves nothing")
     (is (empty? (binding [v/*query-engine* :inference
                           v/*query-options*  {:max-depth 3}]
-                  (v/prove kb (list flies '?x) 'UniverseContext)))
+                  (v/prove kb (list flies '?x) 'CxUniverse)))
         "and neither does the node engine")))
 
 ;; ---- resultGenl + rewriteOf-to-real-term ---------------------------------
 
 (tu/deftest-kb result-genl-materializes-a-subtype-edge
   (tu/with-terms [SubtypeFn Base super]
-    (v/assert kb (list 'reifiableFunction SubtypeFn) 'UniverseContext)
-    (v/assert kb (list 'genl super 'thing) 'UniverseContext)
-    (v/assert kb (list 'resultGenl SubtypeFn super) 'UniverseContext)
-    (let [h (v/assert kb (list 'studies 'Alice (list SubtypeFn Base)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction SubtypeFn) 'CxUniverse)
+    (v/assert kb (list 'genl super 'thing) 'CxUniverse)
+    (v/assert kb (list 'resultGenl SubtypeFn super) 'CxUniverse)
+    (let [h (v/assert kb (list 'studies 'Alice (list SubtypeFn Base)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (testing "the minted constant is a subtype of the result type"
         (is (nat/reified-nat-symbol? k))
@@ -344,10 +344,10 @@
 
 (tu/deftest-kb rewriteof-reifies-a-nat-to-an-existing-real-term
   (tu/with-terms [CapitalFn France Paris]
-    (v/assert kb (list 'reifiableFunction CapitalFn) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction CapitalFn) 'CxUniverse)
     ;; (CapitalFn France) should reify to the real Paris, not a fresh constant
-    (v/assert kb (list 'rewriteOf Paris (list CapitalFn France)) 'UniverseContext)
-    (let [h (v/assert kb (list 'locatedIn (list CapitalFn France) 'Europe) 'UniverseContext)]
+    (v/assert kb (list 'rewriteOf Paris (list CapitalFn France)) 'CxUniverse)
+    (let [h (v/assert kb (list 'locatedIn (list CapitalFn France) 'Europe) 'CxUniverse)]
       (testing "the NAT resolves to the declared real term"
         (is (= (list 'locatedIn Paris 'Europe) (:sentence (v/sentex kb h))))
         (is (seq (v/sentexes-matching kb (list 'locatedIn (list CapitalFn France) '?where) '?ctx)))))))
@@ -359,10 +359,10 @@
   ;; Maria)` according to arrival order — divergent stored state, inherited by every
   ;; later read.  Two declarations are a disagreement, not a tie to break.
   (tu/with-terms [MotherFn Muffet Mary Maria]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (v/assert kb (list 'rewriteOf Mary (list MotherFn Muffet)) 'UniverseContext)
-    (v/assert kb (list 'rewriteOf Maria (list MotherFn Muffet)) 'UniverseContext)
-    (let [h      (v/assert kb (list 'likes 'Tom (list MotherFn Muffet)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'rewriteOf Mary (list MotherFn Muffet)) 'CxUniverse)
+    (v/assert kb (list 'rewriteOf Maria (list MotherFn Muffet)) 'CxUniverse)
+    (let [h      (v/assert kb (list 'likes 'Tom (list MotherFn Muffet)) 'CxUniverse)
           stored (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat/reified-nat-symbol? stored)
           "a fresh constant stands until the disagreement is resolved")
@@ -377,9 +377,9 @@
   ;; `recover` rebuilds the taxonomy + JTMS in place from the store (it adds no
   ;; sentex), so the fixture's net-neutral teardown still restores the baseline.
   (tu/with-terms [FruitFn AppleTree fruit]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext)
-    (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
       (v/recover kb)
       (testing "the gate, the constant map, and the materialized type all rebuild"
@@ -388,7 +388,7 @@
         (is (= k (nat/dedup-constant kb (list FruitFn AppleTree))))
         (is (seq (v/sentexes-matching kb (list fruit k) '?ctx))))
       (testing "a fresh NAT still dedups to the same constant after recovery"
-        (let [h2 (v/assert kb (list 'taste (list FruitFn AppleTree) 'Sweet) 'UniverseContext)]
+        (let [h2 (v/assert kb (list 'taste (list FruitFn AppleTree) 'Sweet) 'CxUniverse)]
           (is (= k (k-of kb h2))))))))
 
 ;; ---- the corresponding predicate -----------------------------------------
@@ -402,22 +402,22 @@
 
 (tu/deftest-kb a-corresponding-fact-names-the-term-an-application-reifies-to
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)]
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
+    (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)]
       (testing "the application resolves to the value, and mints nothing beside it"
         (is (= (list caresFor Bob Mary) (:sentence (v/sentex kb h))))
         (is (empty? (v/sentexes-matching kb (list 'termOfUnit '?k (list MotherFn Muffet))
-                                         'UniverseContext))))
+                                         'CxUniverse))))
       (testing "a query written with the application still finds it"
         (is (= [{'?w Bob}] (v/ask kb (list caresFor '?w (list MotherFn Muffet)) '?ctx)))))))
 
 (tu/deftest-kb an-application-with-no-value-mints-a-constant-that-answers-the-predicate
   (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (testing "no value is known, so the expression mints a placeholder"
         (is (nat/reified-nat-symbol? k)))
@@ -428,12 +428,12 @@
   ;; the order-independence case.  The fact and the application say the same thing, so
   ;; whichever lands second must not leave the KB with two values for one application.
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat/reified-nat-symbol? k))
-      (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
+      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
       (testing "one value, and it is the one somebody named"
         (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) '?ctx))))
       (testing "the use of the placeholder migrated onto it"
@@ -446,23 +446,23 @@
   ;; Cyc's own example: (StreetCornerFn XING DIRECTION) = LOT exactly when
   ;; (streetCornerOf LOT XING DIRECTION), so the value is argument 1 and not the last.
   (tu/with-terms [StreetCornerFn streetCornerOf Xing1 North Lot7 ownedBy Alice]
-    (v/assert kb (list 'reifiableFunction StreetCornerFn) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction StreetCornerFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate StreetCornerFn streetCornerOf 1)
-              'UniverseContext)
-    (v/assert kb (list streetCornerOf Lot7 Xing1 North) 'UniverseContext)
-    (let [h (v/assert kb (list ownedBy (list StreetCornerFn Xing1 North) Alice) 'UniverseContext)]
+              'CxUniverse)
+    (v/assert kb (list streetCornerOf Lot7 Xing1 North) 'CxUniverse)
+    (let [h (v/assert kb (list ownedBy (list StreetCornerFn Xing1 North) Alice) 'CxUniverse)]
       (is (= (list ownedBy Lot7 Alice) (:sentence (v/sentex kb h)))))))
 
 (tu/deftest-kb a-declaration-arriving-last-reconciles-what-was-already-minted
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat/reified-nat-symbol? k))
-      (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
+      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
       (testing "before the declaration the two terms are unrelated"
         (is (= k (nat/dedup-constant kb (list MotherFn Muffet)))))
-      (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
+      (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
       (testing "declaring it last reaches the state declaring it first would have"
         (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))
         (is (seq (v/sentexes-matching kb (list caresFor Bob Mary) '?ctx)))
@@ -470,11 +470,11 @@
 
 (tu/deftest-kb a-declaration-arriving-last-projects-a-placeholder-that-has-no-value
   (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (empty? (v/ask kb (list motherOf Muffet '?m) '?ctx)))
-      (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
+      (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
       (testing "the constant minted before the declaration is projected by it"
         (is (= [{'?m k}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))))))
 
@@ -483,11 +483,11 @@
   ;; between them would have to key on a handle, which is the one thing belief may never
   ;; do — so neither is read, and the application mints as if none were declared.
   (tu/with-terms [MotherFn motherOf parentOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (v/assert kb (list 'functionCorrespondingPredicate MotherFn parentOf) 'UniverseContext)
-    (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MotherFn parentOf) 'CxUniverse)
+    (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat/reified-nat-symbol? k))
       (is (not= Mary k))
@@ -497,14 +497,14 @@
 
 (tu/deftest-kb retracting-the-declaration-stops-the-application-resolving
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor sees]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (let [d (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)]
-      (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (let [d (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)]
+      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
       (is (= Mary (nat/correspondence-value kb (list MotherFn Muffet))))
       (v/retract! kb d)
       (testing "the declaration is belief-following, so the reify stops reading it"
         (is (nil? (nat/correspondence-value kb (list MotherFn Muffet))))
-        (let [h (v/assert kb (list sees Bob (list MotherFn Muffet)) 'UniverseContext)]
+        (let [h (v/assert kb (list sees Bob (list MotherFn Muffet)) 'CxUniverse)]
           (is (nat/reified-nat-symbol? (nth (:sentence (v/sentex kb h)) 2))))))))
 
 (tu/deftest-kb an-ill-formed-correspondence-is-refused
@@ -514,7 +514,7 @@
                       ["an individual"     (list 'functionCorrespondingPredicate MotherFn Mary)]
                       ["a position that is not a positive integer"
                        (list 'functionCorrespondingPredicate MotherFn motherOf 'first)]]]
-      (let [e (try (v/assert kb s 'UniverseContext) nil
+      (let [e (try (v/assert kb s 'CxUniverse) nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) what)
         (is (= :not-well-formed (:type (ex-data e))) what)))))
@@ -525,12 +525,12 @@
   ;; recovered KB that stopped resolving applications would be a restart changing an
   ;; answer.
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (v/assert kb (list motherOf Muffet Mary) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
+    (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
     (v/recover kb)
     (is (= Mary (nat/correspondence-value kb (list MotherFn Muffet))))
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)]
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)]
       (is (= (list caresFor Bob Mary) (:sentence (v/sentex kb h)))))))
 
 (tu/deftest-kb a-projection-does-not-keep-an-orphaned-placeholder-alive
@@ -538,9 +538,9 @@
   ;; type — a constant whose only remaining sentex is its own projection has no live
   ;; use, and treating one as a use would make every placeholder immortal.
   (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
-    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'UniverseContext)
-    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'UniverseContext)
+    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (seq (v/ask kb (list motherOf Muffet '?m) '?ctx)))
       (v/retract! kb h)

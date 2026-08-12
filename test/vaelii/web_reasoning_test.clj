@@ -86,7 +86,7 @@
   ;; the line that makes the page checkable: every claim on a card is about these
   ;; handles, and a reader can open each one
   (let [c (card (:body (GET "/reasoning")) "arg-preserving")
-        h (v/handle-of kb '(largerThan mammal insect) 'SizeContext)]
+        h (v/handle-of kb '(largerThan mammal insect) 'CxSize)]
     (is (nat-int? h))
     (is (str/includes? c (str "/sentex/" h))
         "the premise the inheritance runs from is linked, not merely described")
@@ -111,8 +111,8 @@
                                     {:id "fabricated" :group "Taxonomy"
                                      :title "A card this KB cannot support"
                                      :shows "Whatever it says, the KB does not hold the sentexes it names."
-                                     :rests-on [[(list nowhere Zork) 'WellContext]]
-                                     :goal (list nowhere Zork) :context 'WellContext
+                                     :rests-on [[(list nowhere Zork) 'CxWell]]
+                                     :goal (list nowhere Zork) :context 'CxWell
                                      :expect :yes})]
       (let [t (text-of (card (:body (GET "/reasoning")) "fabricated"))]
         (is (str/includes? t "not in this KB") "the missing dependency is named")

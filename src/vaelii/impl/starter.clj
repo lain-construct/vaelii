@@ -2,50 +2,50 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.starter
   "A starter common-sense KB: a documented, **schema-only** upper + middle ontology.
-  It loads the CoreContext vocabulary (vaelii.impl.core-context), then the starter's own
+  It loads the CxCore vocabulary (vaelii.impl.core-context), then the starter's own
   contexts, each a KB file on the classpath under resources/kb/:
 
     * upper (definitional — between Core and Universe): what things *are*, always
       true, like `genl`.  Split by domain, one context each:
-        - AbstractContext.txt — the abstract type skeleton (physical/intangible and
+        - CxAbstract.txt — the abstract type skeleton (physical/intangible and
                                 their kinds) + the structural relations partOf/locatedIn.
-        - OrganismContext.txt — the biological taxonomy + its disjointness.
-        - LifeContext.txt     — the organism relations (parentOf, siblingOf, flies,
+        - CxOrganism.txt — the biological taxonomy + its disjointness.
+        - CxLife.txt     — the organism relations (parentOf, siblingOf, flies,
                                 mortal, birthYearOf, olderThan, …) with argIsa + metadata.
-        - SocietyContext.txt  — the social relations (marriedTo, likes, owns).
-        - MeasureContext.txt  — the theory of measurement: the two measure terms, the
+        - CxSociety.txt  — the social relations (marriedTo, likes, owns).
+        - CxMeasure.txt  — the theory of measurement: the two measure terms, the
                                 dimensionOf/conversionFactor table with the units that
                                 fill it, the comparisons, and weightOf / heightOf.
-        - SpaceContext.txt    — qualitative space: RCC-8 region relations (eight base
+        - CxSpace.txt    — qualitative space: RCC-8 region relations (eight base
                                 + six derived) and cardinal directions (nine + four).
-        - TimeContext.txt     — qualitative time: Allen's interval relations (thirteen
+        - CxTime.txt     — qualitative time: Allen's interval relations (thirteen
                                 base + seven derived), plus the length / totalDuration /
                                 overlapDuration vocabulary the arithmetic computes over.
     * middle (theory — between Universe and Well): how the definitional things
       *interrelate*, where several overlapping theories can coexist.
-        - AnatomyContext.txt   — what kinds of thing have what kinds of part.
-        - BiologyContext.txt   — birds fly by default except penguins; living things
+        - CxAnatomy.txt   — what kinds of thing have what kinds of part.
+        - CxBiology.txt   — birds fly by default except penguins; living things
                                  are mortal; flight enables travel; sleep is what the
                                  theory is willing to assume.
-        - KinshipContext.txt   — grandparentOf, ancestorOf, olderThan, and parenthood
+        - CxKinship.txt   — grandparentOf, ancestorOf, olderThan, and parenthood
                                  from maternity and paternity.
-        - MereologyContext.txt — a part is located where its whole is; owning a whole
+        - CxMereology.txt — a part is located where its whole is; owning a whole
                                  entails owning its parts.
-        - SizeContext.txt      — comparative size: stated between kinds, computed
+        - CxSize.txt      — comparative size: stated between kinds, computed
                                  between objects from their measures.
-        - SocialContext.txt    — what acquaintance follows from; employment as one way
+        - CxSocial.txt    — what acquaintance follows from; employment as one way
                                  of belonging.
 
   The context spindle is a five-layer axis, most general (top) to most specific
-  (bottom): CoreContext, the upper layer, UniverseContext, the middle layer,
-  WellContext.  Each upper/middle file wires itself into the axis, so the topology is
+  (bottom): CxCore, the upper layer, CxUniverse, the middle layer,
+  CxWell.  Each upper/middle file wires itself into the axis, so the topology is
   data.  **No cast and no contingent facts ship**: the starter is a schema, and
-  contingent data (a cast, worked examples, the Aesop fables) belongs below WellContext
+  contingent data (a cast, worked examples, the Aesop fables) belongs below CxWell
   and lives in the tests that need it.
 
   The unit table is the one place individuals ship, and it applies that rule rather
   than excepting itself from it: a minute is sixty seconds by stipulation, so the
-  factor is vocabulary and not a measurement anybody took.  MeasureContext.txt states
+  factor is vocabulary and not a measurement anybody took.  CxMeasure.txt states
   the test it holds a unit to.
 
   What stays in code here is the *order the layers* load in — loading order is logic,
@@ -62,11 +62,11 @@
   "Populate `kb` with the starter schema — every context under resources/kb/, loaded
   on kb start by default. Returns kb."
   [kb]
-  (core-context/load-into kb)                                       ; CoreContext.txt: the vocabulary head
+  (core-context/load-into kb)                                       ; CxCore.txt: the vocabulary head
   (seed/load-layer kb "upper"  (seed/layer-contexts "upper"))  ; every definitional context
   (seed/load-layer kb "middle" (seed/layer-contexts "middle")) ; every theory context
   ;; every type is a unaryPredicate — computed over the taxonomy, so it stays in code;
-  ;; a predicate classification, placed with the others in CoreContext
+  ;; a predicate classification, placed with the others in CxCore
   (doseq [t (sort-by str (tax/types (:taxonomy kb)))]
-    (v/assert kb (list 'unaryPredicate t) 'CoreContext))
+    (v/assert kb (list 'unaryPredicate t) 'CxCore))
   kb)

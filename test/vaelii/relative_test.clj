@@ -24,7 +24,7 @@
             [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu]))
 
-;; A fresh KB per test: the CoreContext grammar, the SpaceContext vocabulary that states
+;; A fresh KB per test: the CxCore grammar, the CxSpace vocabulary that states
 ;; relative directions in it, and the prover registered.  The vocabulary is an upper
 ;; context (it is *about* space, so it is nobody else's business); the prover is opt-in, so
 ;; registering it is what turns stored relative-direction facts into a network.  The
@@ -32,10 +32,10 @@
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'SpaceContext "upper")
+                        (seed/load-context 'CxSpace "upper")
                         (v/add-prover (rel/relative-prover)))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 ;; ---- the algebra, derived from coordinates ------------------------------
 
@@ -295,22 +295,22 @@
   ;; literature and the network is binary; the viewpoint is the context.  So the same
   ;; two individuals stand in opposite relations in two sibling contexts, each context's
   ;; network answers its own way, and neither is contaminated by the other.
-  (tu/with-terms [Mouse Lion FromTheLionContext FromTheMouseContext]
-    (v/assert kb (list 'genlContext FromTheLionContext C) C)
-    (v/assert kb (list 'genlContext FromTheMouseContext C) C)
-    (v/assert kb (list 'leftOf Mouse Lion) FromTheLionContext)
-    (v/assert kb (list 'rightOf Mouse Lion) FromTheMouseContext)
+  (tu/with-terms [Mouse Lion CxFromTheLion CxFromTheMouse]
+    (v/assert kb (list 'genlCx CxFromTheLion C) C)
+    (v/assert kb (list 'genlCx CxFromTheMouse C) C)
+    (v/assert kb (list 'leftOf Mouse Lion) CxFromTheLion)
+    (v/assert kb (list 'rightOf Mouse Lion) CxFromTheMouse)
     (testing "each frame answers its own way"
-      (is (= #{:left} (rel/possible-relative-directions kb FromTheLionContext Mouse Lion)))
-      (is (= #{:right} (rel/possible-relative-directions kb FromTheMouseContext Mouse Lion)))
-      (is (v/ask? kb (list 'leftOf Mouse Lion) FromTheLionContext))
-      (is (v/ask? kb (list 'rightOf Mouse Lion) FromTheMouseContext)))
+      (is (= #{:left} (rel/possible-relative-directions kb CxFromTheLion Mouse Lion)))
+      (is (= #{:right} (rel/possible-relative-directions kb CxFromTheMouse Mouse Lion)))
+      (is (v/ask? kb (list 'leftOf Mouse Lion) CxFromTheLion))
+      (is (v/ask? kb (list 'rightOf Mouse Lion) CxFromTheMouse)))
     (testing "and refuses what the other frame says"
-      (is (not (v/ask? kb (list 'rightOf Mouse Lion) FromTheLionContext)))
-      (is (not (v/ask? kb (list 'leftOf Mouse Lion) FromTheMouseContext))))
+      (is (not (v/ask? kb (list 'rightOf Mouse Lion) CxFromTheLion)))
+      (is (not (v/ask? kb (list 'leftOf Mouse Lion) CxFromTheMouse))))
     (testing "neither frame is incoherent — the two claims never meet"
-      (is (not (rel/inconsistent? kb FromTheLionContext)))
-      (is (not (rel/inconsistent? kb FromTheMouseContext))))
+      (is (not (rel/inconsistent? kb CxFromTheLion)))
+      (is (not (rel/inconsistent? kb CxFromTheMouse))))
     (testing "and the context both of them see sees neither: visibility runs upwards"
       (is (= rel/all-relations (rel/possible-relative-directions kb C Mouse Lion)))
       (is (not (v/ask? kb (list 'leftOf Mouse Lion) C)))
@@ -319,30 +319,30 @@
 (tu/deftest-kb a-context-seeing-two-frames-at-once-is-incoherent
   ;; The other side of the same decision, stated rather than hidden: merging two frames
   ;; without translating between them is an error, and a context that sees both makes it.
-  (tu/with-terms [Mouse Lion FromTheLionContext FromTheMouseContext BothWaysContext]
-    (v/assert kb (list 'genlContext BothWaysContext FromTheLionContext) C)
-    (v/assert kb (list 'genlContext BothWaysContext FromTheMouseContext) C)
-    (v/assert kb (list 'leftOf Mouse Lion) FromTheLionContext)
-    (v/assert kb (list 'rightOf Mouse Lion) FromTheMouseContext)
-    (is (rel/inconsistent? kb BothWaysContext))
-    (is (= #{} (rel/possible-relative-directions kb BothWaysContext Mouse Lion)))
+  (tu/with-terms [Mouse Lion CxFromTheLion CxFromTheMouse CxBothWays]
+    (v/assert kb (list 'genlCx CxBothWays CxFromTheLion) C)
+    (v/assert kb (list 'genlCx CxBothWays CxFromTheMouse) C)
+    (v/assert kb (list 'leftOf Mouse Lion) CxFromTheLion)
+    (v/assert kb (list 'rightOf Mouse Lion) CxFromTheMouse)
+    (is (rel/inconsistent? kb CxBothWays))
+    (is (= #{} (rel/possible-relative-directions kb CxBothWays Mouse Lion)))
     (testing "while the two frames it sees are each still coherent on their own"
-      (is (not (rel/inconsistent? kb FromTheLionContext)))
-      (is (not (rel/inconsistent? kb FromTheMouseContext))))))
+      (is (not (rel/inconsistent? kb CxFromTheLion)))
+      (is (not (rel/inconsistent? kb CxFromTheMouse))))))
 
 (tu/deftest-kb the-network-follows-belief-and-visibility
-  (tu/with-terms [A B D InnerContext OuterContext]
-    (v/assert kb (list 'genlContext InnerContext OuterContext) C)
-    (v/assert kb (list 'leftOf A B) OuterContext)
-    (v/assert kb (list 'leftOf B D) InnerContext)
+  (tu/with-terms [A B D CxInner CxOuter]
+    (v/assert kb (list 'genlCx CxInner CxOuter) C)
+    (v/assert kb (list 'leftOf A B) CxOuter)
+    (v/assert kb (list 'leftOf B D) CxInner)
     (testing "the inner context sees both facts, so it composes the chain"
-      (is (v/ask? kb (list 'leftOf A D) InnerContext)))
+      (is (v/ask? kb (list 'leftOf A D) CxInner)))
     (testing "the outer context sees only its own, so it composes nothing"
-      (is (not (v/ask? kb (list 'leftOf A D) OuterContext)))
-      (is (v/ask? kb (list 'leftOf A B) OuterContext)))
+      (is (not (v/ask? kb (list 'leftOf A D) CxOuter)))
+      (is (v/ask? kb (list 'leftOf A B) CxOuter)))
     (testing "retracting a link breaks the chain — the network is read, not cached"
-      (v/retract! kb (v/handle-of kb (list 'leftOf B D) InnerContext))
-      (is (not (v/ask? kb (list 'leftOf A D) InnerContext))))))
+      (v/retract! kb (v/handle-of kb (list 'leftOf B D) CxInner))
+      (is (not (v/ask? kb (list 'leftOf A D) CxInner))))))
 
 ;; ---- inconsistency -------------------------------------------------------
 

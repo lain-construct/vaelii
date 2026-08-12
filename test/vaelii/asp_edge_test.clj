@@ -186,13 +186,13 @@
       (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
             nixon (tu/tmp-ind)]
         (v/set-solver kb edge/edge-solver)
-        (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'UniverseContext)
-        (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'UniverseContext)
-        (v/assert kb (list quaker nixon)     'UniverseContext)
-        (v/assert kb (list republican nixon) 'UniverseContext)
+        (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+        (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+        (v/assert kb (list quaker nixon)     'CxUniverse)
+        (v/assert kb (list republican nixon) 'CxUniverse)
         (testing "both sides of the dilemma survive, at :default"
-          (let [pos (v/handle-of kb (list pacifist nixon)             'UniverseContext)
-                neg (v/handle-of kb (list 'not (list pacifist nixon)) 'UniverseContext)]
+          (let [pos (v/handle-of kb (list pacifist nixon)             'CxUniverse)
+                neg (v/handle-of kb (list 'not (list pacifist nixon)) 'CxUniverse)]
             (is (true? (v/in? kb pos)))
             (is (true? (v/in? kb neg)))
             (is (= :default (v/defeat-class kb pos)))
@@ -248,13 +248,13 @@
   ;; readings rather than a per-ordering boolean is what makes a one-off flip visible;
   ;; "some outcome is stable" would pass while the engine was order-dependent.
   (when asp?
-    (let [ops [#(v/assert % (default-rule '[(quaker ?x)]     '(pacifist ?x))       'UniverseContext)
-               #(v/assert % (default-rule '[(republican ?x)] '(not (pacifist ?x))) 'UniverseContext)
-               #(v/assert % '(quaker Nixon)     'UniverseContext)
-               #(v/assert % '(republican Nixon) 'UniverseContext)]
+    (let [ops [#(v/assert % (default-rule '[(quaker ?x)]     '(pacifist ?x))       'CxUniverse)
+               #(v/assert % (default-rule '[(republican ?x)] '(not (pacifist ?x))) 'CxUniverse)
+               #(v/assert % '(quaker Nixon)     'CxUniverse)
+               #(v/assert % '(republican Nixon) 'CxUniverse)]
           observe (fn [kb]
-                    {:pacifist       (boolean (seq (v/sentexes-matching kb '(pacifist Nixon) 'UniverseContext)))
-                     :not-pacifist   (boolean (seq (v/sentexes-matching kb '(not (pacifist Nixon)) 'UniverseContext)))
+                    {:pacifist       (boolean (seq (v/sentexes-matching kb '(pacifist Nixon) 'CxUniverse)))
+                     :not-pacifist   (boolean (seq (v/sentexes-matching kb '(not (pacifist Nixon)) 'CxUniverse)))
                      :contradictions (count (v/contradictions kb))
                      :conflicts      (count (v/conflicts kb))
                      :solved?        (some? (v/last-program kb))})
@@ -321,10 +321,10 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (let [happy (tu/tmp-pred) tom (tu/tmp-ind)]
         (v/set-solver kb edge/edge-solver)
-        (v/assert kb (list happy tom) 'UniverseContext {:strength :monotonic})
-        (v/assert kb (list 'not (list happy tom)) 'UniverseContext {:strength :monotonic})
+        (v/assert kb (list happy tom) 'CxUniverse {:strength :monotonic})
+        (v/assert kb (list 'not (list happy tom)) 'CxUniverse {:strength :monotonic})
         (testing "the clash is reported, once"
           (is (= 1 (count (v/conflicts kb)))))
         (testing "and neither known-true belief was dropped to manufacture consistency"
-          (is (seq (v/sentexes-matching kb (list happy tom) 'UniverseContext)))
-          (is (seq (v/sentexes-matching kb (list 'not (list happy tom)) 'UniverseContext))))))))
+          (is (seq (v/sentexes-matching kb (list happy tom) 'CxUniverse)))
+          (is (seq (v/sentexes-matching kb (list 'not (list happy tom)) 'CxUniverse))))))))

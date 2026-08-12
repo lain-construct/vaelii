@@ -1,9 +1,9 @@
-;; SocietyContext — social relations among persons: likes, marriedTo, owns.
-;; Sees CoreContext; UniverseContext sees it, so any relation here is visible
+;; CxSociety — social relations among persons: likes, marriedTo, owns.
+;; Sees CxCore; CxUniverse sees it, so any relation here is visible
 ;; from every context.
 
-(genlContext SocietyContext CoreContext)
-(genlContext UniverseContext SocietyContext)
+(genlCx CxSociety CxCore)
+(genlCx CxUniverse CxSociety)
 
 (comment friendOf
          "(friendOf ?person1 ?person2) means that ?person1 and ?person2 are friends. Declared symmetric, so one assertion answers both orders and the mirrored spelling stores as the same sentex. A rule carries it to knows, so friendship entails acquaintance and never the other way about.")

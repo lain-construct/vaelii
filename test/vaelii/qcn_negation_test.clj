@@ -26,12 +26,12 @@
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'SpaceContext "upper")
-                        (seed/load-context 'TimeContext "upper")
+                        (seed/load-context 'CxSpace "upper")
+                        (seed/load-context 'CxTime "upper")
                         (v/add-prover (space/spatial-prover))
                         (v/add-prover (iv/allen-prover)))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 ;; ---- (a) negative goals: refutation --------------------------------------
 
@@ -164,13 +164,13 @@
 (tu/deftest-kb a-negative-fact-in-an-invisible-context-does-not-narrow
   ;; the negative read applies the same belief and visibility filters the positive one
   ;; does, so a fact stated where the query cannot see it is not a constraint there
-  (tu/with-terms [A B SideContext]
-    (v/assert kb (list 'genlContext SideContext C) 'UniverseContext)
-    (v/assert kb (list 'not (list 'regionConnectedTo A B)) SideContext)
+  (tu/with-terms [A B CxSide]
+    (v/assert kb (list 'genlCx CxSide C) 'CxUniverse)
+    (v/assert kb (list 'not (list 'regionConnectedTo A B)) CxSide)
     (testing "invisible from the more general context"
       (is (= space/all-relations (space/possible-relations kb C A B))))
     (testing "and in force in the context that states it"
-      (is (= #{:dc} (space/possible-relations kb SideContext A B))))))
+      (is (= #{:dc} (space/possible-relations kb CxSide A B))))))
 
 ;; ---- a negative fact that contradicts a positive one ---------------------
 

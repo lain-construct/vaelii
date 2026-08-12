@@ -88,7 +88,7 @@
 
 (defn- recheck-preserving-along
   "`rel` is the relation of some `(argPreserving P n rel)` declaration and its extent
-  just moved — a fact on it arrived or left, or it is `genl` / `genlContext` and an
+  just moved — a fact on it arrived or left, or it is `genl` / `genlCx` and an
   edge moved.  Queue every rule whose exception mentions a declaring `P`.
 
   This is the argument-side twin of the predicate keying below.  An exception on
@@ -341,7 +341,7 @@
   `recheck-equality-edge` on the sides where its own narrowing is blind — a class
   splitting, and a schematic rewrite arriving.
 
-  (A `genlContext` edge change does not come here: `recheck-genlContext-edge` narrows it
+  (A `genlCx` edge change does not come here: `recheck-genlCx-edge` narrows it
   to the excepted rules whose firings live in the moved visibility cone, the context-keyed
   twin of `recheck-genl-edge`'s predicate keying.)
 
@@ -446,7 +446,7 @@
   the edge.
 
   One record read per rule carrying a negated condition, and none at all for a KB that
-  has none — the same shape and the same gate `recheck-genlContext-edge` uses on its
+  has none — the same shape and the same gate `recheck-genlCx-edge` uses on its
   own cone test."
   [kb sub]
   (let [idx (:index kb)]
@@ -521,8 +521,8 @@
   (let [r (get @(:refused kb) rh)]
     (if (set? r) (boolean (some hit? r)) (= :overflow r))))
 
-(defn- recheck-genlContext-edge
-  "A `genlContext` edge `(genlContext sub super)` was added or removed: queue only the
+(defn- recheck-genlCx-edge
+  "A `genlCx` edge `(genlCx sub super)` was added or removed: queue only the
   excepted rules the visibility change can actually reach, instead of *every* excepted
   rule wholesale.
 
@@ -550,10 +550,10 @@
   thing a widened cone can change always has a firing to be found; an aggregate binds a
   **value**, and a census that rises licenses a firing that never existed.  There is no
   placed conclusion to read a context off, so the cone test finds nothing and the rule
-  is silently skipped — a count taken in `SubContext` before it inherited `UpContext`
+  is silently skipped — a count taken in `CxSub` before it inherited `CxUp`
   stays taken.  The same asymmetry `settle/aggregate-recheck-rules` exists for, met the
   same way: queue it and let the re-join decide.  One record fetch per excepted rule, on
-  a `genlContext` edge."
+  a `genlCx` edge."
   [kb sub]
   (let [idx (:index kb) tms (:tms kb)
         excepted (p/exception-rules idx)]
@@ -568,10 +568,10 @@
                     (some in-cone? (jtms/dependents tms rh))
                     (refusals-reach? kb rh #(contains? affected (:pctx %))))
             (mark-recheck kb [rh] :all)))
-        ;; A predicate preserved along `genlContext` reads that closure across its
+        ;; A predicate preserved along `genlCx` reads that closure across its
         ;; arguments, so the cone test above — which is about where a firing was
         ;; *placed* — cannot see it.
-        (recheck-preserving-along kb 'genlContext)))))
+        (recheck-preserving-along kb 'genlCx)))))
 
 (defn- binds-any?
   "Does the firing behind justification `jid` bind one of `terms` — at any depth, since
@@ -590,7 +590,7 @@
   schematic rewrite rule arrived or left.  Queue the rules carrying a re-check condition
   the move can reach.
 
-  The third edge trigger beside `recheck-genl-edge` and `recheck-genlContext-edge`, and
+  The third edge trigger beside `recheck-genl-edge` and `recheck-genlCx-edge`, and
   it is keyed like neither.  A merge moves what a belief-reading condition sees — an
   `exceptWhen` query, an `unknown`, an aggregate's census — in two ways nothing else
   does:
@@ -604,7 +604,7 @@
 
   The second rules out keying on a predicate, which is what `recheck-genl-edge` has:
   nothing on the condition's own predicate moved.  What is left is the **merged class**,
-  and it keys the firings rather than the rules — the twin of `recheck-genlContext-edge`
+  and it keys the firings rather than the rules — the twin of `recheck-genlCx-edge`
   testing where a firing was placed, a set membership per firing and no query.  A firing
   is reached when it **binds** a term of the class, which is exactly the case
   `chain/settled-bindings` then has something to rewrite; a firing binding nothing that
@@ -617,7 +617,7 @@
   census can move with no term the firing names appearing in the merge at all — the
   firing that counted `(childOf Ann C3)` binds `Ann`, and the class is `{C2 C3}` — and
   a census that *rises* licenses a firing there is no justification for yet.  The same
-  exemption `recheck-genlContext-edge` makes, for the same reason.
+  exemption `recheck-genlCx-edge` makes, for the same reason.
 
   A **schematic rewrite** takes `:all` too, and has no choice: it normalizes terms
   rather than merging symbols, so there is no class to test a binding against.  They
@@ -669,7 +669,7 @@
   predicates it takes as antecedents, and the context it is stated in.
 
   Both are kept here rather than derived on demand because both answer a question a
-  `genlContext` edge asks and the index cannot: *which predicates could a seed usefully
+  `genlCx` edge asks and the index cannot: *which predicates could a seed usefully
   have*, and *does this cone hold a rule at all*.  Maintained at the rule index/unindex
   choke points, beside `:opposed` at the store's, and rebuilt by `recover` because
   recovery replays rule indexing."
@@ -814,8 +814,8 @@
       marked)))
 
 (defn recheck-except-cone
-  "A `genlContext` edge moved visibility for the contexts in `context-down(sub)`, which
-  changes not only what an exceptWhen query sees (`recheck-genlContext-edge`) but also
+  "A `genlCx` edge moved visibility for the contexts in `context-down(sub)`, which
+  changes not only what an exceptWhen query sees (`recheck-genlCx-edge`) but also
   which handles a believed `except` hides from a context in the cone — so a derivation
   it blocks or releases must be re-checked too.  Re-queues every `except`'s affected
   firings (`recheck-except`).  Gated on the `except` root, so a KB using no `except`
@@ -831,25 +831,25 @@
 
 ;; ---- the decontextualized predicate ---------------------------------------
 ;; `(decontextualizedPredicate P)` lifts every `(P ...)` out of the context it was
-;; stated in and into UniverseContext, which every context sees — so the fact
+;; stated in and into CxUniverse, which every context sees — so the fact
 ;; stops being a claim of one theory and becomes a claim of the KB.
 ;;
 ;; The lift is a *deduction*: the original stays where it was stated and a copy is
-;; derived in UniverseContext, justified by the placement sentex AND the declaration —
+;; derived in CxUniverse, justified by the placement sentex AND the declaration —
 ;; so retracting or defeating either withdraws the copy.  The KB documents the
 ;; mechanism in its own representation as the inert rule
-;; `(implies (?pred . ?args) (ist UniverseContext (?pred . ?args)))`; it is implemented
+;; `(implies (?pred . ?args) (ist CxUniverse (?pred . ?args)))`; it is implemented
 ;; in code because that dotted rule would match every fact in the store.
 ;;
-;; **UniverseContext, and not a target the declaration names.**  The definitional
+;; **CxUniverse, and not a target the declaration names.**  The definitional
 ;; checks — disjointness, functionality, argIsa — are context-scoped: they run where
 ;; the fact is stated, against what is visible from there.  Lifting into a context the
 ;; stating context cannot see moves the fact somewhere those checks never looked, so
 ;; two facts that are each admissible where they were stated can meet in the target as
-;; a disjointness violation nothing reports.  UniverseContext is the one target every
+;; a disjointness violation nothing reports.  CxUniverse is the one target every
 ;; context sees, so the copy is visible to the next assert and the ordinary check
 ;; catches the clash at its source.  `unchecked-target?` below covers the one case that
-;; leaves: a context wired outside the spindle, which does not see UniverseContext
+;; leaves: a context wired outside the spindle, which does not see CxUniverse
 ;; either.
 
 ;; Genuine in-file cycle, threaded through the table.  Three derivation sites live
@@ -861,20 +861,20 @@
 ;; values are the arm fns), so four declares close it.
 (declare derived-sentex-added integrate-twin wff-problems wff-violation)
 
-(def universal-context 'UniverseContext)
+(def universal-context 'CxUniverse)
 
 (defn- unchecked-target?
   "Could the definitional checks have missed what this lift is about to create?
 
   They run at `src-context` against what is visible from there, so they have already
-  considered everything in UniverseContext whenever `src-context` sees it — which is
+  considered everything in CxUniverse whenever `src-context` sees it — which is
   every context in a spindle-shaped KB.  When it does not, the copy lands where the
   stating context cannot look, and the check has to be re-run on the copy itself."
   [kb src-context]
   (not (tax/sees? (:taxonomy kb) src-context universal-context)))
 
 (defn- deduce-lift
-  "Deduce `sentence` (stored at `src-handle` in `src-context`) into UniverseContext,
+  "Deduce `sentence` (stored at `src-handle` in `src-context`) into CxUniverse,
   justified by `[src-handle, the declaration]` for each declaring sentex in `dhs` —
   one witness per declaration, as a migrated twin gets one per equality, so retracting
   one of two declarations leaves the copy standing on the other.
@@ -887,7 +887,7 @@
   (if (or (empty? dhs) (= src-context universal-context))
     {:new [] :violations []}
     ;; the check the stating context could not run, run here — and only here, so a KB
-    ;; whose contexts all see UniverseContext (the ordinary spindle) pays one `sees?`
+    ;; whose contexts all see CxUniverse (the ordinary spindle) pays one `sees?`
     (if-let [v (and (unchecked-target? kb src-context)
                     (checks/constraint-violation kb sentence universal-context))]
       {:new [] :violations [(-> v
@@ -916,7 +916,7 @@
             {:new (if new? [h2] []) :violations []}))))))
 
 (defn deduce-lifts
-  "Deduce `sentence` (stored at `handle` in `context`) into UniverseContext if its
+  "Deduce `sentence` (stored at `handle` in `context`) into CxUniverse if its
   predicate is decontextualized — `{:new [handles] :violations [v]}`, nil when the
   predicate carries no declaration.
 
@@ -940,7 +940,7 @@
 
 (defn- lift-existing
   "When a declaration arrives, retroactively deduce every `(pred ...)` sentex outside
-  UniverseContext into it — so a declaration arriving after the facts reaches them,
+  CxUniverse into it — so a declaration arriving after the facts reaches them,
   exactly as one arriving before reaches the facts that follow.  Same
   `{:new :violations}` result, so the copies it makes are chaining seeds like any
   other new content and a rule keyed on the predicate fires on them.
@@ -954,7 +954,7 @@
   The extent is **snapshotted** before the first copy is made.  Every copy carries
   `pred` too, so it posts to the very term-index entry this is walking; `find-sentexes`
   is lazy, which would leave the walk reading a posting list the walk itself is
-  extending.  The copies are all in UniverseContext and so would be filtered out
+  extending.  The copies are all in CxUniverse and so would be filtered out
   anyway — this is not about which sentexes get lifted, but about not depending on
   whether a given index backend hands back a snapshot or a live view."
   [kb pred dh]
@@ -1173,15 +1173,15 @@
               (tax/specs (:taxonomy kb) sub))))))
 
 (defn visibility-seeds
-  "The stored facts a new `(genlContext sub super)` edge newly makes matchable, as
+  "The stored facts a new `(genlCx sub super)` edge newly makes matchable, as
   chaining seeds — the **context** twin of `subsumption-seeds`, and there for exactly
   the same reason.
 
   Matching fans an antecedent up the visibility cone, so an edge arriving after both the
   rule and the facts changes which facts the rule can see: `(cFactP CA)` in
-  `MidContext`, a rule in `LowContext`, then `(genlContext LowContext MidContext)`, and
+  `CxMid`, a rule in `CxLow`, then `(genlCx CxLow CxMid)`, and
   the rule should fire.  The semi-naive agenda never sees it — the arriving datum is the
-  *edge*, and firing the rules keyed on `genlContext` is not the same thing as re-joining
+  *edge*, and firing the rules keyed on `genlCx` is not the same thing as re-joining
   the rules the edge just gave a wider view.  Without this the same four sentences derive
   a conclusion in the orders that put the edge first and nothing in the others, which is
   the one thing belief may not depend on (docs/nmtms.md).
@@ -1199,7 +1199,7 @@
   **Enumerated from the rules, not from the cone**, and the difference is asymptotic
   rather than a constant.  Walking the cone and keeping the facts some rule could match
   costs one record fetch per sentex *in the cone* — so wiring N contexts under a
-  `UniverseContext` holding K facts is O(N·K) where the KB without this is O(N+K), and
+  `CxUniverse` holding K facts is O(N·K) where the KB without this is O(N+K), and
   building a spindle D deep is O(D²) because each edge's up-cone is the whole chain
   above it.  Measured: 3.9x on the first shape, 5x and climbing with depth on the
   second, and 1.8x on the starter load, which does wire contexts after filling them.
@@ -1209,7 +1209,7 @@
   `:opposed`; this walks *those* predicates' extents and keeps the facts whose context
   is in the cone.  Cost is then proportional to the rule-relevant facts and independent
   of how much ontology the cone holds — a KB with no rules pays one map read, and the
-  upper ontology sitting in `UniverseContext` is not walked because almost none of it is
+  upper ontology sitting in `CxUniverse` is not walked because almost none of it is
   a rule antecedent.  The cone is a set membership per candidate, so it costs nothing to
   ask about both cones.
 
@@ -1228,7 +1228,7 @@
   ordinary dependency-directed sweep already withdraws a firing whose antecedent stopped
   being visible."
   [kb sentence]
-  (when (= 'genlContext (nm/functor sentence))
+  (when (= 'genlCx (nm/functor sentence))
     (let [[_ sub super] sentence
           preds (keys @(:rule-antecedents kb))]
       (when (seq preds)
@@ -1704,7 +1704,7 @@
   "Everything a supersession answer reads besides the datum's own record: the active
   equality edges and the `rewriteOf` preference claims they carry — which between them
   decide every class and every representative — the believed schematic rewrite rules,
-  which decide the rest of a normal form, and the `genlContext` generation, which
+  which decide the rest of a normal form, and the `genlCx` generation, which
   decides which merges a sentex's own context can see.
 
   Cheap to take and cheap to compare.  Three of the four are structures the taxonomy
@@ -1716,7 +1716,7 @@
     {:equality (tax/equality-edges tax)
      :prefs    (tax/equality-prefs tax)
      :rewrites (tax/rewrite-rules tax)
-     :ctx-gen  (tax/relation-gen tax :genlContext)}))
+     :ctx-gen  (tax/relation-gen tax :genlCx)}))
 
 (defn- region-suffices?
   "Can this reconcile be narrowed to the moved region, or must every standing entry be
@@ -1727,7 +1727,7 @@
   last three still and the only entries that can have moved are the ones the region
   names — so the question here is whether the stamp says they held.
 
-  * **The rewrite rules and the `genlContext` generation must be unchanged.**  Neither
+  * **The rewrite rules and the `genlCx` generation must be unchanged.**  Neither
     leaves a trace on the entries: a schematic rule leaving re-normalizes every sentence
     it reached, and a context edge changes which merges a reader can see, and in both
     cases the entry that stops holding is one nothing relabelled.
@@ -1939,7 +1939,7 @@
   a supporter omitted here is one no later reconcile can find.
 
   Reading a belief-filtered store would quietly change what recovery means.
-  Every cache follows the same discipline now: `:support` (genl/genlContext/equality)
+  Every cache follows the same discipline now: `:support` (genl/genlCx/equality)
   and `:cache-support` (disjoint, metatypes + members, props, inverse) are meant to
   record *every* asserting sentex, with `refresh-beliefs` deciding which entries are
   active.  Omit a disbelieved supporter and its handle is gone from the count, so
@@ -1968,7 +1968,7 @@
 
   `:derived?`, so a mark that arrives by *derivation* installs like an asserted one:
   a rule concluding `(symmetric P)`, and — the case that actually happens on every
-  KB — the UniverseContext copy a `decontextualizedPredicate` lift makes of one.  The
+  KB — the CxUniverse copy a `decontextualizedPredicate` lift makes of one.  The
   copy carries its own context, which is what a scoped `has-prop?` reads, so without
   this the mark is recorded only under the context the declaration was stated in while
   the *sentex* is visible everywhere.  `:rebuild` replays every stored sentex of the
@@ -2095,26 +2095,26 @@
                               (tax/add-genl tax a b id ctx))
               :wff          wff/genl-problems
               :derived?     true}]
-      ['genlContext {:integrate    (fn [kb sx h]
-                                     (let [[_ a b] (:sentence sx)]
-                                       (tax/add-genlContext (:taxonomy kb) a b h (:context sx))
-                                       ;; visibility moved: re-check the excepted rules
-                                       ;; whose firings live in the affected context cone
-                                       ;; (`context-down` of the edge's sub) — the
-                                       ;; context-keyed twin of recheck-genl-edge — and
-                                       ;; the `except`-blocked derivations the same move
-                                       ;; may have released or newly blocked
-                                       (recheck-genlContext-edge kb a)
-                                       (recheck-except-cone kb)))
-                     :disintegrate (fn [kb sx]
-                                     (let [[_ a b] (:sentence sx)]
-                                       (tax/del-genlContext! (:taxonomy kb) a b (:id sx))
-                                       (recheck-genlContext-edge kb a)
-                                       (recheck-except-cone kb)))
-                     :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                                     (tax/add-genlContext tax a b id ctx))
-                     :wff          wff/genlContext-problems
-                     :derived?     true}]
+      ['genlCx {:integrate    (fn [kb sx h]
+                                (let [[_ a b] (:sentence sx)]
+                                  (tax/add-genlCx (:taxonomy kb) a b h (:context sx))
+                                  ;; visibility moved: re-check the excepted rules
+                                  ;; whose firings live in the affected context cone
+                                  ;; (`context-down` of the edge's sub) — the
+                                  ;; context-keyed twin of recheck-genl-edge — and
+                                  ;; the `except`-blocked derivations the same move
+                                  ;; may have released or newly blocked
+                                  (recheck-genlCx-edge kb a)
+                                  (recheck-except-cone kb)))
+                :disintegrate (fn [kb sx]
+                                (let [[_ a b] (:sentence sx)]
+                                  (tax/del-genlCx! (:taxonomy kb) a b (:id sx))
+                                  (recheck-genlCx-edge kb a)
+                                  (recheck-except-cone kb)))
+                :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
+                                (tax/add-genlCx tax a b id ctx))
+                :wff          wff/genlCx-problems
+                :derived?     true}]
       ;; `:derived?` for the same reason the props carry it: a separation a rule
       ;; concluded must constrain the moment it is believed, not only after a restart
       ;; replays it — and its own context is what a scoped `disjoint?` reads
@@ -2171,7 +2171,7 @@
        ;; `(arity P n)` is read by the per-assert arity check, so it is cached like the
        ;; other declarations the engine interprets rather than re-queried per
        ;; assertion.  `:derived?` for the same reason the prop marks are: a
-       ;; decontextualizedPredicate lift makes a UniverseContext copy carrying its own
+       ;; decontextualizedPredicate lift makes a CxUniverse copy carrying its own
        ;; context, and a scoped read wants that context recorded.
        {:integrate    (fn [kb sx h]
                         (let [[_ pred n] (:sentence sx)]
@@ -2421,7 +2421,7 @@
 
 (defn integrate-transitive
   "The **derivation-path** subset of `integrate-sentex`: only the arms flagged
-  `:derived?` — the genl / genlContext closure edges — run for a rule-derived
+  `:derived?` — the genl / genlCx closure edges — run for a rule-derived
   conclusion, because the rest of integration either does not apply to a derived
   sentex or would re-enter `assert` from inside forward chaining.  Without this on
   the derivation path, a rule concluding `(genl a b)` stored and believed the sentex

@@ -124,7 +124,7 @@
           (comp (remove :cycle?)
                 (keep (fn [{:keys [sentence]}]
                         (when (and sentence
-                                   (not (contains? #{'genl 'genlContext}
+                                   (not (contains? #{'genl 'genlCx}
                                                    (when (sequential? sentence) (first sentence)))))
                           (let [{:keys [text source]} (gloss/text kb sentence)]
                             (when (not= :named source) (situation text))))))

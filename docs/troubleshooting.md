@@ -36,15 +36,15 @@ fix. The mechanism stays in the subsystem's own page and is linked, never restat
 the order they are worth ruling out.
 
 **The reading context does not see the fact.** A read sees what its context sees, up the
-`genlContext` cone — so a fact in `NaturalWorldContext` is invisible from
-`UniverseContext` unless an edge says otherwise, and the direction matters:
-`(genlContext NaturalWorldContext UniverseContext)` says the *natural world* context reads
+`genlCx` cone — so a fact in `CxNaturalWorld` is invisible from
+`CxUniverse` unless an edge says otherwise, and the direction matters:
+`(genlCx CxNaturalWorld CxUniverse)` says the *natural world* context reads
 the *universe* one, not the reverse. Confirm by asking with no context filter and seeing
 whether the sentex exists at all:
 
 ```clojure
 (v/sentexes-matching kb '(dog ?x))          ; every context
-(v/sentexes-matching kb '(dog ?x) 'SomeContext)
+(v/sentexes-matching kb '(dog ?x) 'CxSome)
 ```
 
 Two answers from the first and none from the second is this. [contexts.md](contexts.md).
@@ -83,7 +83,7 @@ is dropped rather than stored. It is recorded, not silent:
 (v/violations kb)      ; :no-placement entries, with :rule-context and :fact-contexts
 ```
 
-The entry names the contexts that had to be seen together; the fix is the `genlContext`
+The entry names the contexts that had to be seen together; the fix is the `genlCx`
 edges that put one context above all of them. [contexts.md](contexts.md),
 [inference.md](inference.md).
 
@@ -130,7 +130,7 @@ Confirm with `(v/contradictions kb)`, which lists the coexisting pairs, and
 know is true is known:
 
 ```clojure
-(v/assert kb '(likesCake Tom) 'SomeContext {:strength :monotonic})
+(v/assert kb '(likesCake Tom) 'CxSome {:strength :monotonic})
 ```
 
 Assert known-true content with `:monotonic`; the default is `:default`, which is right for
@@ -167,7 +167,7 @@ convicts only when the argument's own type closure reaches `thing`, and `dog` re
 only once something says so. Add the edge and the identical assertion throws `:arg-type`:
 
 ```clojure
-(v/assert kb '(genl dog thing) 'UniverseContext)
+(v/assert kb '(genl dog thing) 'CxUniverse)
 ```
 
 So a type that appears only as a fact's functor and never as a `genl` node leaves every

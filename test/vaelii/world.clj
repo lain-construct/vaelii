@@ -4,21 +4,21 @@
   "The test-world: the individuals, facts, and worked fables the shipped schema no
   longer carries.  The starter (vaelii.impl.starter) ships schema only — types,
   relations, and the theory rules — so the reasoning it demonstrates needs data to
-  run on.  That data lives here, in the tests, below WellContext.
+  run on.  That data lives here, in the tests, below CxWell.
 
-  Topology — the data contexts hang off WellContext, the bottom of the shipped
+  Topology — the data contexts hang off CxWell, the bottom of the shipped
   spindle, so each sees the whole ontology (every middle theory, every upper
   definition) but not its siblings:
 
-      WellContext
-        NaturalWorldContext   the cast's type memberships + natural-world facts
-        SocialWorldContext    social-world facts
-        StoriesContext        the Aesop fables + story-understanding schema
+      CxWell
+        CxNaturalWorld   the cast's type memberships + natural-world facts
+        CxSocialWorld    social-world facts
+        CxStories        the Aesop fables + story-understanding schema
 
-  The cast's type memberships live in NaturalWorldContext, so the biology and kinship
-  theories — which every WellContext descendant sees — place their conclusions back in
-  NaturalWorldContext, where the tests query them.  Social facts sit in a sibling
-  SocialWorldContext, so a rule joining an owns-fact with a natural-world partOf-fact
+  The cast's type memberships live in CxNaturalWorld, so the biology and kinship
+  theories — which every CxWell descendant sees — place their conclusions back in
+  CxNaturalWorld, where the tests query them.  Social facts sit in a sibling
+  CxSocialWorld, so a rule joining an owns-fact with a natural-world partOf-fact
   finds no shared context and does not fire — the placement isolation the tests check.
 
   `load-into` layers onto a KB that already has the starter schema."
@@ -27,11 +27,11 @@
             [vaelii.world-narrative :as narrative]))
 
 (def topology
-  '[(genlContext NaturalWorldContext WellContext)
-    (genlContext SocialWorldContext  WellContext)])
+  '[(genlCx CxNaturalWorld CxWell)
+    (genlCx CxSocialWorld  CxWell)])
 
 (def individuals
-  "The cast's type memberships — in NaturalWorldContext, so the biology and kinship
+  "The cast's type memberships — in CxNaturalWorld, so the biology and kinship
   conclusions over them land there for the tests to query."
   '[(person Tom) (person Bob) (person Ann) (person Carol) (person Dave)
     (person Eve) (person Nancy)
@@ -57,10 +57,10 @@
   "Assert the cast — topology, type memberships, and facts — into `kb` (already
   carrying the starter schema). Returns kb."
   [kb]
-  (doseq [s topology]      (v/assert kb s 'WellContext))
-  (doseq [s individuals]   (v/assert kb s 'NaturalWorldContext))
-  (doseq [s natural-facts] (v/assert kb s 'NaturalWorldContext))
-  (doseq [s social-facts]  (v/assert kb s 'SocialWorldContext))
+  (doseq [s topology]      (v/assert kb s 'CxWell))
+  (doseq [s individuals]   (v/assert kb s 'CxNaturalWorld))
+  (doseq [s natural-facts] (v/assert kb s 'CxNaturalWorld))
+  (doseq [s social-facts]  (v/assert kb s 'CxSocialWorld))
   kb)
 
 (defn load-into

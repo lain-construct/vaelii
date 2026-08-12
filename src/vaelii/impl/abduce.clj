@@ -93,12 +93,12 @@
   (str/replace (subs (str (java.util.UUID/randomUUID)) 0 13) "-" ""))
 
 (defn context-for
-  "The abduction context named by `token`.  `Abduction<token>Context` satisfies the
+  "The abduction context named by `token`.  `CxAbduction<token>` satisfies the
   context naming invariant, so it is an ordinary context in every other respect."
   [token]
-  (symbol (str "Abduction" token "Context")))
+  (symbol (str "CxAbduction" token)))
 
-(defn- edge [actx base] (list 'genlContext actx base))
+(defn- edge [actx base] (list 'genlCx actx base))
 
 (defn- open!
   "Mint a fresh abduction context below `base` and answer it.
@@ -108,11 +108,11 @@
   hypotheses quietly unhook the context holding them."
   [kb base ops]
   (let [actx (context-for (token))]
-    ((:assert ops) kb (edge actx base) 'UniverseContext {:strength :monotonic})
+    ((:assert ops) kb (edge actx base) 'CxUniverse {:strength :monotonic})
     actx))
 
 (defn- edge-handle
-  "The handle of the `genlContext` edge that made `actx` a context, or nil.
+  "The handle of the `genlCx` edge that made `actx` a context, or nil.
 
   Found through the **argument root** rather than remembered: the edge has `actx` at
   argument 1, so one positional read answers it and the teardown needs no bookkeeping to
@@ -120,7 +120,7 @@
   [kb actx]
   (->> (p/sentexes-with-arg (:index kb) 1 actx)
        (keep #(p/get-sentex (:records kb) %))
-       (filter #(= 'genlContext (nm/functor (:sentence %))))
+       (filter #(= 'genlCx (nm/functor (:sentence %))))
        first
        :id))
 
@@ -131,7 +131,7 @@
   One `edit` for the extent, so it is one settle and the dependency-directed sweep does
   the rest — a conclusion derived from a hypothesis goes with the hypothesis, and its
   justification with it.  The edge is fetched separately because it was never *in* the
-  extent: `genlContext` is forced-decontextualized, so it is stored in UniverseContext.
+  extent: `genlCx` is forced-decontextualized, so it is stored in CxUniverse.
 
   Idempotent: a context already gone has an empty extent and no edge.  Irreversible,
   hence the `!` — that is the whole point of it."
@@ -289,7 +289,7 @@
       {:solutions   [binding-map …]     under the hypotheses
        :hypotheses  [{:sentence :context :handle} …]
        :refused     [sentence …]        dead ends the gate would not assume
-       :context     AbductionXContext
+       :context     CxAbductionX
        :status      :complete | :capped}
 
   `:hypotheses` empty means the goal was proved outright — nothing was assumed, and the

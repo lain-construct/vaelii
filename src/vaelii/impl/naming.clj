@@ -8,7 +8,7 @@
     individual   CapitalCamelCase                               Muffet, Tom
     type         snake_case, lowercase, unary predicate         dog, physical_object
     sense        a type, plus which sense of it is meant        abrasive-grit
-    context      CapitalCamelCase ending in Context             UniverseContext, CoreContext
+    context      Cx prefix, then CapitalCamelCase               CxUniverse, CxCore
     lexeme       the `lex` namespace; the name is parse input   lex/fool's_gold
 
   Single lowercase words (dog, genl, parentOf) satisfy both `predicate?` and
@@ -58,7 +58,7 @@
   (and (symbol? x) (= lexeme-namespace (namespace x))))
 
 (defn context?    [x] (and (symbol? x) (not (lexeme? x))
-                           (some? (re-matches #"[A-Z][A-Za-z0-9]*Context" (nm x)))))
+                           (some? (re-matches #"Cx[A-Z][A-Za-z0-9]*" (nm x)))))
 (defn individual? [x] (and (symbol? x) (not (lexeme? x))
                            (some? (re-matches #"[A-Z][A-Za-z0-9]*" (nm x)))
                            (not (context? x))))
@@ -325,7 +325,7 @@
   (let [where (str (literal-roles role) " " (pr-str literal))]
     (case class
       :context-name
-      (str "context " symbol " must be CapitalCamelCase ending in Context")
+      (str "context " symbol " must start with Cx and continue CapitalCamelCase")
 
       :functor
       (str "functor " (pr-str symbol) " in " where " matches no naming convention: a"
@@ -356,7 +356,7 @@
 
       :ist-context
       (str "ist directs " (pr-str literal) " into " (pr-str symbol)
-           ", which must be CapitalCamelCase ending in Context, or a variable an"
+           ", which must start with Cx and continue CapitalCamelCase, or a variable an"
            " antecedent binds")
 
       :dot-marker
@@ -510,7 +510,7 @@
   taught the reader, and here it stores a two-place predicate named `isa` relating two
   individuals — legal, indexed, believed, and matched by nothing anyone will ask.  The
   reader then asks `(isa? kb 'Muffet 'Dog)` and gets false, with no error to search for,
-  because the type they meant was never asserted.  `CoreContext.txt` says never to write
+  because the type they meant was never asserted.  `CxCore.txt` says never to write
   it and `docs/naming.md` calls it out by name; neither is in front of someone who is
   typing.
 

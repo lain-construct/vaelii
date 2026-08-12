@@ -260,7 +260,7 @@
 
 ;; ---- which readers there are ---------------------------------------------
 ;; There is one network per **reader**, not one per context that holds a fact.  A
-;; reader sees the whole `genlContext` cone above it, so a context inheriting two
+;; reader sees the whole `genlCx` cone above it, so a context inheriting two
 ;; contexts holds both their facts in one network and composes what neither
 ;; composes alone.  Both consumers of "the networks of this calculus" need that set:
 ;; forward chaining, which re-joins against each, and the prover answering a goal whose

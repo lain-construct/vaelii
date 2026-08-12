@@ -342,7 +342,7 @@ subtype conclusion, so this only *adds* answers where forward has not run it —
 backward-only rule, `{:chain? false}`, or a goal past the forward run's depth.
 
 This is the predicate dimension of the hierarchical query `(p a ?x)@c`; the context
-dimension is the genlContext up-closure (`matches-visible`), and both are answered
+dimension is the genlCx up-closure (`matches-visible`), and both are answered
 efficiently by the set-algebra retrieval in [indexing.md](indexing.md), "Retrieval
 from the roots".
 
@@ -1109,7 +1109,7 @@ counts, not joint ones, and sampling at plan time is not affordable at 100M fact
 **The counts span every context, and a read is scoped to one.** The trie key ends with
 the context ([indexing.md](indexing.md)), so `count-at` under a prefix counts a sentence
 once per context it is stored in, while the query it is costing sees one context and the
-`genlContext` cone above it. Nothing scopes the counts, and nothing cheaply could: a
+`genlCx` cone above it. Nothing scopes the counts, and nothing cheaply could: a
 per-context count is a second index, maintained on every write, for a number only the
 planner reads. Three things follow, and they are not the same thing.
 
@@ -1379,7 +1379,7 @@ prover that does.
 
 Built-in provers (`default-provers`, held per-KB in an atom):
 
-- **TransitivityProver** — `genl` / `genlContext` goals, answered directly from the
+- **TransitivityProver** — `genl` / `genlCx` goals, answered directly from the
   cached closures (`genls`/`specs`, `context-up`/`context-down`). **Complete (100)** — the
   closure is authoritative, so `(genl dog ?y)` returns the full transitive set,
   and the engine skips facts/rules for it.
@@ -1424,7 +1424,7 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   `reflexivePredicate` / `functionalPredicate` directly from the cached taxonomy
   metadata (`taxonomy/props`), so the algebraic predicate types are queryable without
   materializing them as facts. Partial (50) — it augments facts rather than replacing
-  them, since a directly-asserted membership still counts. (The CoreContext forward rules
+  them, since a directly-asserted membership still counts. (The CxCore forward rules
   that also materialize these facts are kept — belt and suspenders: `isa?` reads the
   facts, `ask` reads the metadata.)
 - **EvaluateProver** — `(evaluate ?result <expr>)` binds `?result` to the value of a

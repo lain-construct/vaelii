@@ -8,7 +8,7 @@
   `exceptWhen` exception is split off into a separate belief-following meta-sentex
   that names the rule by handle and aligns its query to the rule's canonical
   variables; and a spec-type fact in a spec context triggers a general rule (genl +
-  genlContext together)."
+  genlCx together)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.protocols :as p]
@@ -28,16 +28,16 @@
 
 (tu/deftest-kb connectives-canonicalize-into-the-record
   (testing "a negation decomposes into truth :false over the positive body"
-    (let [s (sx/sentex '(not (flies Tweety)) 'AContext)]
+    (let [s (sx/sentex '(not (flies Tweety)) 'CxA)]
       (is (= :false (:truth s)))
       (is (= '(flies Tweety) (sx/body s)))
       (is (nil? (:antecedent s)))))
   (testing "double negation is eliminated"
-    (let [s (sx/sentex '(not (not (flies Tweety))) 'AContext)]
+    (let [s (sx/sentex '(not (not (flies Tweety))) 'CxA)]
       (is (= :true (:truth s)))
       (is (= '(flies Tweety) (:sentence s)))))
   (testing "a rule decomposes into antecedent (a vector) and consequent, canonically named"
-    (let [s (sx/sentex '(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z)) 'AContext)]
+    (let [s (sx/sentex '(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z)) 'CxA)]
       (is (= '[(parentOf ?var0 ?var1) (parentOf ?var1 ?var2)] (:antecedent s)))
       (is (= '(grandparentOf ?var0 ?var2) (:consequent s)))
       (is (= :true (:truth s)))
@@ -46,7 +46,7 @@
         (is (= '(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z))
                (sx/originalize (:sentence s) (:varmap s)))))))
   (testing "the trie key contains none of not / implies / and"
-    (let [k (sx/path (sx/sentex '(implies (and (a ?x)) (b ?x)) 'AContext))]
+    (let [k (sx/path (sx/sentex '(implies (and (a ?x)) (b ?x)) 'CxA))]
       (is (not (some '#{implies and not} (flatten-key k)))))))
 
 ;; ---- numbers, strings, connectives are not term-indexed -----------------
@@ -56,15 +56,15 @@
         tom (tu/tmp-ind) bone (tu/tmp-ind)
         birthYearOf (tu/tmp-pred) mortal (tu/tmp-pred)
         immortal (tu/tmp-pred) likes (tu/tmp-pred)]
-    (v/assert kb (list 'genl person animal) 'UContext)
-    (v/assert kb (list 'argIsa birthYearOf 1 person) 'UContext)
-    (v/assert kb (list person tom) 'UContext)
-    (v/assert kb (list birthYearOf tom 1970) 'UContext)
-    (v/assert kb (list 'comment tom "a fine fellow") 'UContext)
-    (v/assert-rule kb [(list person '?p)] (list mortal '?p) 'UContext)
-    (v/assert-rule kb [(list person '?p)] (list 'not (list immortal '?p)) 'UContext)   ; a nested `not` inside a rule
-    (v/assert-rule kb [(list person '?p)] (list likes '?p bone) 'UContext)             ; a constant argument
-    (v/assert kb (list 'not (list mortal tom)) 'UContext)
+    (v/assert kb (list 'genl person animal) 'CxU)
+    (v/assert kb (list 'argIsa birthYearOf 1 person) 'CxU)
+    (v/assert kb (list person tom) 'CxU)
+    (v/assert kb (list birthYearOf tom 1970) 'CxU)
+    (v/assert kb (list 'comment tom "a fine fellow") 'CxU)
+    (v/assert-rule kb [(list person '?p)] (list mortal '?p) 'CxU)
+    (v/assert-rule kb [(list person '?p)] (list 'not (list immortal '?p)) 'CxU)   ; a nested `not` inside a rule
+    (v/assert-rule kb [(list person '?p)] (list likes '?p bone) 'CxU)             ; a constant argument
+    (v/assert kb (list 'not (list mortal tom)) 'CxU)
     (testing "a number is not a term-index key"
       (is (empty? (v/find-sentexes kb 1970))))
     (testing "a string is not a term-index key"
@@ -86,54 +86,54 @@
 (tu/deftest-kb alpha-equivalent-rules-share-one-sentex
   (let [dog (tu/tmp-type) animal (tu/tmp-type)
         breathes (tu/tmp-pred) mortal (tu/tmp-pred)]
-    (v/assert kb (list 'genl dog animal) 'UContext)
-    (let [h1 (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'UContext)
+    (v/assert kb (list 'genl dog animal) 'CxU)
+    (let [h1 (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'CxU)
           n1 (count (p/sentex-ids (:records kb)))
-          h2 (v/assert-rule kb [(list animal '?y)] (list breathes '?y) 'UContext)]   ; same rule, renamed
+          h2 (v/assert-rule kb [(list animal '?y)] (list breathes '?y) 'CxU)]   ; same rule, renamed
       (testing "the second assertion finds the existing handle, stores nothing new"
         (is (= h1 h2))
         (is (= n1 (count (p/sentex-ids (:records kb))))))
       (testing "a genuinely different rule is a different sentex"
-        (is (not= h1 (v/assert-rule kb [(list animal '?x)] (list mortal '?x) 'UContext))))
+        (is (not= h1 (v/assert-rule kb [(list animal '?x)] (list mortal '?x) 'CxU))))
       (testing "dedup is scoped to context — the same rule elsewhere is distinct"
-        (is (not= h1 (v/assert-rule kb [(list animal '?z)] (list breathes '?z) 'OtherContext)))))))
+        (is (not= h1 (v/assert-rule kb [(list animal '?z)] (list breathes '?z) 'CxOther)))))))
 
 ;; ---- a conjunctive consequent polycanonicalizes -------------------------
 
 (tu/deftest-kb conjunctive-consequent-splits-into-multiple-rules
   (let [a (tu/tmp-type) b (tu/tmp-type) c (tu/tmp-type) d (tu/tmp-type)
         x1 (tu/tmp-ind)]
-    (doseq [t [a b c d]] (v/assert kb (list 'genl t 'thing) 'UContext))
-    (v/assert kb (list a x1) 'UContext)
-    (let [handles (v/assert-rule kb [(list a '?x)] (list 'and (list b '?x) (list c '?x) (list d '?x)) 'UContext)]
+    (doseq [t [a b c d]] (v/assert kb (list 'genl t 'thing) 'CxU))
+    (v/assert kb (list a x1) 'CxU)
+    (let [handles (v/assert-rule kb [(list a '?x)] (list 'and (list b '?x) (list c '?x) (list d '?x)) 'CxU)]
       (testing "assert-rule returns one handle per conjunct"
         (is (vector? handles))
         (is (= 3 (count (distinct handles)))))
       (testing "each conjunct is derived independently"
-        (is (seq (v/sentexes-matching kb (list b x1) 'UContext)))
-        (is (seq (v/sentexes-matching kb (list c x1) 'UContext)))
-        (is (seq (v/sentexes-matching kb (list d x1) 'UContext))))
+        (is (seq (v/sentexes-matching kb (list b x1) 'CxU)))
+        (is (seq (v/sentexes-matching kb (list c x1) 'CxU)))
+        (is (seq (v/sentexes-matching kb (list d x1) 'CxU))))
       (testing "retracting one split rule leaves the others standing"
         (v/retract! kb (first handles))                  ; the (b ?x) rule
-        (is (empty? (v/sentexes-matching kb (list b x1) 'UContext)))
-        (is (seq (v/sentexes-matching kb (list c x1) 'UContext)))))))
+        (is (empty? (v/sentexes-matching kb (list b x1) 'CxU)))
+        (is (seq (v/sentexes-matching kb (list c x1) 'CxU)))))))
 
 (tu/deftest-kb polycanon-covers-directed-and-default-rules
   (let [a (tu/tmp-type) b (tu/tmp-type) c (tu/tmp-type)
         d (tu/tmp-type) e (tu/tmp-type) f (tu/tmp-type)
         x (tu/tmp-ind)]
-    (doseq [t [a b c d e f]] (v/assert kb (list 'genl t 'thing) 'UContext))
-    (v/assert kb (list a x) 'UContext)
+    (doseq [t [a b c d e f]] (v/assert kb (list 'genl t 'thing) 'CxU))
+    (v/assert kb (list a x) 'CxU)
     (testing "a backward directed conjunctive consequent splits; each conjunct is provable"
-      (v/assert-rule kb [(list a '?x)] (list 'and (list b '?x) (list c '?x)) 'UContext {:direction :backward})
-      (is (v/provable? kb (list b x) 'UContext))
-      (is (v/provable? kb (list c x) 'UContext)))
+      (v/assert-rule kb [(list a '?x)] (list 'and (list b '?x) (list c '?x)) 'CxU {:direction :backward})
+      (is (v/provable? kb (list b x) 'CxU))
+      (is (v/provable? kb (list c x) 'CxU)))
     (testing "a default conjunctive consequent splits; each conjunct is derived"
-      (v/assert kb (list 'set/defaultRule (list 'implies (list a '?x) (list 'and (list d '?x) (list e '?x)))) 'UContext)
-      (is (seq (v/sentexes-matching kb (list d x) 'UContext)))
-      (is (seq (v/sentexes-matching kb (list e x) 'UContext))))
+      (v/assert kb (list 'set/defaultRule (list 'implies (list a '?x) (list 'and (list d '?x) (list e '?x)))) 'CxU)
+      (is (seq (v/sentexes-matching kb (list d x) 'CxU)))
+      (is (seq (v/sentexes-matching kb (list e x) 'CxU))))
     (testing "a negated conjunction consequent does NOT split (De Morgan ⇒ a disjunction)"
-      (is (not (vector? (v/assert-rule kb [(list a '?x)] (list 'not (list 'and (list f '?x) (list b '?x))) 'UContext)))))))
+      (is (not (vector? (v/assert-rule kb [(list a '?x)] (list 'not (list 'and (list f '?x) (list b '?x))) 'CxU)))))))
 
 ;; ---- spec-type fact in a spec context triggers a general rule -----------
 
@@ -141,36 +141,36 @@
   (let [dog (tu/tmp-type) mammal (tu/tmp-type) animal (tu/tmp-type)
         muffet (tu/tmp-ind) rex (tu/tmp-ind)
         breathes (tu/tmp-pred) hasFur (tu/tmp-pred)]
-    (v/assert kb (list 'genlContext 'SpecContext 'GenContext) 'GenContext)
-    (v/assert kb (list 'genl mammal animal) 'GenContext)
-    (v/assert kb (list 'genl dog mammal) 'GenContext)
-    (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'GenContext)   ; general type, general context
-    (v/assert kb (list dog muffet) 'SpecContext)                               ; spec type, spec context
-    (testing "genl (subtype) and genlContext (subcontext) combine to fire the rule"
-      (is (seq (v/sentexes-matching kb (list breathes muffet) 'SpecContext))))
+    (v/assert kb (list 'genlCx 'CxSpec 'CxGen) 'CxGen)
+    (v/assert kb (list 'genl mammal animal) 'CxGen)
+    (v/assert kb (list 'genl dog mammal) 'CxGen)
+    (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'CxGen)   ; general type, general context
+    (v/assert kb (list dog muffet) 'CxSpec)                               ; spec type, spec context
+    (testing "genl (subtype) and genlCx (subcontext) combine to fire the rule"
+      (is (seq (v/sentexes-matching kb (list breathes muffet) 'CxSpec))))
     (testing "and the conclusion is placed in the spec context"
-      (is (= '(SpecContext) (v/contexts-of kb (list breathes muffet)))))
+      (is (= '(CxSpec) (v/contexts-of kb (list breathes muffet)))))
     (testing "it fires regardless of assertion order (rule after fact)"
-      (v/assert kb (list dog rex) 'SpecContext)
-      (v/assert-rule kb [(list mammal '?y)] (list hasFur '?y) 'GenContext)
-      (is (seq (v/sentexes-matching kb (list hasFur rex) 'SpecContext))))))
+      (v/assert kb (list dog rex) 'CxSpec)
+      (v/assert-rule kb [(list mammal '?y)] (list hasFur '?y) 'CxGen)
+      (is (seq (v/sentexes-matching kb (list hasFur rex) 'CxSpec))))))
 
 (tu/deftest-kb a-join-rule-fires-over-spec-facts-with-a-common-viewpoint
-  ;; The requirement's join case: two antecedents, spec-type facts, genl + genlContext.
+  ;; The requirement's join case: two antecedents, spec-type facts, genl + genlCx.
   (let [dog (tu/tmp-type) cat (tu/tmp-type) animal (tu/tmp-type)
         muffet (tu/tmp-ind) tom (tu/tmp-ind) whiskers (tu/tmp-ind)
         coexist (tu/tmp-pred)]
-    (v/assert kb (list 'genlContext 'AContext 'TopContext) 'TopContext)
-    (v/assert kb (list 'genlContext 'BContext 'TopContext) 'TopContext)        ; AContext, BContext are sibling subs of TopContext
-    (v/assert kb (list 'genl dog animal) 'TopContext)
-    (v/assert kb (list 'genl cat animal) 'TopContext)
-    (v/assert-rule kb [(list animal '?x) (list animal '?y)] (list coexist '?x '?y) 'TopContext)  ; join on animal
-    (v/assert kb (list dog muffet) 'AContext)
-    (v/assert kb (list cat tom) 'TopContext)
+    (v/assert kb (list 'genlCx 'CxA 'CxTop) 'CxTop)
+    (v/assert kb (list 'genlCx 'CxB 'CxTop) 'CxTop)        ; CxA, CxB are sibling subs of CxTop
+    (v/assert kb (list 'genl dog animal) 'CxTop)
+    (v/assert kb (list 'genl cat animal) 'CxTop)
+    (v/assert-rule kb [(list animal '?x) (list animal '?y)] (list coexist '?x '?y) 'CxTop)  ; join on animal
+    (v/assert kb (list dog muffet) 'CxA)
+    (v/assert kb (list cat tom) 'CxTop)
     (testing "a spec fact in a sub joins a fact in the shared super, placed in the sub"
-      (is (seq (v/sentexes-matching kb (list coexist muffet tom) 'AContext))))
+      (is (seq (v/sentexes-matching kb (list coexist muffet tom) 'CxA))))
     (testing "two facts in sibling subs (no common viewpoint) derive nothing"
-      (v/assert kb (list cat whiskers) 'BContext)
+      (v/assert kb (list cat whiskers) 'CxB)
       (is (empty? (v/sentexes-matching kb (list coexist muffet whiskers) '?ctx)))
       (is (empty? (v/sentexes-matching kb (list coexist whiskers muffet) '?ctx))))))
 
@@ -179,43 +179,43 @@
 (tu/deftest-kb a-bare-implies-is-range-restriction-checked
   (let [bird (tu/tmp-type) animal (tu/tmp-type)
         flies (tu/tmp-pred) robin (tu/tmp-ind)]
-    (v/assert kb (list 'genl bird animal) 'UContext)
+    (v/assert kb (list 'genl bird animal) 'CxU)
     (testing "a bare (implies ..) with an unbound consequent variable is rejected"
       (is (= :not-range-restricted
-             (try (v/assert kb (list 'implies (list bird '?x) (list flies '?y)) 'UContext) nil
+             (try (v/assert kb (list 'implies (list bird '?x) (list flies '?y)) 'CxU) nil
                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
     (testing "and no junk (flies ?y) fact was stored to match against everything"
       (is (empty? (v/find-sentexes kb flies))))
     (testing "a range-restricted bare implies works and fires"
-      (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) 'UContext)
-      (v/assert kb (list bird robin) 'UContext)
-      (is (seq (v/sentexes-matching kb (list flies robin) 'UContext))))))
+      (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) 'CxU)
+      (v/assert kb (list bird robin) 'CxU)
+      (is (seq (v/sentexes-matching kb (list flies robin) 'CxU))))))
 
 (tu/deftest-kb double-negation-respects-premise-constraints
   (let [dog (tu/tmp-type) cat (tu/tmp-type) animal (tu/tmp-type)
         felix (tu/tmp-ind) rex (tu/tmp-ind)]
-    (v/assert kb (list 'genl dog animal) 'UContext)
-    (v/assert kb (list 'genl cat animal) 'UContext)
-    (v/assert kb (list 'disjoint dog cat) 'UContext)
-    (v/assert kb (list cat felix) 'UContext)
+    (v/assert kb (list 'genl dog animal) 'CxU)
+    (v/assert kb (list 'genl cat animal) 'CxU)
+    (v/assert kb (list 'disjoint dog cat) 'CxU)
+    (v/assert kb (list cat felix) 'CxU)
     (testing "(not (not (dog Felix))) canonicalizes to (dog Felix) and hits the disjoint check"
-      (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list 'not (list 'not (list dog felix))) 'UContext))))
+      (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list 'not (list 'not (list dog felix))) 'CxU))))
     (testing "a genuine single negation is not arg/disjoint-checked"
-      (is (some? (v/assert kb (list 'not (list dog rex)) 'UContext))))))
+      (is (some? (v/assert kb (list 'not (list dog rex)) 'CxU))))))
 
 (tu/deftest-kb an-empty-conjunction-consequent-is-rejected
   (let [a (tu/tmp-type)]
-    (v/assert kb (list 'genl a 'thing) 'UContext)
+    (v/assert kb (list 'genl a 'thing) 'CxU)
     (is (= :not-range-restricted
-           (try (v/assert-rule kb [(list a '?x)] (list 'and) 'UContext) nil
+           (try (v/assert-rule kb [(list a '?x)] (list 'and) 'CxU) nil
                 (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))))
 
 (tu/deftest-kb a-positive-wildcard-query-does-not-match-negations
   (let [dog (tu/tmp-type) animal (tu/tmp-type)
         muffet (tu/tmp-ind) rex (tu/tmp-ind)]
-    (v/assert kb (list 'genl dog animal) 'UContext)
-    (v/assert kb (list dog muffet) 'UContext)
-    (v/assert kb (list 'not (list dog rex)) 'UContext)
+    (v/assert kb (list 'genl dog animal) 'CxU)
+    (v/assert kb (list dog muffet) 'CxU)
+    (v/assert kb (list 'not (list dog rex)) 'CxU)
     (testing "(?p ?x) binds ?p only to real predicates, never to `not` via a negation"
       (let [preds (set (map #(get % '?p) (v/prove kb '(?p ?x) '?ctx)))]
         (is (contains? preds dog))
@@ -223,11 +223,11 @@
 
 (tu/deftest-kb rule-assertion-is-idempotent
   (let [a (tu/tmp-type) b (tu/tmp-type)]
-    (v/assert kb (list 'genl a 'thing) 'UContext)
-    (v/assert kb (list 'genl b 'thing) 'UContext)
+    (v/assert kb (list 'genl a 'thing) 'CxU)
+    (v/assert kb (list 'genl b 'thing) 'CxU)
     (testing "re-asserting a rule with a different direction resolves to one record"
-      (let [h  (v/assert kb (list 'set/forwardRule (list 'implies (list a '?x) (list b '?x))) 'UContext)
-            h2 (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'UContext)]
+      (let [h  (v/assert kb (list 'set/forwardRule (list 'implies (list a '?x) (list b '?x))) 'CxU)
+            h2 (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'CxU)]
         (is (= h h2) "one rule, however its direction is spelled")
         (testing "both predicate indexes are complete — a rule is findable either way"
           (is (contains? (p/rules-by-antecedent (:index kb) a) h))
@@ -237,23 +237,23 @@
           ;; about one rule, and a rule that may run each way may run both.  Resolving
           ;; from content is what makes the answer the same in either arrival order.
           (is (= :both (:direction (v/sentex kb h))))
-          (is (= :both (:direction (v/sentex kb (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'UContext))))
+          (is (= :both (:direction (v/sentex kb (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'CxU))))
               "and a third assertion changes nothing — the join is idempotent")))))
   (let [bird (tu/tmp-type) animal (tu/tmp-type) penguin (tu/tmp-type)
         flies (tu/tmp-pred) pengu (tu/tmp-ind)]
-    (v/assert kb (list 'genl bird animal) 'UContext)
-    (v/assert kb (list 'genl penguin bird) 'UContext)
+    (v/assert kb (list 'genl bird animal) 'CxU)
+    (v/assert kb (list 'genl penguin bird) 'CxU)
     (testing "re-asserting resolves defeasibility to strict — stated once outright, it holds"
-      (let [h (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) 'UContext)]
-        (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) 'UContext)   ; bare: strict wins
+      (let [h (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) 'CxU)]
+        (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) 'CxU)   ; bare: strict wins
         (is (nil? (:defeasible (v/sentex kb h)))
             "a rule somebody also stated without set/defaultRule is not a default")
-        (v/assert kb (list 'implies (list penguin '?x) (list 'not (list flies '?x))) 'UContext)
-        (v/assert kb (list penguin pengu) 'UContext {:strength :monotonic})
+        (v/assert kb (list 'implies (list penguin '?x) (list 'not (list flies '?x))) 'CxU)
+        (v/assert kb (list penguin pengu) 'CxU {:strength :monotonic})
         ;; the same answer in either arrival order, which is the point: a conclusion
         ;; capped by its own premise's strength, and the exception rule taking it.
-        (is (empty? (v/sentexes-matching kb (list flies pengu) 'UContext)))
-        (is (seq   (v/sentexes-matching kb (list 'not (list flies pengu)) 'UContext)))
+        (is (empty? (v/sentexes-matching kb (list flies pengu) 'CxU)))
+        (is (seq   (v/sentexes-matching kb (list 'not (list flies pengu)) 'CxU)))
         (is (empty? (v/conflicts kb)))))))
 
 (tu/deftest-kb slot-resolution-reaches-conclusions-already-derived
@@ -268,14 +268,14 @@
   (let [run (fn [spell-first spell-second]
               (let [bird (tu/tmp-type) flies (tu/tmp-pred) tweety (tu/tmp-ind)
                     rule (list 'implies (list bird '?x) (list flies '?x))]
-                (v/assert kb (list 'genl bird 'thing) 'UContext)
-                (v/assert kb (spell-first rule) 'UContext)
-                (v/assert kb (list bird tweety) 'UContext {:strength :monotonic})
-                (v/assert kb (spell-second rule) 'UContext)
-                (v/assert kb (list 'not (list flies tweety)) 'UContext
+                (v/assert kb (list 'genl bird 'thing) 'CxU)
+                (v/assert kb (spell-first rule) 'CxU)
+                (v/assert kb (list bird tweety) 'CxU {:strength :monotonic})
+                (v/assert kb (spell-second rule) 'CxU)
+                (v/assert kb (list 'not (list flies tweety)) 'CxU
                           {:strength :monotonic})
                 (let [fid (some-> (first (v/sentexes-matching kb (list flies tweety)
-                                                              'UContext))
+                                                              'CxU))
                                   :id)]
                   {:conclusion-class (when fid (v/defeat-class kb fid))
                    :just-strengths   (when fid
@@ -285,7 +285,7 @@
                                       (boolean
                                        (seq (v/sentexes-matching
                                              kb (list 'not (list flies tweety))
-                                             'UContext)))]})))
+                                             'CxU)))]})))
         defaulted #(list 'set/defaultRule %)
         a (run defaulted identity)      ; defeasible, fact, then strict
         b (run identity defaulted)]     ; strict, fact, then defeasible
@@ -300,17 +300,17 @@
 (tu/deftest-kb strength-is-carried-by-sentexes-and-justifications
   (let [bird (tu/tmp-type) animal (tu/tmp-type) dog (tu/tmp-type)
         muffet (tu/tmp-ind) tweety (tu/tmp-ind) flies (tu/tmp-pred)]
-    (v/assert kb (list 'genl bird animal) 'UContext)
-    (v/assert kb (list dog muffet) 'UContext {:strength :monotonic})
-    (v/assert kb (list bird tweety) 'UContext)                       ; default strength
-    (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) 'UContext)
+    (v/assert kb (list 'genl bird animal) 'CxU)
+    (v/assert kb (list dog muffet) 'CxU {:strength :monotonic})
+    (v/assert kb (list bird tweety) 'CxU)                       ; default strength
+    (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) 'CxU)
     (testing "a premise sentex carries its assumption strength"
-      (is (= :monotonic (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list dog muffet) 'UContext)))))))
-      (is (= :default   (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list bird tweety) 'UContext))))))))
+      (is (= :monotonic (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list dog muffet) 'CxU)))))))
+      (is (= :default   (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list bird tweety) 'CxU))))))))
     (testing "and its effective defeat-class after settling"
-      (is (= :monotonic (v/defeat-class kb (:id (first (v/sentexes-matching kb (list dog muffet) 'UContext)))))))
+      (is (= :monotonic (v/defeat-class kb (:id (first (v/sentexes-matching kb (list dog muffet) 'CxU)))))))
     (testing "a justification carries its strength — a default rule confers :default"
-      (let [flies-id (:id (first (v/sentexes-matching kb (list flies tweety) 'UContext)))
+      (let [flies-id (:id (first (v/sentexes-matching kb (list flies tweety) 'CxU)))
             d        (first (v/supporting-justifications kb flies-id))]
         (is (= :default (:strength d)))))))
 
@@ -324,18 +324,18 @@
   ;; which is why `defeat-class` is asserted below beside the record: it is the read a
   ;; caller has, and the whole of what the flag buys them.
   (let [bird (tu/tmp-type) flies (tu/tmp-pred) chirps (tu/tmp-pred) tweety (tu/tmp-ind)
-        h (v/assert-rule kb [(list bird '?x)] (list flies '?x) 'UContext
+        h (v/assert-rule kb [(list bird '?x)] (list flies '?x) 'CxU
                          {:strength :monotonic})]
     (is (= :monotonic (:strength (v/sentex kb h))) "the flag reaches the record")
     (is (= :monotonic (v/defeat-class kb h)) "...and reads back off the handle")
     (testing "and it is not the class the firing confers — a bare rule caps at its weakest antecedent"
-      (v/assert kb (list bird tweety) 'UContext)                     ; default
-      (let [c (:id (first (v/sentexes-matching kb (list flies tweety) 'UContext)))]
+      (v/assert kb (list bird tweety) 'CxU)                     ; default
+      (let [c (:id (first (v/sentexes-matching kb (list flies tweety) 'CxU)))]
         (is (= :default (v/defeat-class kb c)))))
     (testing "a second spelling states the class again, and the record follows it"
-      (let [d (v/assert-rule kb [(list bird '?y)] (list chirps '?y) 'UContext)]
+      (let [d (v/assert-rule kb [(list bird '?y)] (list chirps '?y) 'CxU)]
         (is (= :default (:strength (v/sentex kb d))))
-        (is (= d (v/assert-rule kb [(list bird '?y)] (list chirps '?y) 'UContext
+        (is (= d (v/assert-rule kb [(list bird '?y)] (list chirps '?y) 'CxU
                                 {:strength :monotonic}))
             "one rule, one handle — the re-assertion is not a second sentex")
         (is (= :monotonic (:strength (v/sentex kb d)))
@@ -347,11 +347,11 @@
       ;; two assertions answer differently in the two orders.  Narrowing one is
       ;; `retract!` and re-assert, as it is for direction and defeasibility.
       (let [chomps (tu/tmp-pred)
-            plain-first (v/assert-rule kb [(list bird '?z)] (list chomps '?z) 'UContext)]
-        (v/assert-rule kb [(list bird '?z)] (list chomps '?z) 'UContext {:strength :monotonic})
+            plain-first (v/assert-rule kb [(list bird '?z)] (list chomps '?z) 'CxU)]
+        (v/assert-rule kb [(list bird '?z)] (list chomps '?z) 'CxU {:strength :monotonic})
         (is (= :monotonic (:strength (v/sentex kb plain-first))) "plain then monotonic")
         ;; ...and the same pair the other way round, on the rule asserted monotonic above
-        (v/assert-rule kb [(list bird '?x)] (list flies '?x) 'UContext)
+        (v/assert-rule kb [(list bird '?x)] (list flies '?x) 'CxU)
         (is (= :monotonic (:strength (v/sentex kb h))) "monotonic then plain")
         (is (= :monotonic (v/defeat-class kb h)) "the read-back agrees with the record")))))
 
@@ -359,39 +359,39 @@
 
 (tu/deftest-kb canonical-variables-are-positional-and-reversible
   (testing "every rule variable is renamed ?var0, ?var1, … by first occurrence"
-    (let [s (sx/sentex '(implies (and (p ?who ?whom)) (q ?whom ?who)) 'AContext)]
+    (let [s (sx/sentex '(implies (and (p ?who ?whom)) (q ?whom ?who)) 'CxA)]
       (is (= '[(p ?var0 ?var1)] (:antecedent s)))
       (is (= '(q ?var1 ?var0) (:consequent s)))))
   (testing "the varmap restores the author's names"
-    (let [s (sx/sentex '(implies (and (p ?who ?whom)) (q ?whom ?who)) 'AContext)]
+    (let [s (sx/sentex '(implies (and (p ?who ?whom)) (q ?whom ?who)) 'CxA)]
       (is (= '{?var0 ?who ?var1 ?whom} (:varmap s)))
       (is (= '(implies (p ?who ?whom) (q ?whom ?who))
              (sx/originalize (:sentence s) (:varmap s))))))
   (testing "a fact carries no varmap — canonical variables are a rule concern"
-    (is (nil? (:varmap (sx/sentex '(dog Muffet) 'AContext))))))
+    (is (nil? (:varmap (sx/sentex '(dog Muffet) 'CxA))))))
 
 (tu/deftest-kb literal-order-is-structural-not-lexical
   (testing "a smaller-arity literal sorts first, even when its name is lexically later"
-    (let [s (sx/sentex '(implies (and (aaa ?x ?y ?z) (zzz ?x)) (out ?x)) 'AContext)]
+    (let [s (sx/sentex '(implies (and (aaa ?x ?y ?z) (zzz ?x)) (out ?x)) 'CxA)]
       (is (= 'zzz (ffirst (:antecedent s))))))
   (testing "a computed literal is held back until its variables are bound"
     ;; written first, but (evaluate ?z (+ ?x ?y)) can only run once ?x/?y are bound
-    (let [s (sx/sentex '(implies (and (evaluate ?z (+ ?x ?y)) (foo ?x ?y)) (bar ?z)) 'AContext)]
+    (let [s (sx/sentex '(implies (and (evaluate ?z (+ ?x ?y)) (foo ?x ?y)) (bar ?z)) 'CxA)]
       (is (= 'foo      (ffirst (:antecedent s))))
       (is (= 'evaluate (first (second (:antecedent s))))))))
 
 (tu/deftest-kb rules-dedup-up-to-variable-names-and-literal-order
   (let [p (tu/tmp-pred) q (tu/tmp-pred) r (tu/tmp-pred)]
-    (let [h1 (v/assert-rule kb [(list p '?x '?y) (list q '?y '?z)] (list r '?x '?z) 'UContext)
+    (let [h1 (v/assert-rule kb [(list p '?x '?y) (list q '?y '?z)] (list r '?x '?z) 'CxU)
           n1 (count (p/sentex-ids (:records kb)))
           ;; the same rule: variables renamed AND the antecedents written in the other order
-          h2 (v/assert-rule kb [(list q '?b '?c) (list p '?a '?b)] (list r '?a '?c) 'UContext)]
+          h2 (v/assert-rule kb [(list q '?b '?c) (list p '?a '?b)] (list r '?a '?c) 'CxU)]
       (testing "the reordered, renamed rule is the same sentex"
         (is (= h1 h2))
         (is (= n1 (count (p/sentex-ids (:records kb))))))
       (testing "a genuinely different join is still a different sentex"
         (is (not= h1 (v/assert-rule kb [(list p '?a '?b) (list q '?c '?b)]
-                                    (list r '?a '?c) 'UContext)))))))
+                                    (list r '?a '?c) 'CxU)))))))
 
 (tu/deftest-kb a-same-predicate-self-join-dedups-across-antecedent-order
   ;; the hard tie case: both antecedents have the SAME predicate, so nothing but the
@@ -399,16 +399,16 @@
   ;; must not leak into the canonical form.
   (let [par (tu/tmp-pred) grand (tu/tmp-pred)]
     (let [h1 (v/assert-rule kb [(list par '?x '?y) (list par '?y '?z)]
-                            (list grand '?x '?z) 'UContext)
+                            (list grand '?x '?z) 'CxU)
           n1 (count (p/sentex-ids (:records kb)))
           h2 (v/assert-rule kb [(list par '?b '?c) (list par '?a '?b)]
-                            (list grand '?a '?c) 'UContext)]
+                            (list grand '?a '?c) 'CxU)]
       (testing "written in the other order, it is the same sentex"
         (is (= h1 h2))
         (is (= n1 (count (p/sentex-ids (:records kb))))))
       (testing "but the reversed join (grand ?z ?x) is genuinely different"
         (is (not= h1 (v/assert-rule kb [(list par '?x '?y) (list par '?y '?z)]
-                                    (list grand '?z '?x) 'UContext)))))))
+                                    (list grand '?z '?x) 'CxU)))))))
 
 (tu/deftest-kb a-framed-consequent-holds-only-the-recursive-literal
   ;; the recursive-literal hold-back keys on the predicate a literal is *about*, not on
@@ -418,75 +418,75 @@
   (let [p (tu/tmp-pred) q (tu/tmp-pred) r (tu/tmp-pred) ctx (tu/tmp-ctx)]
     (testing "a negated-head rule dedups across antecedent order"
       (let [h1 (v/assert-rule kb [(list 'not (list p '?x)) (list 'not (list q '?x))]
-                              (list 'not (list r '?x)) 'UContext)
+                              (list 'not (list r '?x)) 'CxU)
             n1 (count (p/sentex-ids (:records kb)))
             h2 (v/assert-rule kb [(list 'not (list q '?x)) (list 'not (list p '?x))]
-                              (list 'not (list r '?x)) 'UContext)]
+                              (list 'not (list r '?x)) 'CxU)]
         (is (= h1 h2))
         (is (= n1 (count (p/sentex-ids (:records kb)))))))
     (testing "an ist-headed rule dedups across antecedent order"
       (let [h1 (v/assert-rule kb [(list p '?x) (list q '?x)] (list 'ist ctx (list r '?x))
-                              'UContext)
+                              'CxU)
             h2 (v/assert-rule kb [(list q '?x) (list p '?x)] (list 'ist ctx (list r '?x))
-                              'UContext)]
+                              'CxU)]
         (is (= h1 h2))))
     (testing "a recursive rule with a negated head keeps its recursive literal held"
       (let [b (tu/tmp-pred) a (tu/tmp-pred)
             h (v/assert-rule kb [(list b '?x '?y) (list a '?y '?z)]
-                             (list 'not (list a '?x '?z)) 'UContext)]
+                             (list 'not (list a '?x '?z)) 'CxU)]
         ;; held-back literals follow the generators, so the author's right-recursion
         ;; survives canonicalization instead of being hoisted to position 0
         (is (= [b a] (mapv first (:antecedent (v/sentex kb h)))))))))
 
 (tu/deftest-kb canonicalization-is-idempotent
   (testing "canonicalizing an already-canonical rule is a no-op"
-    (let [a (sx/sentex '(implies (and (p ?x ?y) (q ?y ?z)) (r ?x ?z)) 'AContext)
-          b (sx/sentex (:sentence a) 'AContext)]
+    (let [a (sx/sentex '(implies (and (p ?x ?y) (q ?y ?z)) (r ?x ?z)) 'CxA)
+          b (sx/sentex (:sentence a) 'CxA)]
       (is (= (:sentence a) (:sentence b)))
       (is (= (:antecedent a) (:antecedent b)))
       (is (= (:consequent a) (:consequent b)))))
   (testing "and the trie path is stable across the round trip"
-    (let [a (sx/sentex '(implies (and (foo ?a ?b) (bar ?b)) (baz ?a)) 'AContext)]
-      (is (= (sx/path a) (sx/path (sx/sentex (:sentence a) 'AContext)))))))
+    (let [a (sx/sentex '(implies (and (foo ?a ?b) (bar ?b)) (baz ?a)) 'CxA)]
+      (is (= (sx/path a) (sx/path (sx/sentex (:sentence a) 'CxA)))))))
 
 (tu/deftest-kb a-symmetric-fact-answers-from-either-direction
   ;; only fully-ground literals are stored sorted; a *pattern* keeps its order and
   ;; lookup probes both ways, so the stored fact is reachable either way.
   (let [sib (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
-    (v/assert kb (list 'symmetric sib) 'UContext)
-    (v/assert kb (list sib a b) 'UContext)
+    (v/assert kb (list 'symmetric sib) 'CxU)
+    (v/assert kb (list sib a b) 'CxU)
     (testing "a partially-ground query finds it from both sides"
-      (is (seq (v/sentexes-matching kb (list sib '?x b) 'UContext)))
-      (is (seq (v/sentexes-matching kb (list sib b '?x) 'UContext)))
-      (is (seq (v/sentexes-matching kb (list sib '?x a) 'UContext)))
-      (is (seq (v/sentexes-matching kb (list sib a '?x) 'UContext))))
+      (is (seq (v/sentexes-matching kb (list sib '?x b) 'CxU)))
+      (is (seq (v/sentexes-matching kb (list sib b '?x) 'CxU)))
+      (is (seq (v/sentexes-matching kb (list sib '?x a) 'CxU)))
+      (is (seq (v/sentexes-matching kb (list sib a '?x) 'CxU))))
     (testing "and so does the prover engine"
-      (is (v/ask? kb (list sib '?x b) 'UContext))
-      (is (v/ask? kb (list sib b '?x) 'UContext)))
+      (is (v/ask? kb (list sib '?x b) 'CxU))
+      (is (v/ask? kb (list sib b '?x) 'CxU)))
     (testing "a fully-open pattern returns the one stored sentex, not a duplicate"
-      (is (= 1 (count (v/sentexes-matching kb (list sib '?x '?y) 'UContext)))))
+      (is (= 1 (count (v/sentexes-matching kb (list sib '?x '?y) 'CxU)))))
     (testing "an unrelated individual still does not match"
-      (is (empty? (v/sentexes-matching kb (list sib '?x (tu/tmp-ind)) 'UContext))))))
+      (is (empty? (v/sentexes-matching kb (list sib '?x (tu/tmp-ind)) 'CxU))))))
 
 (tu/deftest-kb a-fact-asserted-before-its-symmetric-declaration-stays-reachable
   ;; canonical sorting only applies once (symmetric P) is known, so a fact stored
   ;; earlier may sit in the "wrong" order — lookup probes both ways so it never
   ;; becomes unreachable, and re-asserting its mirror resolves rather than duplicates.
   (let [sib (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
-    (let [h (v/assert kb (list sib a b) 'UContext)]        ; stored before the metadata
-      (v/assert kb (list 'symmetric sib) 'UContext)
+    (let [h (v/assert kb (list sib a b) 'CxU)]        ; stored before the metadata
+      (v/assert kb (list 'symmetric sib) 'CxU)
       (testing "it is still found from either direction"
-        (is (seq (v/sentexes-matching kb (list sib a b) 'UContext)))
-        (is (seq (v/sentexes-matching kb (list sib b a) 'UContext))))
+        (is (seq (v/sentexes-matching kb (list sib a b) 'CxU)))
+        (is (seq (v/sentexes-matching kb (list sib b a) 'CxU))))
       (testing "and asserting the mirror image resolves to it rather than duplicating"
-        (is (= h (v/assert kb (list sib b a) 'UContext)))))))
+        (is (= h (v/assert kb (list sib b a) 'CxU)))))))
 
 (tu/deftest-kb an-anonymous-wildcard-consequent-is-rejected
   ;; `_` is a fresh variable at each occurrence, so it can never carry a binding from
   ;; an antecedent to the consequent — allowing it would store a non-ground junk fact.
   (let [p (tu/tmp-pred) q (tu/tmp-pred)]
     (is (= :not-range-restricted
-           (try (v/assert-rule kb [(list p '_)] (list q '_) 'UContext) nil
+           (try (v/assert-rule kb [(list p '_)] (list q '_) 'CxU) nil
                 (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))
     (testing "and nothing was stored"
       (is (empty? (v/find-sentexes kb q))))))
@@ -496,55 +496,55 @@
   ;; otherwise forward chaining would under-derive over symmetric relations.
   (let [sib (tu/tmp-pred) knows (tu/tmp-pred)
         a (tu/tmp-ind) b (tu/tmp-ind)]
-    (v/assert kb (list 'symmetric sib) 'UContext)
-    (v/assert kb (list sib a b) 'UContext)
-    (v/assert-rule kb [(list sib '?p '?q)] (list knows '?p '?q) 'UContext)
+    (v/assert kb (list 'symmetric sib) 'CxU)
+    (v/assert kb (list sib a b) 'CxU)
+    (v/assert-rule kb [(list sib '?p '?q)] (list knows '?p '?q) 'CxU)
     (testing "the rule fires on the stored symmetric fact"
-      (is (seq (v/sentexes-matching kb (list knows '?x '?y) 'UContext))))))
+      (is (seq (v/sentexes-matching kb (list knows '?x '?y) 'CxU))))))
 
 (tu/deftest-kb symmetric-arguments-canonicalize-to-one-sentex
   (let [sib (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
-    (v/assert kb (list 'symmetric sib) 'UContext)
-    (let [h1 (v/assert kb (list sib a b) 'UContext)
+    (v/assert kb (list 'symmetric sib) 'CxU)
+    (let [h1 (v/assert kb (list sib a b) 'CxU)
           n1 (count (p/sentex-ids (:records kb)))
-          h2 (v/assert kb (list sib b a) 'UContext)]     ; the mirror image
+          h2 (v/assert kb (list sib b a) 'CxU)]     ; the mirror image
       (testing "the mirrored assertion resolves to the same sentex, storing nothing new"
         (is (= h1 h2))
         (is (= n1 (count (p/sentex-ids (:records kb))))))
       (testing "and it is found from either direction"
-        (is (seq (v/sentexes-matching kb (list sib a b) 'UContext)))
-        (is (seq (v/sentexes-matching kb (list sib b a) 'UContext)))))
+        (is (seq (v/sentexes-matching kb (list sib a b) 'CxU)))
+        (is (seq (v/sentexes-matching kb (list sib b a) 'CxU)))))
     (testing "an asymmetric predicate keeps its argument order"
       (let [ord (tu/tmp-pred)]
-        (is (not= (v/assert kb (list ord a b) 'UContext)
-                  (v/assert kb (list ord b a) 'UContext)))))))
+        (is (not= (v/assert kb (list ord a b) 'CxU)
+                  (v/assert kb (list ord b a) 'CxU)))))))
 
 (tu/deftest-kb comparison-siblings-fold-onto-less-than
   (testing "greaterThan is stored as lessThan with reversed arguments"
-    (is (= '(lessThan 3 5) (:sentence (sx/sentex '(greaterThan 5 3) 'AContext))))
+    (is (= '(lessThan 3 5) (:sentence (sx/sentex '(greaterThan 5 3) 'CxA))))
     (is (= '(lessThan ?var0 ?var1)
-           (:consequent (sx/sentex '(implies (p ?a ?b) (greaterThan ?b ?a)) 'AContext)))))
+           (:consequent (sx/sentex '(implies (p ?a ?b) (greaterThan ?b ?a)) 'CxA)))))
   (testing "both directions resolve to one sentex in the store"
-    (let [h1 (v/assert kb '(greaterThan 5 3) 'UContext)
-          h2 (v/assert kb '(lessThan 3 5) 'UContext)]
+    (let [h1 (v/assert kb '(greaterThan 5 3) 'CxU)
+          h2 (v/assert kb '(lessThan 3 5) 'CxU)]
       (is (= h1 h2)))))
 
 (tu/deftest-kb comparison-chains-collapse-into-one-variable-arity-literal
   (testing "chained comparisons in an antecedent merge into a single literal"
     (let [s   (sx/sentex '(implies (and (foo ?a ?b ?c) (lessThan ?a ?b) (lessThan ?b ?c))
-                                   (bar ?a ?c)) 'AContext)
+                                   (bar ?a ?c)) 'CxA)
           lts (filterv #(= 'lessThan (first %)) (:antecedent s))]
       (is (= 1 (count lts)) "one chain literal, not two")
       (is (= 4 (count (first lts))) "variable arity: (lessThan a b c)")))
   (testing "a folded greaterThan joins the same chain"
     (let [s   (sx/sentex '(implies (and (foo ?a ?b ?c) (greaterThan ?b ?a) (lessThan ?b ?c))
-                                   (bar ?a ?c)) 'AContext)
+                                   (bar ?a ?c)) 'CxA)
           lts (filterv #(= 'lessThan (first %)) (:antecedent s))]
       (is (= 1 (count lts)))
       (is (= 4 (count (first lts))))))
   (testing "a branch is not merged — (a<b) and (a<c) stay separate"
     (let [s   (sx/sentex '(implies (and (foo ?a ?b ?c) (lessThan ?a ?b) (lessThan ?a ?c))
-                                   (bar ?a ?c)) 'AContext)
+                                   (bar ?a ?c)) 'CxA)
           lts (filterv #(= 'lessThan (first %)) (:antecedent s))]
       (is (= 2 (count lts))))))
 
@@ -554,7 +554,7 @@
   (testing "a `different` antecedent is held back after the literals that bind it"
     (let [s     (sx/sentex '(implies (and (different ?x ?y) (parentOf ?p ?x) (parentOf ?p ?y))
                                      (siblingOf ?x ?y))
-                           'AContext)
+                           'CxA)
           antes (:antecedent s)]
       (is (= 3 (count antes)))
       (is (= 'different (first (last antes)))
@@ -568,12 +568,12 @@
     ;; (different a b) + (different b c) into (different a b c) would manufacture the
     ;; pairwise claim a≠c that nobody asserted.  See docs/equality.md.
     (let [s     (sx/sentex '(implies (and (foo ?a ?b ?c) (different ?a ?b) (different ?b ?c))
-                                     (bar ?a ?c)) 'AContext)
+                                     (bar ?a ?c)) 'CxA)
           diffs (filterv #(= 'different (first %)) (:antecedent s))]
       (is (= 2 (count diffs)) "two literals, not one chain")
       (is (every? #(= 3 (count %)) diffs) "each still binary — no (different a b c)")))
   (testing "nor are its arguments sorted, and no sibling folds onto it"
-    (let [s (sx/sentex '(different Zeta Alpha) 'AContext)]
+    (let [s (sx/sentex '(different Zeta Alpha) 'CxA)]
       (is (= '(different Zeta Alpha) (:sentence s))))))
 
 (tu/deftest-kb the-prover-answers-variable-arity-comparisons
@@ -594,20 +594,20 @@
   ;; still prove, so the merged chain really is discharged by the prover.
   (let [born (tu/tmp-pred) between (tu/tmp-pred)
         a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ind)]
-    (v/assert kb (list born a 1970) 'UContext)
-    (v/assert kb (list born b 1980) 'UContext)
-    (v/assert kb (list born c 1990) 'UContext)
+    (v/assert kb (list born a 1970) 'CxU)
+    (v/assert kb (list born b 1980) 'CxU)
+    (v/assert kb (list born c 1990) 'CxU)
     (let [h (v/assert-rule kb [(list born '?x '?bx) (list born '?y '?by) (list born '?z '?bz)
                                (list 'lessThan '?bx '?by) (list 'lessThan '?by '?bz)]
-                           (list between '?x '?y '?z) 'UContext {:direction :backward})
+                           (list between '?x '?y '?z) 'CxU {:direction :backward})
           lts (filterv #(= 'lessThan (first %)) (:antecedent (v/sentex kb h)))]
       (testing "the two comparisons are stored as one chain literal"
         (is (= 1 (count lts)))
         (is (= 4 (count (first lts)))))
       (testing "and the collapsed chain still discharges through the prover"
-        (is (v/query? kb (list between a b c) 'UContext {:max-depth 2}))
-        (is (not (v/query? kb (list between c b a) 'UContext {:max-depth 2})))
-        (is (not (v/query? kb (list between b a c) 'UContext {:max-depth 2})))))))
+        (is (v/query? kb (list between a b c) 'CxU {:max-depth 2}))
+        (is (not (v/query? kb (list between c b a) 'CxU {:max-depth 2})))
+        (is (not (v/query? kb (list between b a c) 'CxU {:max-depth 2})))))))
 
 ;; ---- exceptWhen: the exception is a separate meta-sentex ----------------
 ;; `(exceptWhen <query> <rule>)` is split at the assert layer: the rule stores
@@ -621,7 +621,7 @@
   ;; surface `(exceptWhen …)` wrapper is stripped and the bare rule stored — the
   ;; sibling wrappers still become their own fields.
   (let [s (sx/sentex '(exceptWhen (penguin ?b)
-                                  (set/defaultRule (implies (bird ?b) (flies ?b)))) 'AContext)]
+                                  (set/defaultRule (implies (bird ?b) (flies ?b)))) 'CxA)]
     (testing "no wrapper survives onto the stored sentence"
       (is (= '(implies (bird ?var0) (flies ?var0)) (:sentence s)))
       (is (not (some '#{exceptWhen set/defaultRule}
@@ -641,8 +641,8 @@
         mh   (v/assert kb (list 'exceptWhen (list penguin '?b)
                                 (list 'set/defaultRule
                                       (list 'implies (list bird '?b) (list flies '?b))))
-                       'UContext)
-        rh   (v/handle-of kb rule-form 'UContext)]
+                       'CxU)
+        rh   (v/handle-of kb rule-form 'CxU)]
     (testing "the meta-sentex names the rule by handle and holds the aligned query"
       (is (= (list 'exceptWhen (list penguin '?var0) (sx/sentex-handle rh))
              (:sentence (v/sentex kb mh)))))
@@ -659,8 +659,8 @@
                               (list 'implies
                                     (list 'and (list p '?x) (list q '?y))
                                     (list out '?x '?y)))
-                     'UContext)
-        rh (v/handle-of kb rule-form 'UContext)
+                     'CxU)
+        rh (v/handle-of kb rule-form 'CxU)
         s  (v/sentex kb rh)]
     (testing "the rule's own canonicalization is unchanged by the exception"
       (is (= [(list p '?var0) (list q '?var1)] (:antecedent s)))
@@ -673,10 +673,10 @@
   (let [bird (tu/tmp-type) penguin (tu/tmp-type) flies (tu/tmp-pred)
         rule-form (vr/rule-sentence [(list bird '?b)] (list flies '?b))
         bare (v/assert kb (list 'exceptWhen (list penguin '?b)
-                                (list 'implies (list bird '?b) (list flies '?b))) 'UContext)
+                                (list 'implies (list bird '?b) (list flies '?b))) 'CxU)
         vec1 (v/assert kb (list 'exceptWhen [(list penguin '?b)]
-                                (list 'implies (list bird '?b) (list flies '?b))) 'UContext)
-        rh   (v/handle-of kb rule-form 'UContext)]
+                                (list 'implies (list bird '?b) (list flies '?b))) 'CxU)
+        rh   (v/handle-of kb rule-form 'CxU)]
     (testing "a single literal may be written bare or as a one-vector; one meta-sentex"
       (is (= bare vec1))
       (is (= [[(list penguin '?var0)]] (provers/rule-exceptions kb rh))))))
@@ -687,10 +687,10 @@
   (let [bird (tu/tmp-type) penguin (tu/tmp-type) young (tu/tmp-type) flies (tu/tmp-pred)
         rule-form (vr/rule-sentence [(list bird '?b)] (list flies '?b))
         a (v/assert kb (list 'exceptWhen [(list young '?b) (list penguin '?b)]
-                             (list 'implies (list bird '?b) (list flies '?b))) 'UContext)
+                             (list 'implies (list bird '?b) (list flies '?b))) 'CxU)
         b (v/assert kb (list 'exceptWhen [(list penguin '?z) (list young '?z) (list penguin '?z)]
-                             (list 'implies (list bird '?z) (list flies '?z))) 'UContext)
-        rh (v/handle-of kb rule-form 'UContext)]
+                             (list 'implies (list bird '?z) (list flies '?z))) 'CxU)
+        rh (v/handle-of kb rule-form 'CxU)]
     (is (= a b))
     (is (= 1 (count (provers/rule-exceptions kb rh))))
     (is (= #{(list young '?var0) (list penguin '?var0)}
@@ -704,9 +704,9 @@
                              (list 'set/forwardRule
                                    (list 'implies (list bird '?b)
                                          (list 'and (list flies '?b) (list light '?b)))))
-                    'UContext)
-        rh1 (v/handle-of kb (vr/rule-sentence [(list bird '?b)] (list flies '?b)) 'UContext)
-        rh2 (v/handle-of kb (vr/rule-sentence [(list bird '?b)] (list light '?b)) 'UContext)]
+                    'CxU)
+        rh1 (v/handle-of kb (vr/rule-sentence [(list bird '?b)] (list flies '?b)) 'CxU)
+        rh2 (v/handle-of kb (vr/rule-sentence [(list bird '?b)] (list light '?b)) 'CxU)]
     (testing "each conjunct is its own rule with its own exception"
       (is (some? rh1))
       (is (some? rh2))
@@ -719,29 +719,29 @@
         rule-form (vr/rule-sentence [(list bird '?b)] (list flies '?b))
         plain (v/assert kb (list 'set/defaultRule
                                  (list 'implies (list bird '?b) (list flies '?b)))
-                        'UContext)
+                        'CxU)
         exc   (v/assert kb (list 'exceptWhen (list penguin '?b)
                                  (list 'set/defaultRule
                                        (list 'implies (list bird '?b) (list flies '?b))))
-                        'UContext)]
+                        'CxU)]
     (testing "the exception is a separate meta-sentex, but names the one rule"
       (is (not= plain exc))
-      (is (= plain (v/handle-of kb rule-form 'UContext))))
+      (is (= plain (v/handle-of kb rule-form 'CxU))))
     (testing "an α-equivalent exception dedups to the same meta-sentex"
       (let [n2   (count (p/sentex-ids (:records kb)))
             same (v/assert kb (list 'exceptWhen [(list penguin '?w)]
                                     (list 'set/defaultRule
                                           (list 'implies (list bird '?w) (list flies '?w))))
-                           'UContext)]
+                           'CxU)]
         (is (= exc same))
         (is (= n2 (count (p/sentex-ids (:records kb)))))))
     (testing "a different exception is a second meta-sentex on the same rule"
       (let [exc2 (v/assert kb (list 'exceptWhen (list young '?b)
                                     (list 'set/defaultRule
                                           (list 'implies (list bird '?b) (list flies '?b))))
-                           'UContext)]
+                           'CxU)]
         (is (not= exc exc2))
-        (is (= plain (v/handle-of kb rule-form 'UContext)))
+        (is (= plain (v/handle-of kb rule-form 'CxU)))
         (is (= 2 (count (provers/rule-exceptions kb plain))))))))
 
 (tu/deftest-kb an-exception-variable-no-antecedent-binds-is-rejected
@@ -752,7 +752,7 @@
         rule (list 'exceptWhen (list sick '?child)
                    (list 'set/defaultRule (list 'implies (list bird '?b) (list flies '?b))))]
     (testing "assert refuses an exception whose variable no antecedent binds"
-      (let [e (try (v/assert kb rule 'UContext)
+      (let [e (try (v/assert kb rule 'CxU)
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (= :exception-not-closed (:type (ex-data e))))
         (is (= '[?child] (:unbound (ex-data e))))))
@@ -764,7 +764,7 @@
                                           (list 'implies
                                                 (list 'and (list bird '?b) (list bird '?child))
                                                 (list flies '?b))))
-                           'UContext))))))
+                           'CxU))))))
 
 ;; ---- regression: the whole starter still reasons ------------------------
 
@@ -773,9 +773,9 @@
     (starter/load-into kb)
     (world/load-cast kb)
     (testing "facts, negation, rules, and derivations all survive"
-      (is (seq (v/sentexes-matching kb '(grandparentOf Tom Ann) 'NaturalWorldContext)))
-      (is (empty? (v/sentexes-matching kb '(flies Tweety) 'NaturalWorldContext)))
-      (is (seq (v/sentexes-matching kb '(not (hasCapability Tweety flying)) 'NaturalWorldContext)))
+      (is (seq (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
+      (is (empty? (v/sentexes-matching kb '(flies Tweety) 'CxNaturalWorld)))
+      (is (seq (v/sentexes-matching kb '(not (hasCapability Tweety flying)) 'CxNaturalWorld)))
       (is (v/ask? kb '(ancestorOf Tom Ann)))
       (is (empty? (v/conflicts kb))))))
 
@@ -800,6 +800,6 @@
           (is (= (hash before) (hash after)))
           (is (= {before :v} {after :v}) "so it still keys a map"))
         (testing "and a sentex built either side is still the same sentex"
-          (is (= (sx/sentex before 'AContext) (sx/sentex after 'AContext)))))
+          (is (= (sx/sentex before 'CxA) (sx/sentex after 'CxA)))))
       (testing "sharing resumes for whatever is named after a flush"
         (is (identical? (sx/intern-sym 'pooledAgain) (sx/intern-sym 'pooledAgain)))))))

@@ -137,11 +137,11 @@ replace the engine.
 
 Neither is needed, because **a context already is a frame of reference**. A network is
 built per context out of the facts visible there, so `(leftOf Mouse Lion)` asserted in
-`LionMouseContext` is a claim in that context's frame and in no other. Two
+`CxLionMouse` is a claim in that context's frame and in no other. Two
 contexts looking at the same individuals from opposite sides state opposite facts,
 each context's network answers its own way, and neither contaminates the other. Nothing
 declares a viewpoint, because the context is the viewpoint; where a frame has to be argued
-about rather than assumed, the frame is a context and the argument is `genlContext`.
+about rather than assumed, the frame is a context and the argument is `genlCx`.
 
 So the calculus is binary, it composes exactly as the cardinal directions do, and it needs
 **no change at all** to the shared glue in [qcn.md](qcn.md).
@@ -270,11 +270,11 @@ length.
 ## The vocabulary
 
 All fifty predicates — fourteen RCC-8, thirteen cardinal, thirteen relative, ten distance —
-are declared `binaryPredicate` in `resources/kb/upper/SpaceContext.txt`, each with its own
+are declared `binaryPredicate` in `resources/kb/upper/CxSpace.txt`, each with its own
 `comment` sentex, in one **upper** context rather than the vocabulary head because all four
-calculi are *about* space: CoreContext holds only the grammar they are stated in
+calculi are *about* space: CxCore holds only the grammar they are stated in
 (`binaryPredicate`, `comment`), which every domain shares. So the vocabulary is separable —
-a KB built from CoreContext plus the layers it wants carries regions only if it reasons
+a KB built from CxCore plus the layers it wants carries regions only if it reasons
 about them (the starter, which loads every upper context it finds, takes them). Regions,
 places, and the things a frame or a distance is about are all **ordinary individuals**:
 every argument position is declared `(argIsa … spatial_thing)`, the type a location is

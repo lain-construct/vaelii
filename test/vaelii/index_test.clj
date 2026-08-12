@@ -15,9 +15,9 @@
 (tu/deftest-kb count-aware-trie
   (let [bornIn (tu/tmp-pred) tom (tu/tmp-ind) bob (tu/tmp-ind)
         paris (tu/tmp-ind) rome (tu/tmp-ind)]
-    (v/assert kb (list bornIn tom paris) 'NaturalWorldContext)
-    (v/assert kb (list bornIn bob paris) 'NaturalWorldContext)
-    (v/assert kb (list bornIn tom rome)  'NaturalWorldContext)
+    (v/assert kb (list bornIn tom paris) 'CxNaturalWorld)
+    (v/assert kb (list bornIn bob paris) 'CxNaturalWorld)
+    (v/assert kb (list bornIn tom rome)  'CxNaturalWorld)
     (testing "counts accumulate along shared prefixes"
       (is (= 3 (p/count-at (:index kb) [])))
       (is (= 3 (p/count-at (:index kb) [bornIn])))
@@ -34,8 +34,8 @@
                         ;; the key ends with the context, so a whole sentence is still an
                         ;; interior node — its children are the contexts it is stored in
                         [bornIn tom paris]
-                        [bornIn tom paris 'NaturalWorldContext]  ; the leaf: no children
-                        [bornIn tom paris 'CoreContext]          ; absent: a real sentence,
+                        [bornIn tom paris 'CxNaturalWorld]  ; the leaf: no children
+                        [bornIn tom paris 'CxCore]          ; absent: a real sentence,
                                                                  ; not in that context
                         [bornIn (tu/tmp-ind)]                    ; absent: no node at all
                         [(tu/tmp-pred)]]]
@@ -44,29 +44,29 @@
         (is (= 2 (p/count-children ix [bornIn])))             ; tom and bob
         (is (= 2 (p/count-children ix [bornIn tom])))         ; paris and rome
         (is (= 1 (p/count-children ix [bornIn tom paris])))   ; the one context it is in
-        (is (zero? (p/count-children ix [bornIn tom paris 'NaturalWorldContext])))
+        (is (zero? (p/count-children ix [bornIn tom paris 'CxNaturalWorld])))
         (is (zero? (p/count-children ix [bornIn (tu/tmp-ind)])))))))
 
 (tu/deftest-kb query-by-context-and-pattern
   (let [bornIn (tu/tmp-pred) tom (tu/tmp-ind) bob (tu/tmp-ind) paris (tu/tmp-ind)]
-    (v/assert kb (list bornIn tom paris) 'NaturalWorldContext)
-    (v/assert kb (list bornIn bob paris) 'NaturalWorldContext)
-    (v/assert kb (list bornIn tom paris) 'CoreContext)
+    (v/assert kb (list bornIn tom paris) 'CxNaturalWorld)
+    (v/assert kb (list bornIn bob paris) 'CxNaturalWorld)
+    (v/assert kb (list bornIn tom paris) 'CxCore)
     (testing "context wildcard returns every context"
       (is (= 2 (count (v/sentexes-matching kb (list bornIn tom paris))))))
     (testing "explicit context narrows results"
-      (is (= 1 (count (v/sentexes-matching kb (list bornIn tom paris) 'CoreContext)))))
+      (is (= 1 (count (v/sentexes-matching kb (list bornIn tom paris) 'CxCore)))))
     (testing "sentence variables fan out within a context"
       (is (= #{tom bob}
-             (set (map (comp second :sentence) (v/sentexes-matching kb (list bornIn '?who paris) 'NaturalWorldContext))))))))
+             (set (map (comp second :sentence) (v/sentexes-matching kb (list bornIn '?who paris) 'CxNaturalWorld))))))))
 
 (tu/deftest-kb nested-terms-are-stable
   (let [nat (tu/tmp-pred) succ (tu/tmp-pred) z (tu/tmp-ind)]
-    (v/assert kb (list nat (list succ z)) 'UniverseContext)
+    (v/assert kb (list nat (list succ z)) 'CxUniverse)
     (testing "a nested-term sentence round-trips and dedups"
       (is (= 1 (p/count-at (:index kb) [])))
-      (is (= 1 (count (v/sentexes-matching kb (list nat (list succ z)) 'UniverseContext))))
-      (v/assert kb (list nat (list succ z)) 'UniverseContext)         ; same fact again
+      (is (= 1 (count (v/sentexes-matching kb (list nat (list succ z)) 'CxUniverse))))
+      (v/assert kb (list nat (list succ z)) 'CxUniverse)         ; same fact again
       (is (= 1 (p/count-at (:index kb) []))))))            ; still one, not two
 
 ;; ---- secondary roots: context / functor / argument ----------------------
@@ -91,9 +91,9 @@
 (tu/deftest-kb the-functor-root-spans-arity-and-polarity
   (let [dog (tu/tmp-type) muffet (tu/tmp-ind) rex (tu/tmp-ind)
         rel (tu/tmp-pred)]
-    (v/assert kb (list dog muffet) 'UniverseContext)
-    (v/assert kb (list 'not (list dog rex)) 'UniverseContext)   ; negative fact
-    (v/assert kb (list rel muffet rex) 'UniverseContext)
+    (v/assert kb (list dog muffet) 'CxUniverse)
+    (v/assert kb (list 'not (list dog rex)) 'CxUniverse)   ; negative fact
+    (v/assert kb (list rel muffet rex) 'CxUniverse)
     (testing "both polarities count under the same functor"
       (is (= 2 (v/count-with-functor kb dog)))
       (is (= 2 (count (v/sentexes-with-functor kb dog)))))
@@ -103,15 +103,15 @@
       (is (= 0 (v/count-with-functor kb (tu/tmp-pred)))))
     (testing "a rule is not a fact — it contributes no functor entry"
       (let [ante (tu/tmp-pred) conseq (tu/tmp-pred)]
-        (v/assert-rule kb [(list ante '?x)] (list conseq '?x) 'UniverseContext)
+        (v/assert-rule kb [(list ante '?x)] (list conseq '?x) 'CxUniverse)
         (is (= 0 (v/count-with-functor kb conseq)))))))
 
 (tu/deftest-kb the-argument-root-discriminates-by-position
   (let [bornIn (tu/tmp-pred) likes (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind) paris (tu/tmp-ind)]
-    (v/assert kb (list bornIn tom paris) 'UniverseContext)
-    (v/assert kb (list bornIn bob paris) 'UniverseContext)
-    (v/assert kb (list likes paris tom) 'UniverseContext)
+    (v/assert kb (list bornIn tom paris) 'CxUniverse)
+    (v/assert kb (list bornIn bob paris) 'CxUniverse)
+    (v/assert kb (list likes paris tom) 'CxUniverse)
     (testing "position 2 and position 1 are distinct entries for the same term"
       (is (= 2 (v/count-with-arg kb 2 paris)))          ; born in Paris, twice
       (is (= 1 (v/count-with-arg kb 1 paris))))         ; Paris likes Tom, once
@@ -132,7 +132,7 @@
 (tu/deftest-kb a-rule-wrapper-sets-the-direction-on-the-sentex
   (tu/with-terms [p q]
     (testing "a bare implies works both ways"
-      (let [h (v/assert kb (list 'implies (list p '?x) (list q '?x)) 'UniverseContext)]
+      (let [h (v/assert kb (list 'implies (list p '?x) (list q '?x)) 'CxUniverse)]
         (is (= :both (:direction (v/sentex kb h))))
         (is (nil? (:defeasible (v/sentex kb h))))))))
 
@@ -142,7 +142,7 @@
                                set/inertRule    :inert}]
     (tu/with-terms [p q]
       (let [h (v/assert kb (list wrapper (list 'implies (list p '?x) (list q '?x)))
-                        'UniverseContext)
+                        'CxUniverse)
             s (v/sentex kb h)]
         (testing (str wrapper " sets :direction " expected)
           (is (= expected (:direction s))))
@@ -154,24 +154,24 @@
   (tu/with-terms [bird flies Tweety]
     (let [h (v/assert kb (list 'set/defaultRule
                                (list 'implies (list bird '?x) (list flies '?x)))
-                      'UniverseContext)
+                      'CxUniverse)
           s (v/sentex kb h)]
       (is (true? (:defeasible s)))
       (is (= 'implies (first (:sentence s))))
       (testing "and it still behaves as a default — the conclusion is defeasible"
-        (v/assert kb (list bird Tweety) 'UniverseContext)
-        (is (seq (v/sentexes-matching kb (list flies Tweety) 'UniverseContext)))
-        (v/assert kb (list 'not (list flies Tweety)) 'UniverseContext
+        (v/assert kb (list bird Tweety) 'CxUniverse)
+        (is (seq (v/sentexes-matching kb (list flies Tweety) 'CxUniverse)))
+        (v/assert kb (list 'not (list flies Tweety)) 'CxUniverse
                   {:strength :monotonic})
-        (is (empty? (v/sentexes-matching kb (list flies Tweety) 'UniverseContext)))))))
+        (is (empty? (v/sentexes-matching kb (list flies Tweety) 'CxUniverse)))))))
 
 (tu/deftest-kb the-direction-opt-is-the-same-thing-as-a-wrapper
   (tu/with-terms [p q r]
     (let [viaOpt  (v/assert-rule kb [(list p '?x)] (list q '?x)
-                                 'UniverseContext {:direction :backward})
+                                 'CxUniverse {:direction :backward})
           viaWrap (v/assert kb (list 'set/backwardRule
                                      (list 'implies (list p '?x) (list r '?x)))
-                            'UniverseContext)]
+                            'CxUniverse)]
       (is (= :backward (:direction (v/sentex kb viaOpt))))
       (is (= :backward (:direction (v/sentex kb viaWrap)))))))
 
@@ -179,7 +179,7 @@
   (tu/with-terms [p q]
     (let [h (v/assert kb (list 'set/forwardRule
                                (list 'implies (list p '?x) (list q '?x)))
-                      'UniverseContext)
+                      'CxUniverse)
           s (v/sentex kb h)]
       (testing "the record answers both directions"
         (is (rules/forward-sentex? s))
@@ -194,15 +194,15 @@
   ;; from the two claims rather than from which arrived first, so the pair commutes.
   (tu/with-terms [p q]
     (let [rule (list 'implies (list p '?x) (list q '?x))
-          h1   (v/assert kb (list 'set/forwardRule rule) 'UniverseContext)
-          h2   (v/assert kb (list 'set/backwardRule rule) 'UniverseContext)]
+          h1   (v/assert kb (list 'set/forwardRule rule) 'CxUniverse)
+          h2   (v/assert kb (list 'set/backwardRule rule) 'CxUniverse)]
       (is (= h1 h2))
       (is (= :both (:direction (v/sentex kb h1)))))))
 
 (tu/deftest-kb rule-predicate-indexes-are-complete-in-both-directions
   (let [p (tu/tmp-pred) q (tu/tmp-pred)]
     (let [fwd (v/assert-rule kb [(list p '?a)] (list q '?a)
-                             'UniverseContext {:direction :forward})]
+                             'CxUniverse {:direction :forward})]
       (testing "a forward-only rule is still findable by what it concludes"
         (is (contains? (p/rules-by-consequent (:index kb) q) fwd))
         (is (contains? (p/rules-by-antecedent (:index kb) p) fwd)))
@@ -216,21 +216,21 @@
   ;; the antecedent index is now complete, so forward chaining must filter on the
   ;; recorded direction — otherwise a backward/inert rule would start firing.
   (let [p (tu/tmp-pred) q (tu/tmp-pred) x (tu/tmp-ind)]
-    (v/assert-rule kb [(list p '?a)] (list q '?a) 'UniverseContext {:direction :backward})
-    (v/assert kb (list p x) 'UniverseContext)
+    (v/assert-rule kb [(list p '?a)] (list q '?a) 'CxUniverse {:direction :backward})
+    (v/assert kb (list p x) 'CxUniverse)
     (v/forward-chain kb)
     (testing "forward chaining does not materialize its conclusion"
-      (is (empty? (v/sentexes-matching kb (list q x) 'UniverseContext))))
+      (is (empty? (v/sentexes-matching kb (list q x) 'CxUniverse))))
     (testing "but it is still provable backward"
-      (is (v/provable? kb (list q x) 'UniverseContext)))))
+      (is (v/provable? kb (list q x) 'CxUniverse)))))
 
 (tu/deftest-kb an-inert-rule-fires-in-neither-direction
   (let [p (tu/tmp-pred) q (tu/tmp-pred) x (tu/tmp-ind)]
-    (v/assert-rule kb [(list p '?a)] (list q '?a) 'UniverseContext {:direction :inert})
-    (v/assert kb (list p x) 'UniverseContext)
+    (v/assert-rule kb [(list p '?a)] (list q '?a) 'CxUniverse {:direction :inert})
+    (v/assert kb (list p x) 'CxUniverse)
     (v/forward-chain kb)
-    (is (empty? (v/sentexes-matching kb (list q x) 'UniverseContext)))
-    (is (not (v/provable? kb (list q x) 'UniverseContext)))))
+    (is (empty? (v/sentexes-matching kb (list q x) 'CxUniverse)))
+    (is (not (v/provable? kb (list q x) 'CxUniverse)))))
 
 ;; ---- the exception re-check index ---------------------------------------
 ;;
@@ -295,9 +295,9 @@
 
 (tu/deftest-kb unindex-cleans-up
   (let [bornIn (tu/tmp-pred) tom (tu/tmp-ind) paris (tu/tmp-ind)
-        h (v/assert kb (list bornIn tom paris) 'NaturalWorldContext)
-        s (assoc (sx/sentex (list bornIn tom paris) 'NaturalWorldContext) :id h)]
+        h (v/assert kb (list bornIn tom paris) 'CxNaturalWorld)
+        s (assoc (sx/sentex (list bornIn tom paris) 'CxNaturalWorld) :id h)]
     (is (= 1 (p/count-at (:index kb) [])))
     (p/unindex-sentex! (:index kb) s h)
     (is (= 0 (p/count-at (:index kb) [])))
-    (is (empty? (v/sentexes-matching kb (list bornIn tom paris) 'NaturalWorldContext)))))
+    (is (empty? (v/sentexes-matching kb (list bornIn tom paris) 'CxNaturalWorld)))))

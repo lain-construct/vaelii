@@ -82,9 +82,9 @@ Seven **derived** predicates each name a disjunction:
 usually mean by "before". `subintervalOf` contains `:equal`, so it holds of an interval
 and itself, where `properSubintervalOf` does not. The last two are exact complements.
 
-All twenty are declared `binaryPredicate` in `resources/kb/upper/TimeContext.txt`, beside the
+All twenty are declared `binaryPredicate` in `resources/kb/upper/CxTime.txt`, beside the
 six instant predicates and the metric ones, each with its own `comment` sentex — an **upper**
-context rather than the vocabulary head, because they are *about* time and CoreContext holds
+context rather than the vocabulary head, because they are *about* time and CxCore holds
 only the grammar they are stated in.
 
 ## The composition table, and why it is checked

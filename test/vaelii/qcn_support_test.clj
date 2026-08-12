@@ -110,12 +110,12 @@
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (core-context/load-into)
-                        (seed/load-context 'SpaceContext "upper")
-                        (seed/load-context 'TimeContext "upper")
+                        (seed/load-context 'CxSpace "upper")
+                        (seed/load-context 'CxTime "upper")
                         (v/add-prover (space/spatial-prover))
                         (v/add-prover (iv/allen-prover)))))
 
-(def ^:private C 'UniverseContext)
+(def ^:private C 'CxUniverse)
 
 (tu/deftest-kb an-asserted-relation-is-supported-by-its-own-sentex
   (tu/with-terms [A B]

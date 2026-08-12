@@ -45,19 +45,19 @@
 ;; ---- the thing that could not happen before -----------------------------
 
 (tu/deftest-kb an-entailed-relation-fires-a-forward-rule
-  (tu/with-terms [RegA RegB RegC contained ChainSpaceContext]
+  (tu/with-terms [RegA RegB RegC contained CxChainSpace]
     (with-spatial kb
-      (v/assert kb (list 'genlContext ChainSpaceContext 'WellContext) 'UniverseContext
+      (v/assert kb (list 'genlCx CxChainSpace 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa contained 1 'thing) 'CoreContext {:strength :monotonic})
+      (v/assert kb (list 'argIsa contained 1 'thing) 'CxCore {:strength :monotonic})
       ;; a rule over a DERIVED spatial predicate: partOfRegion denotes a disjunction, so
       ;; nothing stores it — it is only ever entailed
       (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
-                     ChainSpaceContext)
-      (nest! kb ChainSpaceContext [RegA RegB RegC])
+                     CxChainSpace)
+      (nest! kb CxChainSpace [RegA RegB RegC])
       (testing "the transitive relation is entailed and genuinely not stored"
-        (is (nil? (v/handle-of kb (list 'properPartOfRegion RegA RegC) ChainSpaceContext)))
-        (is (= #{:ntpp} (v/possible-relations kb :rcc8 ChainSpaceContext RegA RegC))))
+        (is (nil? (v/handle-of kb (list 'properPartOfRegion RegA RegC) CxChainSpace)))
+        (is (= #{:ntpp} (v/possible-relations kb :rcc8 CxChainSpace RegA RegC))))
       (testing "and the rule fired on it"
         (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx))
             "A is contained — from the asserted step")
@@ -65,16 +65,16 @@
             "B is contained — B is a proper part of C")))))
 
 (tu/deftest-kb the-conclusion-names-the-facts-the-entailment-rests-on
-  (tu/with-terms [RegA RegB RegC deepIn ChainWhyContext]
+  (tu/with-terms [RegA RegB RegC deepIn CxChainWhy]
     (with-spatial kb
-      (v/assert kb (list 'genlContext ChainWhyContext 'WellContext) 'UniverseContext
+      (v/assert kb (list 'genlCx CxChainWhy 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa deepIn 1 'thing) 'CoreContext {:strength :monotonic})
+      (v/assert kb (list 'argIsa deepIn 1 'thing) 'CxCore {:strength :monotonic})
       ;; the antecedent pins A to C specifically, so the only way to satisfy it is the
       ;; two-step entailment
       (v/assert-rule kb [(list 'properPartOfRegion RegA RegC)] (list deepIn RegA)
-                     ChainWhyContext)
-      (let [[h-ab h-bc] (nest! kb ChainWhyContext [RegA RegB RegC])
+                     CxChainWhy)
+      (let [[h-ab h-bc] (nest! kb CxChainWhy [RegA RegB RegC])
             concl (first (v/sentexes-matching kb (list deepIn RegA) '?ctx))
             h     (:id concl)]
         (is (some? h) "the conclusion arrived")
@@ -86,23 +86,23 @@
           (is (false? (v/premise? kb h))))))))
 
 (tu/deftest-kb retracting-any-supporting-fact-withdraws-the-conclusion
-  (tu/with-terms [RegA RegB RegC deepIn RetractSpaceContext]
+  (tu/with-terms [RegA RegB RegC deepIn CxRetractSpace]
     (with-spatial kb
-      (v/assert kb (list 'genlContext RetractSpaceContext 'WellContext) 'UniverseContext
+      (v/assert kb (list 'genlCx CxRetractSpace 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa deepIn 1 'thing) 'CoreContext {:strength :monotonic})
+      (v/assert kb (list 'argIsa deepIn 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'properPartOfRegion RegA RegC)] (list deepIn RegA)
-                     RetractSpaceContext)
-      (let [[_ h-bc] (nest! kb RetractSpaceContext [RegA RegB RegC])]
+                     CxRetractSpace)
+      (let [[_ h-bc] (nest! kb CxRetractSpace [RegA RegB RegC])]
         (is (seq (v/sentexes-matching kb (list deepIn RegA) '?ctx)) "believed while both steps stand")
         (testing "dropping the second step breaks the chain, and the conclusion goes"
           (v/retract! kb h-bc)
           (is (empty? (v/sentexes-matching kb (list deepIn RegA) '?ctx))
               "the entailment is gone, so what rested on it is gone")
-          (is (= 8 (count (v/possible-relations kb :rcc8 RetractSpaceContext RegA RegC)))
+          (is (= 8 (count (v/possible-relations kb :rcc8 CxRetractSpace RegA RegC)))
               "unconstrained is the whole universe — `#{}` would mean *inconsistent*"))
         (testing "and re-asserting it brings the conclusion back"
-          (v/assert kb (list 'nonTangentialProperPart RegB RegC) RetractSpaceContext
+          (v/assert kb (list 'nonTangentialProperPart RegB RegC) CxRetractSpace
                     {:strength :monotonic})
           (is (seq (v/sentexes-matching kb (list deepIn RegA) '?ctx))
               "re-derived, at a fresh handle"))))))
@@ -110,69 +110,69 @@
 ;; ---- the boundaries ------------------------------------------------------
 
 (tu/deftest-kb without-the-prover-registered-nothing-changes
-  (tu/with-terms [RegA RegB RegC contained InertSpaceContext]
-    (v/assert kb (list 'genlContext InertSpaceContext 'WellContext) 'UniverseContext
+  (tu/with-terms [RegA RegB RegC contained CxInertSpace]
+    (v/assert kb (list 'genlCx CxInertSpace 'CxWell) 'CxUniverse
               {:strength :monotonic})
-    (v/assert kb (list 'argIsa contained 1 'thing) 'CoreContext {:strength :monotonic})
+    (v/assert kb (list 'argIsa contained 1 'thing) 'CxCore {:strength :monotonic})
     (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
-                   InertSpaceContext)
-    (nest! kb InertSpaceContext [RegA RegB RegC])
+                   CxInertSpace)
+    (nest! kb CxInertSpace [RegA RegB RegC])
     (testing "the vocabulary loads, the facts store, and the rule simply does not fire —
               registering a prover is the opt-in, and this is the KB that never did"
       (is (empty? (v/sentexes-matching kb (list contained RegA) '?ctx)))
       (is (empty? (v/sentexes-matching kb (list contained RegB) '?ctx))))))
 
 (tu/deftest-kb an-asserted-relation-still-fires-as-it-always-did
-  (tu/with-terms [RegA RegB touching AssertedSpaceContext]
+  (tu/with-terms [RegA RegB touching CxAssertedSpace]
     (with-spatial kb
-      (v/assert kb (list 'genlContext AssertedSpaceContext 'WellContext) 'UniverseContext
+      (v/assert kb (list 'genlCx CxAssertedSpace 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa touching 1 'thing) 'CoreContext {:strength :monotonic})
+      (v/assert kb (list 'argIsa touching 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'externallyConnected '?x '?y)] (list touching '?x)
-                     AssertedSpaceContext)
-      (v/assert kb (list 'externallyConnected RegA RegB) AssertedSpaceContext
+                     CxAssertedSpace)
+      (v/assert kb (list 'externallyConnected RegA RegB) CxAssertedSpace
                 {:strength :monotonic})
       (testing "the ordinary matched route is untouched — entailment is a union with it,
                 never a replacement, so nothing that fired before stops firing"
         (is (seq (v/sentexes-matching kb (list touching RegA) '?ctx)))))))
 
 (tu/deftest-kb the-diagonal-entails-but-supports-nothing-so-it-concludes-nothing
-  (tu/with-terms [RegA RegB reflexive DiagonalSpaceContext]
+  (tu/with-terms [RegA RegB reflexive CxDiagonalSpace]
     (with-spatial kb
-      (v/assert kb (list 'genlContext DiagonalSpaceContext 'WellContext) 'UniverseContext
+      (v/assert kb (list 'genlCx CxDiagonalSpace 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa reflexive 1 'thing) 'CoreContext {:strength :monotonic})
+      (v/assert kb (list 'argIsa reflexive 1 'thing) 'CxCore {:strength :monotonic})
       ;; partOfRegion contains the identity, so (partOfRegion ?x ?x) is entailed of every
       ;; region by the algebra alone — with no stored fact behind it
       (v/assert-rule kb [(list 'partOfRegion '?x '?x)] (list reflexive '?x)
-                     DiagonalSpaceContext)
-      (v/assert kb (list 'nonTangentialProperPart RegA RegB) DiagonalSpaceContext
+                     CxDiagonalSpace)
+      (v/assert kb (list 'nonTangentialProperPart RegA RegB) CxDiagonalSpace
                 {:strength :monotonic})
       (testing "the algebra's identity is not evidence: a conclusion drawn from it would
                 rest on nothing retractable, so the empty support is dropped"
         (is (empty? (v/sentexes-matching kb (list reflexive RegA) '?ctx)))
-        (is (= #{:eq} (v/possible-relations kb :rcc8 DiagonalSpaceContext RegA RegA))
+        (is (= #{:eq} (v/possible-relations kb :rcc8 CxDiagonalSpace RegA RegA))
             "the diagonal is still entailed — it is only unusable as support")))))
 
 (tu/deftest-kb an-entailment-in-an-unsatisfiable-network-concludes-nothing
-  (tu/with-terms [RegA RegB RegC contained ClashChainContext]
+  (tu/with-terms [RegA RegB RegC contained CxClashChain]
     (with-spatial kb
-      (v/assert kb (list 'genlContext ClashChainContext 'WellContext) 'UniverseContext
+      (v/assert kb (list 'genlCx CxClashChain 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa contained 1 'thing) 'CoreContext {:strength :monotonic})
+      (v/assert kb (list 'argIsa contained 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
-                     ClashChainContext)
-      (nest! kb ClashChainContext [RegA RegB RegC])
+                     CxClashChain)
+      (nest! kb CxClashChain [RegA RegB RegC])
       (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx)) "believed while consistent")
-      (let [clash (v/assert kb (list 'spatiallyDisconnected RegA RegB) ClashChainContext
+      (let [clash (v/assert kb (list 'spatiallyDisconnected RegA RegB) CxClashChain
                             {:strength :monotonic})]
         (testing "an impossible theory should not be mined for conclusions"
-          (is (false? (:consistent? (v/qualitative-network kb :rcc8 ClashChainContext))))
+          (is (false? (:consistent? (v/qualitative-network kb :rcc8 CxClashChain))))
           (is (empty? (v/sentexes-matching kb (list contained RegA) '?ctx))
               "the conclusion goes, though every fact it listed as support is still believed
                — which is the whole reason this cannot ride on the antecedents alone"))
         (testing "and retracting the clash brings it back"
           (v/retract! kb clash)
-          (is (true? (:consistent? (v/qualitative-network kb :rcc8 ClashChainContext))))
+          (is (true? (:consistent? (v/qualitative-network kb :rcc8 CxClashChain))))
           (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx))
               "blocked, not destroyed — the same revival an excepted conclusion gets"))))))

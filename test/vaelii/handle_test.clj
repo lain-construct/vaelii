@@ -61,7 +61,7 @@
       (let [records (:records kb)]
         (doseq [n [1 2 3]]
           (p/put-sentex records (assoc (res/kb-sentex kb (list 'dog (symbol (str "Muffet" n)))
-                                                      'HandleContext)
+                                                      'CxHandle)
                                        :id n)))
         (p/put-justification records (jtms/->just 9 :import #{1 2} 3 {} :default))
         (is (< 9 (p/next-id records))
@@ -76,10 +76,10 @@
       (let [records (:records kb)
             stored  (doall (for [n [1 2 3]]
                              (let [rec (res/kb-sentex kb (list 'dog (symbol (str "Muffet" n)))
-                                                      'HandleContext)]
+                                                      'CxHandle)]
                                (p/put-sentex records (assoc rec :id n))
                                [n (:sentence rec)])))
-            h       (v/assert kb '(cat Tom) 'HandleContext)]
+            h       (v/assert kb '(cat Tom) 'CxHandle)]
         (is (< 3 h) "the assert was handed a handle that was already taken")
         (doseq [[n sentence] stored]
           (is (= sentence (:sentence (v/sentex kb n)))
@@ -92,7 +92,7 @@
   (with-each-backend
     (fn [kb]
       (let [records (:records kb)]
-        (p/put-sentex records (assoc (res/kb-sentex kb '(dog Muffet) 'HandleContext) :id 1))
+        (p/put-sentex records (assoc (res/kb-sentex kb '(dog Muffet) 'CxHandle) :id 1))
         (doseq [id [-1 0 999999]]
           (is (nil? (p/get-sentex records id)) (str "sentex " id))
           (is (nil? (p/get-justification records id)) (str "justification " id)))
@@ -151,7 +151,7 @@
       (is (= [] (v/check-edit kb {:remove [nil]}))))
     (testing "which is what makes this composition work"
       (tu/with-terms [dog Missing]
-        (is (false? (v/in? kb (v/handle-of kb (list dog Missing) 'UniverseContext)))
+        (is (false? (v/in? kb (v/handle-of kb (list dog Missing) 'CxUniverse)))
             "handle-of found nothing, so nothing is believed")))))
 
 (deftest a-vector-of-handles-is-refused-rather-than-silently-ignored
@@ -159,7 +159,7 @@
     (tu/with-terms [pOf aOf rOf]
       (let [hs (v/assert-rule kb [(list pOf '?x '?y)]
                               (list 'and (list aOf '?x '?y) (list rOf '?x '?y))
-                              'UniverseContext)]
+                              'CxUniverse)]
         (is (sequential? hs) "a conjunctive consequent is stored as one rule per conjunct")
         (is (= 2 (count hs)))
         (testing "each handle-taking fn names what it got"

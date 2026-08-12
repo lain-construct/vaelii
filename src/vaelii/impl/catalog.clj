@@ -14,7 +14,7 @@
 
   | kind         | content                                             | loader |
   |--------------|-----------------------------------------------------|--------|
-  | `:core`      | the CoreContext vocabulary head alone               | `vaelii.impl.core-context` |
+  | `:core`      | the CxCore vocabulary head alone               | `vaelii.impl.core-context` |
   | `:starter`   | the shipped schema-only ontology                    | `vaelii.impl.starter` |
   | `:generated` | synthesized from numbers — types, rules, a fwd mix  | `vaelii.impl.io.generate` |
   | `:corpus`    | a translated sentence corpus (OpenCyc)              | a foreign reader, `:cyc-corpus` |
@@ -78,7 +78,7 @@
   [{:id      "core"
     :kind    :core
     :name    "Core vocabulary"
-    :blurb   "CoreContext alone — the predicates the engine interprets, and nothing else."
+    :blurb   "CxCore alone — the predicates the engine interprets, and nothing else."
     :scale   "~200 sentexes"
     :options [{:key :chain? :type :flag :label "Forward-chain after loading" :default false}]}
    {:id      "starter"
@@ -122,7 +122,7 @@
 
 ;; `recover` rebuilds two things, not one — the JTMS *and* the cached taxonomy — so
 ;; skipping it costs more than belief.  A dump loaded without it has no genl or
-;; genlContext closure at all: `types` and `contexts` are empty, `genls` answers only the
+;; genlCx closure at all: `types` and `contexts` are empty, `genls` answers only the
 ;; term it was asked about, and the ontology page has nothing to draw.  Measured on the
 ;; 1.1M-sentex OpenCyc dump: off gives 0 types and 0 contexts, on gives 125,385 and
 ;; 13,196.  The flag has to say that, or an operator reads "not belief-queryable", leaves
@@ -130,13 +130,13 @@
 (def ^:private dump-options
   [{:key :belief? :type :flag :label "Rebuild belief and the taxonomy (slow — a JTMS node per sentex)"
     :default false
-    :help "off stores and indexes everything but leaves the TMS and the genl/genlContext closures empty: findable by term and countable, but no type hierarchy and no belief-filtered query"}
+    :help "off stores and indexes everything but leaves the TMS and the genl/genlCx closures empty: findable by term and countable, but no type hierarchy and no belief-filtered query"}
    {:key :dir :type :path :label "Target directory" :default ""
     :help "empty loads into memory; a path makes it a durable :disk KB"}])
 
 (def ^:private store-options
   [{:key :recover? :type :flag :label "Recover belief and the taxonomy on open (slow)" :default false
-    :help "off opens the records and index as they stand: no genl/genlContext closure, and belief-filtered queries answer nothing"}])
+    :help "off opens the records and index as they stand: no genl/genlCx closure, and belief-filtered queries answer nothing"}])
 
 ;; ---- discovery -----------------------------------------------------------
 
@@ -652,7 +652,7 @@
   (let [open! (fn [] (let [[kb where] (open-kb-for params)] (note-kb! kb where) kb))]
     (case kind
       :core     (let [kb (open!)]
-                  (progress! {:phase :vocabulary :done 0 :note "CoreContext"})
+                  (progress! {:phase :vocabulary :done 0 :note "CxCore"})
                   (core-context/load-into kb)
                   (chain-asked kb params progress! {}))
       :starter  (let [kb (open!)]
@@ -661,7 +661,7 @@
                   (chain-asked kb params progress! {}))
       :generated (generate/load-into (open!) params {:on-progress progress!})
       :corpus   (let [kb (open!)]
-                  (progress! {:phase :vocabulary :done 0 :note "CoreContext"})
+                  (progress! {:phase :vocabulary :done 0 :note "CxCore"})
                   (core-context/load-into kb)
                   ;; the corpus reader ships as a plugin, so it is asked for rather
                   ;; than required (vaelii.impl.foreign).  Its own `:chain?` chains per
@@ -900,7 +900,7 @@
     of what was asked for;
   - **belief and the taxonomy are not built**, which `recover` builds together and
     `:belief? false` skips together.  That empties more than queries: with no JTMS every
-    believed answer is empty, and with no genl/genlContext closures there is no type
+    believed answer is empty, and with no genl/genlCx closures there is no type
     hierarchy either, so a fully stored KB renders as one with no types and no contexts
     at all.
 

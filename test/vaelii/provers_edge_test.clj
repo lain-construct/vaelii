@@ -31,20 +31,20 @@
   ;; its depth bound, which is a different mechanism reaching the same place.  The
   ;; graph below is cyclic (a→b→a), so an unguarded backward chainer recurses until
   ;; the stack goes.
-  (tu/with-terms [edge path A B GraphContext]
-    (v/assert kb (list 'genlContext GraphContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (bwd [(list edge '?x '?y)] (list path '?x '?y)) GraphContext)
+  (tu/with-terms [edge path A B CxGraph]
+    (v/assert kb (list 'genlCx CxGraph 'CxUniverse) 'CxUniverse)
+    (v/assert kb (bwd [(list edge '?x '?y)] (list path '?x '?y)) CxGraph)
     (v/assert kb (bwd [(list edge '?x '?y) (list path '?y '?z)]
-                      (list path '?x '?z)) GraphContext)
-    (v/assert kb (list edge A B) GraphContext)
-    (v/assert kb (list edge B A) GraphContext)          ; the cycle
+                      (list path '?x '?z)) CxGraph)
+    (v/assert kb (list edge A B) CxGraph)
+    (v/assert kb (list edge B A) CxGraph)          ; the cycle
     (testing "it returns rather than looping"
-      (let [reached (binds (v/query kb (list path A '?z) GraphContext {:max-depth 4})
+      (let [reached (binds (v/query kb (list path A '?z) CxGraph {:max-depth 4})
                            '?z)]
         (is (contains? reached B) "the direct edge")
         (is (contains? reached A) "and back around the cycle")))
     (testing "and the boolean form terminates too"
-      (is (v/query? kb (list path A B) GraphContext {:max-depth 4})))))
+      (is (v/query? kb (list path A B) CxGraph {:max-depth 4})))))
 
 ;; ---- backward's exceptWhen guard ----------------------------------------
 
@@ -52,71 +52,71 @@
   ;; Both chainers must agree about an exception, or a conclusion's truth depends on
   ;; which one you asked.  `prove`'s guard is a separate `:when` clause from the node
   ;; engine's, so each is checked here.
-  (tu/with-terms [bird penguin flies Robin Opus StoryContext]
-    (v/assert kb (list 'genlContext StoryContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genl penguin bird) 'UniverseContext)
+  (tu/with-terms [bird penguin flies Robin Opus CxStory]
+    (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genl penguin bird) 'CxUniverse)
     (v/assert kb (list 'exceptWhen (list penguin '?x)
                        (list 'set/backwardRule
                              (vr/rule-sentence [(list bird '?x)] (list flies '?x))))
-              StoryContext)
-    (v/assert kb (list bird Robin) StoryContext)
-    (v/assert kb (list penguin Opus) StoryContext)
+              CxStory)
+    (v/assert kb (list bird Robin) CxStory)
+    (v/assert kb (list penguin Opus) CxStory)
     (testing "the ordinary bird flies, by both chainers"
-      (is (seq (v/prove kb (list flies Robin) StoryContext)))
-      (is (v/provable? kb (list flies Robin) StoryContext))
-      (is (v/query? kb (list flies Robin) StoryContext {:max-depth 2})))
+      (is (seq (v/prove kb (list flies Robin) CxStory)))
+      (is (v/provable? kb (list flies Robin) CxStory))
+      (is (v/query? kb (list flies Robin) CxStory {:max-depth 2})))
     (testing "the penguin does not — each must block it"
-      (is (empty? (v/prove kb (list flies Opus) StoryContext))
+      (is (empty? (v/prove kb (list flies Opus) CxStory))
           "the recursive chainer ignored the exception the node engine honours")
-      (is (not (v/provable? kb (list flies Opus) StoryContext)))
-      (is (not (v/query? kb (list flies Opus) StoryContext {:max-depth 2}))))))
+      (is (not (v/provable? kb (list flies Opus) CxStory)))
+      (is (not (v/query? kb (list flies Opus) CxStory {:max-depth 2}))))))
 
 ;; ---- generic relation reasoners, in every argument mode ----------------
 
 (tu/deftest-kb a-transitive-predicate-answers-in-both-argument-directions
   (tu/with-terms [partOf wheel axle machine]
-    (v/assert kb (list 'transitive partOf) 'UniverseContext)
-    (v/assert kb (list partOf wheel axle) 'UniverseContext)
-    (v/assert kb (list partOf axle machine) 'UniverseContext)
+    (v/assert kb (list 'transitive partOf) 'CxUniverse)
+    (v/assert kb (list partOf wheel axle) 'CxUniverse)
+    (v/assert kb (list partOf axle machine) 'CxUniverse)
     (testing "forward: what is this part of? (the covered direction)"
-      (is (contains? (binds (v/ask kb (list partOf wheel '?w) 'UniverseContext) '?w)
+      (is (contains? (binds (v/ask kb (list partOf wheel '?w) 'CxUniverse) '?w)
                      machine)))
     (testing "reverse: what are the parts of this? (reads the *predecessor* closure)"
-      (let [parts (binds (v/ask kb (list partOf '?p machine) 'UniverseContext) '?p)]
+      (let [parts (binds (v/ask kb (list partOf '?p machine) 'CxUniverse) '?p)]
         (is (contains? parts axle)  "the direct part")
         (is (contains? parts wheel) "and the transitively reachable one")))
     (testing "ground both ways"
-      (is (v/ask? kb (list partOf wheel machine) 'UniverseContext))
-      (is (not (v/ask? kb (list partOf machine wheel) 'UniverseContext))))))
+      (is (v/ask? kb (list partOf wheel machine) 'CxUniverse))
+      (is (not (v/ask? kb (list partOf machine wheel) 'CxUniverse))))))
 
 (tu/deftest-kb a-reflexive-predicate-binds-either-open-argument-to-the-ground-one
   (tu/with-terms [sameRegionAs Paris Lyon]
-    (v/assert kb (list 'reflexive sameRegionAs) 'UniverseContext)
+    (v/assert kb (list 'reflexive sameRegionAs) 'CxUniverse)
     (testing "ground/ground, both the reflexive case and a non-instance"
-      (is (v/ask? kb (list sameRegionAs Paris Paris) 'UniverseContext))
-      (is (not (v/ask? kb (list sameRegionAs Paris Lyon) 'UniverseContext))))
+      (is (v/ask? kb (list sameRegionAs Paris Paris) 'CxUniverse))
+      (is (not (v/ask? kb (list sameRegionAs Paris Lyon) 'CxUniverse))))
     (testing "the open argument binds to the ground one — in whichever slot it sits"
-      (is (= #{Paris} (binds (v/ask kb (list sameRegionAs '?x Paris) 'UniverseContext) '?x)))
-      (is (= #{Paris} (binds (v/ask kb (list sameRegionAs Paris '?y) 'UniverseContext) '?y))))
+      (is (= #{Paris} (binds (v/ask kb (list sameRegionAs '?x Paris) 'CxUniverse) '?x)))
+      (is (= #{Paris} (binds (v/ask kb (list sameRegionAs Paris '?y) 'CxUniverse) '?y))))
     (testing "and a wholly open reflexive goal does not enumerate the universe"
-      (is (empty? (v/ask kb (list sameRegionAs '?x '?y) 'UniverseContext))))))
+      (is (empty? (v/ask kb (list sameRegionAs '?x '?y) 'CxUniverse))))))
 
 (tu/deftest-kb a-symmetric-predicate-answers-with-either-argument-bound
   (tu/with-terms [siblingOf Ann Bob]
-    (v/assert kb (list 'symmetric siblingOf) 'UniverseContext)
-    (v/assert kb (list siblingOf Ann Bob) 'UniverseContext)
-    (is (v/ask? kb (list siblingOf Bob Ann) 'UniverseContext) "the mirror is provable")
-    (is (contains? (binds (v/ask kb (list siblingOf '?s Bob) 'UniverseContext) '?s) Ann))
-    (is (contains? (binds (v/ask kb (list siblingOf Bob '?s) 'UniverseContext) '?s) Ann))))
+    (v/assert kb (list 'symmetric siblingOf) 'CxUniverse)
+    (v/assert kb (list siblingOf Ann Bob) 'CxUniverse)
+    (is (v/ask? kb (list siblingOf Bob Ann) 'CxUniverse) "the mirror is provable")
+    (is (contains? (binds (v/ask kb (list siblingOf '?s Bob) 'CxUniverse) '?s) Ann))
+    (is (contains? (binds (v/ask kb (list siblingOf Bob '?s) 'CxUniverse) '?s) Ann))))
 
 (tu/deftest-kb an-inverse-predicate-answers-through-its-partner
   (tu/with-terms [parentOf childOf Tom Bob]
-    (v/assert kb (list 'inverse parentOf childOf) 'UniverseContext)
-    (v/assert kb (list parentOf Tom Bob) 'UniverseContext)
+    (v/assert kb (list 'inverse parentOf childOf) 'CxUniverse)
+    (v/assert kb (list parentOf Tom Bob) 'CxUniverse)
     (testing "the inverse goal is answered from the stored direction"
-      (is (v/ask? kb (list childOf Bob Tom) 'UniverseContext))
-      (is (contains? (binds (v/ask kb (list childOf Bob '?p) 'UniverseContext) '?p) Tom))
-      (is (contains? (binds (v/ask kb (list childOf '?c Tom) 'UniverseContext) '?c) Bob)))))
+      (is (v/ask? kb (list childOf Bob Tom) 'CxUniverse))
+      (is (contains? (binds (v/ask kb (list childOf Bob '?p) 'CxUniverse) '?p) Tom))
+      (is (contains? (binds (v/ask kb (list childOf '?c Tom) 'CxUniverse) '?c) Bob)))))
 
 (tu/deftest-kb an-inverse-composes-with-its-partner's-transitivity
   ;; InverseProver delegates the swapped goal to the engine (minus itself and
@@ -124,25 +124,25 @@
   ;; fact matching instead would answer only direct links for a *transitive* partner —
   ;; general to any (inverse P Q) with transitive Q.
   (tu/with-terms [beforeEv afterEv EvA EvB EvC]
-    (v/assert kb (list 'transitive beforeEv) 'UniverseContext)
-    (v/assert kb (list 'inverse beforeEv afterEv) 'UniverseContext)
-    (v/assert kb (list beforeEv EvA EvB) 'UniverseContext)
-    (v/assert kb (list beforeEv EvB EvC) 'UniverseContext)
+    (v/assert kb (list 'transitive beforeEv) 'CxUniverse)
+    (v/assert kb (list 'inverse beforeEv afterEv) 'CxUniverse)
+    (v/assert kb (list beforeEv EvA EvB) 'CxUniverse)
+    (v/assert kb (list beforeEv EvB EvC) 'CxUniverse)
     (testing "the direct inverse still answers"
-      (is (v/ask? kb (list afterEv EvB EvA) 'UniverseContext)))
+      (is (v/ask? kb (list afterEv EvB EvA) 'CxUniverse)))
     (testing "and so does the transitively-derived one"
-      (is (v/ask? kb (list afterEv EvC EvA) 'UniverseContext))
-      (is (contains? (binds (v/ask kb (list afterEv EvC '?e) 'UniverseContext) '?e) EvA)))))
+      (is (v/ask? kb (list afterEv EvC EvA) 'CxUniverse))
+      (is (contains? (binds (v/ask kb (list afterEv EvC '?e) 'CxUniverse) '?e) EvA)))))
 
 (tu/deftest-kb mutual-inverse-declarations-terminate
   ;; (inverse P Q) and (inverse Q P) both stored: the delegate excludes
   ;; InverseProver itself, so P-via-Q cannot re-enter Q-via-P.
   (tu/with-terms [northOf southOf TownA TownB]
-    (v/assert kb (list 'inverse northOf southOf) 'UniverseContext)
-    (v/assert kb (list 'inverse southOf northOf) 'UniverseContext)
-    (v/assert kb (list northOf TownA TownB) 'UniverseContext)
-    (is (v/ask? kb (list southOf TownB TownA) 'UniverseContext))
-    (is (not (v/ask? kb (list southOf TownA TownB) 'UniverseContext)))))
+    (v/assert kb (list 'inverse northOf southOf) 'CxUniverse)
+    (v/assert kb (list 'inverse southOf northOf) 'CxUniverse)
+    (v/assert kb (list northOf TownA TownB) 'CxUniverse)
+    (is (v/ask? kb (list southOf TownB TownA) 'CxUniverse))
+    (is (not (v/ask? kb (list southOf TownA TownB) 'CxUniverse)))))
 
 ;; ---- the transitive walk's step relation --------------------------------
 ;; The hops a closure walks are the *believed facts* — subsumption and the symmetric
@@ -155,17 +155,17 @@
   ;; second one the edge b→c.  Without the partner probe the walk stops at `b` with no
   ;; diagnostic — the path exists and the answer is silently negative.
   (tu/with-terms [beforeEv afterEv EvA EvB EvC]
-    (v/assert kb (list 'transitive beforeEv) 'UniverseContext)
-    (v/assert kb (list 'inverse beforeEv afterEv) 'UniverseContext)
-    (v/assert kb (list beforeEv EvA EvB) 'UniverseContext)
-    (v/assert kb (list afterEv EvC EvB) 'UniverseContext)      ; i.e. (beforeEv EvB EvC)
-    (is (v/ask? kb (list beforeEv EvA EvC) 'UniverseContext)
+    (v/assert kb (list 'transitive beforeEv) 'CxUniverse)
+    (v/assert kb (list 'inverse beforeEv afterEv) 'CxUniverse)
+    (v/assert kb (list beforeEv EvA EvB) 'CxUniverse)
+    (v/assert kb (list afterEv EvC EvB) 'CxUniverse)      ; i.e. (beforeEv EvB EvC)
+    (is (v/ask? kb (list beforeEv EvA EvC) 'CxUniverse)
         "the chain crosses the hop its middle was written on the partner")
-    (is (contains? (binds (v/ask kb (list beforeEv EvA '?y) 'UniverseContext) '?y) EvC)
+    (is (contains? (binds (v/ask kb (list beforeEv EvA '?y) 'CxUniverse) '?y) EvC)
         "and the open-argument arm reaches it too")
-    (is (contains? (binds (v/ask kb (list beforeEv '?x EvC) 'UniverseContext) '?x) EvA)
+    (is (contains? (binds (v/ask kb (list beforeEv '?x EvC) 'CxUniverse) '?x) EvA)
         "and so does the backward arm")
-    (is (contains? (binds (v/ask kb (list afterEv '?x EvA) 'UniverseContext) '?x) EvC)
+    (is (contains? (binds (v/ask kb (list afterEv '?x EvA) 'CxUniverse) '?x) EvC)
         "and the partner goal reaches it through the existing delegation")))
 
 (tu/deftest-kb an-alternating-inverse-chain-is-walked-end-to-end
@@ -174,17 +174,17 @@
   (tu/with-terms [beforeEv afterEv]
     (let [ev (fn [i] (tu/fresh-term :individual (str "Ev" i)))
           es (mapv ev (range 6))]
-      (v/assert kb (list 'transitive beforeEv) 'UniverseContext)
-      (v/assert kb (list 'inverse beforeEv afterEv) 'UniverseContext)
+      (v/assert kb (list 'transitive beforeEv) 'CxUniverse)
+      (v/assert kb (list 'inverse beforeEv afterEv) 'CxUniverse)
       (doseq [i (range 1 6)]
         (if (odd? i)
-          (v/assert kb (list beforeEv (es (dec i)) (es i)) 'UniverseContext)
-          (v/assert kb (list afterEv (es i) (es (dec i))) 'UniverseContext)))
-      (is (v/ask? kb (list beforeEv (es 0) (es 5)) 'UniverseContext))
+          (v/assert kb (list beforeEv (es (dec i)) (es i)) 'CxUniverse)
+          (v/assert kb (list afterEv (es i) (es (dec i))) 'CxUniverse)))
+      (is (v/ask? kb (list beforeEv (es 0) (es 5)) 'CxUniverse))
       (is (= (set (rest es))
-             (binds (v/ask kb (list beforeEv (es 0) '?y) 'UniverseContext) '?y))
+             (binds (v/ask kb (list beforeEv (es 0) '?y) 'CxUniverse) '?y))
           "the whole reach, whichever spelling each hop was written in")
-      (is (not (v/ask? kb (list beforeEv (es 5) (es 0)) 'UniverseContext))
+      (is (not (v/ask? kb (list beforeEv (es 5) (es 0)) 'CxUniverse))
           "and the walk is still directed"))))
 
 (tu/deftest-kb the-mirror-and-the-inverse-do-not-double-count
@@ -194,12 +194,12 @@
   (tu/with-terms [nearTo]
     (let [pt (fn [i] (tu/fresh-term :individual (str "Pt" i)))
           ps (mapv pt (range 4))]
-      (v/assert kb (list 'symmetric nearTo) 'UniverseContext)
-      (v/assert kb (list 'transitive nearTo) 'UniverseContext)
-      (v/assert kb (list 'inverse nearTo nearTo) 'UniverseContext)
+      (v/assert kb (list 'symmetric nearTo) 'CxUniverse)
+      (v/assert kb (list 'transitive nearTo) 'CxUniverse)
+      (v/assert kb (list 'inverse nearTo nearTo) 'CxUniverse)
       (doseq [i (range 1 4)]
-        (v/assert kb (list nearTo (ps (dec i)) (ps i)) 'UniverseContext))
-      (let [sols (v/ask kb (list nearTo (ps 0) '?y) 'UniverseContext)]
+        (v/assert kb (list nearTo (ps (dec i)) (ps i)) 'CxUniverse))
+      (let [sols (v/ask kb (list nearTo (ps 0) '?y) 'CxUniverse)]
         (is (= (set ps) (binds sols '?y)) "the whole class, both directions")
         (is (= (count (set sols)) (count sols)) "and each member once")))))
 
@@ -221,14 +221,14 @@
         after  (tu/fresh-term :predicate  "afterEv")
         subseq (tu/fresh-term :predicate  "subsequentToEv")
         [a b c] (mapv #(tu/fresh-term :individual (str "Ev" %)) ["A" "B" "C"])]
-    (v/assert kb (list 'transitive before) 'UniverseContext)
+    (v/assert kb (list 'transitive before) 'CxUniverse)
     (doseq [q (case partner-order
                 :partner-first  [after subseq]
                 :partner-second [subseq after])]
-      (v/assert kb (list 'inverse before q) 'UniverseContext))
-    (v/assert kb (list before a b) 'UniverseContext)
-    (v/assert kb (list after c b) 'UniverseContext)          ; i.e. (before b c)
-    (boolean (v/ask? kb (list before a c) 'UniverseContext))))
+      (v/assert kb (list 'inverse before q) 'CxUniverse))
+    (v/assert kb (list before a b) 'CxUniverse)
+    (v/assert kb (list after c b) 'CxUniverse)          ; i.e. (before b c)
+    (boolean (v/ask? kb (list before a c) 'CxUniverse))))
 
 (tu/deftest-kb a-second-declared-inverse-does-not-hide-the-first
   (let [first-decl  (two-inverse-chain! kb :partner-first)
@@ -245,19 +245,19 @@
   ;; remaining declaration is still believed, and a reader that stopped seeing it would
   ;; have one prover honouring a declaration another ignores.
   (tu/with-terms [beforeEv afterEv subsequentToEv EvA EvB EvC]
-    (v/assert kb (list 'transitive beforeEv) 'UniverseContext)
-    (let [h1 (v/assert kb (list 'inverse beforeEv afterEv) 'UniverseContext)
-          h2 (v/assert kb (list 'inverse beforeEv subsequentToEv) 'UniverseContext)]
-      (v/assert kb (list beforeEv EvA EvB) 'UniverseContext)
-      (v/assert kb (list afterEv EvC EvB) 'UniverseContext)
-      (is (v/ask? kb (list beforeEv EvA EvC) 'UniverseContext) "both declared")
+    (v/assert kb (list 'transitive beforeEv) 'CxUniverse)
+    (let [h1 (v/assert kb (list 'inverse beforeEv afterEv) 'CxUniverse)
+          h2 (v/assert kb (list 'inverse beforeEv subsequentToEv) 'CxUniverse)]
+      (v/assert kb (list beforeEv EvA EvB) 'CxUniverse)
+      (v/assert kb (list afterEv EvC EvB) 'CxUniverse)
+      (is (v/ask? kb (list beforeEv EvA EvC) 'CxUniverse) "both declared")
       (v/retract! kb h2)
       (is (v/in? kb h1) "the other declaration is untouched")
       (is (= afterEv (v/inverse-of kb beforeEv))
           "and the taxonomy still reports it, rather than having cleared the entry")
       (is (= beforeEv (v/inverse-of kb afterEv))
           "in both directions, so no reader sees a half-declared pair")
-      (is (v/ask? kb (list beforeEv EvA EvC) 'UniverseContext)
+      (is (v/ask? kb (list beforeEv EvA EvC) 'CxUniverse)
           "so the hop it licenses is still a hop"))))
 
 ;; ---- the one-variable closure goal --------------------------------------
@@ -266,14 +266,14 @@
   (tu/with-terms [reachesEv]
     (let [ev (fn [i] (tu/fresh-term :individual (str "Cy" i)))
           es (mapv ev (range 5))]
-      (v/assert kb (list 'transitive reachesEv) 'UniverseContext)
+      (v/assert kb (list 'transitive reachesEv) 'CxUniverse)
       ;; 0→1→2→0 is a cycle; 3→4 is a tail hanging off nothing
-      (v/assert kb (list reachesEv (es 0) (es 1)) 'UniverseContext)
-      (v/assert kb (list reachesEv (es 1) (es 2)) 'UniverseContext)
-      (v/assert kb (list reachesEv (es 2) (es 0)) 'UniverseContext)
-      (v/assert kb (list reachesEv (es 3) (es 4)) 'UniverseContext)
+      (v/assert kb (list reachesEv (es 0) (es 1)) 'CxUniverse)
+      (v/assert kb (list reachesEv (es 1) (es 2)) 'CxUniverse)
+      (v/assert kb (list reachesEv (es 2) (es 0)) 'CxUniverse)
+      (v/assert kb (list reachesEv (es 3) (es 4)) 'CxUniverse)
       (is (= #{(es 0) (es 1) (es 2)}
-             (binds (v/ask kb (list reachesEv '?x '?x) 'UniverseContext) '?x))
+             (binds (v/ask kb (list reachesEv '?x '?x) 'CxUniverse) '?x))
           "the component's members, and nothing off it"))))
 
 (tu/deftest-kb an-acyclic-chain-answers-the-one-variable-goal-with-nothing
@@ -283,10 +283,10 @@
   (tu/with-terms [reachesEv]
     (let [ev (fn [i] (tu/fresh-term :individual (str "Ac" i)))
           es (mapv ev (range 40))]
-      (v/assert kb (list 'transitive reachesEv) 'UniverseContext)
+      (v/assert kb (list 'transitive reachesEv) 'CxUniverse)
       (doseq [i (range 1 40)]
-        (v/assert kb (list reachesEv (es (dec i)) (es i)) 'UniverseContext))
-      (is (empty? (v/ask kb (list reachesEv '?x '?x) 'UniverseContext))
+        (v/assert kb (list reachesEv (es (dec i)) (es i)) 'CxUniverse))
+      (is (empty? (v/ask kb (list reachesEv '?x '?x) 'CxUniverse))
           "no node on an acyclic chain reaches itself"))))
 
 (tu/deftest-kb the-cycle-goal-ranks-terms-that-are-not-comparable
@@ -295,25 +295,25 @@
   ;; can be a list.  Ranking them with a bare `sort` throws `ClassCastException` — printed
   ;; form is the key, which every term has.
   (tu/with-terms [sameSizeAs quantityOf Meter Centimeter]
-    (v/assert kb (list 'unreifiableFunction quantityOf) 'UniverseContext)
-    (v/assert kb (list 'transitive sameSizeAs) 'UniverseContext)
+    (v/assert kb (list 'unreifiableFunction quantityOf) 'CxUniverse)
+    (v/assert kb (list 'transitive sameSizeAs) 'CxUniverse)
     (let [a (list quantityOf 5 Meter)
           b (list quantityOf 500 Centimeter)]
       ;; a two-member cycle, so the ranking is actually exercised — a one-element sort
       ;; never calls `compare` and would pass whatever the key
-      (v/assert kb (list sameSizeAs a b) 'UniverseContext)
-      (v/assert kb (list sameSizeAs b a) 'UniverseContext)
-      (is (= #{a b} (binds (v/ask kb (list sameSizeAs '?x '?x) 'UniverseContext) '?x))
+      (v/assert kb (list sameSizeAs a b) 'CxUniverse)
+      (v/assert kb (list sameSizeAs b a) 'CxUniverse)
+      (is (= #{a b} (binds (v/ask kb (list sameSizeAs '?x '?x) 'CxUniverse) '?x))
           "both members of the cycle come back, and ranking them does not throw"))))
 
 (tu/deftest-kb a-self-edge-is-its-own-cycle
   ;; A singleton component is cyclic only through a self-edge, which a condensation does
   ;; not report — so it is tested at the source rather than left to the components.
   (tu/with-terms [reachesEv Loop Other]
-    (v/assert kb (list 'transitive reachesEv) 'UniverseContext)
-    (v/assert kb (list reachesEv Loop Loop) 'UniverseContext)
-    (v/assert kb (list reachesEv Other Loop) 'UniverseContext)
-    (is (= #{Loop} (binds (v/ask kb (list reachesEv '?x '?x) 'UniverseContext) '?x)))))
+    (v/assert kb (list 'transitive reachesEv) 'CxUniverse)
+    (v/assert kb (list reachesEv Loop Loop) 'CxUniverse)
+    (v/assert kb (list reachesEv Other Loop) 'CxUniverse)
+    (is (= #{Loop} (binds (v/ask kb (list reachesEv '?x '?x) 'CxUniverse) '?x)))))
 
 (tu/deftest-kb a-symmetric-transitive-class-needs-only-one-direction-of-each-edge
   ;; The equivalence-class shape: one direction of each edge asserted, `symmetric` and
@@ -324,16 +324,16 @@
     (let [m  (fn [i] (tu/fresh-term :individual (str "M" i)))
           ms (mapv m (range 5))
           class-from (fn [probe]
-                       (conj (binds (v/ask kb (list wqEq probe '?y) 'UniverseContext) '?y)
+                       (conj (binds (v/ask kb (list wqEq probe '?y) 'CxUniverse) '?y)
                              probe))]
-      (v/assert kb (list 'symmetric wqEq) 'UniverseContext)
-      (v/assert kb (list 'transitive wqEq) 'UniverseContext)
+      (v/assert kb (list 'symmetric wqEq) 'CxUniverse)
+      (v/assert kb (list 'transitive wqEq) 'CxUniverse)
       (doseq [i (range 1 5)]
-        (v/assert kb (list wqEq (ms (dec i)) (ms i)) 'UniverseContext))
+        (v/assert kb (list wqEq (ms (dec i)) (ms i)) 'CxUniverse))
       (is (= (set ms) (class-from (ms 0))) "from one end")
       (is (= (set ms) (class-from (ms 2))) "and from the middle")
       (doseq [i (range 1 5)]                                   ; now the other direction too
-        (v/assert kb (list wqEq (ms i) (ms (dec i))) 'UniverseContext))
+        (v/assert kb (list wqEq (ms i) (ms (dec i))) 'CxUniverse))
       (is (= (set ms) (class-from (ms 2))) "and materializing the mirror changes nothing"))))
 
 (tu/deftest-kb a-backward-rule-hop-is-not-on-the-transitive-graph
@@ -342,13 +342,13 @@
   ;; `backwardRule` concluding the middle hop leaves the chain broken, and that is the
   ;; documented contract rather than a bug (`docs/taxonomy.md`, "the step relation").
   (tu/with-terms [beforeEv precedes EvA EvB EvC]
-    (v/assert kb (list 'transitive beforeEv) 'UniverseContext)
-    (v/assert kb (list beforeEv EvA EvB) 'UniverseContext)
-    (v/assert kb (list precedes EvB EvC) 'UniverseContext)
-    (v/assert kb (bwd [(list precedes '?x '?y)] (list beforeEv '?x '?y)) 'UniverseContext)
-    (is (seq (v/prove kb (list beforeEv EvB EvC) 'UniverseContext))
+    (v/assert kb (list 'transitive beforeEv) 'CxUniverse)
+    (v/assert kb (list beforeEv EvA EvB) 'CxUniverse)
+    (v/assert kb (list precedes EvB EvC) 'CxUniverse)
+    (v/assert kb (bwd [(list precedes '?x '?y)] (list beforeEv '?x '?y)) 'CxUniverse)
+    (is (seq (v/prove kb (list beforeEv EvB EvC) 'CxUniverse))
         "a backward search answers the hop as a goal")
-    (is (not (v/ask? kb (list beforeEv EvA EvC) 'UniverseContext))
+    (is (not (v/ask? kb (list beforeEv EvA EvC) 'CxUniverse))
         "and the walk does not chain through it")))
 
 ;; ---- the transitive walk with nothing bound ----------------------------
@@ -362,14 +362,14 @@
   (tu/with-terms [largerThan hugelyLargerThan]
     (let [r  (fn [i] (tu/fresh-term :individual (str "R" i)))
           rs (mapv r (range 4))]
-      (v/assert kb (list 'transitive largerThan) 'UniverseContext)
-      (v/assert kb (list 'genl hugelyLargerThan largerThan) 'UniverseContext)
+      (v/assert kb (list 'transitive largerThan) 'CxUniverse)
+      (v/assert kb (list 'genl hugelyLargerThan largerThan) 'CxUniverse)
       (doseq [i (range 1 4)]
-        (v/assert kb (list largerThan (rs (dec i)) (rs i)) 'UniverseContext))
+        (v/assert kb (list largerThan (rs (dec i)) (rs i)) 'CxUniverse))
       ;; one fact of a sub-predicate, which the extent must reach and the chain must not
-      (v/assert kb (list hugelyLargerThan (rs 0) (rs 3)) 'UniverseContext)
+      (v/assert kb (list hugelyLargerThan (rs 0) (rs 3)) 'CxUniverse)
       (let [mine (fn [goal]
-                   (->> (v/ask kb goal 'UniverseContext)
+                   (->> (v/ask kb goal 'CxUniverse)
                         (map (juxt #(get % '?x) #(get % '?y)))
                         (filter (fn [[x y]] (and (some #{x} rs) (some #{y} rs))))
                         set))]
@@ -381,9 +381,9 @@
           ;; the same knowledge, asked the bounded way: R0 reaches everything downstream
           (is (= #{(rs 1) (rs 2) (rs 3)}
                  (set (filter (set rs)
-                              (binds (v/ask kb (list largerThan (rs 0) '?y) 'UniverseContext)
+                              (binds (v/ask kb (list largerThan (rs 0) '?y) 'CxUniverse)
                                      '?y)))))
-          (is (v/ask? kb (list largerThan (rs 0) (rs 2)) 'UniverseContext)
+          (is (v/ask? kb (list largerThan (rs 0) (rs 2)) 'CxUniverse)
               "a two-hop pair no fact records"))
         (testing "a sub-predicate's own extent does not gain the parent's links"
           (is (= #{[(rs 0) (rs 3)]} (mine (list hugelyLargerThan '?x '?y)))))))))
@@ -392,12 +392,12 @@
   ;; `(P ?x ?x)` binds one variable, not two — the `Duplicate key` shape.  A transitive
   ;; relation does entail reflexivity around a loop, so the answer is the cycle.
   (tu/with-terms [nextTo A B C D]
-    (v/assert kb (list 'transitive nextTo) 'UniverseContext)
-    (v/assert kb (list nextTo A B) 'UniverseContext)
-    (v/assert kb (list nextTo B C) 'UniverseContext)
-    (v/assert kb (list nextTo C A) 'UniverseContext)               ; the cycle
-    (v/assert kb (list nextTo C D) 'UniverseContext)               ; and a tail off it
-    (let [xs (binds (v/ask kb (list nextTo '?x '?x) 'UniverseContext) '?x)]
+    (v/assert kb (list 'transitive nextTo) 'CxUniverse)
+    (v/assert kb (list nextTo A B) 'CxUniverse)
+    (v/assert kb (list nextTo B C) 'CxUniverse)
+    (v/assert kb (list nextTo C A) 'CxUniverse)               ; the cycle
+    (v/assert kb (list nextTo C D) 'CxUniverse)               ; and a tail off it
+    (let [xs (binds (v/ask kb (list nextTo '?x '?x) 'CxUniverse) '?x)]
       (is (= #{A B C} (set (filter #{A B C D} xs))) "the loop, and not the tail"))))
 
 ;; ---- the taxonomy provers, fully open ----------------------------------
@@ -407,19 +407,19 @@
   ;; its own up-closure.  Swapping the two binding keys inverts every answer, and
   ;; nothing else in the suite would notice.
   (tu/with-terms [dog mammal]
-    (v/assert kb (list 'genl dog mammal) 'UniverseContext)
+    (v/assert kb (list 'genl dog mammal) 'CxUniverse)
     (let [pairs (set (map (juxt #(get % '?x) #(get % '?y))
-                          (v/ask kb (list 'genl '?x '?y) 'UniverseContext)))]
+                          (v/ask kb (list 'genl '?x '?y) 'CxUniverse)))]
       (is (contains? pairs [dog mammal]) "sub before super")
       (is (not (contains? pairs [mammal dog])) "and never the reverse"))))
 
 (tu/deftest-kb disjointness-answers-with-either-argument-bound-or-neither
   (tu/with-terms [dog cat]
-    (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
+    (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
     (testing "the second argument bound — the mirror of the covered case"
-      (is (contains? (binds (v/ask kb (list 'disjoint '?t cat) 'UniverseContext) '?t) dog)))
+      (is (contains? (binds (v/ask kb (list 'disjoint '?t cat) 'CxUniverse) '?t) dog)))
     (testing "both open: the pair is enumerated, in both orders since disjoint is symmetric"
       (let [pairs (set (map (juxt #(get % '?a) #(get % '?b))
-                            (v/ask kb (list 'disjoint '?a '?b) 'UniverseContext)))]
+                            (v/ask kb (list 'disjoint '?a '?b) 'CxUniverse)))]
         (is (or (contains? pairs [dog cat]) (contains? pairs [cat dog]))
             "the declared pair is reachable with nothing bound")))))

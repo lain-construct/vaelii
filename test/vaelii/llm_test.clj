@@ -86,14 +86,14 @@
 
 (tu/deftest-kb tool-calls-reach-the-kb
   (tu/with-terms [dog animal Muffet]
-    (v/assert kb (list 'genl dog animal) 'UniverseContext)
-    (v/assert kb (list dog Muffet) 'UniverseContext)
+    (v/assert kb (list 'genl dog animal) 'CxUniverse)
+    (v/assert kb (list dog Muffet) 'CxUniverse)
     (testing "a query returns the stored sentence"
       (let [{:keys [ok result]} (tools/call kb "kb_sentexes_matching" {"sentence" (pr-str (list dog '?x))})]
         (is ok)
         (is (str/includes? result (str Muffet)))))
     (testing "an integer parameter arrives as an integer"
-      (let [h (v/handle-of kb (list dog Muffet) 'UniverseContext)
+      (let [h (v/handle-of kb (list dog Muffet) 'CxUniverse)
             {:keys [ok result]} (tools/call kb "kb_in_p" {"handle" h})]
         (is ok)
         (is (= "true" result))))
@@ -112,15 +112,15 @@
 ;; ---- the system prompt is generated from the KB -------------------------
 
 (tu/deftest-kb system-prompt-reads-the-live-kb
-  (tu/with-terms [dog animal Muffet StoryContext]
+  (tu/with-terms [dog animal Muffet CxStory]
     (let [before (prompt/system-prompt kb)]
       (is (not (str/includes? before (str dog))))
-      (v/assert kb (list 'genl dog animal) 'UniverseContext)
-      (v/assert kb (list 'genlContext StoryContext 'UniverseContext) 'UniverseContext)
-      (v/assert kb (list dog Muffet) StoryContext)
+      (v/assert kb (list 'genl dog animal) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list dog Muffet) CxStory)
       (let [after (prompt/system-prompt kb)]
         (is (str/includes? after (str dog)) "a new type reaches the prompt")
-        (is (str/includes? after (str StoryContext)) "a new context reaches the prompt")
+        (is (str/includes? after (str CxStory)) "a new context reaches the prompt")
         (is (str/includes? after "Naming invariants"))
         (is (str/includes? after ":add"))
         (is (= after (prompt/system-prompt kb)) "generation is deterministic")
@@ -128,8 +128,8 @@
 
 (tu/deftest-kb system-prompt-carries-argisa-and-disjointness
   (tu/with-terms [dog cat parentOf Muffet]
-    (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-    (v/assert kb (list 'argIsa parentOf 1 dog) 'UniverseContext)
+    (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+    (v/assert kb (list 'argIsa parentOf 1 dog) 'CxUniverse)
     (let [p (prompt/system-prompt kb)]
       (is (str/includes? p "Disjointness"))
       (is (str/includes? p (str dog)))
@@ -143,10 +143,10 @@
     (is (= {:add [] :remove []}
            (:batch (session/parse-batch "here you go\n\n```edn\n{:add [] :remove []}\n```")))))
   (testing "the last block wins — a model often shows a draft first"
-    (is (= {:add [['(dog Muffet) 'WellContext]] :remove []}
+    (is (= {:add [['(dog Muffet) 'CxWell]] :remove []}
            (:batch (session/parse-batch
                     (str "draft:\n```edn\n{:add [] :remove []}\n```\n"
-                         "final:\n```edn\n{:add [[(dog Muffet) WellContext]]}\n```"))))))
+                         "final:\n```edn\n{:add [[(dog Muffet) CxWell]]}\n```"))))))
   (testing "an unfenced map still parses"
     (is (= {:add [] :remove [7]} (:batch (session/parse-batch "{:remove [7]}")))))
   (testing "failures are reported, never thrown"
@@ -163,7 +163,7 @@
 
 (tu/deftest-kb a-bad-predicate-name-is-a-naming-rejection
   (tu/with-terms [Muffet]
-    (let [rs (session/check-batch kb {:add [[(list 'BadFunctor Muffet) 'UniverseContext]]
+    (let [rs (session/check-batch kb {:add [[(list 'BadFunctor Muffet) 'CxUniverse]]
                                       :remove []})]
       (is (= 1 (count rs)))
       (is (= :naming (:type (first rs))))
@@ -172,32 +172,32 @@
 
 (tu/deftest-kb a-non-ground-fact-is-a-not-ground-rejection
   (tu/with-terms [mortal]
-    (let [rs (session/check-batch kb {:add [[(list mortal '?x) 'UniverseContext]] :remove []})]
+    (let [rs (session/check-batch kb {:add [[(list mortal '?x) 'CxUniverse]] :remove []})]
       (is (= 1 (count rs)))
       (is (= :not-ground (:type (first rs)))))))
 
 (tu/deftest-kb a-disjoint-clash-is-a-disjoint-rejection
   (tu/with-terms [dog cat Muffet]
-    (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-    (v/assert kb (list dog Muffet) 'UniverseContext)
-    (let [rs (session/check-batch kb {:add [[(list cat Muffet) 'UniverseContext]] :remove []})]
+    (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+    (v/assert kb (list dog Muffet) 'CxUniverse)
+    (let [rs (session/check-batch kb {:add [[(list cat Muffet) 'CxUniverse]] :remove []})]
       (is (= 1 (count rs)))
       (is (= :disjoint (:type (first rs))))))
   (testing "the critic did not store the entry it rejected"
     (tu/with-terms [dog cat Muffet]
-      (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-      (session/check-batch kb {:add [[(list cat Muffet) 'UniverseContext]] :remove []})
-      (is (nil? (v/handle-of kb (list cat Muffet) 'UniverseContext))
+      (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+      (session/check-batch kb {:add [[(list cat Muffet) 'CxUniverse]] :remove []})
+      (is (nil? (v/handle-of kb (list cat Muffet) 'CxUniverse))
           "checking must not write"))))
 
 (tu/deftest-kb an-argisa-clash-is-an-arg-type-rejection
   (tu/with-terms [dog cat likes Muffet Whiskers]
-    (v/assert kb (list 'genl dog 'thing) 'UniverseContext)
-    (v/assert kb (list 'genl cat 'thing) 'UniverseContext)
-    (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
-    (v/assert kb (list 'argIsa likes 1 dog) 'UniverseContext)
-    (v/assert kb (list cat Whiskers) 'UniverseContext)
-    (let [rs (session/check-batch kb {:add [[(list likes Whiskers Muffet) 'UniverseContext]]
+    (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl cat 'thing) 'CxUniverse)
+    (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+    (v/assert kb (list 'argIsa likes 1 dog) 'CxUniverse)
+    (v/assert kb (list cat Whiskers) 'CxUniverse)
+    (let [rs (session/check-batch kb {:add [[(list likes Whiskers Muffet) 'CxUniverse]]
                                       :remove []})]
       (is (= 1 (count rs)))
       (is (= :arg-type (:type (first rs)))))))
@@ -207,20 +207,20 @@
     (is (= :shape (:type (first (session/check-batch kb {:add ['(dog Muffet)] :remove []}))))))
   (testing "a context that is not a symbol"
     (is (= :shape (:type (first (session/check-batch
-                                 kb {:add [['(dog Muffet) "WellContext"]] :remove []}))))))
+                                 kb {:add [['(dog Muffet) "CxWell"]] :remove []}))))))
   (testing "a removal naming no stored sentex"
     (let [rs (session/check-batch kb {:add [] :remove [999999]})]
       (is (= :unknown-handle (:type (first rs))))
       (is (= :remove (:in (first rs))))))
   (testing "a removal naming a stored one is fine"
     (tu/with-terms [dog Muffet]
-      (let [h (v/assert kb (list dog Muffet) 'UniverseContext)]
+      (let [h (v/assert kb (list dog Muffet) 'CxUniverse)]
         (is (empty? (session/check-batch kb {:add [] :remove [h]})))))))
 
 (tu/deftest-kb a-well-formed-batch-has-no-rejections
   (tu/with-terms [dog animal Muffet]
-    (v/assert kb (list 'genl dog animal) 'UniverseContext)
-    (is (empty? (session/check-batch kb {:add [[(list dog Muffet) 'UniverseContext]]
+    (v/assert kb (list 'genl dog animal) 'CxUniverse)
+    (is (empty? (session/check-batch kb {:add [[(list dog Muffet) 'CxUniverse]]
                                          :remove []})))))
 
 ;; ---- the repair loop ----------------------------------------------------
@@ -228,19 +228,19 @@
 (tu/deftest-kb the-loop-repairs-a-rejected-batch
   (tu/with-terms [dog Muffet]
     (let [p (stub/provider
-             {:script [{:batch {:add [[(list 'BadFunctor Muffet) 'UniverseContext]] :remove []}}
-                       {:batch {:add [[(list dog Muffet) 'UniverseContext]] :remove []}}]})
+             {:script [{:batch {:add [[(list 'BadFunctor Muffet) 'CxUniverse]] :remove []}}
+                       {:batch {:add [[(list dog Muffet) 'CxUniverse]] :remove []}}]})
           result (session/propose kb {:message "add Muffet as a dog" :provider p})]
       (is (= :ok (:status result)))
       (is (= 2 (:attempts result)) "one rejected batch, one accepted")
-      (is (= {:add [[(list dog Muffet) 'UniverseContext]] :remove []} (:batch result)))
+      (is (= {:add [[(list dog Muffet) 'CxUniverse]] :remove []} (:batch result)))
       (testing "the critic's typed verdict is what was fed back"
         (is (str/includes? (stub/last-user-text p) ":naming"))
         (is (str/includes? (stub/last-user-text p) "BadFunctor"))))))
 
 (tu/deftest-kb the-loop-gives-up-cleanly-when-repair-fails
   (tu/with-terms [Muffet]
-    (let [bad {:batch {:add [[(list 'BadFunctor Muffet) 'UniverseContext]] :remove []}}
+    (let [bad {:batch {:add [[(list 'BadFunctor Muffet) 'CxUniverse]] :remove []}}
           p (stub/provider {:script [bad bad bad bad bad] :default (:batch bad)})
           result (session/propose kb {:message "break it" :provider p :max-repairs 2})]
       (is (= :invalid (:status result)) "a stubborn model ends in a report, not a throw")
@@ -267,7 +267,7 @@
 
 (tu/deftest-kb the-loop-runs-read-tools-then-answers
   (tu/with-terms [dog Muffet]
-    (v/assert kb (list dog Muffet) 'UniverseContext)
+    (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [p (stub/provider
              {:script [{:tool "kb_types_of" :input {"x" (str Muffet)} :prose "checking first"}
                        {:batch {:add [] :remove []}}]})
@@ -296,7 +296,7 @@
 (tu/deftest-kb streaming-yields-deltas-and-the-same-result
   (tu/with-terms [dog Muffet]
     (let [events (atom [])
-          batch {:add [[(list dog Muffet) 'UniverseContext]] :remove []}
+          batch {:add [[(list dog Muffet) 'CxUniverse]] :remove []}
           p (stub/provider {:script [{:batch batch}]})
           result (session/propose kb {:message "add it" :provider p
                                       :on-event #(swap! events conj %)})]
@@ -310,22 +310,22 @@
 (tu/deftest-kb a-proposal-is-never-applied-without-an-explicit-apply
   (tu/with-terms [dog Muffet]
     (let [before (tu/sentex-ids kb)
-          batch {:add [[(list dog Muffet) 'UniverseContext]] :remove []}
+          batch {:add [[(list dog Muffet) 'CxUniverse]] :remove []}
           p (stub/provider {:script [{:batch batch}]})
           proposal (session/propose kb {:message "add Muffet" :provider p})]
       (is (= :ok (:status proposal)))
       (is (= before (tu/sentex-ids kb))
           "proposing stored nothing — the model has no write path")
-      (is (nil? (v/handle-of kb (list dog Muffet) 'UniverseContext)))
+      (is (nil? (v/handle-of kb (list dog Muffet) 'CxUniverse)))
       (testing "the explicit apply is what writes"
         (let [applied (session/apply-proposal! kb proposal)]
           (is (= 1 (count (:added (:result applied)))))
-          (is (some? (v/handle-of kb (list dog Muffet) 'UniverseContext)))
+          (is (some? (v/handle-of kb (list dog Muffet) 'CxUniverse)))
           (is (empty? (:violations applied))))))))
 
 (tu/deftest-kb apply-refuses-a-proposal-the-critic-rejected
   (tu/with-terms [Muffet]
-    (let [bad {:batch {:add [[(list 'BadFunctor Muffet) 'UniverseContext]] :remove []}}
+    (let [bad {:batch {:add [[(list 'BadFunctor Muffet) 'CxUniverse]] :remove []}}
           p (stub/provider {:script [bad bad bad] :default (:batch bad)})
           proposal (session/propose kb {:message "x" :provider p :max-repairs 1})]
       (is (= :invalid (:status proposal)))
@@ -336,13 +336,13 @@
 
 (tu/deftest-kb apply-round-trips-a-removal
   (tu/with-terms [dog Muffet]
-    (let [h (v/assert kb (list dog Muffet) 'UniverseContext)
+    (let [h (v/assert kb (list dog Muffet) 'CxUniverse)
           p (stub/provider {:script [{:batch {:add [] :remove [h]}}]})
           proposal (session/propose kb {:message "drop it" :provider p})]
       (is (= :ok (:status proposal)))
-      (is (some? (v/handle-of kb (list dog Muffet) 'UniverseContext)) "still there after proposing")
+      (is (some? (v/handle-of kb (list dog Muffet) 'CxUniverse)) "still there after proposing")
       (session/apply-proposal! kb proposal)
-      (is (nil? (v/handle-of kb (list dog Muffet) 'UniverseContext))))))
+      (is (nil? (v/handle-of kb (list dog Muffet) 'CxUniverse))))))
 
 ;; ---- the default provider is offline ------------------------------------
 

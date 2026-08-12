@@ -40,11 +40,11 @@
       (is (re-find #"nonTangentialProperPart|partOfRegion" (:body r))))))
 
 (tu/deftest-kb the-matrix-shows-a-relation-nobody-asserted
-  (tu/with-terms [RegA RegB RegC SpaceStoryContext]
-    (v/assert kb (list 'genlContext SpaceStoryContext 'WellContext) 'UniverseContext
+  (tu/with-terms [RegA RegB RegC CxSpaceStory]
+    (v/assert kb (list 'genlCx CxSpaceStory 'CxWell) 'CxUniverse
               {:strength :monotonic})
-    (nest kb SpaceStoryContext RegA RegB RegC)
-    (let [r (GET kb "/network" (str "ctx=" SpaceStoryContext "&calc=rcc8"))]
+    (nest kb CxSpaceStory RegA RegB RegC)
+    (let [r (GET kb "/network" (str "ctx=" CxSpaceStory "&calc=rcc8"))]
       (is (= 200 (:status r)))
       (testing "the network is satisfiable and names its three regions"
         (is (re-find #"satisfiable" (:body r)))
@@ -52,36 +52,36 @@
           (is (re-find (re-pattern (str t)) (:body r)))))
       (testing "the A-to-C entailment is on the page, and it was never asserted"
         (is (nil? (v/handle-of kb (list 'nonTangentialProperPart RegA RegC)
-                               SpaceStoryContext))
+                               CxSpaceStory))
             "the transitive relation is genuinely not stored")
-        (is (= #{:ntpp} (v/possible-relations kb :rcc8 SpaceStoryContext RegA RegC))))
+        (is (= #{:ntpp} (v/possible-relations kb :rcc8 CxSpaceStory RegA RegC))))
       (testing "the scenario section renders one arrangement"
         (is (re-find #"One scenario" (:body r)))
         (is (re-find #"ntpp" (:body r)))))))
 
 (tu/deftest-kb an-unsatisfiable-network-says-so-rather-than-answering
-  (tu/with-terms [RegA RegB SpaceClashContext]
-    (v/assert kb (list 'genlContext SpaceClashContext 'WellContext) 'UniverseContext
+  (tu/with-terms [RegA RegB CxSpaceClash]
+    (v/assert kb (list 'genlCx CxSpaceClash 'CxWell) 'CxUniverse
               {:strength :monotonic})
-    (v/assert kb (list 'nonTangentialProperPart RegA RegB) SpaceClashContext
+    (v/assert kb (list 'nonTangentialProperPart RegA RegB) CxSpaceClash
               {:strength :monotonic})
-    (v/assert kb (list 'spatiallyDisconnected RegA RegB) SpaceClashContext
+    (v/assert kb (list 'spatiallyDisconnected RegA RegB) CxSpaceClash
               {:strength :monotonic})
-    (let [r (GET kb "/network" (str "ctx=" SpaceClashContext "&calc=rcc8"))]
+    (let [r (GET kb "/network" (str "ctx=" CxSpaceClash "&calc=rcc8"))]
       (is (= 200 (:status r)))
       (testing "the verdict is reported, not swallowed"
         (is (re-find #"unsatisfiable" (:body r))))
       (testing "and the pair to blame is named, since one pair carries the clash"
         (is (re-find (re-pattern (str RegA)) (:body r)))
-        (is (false? (:consistent? (v/qualitative-network kb :rcc8 SpaceClashContext)))))
+        (is (false? (:consistent? (v/qualitative-network kb :rcc8 CxSpaceClash)))))
       (testing "no scenario is offered for a world that cannot exist"
-        (is (nil? (v/qualitative-scenario kb :rcc8 SpaceClashContext)))))))
+        (is (nil? (v/qualitative-scenario kb :rcc8 CxSpaceClash)))))))
 
 (tu/deftest-kb a-context-with-no-qualitative-facts-says-nothing-rather-than-erroring
-  (tu/with-terms [EmptySpaceContext]
-    (v/assert kb (list 'genlContext EmptySpaceContext 'WellContext) 'UniverseContext
+  (tu/with-terms [CxEmptySpace]
+    (v/assert kb (list 'genlCx CxEmptySpace 'CxWell) 'CxUniverse
               {:strength :monotonic})
-    (let [r (GET kb "/network" (str "ctx=" EmptySpaceContext))]
+    (let [r (GET kb "/network" (str "ctx=" CxEmptySpace))]
       (is (= 200 (:status r)))
       (is (re-find #"No calculus relates anything|relates nothing" (:body r))))))
 

@@ -22,7 +22,7 @@
 
   It is worked on one new story (the Fox and the Crow) and retrofitted onto an
   existing fable (the Tortoise and the Hare) to show the schema generalizes.  The
-  schema lives in StoriesContext, seen by every fable."
+  schema lives in CxStories, seen by every fable."
   (:require [vaelii.core :as v]))
 
 ;; ---- the narrative schema -----------------------------------------------
@@ -108,25 +108,25 @@
 
 (defn load-into
   "Load the story-understanding ontology and its worked examples.  Requires the
-  starter (and its stories) to be loaded first, so StoriesContext exists.  Returns kb."
+  starter (and its stories) to be loaded first, so CxStories exists.  Returns kb."
   [kb]
-  (v/assert kb '(genlContext FoxCrowContext StoriesContext) 'UniverseContext)
-  (assert-all kb 'StoriesContext type-hierarchy)
-  (assert-all kb 'StoriesContext type-docs)
-  (assert-all kb 'StoriesContext predicate-metadata)
-  (assert-all kb 'StoriesContext predicate-docs)
-  (assert-all kb 'StoriesContext predicate-constraints)
-  (assert-all kb 'StoriesContext predicate-types)
+  (v/assert kb '(genlCx CxFoxCrow CxStories) 'CxUniverse)
+  (assert-all kb 'CxStories type-hierarchy)
+  (assert-all kb 'CxStories type-docs)
+  (assert-all kb 'CxStories predicate-metadata)
+  (assert-all kb 'CxStories predicate-docs)
+  (assert-all kb 'CxStories predicate-constraints)
+  (assert-all kb 'CxStories predicate-types)
   (doseq [t '[agent event action mental_state goal]]     ; uphold the unaryPredicate invariant
-    (v/assert kb (list 'unaryPredicate t) 'StoriesContext))
+    (v/assert kb (list 'unaryPredicate t) 'CxStories))
   ;; goal reasoning: wanting a goal + bringing about an event that achieves it ⇒ success
   (v/assert-rule kb '[(wants ?a ?g) (brings ?a ?e) (achieves ?e ?g)]
-                 '(achievesGoal ?a ?g) 'StoriesContext)
+                 '(achievesGoal ?a ?g) 'CxStories)
   ;; agency: an agent is responsible for what its action directly causes
-  (v/assert-rule kb '[(does ?a ?act) (causes ?act ?e)] '(responsibleFor ?a ?e) 'StoriesContext)
-  (assert-all kb 'FoxCrowContext fox-and-crow)
-  (v/assert kb '(comment FoxCrowContext
+  (v/assert-rule kb '[(does ?a ?act) (causes ?act ?e)] '(responsibleFor ?a ?e) 'CxStories)
+  (assert-all kb 'CxFoxCrow fox-and-crow)
+  (v/assert kb '(comment CxFoxCrow
                          "The Fox and the Crow — moral: do not trust flatterers; the flattery serves the flatterer.")
-            'StoriesContext)
-  (assert-all kb 'TortoiseHareContext tortoise-goal)          ; the same schema on an existing fable
+            'CxStories)
+  (assert-all kb 'CxTortoiseHare tortoise-goal)          ; the same schema on an existing fable
   kb)

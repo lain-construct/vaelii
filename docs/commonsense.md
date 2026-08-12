@@ -74,15 +74,15 @@ foreign bridge are not claims about the world at all.
 Four things the questions need live in the **shipped KB** rather than in the tests,
 because a gap a test papers over locally is a gap every other consumer still has.
 
-**The unit table.** `MeasureContext` ships Length in `Meter`, Mass in `Kilogram` and
+**The unit table.** `CxMeasure` ships Length in `Meter`, Mass in `Kilogram` and
 Duration in `Second`, so the measure vocabulary is something a query can compute with
-rather than a grammar. The test for admitting a unit is the one `CoreContext` applies to
+rather than a grammar. The test for admitting a unit is the one `CxCore` applies to
 its own vocabulary: **a unit belongs when its factor is a definition rather than a
 measurement**. A minute is sixty seconds by stipulation; how much a particular dog weighs
 is not.
 
 **`weightOf` / `heightOf`, and the comparisons over them.** `heavierThan` and `tallerThan`
-are backward rules in `SizeContext` reading two measures through the quantity provers —
+are backward rules in `CxSize` reading two measures through the quantity provers —
 the same shape `olderThan` has over two birth years. The two halves of that file are
 deliberately not connected: a dog being a larger *kind* than a cat does not make this dog
 heavier than that cat.
@@ -93,7 +93,7 @@ the correspondence is what stops `(MotherFn Pup)` from minting a second name for
 already stored. Both predicates are functional, so a second mother merges rather than
 piling up.
 
-**One abducible grant.** `BiologyContext` declares `(abduciblePredicate asleep)` and
+**One abducible grant.** `CxBiology` declares `(abduciblePredicate asleep)` and
 nothing else, which is what makes *why is this dog not awake* answerable and *why does it
 not fly* refused with the dead end named. A grant is a policy the context states, and
 the whole value of abduction here is what is **not** granted.

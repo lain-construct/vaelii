@@ -34,9 +34,9 @@
                        (list 'and (list benchEdge '?x '?y)
                              (list colored '?x '?k) (list colored '?y '?k))
                        (list 'monochrome '?x '?y))
-            hard (v/assert kb (list 'set/hardConstraint body) 'UniverseContext)
-            soft (v/assert kb (list 'set/softConstraint body) 'UniverseContext)
-            bare (v/assert kb body 'UniverseContext)]
+            hard (v/assert kb (list 'set/hardConstraint body) 'CxUniverse)
+            soft (v/assert kb (list 'set/softConstraint body) 'CxUniverse)
+            bare (v/assert kb body 'CxUniverse)]
         (testing "the wrapper is part of identity: hard, soft, and bare are three sentexes"
           (is (not= hard soft))
           (is (not= hard bare))
@@ -50,7 +50,7 @@
           (is (not (rules/backward-sentex? (sentex-of kb hard))))
           (is (rules/forward-sentex? (sentex-of kb bare))))
         (testing "and re-asserting the same hard constraint is idempotent"
-          (is (= hard (v/assert kb (list 'set/hardConstraint body) 'UniverseContext))))))))
+          (is (= hard (v/assert kb (list 'set/hardConstraint body) 'CxUniverse))))))))
 
 (deftest a-constraint-rule-derives-no-marker
   ;; The defining behaviour: the head is a contradiction *marker*, not a truth — the
@@ -62,12 +62,12 @@
                                (list 'and (list benchEdge '?x '?y)
                                      (list colored '?x '?k) (list colored '?y '?k))
                                (list 'monochrome '?x '?y)))
-                'UniverseContext)
+                'CxUniverse)
       ;; even given a monochrome edge as plain facts, nothing derives the marker
-      (v/assert kb (list benchEdge A B) 'UniverseContext)
-      (v/assert kb (list colored A 'red) 'UniverseContext)
-      (v/assert kb (list colored B 'red) 'UniverseContext)
-      (is (empty? (v/sentexes-matching kb (list 'monochrome A B) 'UniverseContext))))))
+      (v/assert kb (list benchEdge A B) 'CxUniverse)
+      (v/assert kb (list colored A 'red) 'CxUniverse)
+      (v/assert kb (list colored B 'red) 'CxUniverse)
+      (is (empty? (v/sentexes-matching kb (list 'monochrome A B) 'CxUniverse))))))
 
 ;; ---- 2. hard 3-coloring end to end via do/label … :one -------------------
 
@@ -98,15 +98,15 @@
   (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [colored]
-        (install-3coloring! kb 'TriContext colored
+        (install-3coloring! kb 'CxTri colored
                             '[N1 N2 N3] '[[N1 N2] [N2 N3] [N1 N3]])
-        (let [r        (v/assert kb (list 'do/label 'TriContext 'TriPlanContext :one) 'TriContext)
+        (let [r        (v/assert kb (list 'do/label 'CxTri 'CxTriPlan :one) 'CxTri)
               labeling (first (:labelings r))
               coloring (coloring-of labeling)]
           (testing "one labeling, computed and returned but not persisted"
             (is (= 1 (:count r)))
             (is (nil? (:context labeling)))
-            (is (not (contains? (set (v/contexts kb)) 'TriPlan1Context))))
+            (is (not (contains? (set (v/contexts kb)) 'CxTriPlan1))))
           (testing "every node gets exactly one colour"
             (is (= #{'N1 'N2 'N3} (set (keys coloring))))
             (is (= 3 (count (:true labeling))) "one chosen colour per node")
@@ -118,7 +118,7 @@
           (testing "a triangle exhausts all three colours"
             (is (= 3 (count (set (vals coloring))))))
           (testing "base belief is untouched — no colour is believed, nothing contradicts"
-            (is (empty? (v/sentexes-matching kb (list colored 'N1 'k1) 'TriContext)))
+            (is (empty? (v/sentexes-matching kb (list colored 'N1 'k1) 'CxTri)))
             (is (zero? (count (v/contradictions kb))))))))))
 
 (deftest hard-constraint-3-colors-a-path
@@ -127,9 +127,9 @@
   (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [colored]
-        (install-3coloring! kb 'PathContext colored
+        (install-3coloring! kb 'CxPath colored
                             '[P1 P2 P3 P4] '[[P1 P2] [P2 P3] [P3 P4]])
-        (let [r        (v/assert kb (list 'do/label 'PathContext 'PathPlanContext :one) 'PathContext)
+        (let [r        (v/assert kb (list 'do/label 'CxPath 'CxPathPlan :one) 'CxPath)
               coloring (coloring-of (first (:labelings r)))]
           (is (= 1 (:count r)))
           (is (= #{'P1 'P2 'P3 'P4} (set (keys coloring))) "all four nodes coloured")
@@ -143,10 +143,10 @@
   (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [colored]
-        (install-3coloring! kb 'K4Context colored
+        (install-3coloring! kb 'CxK4 colored
                             '[Q1 Q2 Q3 Q4]
                             '[[Q1 Q2] [Q1 Q3] [Q1 Q4] [Q2 Q3] [Q2 Q4] [Q3 Q4]])
-        (let [r        (v/assert kb (list 'do/label 'K4Context 'K4PlanContext :one) 'K4Context)
+        (let [r        (v/assert kb (list 'do/label 'CxK4 'CxK4Plan :one) 'CxK4)
               coloring (coloring-of (first (:labelings r)))]
           (testing "no proper total 3-colouring: some node is left uncoloured"
             (is (< (count coloring) 4)))
@@ -166,8 +166,8 @@
         (let [regions '[Wa Nt Sa Q Nsw V T]
               borders '[[Wa Nt] [Wa Sa] [Nt Sa] [Nt Q] [Sa Q]
                         [Sa Nsw] [Sa V] [Q Nsw] [Nsw V]]]
-          (install-3coloring! kb 'AustraliaContext colored regions borders)
-          (let [r        (v/assert kb (list 'do/label 'AustraliaContext 'AustraliaPlanContext :one) 'AustraliaContext)
+          (install-3coloring! kb 'CxAustralia colored regions borders)
+          (let [r        (v/assert kb (list 'do/label 'CxAustralia 'CxAustraliaPlan :one) 'CxAustralia)
                 coloring (coloring-of (first (:labelings r)))]
             (testing "all seven regions coloured, Tasmania included"
               (is (= (set regions) (set (keys coloring))))
@@ -218,9 +218,9 @@
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [colored]
         ;; a triangle plus a totally isolated node Iso (no edges)
-        (install-allhard-3coloring! kb 'AllHardContext colored
+        (install-allhard-3coloring! kb 'CxAllHard colored
                                     '[N1 N2 N3 Iso] '[[N1 N2] [N2 N3] [N1 N3]])
-        (let [r        (v/assert kb (list 'do/label 'AllHardContext 'AllHardPlanContext :sat) 'AllHardContext)
+        (let [r        (v/assert kb (list 'do/label 'CxAllHard 'CxAllHardPlan :sat) 'CxAllHard)
               coloring (coloring-of (first (:labelings r)))]
           (testing ":sat returns one labeling, persists nothing"
             (is (= 1 (:count r)))
@@ -238,7 +238,7 @@
   (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [colored]
-        (install-3coloring! kb 'TimeContext colored '[T1 T2] '[[T1 T2]])
-        (let [r (v/assert kb (list 'do/label 'TimeContext 'TimePlanContext :one) 'TimeContext)]
+        (install-3coloring! kb 'CxTime colored '[T1 T2] '[[T1 T2]])
+        (let [r (v/assert kb (list 'do/label 'CxTime 'CxTimePlan :one) 'CxTime)]
           (is (every? number? [(:ground-ms r) (:translate-ms r) (:solve-ms r)])
               "grounding / translate / solve are timed separately for a profiling caller"))))))

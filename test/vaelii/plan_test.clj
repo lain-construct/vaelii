@@ -46,9 +46,9 @@
 ;; ---- the cost model -----------------------------------------------------
 
 (tu/deftest-kb a-ground-argument-makes-a-literal-cheaper
-  (tu/with-terms [parentOf Tom Bob Ann Cid PlanContext]
+  (tu/with-terms [parentOf Tom Bob Ann Cid CxPlan]
     (doseq [[p c] [[Tom Bob] [Tom Ann] [Bob Cid] [Ann Cid]]]
-      (v/assert kb (list parentOf p c) PlanContext))
+      (v/assert kb (list parentOf p c) CxPlan))
     (testing "the trie counts the ground prefix exactly; the open literal is the extent"
       (is (= 2 (plan/est-matches kb (list parentOf Tom '?y) #{})))
       (is (= 4 (plan/est-matches kb (list parentOf '?x '?y) #{}))))
@@ -56,9 +56,9 @@
       (is (= 1 (plan/est-matches kb (list parentOf Tom Bob) #{}))))))
 
 (tu/deftest-kb a-bound-variable-makes-a-literal-cheaper
-  (tu/with-terms [parentOf Tom Bob Ann Cid PlanContext]
+  (tu/with-terms [parentOf Tom Bob Ann Cid CxPlan]
     (doseq [[p c] [[Tom Bob] [Tom Ann] [Bob Cid] [Ann Cid]]]
-      (v/assert kb (list parentOf p c) PlanContext))
+      (v/assert kb (list parentOf p c) CxPlan))
     (testing "sideways information passing: the same literal costs less once ?x is bound"
       (let [open  (plan/est-matches kb (list parentOf '?x '?y) #{})
             bound (plan/est-matches kb (list parentOf '?x '?y) '#{?x})]
@@ -67,11 +67,11 @@
       (is (= 1 (plan/est-matches kb (list parentOf '?x '?y) '#{?x ?y}))))))
 
 (tu/deftest-kb a-supertype-literal-costs-its-whole-subtree
-  (tu/with-terms [animal dog cat Muffet Tom PlanContext]
-    (v/assert kb (list 'genl dog animal) PlanContext)
-    (v/assert kb (list 'genl cat animal) PlanContext)
-    (v/assert kb (list dog Muffet) PlanContext)
-    (v/assert kb (list cat Tom) PlanContext)
+  (tu/with-terms [animal dog cat Muffet Tom CxPlan]
+    (v/assert kb (list 'genl dog animal) CxPlan)
+    (v/assert kb (list 'genl cat animal) CxPlan)
+    (v/assert kb (list dog Muffet) CxPlan)
+    (v/assert kb (list cat Tom) CxPlan)
     (testing "matching fans out over the subtype closure, so the supertype is dearer"
       ;; `animal` has no instance of its own — costing it by its own extent would
       ;; rank the most expensive literal in the conjunction as the cheapest
@@ -84,10 +84,10 @@
   ;; from the position-1 argument roots (a slot-roster union), so the estimate has to be
   ;; that same count — costing it by the trie (which stops dead at the open first token)
   ;; charges the whole KB.
-  (tu/with-terms [animal dog Muffet Other PlanContext]
-    (v/assert kb (list 'genl dog animal) PlanContext)
-    (v/assert kb (list dog Muffet) PlanContext)
-    (v/assert kb (list animal Other) PlanContext)
+  (tu/with-terms [animal dog Muffet Other CxPlan]
+    (v/assert kb (list 'genl dog animal) CxPlan)
+    (v/assert kb (list dog Muffet) CxPlan)
+    (v/assert kb (list animal Other) CxPlan)
     (testing "bounded by the argument root, not by the size of the KB"
       (is (= (p/count-with-arg (:index kb) 1 Muffet)
              (plan/est-matches kb (list '?c Muffet) #{}))))
@@ -107,9 +107,9 @@
   ;; the trie key or an argument root pins, and the marker itself is not a term —
   ;; both models answer 0 for it, which would rank the literal cheapest and hoist a
   ;; whole extent to the front of the conjunction.
-  (tu/with-terms [rel dog Tom Bob Rex PlanContext]
-    (doseq [[a b] [[Tom Bob] [Bob Tom]]] (v/assert kb (list rel a b) PlanContext))
-    (v/assert kb (list dog Rex) PlanContext)
+  (tu/with-terms [rel dog Tom Bob Rex CxPlan]
+    (doseq [[a b] [[Tom Bob] [Bob Tom]]] (v/assert kb (list rel a b) CxPlan))
+    (v/assert kb (list dog Rex) CxPlan)
     (testing "a concrete functor is bounded by its extent, exactly as the fixed-arity form is"
       (is (= (plan/est-matches kb (list rel '?x '?y) #{})
              (plan/est-matches kb (list rel '. '?args) #{}))))
@@ -124,8 +124,8 @@
     (testing "so the selective literal still leads, whichever way it was written"
       (let [dotted (list rel '. '?args)
             sel    (list dog '?x)]
-        (is (= [sel dotted] (plan/order kb [dotted sel] PlanContext)))
-        (is (= [sel dotted] (plan/order kb [sel dotted] PlanContext)))))))
+        (is (= [sel dotted] (plan/order kb [dotted sel] CxPlan)))
+        (is (= [sel dotted] (plan/order kb [sel dotted] CxPlan)))))))
 
 ;; ---- the join model: the other estimator --------------------------------
 ;;
@@ -148,9 +148,9 @@
                  ctx {:chain? false}))
 
 (tu/deftest-kb est-rows-counts-the-one-column-the-trie-can-reach
-  (tu/with-terms [parentOf Tom Bob Ann Cid PlanContext]
+  (tu/with-terms [parentOf Tom Bob Ann Cid CxPlan]
     (doseq [[p c] [[Tom Bob] [Tom Ann] [Bob Cid] [Ann Cid]]]
-      (v/assert kb (list parentOf p c) PlanContext))
+      (v/assert kb (list parentOf p c) CxPlan))
     (testing "the open literal: rows off the prefix, the leading variable off the fan-out"
       ;; three parents (Tom, Bob, Ann) over four facts
       (is (= {:rows 4 :vars '#{?x ?y} :distinct '{?x 3}}
@@ -174,11 +174,11 @@
   ;; over-estimate the trie walk can make, since the true count is a handful of rows —
   ;; and an over-estimated literal is one the planner holds back, so the conjunction it
   ;; should have led runs at full width.
-  (tu/with-terms [linksTo Node PlanContext]
+  (tu/with-terms [linksTo Node CxPlan]
     ;; 12 facts over 6 distinct first arguments: 2 rows per leading value
     (doseq [i (range 6), j (range 2)]
       (v/assert kb (list linksTo (symbol (str Node "A" i)) (symbol (str Node "B" i "x" j)))
-                PlanContext))
+                CxPlan))
     (let [open (plan/est-rows kb (list linksTo '?x '?y))
           self (plan/est-rows kb (list linksTo '?x '?x))]
       (testing "the open literal is the whole extent, over the column the trie can count"
@@ -205,10 +205,10 @@
   ;; needs a row count, and it comes from the bound; what must not happen is a column
   ;; being invented, because a fabricated count ranks as a reading in the next join and
   ;; throws away the one the other side actually has.
-  (tu/with-terms [rel dog Tom Bob Rex PlanContext]
-    (doseq [[a b] [[Tom Bob] [Bob Tom]]] (v/assert kb (list rel a b) PlanContext))
-    (v/assert kb (list dog Rex) PlanContext)
-    (v/assert kb (list 'not (list rel Rex Rex)) PlanContext)
+  (tu/with-terms [rel dog Tom Bob Rex CxPlan]
+    (doseq [[a b] [[Tom Bob] [Bob Tom]]] (v/assert kb (list rel a b) CxPlan))
+    (v/assert kb (list dog Rex) CxPlan)
+    (v/assert kb (list 'not (list rel Rex Rex)) CxPlan)
     (doseq [[what goal] [["a negative literal"  (list 'not (list rel '?x '?y))]
                          ["a dotted rest"       (list rel '. '?args)]
                          ["an open functor"     (list '?p Rex)]]]
@@ -223,11 +223,11 @@
   ;; `est-matches` may be far too large and may never be too small — a reading of 1 is
   ;; a proof.  `est-rows` is a point estimate and carries no such guarantee.  Nothing
   ;; here should be tempted to fold them into one number.
-  (tu/with-terms [animal dog cat Muffet Tom PlanContext]
-    (v/assert kb (list 'genl dog animal) PlanContext)
-    (v/assert kb (list 'genl cat animal) PlanContext)
-    (v/assert kb (list dog Muffet) PlanContext)
-    (v/assert kb (list cat Tom) PlanContext)
+  (tu/with-terms [animal dog cat Muffet Tom CxPlan]
+    (v/assert kb (list 'genl dog animal) CxPlan)
+    (v/assert kb (list 'genl cat animal) CxPlan)
+    (v/assert kb (list dog Muffet) CxPlan)
+    (v/assert kb (list cat Tom) CxPlan)
     (testing "both fan a supertype literal over its subtype closure"
       (is (= 2 (plan/est-matches kb (list animal '?x) #{})))
       (is (= 2 (:rows (plan/est-rows kb (list animal '?x))))))
@@ -240,25 +240,25 @@
 (tu/deftest-kb the-counts-span-every-context-and-a-read-is-scoped-to-one
   ;; The trie key ends with the context, so `count-at` under a prefix sums the sentence
   ;; over *every* context it is stored in, while the read the plan is for sees one context
-  ;; and the `genlContext` cone above it.  Nothing scopes the counts and nothing can
+  ;; and the `genlCx` cone above it.  Nothing scopes the counts and nothing can
   ;; cheaply: a per-context count is a second index (docs/inference.md).  Two consequences,
   ;; and they land on the two estimators differently, which is why both are checked here.
-  (tu/with-terms [parentOf Tom Bob Cid TopContext SubContext]
-    (v/assert kb (list 'genlContext SubContext TopContext) 'UniverseContext
+  (tu/with-terms [parentOf Tom Bob Cid CxTop CxSub]
+    (v/assert kb (list 'genlCx CxSub CxTop) 'CxUniverse
               {:strength :monotonic})
-    (doseq [c [TopContext SubContext]]
+    (doseq [c [CxTop CxSub]]
       (v/assert kb (list parentOf Tom Bob) c {:strength :monotonic}))
-    (v/assert kb (list parentOf Tom Cid) TopContext {:strength :monotonic})
+    (v/assert kb (list parentOf Tom Cid) CxTop {:strength :monotonic})
     (let [goal (list parentOf Tom '?y)
           seen (fn [c] (count (v/sentexes-matching kb goal c)))]
       (testing "the bound stays sound, which is the property everything rests on"
         ;; a context cone is a subset of what is stored, so a count over all of them can
         ;; only ever be too large — the direction `est-matches` is allowed to be wrong in,
         ;; and the reason a reading of 1 is still a proof
-        (is (<= (seen TopContext) (plan/est-matches kb goal #{} {:context TopContext})))
-        (is (<= (seen SubContext) (plan/est-matches kb goal #{} {:context SubContext})))
-        (is (= (plan/est-matches kb goal #{} {:context TopContext})
-               (plan/est-matches kb goal #{} {:context SubContext}))
+        (is (<= (seen CxTop) (plan/est-matches kb goal #{} {:context CxTop})))
+        (is (<= (seen CxSub) (plan/est-matches kb goal #{} {:context CxSub})))
+        (is (= (plan/est-matches kb goal #{} {:context CxTop})
+               (plan/est-matches kb goal #{} {:context CxSub}))
             "and it is the same number in both, the counts being context-blind"))
       (testing "the inflation lands on the rows and not on the columns"
         ;; the level the walk stops at holds argument values, and the contexts sit a level
@@ -268,7 +268,7 @@
         (let [r (plan/est-rows kb goal)]
           (is (= 3 (:rows r)) "(Tom Bob) twice over and (Tom Cid) once")
           (is (= {'?y 2} (:distinct r)) "but Bob and Cid are two values, not three")
-          (is (> (:rows r) (seen TopContext)))))
+          (is (> (:rows r) (seen CxTop)))))
       (testing "a ground literal is clamped, so the multiplicity cannot reach it"
         ;; the one place the walk *does* end on the contexts: a literal with nothing open
         ;; yields one solution or none however many contexts hold it
@@ -360,17 +360,17 @@
   ;; Where the model's one assumption holds — arguments independent, fan-out uniform —
   ;; there is nothing to be approximately right about, and being exact at depth 3 is
   ;; the statement that the *composition* is right rather than that depth 1 was.
-  (tu/with-terms [linkOne linkTwo linkThree Node PlanContext]
-    (chain-with-fan! kb PlanContext linkOne linkTwo Node 24 8 3)
+  (tu/with-terms [linkOne linkTwo linkThree Node CxPlan]
+    (chain-with-fan! kb CxPlan linkOne linkTwo Node 24 8 3)
     (v/assert-many kb (for [j (range 8), k (range 3), m (range 2)]
                         (list linkThree (symbol (str Node "C" j "x" k))
                               (symbol (str Node "D" j "x" k "x" m))))
-                   PlanContext {:chain? false})
+                   CxPlan {:chain? false})
     (let [goals [(list linkOne '?a '?b) (list linkTwo '?b '?c) (list linkThree '?c '?d)]]
       (testing "every prefix of the plan is estimated exactly"
-        (is (= [1.0 1.0 1.0] (q-errors kb goals PlanContext))))
+        (is (= [1.0 1.0 1.0] (q-errors kb goals CxPlan))))
       (testing "and the estimates are the numbers a reader would check them against"
-        (let [steps (plan/explain kb goals PlanContext)]
+        (let [steps (plan/explain kb goals CxPlan)]
           (is (= [24 72 144] (map :est-prefix steps))))))))
 
 (tu/deftest-kb ^:slow the-join-estimate-stays-bounded-when-the-assumption-is-false
@@ -379,7 +379,7 @@
   ;; corpus is deliberately hostile: one hub value takes three quarters of the first
   ;; relation, and the second and third relations' fan-outs vary sharply with the join
   ;; key, so the joint distribution is exactly what per-position counts cannot see.
-  (tu/with-terms [linkOne linkTwo linkThree Node PlanContext]
+  (tu/with-terms [linkOne linkTwo linkThree Node CxPlan]
     (v/assert-many kb
                    (concat (for [i (range 40)]
                              (list linkOne (symbol (str Node "A" i))
@@ -391,9 +391,9 @@
                                  m (range (if (even? j) 1 4))]
                              (list linkThree (symbol (str Node "C" j "x" k))
                                    (symbol (str Node "D" j "x" k "x" m)))))
-                   PlanContext {:chain? false})
+                   CxPlan {:chain? false})
     (let [goals [(list linkOne '?a '?b) (list linkTwo '?b '?c) (list linkThree '?c '?d)]
-          [q1 q2 q3] (q-errors kb goals PlanContext)]
+          [q1 q2 q3] (q-errors kb goals CxPlan)]
       (testing "the single-literal estimate is exact — it is a count, not a model"
         (is (= 1.0 q1)))
       (testing "the joins are wrong, and that is the assumption failing as documented"
@@ -406,8 +406,8 @@
         ;; the same three literals backwards plan to the same order — which is what
         ;; makes the q-error above a reading about the model rather than about the
         ;; order that happened to be measured
-        (is (= (mapv :goal (plan/explain kb goals PlanContext))
-               (mapv :goal (plan/explain kb (vec (reverse goals)) PlanContext))))))))
+        (is (= (mapv :goal (plan/explain kb goals CxPlan))
+               (mapv :goal (plan/explain kb (vec (reverse goals)) CxPlan))))))))
 
 (tu/deftest-kb the-bound-variables-are-a-one-row-relation-and-nothing-special
   ;; Sideways information passing has no rule of its own in the join model: the
@@ -415,28 +415,28 @@
   ;; divides its extent by its own distinct count at that position — which is exactly
   ;; the average branch the per-literal model charges for a bound-but-unknown token.
   ;; If the two ever disagreed, one of them would be double-counting the narrowing.
-  (tu/with-terms [parentOf Tom Bob Ann Cid Dee PlanContext]
+  (tu/with-terms [parentOf Tom Bob Ann Cid Dee CxPlan]
     (doseq [[p c] [[Tom Bob] [Tom Ann] [Bob Cid] [Ann Cid] [Cid Dee]]]
-      (v/assert kb (list parentOf p c) PlanContext))
+      (v/assert kb (list parentOf p c) CxPlan))
     (let [g     (list parentOf '?x '?y)
           other (list 'lessThan 1 2)
-          step  (first (plan/explain kb [g other] PlanContext {:bound '#{?x}}))]
+          step  (first (plan/explain kb [g other] CxPlan {:bound '#{?x}}))]
       (is (= (plan/est-matches kb g '#{?x}) (:est-prefix step))))))
 
 ;; ---- ordering -----------------------------------------------------------
 
 (tu/deftest-kb an-open-functor-leads-when-it-is-the-selective-literal
-  (tu/with-terms [animal dog cat bird Muffet PlanContext]
+  (tu/with-terms [animal dog cat bird Muffet CxPlan]
     ;; a type hierarchy wide enough that walking it is dearer than reading Muffet's
     ;; own memberships, which is the whole point of leading with the latter
-    (doseq [t [dog cat bird]] (v/assert kb (list 'genl t animal) PlanContext))
-    (v/assert kb (list dog Muffet) PlanContext)
+    (doseq [t [dog cat bird]] (v/assert kb (list 'genl t animal) CxPlan))
+    (v/assert kb (list dog Muffet) CxPlan)
     (let [open   (list '?c Muffet)
           hier   (list 'genl '?c animal)
-          answers (fn [gs] (set (map #(get % '?c) (v/prove kb gs PlanContext))))]
+          answers (fn [gs] (set (map #(get % '?c) (v/prove kb gs CxPlan))))]
       (testing "written either way, the open functor is picked first"
-        (is (= [open hier] (plan/order kb [open hier] PlanContext)))
-        (is (= [open hier] (plan/order kb [hier open] PlanContext))))
+        (is (= [open hier] (plan/order kb [open hier] CxPlan)))
+        (is (= [open hier] (plan/order kb [hier open] CxPlan))))
       (testing "and the reordering changes no answers"
         (let [expected (unplanned #(answers [open hier]))]
           (is (seq expected))
@@ -445,34 +445,34 @@
           (is (= expected (unplanned #(answers [hier open])))))))))
 
 (tu/deftest-kb the-selective-literal-goes-first-however-it-was-written
-  (tu/with-terms [parentOf dog Tom Bob Ann Cid PlanContext]
+  (tu/with-terms [parentOf dog Tom Bob Ann Cid CxPlan]
     (doseq [[p c] [[Tom Bob] [Bob Cid] [Ann Cid]]]
-      (v/assert kb (list parentOf p c) PlanContext))
-    (doseq [d [Bob Cid Ann]] (v/assert kb (list dog d) PlanContext))
+      (v/assert kb (list parentOf p c) CxPlan))
+    (doseq [d [Bob Cid Ann]] (v/assert kb (list dog d) CxPlan))
     (let [selective (list parentOf Tom '?y)
           general   (list dog '?y)]
       (testing "written selective-first, it stays first"
-        (is (= [selective general] (plan/order kb [selective general] PlanContext))))
+        (is (= [selective general] (plan/order kb [selective general] CxPlan))))
       (testing "written general-first, the planner swaps it"
-        (is (= [selective general] (plan/order kb [general selective] PlanContext)))))))
+        (is (= [selective general] (plan/order kb [general selective] CxPlan)))))))
 
 (tu/deftest-kb planning-is-deterministic-and-breaks-ties-on-written-order
-  (tu/with-terms [likes Tom Bob PlanContext]
-    (v/assert kb (list likes Tom Bob) PlanContext)
+  (tu/with-terms [likes Tom Bob CxPlan]
+    (v/assert kb (list likes Tom Bob) CxPlan)
     (let [a (list likes '?x '?y)
           b (list likes '?y '?z)
           conj- [a b]]
       (testing "the same conjunction plans the same way every time"
-        (is (apply = (repeatedly 5 #(plan/order kb conj- PlanContext)))))
+        (is (apply = (repeatedly 5 #(plan/order kb conj- CxPlan)))))
       (testing "equal-cost literals keep the order they were written in"
-        (is (= a (first (plan/order kb [a b] PlanContext))))))))
+        (is (= a (first (plan/order kb [a b] CxPlan))))))))
 
 (tu/deftest-kb a-repeated-conjunct-is-not-dropped
-  (tu/with-terms [parentOf Tom Bob PlanContext]
-    (v/assert kb (list parentOf Tom Bob) PlanContext)
+  (tu/with-terms [parentOf Tom Bob CxPlan]
+    (v/assert kb (list parentOf Tom Bob) CxPlan)
     (testing "planning is a permutation — it never shortens the conjunction"
       (let [g (list parentOf '?x '?y)]
-        (is (= 3 (count (plan/order kb [g g g] PlanContext))))))))
+        (is (= 3 (count (plan/order kb [g g g] CxPlan))))))))
 
 ;; ---- costing the plan, not the next literal -----------------------------
 
@@ -505,8 +505,8 @@
               (unplanned #(count (v/prove kb (vec (take k order)) ctx))))))
 
 (tu/deftest-kb a-literal-that-binds-nothing-goes-last-however-cheap-it-is
-  (tu/with-terms [linkOne linkTwo linkThree loose Node PlanContext]
-    (chain-kb! kb PlanContext [linkOne linkTwo linkThree loose Node] 6 3)
+  (tu/with-terms [linkOne linkTwo linkThree loose Node CxPlan]
+    (chain-kb! kb CxPlan [linkOne linkTwo linkThree loose Node] 6 3)
     (let [c1      (list linkOne '?a '?b)
           c2      (list linkTwo '?b '?c)
           c3      (list linkThree '?c '?d)
@@ -515,13 +515,13 @@
       (testing "`loose` really is the cheapest literal taken on its own"
         (is (< (plan/est-matches kb lo #{}) (plan/est-matches kb c1 #{}))))
       (testing "and it is still planned last, because its bindings buy nothing"
-        (is (= [c1 c2 c3 lo] (plan/order kb written PlanContext))))
+        (is (= [c1 c2 c3 lo] (plan/order kb written CxPlan))))
       (testing "which is the order with the fewest intermediate rows"
-        (is (= (actual-rows kb [c1 c2 c3 lo] PlanContext)
-               (apply min (map #(actual-rows kb % PlanContext)
+        (is (= (actual-rows kb [c1 c2 c3 lo] CxPlan)
+               (apply min (map #(actual-rows kb % CxPlan)
                                (permutations written))))))
       (testing "and the plan reports *why* it is last, not just a small estimate there"
-        (let [rows (plan/explain kb written PlanContext)]
+        (let [rows (plan/explain kb written CxPlan)]
           (is (= [lo] (map :goal (filter :isolated? rows))))
           ;; the trap the flag exists for: it is the cheapest literal in the
           ;; conjunction and sits last, which without a reason reads as a mistake
@@ -533,35 +533,35 @@
   ;; the plan and costing the next literal provably agree: both orders end on the same
   ;; join, so the costs differ only by the leading literal's own extent.  Pinned
   ;; because it is why the search is not run here, not merely why it need not be.
-  (tu/with-terms [linkOne linkTwo linkThree loose Node PlanContext]
-    (chain-kb! kb PlanContext [linkOne linkTwo linkThree loose Node] 6 3)
+  (tu/with-terms [linkOne linkTwo linkThree loose Node CxPlan]
+    (chain-kb! kb CxPlan [linkOne linkTwo linkThree loose Node] 6 3)
     (let [c1 (list linkOne '?a '?b)
           lo (list loose '?u '?v)]
       (testing "the cheaper literal leads, written either way"
         (is (< (plan/est-matches kb lo #{}) (plan/est-matches kb c1 #{})))
-        (is (= [lo c1] (plan/order kb [lo c1] PlanContext)))
-        (is (= [lo c1] (plan/order kb [c1 lo] PlanContext))))
+        (is (= [lo c1] (plan/order kb [lo c1] CxPlan)))
+        (is (= [lo c1] (plan/order kb [c1 lo] CxPlan))))
       (testing "and no permutation of the pair runs fewer rows"
-        (is (= (actual-rows kb [lo c1] PlanContext)
-               (min (actual-rows kb [lo c1] PlanContext)
-                    (actual-rows kb [c1 lo] PlanContext))))))))
+        (is (= (actual-rows kb [lo c1] CxPlan)
+               (min (actual-rows kb [lo c1] CxPlan)
+                    (actual-rows kb [c1 lo] CxPlan))))))))
 
 (tu/deftest-kb the-planned-order-is-the-cheapest-of-every-permutation
-  (tu/with-terms [linkOne linkTwo linkThree loose Node PlanContext]
-    (chain-kb! kb PlanContext [linkOne linkTwo linkThree loose Node] 5 2)
+  (tu/with-terms [linkOne linkTwo linkThree loose Node CxPlan]
+    (chain-kb! kb CxPlan [linkOne linkTwo linkThree loose Node] 5 2)
     (let [conjuncts [(list loose '?u '?v)
                      (list linkOne '?a '?b)
                      (list linkTwo '?b '?c)
                      (list linkThree '?c '?d)]]
       (testing "the search is exact, not merely better: no permutation runs fewer rows"
-        (let [planned (plan/order kb conjuncts PlanContext)
-              costs   (map #(actual-rows kb % PlanContext) (permutations conjuncts))]
-          (is (= (actual-rows kb planned PlanContext) (apply min costs)))))
+        (let [planned (plan/order kb conjuncts CxPlan)
+              costs   (map #(actual-rows kb % CxPlan) (permutations conjuncts))]
+          (is (= (actual-rows kb planned CxPlan) (apply min costs)))))
       (testing "and the cartesian factor is last however the conjunction was written"
         ;; the connected head may still differ between permutations — those literals
         ;; have equal extents, and a cost tie resolves to written order by design
         (doseq [p (permutations conjuncts)]
-          (is (= (list loose '?u '?v) (last (plan/order kb p PlanContext)))))))))
+          (is (= (list loose '?u '?v) (last (plan/order kb p CxPlan)))))))))
 
 (defn- random-trial!
   "One randomized join: four relations over a shared pool of individuals, and a
@@ -612,12 +612,12 @@
   ;; and correspondingly says nothing about *cost*: a plan that runs nine rows where
   ;; the best runs two is a fact about small integers.  The cost claim is made on a
   ;; corpus sized for it, below.
-  (tu/with-terms [rel Node PlanContext]
+  (tu/with-terms [rel Node CxPlan]
     (let [rng    (java.util.Random. 20260730)
           trials (for [trial (range 12)]
-                   (let [conjuncts (random-trial! kb PlanContext rel Node rng trial)]
+                   (let [conjuncts (random-trial! kb CxPlan rel Node rng trial)]
                      {:conjuncts conjuncts
-                      :planned   (plan/order kb conjuncts PlanContext)
+                      :planned   (plan/order kb conjuncts CxPlan)
                       :isolated  (isolated-literals conjuncts)}))]
       (testing "the trials threw up cartesian factors to place at all"
         (is (seq (filter #(seq (:isolated %)) trials))))
@@ -625,7 +625,7 @@
         (is (some #(not= (:conjuncts %) (:planned %)) trials)))
       (testing "every planned order returns exactly the unplanned answer set"
         (doseq [{:keys [conjuncts planned]} trials]
-          (let [answers (fn [gs] (set (v/prove kb gs PlanContext)))]
+          (let [answers (fn [gs] (set (v/prove kb gs CxPlan)))]
             (is (= (unplanned #(answers conjuncts)) (answers planned)))))))))
 
 (defn- oracle-trial!
@@ -664,14 +664,14 @@
   ;; of ratios is dominated by whichever trial had the smallest oracle, which is the
   ;; trial whose ratio carries the least information; totals weight a trial by how many
   ;; rows it actually ran, which is what a cost model is for.
-  (tu/with-terms [rel Node PlanContext]
+  (tu/with-terms [rel Node CxPlan]
     (let [rng     (java.util.Random. 20260809)
           trials  (vec (for [trial (range 12)]
-                         (let [conjuncts (oracle-trial! kb PlanContext rel Node rng trial)
-                               costs     (map #(actual-rows kb % PlanContext)
+                         (let [conjuncts (oracle-trial! kb CxPlan rel Node rng trial)
+                               costs     (map #(actual-rows kb % CxPlan)
                                               (permutations conjuncts))
-                               planned   (plan/order kb conjuncts PlanContext)]
-                           {:planned (actual-rows kb planned PlanContext)
+                               planned   (plan/order kb conjuncts CxPlan)]
+                           {:planned (actual-rows kb planned CxPlan)
                             :best    (apply min costs)
                             :worst   (apply max costs)})))
           total   (fn [k] (reduce + (map k trials)))]
@@ -709,8 +709,8 @@
   ;; variables the trigger bound arrives here fully ground.  A ground literal shares no
   ;; variable with anything — it has none — so the structural test passes it vacuously,
   ;; and holding it back runs the entire join before the one lookup that refutes it.
-  (tu/with-terms [linkOne linkTwo guard Node PlanContext]
-    (fan-kb! kb PlanContext linkOne linkTwo Node)
+  (tu/with-terms [linkOne linkTwo guard Node CxPlan]
+    (fan-kb! kb CxPlan linkOne linkTwo Node)
     (let [g       (list guard (symbol (str Node "Zed")))   ; asserted nowhere: no match
           c1      (list linkOne '?a '?b)
           c2      (list linkTwo '?b '?c)
@@ -718,20 +718,20 @@
       (testing "it is the cheapest literal present, and soundly so — a test matches once"
         (is (= 1 (plan/est-matches kb g #{}))))
       (testing "so it leads, and the join behind it is never run"
-        (is (= [g c1 c2] (plan/order kb written PlanContext)))
-        (is (zero? (actual-rows kb [g c1 c2] PlanContext)))
-        (is (pos? (actual-rows kb [c1 c2 g] PlanContext))))
+        (is (= [g c1 c2] (plan/order kb written CxPlan)))
+        (is (zero? (actual-rows kb [g c1 c2] CxPlan)))
+        (is (pos? (actual-rows kb [c1 c2 g] CxPlan))))
       (testing "which is the order with the fewest intermediate rows"
-        (is (= (actual-rows kb [g c1 c2] PlanContext)
-               (apply min (map #(actual-rows kb % PlanContext)
+        (is (= (actual-rows kb [g c1 c2] CxPlan)
+               (apply min (map #(actual-rows kb % CxPlan)
                                (permutations written))))))
       (testing "and the plan does not claim it was held back as a cartesian factor"
-        (is (not-any? :isolated? (plan/explain kb written PlanContext))))
+        (is (not-any? :isolated? (plan/explain kb written CxPlan))))
       (testing "it is a block of its own, having no variable to share with anything"
         ;; the edge every placement rule owes a case: a conjunct with no variables in
         ;; it satisfies any \"shares nothing\" test vacuously, and the block split has
         ;; to put it somewhere
-        (let [steps (plan/explain kb written PlanContext)]
+        (let [steps (plan/explain kb written CxPlan)]
           (is (= [0 1 1] (map :block steps)))
           (is (= 0 (:est-rows (first steps)))))))))
 
@@ -742,27 +742,27 @@
   ;; a row count and nothing at all about columns, so every join with it defers to
   ;; whatever the other side can read — which preserves the fan-out the override exists
   ;; to report, where an invented column count would divide it away again.
-  (tu/with-terms [wide narrow Node PlanContext]
+  (tu/with-terms [wide narrow Node CxPlan]
     (v/assert-many kb (concat (for [i (range 3)]
                                 (list wide (symbol (str Node "W" i)) (symbol (str Node "S" i))))
                               (for [i (range 12)]
                                 (list narrow (symbol (str Node "S" (mod i 4)))
                                       (symbol (str Node "T" i)))))
-                   PlanContext {:chain? false})
+                   CxPlan {:chain? false})
     (let [w (list wide '?w '?s)
           n (list narrow '?s '?t)
           huge (fn [g _] (when (= g w) 5000))]
       (testing "by the index the wide literal is the cheaper, and it leads"
         (is (< (plan/est-matches kb w #{}) (plan/est-matches kb n #{})))
-        (is (= [w n] (plan/order kb [n w] PlanContext))))
+        (is (= [w n] (plan/order kb [n w] CxPlan))))
       (testing "told it costs five thousand, the planner leads with the other one"
-        (is (= [n w] (plan/order kb [n w] PlanContext {:est-override huge})))
-        (is (= [n w] (plan/order kb [w n] PlanContext {:est-override huge}))))
+        (is (= [n w] (plan/order kb [n w] CxPlan {:est-override huge})))
+        (is (= [n w] (plan/order kb [w n] CxPlan {:est-override huge}))))
       (testing "and `explain` reports the model that chose the order, not the one it replaced"
         ;; the failure this pins: an order chosen under the override, reported with the
         ;; index's own numbers beside it — a plan whose stated reason contradicts it,
         ;; which is worse than no reason, since the number is what a reader debugs from
-        (let [[a b :as steps] (plan/explain kb [w n] PlanContext {:est-override huge})]
+        (let [[a b :as steps] (plan/explain kb [w n] CxPlan {:est-override huge})]
           (is (= [n w] (mapv :goal steps)))
           (is (= 5000 (:est-matches b)) "the overridden literal reports what it was costed at")
           (is (= 5000 (:est-rows b)))
@@ -772,7 +772,7 @@
         ;; an override answering for every literal must not leave a column behind either:
         ;; it reports rows and nothing about columns, so the prefix is their product
         (let [flat  (fn [_ _] 7)
-              steps (plan/explain kb [w n] PlanContext {:est-override flat})]
+              steps (plan/explain kb [w n] CxPlan {:est-override flat})]
           (is (every? #(= 7 (:est-matches %)) steps))
           (is (= [7 49] (mapv :est-prefix steps))))))))
 
@@ -781,18 +781,18 @@
   ;; no variable, but one fact matches it, so it multiplies by one: it cannot fan the
   ;; plan out, only sit in it.  `est-matches` bounds from above, so an estimate of 1
   ;; *proves* that — the one direction the bound is sound in.
-  (tu/with-terms [linkOne linkTwo loose Node PlanContext]
-    (fan-kb! kb PlanContext linkOne linkTwo Node)
-    (v/assert kb (list loose (symbol (str Node "U0")) (symbol (str Node "V0"))) PlanContext)
+  (tu/with-terms [linkOne linkTwo loose Node CxPlan]
+    (fan-kb! kb CxPlan linkOne linkTwo Node)
+    (v/assert kb (list loose (symbol (str Node "U0")) (symbol (str Node "V0"))) CxPlan)
     (let [lo      (list loose '?u '?v)
           c1      (list linkOne '?a '?b)
           c2      (list linkTwo '?b '?c)
           written [c1 c2 lo]]
       (is (= 1 (plan/est-matches kb lo #{})))
       (testing "it leads, and running it last would cost strictly more"
-        (is (= [lo c1 c2] (plan/order kb written PlanContext)))
-        (is (< (actual-rows kb [lo c1 c2] PlanContext)
-               (actual-rows kb [c1 c2 lo] PlanContext))))
+        (is (= [lo c1 c2] (plan/order kb written CxPlan)))
+        (is (< (actual-rows kb [lo c1 c2] CxPlan)
+               (actual-rows kb [c1 c2 lo] CxPlan))))
       (testing "a second fact stops it being *proved* harmless, so the law ranks it"
         ;; Not the same claim, and the difference is the point.  The bound no longer
         ;; waves it through as a test, so it is a block to place — and against a chain
@@ -800,12 +800,12 @@
         ;; the cheaper order by the rows the engine runs.  Nothing was held back, so
         ;; nothing is flagged as having been.
         (v/assert kb (list loose (symbol (str Node "U1")) (symbol (str Node "V1")))
-                  PlanContext)
+                  CxPlan)
         (is (= 2 (plan/est-matches kb lo #{})))
-        (is (= [lo c1 c2] (plan/order kb written PlanContext)))
-        (is (< (actual-rows kb [lo c1 c2] PlanContext)
-               (actual-rows kb [c1 c2 lo] PlanContext)))
-        (is (not-any? :isolated? (plan/explain kb written PlanContext)))))))
+        (is (= [lo c1 c2] (plan/order kb written CxPlan)))
+        (is (< (actual-rows kb [lo c1 c2] CxPlan)
+               (actual-rows kb [c1 c2 lo] CxPlan)))
+        (is (not-any? :isolated? (plan/explain kb written CxPlan)))))))
 
 (tu/deftest-kb a-cartesian-factor-changes-places-where-the-transposition-law-says-it-does
   ;; \"A cartesian factor runs last\" is a *consequence* of the ordering law and not a
@@ -819,28 +819,28 @@
   ;; that at four rows and below it at five.  Both sides are checked against the rows
   ;; the engine actually runs, so this is the law being right rather than the
   ;; implementation agreeing with itself.
-  (tu/with-terms [linkOne linkTwo four five Node PlanContext]
-    (fan-kb! kb PlanContext linkOne linkTwo Node)
+  (tu/with-terms [linkOne linkTwo four five Node CxPlan]
+    (fan-kb! kb CxPlan linkOne linkTwo Node)
     (v/assert-many kb (concat (for [i (range 4)]
                                 (list four (symbol (str Node "U" i)) (symbol (str Node "V" i))))
                               (for [i (range 5)]
                                 (list five (symbol (str Node "W" i)) (symbol (str Node "X" i)))))
-                   PlanContext {:chain? false})
+                   CxPlan {:chain? false})
     (let [c1 (list linkOne '?a '?b)
           c2 (list linkTwo '?b '?c)
           lo4 (list four '?u '?v)
           lo5 (list five '?u '?v)]
       (testing "four rows is cheap enough to lead the chain; five is not"
-        (is (= [lo4 c1 c2] (plan/order kb [c1 c2 lo4] PlanContext)))
-        (is (= [c1 c2 lo5] (plan/order kb [c1 c2 lo5] PlanContext))))
+        (is (= [lo4 c1 c2] (plan/order kb [c1 c2 lo4] CxPlan)))
+        (is (= [c1 c2 lo5] (plan/order kb [c1 c2 lo5] CxPlan))))
       (testing "and each is the cheapest permutation, by the rows the engine runs"
         (doseq [written [[c1 c2 lo4] [c1 c2 lo5]]]
-          (is (= (actual-rows kb (plan/order kb written PlanContext) PlanContext)
-                 (apply min (map #(actual-rows kb % PlanContext) (permutations written))))
+          (is (= (actual-rows kb (plan/order kb written CxPlan) CxPlan)
+                 (apply min (map #(actual-rows kb % CxPlan) (permutations written))))
               (pr-str written))))
       (testing "only the one that was held back is reported as held back"
-        (is (not-any? :isolated? (plan/explain kb [c1 c2 lo4] PlanContext)))
-        (is (= [lo5] (map :goal (filter :isolated? (plan/explain kb [c1 c2 lo5] PlanContext)))))))))
+        (is (not-any? :isolated? (plan/explain kb [c1 c2 lo4] CxPlan)))
+        (is (= [lo5] (map :goal (filter :isolated? (plan/explain kb [c1 c2 lo5] CxPlan)))))))))
 
 (tu/deftest-kb two-literals-disconnected-from-the-rest-but-not-from-each-other-are-one-block
   ;; The placement rule read one literal at a time, and that was its reach: a *pair*
@@ -850,7 +850,7 @@
   ;; the large one and the old reading had no way to say so — it would have run all
   ;; four in one cheapest-first pool and led with whichever literal happened to be
   ;; smallest.
-  (tu/with-terms [bigOne bigTwo smallOne smallTwo Node PlanContext]
+  (tu/with-terms [bigOne bigTwo smallOne smallTwo Node CxPlan]
     (v/assert-many kb
                    (concat (for [i (range 30)]
                              (list bigOne (symbol (str Node "A" i))
@@ -862,14 +862,14 @@
                              (list smallOne (symbol (str Node "P" i)) (symbol (str Node "Q" i))))
                            (for [i (range 4)]
                              (list smallTwo (symbol (str Node "Q" i)) (symbol (str Node "R" i)))))
-                   PlanContext {:chain? false})
+                   CxPlan {:chain? false})
     (let [s1 (list smallOne '?p '?q)
           s2 (list smallTwo '?q '?r)
           b1 (list bigOne '?a '?b)
           b2 (list bigTwo '?b '?c)
           written [s1 b1 s2 b2]
-          planned (plan/order kb written PlanContext)
-          steps   (plan/explain kb written PlanContext)
+          planned (plan/order kb written CxPlan)
+          steps   (plan/explain kb written CxPlan)
           block   (into {} (map (juxt :goal :block)) steps)]
       (testing "the two pairs are two blocks, and each ran contiguously"
         (is (= (block s1) (block s2)))
@@ -882,11 +882,11 @@
         (is (not-any? :isolated? steps)))
       (testing "the small block leads, and that is the cheapest order of the twenty-four"
         (is (= [s1 s2] (take 2 planned)))
-        (is (= (actual-rows kb planned PlanContext)
-               (apply min (map #(actual-rows kb % PlanContext) (permutations written))))))
+        (is (= (actual-rows kb planned CxPlan)
+               (apply min (map #(actual-rows kb % CxPlan) (permutations written))))))
       (testing "and interleaving the two blocks costs more, which is why they moved together"
-        (is (< (actual-rows kb planned PlanContext)
-               (actual-rows kb [s1 b1 s2 b2] PlanContext)))))))
+        (is (< (actual-rows kb planned CxPlan)
+               (actual-rows kb [s1 b1 s2 b2] CxPlan)))))))
 
 (tu/deftest-kb a-block-the-caller-already-narrowed-runs-before-one-it-did-not
   ;; The anchored block: every component reached by the caller's bindings, a deferred
@@ -895,19 +895,19 @@
   ;; and a bound variable narrows a literal in a way a rival block's own `n` cannot
   ;; account for — so the law would be ranking those blocks on numbers that leave the
   ;; narrowing out.
-  (tu/with-terms [known other Node PlanContext]
+  (tu/with-terms [known other Node CxPlan]
     (v/assert-many kb (concat (for [i (range 12)]
                                 (list known (symbol (str Node "K" (mod i 4)))
                                       (symbol (str Node "L" i))))
                               (for [i (range 3)]
                                 (list other (symbol (str Node "M" i)) (symbol (str Node "N" i)))))
-                   PlanContext {:chain? false})
+                   CxPlan {:chain? false})
     (let [anchored (list known '?k '?l)
           loose    (list other '?m '?n)
-          steps    (plan/explain kb [loose anchored] PlanContext {:bound '#{?k}})]
+          steps    (plan/explain kb [loose anchored] CxPlan {:bound '#{?k}})]
       (testing "the narrowed literal leads, though its own extent is the larger"
         (is (< (plan/est-matches kb loose #{}) (plan/est-matches kb anchored #{})))
-        (is (= [anchored loose] (plan/order kb [loose anchored] PlanContext {:bound '#{?k}}))))
+        (is (= [anchored loose] (plan/order kb [loose anchored] CxPlan {:bound '#{?k}}))))
       (testing "and the plan says which block did it"
         (is (= [0 1] (map :block steps)))))))
 
@@ -918,17 +918,17 @@
   ;; that evaluable exists to give.  Sharing is therefore judged against every literal
   ;; the caller wrote, the deferred ones included.  Nothing else in this namespace
   ;; fails if that widening is dropped.
-  (tu/with-terms [linkOne linkTwo age Person Node PlanContext]
+  (tu/with-terms [linkOne linkTwo age Person Node CxPlan]
     (doseq [i (range 6)]
-      (v/assert kb (list linkOne (symbol (str Node "A" i)) (symbol (str Node "B" i))) PlanContext)
-      (v/assert kb (list linkTwo (symbol (str Node "B" i)) (symbol (str Node "C" i))) PlanContext))
-    (v/assert kb (list age (symbol (str Person "One")) 30) PlanContext)
-    (v/assert kb (list age (symbol (str Person "Two")) 40) PlanContext)
+      (v/assert kb (list linkOne (symbol (str Node "A" i)) (symbol (str Node "B" i))) CxPlan)
+      (v/assert kb (list linkTwo (symbol (str Node "B" i)) (symbol (str Node "C" i))) CxPlan))
+    (v/assert kb (list age (symbol (str Person "One")) 30) CxPlan)
+    (v/assert kb (list age (symbol (str Person "Two")) 40) CxPlan)
     (let [ordered (plan/order kb [(list linkOne '?a '?b)
                                   (list linkTwo '?b '?c)
                                   (list age '?p '?n)
                                   (list 'lessThan '?n 35)]
-                              PlanContext)]
+                              CxPlan)]
       (testing "it leads on its own cost, rather than being deferred as isolated"
         (is (= (list age '?p '?n) (first ordered))))
       (testing "so the evaluable it binds is pulled forward behind it, and prunes early"
@@ -938,64 +938,64 @@
                                                    (list linkTwo '?b '?c)
                                                    (list age '?p '?n)
                                                    (list 'lessThan '?n 35)]
-                                               PlanContext)))))))
+                                               CxPlan)))))))
 
 ;; ---- what must never be reordered ---------------------------------------
 
 (tu/deftest-kb a-deferred-literal-never-outruns-what-binds-it
-  (tu/with-terms [age Tom Bob PlanContext]
-    (v/assert kb (list age Tom 30) PlanContext)
-    (v/assert kb (list age Bob 40) PlanContext)
+  (tu/with-terms [age Tom Bob CxPlan]
+    (v/assert kb (list age Tom 30) CxPlan)
+    (v/assert kb (list age Bob 40) CxPlan)
     (testing "an evaluable stays behind the literal binding its arguments"
-      (let [ordered (plan/order kb [(list 'lessThan '?n 35) (list age '?p '?n)] PlanContext)]
+      (let [ordered (plan/order kb [(list 'lessThan '?n 35) (list age '?p '?n)] CxPlan)]
         (is (= age (first (first ordered))))
         (is (= 'lessThan (first (second ordered))))))
     (testing "so does an evaluate — hoisting one yields no solutions rather than an error"
       (let [ordered (plan/order kb [(list 'evaluate '?z (list '+ '?n 1)) (list age '?p '?n)]
-                                PlanContext)]
+                                CxPlan)]
         (is (= age (first (first ordered))))))))
 
 (tu/deftest-kb a-deferred-literal-is-pulled-forward-once-its-variables-are-bound
-  (tu/with-terms [age likes Tom Bob PlanContext]
-    (v/assert kb (list age Tom 30) PlanContext)
-    (v/assert kb (list likes Tom Bob) PlanContext)
+  (tu/with-terms [age likes Tom Bob CxPlan]
+    (v/assert kb (list age Tom 30) CxPlan)
+    (v/assert kb (list likes Tom Bob) CxPlan)
     (testing "a test that can run early prunes early — it does not sit uniformly last"
       (let [ordered (plan/order kb [(list age '?p '?n)
                                     (list 'lessThan '?n 35)
                                     (list likes '?p '?q)]
-                                PlanContext)]
+                                CxPlan)]
         ;; the filter on ?n belongs directly after the literal that binds ?n, not
         ;; after the unrelated `likes` join it would otherwise multiply through
         (is (= 'lessThan (first (nth ordered 1))))))))
 
 (tu/deftest-kb the-recursive-literal-stays-last-so-recursion-still-terminates
-  (tu/with-terms [parentOf ancestorOf Aa Bb Cc Dd PlanContext]
-    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) PlanContext)
+  (tu/with-terms [parentOf ancestorOf Aa Bb Cc Dd CxPlan]
+    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) CxPlan)
     (v/assert-rule kb [(list parentOf '?x '?y) (list ancestorOf '?y '?z)]
-                   (list ancestorOf '?x '?z) PlanContext)
+                   (list ancestorOf '?x '?z) CxPlan)
     (doseq [[p c] [[Aa Bb] [Bb Cc] [Cc Dd]]]
-      (v/assert kb (list parentOf p c) PlanContext))
+      (v/assert kb (list parentOf p c) CxPlan))
     (testing "the literal sharing the consequent's functor is pinned last"
       (let [ordered (plan/order kb [(list ancestorOf '?y '?z) (list parentOf '?x '?y)]
-                                PlanContext {:consequent-pred ancestorOf})]
+                                CxPlan {:consequent-pred ancestorOf})]
         (is (= parentOf   (first (first ordered))))
         (is (= ancestorOf (first (second ordered))))))
     (testing "so a right-recursive rule still terminates and closes transitively"
       (is (= #{Bb Cc Dd}
              (set (map #(get % '?who)
-                       (v/prove kb (list ancestorOf Aa '?who) PlanContext))))))))
+                       (v/prove kb (list ancestorOf Aa '?who) CxPlan))))))))
 
 ;; ---- the invariant: cost changes, meaning does not -----------------------
 
 (tu/deftest-kb planning-never-changes-the-answer-set
-  (tu/with-terms [parentOf dog cat Tom Bob Ann Cid PlanContext]
+  (tu/with-terms [parentOf dog cat Tom Bob Ann Cid CxPlan]
     (doseq [[p c] [[Tom Bob] [Tom Ann] [Bob Cid] [Ann Cid]]]
-      (v/assert kb (list parentOf p c) PlanContext))
-    (v/assert kb (list dog Bob) PlanContext)
-    (v/assert kb (list dog Cid) PlanContext)
-    (v/assert kb (list cat Ann) PlanContext)
+      (v/assert kb (list parentOf p c) CxPlan))
+    (v/assert kb (list dog Bob) CxPlan)
+    (v/assert kb (list dog Cid) CxPlan)
+    (v/assert kb (list cat Ann) CxPlan)
     (let [conjuncts [(list parentOf Tom '?y) (list dog '?y) (list parentOf '?y '?z)]
-          answers   (fn [gs] (set (map #(select-keys % '[?y ?z]) (v/prove kb gs PlanContext))))
+          answers   (fn [gs] (set (map #(select-keys % '[?y ?z]) (v/prove kb gs CxPlan))))
           expected  (unplanned #(answers conjuncts))]
       (testing "the query has answers at all — otherwise this proves nothing"
         (is (seq expected)))
@@ -1005,14 +1005,14 @@
           (is (= expected (unplanned #(answers p))) (str "unplanned " (pr-str p))))))))
 
 (tu/deftest-kb planning-never-changes-the-answer-set-through-a-rule
-  (tu/with-terms [parentOf grandparentOf dog Tom Bob Ann Cid PlanContext]
+  (tu/with-terms [parentOf grandparentOf dog Tom Bob Ann Cid CxPlan]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) PlanContext)
+                   (list grandparentOf '?x '?z) CxPlan)
     (doseq [[p c] [[Tom Bob] [Bob Cid] [Tom Ann] [Ann Cid]]]
-      (v/assert kb (list parentOf p c) PlanContext))
-    (v/assert kb (list dog Cid) PlanContext)
+      (v/assert kb (list parentOf p c) CxPlan))
+    (v/assert kb (list dog Cid) CxPlan)
     (let [goal    [(list grandparentOf Tom '?z) (list dog '?z)]
-          answers (fn [gs] (set (map #(get % '?z) (v/prove kb gs PlanContext))))]
+          answers (fn [gs] (set (map #(get % '?z) (v/prove kb gs CxPlan))))]
       (testing "a planned rule expansion agrees with an unplanned one"
         (is (= #{Cid} (answers goal)))
         (is (= (unplanned #(answers goal)) (answers goal))))
@@ -1023,13 +1023,13 @@
   ;; An evaluable is reachable through the *prover* stack, so the conjunction that
   ;; exercises it is a rule's antecedents (planned by `provers/planned-antecedents`)
   ;; rather than a `prove` goal vector — see the limitation pinned below.
-  (tu/with-terms [age young Tom Bob Cid PlanContext]
-    (v/assert kb (list age Tom 30) PlanContext)
-    (v/assert kb (list age Bob 40) PlanContext)
-    (v/assert kb (list age Cid 20) PlanContext)
+  (tu/with-terms [age young Tom Bob Cid CxPlan]
+    (v/assert kb (list age Tom 30) CxPlan)
+    (v/assert kb (list age Bob 40) CxPlan)
+    (v/assert kb (list age Cid 20) CxPlan)
     (v/assert-rule kb [(list age '?p '?n) (list 'lessThan '?n 35)]
-                   (list young '?p) PlanContext)
-    (let [answers (fn [] (set (map #(get % '?p) (v/ask kb (list young '?p) PlanContext))))]
+                   (list young '?p) CxPlan)
+    (let [answers (fn [] (set (map #(get % '?p) (v/ask kb (list young '?p) CxPlan))))]
       (testing "the filter applies — a hoisted evaluable would silently answer none"
         (is (= #{Tom Cid} (answers))))
       (testing "and the planned run agrees with the unplanned one"
@@ -1040,16 +1040,16 @@
   ;; `different` / `unknown`) through the registry via `res/*deferred-solver*`, so an
   ;; evaluable conjunct is **computed**, not looked up — and the planned run agrees with
   ;; the unplanned one, since planning only reorders (docs/naf.md).
-  (tu/with-terms [age Tom PlanContext]
-    (v/assert kb (list age Tom 30) PlanContext)
+  (tu/with-terms [age Tom CxPlan]
+    (v/assert kb (list age Tom 30) CxPlan)
     (let [goal [(list age '?p '?n) (list 'lessThan '?n 35)]]
       (testing "a true evaluable conjunct is satisfied"
-        (is (= 1 (count (v/prove kb goal PlanContext)))))          ; 30 < 35
+        (is (= 1 (count (v/prove kb goal CxPlan)))))          ; 30 < 35
       (testing "a false one prunes the branch"
-        (is (empty? (v/prove kb [(list age '?p '?n) (list 'lessThan '?n 20)] PlanContext))))
+        (is (empty? (v/prove kb [(list age '?p '?n) (list 'lessThan '?n 20)] CxPlan))))
       (testing "and the planned run agrees with the unplanned one"
-        (is (= (unplanned #(v/prove kb goal PlanContext))
-               (v/prove kb goal PlanContext)))))))
+        (is (= (unplanned #(v/prove kb goal CxPlan))
+               (v/prove kb goal CxPlan)))))))
 
 ;; ---- the read cache: a cost decision, and nothing else -------------------
 
@@ -1090,15 +1090,15 @@
   ;; `est-matches` bounds a literal from above and `rank-blocks` reads a whole block of
   ;; such bounds coming back 1 as a *proof* that the block cannot multiply, so a number
   ;; that moved at all would be a different plan rather than a slightly worse one.
-  (tu/with-terms [linkOne linkTwo tagOf loose Node PlanContext]
-    (fan-kb! kb PlanContext linkOne linkTwo Node)
+  (tu/with-terms [linkOne linkTwo tagOf loose Node CxPlan]
+    (fan-kb! kb CxPlan linkOne linkTwo Node)
     (v/assert-many kb (concat (for [i (range 6)]
                                 (list tagOf (symbol (str Node "C" (mod i 4)))
                                       (symbol (str Node "T" (mod i 2)))))
                               (for [i (range 4)]
                                 (list loose (symbol (str Node "L" i))
                                       (symbol (str Node "M" i)))))
-                   PlanContext {:chain? false})
+                   CxPlan {:chain? false})
     (let [t0    (symbol (str Node "T0"))
           conjs [;; a ground argument in second position, which is what reaches the
                  ;; three-argument read (`count-with-arg`) through `arg-root-estimate`
@@ -1107,25 +1107,25 @@
                  [(list linkOne '?a '?b) (list loose '?u '?v) (list linkTwo '?b '?c)]
                  [(list tagOf '?c t0) (list loose '?u '?v)]]]
       (doseq [goals conjs]
-        (let [planned   (plan/order kb goals PlanContext)
-              explained (plan/explain kb goals PlanContext)
+        (let [planned   (plan/order kb goals CxPlan)
+              explained (plan/explain kb goals CxPlan)
               ;; the wrapper replaced by the raw read: same numbers, asked every time
               [raw-plan raw-explain] (with-redefs [plan/memoizing identity]
-                                       [(plan/order kb goals PlanContext)
-                                        (plan/explain kb goals PlanContext)])]
+                                       [(plan/order kb goals CxPlan)
+                                        (plan/explain kb goals CxPlan)])]
           (is (= raw-plan planned) (str "order " (pr-str goals)))
           (is (= raw-explain explained) (str "explain " (pr-str goals)))))
       (testing "and the conjunctions were ones the planner actually reordered"
-        (is (some (fn [goals] (not= goals (plan/order kb goals PlanContext))) conjs))))))
+        (is (some (fn [goals] (not= goals (plan/order kb goals CxPlan))) conjs))))))
 
 ;; ---- introspection ------------------------------------------------------
 
 (tu/deftest-kb explain-reports-the-plan-with-its-estimates
-  (tu/with-terms [parentOf dog Tom Bob Ann PlanContext]
-    (v/assert kb (list parentOf Tom Bob) PlanContext)
-    (v/assert kb (list dog Bob) PlanContext)
-    (v/assert kb (list dog Ann) PlanContext)
-    (let [steps (plan/explain kb [(list dog '?y) (list parentOf Tom '?y)] PlanContext)]
+  (tu/with-terms [parentOf dog Tom Bob Ann CxPlan]
+    (v/assert kb (list parentOf Tom Bob) CxPlan)
+    (v/assert kb (list dog Bob) CxPlan)
+    (v/assert kb (list dog Ann) CxPlan)
+    (let [steps (plan/explain kb [(list dog '?y) (list parentOf Tom '?y)] CxPlan)]
       (testing "one step per conjunct, in execution order"
         (is (= 2 (count steps)))
         (is (= parentOf (first (:goal (first steps))))))
@@ -1141,22 +1141,22 @@
         ;; the field is read off the plan that ran; a conjunction returned untouched
         ;; ran no ordering, so it reports none rather than a plausible zero
         (let [flat (unplanned #(plan/explain kb [(list dog '?y) (list parentOf Tom '?y)]
-                                             PlanContext))]
+                                             CxPlan))]
           (is (= [(list dog '?y) (list parentOf Tom '?y)] (map :goal flat)))
           (is (every? #(nil? (:block %)) flat))
           (is (not-any? :isolated? flat)))))))
 
 (tu/deftest-kb query-plan-reports-provers-for-a-goal-and-a-join-for-a-conjunction
-  (tu/with-terms [parentOf dog Tom Bob Ann PlanContext]
-    (v/assert kb (list parentOf Tom Bob) PlanContext)
-    (v/assert kb (list dog Bob) PlanContext)
-    (v/assert kb (list dog Ann) PlanContext)
+  (tu/with-terms [parentOf dog Tom Bob Ann CxPlan]
+    (v/assert kb (list parentOf Tom Bob) CxPlan)
+    (v/assert kb (list dog Bob) CxPlan)
+    (v/assert kb (list dog Ann) CxPlan)
     (testing "a single sentence still reports per-prover estimates"
-      (let [p (v/query-plan kb (list dog '?y) PlanContext)]
+      (let [p (v/query-plan kb (list dog '?y) CxPlan)]
         (is (seq p))
         (is (every? #(contains? % :prover) p))))
     (testing "a vector reports the join plan instead, in execution order"
-      (let [p (v/query-plan kb [(list dog '?y) (list parentOf Tom '?y)] PlanContext)]
+      (let [p (v/query-plan kb [(list dog '?y) (list parentOf Tom '?y)] CxPlan)]
         (is (= 2 (count p)))
         (is (every? #(contains? % :est-matches) p))
         (is (= parentOf (first (:goal (first p)))))))))
@@ -1186,8 +1186,8 @@
   ;; instead of walking a built literal per subtype is a constant-factor change and
   ;; nothing else: **equality**, and against the walk itself rather than against a number
   ;; written down here.
-  (tu/with-terms [plan_t PlanNode PlanQ PlanContext]
-    (let [types (hierarchy! kb PlanContext plan_t PlanNode 5 3)
+  (tu/with-terms [plan_t PlanNode PlanQ CxPlan]
+    (let [types (hierarchy! kb CxPlan plan_t PlanNode 5 3)
           typ   (fn [i] (symbol (str plan_t "_" i)))
           ;; the general walk, reached by construction: `prefix-estimate` per subtype, the
           ;; path any argument shape but a bare open variable takes
@@ -1204,8 +1204,8 @@
                                       (+ acc (#'plan/prefix-estimate
                                               ix (list t' a) bound p/count-at p/count-children)))
                                     0
-                                    (tax/specs (:taxonomy kb) t PlanContext))))))
-          est    (fn [goal bound] (plan/est-matches kb goal bound {:context PlanContext}))]
+                                    (tax/specs (:taxonomy kb) t CxPlan))))))
+          est    (fn [goal bound] (plan/est-matches kb goal bound {:context CxPlan}))]
       (testing "the hierarchy is deep enough that the fan is the branch under test"
         (is (< 100 types))
         (is (< (est (list (typ (dec types)) '?x) #{}) (est (list (typ 0) '?x) #{}))))
@@ -1228,7 +1228,7 @@
         (doseq [gs [[(list (typ 0) '?x) (list PlanQ '?x '?y)]
                     [(list PlanQ '?x '?y) (list (typ 0) '?x)]]]
           (let [row (first (filter #(= (typ 0) (first (:goal %)))
-                                   (plan/explain kb gs PlanContext)))]
+                                   (plan/explain kb gs CxPlan)))]
             (is (some? row) (str "the broad literal is in the plan — " (pr-str gs)))
             (is (= (walked (:goal row) (:bound-before row)) (:est-matches row))
                 (pr-str gs))))))))

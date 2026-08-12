@@ -176,7 +176,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
 (genl? kb sub super [context])                          ; subtype test, scoped the same way
 (types kb) / (contexts kb)                              ; the nodes of each hierarchy
-(context-up kb c) / (context-down kb c) / (sees? kb k y); genlContext closures + visibility test
+(context-up kb c) / (context-down kb c) / (sees? kb k y); genlCx closures + visibility test
 (has-prop? kb kind pred [context]) / (props kb kind)              ; :transitive :symmetric :asymmetric :reflexive
                                                         ; :functional :decontextualized
                                                         ; :forced-decontextualized :abducible
@@ -210,7 +210,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 (sentex-count kb)                               ; how many sentexes in total — the trie's
                                                 ; own root count, O(1).  NOT the sum of
                                                 ; count-in-context over contexts: that misses
-                                                ; a context no genlContext edge names.
+                                                ; a context no genlCx edge names.
 (find-terms kb q [opts])                        ; the terms matching q, sorted
                                                 ; opts: {:match :prefix|:substring|:regex
                                                 ;        :case-sensitive? bool :limit n}
@@ -319,7 +319,7 @@ same belief for one reconciliation instead of N, since belief is order-independe
 inside a batch settles eagerly, and nesting composes (only the outermost settles).
 
 The taxonomy's depth potential is deferred with it, so a batch that adds `genl` /
-`genlContext` edges does not pay the per-edge repair either (`docs/taxonomy.md`).  A
+`genlCx` edges does not pay the per-edge repair either (`docs/taxonomy.md`).  A
 batch that **throws** leaves belief unsettled — that is the documented state, and
 re-running or settling by hand recovers it — but the depth potential is repaired on
 the way out, since nothing else would ever repair it and every later reachability read
@@ -507,7 +507,7 @@ Assert known-true facts with `{:strength :monotonic}`; the default is `:default`
 (most of a common-sense KB), and a default is defeasible at the edges.
 
 `opts` on assert: `{:chain? false}` skips forward chaining, `{:max-depth n}`
-bounds it. `vaelii.impl.core-context/load-into` asserts the CoreContext vocabulary — every special
+bounds it. `vaelii.impl.core-context/load-into` asserts the CxCore vocabulary — every special
 predicate the engine interprets (types/contexts, argIsa/argGenl/interArgIsa,
 disjoint/disjointMetatype,
 implies + the `set/*Rule` wrappers, the transitive/symmetric/reflexive/functional/
@@ -522,25 +522,25 @@ under `resources/kb/`, one file per context, read by `vaelii.impl.seed`
 (`read-sentences` / `load-context`, via `clojure.edn`, so a KB file is data and can
 never run code). Every sentence about a term is grouped **term-centrically** (blocks in
 natural sort order), and every context file is **discovered on the classpath and loaded
-on kb start** (`seed/layer-contexts`), so adding a KB is dropping a `<Context>.txt`
+on kb start** (`seed/layer-contexts`), so adding a KB is dropping a `Cx<Name>.txt`
 file — no code change. What stays in `starter.clj` is the *order the layers* load in
-and the one computed batch (every type is a `unaryPredicate`, placed in CoreContext).
+and the one computed batch (every type is a `unaryPredicate`, placed in CxCore).
 The context topology is a **five-layer spindle**, most general (top) to most specific
-(bottom): **CoreContext** (the vocabulary head, every context sees it) → the **upper**
-definitional band (`resources/kb/upper/`: `AbstractContext` = the abstract type skeleton, body
+(bottom): **CxCore** (the vocabulary head, every context sees it) → the **upper**
+definitional band (`resources/kb/upper/`: `CxAbstract` = the abstract type skeleton, body
 parts and substances, `partOf`/`locatedIn`/`madeOf`, and the two **type-level**
-relations `largerThan`/`partType`; `OrganismContext` = the biological taxonomy +
-disjointness; `LifeContext` = organism relations and states; `SocietyContext` = social
-relations; `MeasureContext` = the theory of measurement; `SpaceContext` = RCC-8 region
-relations and cardinal directions; `TimeContext` = Allen's interval relations) →
-**UniverseContext** (the mid anchor, free for lifted universal facts) → the **middle**
-theory band (`kb/middle/`: `KinshipContext`, `MereologyContext`, `BiologyContext`,
-`SocialContext` — the rules; `AnatomyContext` and `SizeContext` — claims about kinds) →
-**WellContext** (the bottom anchor, transitively seeing the whole ontology).
+relations `largerThan`/`partType`; `CxOrganism` = the biological taxonomy +
+disjointness; `CxLife` = organism relations and states; `CxSociety` = social
+relations; `CxMeasure` = the theory of measurement; `CxSpace` = RCC-8 region
+relations and cardinal directions; `CxTime` = Allen's interval relations) →
+**CxUniverse** (the mid anchor, free for lifted universal facts) → the **middle**
+theory band (`kb/middle/`: `CxKinship`, `CxMereology`, `CxBiology`,
+`CxSocial` — the rules; `CxAnatomy` and `CxSize` — claims about kinds) →
+**CxWell** (the bottom anchor, transitively seeing the whole ontology).
 upper is *definitional* (what things **are**, always true, like `genl`); middle is
 *theory* (how they **interrelate**, where several overlapping accounts can coexist).
 Each upper/middle file wires itself into the axis, so the topology is data; a
-CoreContext-only KB is just the vocabulary head, and a user adds a sibling in either band.
+CxCore-only KB is just the vocabulary head, and a user adds a sibling in either band.
 The middle theories are the defeasible defaults that state their own exception with
 `exceptWhen` (birds fly except penguins; animals breathe air except fish; living things
 are alive until they are dead and awake until they are asleep — four rules of one shape,
@@ -564,19 +564,19 @@ what `typeToInstancePred` is stated over, and it is the difference between `(lar
 dog cat)` — dogs are bigger than cats — and a claim about two particular animals.
 
 **Contingent data lives in the tests.** The starter ships no cast: individuals, facts,
-and the worked fables hang **below WellContext** in the test-world. `test/vaelii/world.clj`
-loads a cast (type memberships + natural-world facts in `NaturalWorldContext`, social
-facts in a sibling `SocialWorldContext`); `test/vaelii/world_fables.clj` adds four Aesop
-fables as contexts under `StoriesContext` (`LionMouseContext`, `TortoiseHareContext`,
-`AntGrasshopperContext`, `CriedWolfContext`), each *deriving* its moral by joined
+and the worked fables hang **below CxWell** in the test-world. `test/vaelii/world.clj`
+loads a cast (type memberships + natural-world facts in `CxNaturalWorld`, social
+facts in a sibling `CxSocialWorld`); `test/vaelii/world_fables.clj` adds four Aesop
+fables as contexts under `CxStories` (`CxLionMouse`, `CxTortoiseHare`,
+`CxAntGrasshopper`, `CxCriedWolf`), each *deriving* its moral by joined
 inference; `test/vaelii/world_narrative.clj` layers a **story-understanding ontology**
 (types agent/event/action/goal/mental_state and relations
 wants/does/brings/achieves/causes/beforeEvent/afterEvent with metadata — `causes`,
 `beforeEvent` transitive; `beforeEvent`/`afterEvent` inverse — and argIsa, plus a forward
 goal-achievement rule `wants + brings + achieves ⇒ achievesGoal`) on a new fable
-`FoxCrowContext` and retrofitted onto `TortoiseHareContext`. Because `sentexes-matching` is
-exact-context and a middle theory is seen by every WellContext descendant, a rule firing
-over cast facts in `NaturalWorldContext` places its conclusion back there. `afterEvent`
+`CxFoxCrow` and retrofitted onto `CxTortoiseHare`. Because `sentexes-matching` is
+exact-context and a middle theory is seen by every CxWell descendant, a rule firing
+over cast facts in `CxNaturalWorld` places its conclusion back there. `afterEvent`
 inverts a transitively-derived `beforeEvent` as well as a direct one: `InverseProver`
 hands the swapped goal back to the engine (minus itself and backchaining) rather than
 matching raw facts, so an inverse composes with its partner's transitivity.

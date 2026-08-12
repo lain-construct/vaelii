@@ -556,7 +556,7 @@
     (fn [dir]
       (let [s1 (drs/open-record-store dir {:tokenize? true})
             a  (p/put-sentex s1 {:sentence '(dog Muffet) :context 'C})
-            b  (p/put-sentex s1 (sx/->AtomicSentex '(bornIn Tom 1970) 'WellContext nil :true :monotonic))
+            b  (p/put-sentex s1 (sx/->AtomicSentex '(bornIn Tom 1970) 'CxWell nil :true :monotonic))
             r  (p/put-sentex s1 (sx/->RuleSentex '(implies (and (dog ?var0)) (mammal ?var0)) 'C nil
                                                  :true '[(dog ?var0)] '(mammal ?var0) :monotonic
                                                  '{?var0 ?x} :forward true nil nil))
@@ -619,7 +619,7 @@
             a  (p/put-sentex s1 (sx/->AtomicSentex '(dog Muffet) 'C nil :true nil))
             ;; the dictionary exactly as of `a` — every later token is `b`'s
             after-a (do (drs/fsync s1 true) (.length (java.io.File. tl)))
-            b  (p/put-sentex s1 (sx/->AtomicSentex '(elephant Jumbo) 'ZooContext nil :true nil))]
+            b  (p/put-sentex s1 (sx/->AtomicSentex '(elephant Jumbo) 'CxZoo nil :true nil))]
         (drs/close! s1)
         (is (> (.length (java.io.File. tl)) after-a) "b introduced new vocabulary")
         ;; roll the dictionary back to that point: b's frame now cites ids that are gone

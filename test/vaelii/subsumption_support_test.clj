@@ -43,10 +43,10 @@
 
 (tu/deftest-kb a-subsuming-firing-names-the-edge-it-subsumed-through
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
-    (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-    (v/assert kb (list fatherOf Tom Bob) 'UniverseContext)
-    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext)))]
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
+    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))]
       (is (some? derived) "the rule fired by subsumption")
       (testing "the edge is an antecedent, beside the fact and the rule"
         (is (contains? (antecedent-sentences kb derived) (list 'genl fatherOf parentOf))))
@@ -60,9 +60,9 @@
   ;; the fact and the rule — otherwise the section above proves only that the
   ;; antecedent list grew.
   (tu/with-terms [parentOf ancestorOf Tom Bob]
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-    (v/assert kb (list parentOf Tom Bob) 'UniverseContext)
-    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext)))]
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list parentOf Tom Bob) 'CxUniverse)
+    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))]
       (is (= 2 (count (:antecedents (first (v/supporting-justifications kb derived)))))
           "the fact and the rule, and nothing else"))))
 
@@ -70,11 +70,11 @@
   ;; subsumption is transitive, so a two-step climb rests on two edges and either one
   ;; of them is enough to withdraw the conclusion
   (tu/with-terms [dog_t mammal_t animal_t breathes Muffet]
-    (v/assert kb (list 'genl dog_t mammal_t) 'UniverseContext)
-    (v/assert kb (list 'genl mammal_t animal_t) 'UniverseContext)
-    (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'UniverseContext)
-    (v/assert kb (list dog_t Muffet) 'UniverseContext)
-    (let [derived (:id (first (v/sentexes-matching kb (list breathes Muffet) 'UniverseContext)))
+    (v/assert kb (list 'genl dog_t mammal_t) 'CxUniverse)
+    (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)
+    (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
+    (v/assert kb (list dog_t Muffet) 'CxUniverse)
+    (let [derived (:id (first (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse)))
           antes   (antecedent-sentences kb derived)]
       (is (some? derived))
       (is (contains? antes (list 'genl dog_t mammal_t)))
@@ -84,38 +84,38 @@
 
 (tu/deftest-kb retracting-the-edge-withdraws-the-conclusion
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
-    (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)]
-      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-      (v/assert kb (list fatherOf Tom Bob) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext)))
+    (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)]
+      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+      (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))
       (v/retract! kb edge)
       (testing "with the edge gone the fact no longer satisfies the rule, so neither does the conclusion stand"
-        (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext))))
+        (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))))
       (testing "and the ingredients that were not retracted are all still believed"
-        (is (seq (v/sentexes-matching kb (list fatherOf Tom Bob) 'UniverseContext)))))))
+        (is (seq (v/sentexes-matching kb (list fatherOf Tom Bob) 'CxUniverse)))))))
 
 (tu/deftest-kb retracting-one-edge-of-a-chain-withdraws-the-conclusion
   (tu/with-terms [dog_t mammal_t animal_t breathes Muffet]
-    (v/assert kb (list 'genl dog_t mammal_t) 'UniverseContext)
-    (let [upper (v/assert kb (list 'genl mammal_t animal_t) 'UniverseContext)]
-      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'UniverseContext)
-      (v/assert kb (list dog_t Muffet) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'UniverseContext)))
+    (v/assert kb (list 'genl dog_t mammal_t) 'CxUniverse)
+    (let [upper (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)]
+      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
+      (v/assert kb (list dog_t Muffet) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse)))
       (v/retract! kb upper)
-      (is (empty? (v/sentexes-matching kb (list breathes Muffet) 'UniverseContext))
+      (is (empty? (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse))
           "the climb needed both edges, so losing the upper one is enough"))))
 
 (tu/deftest-kb a-retracted-edge-takes-the-whole-cascade-with-it
   ;; the conclusion is an ordinary datum, so what rests on *it* goes too — the
   ;; dependency-directed sweep needs no special case for a taxonomy edge
   (tu/with-terms [fatherOf parentOf ancestorOf relatedTo Tom Bob]
-    (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)]
-      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-      (v/assert kb (list 'implies (list ancestorOf '?x '?y) (list relatedTo '?x '?y)) 'UniverseContext)
-      (v/assert kb (list fatherOf Tom Bob) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list relatedTo Tom Bob) 'UniverseContext)))
+    (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)]
+      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+      (v/assert kb (list 'implies (list ancestorOf '?x '?y) (list relatedTo '?x '?y)) 'CxUniverse)
+      (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list relatedTo Tom Bob) 'CxUniverse)))
       (v/retract! kb edge)
-      (is (empty? (v/sentexes-matching kb (list relatedTo Tom Bob) 'UniverseContext))))))
+      (is (empty? (v/sentexes-matching kb (list relatedTo Tom Bob) 'CxUniverse))))))
 
 ;; ---- the edge is an antecedent, so belief and strength both run through it ----
 
@@ -124,18 +124,18 @@
   ;; the conclusion alone and the JTMS simply labels it OUT.  Revival is a relabel — the
   ;; *same* handle — which is what distinguishes this from the retraction cases below.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
-    (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-    (v/assert kb (list fatherOf Tom Bob) 'UniverseContext {:strength :monotonic})
-    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext)))
-          nope    (v/assert kb (list 'not (list 'genl fatherOf parentOf)) 'UniverseContext
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list fatherOf Tom Bob) 'CxUniverse {:strength :monotonic})
+    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))
+          nope    (v/assert kb (list 'not (list 'genl fatherOf parentOf)) 'CxUniverse
                             {:strength :monotonic})]
       (is (not (v/in? kb derived)) "the edge is not believed, so neither is what climbed it")
       (is (some? (v/sentex kb derived)) "stored all along — nothing was swept")
       (is (= :unsupported (:reason (v/why-not kb derived))))
       (v/retract! kb nope)
       (is (v/in? kb derived) "and the edge coming back brings the conclusion back")
-      (is (= derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext))))
+      (is (= derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))))
           "at the same handle: a relabel, not a re-derivation"))))
 
 (tu/deftest-kb the-edge-caps-the-conclusion-s-defeat-class
@@ -143,17 +143,17 @@
   ;; now one of those things: known-true fact + bare rule + *defeasible* edge is a
   ;; defeasible conclusion, however monotonic the fact.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-    (v/assert kb (list fatherOf Tom Bob) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list fatherOf Tom Bob) 'CxUniverse {:strength :monotonic})
     (testing "climbing a :default edge"
-      (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)
+      (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
       (is (= :default (v/defeat-class kb (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob)
-                                                                          'UniverseContext)))))))
+                                                                          'CxUniverse)))))))
     (testing "the control: no climb, and the conclusion is as strong as its grounds"
       (tu/with-terms [Ann Cat]
-        (v/assert kb (list parentOf Ann Cat) 'UniverseContext {:strength :monotonic})
+        (v/assert kb (list parentOf Ann Cat) 'CxUniverse {:strength :monotonic})
         (is (= :monotonic (v/defeat-class kb (:id (first (v/sentexes-matching kb (list ancestorOf Ann Cat)
-                                                                              'UniverseContext))))))))))
+                                                                              'CxUniverse))))))))))
 
 ;; ---- a reachability that outlives its named witness -----------------------
 
@@ -163,38 +163,38 @@
   ;; there anyway.  The justification names one, so retracting *that* one sweeps the
   ;; conclusion, and the surviving supporter re-derives it at a fresh handle.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
-    (let [e1 (v/assert kb (list 'genl fatherOf parentOf) 'CoreContext)
-          e2 (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)]
+    (let [e1 (v/assert kb (list 'genl fatherOf parentOf) 'CxCore)
+          e2 (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)]
       (is (not= e1 e2) "two sentexes, one edge")
-      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-      (v/assert kb (list fatherOf Tom Bob) 'UniverseContext)
-      (let [before (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext)))]
+      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+      (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
+      (let [before (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))]
         (is (some? before))
         (v/retract! kb e1)
-        (let [after (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext)))]
+        (let [after (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))]
           (is (some? after)
               "the edge is still asserted, so the conclusion is still licensed")
           (is (not= before after)
               "as a re-derivation, not a survival: the sweep took the old record"))
         (v/retract! kb e2)
-        (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext))
+        (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))
             "and only when the last supporter goes does the conclusion")))))
 
 (tu/deftest-kb a-second-path-around-the-edge-keeps-the-conclusion
   ;; multiple inheritance: dog reaches animal two ways.  Either edge can go.
   (tu/with-terms [dog_t mammal_t pet_t animal_t breathes Muffet]
-    (v/assert kb (list 'genl dog_t mammal_t) 'UniverseContext)
-    (v/assert kb (list 'genl dog_t pet_t) 'UniverseContext)
-    (let [via-mammal (v/assert kb (list 'genl mammal_t animal_t) 'UniverseContext)
-          via-pet    (v/assert kb (list 'genl pet_t animal_t) 'UniverseContext)]
-      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'UniverseContext)
-      (v/assert kb (list dog_t Muffet) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'UniverseContext)))
+    (v/assert kb (list 'genl dog_t mammal_t) 'CxUniverse)
+    (v/assert kb (list 'genl dog_t pet_t) 'CxUniverse)
+    (let [via-mammal (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)
+          via-pet    (v/assert kb (list 'genl pet_t animal_t) 'CxUniverse)]
+      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
+      (v/assert kb (list dog_t Muffet) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse)))
       (v/retract! kb via-mammal)
-      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'UniverseContext))
+      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse))
           "a dog is still an animal by the other route, so it still breathes")
       (v/retract! kb via-pet)
-      (is (empty? (v/sentexes-matching kb (list breathes Muffet) 'UniverseContext))
+      (is (empty? (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse))
           "with both routes gone the conclusion has nothing left to rest on"))))
 
 (tu/deftest-kb the-edge-survives-a-rebuild-in-the-antecedent-list
@@ -202,33 +202,33 @@
   ;; `recover` rebuilds the JTMS from those records and must hand back the same
   ;; dependency, or a restart would quietly restore the standing-on-nothing conclusion
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
-    (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-    (v/assert kb (list fatherOf Tom Bob) 'UniverseContext)
-    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext)))
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
+    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))
           before  (antecedent-sentences kb derived)]
       (v/recover kb)
       (is (= before (antecedent-sentences kb derived)))
       (is (v/in? kb derived) "and it is still believed")
-      (v/retract! kb (v/handle-of kb (list 'genl fatherOf parentOf) 'UniverseContext))
-      (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext))
+      (v/retract! kb (v/handle-of kb (list 'genl fatherOf parentOf) 'CxUniverse))
+      (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))
           "so the rebuilt dependency still withdraws"))))
 
 (tu/deftest-kb an-edit-that-removes-an-edge-settles-once-and-re-derives
   ;; the batch path owes the same re-chain the single retraction does — one settle,
   ;; adds before removes, and what the surviving route licenses is back at the end
   (tu/with-terms [dog_t mammal_t pet_t animal_t breathes Muffet Rex]
-    (v/assert kb (list 'genl dog_t mammal_t) 'UniverseContext)
-    (v/assert kb (list 'genl dog_t pet_t) 'UniverseContext)
-    (let [via-mammal (v/assert kb (list 'genl mammal_t animal_t) 'UniverseContext)]
-      (v/assert kb (list 'genl pet_t animal_t) 'UniverseContext)
-      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'UniverseContext)
-      (v/assert kb (list dog_t Muffet) 'UniverseContext)
-      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'UniverseContext)))
-      (v/edit! kb {:add [[(list dog_t Rex) 'UniverseContext]] :remove [via-mammal]})
-      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'UniverseContext))
+    (v/assert kb (list 'genl dog_t mammal_t) 'CxUniverse)
+    (v/assert kb (list 'genl dog_t pet_t) 'CxUniverse)
+    (let [via-mammal (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)]
+      (v/assert kb (list 'genl pet_t animal_t) 'CxUniverse)
+      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
+      (v/assert kb (list dog_t Muffet) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse)))
+      (v/edit! kb {:add [[(list dog_t Rex) 'CxUniverse]] :remove [via-mammal]})
+      (is (seq (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse))
           "the other route survived the batch, so the old conclusion is back")
-      (is (seq (v/sentexes-matching kb (list breathes Rex) 'UniverseContext))
+      (is (seq (v/sentexes-matching kb (list breathes Rex) 'CxUniverse))
           "and the added fact concluded through it too"))))
 
 (tu/deftest-kb a-preview-of-removing-the-edge-reports-what-it-would-take
@@ -236,13 +236,13 @@
   ;; can now answer "what does this taxonomy edge hold up?" — a question that had no
   ;; answer while the conclusion rested on the facts alone
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
-    (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)]
-      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'UniverseContext)
-      (v/assert kb (list fatherOf Tom Bob) 'UniverseContext)
+    (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)]
+      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+      (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
       (let [removed (set (map :sentence (:believed-removed (v/preview kb {:remove [edge]} {}))))]
         (is (contains? removed (list ancestorOf Tom Bob))
             "the conclusion the edge licensed is named as a casualty"))
-      (is (seq (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext))
+      (is (seq (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))
           "and the preview put the KB back"))))
 
 ;; ---- the edge contexts are an ingredient of the placement ----------------
@@ -253,49 +253,49 @@
 ;; it does not kill the conclusion; it pulls it down to where it *can* be seen.
 
 (defn- lattice!
-  "Two incomparable contexts under UniverseContext and two incomparable contexts
+  "Two incomparable contexts under CxUniverse and two incomparable contexts
   below both of them — the smallest shape in which an edge can be invisible from a
   placement and still visible from somewhere."
   [kb a b & belows]
-  (v/assert kb (list 'genlContext a 'UniverseContext) 'UniverseContext)
-  (v/assert kb (list 'genlContext b 'UniverseContext) 'UniverseContext)
+  (v/assert kb (list 'genlCx a 'CxUniverse) 'CxUniverse)
+  (v/assert kb (list 'genlCx b 'CxUniverse) 'CxUniverse)
   (doseq [d belows]
-    (v/assert kb (list 'genlContext d a) 'UniverseContext)
-    (v/assert kb (list 'genlContext d b) 'UniverseContext)))
+    (v/assert kb (list 'genlCx d a) 'CxUniverse)
+    (v/assert kb (list 'genlCx d b) 'CxUniverse)))
 
 (tu/deftest-kb an-edge-the-natural-placement-cannot-see-lowers-it-rather-than-killing-it
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob
-                  KinContext GeoContext SagaContext EpicContext]
-    (lattice! kb KinContext GeoContext SagaContext EpicContext)
+                  CxKin CxGeo CxSaga CxEpic]
+    (lattice! kb CxKin CxGeo CxSaga CxEpic)
     ;; the taxonomy is Kin's; the rule and the fact are Geo's — no context is both
-    (v/assert kb (list 'genl fatherOf parentOf) KinContext)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) GeoContext)
-    (v/assert kb (list fatherOf Tom Bob) GeoContext)
+    (v/assert kb (list 'genl fatherOf parentOf) CxKin)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxGeo)
+    (v/assert kb (list fatherOf Tom Bob) CxGeo)
     (testing "not in Geo, which holds the rule and the fact but not the edge"
-      (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) GeoContext))))
+      (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) CxGeo))))
     (testing "but in every maximal context that sees all three"
-      (is (= [EpicContext SagaContext]
+      (is (= [CxEpic CxSaga]
              (sort (mapv :context (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx))))))
     (testing "and each of them names the edge it climbed"
-      (let [d (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) SagaContext)))]
+      (let [d (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) CxSaga)))]
         (is (contains? (antecedent-sentences kb d) (list 'genl fatherOf parentOf)))))
     (testing "so retracting the edge withdraws it from both"
-      (v/retract! kb (v/handle-of kb (list 'genl fatherOf parentOf) KinContext))
+      (v/retract! kb (v/handle-of kb (list 'genl fatherOf parentOf) CxKin))
       (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx))))))
 
 (tu/deftest-kb with-no-context-below-both-there-is-still-nothing-to-place
   ;; the control: descending is only possible where there is somewhere to descend *to*.
   ;; Two bare siblings and the conclusion evaporates, reported against the subsumption
   ;; rather than against the facts.
-  (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob AContext BContext]
-    (lattice! kb AContext BContext)
-    (v/assert kb (list 'genl fatherOf parentOf) AContext)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) BContext)
-    (v/assert kb (list fatherOf Tom Bob) BContext)
+  (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob CxA CxB]
+    (lattice! kb CxA CxB)
+    (v/assert kb (list 'genl fatherOf parentOf) CxA)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB)
+    (v/assert kb (list fatherOf Tom Bob) CxB)
     (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx)))
     (let [d (:detail (last (filter #(= :no-placement (:violation %)) (v/violations kb))))]
       (is (= [fatherOf] (:subsumed d)))
-      (is (= [BContext] (:would-place d))
+      (is (= [CxB] (:would-place d))
           "and the report names the context the edges cost it"))))
 
 (tu/deftest-kb a-placement-that-already-sees-an-edge-does-not-descend
@@ -304,29 +304,29 @@
   ;; conclusion stays as general as it was: in B, not below it.  Choosing one witness
   ;; globally would pick A's half the time and drop B out of the placement entirely.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob
-                  AContext BContext SagaContext]
-    (lattice! kb AContext BContext SagaContext)
-    (v/assert kb (list 'genl fatherOf parentOf) AContext)
-    (v/assert kb (list 'genl fatherOf parentOf) BContext)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) BContext)
-    (v/assert kb (list fatherOf Tom Bob) BContext)
-    (is (= [BContext] (mapv :context (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx))))))
+                  CxA CxB CxSaga]
+    (lattice! kb CxA CxB CxSaga)
+    (v/assert kb (list 'genl fatherOf parentOf) CxA)
+    (v/assert kb (list 'genl fatherOf parentOf) CxB)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB)
+    (v/assert kb (list fatherOf Tom Bob) CxB)
+    (is (= [CxB] (mapv :context (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx))))))
 
 (tu/deftest-kb an-ist-consequent-is-still-held-to-its-own-subsumption
   ;; the escape hatch is a *named* target, so there is nothing to derive and nothing to
   ;; lower: it places where the author said, or not at all.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob
-                  AContext BContext SagaContext]
-    (lattice! kb AContext BContext SagaContext)
-    (v/assert kb (list 'genl fatherOf parentOf) AContext)
+                  CxA CxB CxSaga]
+    (lattice! kb CxA CxB CxSaga)
+    (v/assert kb (list 'genl fatherOf parentOf) CxA)
     (v/assert kb (list 'implies (list parentOf '?x '?y)
-                       (list 'ist BContext (list ancestorOf '?x '?y)))
-              'UniverseContext)
-    (v/assert kb (list fatherOf Tom Bob) BContext)
+                       (list 'ist CxB (list ancestorOf '?x '?y)))
+              'CxUniverse)
+    (v/assert kb (list fatherOf Tom Bob) CxB)
     (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx))
         "B cannot see A's edge, and an ist target is not lowered to somewhere that can")
-    (v/assert kb (list 'genl fatherOf parentOf) 'UniverseContext)
-    (is (= [BContext] (mapv :context (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx)))
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (is (= [CxB] (mapv :context (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx)))
         "with a witness B can see, the named target takes it")))
 
 ;; ---- the witness is the placement's, and it is a function of content ------
@@ -335,21 +335,21 @@
   ;; the edge is asserted twice — once where the conclusion lands, once in a sibling
   ;; context the conclusion's context cannot see.  Naming the invisible one would
   ;; make the conclusion rest on something its own context does not hold.
-  (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob AContext BContext]
-    (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
-    (v/assert kb (list 'genl fatherOf parentOf) AContext)
-    (v/assert kb (list 'genl fatherOf parentOf) BContext)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) BContext)
-    (v/assert kb (list fatherOf Tom Bob) BContext)
-    (let [derived (first (v/sentexes-matching kb (list ancestorOf Tom Bob) BContext))]
+  (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob CxA CxB]
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genl fatherOf parentOf) CxA)
+    (v/assert kb (list 'genl fatherOf parentOf) CxB)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB)
+    (v/assert kb (list fatherOf Tom Bob) CxB)
+    (let [derived (first (v/sentexes-matching kb (list ancestorOf Tom Bob) CxB))]
       (is (some? derived))
       (let [edges (->> (v/supporting-justifications kb (:id derived))
                        (mapcat :antecedents)
                        (map #(v/sentex kb %))
                        (filter #(= 'genl (first (:sentence %)))))]
         (is (seq edges))
-        (is (every? #(v/sees? kb BContext (:context %)) edges)
+        (is (every? #(v/sees? kb CxB (:context %)) edges)
             "every edge the conclusion rests on is one its own context sees")))))
 
 (tu/deftest-kb the-witness-does-not-depend-on-assertion-order
@@ -368,9 +368,9 @@
               (v/assert kb (list 'genl fatherOf parentOf) ctx-a)
               (v/assert kb (list 'genl fatherOf parentOf) ctx-b)
               (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y))
-                        'UniverseContext)
-              (v/assert kb (list fatherOf Tom Bob) 'UniverseContext)
-              (let [concl   (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'UniverseContext))
+                        'CxUniverse)
+              (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
+              (let [concl   (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))
                     derived (:id concl)]
                 (is (some? derived))
                 {:contexts  (->> (v/supporting-justifications kb derived)
@@ -380,7 +380,7 @@
                                  (map :context)
                                  set)
                  :placement (:context concl)})))]
-    (is (= (witness 'CoreContext 'UniverseContext)
-           (witness 'UniverseContext 'CoreContext))
+    (is (= (witness 'CxCore 'CxUniverse)
+           (witness 'CxUniverse 'CxCore))
         "the same two supporters, asserted in either order, name the same witness and
          land the conclusion in the same context")))

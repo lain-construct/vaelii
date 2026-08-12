@@ -32,8 +32,8 @@
 (use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
 (use-fixtures :each (tu/neutral))
 
-(def ^:private lion-mouse (get fables/texts 'LionMouseContext))
-(def ^:private ant (get fables/texts 'AntGrasshopperContext))
+(def ^:private lion-mouse (get fables/texts 'CxLionMouse))
+(def ^:private ant (get fables/texts 'CxAntGrasshopper))
 
 (defn- read-text
   "Run one document through the reading path against a scripted stub."
@@ -115,9 +115,9 @@
 
 (tu/deftest-kb a-resolved-term-is-its-equality-class-representative
   (tu/with-terms [oldName newName]
-    (v/assert kb (list 'unaryPredicate oldName) 'UniverseContext)
-    (v/assert kb (list 'unaryPredicate newName) 'UniverseContext)
-    (v/assert kb (list 'rewriteOf oldName newName) 'UniverseContext)
+    (v/assert kb (list 'unaryPredicate oldName) 'CxUniverse)
+    (v/assert kb (list 'unaryPredicate newName) 'CxUniverse)
+    (v/assert kb (list 'rewriteOf oldName newName) 'CxUniverse)
     (let [found (text/known kb [oldName])]
       (is (= {oldName (v/representative kb oldName)} found)
           "a word spelled at a merged name resolves to the class representative"))))
@@ -126,7 +126,7 @@
 
 (tu/deftest-kb the-card-offers-what-the-context-declares
   (let [segs (text/segments lion-mouse)
-        inv  (text/document-inventory kb (text/resolutions kb segs) 'LionMouseContext)
+        inv  (text/document-inventory kb (text/resolutions kb segs) 'CxLionMouse)
         preds (mapv :predicate (:relations inv))
         pset  (set preds)]
     (testing "the resolved relations lead, in the order the text spelled them"
@@ -145,18 +145,18 @@
 (tu/deftest-kb the-nearer-contexts-vocabulary-comes-first
   ;; Where a token cap cuts, it should cut the vocabulary of the shipped upper ontology
   ;; before the vocabulary of the story being read.
-  (let [^clojure.lang.APersistentVector order (mapv first (text/declared-in kb 'LionMouseContext))
+  (let [^clojure.lang.APersistentVector order (mapv first (text/declared-in kb 'CxLionMouse))
         at (fn [t] (.indexOf order t))]
     (is (< (at 'repaidKindness) (at 'parentOf))
-        "a StoriesContext predicate before one a shallower theory declares")
-    (is (< (at 'repaidKindness) (at 'genlContext))
+        "a CxStories predicate before one a shallower theory declares")
+    (is (< (at 'repaidKindness) (at 'genlCx))
         "and well before the vocabulary head's")
     (testing "alphabetical within one context, so the order never depends on arrival"
       (is (< (at 'approaches) (at 'betterPreparedThan))))))
 
 (tu/deftest-kb the-card-carries-no-sentence-from-the-context-it-writes-into
   (let [segs (text/segments lion-mouse)
-        turn (text/user-turn kb segs (text/resolutions kb segs) 'LionMouseContext nil)]
+        turn (text/user-turn kb segs (text/resolutions kb segs) 'CxLionMouse nil)]
     (testing "the story's own facts are not in the prompt"
       (is (not (str/includes? turn "LionA")))
       (is (not (str/includes? turn "MouseA"))))
@@ -173,23 +173,23 @@
             (str "vaelii.impl.llm.text reaches a write: " call))))))
 
 (tu/deftest-kb reading-a-document-leaves-the-kb-byte-identical
-  (let [before-sx (set (map :id (v/sentexes-in-context kb 'LionMouseContext)))
+  (let [before-sx (set (map :id (v/sentexes-in-context kb 'CxLionMouse)))
         before-n  (v/sentex-count kb)
         before-tc (v/term-count kb)
-        p (read-text kb lion-mouse 'LionMouseContext
+        p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0]
                                     ['(spared Lion1 Mouse1) 0]
                                     ['(gnawed Mouse1 Rope1) 2]]}])]
     (is (= :ok (:status p)))
     (testing "proposing stored nothing, indexed nothing, and coined no term"
-      (is (= before-sx (set (map :id (v/sentexes-in-context kb 'LionMouseContext)))))
+      (is (= before-sx (set (map :id (v/sentexes-in-context kb 'CxLionMouse)))))
       (is (= before-n (v/sentex-count kb)))
       (is (= before-tc (v/term-count kb))))))
 
 ;; ---- every candidate that reaches a reviewer is applicable --------------
 
 (tu/deftest-kb every-entry-in-the-batch-passes-the-critic
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0] ['(spared Lion1 Mouse1) 0]]}])]
     (is (= :ok (:status p)))
     (is (empty? (session/check-batch kb (:batch p)))
@@ -198,7 +198,7 @@
       (is (empty? (v/check-edit kb (:batch p)))))))
 
 (tu/deftest-kb a-candidate-the-critic-refuses-arrives-as-a-repair
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0]
                                     ['(spared ?x) 0]]}])]
     (testing "the good candidate still lands"
@@ -213,7 +213,7 @@
       (is (= [:not-ground] (mapv :type (:rejections p)))))))
 
 (tu/deftest-kb nothing-admissible-at-all-is-invalid
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(spared ?x) 0]]}])]
     (is (= :invalid (:status p)))
     (is (empty? (:add (:batch p))))
@@ -223,7 +223,7 @@
   ;; `:invalid` means the critic refused everything it was shown, not that nothing was
   ;; left to show it — and `apply-proposal!` refuses anything but `:ok`, so calling this
   ;; invalid would block an apply that would rightly do nothing.
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(spared LionA MouseA) 0] ['(trapped LionA) 1]]}])]
     (is (= :ok (:status p)))
     (is (empty? (:add (:batch p))))
@@ -239,9 +239,9 @@
 ;; every name in it is legal, and it stores in a context the reviewer never saw.
 
 (tu/deftest-kb a-candidate-that-would-file-itself-elsewhere-is-refused
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0]
-                                    ['(ist CriedWolfContext (dog Sneaky1)) 0]]}])]
+                                    ['(ist CxCriedWolf (dog Sneaky1)) 0]]}])]
     (is (= :ok (:status p)))
     (testing "the escape is a repair, and never reaches the batch"
       (is (= 1 (count (:repairs p))))
@@ -249,31 +249,31 @@
       (is (= ['(lion Lion1)] (mapv first (:add (:batch p))))))
     (testing "the message names both contexts, since which one is the surprise"
       (let [m (:message (:problem (first (:repairs p))))]
-        (is (str/includes? m "CriedWolfContext"))
-        (is (str/includes? m "LionMouseContext"))))))
+        (is (str/includes? m "CxCriedWolf"))
+        (is (str/includes? m "CxLionMouse"))))))
 
 (tu/deftest-kb the-critic-refuses-a-context-escape-on-every-path
-  (let [escape ['(ist CriedWolfContext (dog Sneaky1)) 'LionMouseContext]]
+  (let [escape ['(ist CxCriedWolf (dog Sneaky1)) 'CxLionMouse]]
     (testing "check-entry, which the page path asks per assertion"
       (is (= :context-escape (:type (session/check-entry kb escape)))))
     (testing "check-batch, which every path ends at"
       (is (= [:context-escape]
              (mapv :type (session/check-batch kb {:add [escape] :remove []})))))
     (testing "and it is reported against the entry it came from"
-      (let [p (first (session/check-batch kb {:add [['(dog Muffet1) 'LionMouseContext] escape]
+      (let [p (first (session/check-batch kb {:add [['(dog Muffet1) 'CxLionMouse] escape]
                                               :remove []}))]
         (is (= 1 (:index p)))
         (is (= :add (:in p)))))
     (testing "a rule consequent's `ist` is left alone — that is how a rule says where its
               conclusions are placed, and it is written out in a line a reviewer reads"
       (is (nil? (session/placement-problem
-                 ['(implies (lion ?x) (ist CriedWolfContext (dangerous ?x)))
-                  'LionMouseContext]))))))
+                 ['(implies (lion ?x) (ist CxCriedWolf (dangerous ?x)))
+                  'CxLionMouse]))))))
 
 (tu/deftest-kb a-claim-about-a-type-symbol-is-reported-with-the-shape-to-store-instead
   ;; Admissible, and still the wrong shape: `person` is a type, so a one-place claim
   ;; about the symbol is really a claim about its instances.  `correct` says so.
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(believed person) 3]]}])]
     (is (= :ok (:status p)) "it passes the critic — that is the point")
     (let [c (first (:corrections p))]
@@ -285,7 +285,7 @@
 ;; ---- vocabulary: a restated claim coins nothing -------------------------
 
 (tu/deftest-kb a-document-restating-a-stored-claim-produces-no-new-term
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(spared LionA MouseA) 0] ['(trapped LionA) 1]]}])]
     (testing "both are already stored, so neither is news"
       (is (= 2 (:known (:summary p))))
@@ -296,7 +296,7 @@
       (is (= 0 (:coined (:vocabulary p)))))))
 
 (tu/deftest-kb a-coined-functor-is-reported-with-its-arity-and-role
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(has_black_and_white_fur Lion1) 0]
                                     ['(gnawedThrough Mouse1 Rope1) 2]]}])]
     (is (= [{:predicate 'has_black_and_white_fur :arity 1 :role :type :in :add :index 0}
@@ -308,7 +308,7 @@
 ;; ---- what it could not translate is part of the answer -------------------
 
 (tu/deftest-kb a-sentence-that-produced-nothing-is-reported-as-uncovered
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0]]
                        :untranslated [[1 "no vocabulary for a hunter's net"]]}])
         {:keys [segments covered uncovered]} (:coverage p)]
@@ -324,7 +324,7 @@
         (is (= text (subs lion-mouse (first span) (second span))))))))
 
 (tu/deftest-kb a-segment-the-model-called-untranslatable-and-then-answered-is-covered
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0]]
                        :untranslated [[0 "I gave up on this one"]]}])]
     (testing "the candidate wins over the claim"
@@ -334,7 +334,7 @@
 ;; ---- provenance ---------------------------------------------------------
 
 (tu/deftest-kb an-accepted-candidate-is-auditable-back-to-its-characters
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(freed Mouse1 Lion1) 2 {:confidence :medium}]]}]
                      :source :the-lion-and-the-mouse)
         applied (session/apply-proposal! kb p)
@@ -349,7 +349,7 @@
       (finally (v/retract! kb h)))))
 
 (tu/deftest-kb a-candidate-naming-no-sentence-gets-no-span-rather-than-a-plausible-one
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 99]]}])
         prov (text/entry-provenance (first (:add (:batch p))))]
     (is (nil? (:segment prov)))
@@ -361,14 +361,14 @@
   ;; Coverage is a claim about the document, not about the batch: `(spared LionA MouseA)`
   ;; is winnowed out as not-news and `(spared ?x)` is refused, and both sentences were
   ;; nevertheless translated.
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(spared LionA MouseA) 0] ['(spared ?x) 1]]}])]
     (is (empty? (:add (:batch p))))
     (is (= 2 (:covered (:coverage p))))
     (is (= [2 3] (mapv :index (:uncovered (:coverage p)))))))
 
 (tu/deftest-kb a-candidate-is-defeasible-unless-it-says-otherwise
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0]
                                     ['(mouse Mouse1) 0 {:strength :monotonic}]]}])
         [a b] (:add (:batch p))]
@@ -378,7 +378,7 @@
 ;; ---- the review queue ---------------------------------------------------
 
 (tu/deftest-kb the-queue-puts-what-only-a-person-can-settle-first
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0 {:confidence :high}]
                                     ['(spared Lion1 Mouse1) 0 {:confidence :low}]
                                     ['(sang_all_summer Lion1) 1 {:confidence :high}]]}])
@@ -394,13 +394,13 @@
 ;; ---- refusals and bounds ------------------------------------------------
 
 (tu/deftest-kb a-turn-with-no-document-is-refused
-  (is (= :no-text (:status (session/propose-text kb {:text nil :context 'LionMouseContext}))))
-  (is (= :no-text (:status (session/propose-text kb {:text "  " :context 'LionMouseContext}))))
+  (is (= :no-text (:status (session/propose-text kb {:text nil :context 'CxLionMouse}))))
+  (is (= :no-text (:status (session/propose-text kb {:text "  " :context 'CxLionMouse}))))
   (is (= :no-text (:status (session/propose-text kb {:text "A dog." :context "not a symbol"})))))
 
 (tu/deftest-kb a-document-that-does-not-fit-is-refused-with-nothing-sent
   (let [log (atom [])
-        p (session/propose-text kb {:text lion-mouse :context 'LionMouseContext
+        p (session/propose-text kb {:text lion-mouse :context 'CxLionMouse
                                     :num-ctx 128
                                     :provider (stub/provider {:log log})})]
     (is (= :too-large (:status p)))
@@ -408,7 +408,7 @@
     (is (empty? @log) "a document that does not fit is never sent")))
 
 (tu/deftest-kb an-unreadable-answer-is-fed-back-once-and-then-reported
-  (let [p (read-text kb lion-mouse 'LionMouseContext ["not JSON at all" "still not JSON"])]
+  (let [p (read-text kb lion-mouse 'CxLionMouse ["not JSON at all" "still not JSON"])]
     (is (= :unparseable (:status p)))
     (is (= 2 (:attempts p)))
     (is (= [:unparseable] (mapv :type (:rejections p))))))
@@ -418,9 +418,9 @@
   ;; such fallback and should not grow one — a bare sentence carries no segment, a
   ;; candidate with no segment has no span, and the span is most of what this path is for.
   ;; So the boundary is asserted rather than left to be discovered.
-  (let [bare  (read-text kb lion-mouse 'LionMouseContext
+  (let [bare  (read-text kb lion-mouse 'CxLionMouse
                          ["(lion Lion1)\n(mouse Mouse1)" "(lion Lion1)"])
-        array (read-text kb lion-mouse 'LionMouseContext
+        array (read-text kb lion-mouse 'CxLionMouse
                          ["[{\"sentence\": \"(lion Lion1)\", \"segment\": 0}]"
                           "[{\"sentence\": \"(lion Lion1)\", \"segment\": 0}]"])]
     (is (= :unparseable (:status bare)) "bare s-expressions carry no segment")
@@ -428,15 +428,15 @@
 
 (tu/deftest-kb the-readers-instruction-is-the-last-thing-in-the-window
   (let [segs (text/segments lion-mouse)
-        with (text/user-turn kb segs [] 'LionMouseContext "only the facts, no rules")
-        without (text/user-turn kb segs [] 'LionMouseContext nil)]
+        with (text/user-turn kb segs [] 'CxLionMouse "only the facts, no rules")
+        without (text/user-turn kb segs [] 'CxLionMouse nil)]
     (is (str/includes? with "only the facts, no rules"))
     (is (str/ends-with? (str/trim with) "only the facts, no rules"))
     (testing "and no section at all when the reader said nothing"
       (is (not (str/includes? without "## The reader's instruction"))))))
 
 (tu/deftest-kb an-answer-with-one-unreadable-candidate-keeps-the-rest
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [(let [t (stub/candidates-text [['(lion Lion1) 0]])]
                         (str/replace t "\"candidates\":[" "\"candidates\":[{\"sentence\":\"not a sexp\",\"segment\":0},"))])]
     (is (= :ok (:status p)))
@@ -444,12 +444,12 @@
     (is (= 1 (count (:problems p))))))
 
 (tu/deftest-kb the-context-is-the-callers-on-every-entry
-  (let [p (read-text kb lion-mouse 'LionMouseContext
+  (let [p (read-text kb lion-mouse 'CxLionMouse
                      [{:candidates [['(lion Lion1) 0] ['(mouse Mouse1) 0]]}])]
-    (is (every? #(= 'LionMouseContext (second %)) (:add (:batch p))))))
+    (is (every? #(= 'CxLionMouse (second %)) (:add (:batch p))))))
 
 (tu/deftest-kb the-same-document-yields-the-same-candidates-twice
-  (let [run #(read-text kb lion-mouse 'LionMouseContext
+  (let [run #(read-text kb lion-mouse 'CxLionMouse
                         [{:candidates [['(lion Lion1) 0] ['(mouse Mouse1) 0]
                                        ['(spared Lion1 Mouse1) 0]]}])
         a (run) b (run)]
@@ -461,9 +461,9 @@
 ;; ---- the scorer --------------------------------------------------------
 
 (tu/deftest-kb the-gold-set-is-what-a-person-wrote
-  (let [gold    (score/gold-handles kb 'LionMouseContext)
+  (let [gold    (score/gold-handles kb 'CxLionMouse)
         derived (set (map #(v/readable-sentence (v/sentex kb %))
-                          (score/derived-handles kb 'LionMouseContext)))]
+                          (score/derived-handles kb 'CxLionMouse)))]
     (testing "the five facts and the rule the modeller asserted"
       (is (= 6 (count gold)))
       (is (= '#{(lion LionA) (mouse MouseA) (spared LionA MouseA) (trapped LionA)
@@ -483,7 +483,7 @@
   (let [cands '[(lion Lion1) (mouse Mouse1) (spared Lion1 Mouse1) (trapped Lion1)
                 (freed Mouse1 Lion1)
                 (implies (and (spared ?a ?b) (freed ?b ?a)) (repaidKindness ?b ?a))]
-        s (score/score kb 'LionMouseContext cands)]
+        s (score/score kb 'CxLionMouse cands)]
     (testing "strictly, almost nothing matches — the character names are unrecoverable"
       (is (= 1 (:matched (:strict s))) "only the rule, which names no character"))
     (testing "aligned on the characters, the reading is complete"
@@ -499,12 +499,12 @@
   ;; right. Renaming it onto `LionA` to make more sentences match would score a wrong claim
   ;; as a right one — and `MouseA` is reachable for that only because the gold happens to
   ;; make a one-place claim about it too, so the guard is on *every* name the gold uses.
-  (let [s (score/score kb 'LionMouseContext '[(lion MouseA) (mouse Mouse2)])]
+  (let [s (score/score kb 'CxLionMouse '[(lion MouseA) (mouse Mouse2)])]
     (is (nil? (get (:renaming s) 'MouseA)))
     (is (= '(lion MouseA) (first (:spurious s))))))
 
 (tu/deftest-kb a-spurious-type-claim-does-not-break-the-alignment
-  (let [s (score/score kb 'LionMouseContext
+  (let [s (score/score kb 'CxLionMouse
                        '[(lion Lion1) (has_a_mane Lion1) (mouse Mouse1) (spared Lion1 Mouse1)])]
     (is (= '{Lion1 LionA Mouse1 MouseA} (:renaming s)))
     (is (= 3 (:matched (:aligned s))))
@@ -512,7 +512,7 @@
 
 (tu/deftest-kb an-alignment-is-a-bijection
   (testing "two candidate characters of one kind cannot both become the one gold character"
-    (let [s (score/score kb 'LionMouseContext
+    (let [s (score/score kb 'CxLionMouse
                          '[(lion LionX) (lion LionY) (trapped LionX) (trapped LionY)])]
       (is (= '{LionX LionA} (:renaming s))
           "one of them aligns and the other stays as written")
@@ -522,7 +522,7 @@
         (is (= '[(lion LionY) (trapped LionY)] (:spurious s)))))))
 
 (tu/deftest-kb a-derived-conclusion-costs-a-reader-nothing
-  (let [s (score/score kb 'LionMouseContext
+  (let [s (score/score kb 'CxLionMouse
                        '[(lion Lion1) (mouse Mouse1) (repaidKindness Mouse1 Lion1)])]
     (testing "restating what the engine derives is not a wrong answer"
       (is (= 1 (:derivable (:aligned s)))))
@@ -530,21 +530,21 @@
       (is (= 1.0 (:precision (:aligned s)))))))
 
 (tu/deftest-kb a-duplicate-candidate-buys-no-second-match
-  (let [s (score/score kb 'LionMouseContext '[(lion Lion1) (lion Lion1) (lion Lion1)])]
+  (let [s (score/score kb 'CxLionMouse '[(lion Lion1) (lion Lion1) (lion Lion1)])]
     (is (= 1 (:candidates (:aligned s))))
     (is (= 1 (:matched (:aligned s))))))
 
 (tu/deftest-kb a-malformed-candidate-matches-nothing-rather-than-throwing
-  (let [s (score/score kb 'LionMouseContext '[(lion) () (lion Lion1)])]
+  (let [s (score/score kb 'CxLionMouse '[(lion) () (lion Lion1)])]
     (is (= 1 (:matched (:aligned s))))))
 
 (tu/deftest-kb a-scored-table-totals-the-counts-rather-than-the-rates
-  (let [perfect (score/score kb 'LionMouseContext
+  (let [perfect (score/score kb 'CxLionMouse
                              '[(lion Lion1) (mouse Mouse1) (spared Lion1 Mouse1)
                                (trapped Lion1) (freed Mouse1 Lion1)
                                (implies (and (spared ?a ?b) (freed ?b ?a))
                                         (repaidKindness ?b ?a))])
-        empty-read (score/score kb 'TortoiseHareContext '[])
+        empty-read (score/score kb 'CxTortoiseHare '[])
         out (score/table [["lion & mouse" perfect] ["tortoise & hare" empty-read]])]
     (is (str/includes? out "| document | gold | cand |"))
     (testing "the total weighs the long document, so recall is not the average of 100% and 0%"
