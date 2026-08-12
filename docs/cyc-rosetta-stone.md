@@ -1,14 +1,10 @@
 # Vaelii ↔ Cyc Rosetta Stone
 
-- **Covers:** concept-by-concept mapping between Cyc and Vaelii — vocabulary, operations, truth maintenance, rules, negation, privileged contexts, and what each system has that the other does not.
-- **Not here:** the Vaelii API itself → [api.md](api.md); the glossary behind the Vaelii terms → [glossary.md](glossary.md).
-- **Assumes:** familiarity with Cyc concepts (Mts, assertions, constants, collections, CycL); sentex, handle, context → [glossary.md](glossary.md).
-
 ## Core Concepts
 
 ```
 Cyc                → Vaelii
-Mt                 → context
+microtheory (Mt)   → context
 genlMt             → genlContext
 assertion          → sentex
 constant           → symbol (CapitalCamelCase individuals, snake_case types, camelCase preds)
@@ -18,6 +14,11 @@ genlPreds          → genl
 don't-care var (??)→ head existential: (exists ?y ...) — syntactic, not naming convention
 rename             → no equivalent (use sameAs/rewriteOf for merging, but no true rename)
 arg1Isa            → no equivalent. Instead of (arg1Isa PRED TYPE), use (argIsa PRED 1 TYPE)
+preservesGenlsInArg → (argPreserving P n genl) — a claim stated at type T inherits to
+                      all specs of T in that argument position. Dedicated ArgPreservingProver
+                      walks the genl reach. Handles ambiguity (incomparable specificity →
+                      no answer). Also: (argPreservingInverse P n genl) for the reverse
+                      direction. Used by hasCapability, largerThan, partType in Starter.
 wff?               → v/check. Checks argIsa, disjoint, functional, naming conventions, etc.
 ```
 
@@ -26,7 +27,7 @@ wff?               → v/check. Checks argIsa, disjoint, functional, naming conv
 **argIsa is entailment, not restriction:** In Cyc, argIsa constraints are gates
 at assert time. In vaelii, they are entailment sources — `(argIsa parentOf 1 animal)`
 over `(parentOf Fred Mary)` ENTAILS `(animal Fred)`, it doesn't reject the assertion.
-To get Cyc-style rejection, a caller must wrap `v/assert` with a guard that runs `v/check` first and refuses on constraint violation.
+Our bridge's `check-guarded` / `assert-guarded` enforces the restriction layer.
 
 **Open-world silent acceptance:** Vaelii silently accepts any assertion with any
 predicate — `(fghgwgads 212)` stores without error. No predicate declaration check,
@@ -48,6 +49,9 @@ AsymmetricBinaryPredicate → (asymmetric P)
 genlInverse            → no native equivalent. use a forward rule:
                          (implies (P ?x ?y) (Q ?y ?x))
                          vaelii's (inverse P Q) is the stronger biconditional
+DisjointCollectionType → (disjointMetatype M) — every pair of M's member types is
+                         declared disjoint. Clique shorthand: consulted rather than
+                         stored quadratically, retracts cleanly.
 disjoint               → disjoint — type/predicate mutual exclusion,
                          closed under genl. Works for unary preds because
                          collections ARE predicates in V
@@ -95,7 +99,7 @@ Cyc                → Vaelii API call
 assert             → (v/assert kb sentence context opts) → handle
 unassert           → (v/retract! kb handle) → {:removed-sentexes n :removed-justifications n}
 find-assertion-cycl → (v/sentexes-matching kb sentence context) — literal only, returns collection
-                     (a caller wanting singular match can filter + assert uniqueness)
+                     (sentex-matching via our bridge utils — singular, nil if ambiguous)
 ask (backward)     → (v/query kb goal ctx {:max-depth n}) — bounded backward chaining
 ask (unbounded)    → (v/prove kb goal ctx) — DFS backward chaining
 ask (boolean)      → (v/provable? kb goal ctx)
@@ -151,6 +155,28 @@ arity check         → catches too-few args but NOT too-many (vaelii/vaelii#9)
 - Equality partition (rewriteOf / sameAs / equals)
 - Defeasible defaults with exceptions
 - Polycanonicalization
+
+## Inference Modules
+
+```
+Cyc                        → Vaelii
+CycRemovalModule           → (v/add-prover kb prover) — register a Prover that claims
+                              and answers goals by computation rather than lookup.
+                              Closest to a removal module: the prover says "I handle
+                              this predicate" and returns bindings on demand.
+                              NOT the same as evaluatable predicates (lessThan etc.),
+                              which are a specific built-in prover, not the registration
+                              mechanism.
+evaluationDefn             → built-in evaluable prover (lessThan, greaterThan, evaluate).
+                              No user-facing declaration — the evaluables are hardcoded
+                              in vaelii.impl.provers. Custom computation goes through
+                              add-prover instead.
+afterAdding/afterRemoving  → (v/watch kb goal context f) for belief-level reactivity.
+                              vaelii.impl.observe for store-level add/remove (internal).
+                              No per-predicate hook declaration — watch is goal-scoped.
+defnIff/defnNecessary/     → no equivalent. Schema survives Cyc import but nothing
+defnSufficient               reads it. Use rules or a custom Prover instead.
+```
 
 ## Vaelii has, Cyc doesn't
 
