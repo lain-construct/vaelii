@@ -1,4 +1,6 @@
-(ns vaelii.argue
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
+(ns vaelii.impl.argue
   "Four-valued epistemic status for ground assertions.
 
    Queries both a sentence and its explicit negation (not S) and returns
@@ -16,10 +18,9 @@
   "Get query results for `goal` in `context`. Returns a seq of binding
    maps (possibly empty maps for ground goals), or nil if not provable."
   [kb goal context opts]
-  (let [r (seq (if (:max-depth opts)
-                 (v/query kb goal context opts)
-                 (v/ask kb goal context)))]
-    r))
+  (seq (if (:max-depth opts)
+         (v/query kb goal context opts)
+         (v/ask kb goal context))))
 
 (defn- justification-for
   "If `sentence` is stored and believed in `context`, return its full
@@ -44,8 +45,8 @@
    Returns :true if the positive side wins, :false if the negative
    side wins, or nil if the conflict cannot be resolved (leaving
    :contradiction as the verdict)."
-  ;; TODO: full argumentation support — specificity, recency, authority,
-  ;;       user-defined preference orderings, Dung-style extensions
+  ;; Resolves monotonic-vs-default only.  Specificity, recency, authority,
+  ;; and user-defined preference orderings are not yet implemented.
   [kb asent context]
   (let [pos-class (defeat-class-of kb asent context)
         neg-class (defeat-class-of kb (list 'not asent) context)]
