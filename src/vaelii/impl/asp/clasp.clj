@@ -37,13 +37,15 @@
    UNSAT is a valid outcome, not an error."
   [argv aspif-text]
   (let [{:keys [exit out err]}
-        (apply shell/sh *clasp-binary* "--outf=2"
-               (concat argv [:in aspif-text]))]
+        ;; `shell/sh` execs directly (no shell), so a missing binary is an
+        ;; IOException here, never the shell's exit-127 convention
+        (try
+          (apply shell/sh *clasp-binary* "--outf=2"
+                 (concat argv [:in aspif-text]))
+          (catch java.io.IOException e
+            (throw (ex-info (str "clasp binary not found: " *clasp-binary*)
+                            {:type :solver-unavailable :binary *clasp-binary*} e))))]
     (cond
-      (= exit 127)
-      (throw (ex-info (str "clasp binary not found: " *clasp-binary*)
-                      {:type :solver-unavailable :exit exit :err err}))
-
       (str/blank? out)
       (throw (ex-info (str "clasp produced no output (exit " exit ")")
                       {:type :solver-failed :exit exit :err err :argv argv}))

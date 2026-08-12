@@ -5,6 +5,7 @@
   predicates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
@@ -40,7 +41,45 @@
       (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'FamContext)))
       (is (not (v/provable? kb (list ancestorOf tom bob) 'FamContext))))
     (testing "but the rule sentex is stored and findable by its terms"
-      (is (= 1 (count (v/find-sentexes kb ancestorOf)))))))
+      (is (= 1 (count (v/find-sentexes kb ancestorOf)))))
+    ;; Documentation is only documentation if it is *there*: believed like any other
+    ;; rule, and posted under its predicates so a browser and a term search find it.
+    ;; Not firing is the direction's doing, not an absence of either of those — which
+    ;; is what separates this from `assert-inert`, whose sentex nothing believes
+    ;; (docs/inference.md, "An inert rule is documentation with a handle").
+    (let [h (:id (first (v/find-sentexes kb ancestorOf)))]
+      (testing "the rule is believed, at an ordinary class — there is no :inert strength"
+        (is (v/in? kb h))
+        (is (= :default (:strength (v/sentex kb h))))
+        (is (= :default (v/defeat-class kb h)))
+        (is (= :inert (:direction (v/sentex kb h)))))
+      (testing "and it is indexed both ways, which is what makes it browsable"
+        (is (contains? (set (p/rules-by-consequent (:index kb) ancestorOf)) h))
+        (is (contains? (set (p/rules-by-antecedent (:index kb) parentOf)) h))))))
+
+(tu/deftest-kb a-transitivity-rule-is-written-down-inert-while-the-closure-answers
+  ;; The pattern `docs/taxonomy.md` describes: transitivity is not run as a rule — the
+  ;; closure answers it — so the rule is written down inert, where a reader looks for it.
+  ;; The closure keeps answering with the rule sitting there, and the rule adds no
+  ;; derived sentex of its own: asserting it bare would materialize one per pair.
+  (tu/with-terms [animal_ dog_ terrier_ Rex]
+    (let [rule (vr/rule-sentence [(list 'genl '?a '?b) (list 'genl '?b '?c)]
+                                 (list 'genl '?a '?c))]
+      (v/assert kb (list 'set/inertRule rule) 'UniverseContext)
+      (v/assert kb (list 'genl terrier_ dog_) 'UniverseContext)
+      (v/assert kb (list 'genl dog_ animal_) 'UniverseContext)
+      (v/assert kb (list terrier_ Rex) 'UniverseContext)
+      (testing "the closure answers the transitive question the rule describes"
+        (is (v/genl? kb terrier_ animal_))
+        ;; ...and a query at the supertype reaches the instance through it.  `ask`, not
+        ;; `sentexes-matching`: the closure is answered on demand and stores no edge, so
+        ;; there is no `(animal Rex)` sentex to match — which is the whole design.
+        (is (v/provable? kb (list animal_ Rex) 'UniverseContext))
+        (is (= [{'?w Rex}] (v/ask kb (list animal_ '?w) 'UniverseContext))))
+      (testing "while the rule itself derives nothing"
+        (is (empty? (v/sentexes-matching kb (list 'genl terrier_ animal_)
+                                         'UniverseContext))
+            "no materialized (genl terrier animal) — the closure is not a stored edge")))))
 
 (tu/deftest-kb direction-via-opts
   (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)

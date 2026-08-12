@@ -104,6 +104,20 @@ sentexes. So an inert `(not head)` sitting in a context that sees a believed `he
 (assert-inert kb '(color Item red) 'RedWorldContext)   ; stored, inspectable, never IN
 ```
 
+**A rule is refused here** (`:not-indexable`), and the reason is that this door does not
+index one. A rule fires because `index-rule-sentex` posted its predicates, which happens
+where a rule sentex is *created* — the assert door's new branch, and the generator mint —
+so a rule stored inert would be unreachable by either chainer, and would stay unreachable
+after somebody asserted it, that assert resolving to the stored sentex and taking the
+branch that does not index. What it left was a rule `in?` called believed and no fact
+ever fired. A labeling labels atoms and their negations, so nothing this primitive exists
+for wants one.
+
+The **other** inertness is a rule's own: `set/inertRule` is believed, indexed and
+browsable and chains in neither direction — a rule kept as documentation
+([inference.md](inference.md)). One word, two states, and the distinction is whether the
+KB believes what it stored.
+
 ## `(do/label Base Into [mode])`
 
 Grounds the `assumptionRules` visible from `Base`, constrains the ground heads, solves,

@@ -778,3 +778,77 @@
                        (v/assert kb (list 'uplain (symbol (str "UP" i)) 'UVal) ctx)))))]
       (is (= 0 (cost 5) (cost 40))
           "a fact on an unconstrained predicate re-checked exceptions anyway"))))
+
+(deftest an-exception-that-is-itself-a-query-operator-is-watched-by-what-it-reads
+  (testing "the re-check key is the predicate the query reads, not the operator's own"
+    ;; `exceptWhen`'s query is any closed level-6 goal, so it may be a query *operator* —
+    ;; an `unknown`, a `thereExists`, an aggregate.  Keyed on the operator's own functor
+    ;; the rule is registered under a predicate no sentex ever carries, so no arriving
+    ;; fact can queue it: the exception is evaluated correctly once and re-evaluated
+    ;; never, which from the outside is a guard that answers whatever happened first.
+    ;;
+    ;; Both directions matter and only one of them is visible without a trigger: the
+    ;; *initial* answer needs no re-check, so a rule that never fires looks right for the
+    ;; wrong reason.  What proves the key is the release — the fact arriving that makes
+    ;; the inner query derivable, so the `unknown` goes false and the exception stops
+    ;; holding.
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (v/assert kb '(exceptWhen (unknown (and (qskip ?x) (rskip ?x)))
+                                (set/defaultRule (implies (and (qmark ?x)) (qseen ?x))))
+                ctx)
+      (v/assert kb '(qmark QOne) ctx)
+      (is (empty? (v/sentexes-matching kb '(qseen ?x) ctx))
+          "neither conjunct is derivable, so the unknown holds and the exception blocks")
+      (v/assert kb '(qskip QOne) ctx)
+      (is (empty? (v/sentexes-matching kb '(qseen ?x) ctx))
+          "one conjunct short — the inner conjunction still is not derivable")
+      (v/assert kb '(rskip QOne) ctx)
+      (is (seq (v/sentexes-matching kb '(qseen QOne) ctx))
+          "the second conjunct completes it, so the unknown is false and the rule fires")
+      (testing "and retracting it blocks again, the release being re-decided each time"
+        (v/retract! kb (v/handle-of kb '(rskip QOne) ctx))
+        (is (empty? (v/sentexes-matching kb '(qseen ?x) ctx)))))))
+
+(deftest a-cycle-through-an-exception-that-is-a-query-operator-is-refused
+  (testing "the negative edge runs to what the exception reads, so the cycle is seen"
+    ;; The stratification graph reads the same keys.  An exception that is an
+    ;; `(unknown S)` is a negative dependency on `S`'s predicate; keyed on `unknown` —
+    ;; which nothing concludes — the graph reaches no rule and refuses nothing.
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (v/assert kb '(exceptWhen (unknown (cskip ?x))
+                                (set/defaultRule (implies (and (cmark ?x)) (cseen ?x))))
+                ctx)
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"not stratified"
+           (v/assert kb '(implies (cseen ?x) (cskip ?x)) ctx))))))
+
+(deftest a-query-operator-exception-narrows-like-a-flat-one
+  (testing "an (unknown S) exception is narrowed to the firings the trigger can reach"
+    ;; The narrowing substitutes the firing's bindings into each block literal and asks
+    ;; whether a trigger could answer it.  A literal that is not flat and ground has no
+    ;; shape to test, so it is kept — the safe direction, and for an exception that *is*
+    ;; a query operator it keeps everything: `(unknown (qskipX PX7))` reads as unshaped
+    ;; however specific it is, so every firing is re-decided on every arriving fact and
+    ;; the cost is the rule's whole history per trigger.
+    ;;
+    ;; The frames are peeled for the narrowing exactly as they are for the index key, so
+    ;; the literal tested is the one the query reads and the shape test bites again.
+    ;; Same claim, same shape, same bound as the flat case above.
+    (let [cost (fn [firings triggers]
+                 (tu/with-cleared-kb [kb tu/isolated-fresh]
+                   (v/assert kb '(exceptWhen (unknown (qskipX ?x))
+                                             (set/defaultRule
+                                              (implies (and (qprobeX ?x)) (qseenX ?x))))
+                             ctx)
+                   (dotimes [i firings]
+                     (v/assert kb (list 'qprobeX (symbol (str "QX" i))) ctx))
+                   (counting-evaluations
+                    #(dotimes [i triggers]
+                       (v/assert kb (list 'qskipX (symbol (str "Unrelated" i))) ctx)))))
+          few  (cost 8 6)
+          many (cost 32 6)]
+      (is (<= many (+ 4 (* 2 (max 1 few))))
+          (str "re-check cost grew with the rule's firing count: " few " -> " many
+               " evaluations for the same 6 triggers"))
+      (is (< many 32)
+          (str "6 triggers that can block nothing cost " many " level-6 queries")))))

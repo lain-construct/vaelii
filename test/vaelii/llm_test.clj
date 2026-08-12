@@ -27,6 +27,14 @@
 
 ;; ---- tool schemas are generated from serve/ops --------------------------
 
+(deftest the-writer-holding-ops-are-filed-with-the-writes
+  ;; the subset test below is relative, so it cannot see these two leak: `:preview`
+  ;; stores nothing but applies its batch and rolls it back under the process's
+  ;; single writer, and `:clear-caches` mutates process measurement state.  Neither
+  ;; ends in `!`, so the backstop cannot catch them either — the roster is the door.
+  (is (contains? tools/write-ops :preview))
+  (is (contains? tools/write-ops :clear-caches)))
+
 (deftest read-ops-are-the-read-subset-of-the-daemon-op-table
   (let [reads (set (tools/read-ops))]
     (is (seq reads))

@@ -244,7 +244,8 @@
 ;; The equality partition, defined here only so `create-taxonomy` can name it; its
 ;; machinery is the "equality" section further down.
 (defn- empty-equality []
-  {:support {} :handles #{} :out #{} :edges #{} :edge-idx {} :edge-prefs {} :class {} :members {}})
+  {:support {} :handles #{} :handle-edge {} :out #{} :edges #{} :edge-idx {} :edge-prefs {}
+   :class {} :members {}})
 
 (defn create-taxonomy
   "A KB's taxonomy: one atom holding the cached relations, plus a **watch** bumping
@@ -1473,12 +1474,32 @@
           (nil? want)   (unset-edge rel e)
           :else         (set-edge rel e want))))
 
-(defn- refresh-equality [rel believed? moved]
+(defn- refresh-equality
+  "Reconcile the equality partition with belief, scoped to what `moved` names: only a
+  moved supporter can change its believed status or its own edge's state, so the
+  reconcile updates `:out` for `moved ∩ handles` and re-applies exactly those edges —
+  the `moved-edges` discipline the transitive relations hold, `:handle-edge` being the
+  same reverse map, walked from whichever side is smaller.  Unscoped, the i-th merge
+  of a load re-asked belief of every supporter and re-derived the live state of every
+  edge, Θ(N²) across the load.  nil `moved` is the unconditional reconcile
+  (`refresh-beliefs`' two-arity): every supporter re-asked, every edge re-applied."
+  [rel believed? moved]
   (if-not (moved-touches? moved (:handles rel))
     rel
-    (let [handles (into #{} (mapcat keys) (vals (:support rel)))
-          rel     (assoc rel :out (into #{} (remove believed?) handles))]
-      (reduce apply-edge rel (keys (:support rel))))))
+    (if (nil? moved)
+      (let [handles (into #{} (mapcat keys) (vals (:support rel)))
+            rel     (assoc rel :out (into #{} (remove believed?) handles))]
+        (reduce apply-edge rel (keys (:support rel))))
+      (let [he       (:handle-edge rel)
+            affected (if (and (counted? moved) (<= (count moved) (count he)))
+                       (filterv #(contains? he %) moved)
+                       (filterv #(contains? moved %) (keys he)))
+            rel      (reduce (fn [r h]
+                               (if (believed? h)
+                                 (update r :out disj h)
+                                 (update r :out conj h)))
+                             rel affected)]
+        (reduce apply-edge rel (distinct (keep he affected)))))))
 
 (defn equality-partition
   "Compute `{:class :members}` from scratch, given the active undirected `edges` and
@@ -1510,6 +1531,7 @@
            (fn [rel] (-> rel
                          (assoc-in [:support e handle] preferred)
                          (update :handles conj handle)
+                         (update :handle-edge assoc handle e)
                          (update :out disj handle)
                          (apply-edge e)))))
   tax)
@@ -1527,6 +1549,7 @@
                      (assoc-in rel [:support e] hs)
                      (update rel :support dissoc e))
                    (update :handles disj handle)
+                   (update :handle-edge dissoc handle)
                    (apply-edge e))))))
   tax)
 
@@ -2726,6 +2749,28 @@
   partner (the applicability tests, the vocabulary reports) and are not walking a graph."
   ([tax p] (first (sort (inverses-of tax p))))
   ([tax p context] (first (sort (inverses-of tax p context)))))
+
+(defn inverses-under
+  "Every predicate declared inverse to `p` **or to a sub-predicate of `p`**, as a set —
+  anywhere, or (with `context`) declared from a context the reader can see, walking
+  only the `genl` edges visible from it.
+
+  A hop somebody recorded on a partner of a sub-predicate is a hop of the super too:
+  `(Q y x)` under `(inverse P' Q)` is `(P' x y)`, and a `P'` tuple is a `P` tuple by
+  subsumption, however it is spelled.  A step relation or a swapped-goal delegate
+  reading only `p`'s own partners leaves those edges silently off the graph — a claim
+  then answers under the sub-predicate and not under its super, which no reading of
+  `genl` admits.
+
+  The `:inverse` map is empty for nearly every KB, so the common case is one map read
+  and no closure walk; the spec closure is consulted only when some inverse exists."
+  ([tax p] (inverses-under tax p nil))
+  ([tax p context]
+   (if (empty? (get @tax :inverse))
+     #{}
+     (let [ps  (if (some? context) (specs tax p context) (specs tax p))
+           inv (if (some? context) #(inverses-of tax % context) #(inverses-of tax %))]
+       (into #{} (mapcat inv) ps)))))
 
 ;; ---- what the taxonomy holds, declared ----------------------------------
 ;;

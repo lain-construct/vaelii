@@ -5,10 +5,11 @@
   forward on `(P a)` to derive `(Q a K)` with `K` a deterministic skolem constant — the
   same constant every time the rule fires on the same antecedent binding, so the
   fixpoint terminates.  See docs/skolem.md."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.nat :as nat]
+            [vaelii.impl.skolem :as skolem]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
@@ -123,3 +124,15 @@
       (is (nat/reified-nat-symbol? k-q))
       (is (nat/reified-nat-symbol? k-r))
       (is (= k-q k-r) "(Q A K) and (R K) share the same K"))))
+
+(deftest the-rule-digest-ignores-ambient-print-settings
+  ;; the digest lands in stored termOfUnit content; under *print-level* 1 two
+  ;; unrelated rules print alike and would digest alike, merging their witnesses
+  (let [r1 {:antecedents '[(p ?x)] :consequent '(q ?x) :context 'C}
+        r2 {:antecedents '[(r ?x)] :consequent '(s ?x) :context 'C}
+        plain (#'skolem/rule-digest r1)]
+    (binding [*print-level* 1 *print-length* 1]
+      (is (= plain (#'skolem/rule-digest r1))
+          "the digest is a function of the rule's content, not of print state")
+      (is (not= (#'skolem/rule-digest r1) (#'skolem/rule-digest r2))
+          "and two rules stay two rules under any print settings"))))

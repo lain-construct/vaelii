@@ -236,3 +236,53 @@
     (is (= (count cli/commands) (count (distinct cli/commands)))))
   (testing "--help is a boolean flag rather than an unknown one"
     (is (= [[] {:help true}] (cli/parse-opts ["--help"])))))
+
+(tu/deftest-kb assert-rule-carries-the-strength-flag
+  ;; parsed one line up and never passed, --strength monotonic stored the rule at
+  ;; :default — where the first contradicting default could defeat known-true content
+  (tu/with-terms [dog animal CliContext]
+    (let [h (cli/dispatch kb "assert-rule"
+                          [[(list dog '?x)] (list animal '?x) CliContext]
+                          {:strength "monotonic"})]
+      (is (= :monotonic (:strength (v/sentex kb h)))
+          "the flag reaches the stored rule's record"))))
+
+(deftest a-flag-is-not-a-value-for-the-flag-before-it
+  ;; `--dir --starter` once opened a durable KB in a directory literally named
+  ;; --starter, took its writer lock, and loaded no schema
+  (let [e (is (thrown? clojure.lang.ExceptionInfo
+                       (cli/parse-opts ["assert" "(dog Rex)" "C" "--dir" "--starter"])))]
+    (is (= :unknown-option (:type (ex-data e))))
+    (is (re-find #"--starter" (ex-message e)) "the refusal names the swallowed flag")))
+
+(deftest a-flag-a-command-does-not-read-is-refused-rather-than-dropped
+  ;; The roster `parse-opts` holds says which flags exist; this one says which command
+  ;; may carry which. `match … --strength monotonic` bound the option, ran a read that
+  ;; never looks at it, and reported nothing — indistinguishable from a strength that
+  ;; was applied.
+  (testing "a real flag on a command that does not read it"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (cli/check-flags! "match" {:strength "monotonic"})))
+          d (ex-data e)]
+      (is (= :unknown-option (:type d)))
+      (is (= "match" (:cmd d)))
+      (is (= ["--strength"] (:unread d)) "the refusal names the flag it cannot honour")
+      (is (re-find #"no options of its own" (ex-message e)))))
+  (testing "and one the command does read is admitted, as are the driver's own"
+    (is (nil? (cli/check-flags! "assert" {:strength "monotonic"})))
+    (is (nil? (cli/check-flags! "match" {:dir "/tmp/kb" :starter true})))
+    (is (nil? (cli/check-flags! "export" {:variant "records" :compression "gzip"}))))
+  (testing "a command reading one value flag does not thereby read the others"
+    (let [d (ex-data (is (thrown? clojure.lang.ExceptionInfo
+                                  (cli/check-flags! "query" {:strength "monotonic"}))))]
+      (is (= ["--strength"] (:unread d)))
+      (is (= ["--depth"] (:reads d)) "and the message says what it does read")))
+  (testing "repl carries the union — its options are fixed at start and each line reuses them"
+    (is (nil? (cli/check-flags! "repl" {:strength "monotonic" :depth "3"
+                                        :variant "records" :compression "gzip"}))))
+  (testing "an unknown command word is left to the unknown-command report"
+    (is (nil? (cli/check-flags! "nosuchcmd" {:strength "monotonic"}))))
+  (testing "and so is no command at all, which is the repl by another spelling"
+    ;; `-main` drops into the loop on a bare `lein cli --strength monotonic`, so the
+    ;; flags belong to the session exactly as they do after the word `repl`
+    (is (nil? (cli/check-flags! nil {:strength "monotonic" :depth "3"})))))

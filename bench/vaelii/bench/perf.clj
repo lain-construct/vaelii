@@ -97,6 +97,7 @@
             [vaelii.impl.columnar :as columnar]
             [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.kv :as kv]
+            [vaelii.impl.literal-cache :as lc]
             [vaelii.impl.memory :as mem]
             [vaelii.impl.overlay.frozen :as frozen]
             [vaelii.impl.overlay.kv :as okv]
@@ -104,7 +105,8 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
-            [vaelii.impl.sentex :as sx]))
+            [vaelii.impl.sentex :as sx]
+            [vaelii.impl.settle :as settle]))
 
 ;; ---- measurement --------------------------------------------------------
 
@@ -186,6 +188,72 @@
              :let [x (symbol (str "PX" i))]]
          (do (v/assert kb (list 'pa_t x) 'PerfContext {})
              (nanos (v/assert kb (list 'pb_t x) 'PerfContext {}))))))))
+
+(defn- constraint-exposure-shared-arg
+  "n facts of a declared-`asymmetric` predicate that all share argument 1, under
+  `:refuse`.
+
+  **The one shape the rest of this file cannot see.** Every other check builds its KB
+  with `fresh-kb`, which declares no predicate property, so `settle`'s cross-context
+  constraint report shuts at its vocabulary gate and never runs — the suite is
+  structurally blind to the pass. This declares the property, so the gate opens and each
+  assert reaches `clash-vantages`, which reads the argument-1 posting of *both*
+  arguments to decide which contexts could see a pair.
+
+  The shared argument is what makes it a claim rather than a formality: `PA`'s posting
+  grows by one per assert, so a pass that walks it per assert is O(n) each and O(n²) over
+  the load, and the reading tracks the KB rather than the region. One context throughout,
+  so no pair is ever visible from anywhere and nothing is reported — this measures the
+  cost of *deciding that*, which is the cost every assert on such a KB pays.
+
+  **The posting is predicate-agnostic**, which is what makes the shape general rather
+  than contrived: `believed-at-arg1` reads every sentex holding the term at argument 1
+  and the functor filter runs after. So the risk is a heavily-used *individual* and not
+  only a wide slot — a term at argument 1 of ten thousand facts of other predicates costs
+  the same walk. This check drives it with one predicate because that is the shortest
+  load that grows the posting; the narrowing it guards (`settle/partner-contexts` reads
+  the one posting each declared property could hold a partner in) is what keeps either
+  shape flat."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(asymmetric plarger) 'PerfContext {:strength :monotonic})
+    (doall
+     (for [i (range n)]
+       (nanos (v/assert kb (list 'plarger 'PA (symbol (str "PL" i)))
+                        'PerfContext {}))))))
+
+(defn- constraint-exposure-context-edge
+  "A `genlContext` edge asserted into a KB holding n facts of a declared `functional`
+  predicate in the context it newly sees, under `:refuse`.
+
+  The edge is the one trigger the cross-context constraint report reaches *out* of the
+  moved region for: visibility moved, so a pair already stored becomes jointly visible
+  without either half being relabelled. Reaching out means walking the cone, and a cone
+  is unbounded — a context cycle makes it the whole graph — so the walk is lazy and
+  spends `*exposure-instance-budget*`.
+
+  **The claim is flatness past the cap, and the cap is bound small here to reach it.**
+  Below the cap the walk is proportional to the cone and deliberately so: that is what
+  the budget is *for*, and `members-in-cone` has cost the disjointness pass the same
+  shape since it was written. What must hold is that the cap is a cap — 8x the facts
+  behind one edge costs the same once both sides are past it. Measured against the
+  default 4096 the reading is the cone and not the cap (5.42x at 250 → 2000), which is
+  the check answering a different question rather than a regression.
+
+  Distinct subjects, so nothing in the cone pairs: this measures the reach, not the
+  reporting."
+  [n]
+  (binding [settle/*exposure-instance-budget* 100]
+    (let [kb (fresh-kb)]
+      (v/assert kb '(functional pbirth) 'PerfContext {:strength :monotonic})
+      (v/assert kb '(genlContext PSrcContext PerfContext) 'PerfContext {:strength :monotonic})
+      (v/with-deferred-settle kb
+        (doseq [i (range n)]
+          (v/assert kb (list 'pbirth (symbol (str "PS" i)) i) 'PSrcContext {})))
+      (doall
+       (for [i (range 60)]
+         (nanos (v/assert kb (list 'genlContext (symbol (str "PW" i "Context")) 'PSrcContext)
+                          'PerfContext {:strength :monotonic})))))))
 
 (defn- defeasible-load
   "n facts arriving through one defeasible forward rule.  The rule fires per fact and the
@@ -871,6 +939,46 @@
                                  'UniverseContext)
                         'PerfContext {:strength :monotonic}))))))
 
+(def ^:private reads-per-visibility-reading
+  "Reads batched into one timed measurement, the same batch at both sizes so it cancels
+  out of the ratio — `reads-per-clash-reading`'s idiom, for its reason."
+  20)
+
+(defn- visibility-reading
+  "A scoped read on a KB carrying n believed `(except (sentexHandle H))` facts, all
+  visible from the reading context.
+
+  The claim is that the read costs **what it returns**, not what the KB hides. Every
+  scoped retrieval filters by visibility removal (`res/without-excepted`), and the answer
+  that filter needs is *which handles are hidden from here* — a question whose honest
+  shape is a lookup per match and whose lazy shape is a walk over every `except` in the
+  KB, per call. The excepts here hide **decoys** the read never returns, so n moves the
+  filter's input while leaving its output alone, and a reading that grows with n is the
+  filter re-deriving what the store already knows.
+
+  **The literal cache is bound off**, and that is the point rather than a distortion.
+  A repeat read under an unmoved clock is served whole from `literal-cache`, so leaving
+  it on would measure the cache and report the filter as free at both sizes. The caller
+  this check exists for is forward chaining, which moves the clock per placement and so
+  meets this read cold every time (`literal-cache/lookup` states that directly).
+
+  Built under one deferred settle: the excepts are the KB this measures against, not the
+  thing measured."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/with-deferred-settle kb
+      (doseq [i (range n)
+              :let [h (v/assert kb (list 'pvDecoy (symbol (str "PVD" i))) 'PerfContext
+                                {:strength :monotonic})]]
+        (v/assert kb (list 'except (sx/sentex-handle h)) 'PerfContext
+                  {:strength :monotonic})))
+    (v/assert kb '(pvSeen PVOne) 'PerfContext {:strength :monotonic})
+    (binding [lc/*enabled* false]
+      (doall
+       (for [_ (range 60)]
+         (nanos (dotimes [_ reads-per-visibility-reading]
+                  (count (v/sentexes-matching kb '(pvSeen ?x) 'PerfContext)))))))))
+
 (def ^:private reads-per-clash-reading
   "Readings of the standing set batched into one timed measurement, and **the same batch
   at both sizes**, so it cancels out of the ratio.  A single read at the small size lands
@@ -929,6 +1037,18 @@
     :sizes     [25 800]
     :max-ratio 15.0
     :run       clash-arbitration}
+
+   {:name      :constraint-exposure-shared-arg
+    :claim     "asserting into a declared-asymmetric slot costs what the region holds, not what the KB does"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       constraint-exposure-shared-arg}
+
+   {:name      :constraint-exposure-context-edge
+    :claim     "past the instance cap, 8x the facts behind a genlContext edge costs the same"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       constraint-exposure-context-edge}
 
    {:name      :defeasible-load
     :claim     "a fact arriving through a defeasible rule costs the same at 2000 as at 250"
@@ -1216,7 +1336,28 @@
     :claim     "a reading of the standing dilemmas costs what it returns — an ordering of the standing set, not a re-derivation of it"
     :sizes     [25 800]
     :max-ratio 175.0
-    :run       standing-clash-reading}])
+    :run       standing-clash-reading}
+
+   ;; **Flat, and calibrated from both ends** as the header requires. Healthy it reads
+   ;; **0.91x and 0.90x** on full runs (0.74x under `--only`): the answer set is one fact
+   ;; at both sizes and a roster lookup does not care how much the roster holds. The shape
+   ;; this exists to catch — the filter re-deriving the hidden set per call, a walk over
+   ;; every stored `except` — reads **27.33x**, measured by running this check against a
+   ;; tree that has it rather than by supposing a number for it.
+   ;;
+   ;; The bound is the flat claim's own 2.0x, which is where the header puts a cost that
+   ;; should not move with n at all, and it sits an order of magnitude under the defect
+   ;; and twice the healthy spread. The defect's reading is an `--only` one and so if
+   ;; anything understates it: a full run's warmer baseline divides a smaller number into
+   ;; the same large one.
+   ;;
+   ;; The small size is 8 rather than 25 for the header's reason: at 25 excepts a walk is
+   ;; already carrying enough per-except cost to divide some of itself out of the ratio.
+   {:name      :visibility-reading
+    :claim     "a scoped read costs what it returns, not what the KB hides"
+    :sizes     [8 1024]
+    :max-ratio 2.0
+    :run       visibility-reading}])
 
 ;; ---- the runner ---------------------------------------------------------
 

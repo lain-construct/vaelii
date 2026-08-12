@@ -11,6 +11,7 @@
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.impl.disk.tokens :as dtok]
+            [vaelii.impl.memory :as mem]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx])
   (:import [java.io RandomAccessFile]
@@ -70,6 +71,24 @@
             (is (= #{b} (p/premise-ids s)))
             (is (= :default (p/premise-strength s a))))
           (finally (drs/close! s)))))))
+
+(deftest marking-an-unstored-handle-marks-nothing-on-either-store
+  ;; the premise set follows the record set: a handle with no sentex takes no mark, on
+  ;; the memory store exactly as on the disk one — the two must answer `premise-ids`
+  ;; identically for the same call sequence, or the backend matrix reads a phantom
+  (with-tmp
+    (fn [dir]
+      (let [d (drs/open-record-store dir)
+            m (mem/memory-record-store {:space ::phantom-premise})]
+        (try
+          (doseq [s [d m]]
+            (p/mark-premise s 999 :default)
+            (is (= #{} (p/premise-ids s)) "no record, no premise")
+            (p/unmark-premise! s 999)
+            (is (= #{} (p/premise-ids s))))
+          (finally
+            (drs/close! d)
+            (p/clear-records! m)))))))
 
 ;; ---- the premise bit ----------------------------------------------------
 ;; The premise set is read off the idx slots rather than by decoding every record, so

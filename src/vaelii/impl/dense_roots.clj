@@ -106,14 +106,16 @@
   drop an entry."
   [dict ^long pk]
   (let [family (bit-shift-right pk 56)
-        pos    (bit-and (bit-shift-right pk 32) 0xffffff)
         term   (tok/id-token dict (int (bit-and pk 0xffffffff)))]
     (case (int family)
       0 [:context-root term]
       1 [:functor-root term]
-      2 [:argument-root pos term]      ; nothing packs family 2 (F-ARG is reserved, see
-                                       ; `route`); the arm pins the tag's decode so the
-                                       ; number cannot be reused with another shape
+      ;; F-ARG (family 2) is reserved and nothing packs it: the real key is the
+      ;; four-element `[:argument-root pred pos term]`, whose predicate the packed
+      ;; long has no room for (see `route`).  Throwing pins that — reusing the tag
+      ;; means designing a decode, not inheriting one with the wrong shape.
+      2 (throw (ex-info "F-ARG is reserved; no packed key carries family 2"
+                        {:type :reserved-family :packed pk}))
       3 [:term-index term]
       4 [:rule-index :antecedent term]
       5 [:rule-index :consequent term]

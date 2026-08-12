@@ -113,6 +113,19 @@
   ([{:keys [assumptions contradictions] :as program}
     {:keys [tiebreak? keep-belief?] :or {tiebreak? true keep-belief? true}}]
    (let [ordered   (sort-by #(solve/content-key program %) assumptions)
+         ;; the nogoods too: `settle` hands them in arrival order, and every emission
+         ;; below — the violation-atom interning, the constraints, the minimize and
+         ;; show statements — walks this seq, so an unsorted one renders two logically
+         ;; identical programs as different ASPIF text and (without the tiebreak) two
+         ;; different first-found optima for one KB
+         contradictions (sort-by (fn [ng]
+                                   (binding [*print-length* nil *print-level* nil]
+                                     (pr-str [(mapv #(solve/content-key program %)
+                                                    (sort-by #(solve/content-key program %)
+                                                             (concat (:nogood ng) (:neg ng))))
+                                              (:priority ng)
+                                              (boolean (:hard ng))])))
+                                 contradictions)
          n         (count ordered)
          table     (atoms/new-table)
          ;; Allocate in content-key order so atom ids never depend on assertion order.

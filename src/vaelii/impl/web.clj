@@ -1031,6 +1031,7 @@
    :exception-not-closed "open guard"
    :naf-not-closed       "open naf"
    :quantifier-not-local "quantifier"
+   :quantified-conjunction "quantified and"
    :arg-type             "arg type"
    :arg-genl             "arg type"
    :inter-arg-type       "arg type"
@@ -1286,7 +1287,11 @@
      [:input {:type "hidden" :name "ctx" :value (pr-str context)}]
      [:input {:type "hidden" :name "i" :value i}]
      (when storable?
-       [:input {:type "hidden" :name "line" :value (pr-str [chosen context])
+       ;; print vars bound off — the value is read back as EDN, and an elided
+       ;; sentence is legal EDN naming something else (see `edit-line`)
+       [:input {:type "hidden" :name "line"
+                :value (binding [*print-length* nil *print-level* nil]
+                         (pr-str [chosen context]))
                 :disabled "disabled"}])]))
 
 (defn- proposal-lines
@@ -1415,8 +1420,12 @@
       :where (when (:index p) (str "line " (inc (:index p))))})
    (for [v violations]
      {:tag (name (:violation v :dropped))
-      :message (str (pr-str (:sentence v)) " — "
-                    (or (:message (:detail v)) "dropped on the derivation path"))
+      ;; the same two shapes `violation-rows` handles: an entry about no sentence printed
+      ;; the string "nil — ", and the two kinds carrying `:message` at the top level
+      ;; printed the fallback instead of the message they had
+      :message (let [m (or (:message (:detail v)) (:message v)
+                           "dropped on the derivation path")]
+                 (if-let [s (:sentence v)] (str (pr-str s) " — " m) m))
       :where "a conclusion"})))
 
 (defn- consequence-panel
@@ -2218,10 +2227,21 @@
   than something the reader can infer from where it sits."
   [{:keys [kb] :as view} offset]
   (ledger-rows "violations" (v/violations kb) offset
-               (fn [v] [:li [:span.tag (name (:violation v))] " "
-                        (render-form view (:sentence v)) " @ " (term-link view (:context v))
+               ;; **Not every entry is about a sentence.**  The cross-context reports and
+               ;; both sweep notices carry a `:detail` and no `:sentence` or `:context` —
+               ;; rendered unconditionally those became the text "nil" beside a live link
+               ;; to `/term?q=nil`, since `term-link`'s fallback arm links whatever it is
+               ;; handed.  And `:message` sits at the top level on `:non-confluent` and
+               ;; `:aggregate` where every other kind puts it under `:detail`, so reading
+               ;; only one of the two dropped the line those two exist to print.
+               ;; the present-field arms are seqs rather than `[:span …]` wrappers, so an
+               ;; entry that has a sentence renders exactly the markup it always did
+               (fn [v] [:li [:span.tag (name (:violation v))]
+                        (when-let [s (:sentence v)] (list " " (render-form view s)))
+                        (when-let [c (:context v)] (list " @ " (term-link view c)))
                         (when-let [r (:run v)] [:span.muted " · run " r])
-                        (when-let [m (:message (:detail v))] [:span.muted " — " m])])))
+                        (when-let [m (or (:message (:detail v)) (:message v))]
+                          [:span.muted " — " m])])))
 
 (defn stats-rows-page
   "One more page of a stats-page list — what its scroll sentinel fetches.  Every section is
@@ -2260,9 +2280,31 @@
          [:p "No term is jointly visible under two disjoint types. "
           [:span.muted "Computed just now, not read from a ledger."]]
          [:div
-          [:ul (for [{:keys [detail]} (take clash-cap cs)]
-                 [:li (term-link view (:term detail)) " holds "
-                  (interpose ", " (for [t (:held detail)] (term-link view t)))
+          ;; **Each half is a `[type context]` pair, and both halves are links.** Handing
+          ;; the pair to `term-link` whole took its fallback arm, which links whatever it
+          ;; is given — so the page offered `/term?q=[dog AContext]`, a term no KB holds,
+          ;; for every clash it reported. The context is half of what the row says
+          ;; anyway: a membership admissible where it was written is only interesting
+          ;; beside *where* that was.
+          ;;
+          ;; The `:violation` guard is the other half of the same lesson. This read
+          ;; returns only `:disjoint` today, and destructuring `:term`/`:held` without
+          ;; asking is exactly the assumption that made `violation-rows` print "nil" when
+          ;; a second entry shape arrived. A kind this does not know renders its own
+          ;; message rather than a row of blanks.
+          [:ul (for [{:keys [violation detail]} (take clash-cap cs)]
+                 [:li
+                  (if (= :disjoint violation)
+                    (list (term-link view (:term detail)) " holds "
+                          (interpose ", "
+                                     (for [h (:held detail)]
+                                       (let [[t c] (if (sequential? h) h [h nil])]
+                                         (list (term-link view t)
+                                               (when c
+                                                 (list " " [:span.muted "in "]
+                                                       (term-link view c))))))))
+                    (list [:span.tag (name violation)] " "
+                          (or (:message detail) "a standing clash")))
                   (when-let [vf (seq (:visible-from detail))]
                     [:span.muted " — visible together from "
                      (interpose ", " (for [c vf] (term-link view c)))])])]
@@ -4222,10 +4264,15 @@
   "The one editable EDN line for a handle: `[sentence context]`, plus
   `{:strength :monotonic}` when the sentex is known-true, so a re-assert keeps it."
   [s]
-  (let [sent (wrapped-sentence s) ctx (:context s)]
-    (if (= :monotonic (:strength s))
-      (pr-str [sent ctx {:strength :monotonic}])
-      (pr-str [sent ctx]))))
+  ;; print vars bound off: the line is read back as EDN and diffed by content, and an
+  ;; ambient *print-length* would elide a long sentence into `(dog Muffet ...)` —
+  ;; legal EDN that no longer matches its own sentex, so saving an untouched panel
+  ;; would retract the real fact and store the mutilated one
+  (binding [*print-length* nil *print-level* nil *print-meta* false]
+    (let [sent (wrapped-sentence s) ctx (:context s)]
+      (if (= :monotonic (:strength s))
+        (pr-str [sent ctx {:strength :monotonic}])
+        (pr-str [sent ctx])))))
 
 (defn- parse-handles [csv]
   (->> (str/split (str csv) #",") (map str/trim) (remove str/blank?) (keep ->long) distinct vec))
@@ -4353,13 +4400,20 @@
         (if (seq problems)
           (frag (edit-panel view handles {:text text :problems problems}))
           (let [{:keys [added]} (v/edit! kb batch)
-                ;; line index -> the handle the line became, for the positional pairing
-                by-line   (into {} (map-indexed (fn [k a] [(:line a) (nth added k nil)])) additions)
+                ;; line index -> the handle the line became, for the positional pairing.
+                ;; An entry is `assert`-shaped, so a line concluding a conjunction became
+                ;; a *vector* of handles — no single row replaces the old one, so it
+                ;; stays unpaired and surfaces in the result panel like an appended line
+                by-line   (into {} (map-indexed (fn [k a]
+                                                  (let [h (nth added k nil)]
+                                                    [(:line a) (when-not (vector? h) h)])))
+                                additions)
+                stored    (flatten added)
                 paired    (set (keep #(get by-line (:line %)) removals))
-                unpaired  (into [] (comp (remove paired) (keep #(v/sentex kb %))) added)
+                unpaired  (into [] (comp (remove paired) (keep #(v/sentex kb %))) stored)
                 remaining (- (count handles) (count removals))]
-            (prime-belief! view (concat added (map :id unpaired)))
-            (frag (list (save-result view unpaired (count added) (count removals))
+            (prime-belief! view (concat stored (map :id unpaired)))
+            (frag (list (save-result view unpaired (count stored) (count removals))
                         (saved-rows view removals by-line)
                         ;; the selection chrome: the retracted handles are gone from the
                         ;; page, so the count they were part of is stale
@@ -5127,11 +5181,10 @@
              (when (seq shared)
                [:p.muted "Wider than this KB: " (str/join ", " shared)
                 (str (if (= 1 (count shared)) " keeps its rates" " keep their rates")
-                     " for the whole process, so clearing here zeroes the hit and miss "
-                     "counters every other KB's page is reading. The entries dropped are "
-                     "this KB's alone — no other KB loses one, and none loses a belief. "
-                     "What a second reader loses is the measurement they were partway "
-                     "through.")])
+                     " for the whole process. Clearing here drops this KB's entries "
+                     "alone and leaves those counters running — they are a measurement "
+                     "every other KB's page is partway through, and zeroing them is "
+                     "clear-caches' :counters? option on the API, not this button.")])
              (kb-action "Clear the derived caches" "/caches/clear" {} "primary")
              (profiler-section)))))
 
@@ -5256,7 +5309,20 @@
                "it changes, but not changed."]
               [:p.muted "Wait for it to finish, cancel it on the "
                [:a {:href "/jobs"} "jobs"] " page, or switch to another KB on the "
-               [:a {:href "/kbs"} "knowledge bases"] " page."]))))
+               [:a {:href "/kbs"} "knowledge bases"] " page."]))
+
+    ;; the reciprocal of `export-entry!`'s still-loading refusal: the dump walks the
+    ;; records with no snapshot, so while it runs the KB can be read but not changed —
+    ;; the export claims no writer (a load of another KB is none of its business), so
+    ;; the job registry cannot answer for it and the catalog is asked directly
+    (catalog/exporting-kb? (current target))
+    (render (view (current target) req) "still exporting"
+            [:h2 "Nothing was written"]
+            [:p [:b (active-kb-name)] " is being exported, and the dump walks the "
+             "records one by one with no snapshot — a write landing mid-walk would "
+             "leave it a dump of no single state."]
+            [:p.muted "Wait for it to finish or cancel it on the "
+             [:a {:href "/kbs"} "knowledge bases"] " page."])))
 
 (defn- writing
   "The guard every synchronous write to a KB's *content* goes through: `write-refusal`,
@@ -5434,13 +5500,17 @@
          ;; writing the active KB out.  A write to the *filesystem* rather than to a KB,
          ;; so it does not go through `writing` — a load fills some other KB and is no
          ;; reason to refuse this one; what an export cannot survive is the KB it is
-         ;; walking being written, which is `export-entry!`'s own refusal to make.
+         ;; walking being written.  `export-entry!` refuses to start while a loader
+         ;; writes, `write-refusal`'s exporting arm refuses writes while the walk runs,
+         ;; and the monitor handed in below is what drains a synchronous write already
+         ;; past that refusal before the walk starts, as `writing-job` does for a chain.
          ["/kbs/export"        {:post (fn [req]
                                         (if (same-origin? req)
                                           (kbs-post #(catalog/export-entry!
                                                       (catalog/active)
                                                       (get-in req [:params "dir"])
-                                                      (export-opts (:params req)))
+                                                      (assoc (export-opts (:params req))
+                                                             :run-in (fn [work] (locking write-monitor (work)))))
                                                     #(view (current target) req))
                                           (cross-origin-refusal)))}]
          ["/kbs/export/cancel" {:post (fn [req]

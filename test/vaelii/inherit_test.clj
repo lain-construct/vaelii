@@ -101,6 +101,231 @@
     (is (not (v/ask? kb (list hasMemberSomewhere siamese_t Earth) 'UniverseContext))
         "but not back down to a sibling")))
 
+(tu/deftest-kb the-preserved-relation-can-be-the-context-hierarchy
+  ;; The other closure the engine owns: an argument that names a *context* can be
+  ;; preserved along `genlContext`, so a claim about a wide context reaches the
+  ;; contexts below it — and the inverse form reads the lattice upward.  No
+  ;; `(transitive genlContext)` declaration exists or is needed: the walk reads the
+  ;; cached context closure, exactly as `genl` reads the type closure.
+  (tu/with-terms [appliesIn reportedBelow TheDecree WideContext MidContext NarrowContext
+                  SideContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext WideContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext MidContext WideContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext NarrowContext MidContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext SideContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) 'UniverseContext)
+      (v/assert kb (list appliesIn TheDecree WideContext) 'UniverseContext))
+    (testing "one hop and two, down the cached context closure"
+      (is (v/ask? kb (list appliesIn TheDecree MidContext) 'UniverseContext))
+      (is (v/ask? kb (list appliesIn TheDecree NarrowContext) 'UniverseContext)))
+    (testing "and not upward, or sideways to an incomparable context"
+      (is (not (v/ask? kb (list appliesIn TheDecree 'UniverseContext) 'UniverseContext)))
+      (is (not (v/ask? kb (list appliesIn TheDecree SideContext) 'UniverseContext))))
+    (testing "the inverse form reads the lattice upward"
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'argPreservingInverse reportedBelow 2 'genlContext)
+                  'UniverseContext)
+        (v/assert kb (list reportedBelow TheDecree NarrowContext) 'UniverseContext))
+      (is (v/ask? kb (list reportedBelow TheDecree MidContext) 'UniverseContext) "one hop")
+      (is (v/ask? kb (list reportedBelow TheDecree WideContext) 'UniverseContext) "two")
+      (is (not (v/ask? kb (list reportedBelow TheDecree SideContext) 'UniverseContext))
+          "and not to a context with nothing below it"))
+    (testing "a late edge extends the reach, and retracting it takes the reach back"
+      (v/assert kb (list 'genlContext SideContext MidContext) 'UniverseContext)
+      (is (v/ask? kb (list appliesIn TheDecree SideContext) 'UniverseContext)
+          "the incomparable context is now below the wide one, and the claim arrives")
+      (v/retract! kb (v/handle-of kb (list 'genlContext SideContext MidContext)
+                                  'UniverseContext))
+      (is (not (v/ask? kb (list appliesIn TheDecree SideContext) 'UniverseContext))))))
+
+(tu/deftest-kb the-inverse-form-walks-a-declared-relation-too
+  ;; The direction and the relation are independent axes: `argPreservingInverse` along
+  ;; a declared-transitive predicate reads its stored facts backwards, so a claim about
+  ;; a part reaches the assemblies it sits in.
+  (tu/with-terms [partOf dirty Car Engine Piston]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive partOf) 'UniverseContext)
+      (v/assert kb (list partOf Engine Car) 'UniverseContext)
+      (v/assert kb (list partOf Piston Engine) 'UniverseContext)
+      (v/assert kb (list 'argPreservingInverse dirty 1 partOf) 'UniverseContext)
+      (v/assert kb (list dirty Piston) 'UniverseContext))
+    (is (v/ask? kb (list dirty Engine) 'UniverseContext) "one hop up the part chain")
+    (is (v/ask? kb (list dirty Car) 'UniverseContext) "and two")
+    (is (not (v/ask? kb (list dirty 'TmpOtherThing) 'UniverseContext))
+        "a thing on no chain inherits nothing")))
+
+;; ---- the semantics travel with the relation --------------------------------
+;; Undercutting, strength and negation are stated over `genl` in the sections below,
+;; and the code that decides them is relation-generic — `below?` compares tuples along
+;; whatever relation the declaration names.  These pin that the semantics hold off
+;; `genl` too, so a regression scoped to the non-genl arms cannot pass the suite.
+
+(tu/deftest-kb a-specific-claim-undercuts-along-the-relation-it-travelled
+  (testing "along the context lattice"
+    (tu/with-terms [appliesIn TheDecree WideContext MidContext NarrowContext SideContext]
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'genlContext WideContext 'UniverseContext) 'UniverseContext)
+        (v/assert kb (list 'genlContext MidContext WideContext) 'UniverseContext)
+        (v/assert kb (list 'genlContext NarrowContext MidContext) 'UniverseContext)
+        (v/assert kb (list 'genlContext SideContext WideContext) 'UniverseContext)
+        (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) 'UniverseContext)
+        (v/assert kb (list appliesIn TheDecree WideContext) 'UniverseContext))
+      (is (v/ask? kb (list appliesIn TheDecree NarrowContext) 'UniverseContext))
+      (v/assert kb (list 'not (list appliesIn TheDecree MidContext)) 'UniverseContext)
+      (is (not (v/ask? kb (list appliesIn TheDecree NarrowContext) 'UniverseContext))
+          "below the denial the nearer claim decides")
+      (is (v/ask? kb (list appliesIn TheDecree SideContext) 'UniverseContext)
+          "a branch the denial says nothing about still inherits")))
+  (testing "along a declared fact-relation"
+    (tu/with-terms [partOf needsMaintenance Car Engine Piston Wheel]
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'transitive partOf) 'UniverseContext)
+        (v/assert kb (list partOf Engine Car) 'UniverseContext)
+        (v/assert kb (list partOf Piston Engine) 'UniverseContext)
+        (v/assert kb (list partOf Wheel Car) 'UniverseContext)
+        (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'UniverseContext)
+        (v/assert kb (list needsMaintenance Car) 'UniverseContext))
+      (is (v/ask? kb (list needsMaintenance Piston) 'UniverseContext))
+      (v/assert kb (list 'not (list needsMaintenance Engine)) 'UniverseContext)
+      (is (not (v/ask? kb (list needsMaintenance Piston) 'UniverseContext))
+          "the denial at the engine stops what only the engine's chain carried")
+      (is (v/ask? kb (list needsMaintenance Wheel) 'UniverseContext)
+          "the wheel's chain does not pass the engine"))))
+
+(tu/deftest-kb specificity-under-the-inverse-form-follows-the-travel-direction
+  ;; The inverse walk reads the relation backwards, and `below?` reads the
+  ;; declaration's direction with it: nearer to the goal along the travelled direction
+  ;; is more specific, so under `argPreservingInverse … genl` the *supertype*'s claim
+  ;; is the one that decides — it sits closer to the upward goal than the subtype's.
+  (tu/with-terms [dog_t animal_t thing_t hasMemberSomewhere]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genl dog_t animal_t) 'UniverseContext)
+      (v/assert kb (list 'genl animal_t thing_t) 'UniverseContext)
+      (v/assert kb (list 'argPreservingInverse hasMemberSomewhere 1 'genl) 'UniverseContext)
+      (v/assert kb (list hasMemberSomewhere dog_t) 'UniverseContext))
+    (is (v/ask? kb (list hasMemberSomewhere thing_t) 'UniverseContext) "the chain reaches up")
+    (v/assert kb (list 'not (list hasMemberSomewhere animal_t)) 'UniverseContext)
+    (is (= :against (inherit/verdict kb (list hasMemberSomewhere animal_t) 'UniverseContext))
+        "at the denial's own tuple the stated claim wins over the inherited one")
+    (is (not (v/ask? kb (list hasMemberSomewhere thing_t) 'UniverseContext))
+        "and above it, the claim nearer the goal along the travelled direction decides")))
+
+(tu/deftest-kb known-true-content-does-not-yield-off-genl
+  ;; "A :monotonic claim is never undercut" is stated of the strength, not of the
+  ;; relation: along a fact-relation the contrary specific claim leaves a dilemma
+  ;; standing rather than silently overriding the fixed background.
+  (tu/with-terms [partOf needsMaintenance Car Engine Piston]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive partOf) 'UniverseContext)
+      (v/assert kb (list partOf Engine Car) 'UniverseContext)
+      (v/assert kb (list partOf Piston Engine) 'UniverseContext)
+      (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'UniverseContext))
+    (v/assert kb (list needsMaintenance Car) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'not (list needsMaintenance Engine)) 'UniverseContext)
+    (is (= :ambiguous (inherit/verdict kb (list needsMaintenance Piston) 'UniverseContext))
+        "the monotonic general claim does not yield, so the disagreement is represented")
+    (is (not (v/ask? kb (list needsMaintenance Piston) 'UniverseContext))
+        "and the prover answers neither way")))
+
+(tu/deftest-kb a-negation-blocks-the-walk-whatever-relation-it-travels
+  ;; The negation probe is relation-generic: a believed `(not (P …))` at a tuple in
+  ;; range argues `:against` along `genlContext` and a fact-relation exactly as along
+  ;; `genl` — and the negated *goal* stays unanswered either way, because an
+  ;; inheritance that only licenses claims has nothing to say about refutation.
+  (tu/with-terms [appliesIn TheDecree WideContext NarrowContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext WideContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext NarrowContext WideContext) 'UniverseContext)
+      (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) 'UniverseContext)
+      (v/assert kb (list appliesIn TheDecree WideContext) 'UniverseContext)
+      (v/assert kb (list 'not (list appliesIn TheDecree WideContext)) 'UniverseContext))
+    (is (= :ambiguous (inherit/verdict kb (list appliesIn TheDecree NarrowContext)
+                                       'UniverseContext))
+        "a claim and its negation at one tuple are not a clean for, down the lattice either")
+    (is (not (v/ask? kb (list appliesIn TheDecree NarrowContext) 'UniverseContext)))
+    (is (not (v/ask? kb (list 'not (list appliesIn TheDecree NarrowContext))
+                     'UniverseContext))
+        "the negated goal is not answered by preservation: :against is open-world")))
+
+(tu/deftest-kb the-mirror-and-the-hop-compose-under-the-inverse-form
+  ;; A claim reachable only through the symmetric mirror *and* an argument hop read
+  ;; backwards: stored `(adjacentTo Garden Piston)`, mirrored to put the piston at the
+  ;; preserved position, then walked up the part chain.
+  (tu/with-terms [partOf adjacentTo Garden Car Engine Piston]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive partOf) 'UniverseContext)
+      (v/assert kb (list partOf Engine Car) 'UniverseContext)
+      (v/assert kb (list partOf Piston Engine) 'UniverseContext)
+      (v/assert kb (list 'symmetric adjacentTo) 'UniverseContext)
+      (v/assert kb (list 'argPreservingInverse adjacentTo 1 partOf) 'UniverseContext))
+    (v/assert kb (list adjacentTo Garden Piston) 'UniverseContext)
+    (is (v/ask? kb (list adjacentTo Engine Garden) 'UniverseContext) "one hop, mirrored")
+    (is (v/ask? kb (list adjacentTo Car Garden) 'UniverseContext) "and two")
+    (is (v/ask? kb (list adjacentTo Garden Car) 'UniverseContext)
+        "and the inherited claim has a mirror of its own")
+    (is (not (v/ask? kb (list adjacentTo Garden 'TmpElsewhere) 'UniverseContext)))))
+
+(tu/deftest-kb a-position-past-the-arity-preserves-nothing
+  ;; `wff` checks the position is a positive integer and not that the predicate has
+  ;; it; `by-position` drops what no tuple can satisfy, so the declaration is stored,
+  ;; inert, and licenses nothing — pinned so a regression that reads past a tuple's
+  ;; end, or takes the declaration's existence for a licence, is caught here.
+  (tu/with-terms [dog_t cat_t golden_retriever_t chases]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genl golden_retriever_t dog_t) 'UniverseContext)
+      (v/assert kb (list 'binaryPredicate chases) 'UniverseContext))
+    (is (integer? (v/assert kb (list 'argPreserving chases 3 'genl) 'UniverseContext))
+        "admitted: the structural check does not read the arity")
+    (v/assert kb (list chases dog_t cat_t) 'UniverseContext)
+    (is (not (v/ask? kb (list chases golden_retriever_t cat_t) 'UniverseContext))
+        "no position it names exists, so nothing inherits")
+    (is (nil? (inherit/verdict kb (list chases golden_retriever_t cat_t) 'UniverseContext)))
+    (is (v/ask? kb (list chases dog_t cat_t) 'UniverseContext)
+        "the stored fact still answers, by the ordinary matcher")))
+
+(tu/deftest-kb an-open-goal-returns-the-stored-tuples-and-only-those
+  ;; docs/inherit.md's ground-only contract, pinned: `ArgPreservingProver` answers a
+  ;; ground goal, and an open one is left to the fact and rule provers — so a query
+  ;; enumerates the stored extent while `ask?` answers each licensed tuple.  A future
+  ;; enumerator changes this test deliberately or not at all.
+  (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t largerThan]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genl golden_retriever_t dog_t) 'UniverseContext)
+      (v/assert kb (list 'genl maine_coon_t cat_t) 'UniverseContext)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'UniverseContext)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'UniverseContext)
+      (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext))
+    (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'UniverseContext)
+        "each licensed ground tuple answers")
+    (is (= [{'?x dog_t '?y cat_t}]
+           (vec (v/ask kb (list largerThan '?x '?y) 'UniverseContext)))
+        "the open goal enumerates the stored extent and no licensed tuple")
+    (is (empty? (v/ask kb (list largerThan '?x maine_coon_t) 'UniverseContext))
+        "a half-open goal pinned off the stored extent enumerates nothing")))
+
+(tu/deftest-kb the-licence-stays-with-the-predicate-it-names
+  ;; Subsumption makes a sub-predicate's *facts* serve the super-predicate's goals; the
+  ;; licence itself does not travel the other way.  `(argPreserving largerThan 1 genl)`
+  ;; is a claim about how *largerThan* distributes over subkinds, and it no more
+  ;; descends to `muchLargerThan` than `transitive` or `symmetric` does: dogs may be
+  ;; larger than cats without every subkind being *much* larger.  A relation property
+  ;; is stated of the relation that has it, and a sub-predicate goal inherits nothing
+  ;; until someone declares that predicate preserving.
+  (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t
+                  largerThan muchLargerThan]
+    (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
+                :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
+    (preserving! kb largerThan)
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genl muchLargerThan largerThan) 'UniverseContext)
+      (v/assert kb (list muchLargerThan dog_t cat_t) 'UniverseContext))
+    (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) 'UniverseContext)
+        "the super-predicate's goal inherits, reading the sub-predicate's fact")
+    (is (not (v/ask? kb (list muchLargerThan golden_retriever_t maine_coon_t)
+                     'UniverseContext))
+        "the sub-predicate's goal does not: nobody declared muchLargerThan preserving")))
+
 (tu/deftest-kb a-relation-nobody-declared-transitive-is-refused
   ;; The declaration's reach is walked to a **fixpoint**, so naming a relation that was
   ;; never said to compose would manufacture transitivity for it: two hops of `begat`
@@ -201,6 +426,41 @@
     (testing "and the same declaration walks once the licence is where B can see it"
       (v/assert kb (list 'transitive begat3) 'UniverseContext)
       (is (v/ask? kb (list cursed3 A3) BContext)))))
+
+(tu/deftest-kb all-three-transitivities-compose-in-one-goal
+  ;; Subsumption, preservation and visibility meet in one read: the claim is stored
+  ;; under a *sub-predicate* of the goal's, about the *supertypes* of the goal's
+  ;; arguments, and the licence and the predicate edge sit at different depths of the
+  ;; asking context's cone.  Each pairing is pinned on its own — here and in
+  ;; `predicate_subsumption_test` — and this is the intersection, where the fact reach
+  ;; has to fan to the sub-predicate *as seen from the asking context* for a tuple the
+  ;; argument walk proposed.
+  (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t largerThan muchLargerThan
+                  TopContext AskContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext TopContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext AskContext TopContext) 'UniverseContext)
+      ;; the kinds and the claim, where every context sees them
+      (v/assert kb (list 'genl golden_retriever_t dog_t) 'UniverseContext)
+      (v/assert kb (list 'genl maine_coon_t cat_t) 'UniverseContext)
+      (v/assert kb (list muchLargerThan dog_t cat_t) 'UniverseContext)
+      ;; the licence partway up the cone, the predicate edge at its bottom
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) TopContext)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) TopContext)
+      (v/assert kb (list 'genl muchLargerThan largerThan) AskContext))
+    (testing "where every piece is visible, the goal needing all three answers"
+      (is (v/ask? kb (list largerThan dog_t cat_t) AskContext)
+          "subsumption alone: the kinds-level goal under the super-predicate")
+      (is (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) AskContext)
+          "subsumption and preservation together: the subkinds under the super-predicate"))
+    (testing "one level up, exactly the predicate edge is out of sight"
+      (is (v/ask? kb (list muchLargerThan dog_t cat_t) TopContext)
+          "the stored claim itself is visible")
+      (is (not (v/ask? kb (list largerThan golden_retriever_t maine_coon_t) TopContext))
+          "but no visible edge puts it under the goal's predicate"))
+    (testing "at the root the licence is out of sight too, and nothing walks"
+      (is (not (v/ask? kb (list largerThan golden_retriever_t maine_coon_t)
+                       'UniverseContext))))))
 
 (tu/deftest-kb withdrawing-the-transitivity-withdraws-the-inheritance
   ;; Read at use and not only at assert: the declaration is still stored, but a relation

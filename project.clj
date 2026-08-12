@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.5.1"
+(defproject com.vaelii/vaelii "0.6.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -104,7 +104,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.5.1"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.6.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -237,7 +237,7 @@
             "lint-drift"      ["shell" "python3" "scripts/check-doc-drift.py"]
             "lint-kondo"      ["shell" "clj-kondo" "--lint" "src" "test" "bench"]
             "lint-cljfmt"     ["cljfmt" "check"]
-            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/lint-versions.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/test-sweeps.sh" "scripts/lib/suite-marks.sh" "scripts/gate.sh" "scripts/update-badges.sh" "scripts/link-checkouts.sh" "scripts/check-reflection.sh"]
+            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/lint-versions.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/test-sweeps.sh" "scripts/lib/suite-marks.sh" "scripts/gate.sh" "scripts/update-badges.sh" "scripts/link-checkouts.sh" "scripts/check-reflection.sh" "scripts/test-parallel.sh" "scripts/run-bench-caches.sh"]
             ;; the two ratchets: a compile pass whose warnings fail, and a public var
             ;; nothing references.  Both are in scripts/lint.sh too, so `lein gate`
             ;; picks them up inside the suite's wall clock; these are the one-offs.
@@ -295,6 +295,10 @@
             "bench-checks"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.checks"]
             "bench-inherit"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.inherit"]
             "bench-tactics"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.tactics"]
+            ;; the two per-firing reads `perf` cannot gate: a cost that is constant per
+            ;; operation moves both of a ratio's readings, so it gets a report and a
+            ;; per-firing number instead of a bound
+            "bench-hotreads"  ["with-profile" "+bench" "run" "-m" "vaelii.bench.hotreads"]
             ;; where a bulk load's wall clock goes, phase by phase — a cumulative peel,
             ;; so the deltas sum to the baseline (docs/storage.md, "What a bulk load costs")
             "bench-loadphase" ["with-profile" "+bench" "run" "-m" "vaelii.bench.loadphase"]

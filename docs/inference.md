@@ -29,6 +29,11 @@ rules `(implies A C1)` and `(implies A C2)`, keeping any virtual wrapper (defaul
 forward / backward / inert). `assert` and `assert-rule` do the split and return
 the **vector** of handles in that case (a single handle otherwise).
 
+A rule that concludes a **rule** is a *generator*, and its firing stores the rule it
+concludes rather than a fact — the one place range restriction is asked one level in,
+since the stamped rule's own variables are unbound on purpose. See
+[generators.md](generators.md).
+
 ## Rule direction (virtual predicates)
 
 By default a rule is used in *both* directions. Wrap it to constrain that — these
@@ -46,13 +51,27 @@ antecedent predicates *and* its consequent predicate, whatever its direction
 (`special/index-rule-sentex`, [indexing.md](indexing.md)). What the wrapper decides is
 which chainer will *use* what the index already holds.
 
+**An inert rule is documentation with a handle, and indexing it is the point.** It is
+believed like any other rule and posted under all of its predicates, so it is findable
+by its terms and readable in the browser; what it never does is fire. That is how a
+rule the engine does *not* execute is still written down where a reader looks for it —
+the transitivity of `genl` beside the closure that actually computes it
+([taxonomy.md](taxonomy.md)). Two consequences worth stating: an inert rule is the one
+rule shape whose predicate may be a **variable**, exempt from the `:not-indexable`
+refusal because a rule that runs in neither engine claims nothing the index has to
+honour; and it is
+**not** the same inertness as `core/assert-inert`, which stores a sentex that is never
+a premise and so never believed at all ([solving.md](solving.md)). One is a believed
+rule that does not fire; the other is a sentex nothing believes. `assert-inert` refuses
+a rule outright, so the two cannot be confused in a stored KB.
+
 `assert-rule` also accepts `{:direction :forward|:backward|:inert|:both}` — and so
 does `assert`, as the programmatic spelling of the `set/*Rule` wrappers.
 
 Re-asserting an α-equivalent rule dedups to the one stored handle, and its
-`:direction` / `:defeasible` slots resolve from **content**, not arrival order: the
-least restrictive direction of the spellings seen (`join-direction`), and strict
-over defeasible. A rule asserted bare after `set/inertRule` therefore fires, and one
+`:direction` / `:defeasible` / `:strength` slots resolve from **content**, not arrival
+order: the least restrictive direction of the spellings seen (`join-direction`), strict
+over defeasible, and the stronger class ([canonicalization.md](canonicalization.md)). A rule asserted bare after `set/inertRule` therefore fires, and one
 asserted strict after `set/defaultRule` ties with a monotonic rival — the same two
 assertions reaching the same beliefs whichever arrived first, which is what
 [nmtms.md](nmtms.md) requires. The resolution reaches the justifications already
@@ -1144,6 +1163,32 @@ there and a type high in the hierarchy usually has no instances of its own (cost
 an upper bound on the true match count, so the minimum of them is the tightest bound
 available without fetching a record.
 
+**What the subtype fan costs, and what it does not.** It is the only branch of
+`est-matches` that is not a handful of O(1) index reads: one estimate per subtype, summed,
+and `order` asks for it once per pick, per plan, per firing attempt. For the shape that
+actually costs — `(animal ?x)`, the argument a bare open variable — the general walk is a
+long way round to one number, because the literal's token stream is the functor (known, so
+it extends the prefix) and then the variable (neither known nor bound, so the walk stops).
+The estimate is therefore exactly `count-at [t']` per subtype, and it is read that way.
+Any other argument shape — a compound, which puts its own tokens on the prefix, or a
+partly-bound one, which turns on what is bound — takes the general walk, because for those
+the prefix genuinely is deeper.
+
+Reading the roots directly rather than building a literal per subtype halves the fan
+(`lein bench-hotreads`: 6.8% of a forward chaining run at 364 subtypes, from 13.2%), and it
+is a **constant-factor** change by construction — the two computations are the same number,
+which is what `plan_test` pins against the walk itself rather than against a number written
+down in a test.
+
+Remembering the answer instead does **not** work, and the harness reports both halves of
+why. A memo stamped on the change clock is retired by a placement, so on the path that pays
+for the fan it is never served; on a query, where nothing moves the clock and every plan
+after the first would be, the fan is under 3% of the run. A finer stamp is unsound rather
+than merely fiddly: the estimate bounds from above, a reading of 1 is a proof the block
+ranking rests on, and a fact placed under one subtype makes an entry computed before it too
+small. Reaching this cost further means making the fan cheaper again — a count maintained
+per closure — not holding its answer longer.
+
 **Every input must be an upper bound**, which is what decides how the two
 functor-blind shapes are costed. Both of the functor-keyed models — the subtype fan
 and the functor root — read the functor as a concrete symbol, and both answer *low*
@@ -1354,7 +1399,15 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   (transitive closure over facts for a declared-`transitive` predicate; `:compute`, **70**
   — it reads the stored facts and the rule conclusions already among them, but not a rule
   that would conclude a further edge), and `SymmetricProver` / `InverseProver` /
-  `ReflexiveProver` (swapped/derived matches; 50, they augment facts). What counts as one
+  `ReflexiveProver` (swapped/derived matches; 50, they augment facts). The symmetric
+  mirror **delegates** rather than reading storage: `(pred b a)` goes back through the
+  registry minus `SymmetricProver` itself, so the mirror of a claim that is *preserved,
+  inherited or computed* is an answer, where a raw read finds nothing stored to swap.
+  `InverseProver` does the same with a partner spelling, and the two compose.
+  `*mirror-depth*` bounds the re-entry at two levels — the mirror of a mirror is the
+  original goal, and a mutual `symmetric`/`inverse` pair would ping between the delegates
+  — and past the bound the mirror falls back to the raw stored read, the stored swap alone
+  that the delegation extends. What counts as one
   hop of the closure walk — believed matches, sub-predicates, the symmetric mirror and a
   declared inverse's spelling, and not a rule conclusion — is
   [taxonomy.md](taxonomy.md), "The step relation"; an open-argument ask's reach is held

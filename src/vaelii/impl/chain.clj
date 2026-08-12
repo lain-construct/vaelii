@@ -158,12 +158,16 @@
 
 (defn- unknown-inner-holds?
   "Does the query inside an `(unknown …)` antecedent hold under `bindings`, evaluated
-  in `pctx`?  Run exactly like an exception conjunct — `provers/exception-holds?` over
-  the single inner literal — so `unknown` and `exceptWhen` share one level-6 evaluator
-  and cannot drift; a nested `thereExists` is dispatched to its prover from there.
-  When it holds, `S` is derivable, so `(unknown S)` is false and the firing is blocked."
+  in `pctx`?  Run exactly like an exception — `provers/exception-holds?` over the
+  query's conjuncts — so `unknown` and `exceptWhen` share one level-6 evaluator and
+  cannot drift; a nested `thereExists` is dispatched to its prover from there.  When it
+  holds, `S` is derivable, so `(unknown S)` is false and the firing is blocked.
+
+  A conjunctive query is the same block-if-**all**-hold the exception's conjuncts are,
+  and for the same reason: closure leaves each conjunct ground, so they share nothing
+  and need no join."
   [kb unk bindings pctx]
-  (provers/exception-holds? kb [(second unk)] bindings pctx))
+  (provers/exception-holds? kb (sx/naf-query-conjuncts unk) bindings pctx))
 
 (defn naf-blocks?
   "Is a firing blocked by any of its `unknown` antecedents `naf-antes` — is any inner
@@ -337,12 +341,16 @@
   "Does a believed visibility `except` hide one of `antes` from `pctx`?  A derivation
   resting on an antecedent the conclusion's context cannot see is invalid there.
 
-  `res/excepted-handles` is gated on the `except` root, so this is free for a KB that
-  hides nothing.  A rule handle among `antes` never spuriously matches: a rule is not an
-  `except` target."
+  Asked per antecedent (`res/hidden-fn`) rather than against the materialized hidden set,
+  because this runs once per placement and once per candidate justification, and a rule
+  has two or three antecedents where a cone can hide thousands of handles.  A nil
+  predicate is the gate — a KB that hides nothing from `pctx` pays a deref and returns
+  here.  A rule handle among `antes` never spuriously matches: a rule is not an `except`
+  target."
   [kb antes pctx]
-  (let [hidden (res/excepted-handles kb pctx)]
-    (and (seq hidden) (boolean (some hidden antes)))))
+  (if-let [hidden? (res/hidden-fn kb pctx)]
+    (boolean (some hidden? antes))
+    false))
 
 (defn- rule-firing-blocked?
   "Is a firing of the rule stored at `rh` — settled bindings `bindings` (a delay),
@@ -815,7 +823,60 @@
               :else            acc))]
     (seq (walk [] form))))
 
-(defn- place-conclusion
+(defn- mint-rule
+  "Store the rule a **generator** firing stamped out (docs/generators.md), justified by
+  the firing, and return its handle in the newly-created vector `place-conclusion`
+  returns.
+
+  One thing separates this from a rule somebody asserted, and it is the whole point of
+  minting rather than macro-expanding: the mint is **derived**, so it is justified
+  rather than marked a premise, and the ordinary relabel un-believes it the moment what
+  licensed it goes.  Both chainers ask belief of a rule before using it
+  (`res/rule-believed?`), so an un-believed mint stops firing without anything having to
+  hunt it down and delete it.
+
+  Everything else is what the assert door does, because a rule is a rule whichever door
+  it came through: the same check list (`checks/rule-violation`, read through
+  `checks/check-rule!` so the two cannot drift), the same rule postings
+  (`special/index-rule-sentex`), and the direction the *stamped* rule's own
+  `set/*Rule` wrapper set — which rides in the sentence and so survives substitution
+  untouched.
+
+  Returned as a new handle so the agenda takes it: a minted rule is a datum, and
+  `process-datum` joins a forward-capable one over the facts already stored, exactly as
+  it does for a rule somebody typed.  That is what makes a generator's two arrival
+  orders agree — facts first or generator first, the same rules exist and have seen the
+  same facts — without a retroactive sweep of its own.
+
+  A refused mint is **dropped and recorded**, never thrown, for the reason every check
+  on this path is a value: an exception escaping a firing would leave the fixpoint half
+  computed, and which rule fired first would decide what the KB believes."
+  [kb rule sentence pctx all-antes depth bindings strength]
+  ;; A stamped rule concluding a conjunction is polycanonicalized exactly as an asserted
+  ;; one is (`rules/expand-consequent`) — one rule per conjunct, each keyed by its own
+  ;; consequent predicate.  Checked before any of them is stored, for the reason
+  ;; `core/assert` checks its conjuncts first: a mapv is not a transaction, and a mint
+  ;; that half-landed would leave the KB holding part of a rule nobody wrote.
+  (let [minted (rules/expand-consequent sentence)]
+    (if-let [v (some #(checks/rule-violation kb % pctx) minted)]
+      (do (violations/report kb [(assoc v :sentence sentence :context pctx
+                                        :rule (:rule-handle rule))])
+          [])
+      (into []
+            (mapcat
+             (fn [one]
+               (let [[h s new?] (kb/find-or-create-sentex kb one pctx)]
+                 (when new? (special/index-rule-sentex kb h s))
+                 (jtms/ensure-node (:tms kb) h depth)
+                 (when-not (jtms/has-justification? (:tms kb) (:name rule) all-antes h)
+                   (let [jid  (p/next-id (:records kb))
+                         just (jtms/->just jid (:name rule) all-antes h bindings strength)]
+                     (p/put-justification (:records kb) just)
+                     (jtms/add-justification (:tms kb) just)))
+                 (if new? [h] []))))
+            minted))))
+
+(defn- place-fact-conclusion
   "Persist/justify a rule conclusion `conseq` in context `pctx` at justification
   `strength` (:monotonic / :default); return the handles newly created (for
   enqueueing) — the conclusion itself, plus a copy in each context its predicate is
@@ -926,6 +987,20 @@
               ;; and a derived genlContext edge widens what a rule can see, for the
               ;; same reason and with the same remedy
               (into (special/visibility-seeds kb conseq))))))))
+
+(defn- place-conclusion
+  "Place one firing's conclusion, whatever kind of thing it is.
+
+  A conclusion that **is a rule** is a generator's mint (`mint-rule`,
+  docs/generators.md); everything else is a fact (`place-fact-conclusion`).  The split
+  is here rather than at the call sites because both of them — a fresh firing and a
+  released refusal — must make it the same way, and because every arm of the fact path
+  is about a fact: argument types, the functional merge, the decontextualized lift,
+  subsumption seeds.  None of them means anything said of a rule."
+  [kb rule conseq pctx all-antes depth bindings strength]
+  (if (rules/rule-sentence? (peek (sx/peel-rule-wrapper conseq)))
+    (mint-rule kb rule conseq pctx all-antes depth bindings strength)
+    (place-fact-conclusion kb rule conseq pctx all-antes depth bindings strength)))
 
 (defn- subsumption-links
   "The `[fact-functor antecedent-functor]` pairs a firing reached through
@@ -1248,10 +1323,18 @@
             ;; A post-join literal's output is unbound here too — it is computed per
             ;; placement — and it is emphatically not existential: skolemizing `?n`
             ;; would mint a constant where a count belongs.
-            free      (let [f (free-consequent-vars raw0)]
-                        (if-let [post (seq (:post-join rule))]
-                          (seq (remove (into #{} (mapcat sx/deferred-output-vars) post) f))
-                          f))
+            ;; ...and **not** a generator's head.  The rule it stamps out keeps its own
+            ;; free variables by construction — they are the stamped rule's, which is
+            ;; the whole scoping rule (docs/generators.md) — so skolemizing here would
+            ;; freeze a pattern into constants and store a rule that matches one tuple.
+            ;; A head existential *inside* the stamped rule skolemizes when that rule
+            ;; fires, against its own handle, which is the only witness that means
+            ;; anything.
+            free      (when-not (rules/rule-sentence? (peek (sx/peel-rule-wrapper raw0)))
+                        (let [f (free-consequent-vars raw0)]
+                          (if-let [post (seq (:post-join rule))]
+                            (seq (remove (into #{} (mapcat sx/deferred-output-vars) post) f))
+                            f)))
             raw       (if free (skolem/skolemize-conclusion kb rule raw0 bindings free) raw0)
             ;; a conjunctive skolemized head shares one witness across its conjuncts
             ;; (only a head existential stores a conjunctive consequent — an ordinary
@@ -1520,12 +1603,16 @@
         trigger  (cond->> rhs
                    qrhs (remove qrhs)
                    prhs (remove prhs))
-        forward? (fn [rsx] (and rsx (rules/forward-sentex? rsx)))]
+        ;; forward-capable *and believed*: the antecedent index posts on storage, so a
+        ;; rule whose support has gone is still a candidate here and is refused on its
+        ;; record rather than by the lookup (`res/rule-believed?`)
+        forward? (fn [rh rsx] (and rsx (rules/forward-sentex? rsx)
+                                   (res/rule-believed? kb rh)))]
     (into
      (reduce
       (fn [nh rh]
         (let [rsx (p/get-sentex (:records kb) rh)]
-          (if-not (forward? rsx)
+          (if-not (forward? rh rsx)
             nh
             (let [{:keys [antecedents consequent] :as rule} (rule-view-of kb rh rsx)
                   cpred (nm/functor consequent)]
@@ -1570,8 +1657,10 @@
         (if (rules/rule? sx)
           ;; direction and defeasibility are read straight off the record — the sentex
           ;; is already in hand, and it is what the set/*Rule wrapper set.  A defeasible
-          ;; rule fires here too, at :default (see fire-rules-for).
-          (if (rules/forward-sentex? sx)
+          ;; rule fires here too, at :default (see fire-rules-for).  Belief is asked
+          ;; here as well as there: a rule reaches the agenda as a *datum* when it is
+          ;; asserted or derived, and a derived one can arrive already defeated.
+          (if (and (rules/forward-sentex? sx) (res/rule-believed? kb datum))
             (fire-rule kb datum max-depth truncated)
             [])
           (fire-rules-for kb datum max-depth truncated))))))

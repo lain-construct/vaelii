@@ -117,10 +117,10 @@
         (is (str/includes? body label))))))
 
 (deftest the-clear-says-where-it-reaches-past-this-kb
-  ;; The literal cache's rates are the process's, so pressing this zeroes what every
-  ;; other KB's page is reading. A control offered as a per-KB one has to say that
-  ;; *before* it is pressed, and say it from the rows rather than from a cache named in
-  ;; prose that would outlive it.
+  ;; The literal cache's rates are the process's, and the button does not touch them —
+  ;; `clear-caches` is called with no opts, so `:counters?` stays off. A control beside
+  ;; a process-wide rate has to say the rate keeps running, and say it from the rows
+  ;; rather than from a cache named in prose that would outlive it.
   (let [body (:body (GET "/caches"))
         wide (->> (v/caches tu/*kb*)
                   (filter #(and (:clearable? %) (= :process (:counters %))))
@@ -129,9 +129,10 @@
     (is (re-find #"Wider than this KB: " body))
     (doseq [label wide]
       (is (str/includes? body label)))
-    (is (re-find #"zeroes the hit and miss counters every other KB" body))
-    (is (re-find #"no other KB loses one, and none loses a belief" body)
-        "and says what it does not reach, which is the part that would alarm a reader")))
+    (is (re-find #"drops this KB&apos;s entries alone and leaves those counters running" body))
+    (is (re-find #"zeroing them is clear-caches&apos; :counters\? option" body)
+        "and names the API option that does reach them, which is what a reader who
+        wanted the rates zeroed goes looking for")))
 
 (deftest a-cache-that-cannot-be-read-renders-as-unreadable-not-as-empty
   ;; In a column of dashes the two are indistinguishable, and the page is worth most

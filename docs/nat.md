@@ -214,10 +214,14 @@ lexicographically-smallest survivor via a further equality, which migrates their
 The retired spelling stays a usable *question*: a goal naming the old term
 goal-rewrites to the new expression and still resolves to `K`.
 
-**Remove** is retraction. When the last live use of a reified NAT goes, its `termOfUnit` map
+**Remove** is retraction. When the last stored use of a reified NAT goes, its `termOfUnit` map
 and materialized types would dangle a raw `nat/` symbol — so `remove-orphaned-nats!`
 (run after `retract!` and `edit!`, gated, suppressed while already removing orphans)
-collects every constant whose only remaining believed sentexes are its own bookkeeping. A
+collects every constant whose only remaining **stored** sentexes are its own bookkeeping.
+Stored, not believed: a use sitting OUT revives when the defeat above it lifts, and an
+inert use (a labeling's choice head) has no TMS node at all — either would dangle if a
+sweep counted only belief, and re-reifying the expression would mint a second constant
+beside the first. A
 **correspondence projection** is bookkeeping for this: like a result type it states what
 the constant *is*, and counting it as a use would make every placeholder immortal.
 
@@ -234,6 +238,16 @@ answer is reached without reading the declarations at all. The one constant this
 alive that a shape test would have collected is one whose `resultIsa` declaration was
 retracted after the mint: the materialized `(T K)` is then a believed sentence no rule
 supports and nobody has withdrawn, and holding `K` for it is the direction to err in.
+
+**The answer is realized before the caller acts on it**, and the delay is what makes
+that a rule rather than a detail. `bookkeeping-handles` is read *for* a retraction and
+decides membership by re-reading `K`'s `termOfUnit`, so an answer still being computed
+while the caller retracts through it reads a KB the caller has already taken that map
+out of — and everything past that point answers "not bookkeeping" and stays stored,
+which is the dangling `nat/` symbol the sweep exists to prevent. Which sentex the term
+index hands back first decides whether it happens, so a lazy answer here is a bug in
+some retrieval orders and not in others. Both the per-constant set and the sweep's own
+per-round orphan list are realized before the round's first retraction.
 
 **The sweep asks about the region the teardown removed, not about the KB.** A constant
 becomes an orphan only when something that referenced it goes, so the candidates are the

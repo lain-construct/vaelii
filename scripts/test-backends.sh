@@ -39,10 +39,12 @@
 #
 # The suite is expected to be **failing-set-identical** across every run — a
 # backend that answers differently is a bug in the backend, not a feature of
-# it.  The assertion COUNT is identical too, across all eight: no test here
-# compares a raw index map, so none is gated on the shape of one.  A run whose
-# count differs has skipped something the others ran, which is worth reading
-# even when both runs are green.
+# it.  The assertion COUNT moves only where a test says why, and exactly one
+# does: profile_test's `:fan` contract puts the two columnar runs FOUR
+# assertions below the other six (the columnar trie counts no node probes, and
+# the test asserts that instead of standing aside — docs/profile.md).  Any
+# other difference is a run that skipped something the others ran, which is
+# worth reading even when both runs are green.
 #
 # Runs are SEQUENTIAL by design.  Two disk-backed suites over one directory
 # would collide on the single-writer lock, and `VAELII_TEST_SPACE` only admits
@@ -122,8 +124,20 @@ else
   BACKENDS=("${ALL[@]}")
 fi
 
-OUT_DIR="${TEST_BACKENDS_OUT:-target/test-backends}"
-mkdir -p "$OUT_DIR"
+# A run owns its directory (gate.sh, same reason): the logs and the disk scratch
+# roots live under it, so two concurrent matrices — the two non-overlapping
+# VAELII_TEST_SPACE blocks testing.md sanctions — cannot rm -rf each other's live
+# store or interleave one log.  `latest` points at the newest and is what to tail;
+# an explicit TEST_BACKENDS_OUT is used verbatim.
+BACKENDS_ROOT="target/test-backends"
+if [[ -n "${TEST_BACKENDS_OUT:-}" ]]; then
+  OUT_DIR="$TEST_BACKENDS_OUT"
+  mkdir -p "$OUT_DIR"
+else
+  OUT_DIR="$BACKENDS_ROOT/run-$$"
+  mkdir -p "$OUT_DIR"
+  ln -sfn "$(basename "$OUT_DIR")" "$BACKENDS_ROOT/latest" 2>/dev/null || true
+fi
 
 # The colours, the marks and the log readers, shared with `test-sweeps.sh` — the
 # other script that runs the whole suite more than once, and which would otherwise

@@ -99,7 +99,10 @@ UI wants to link to.
 
 `:justification` is one level, not `why`'s tree: the informant, the rule it names when
 that informant is a stored rule, and the antecedent sentences. A preview reports a whole
-batch's consequences, and a proof tree apiece would be a proof search apiece.
+batch's consequences, and a proof tree apiece would be a proof search apiece. A datum
+several derivations support names the **content-least** justification — the informant's
+sentence, then the antecedents — never whichever derivation happened to land first,
+so the same batch against the same knowledge names the same reason on any load order.
 
 `:refused` is `check-edit`'s verdict plus anything that threw on the way in. `check` is
 a fair account of `assert`'s refusals, not a proof of one: a batch whose second line is

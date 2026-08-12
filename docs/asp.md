@@ -78,7 +78,11 @@ default.
 
 The cutoff is AUTO-mode only; an explicit `VAELII_ASP_SOLVER=clingo` uses clingo whatever
 the size. Rerouting a large program to clasp is safe because a program is only ever plain
-ASP, which both backends answer identically.
+ASP, which both backends answer identically. And the cutoff yields to availability: on a
+machine with libclingo loaded and no `clasp` executable, AUTO keeps large programs
+in-process too — a slower solve is a cost regression, where routing to a binary the
+machine does not have would be a refusal `available?` had promised away. The clasp probe
+forks a process to answer, so it is made once per JVM.
 
 ## The encoding
 

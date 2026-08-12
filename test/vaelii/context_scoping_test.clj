@@ -433,3 +433,99 @@
     (is (empty? (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)] AContext))
         "asked from a context, it answers only what that context holds")
     (is (empty? (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)] BContext)))))
+
+;; ---- (ist Ctx S) as a read ----------------------------------------------
+;;
+;; `ist` names the context a sentence is about, and a read resolves it exactly as
+;; `assert` does — the named context winning over the argument.  The scoping question
+;; this raises answers itself: the form grants **no** visibility a context argument did
+;; not already grant, because naming A is what `(sentexes-matching kb S 'AContext)` has
+;; always done.  That is what separates a read from a rule antecedent, where the same
+;; shape is refused (`sentex/ist-read-problem`): a caller asking about A has said so,
+;; while a rule reading A on the sly decides belief from a context its own cannot see.
+
+(tu/deftest-kb an-ist-read-is-a-spelling-of-the-context-argument
+  (tu/with-terms [heldP18 Item AContext BContext]
+    (siblings! kb AContext BContext)
+    (v/assert kb (list heldP18 Item) AContext)
+    (let [goal (list heldP18 '?x)
+          ist  (list 'ist AContext goal)]
+      (testing "asked from B, which cannot see A, it answers exactly as naming A does"
+        (is (= (mapv (juxt :sentence :context) (v/sentexes-matching kb goal AContext))
+               (mapv (juxt :sentence :context) (v/sentexes-matching kb ist BContext)))
+            "no visibility the context argument did not already carry")
+        (is (seq (v/sentexes-matching kb ist BContext))
+            "and it is a real answer rather than two empties agreeing"))
+      (testing "the named context wins over the argument, as it does at assert"
+        (is (= [AContext] (mapv :context (v/sentexes-matching kb ist 'UniverseContext))))
+        (is (= [AContext] (mapv :context (v/sentexes-matching kb ist BContext)))))
+      (testing "and a plain goal is untouched by any of it"
+        (is (empty? (v/sentexes-matching kb goal BContext)))))))
+
+(tu/deftest-kb every-read-taking-a-sentence-and-a-context-takes-an-ist
+  ;; The rule is the whole surface, so the test is the whole surface: a reader should
+  ;; not have to learn which door happens to have been wired.
+  (tu/with-terms [litP19 Item AContext BContext]
+    (siblings! kb AContext BContext)
+    (v/assert kb (list litP19 Item) AContext)
+    (let [ist   (list 'ist AContext (list litP19 '?x))
+          ist-g (list 'ist AContext (list litP19 Item))]
+      (testing "the retrieval and reasoning doors"
+        (is (seq (v/sentexes-matching kb ist BContext)))
+        (is (some? (v/handle-of kb ist-g BContext)))
+        (is (seq (v/ask kb ist BContext)))
+        (is (v/ask? kb ist-g BContext))
+        (is (seq (v/prove kb ist BContext)))
+        (is (v/provable? kb ist-g BContext))
+        (is (seq (v/query kb ist BContext)))
+        (is (v/query? kb ist-g BContext))
+        (is (some? (v/query-plan kb ist BContext))))
+      (testing "the anytime doors"
+        (is (seq (:results (v/ask-within kb ist BContext {:max-results 1}))))
+        (is (seq (:results (v/prove-within kb ist BContext {:max-results 1})))))
+      (testing "the level diagnostics"
+        (is (seq (v/lookup kb 2 ist-g BContext)))
+        (is (some? (:level (v/escalate kb ist-g BContext))))
+        (is (some? (v/explain-levels kb ist-g BContext))))
+      (testing "and why-not, which reports under the context it was told about"
+        (let [r (v/why-not kb (list 'ist AContext (list litP19 'TmpAbsent19)) BContext)]
+          (is (= :not-stored (:reason r)))
+          (is (= AContext (:context r))))))))
+
+(tu/deftest-kb an-ist-read-answers-at-each-doors-own-notion-of-a-context
+  ;; The two families disagree, and the disagreement is theirs rather than ist's:
+  ;; `sentexes-matching` is an exact-context retrieval, while the reasoning doors answer
+  ;; from everything the context inherits.  `(ist A S)` means "in A" under both readings
+  ;; — a fact A inherits *is* true in A — so it is pinned rather than reconciled.
+  (tu/with-terms [seenP20 Near Far AContext BContext]
+    (siblings! kb AContext BContext)
+    (v/assert kb (list seenP20 Near) AContext)
+    (v/assert kb (list seenP20 Far) 'UniverseContext)
+    (let [ist (list 'ist AContext (list seenP20 '?x))]
+      (is (= [Near] (mapv (comp second :sentence) (v/sentexes-matching kb ist BContext)))
+          "retrieval answers the facts stored in A")
+      (is (= #{Near Far} (into #{} (map '?x) (v/ask kb ist BContext)))
+          "the registry answers what A inherits as well"))))
+
+(tu/deftest-kb the-two-ist-read-shapes-that-are-refused-rather-than-answered-empty
+  ;; Both would otherwise report nothing, which reads exactly like a true negative.
+  (tu/with-terms [shapeP21 Item AContext]
+    (v/assert kb (list shapeP21 Item) AContext)
+    (testing "a wrong arity is assert's own :shape, on every read door"
+      (doseq [bad [(list 'ist AContext)
+                   (list 'ist AContext (list shapeP21 '?x) 'junk)]]
+        (doseq [[label f] {"sentexes-matching" #(v/sentexes-matching kb bad 'UniverseContext)
+                           "ask"               #(v/ask kb bad 'UniverseContext)
+                           "prove"             #(v/prove kb bad 'UniverseContext)}]
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (f))
+                      (str label " refuses " (pr-str bad)))]
+            (is (= :shape (:type (ex-data e))))))))
+    (testing "and an ist conjunct of a join is :not-well-formed — a join has no
+              per-literal context, which is the antecedent question in another frame"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (v/prove kb [(list 'ist AContext (list shapeP21 '?x))
+                                        (list shapeP21 '?y)]
+                                    'UniverseContext)))]
+        (is (= :not-well-formed (:type (ex-data e))))))
+    (testing "while an ordinary vector goal still joins"
+      (is (seq (v/prove kb [(list shapeP21 '?x)] AContext))))))

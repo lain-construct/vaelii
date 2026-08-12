@@ -55,8 +55,7 @@
   argument tail that follows the predicate being asked about.  A table rather than a cond
   chain, because the kinds differ in *arity* as well as in functor — `interArgIsa` names
   two positions and two types — and a chain would put that difference in the caller."
-  '{:arity      (arity ?n)
-    argIsa      (argIsa ?n ?type)
+  '{argIsa      (argIsa ?n ?type)
     argGenl     (argGenl ?n ?type)
     interArgIsa (interArgIsa ?n ?type ?m ?utype)})
 
@@ -279,14 +278,13 @@
   The membership spelling is read off the predicate's own types (`types`, the shared
   per-assert reader), so it costs the retrieval `argIsa` already needs for its
   arguments rather than one of its own."
-  ([kb pred context types] (declared-arity kb pred context types nil))
-  ([kb pred context types _decls]
-   (or (let [n (tax/declared-arity (:taxonomy kb) pred context)]
-         (when (and (integer? n) (pos? n)) n))
-       (let [cs (:closures (types pred))]
-         (first (for [[t n] predicate-type-arities
-                      :when (kb/isa-among? cs t)]
-                  n))))))
+  [kb pred context types]
+  (or (let [n (tax/declared-arity (:taxonomy kb) pred context)]
+        (when (and (integer? n) (pos? n)) n))
+      (let [cs (:closures (types pred))]
+        (first (for [[t n] predicate-type-arities
+                     :when (kb/isa-among? cs t)]
+                 n)))))
 
 (defn- handle-namings
   "The handles of the matches that literally *say* `target`, in content order, else a
@@ -373,13 +371,12 @@
   one and the retroactive report can point at it.  It does **not** make this arbitrable
   — `arbitrable-kinds` is what decides that, and the comment above it says why arity is
   not on the list even though it names a second sentex."
-  [kb sentence context types decls]
+  [kb sentence context types]
   (let [pred (nm/functor sentence)]
     (when (symbol? pred)
-      ;; `decls` is the shared reader for *this sentence's* functor, so it answers the
-      ;; arity question too — the same visibility-scoped retrieval, asked once for the
-      ;; whole pass instead of once per check that wants it.
-      (when-let [declared (declared-arity kb pred context types decls)]
+      ;; the arity question is answered from the taxonomy cache and the predicate's
+      ;; own type memberships (`declared-arity`) — no declaration query is made here
+      (when-let [declared (declared-arity kb pred context types)]
         (let [actual (nm/arity sentence)]
           (when (and (not= actual declared)
                      (not (kb/isa-among? (:closures (types pred)) 'variableArity)))
@@ -761,9 +758,15 @@
                (every? sx/ground-term? args)
                (tax/has-prop? (:taxonomy kb) :asymmetric pred context))
       (let [converse (list pred (second args) (first args))
+            ;; compared against the *canonical* spelling: the matcher probes through
+            ;; `kb-sentex`, so a comparison predicate's converse is stored folded
+            ;; (`greaterThan B A` as `lessThan A B`) and the raw form would match no
+            ;; record — leaving `stated` empty and the duplicate opposing sentexes
+            ;; this second read exists to supply unsupplied
+            stored-c (:sentence (res/kb-sentex kb converse context))
             stated   (for [m   (res/matches-visible kb converse context)
                            :let [sxr (nth m 2) h (first m)]
-                           :when (= converse (:sentence sxr))]
+                           :when (= stored-c (:sentence sxr))]
                        {:polarity :for :handle h :sentence (:sentence sxr)
                         :context (:context sxr)
                         :class (or (jtms/defeat-class (:tms kb) h) :default)})
@@ -819,7 +822,7 @@
   [kb chk context types decls]
   (with-opposing-class
     kb
-    (or (arity-problem kb chk context types decls)
+    (or (arity-problem kb chk context types)
         (args-problem kb chk context types decls)
         (inter-args-problem kb chk context types decls)
         (genls-problem kb chk context decls)
@@ -1090,9 +1093,8 @@
   would advertise an arbitration that deliberately does not happen."
   [kb sentence context]
   (let [chk   (checked-sentence sentence)
-        types (kb/membership-reader kb context)
-        decls (declaration-reader kb (nm/functor chk) context)]
-    (arity-problem kb chk context types decls)))
+        types (kb/membership-reader kb context)]
+    (arity-problem kb chk context types)))
 
 (defn arbitrable-violations
   "**Every** definitional clash `sentence` forms against believed content visible from
@@ -1196,9 +1198,14 @@
 (defn- exception-predicates
   "The predicates the exceptWhen exceptions of stored rule `handle` mention — the
   negative-edge keys the stratification graph reads, gathered from the rule's
-  belief-following exceptWhen meta-sentexes (`provers/rule-exceptions`)."
+  belief-following exceptWhen meta-sentexes (`provers/rule-exceptions`).
+
+  Read through the query frames (`rules/watched-predicates`), because a cycle runs
+  through what the exception *reads*: an exception that is itself an `(unknown S)` is a
+  negative dependency on `S`'s predicate, and keyed on `unknown` — which nothing
+  concludes — the graph would find no cycle to refuse."
   [kb handle]
-  (mapcat #(keep nm/functor %) (provers/rule-exceptions kb handle)))
+  (mapcat rules/watched-predicates (provers/rule-exceptions kb handle)))
 
 (defn- rule-graph-node
   "The stratification graph's view of a stored rule: what it depends on, positively
@@ -1276,6 +1283,158 @@
                                "negation: " (wff/cycle-description cycle))
                           {:type :not-stratified :sentence inner :context context
                            :cycle cycle})))))))
+
+(defn check-no-imperative
+  "Refuse a `do/` imperative anywhere inside a rule — antecedent, consequent, or
+  `exceptWhen` query.
+
+  A rule is evaluated inside the forward-chaining fixpoint, and an imperative there
+  would run a number of times that depends on firing order while mutating the KB the
+  fixpoint is still computing over.  Order independence and locality are the two
+  invariants the TMS is built on (docs/nmtms.md); a side effect inside the fixpoint
+  breaks both at once.  So a `do/` form is legal only at the top level of an `assert`,
+  where the caller decided when it happens (docs/labeling.md).
+
+  Walks the whole form rather than the three slots, so a nesting cannot smuggle one
+  past — the check is about a fixpoint reaching it, not about where it was written."
+  [sentence]
+  (when-let [bad (first (filter sx/do-form? (tree-seq sequential? seq sentence)))]
+    (throw (ex-info (str "a do/ imperative cannot appear in a rule: " (pr-str bad))
+                    {:type :not-assertible :form bad :sentence sentence}))))
+
+(defn check-rule!
+  "Every pre-storage check a rule must pass, as a step that writes nothing.
+
+  **Two doors store a rule** and this is the list both read.  `core/assert` stores one
+  an author wrote; a generator firing stores one the KB derived
+  (docs/generators.md).  What a rule has to *be* does not depend on which door it came
+  through, so a copy per door is the drift this exists to prevent — a check added at
+  the assert door that the mint never learned would let the fixpoint store what the
+  API refuses.
+
+  Factored out of the assert path so `assert` can also run it over **all** the
+  conjuncts of a polycanonicalized rule before storing *any* of them.
+  `(implies A (and C1 C2))` is split into one rule per conjunct and then `mapv`d,
+  and a `mapv` is not a transaction: with the checks inline, a refusal on C2 left
+  C1 already stored, indexed, and chained from, while the caller saw a throw and
+  reasonably concluded nothing had been asserted."
+  [kb sentence context]
+  (let [inner       (rules/inner-rule sentence)
+        [direction] (sx/peel-rule-wrapper sentence)]
+    ;; on the sentence **as written**, not on `inner`: `inner-rule` peels the
+    ;; `exceptWhen` wrapper and takes the exception query with it, so guarding the
+    ;; inner rule let an imperative through in the one rule slot that is re-evaluated
+    ;; most often
+    (check-no-imperative sentence)
+    (rules/check-range-restricted (rules/antecedents inner) (rules/consequent inner))
+    ;; The NAF-literal checks — closure, quantifier locality, the reduction slot, a
+    ;; quantified or empty conjunction.  The sentex constructor runs these too, and runs
+    ;; them last, which is what covered both *storage* doors and left the **dry-run** door
+    ;; blind: `core/check` predicts an assert without constructing a sentex, so a rule
+    ;; whose `unknown` was open, whose binder escaped, or whose conjunction no evaluator
+    ;; can answer checked clean and then threw.  Here it is answered before anything is
+    ;; built, which is where a prediction can see it.
+    (sx/check-naf-closed (rules/antecedents inner) (rules/consequent inner) nil)
+    ;; A rule the index cannot key on, refused before it is stored — except when it is
+    ;; `:inert`, which runs in neither engine and so promises nothing the index has to
+    ;; answer for.  `CoreContext`'s `(implies (?pred . ?args) (ist UniverseContext (?pred
+    ;; . ?args)))` is that case: the decontextualized-predicate lift is implemented in
+    ;; code, and the rule states it for a reader.
+    (when-not (= :inert direction)
+      (rules/check-indexable-functors inner))
+    (nm/check! (:naming kb) inner context)
+    ;; the rule-set check, before anything is stored: an `exceptWhen` is negation as
+    ;; failure, and a cycle through it would make the settled state depend on
+    ;; arrival order (docs/exceptions.md)
+    (check-stratified kb sentence inner context)))
+
+(defn- stored-generators
+  "Every stored generator, as `[handle sentex]` pairs.
+
+  One index lookup, and the cell it reads is the one that looks like a junk posting:
+  `rules/consequent-predicate` reads the functor of what a rule concludes, and what a
+  generator concludes is a rule — so every generator in the KB is filed under `implies`
+  and nothing else is.  Nothing backward-chains through it (a generator is forward-only,
+  and no goal's functor is `implies`), which leaves it doing exactly this one job."
+  [kb]
+  (into []
+        (comp (keep (fn [h] (when-let [s (p/get-sentex (:records kb) h)] [h s])))
+              (filter (fn [[_ s]] (rules/generator-sentex? s))))
+        (p/rules-by-consequent (:index kb) sx/rule-functor)))
+
+(defn- stamped-predicate
+  "The predicate the rule a generator stamps out concludes."
+  [sentex]
+  (some-> (:consequent sentex) rules/generated-rule rules/consequent-predicate))
+
+(defn generator-cycle
+  "A description of the cycle adding this generator would put in the rule set, or nil.
+
+  The graph is generators only, and one hop: an edge runs from a generator to any
+  generator that reads — in an antecedent — the predicate its stamped rule concludes.
+  A cycle there is a rule set that mints rules that mint rules, and unlike ordinary
+  recursion nothing bounds it: each round adds *rules* rather than facts, and the next
+  round's rules are the ones the last round wrote.
+
+  Refused outright rather than depth-capped.  A cap would make the KB's contents a
+  function of how long the chainer happened to run, and \"how many rules does this KB
+  have\" would stop having an answer — the same call stratification makes for a cycle
+  through negation (docs/exceptions.md).
+
+  **Both directions, because either can be the new edge**: the arriving generator may
+  stamp what a stored one reads, or read what a stored one stamps, and a self-loop is
+  the case where it does both to itself.  Checking only one direction would let the
+  cycle in whenever the two generators were asserted in the other order — which is the
+  order dependence every check here exists to keep out."
+  [kb inner generated context]
+  (when generated
+    (let [stamps (rules/consequent-predicate generated)
+          reads  (set (rules/antecedent-predicates inner))
+          gens   (stored-generators kb)
+          where  (or (when (and stamps (reads stamps)) "itself")
+                     (some (fn [[h s]]
+                             (when (and stamps
+                                        (some #{stamps} (rules/antecedent-predicates
+                                                         (:sentence s))))
+                               (str "the generator at handle " h)))
+                           gens)
+                     (some (fn [[h s]]
+                             (when-let [p (stamped-predicate s)]
+                               (when (reads p)
+                                 (str "the generator at handle " h ", which stamps "
+                                      p))))
+                           gens))]
+      (when where
+        (str "the rule it generates concludes " stamps
+             ", and that predicate is read by " where
+             (when context (str " (asserting into " context ")")))))))
+
+(defn rule-violation
+  "`check-rule!` as a **value** in the shape the derivation path files — a
+  `{:violation :detail}` map, or nil when the rule stands.
+
+  The mint's form of the same list, and the reason it is a value is the reason every
+  check on that path is: a firing runs inside the fixpoint, an exception escaping it
+  would leave belief half-computed, and which rule happened to fire first would decide
+  what the KB ends up believing.  So a mint that cannot stand is dropped and recorded
+  (`violations/report`), never thrown.
+
+  Read through the throwing form rather than restating it, so the two cannot drift —
+  the same trick `core/check` plays to predict `assert`."
+  [kb sentence context]
+  (try (check-rule! kb sentence context) nil
+       (catch clojure.lang.ExceptionInfo e
+         ;; `:sentence` and `:context` are dropped because the caller re-attaches its
+         ;; own — the mint's, which is the rule that was actually refused — and a
+         ;; stale copy under the same key would shadow it.  They come off in a step of
+         ;; their own, and the type keyword last: both refusal-vocabulary scans read
+         ;; the token *following* a type keyword as a refusal type, so listing them in
+         ;; one `dissoc` files whichever argument happened to sit there as caller-visible
+         ;; vocabulary (`type_contract_test`, `web_propose_test`).
+         (let [d      (ex-data e)
+               detail (dissoc d :sentence :context)]
+           {:violation (get d :type :not-well-formed)
+            :detail    (assoc (dissoc detail :type) :message (.getMessage e))}))))
 
 (defn check-exceptWhen-stratified
   "Throw unless adding an exceptWhen exception mentioning `new-exc-preds` to the stored

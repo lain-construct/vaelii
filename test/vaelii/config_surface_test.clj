@@ -236,14 +236,20 @@
 
 (defn documented
   "`{name \"path:line\"}` off the table: every row whose first cell is a backticked name
-  and whose second is a backticked citation."
+  and whose second is a backticked citation.
+
+  A citation is `path:N` or `path:N+`, the second being a **floor** — named at or after
+  line N. The floor is what rows carry, since an exact line drifts under any edit above
+  it; both spellings parse here and
+  `every-citation-in-the-table-resolves-to-a-line-that-names-the-switch` reads the
+  difference."
   []
   (into {}
         (keep (fn [line]
                 (when (str/starts-with? (str/triml line) "|")
                   (let [cells (mapv str/trim (str/split line #"\|"))
                         nm    (second (re-matches #"`([A-Za-z][\w.-]*)`" (get cells 1 "")))
-                        cite  (second (re-matches #"`([\w./-]+:\d+)`" (get cells 2 "")))]
+                        cite  (second (re-matches #"`([\w./-]+:\d+\+?)`" (get cells 2 "")))]
                     (when (and nm cite) [nm cite])))))
         (config-section)))
 
@@ -270,18 +276,59 @@
              " row went with it."))))
 
 (deftest every-citation-in-the-table-resolves-to-a-line-that-names-the-switch
-  ;; What makes a `file:line` citation worth carrying: it is checked. A line number
-  ;; drifts the moment anything above it is edited, and drift here is a failing test
-  ;; naming the line the switch moved to rather than a table a reader trusts and lands
-  ;; in the wrong place from.
+  ;; What makes a citation worth carrying: it is checked. A citation nothing verifies is
+  ;; a table a reader trusts and lands in the wrong place from.
+  ;;
+  ;; **The anchor is a floor, not an address** — `file:5800+` reads "start reading at
+  ;; line 5800; the switch is named at or below it". An exact `file:5800` was checked
+  ;; exactly, and every one of them broke the moment anything above it was edited: a
+  ;; comment added six screens up failed this test with a diff that had nothing to do
+  ;; with configuration, and the fix was always to retype a number nobody reads as a
+  ;; number.
+  ;;
+  ;; The floor is checked against the file's **first** mention of the switch, not
+  ;; against any mention at or below it. Searching downward for any hit was the obvious
+  ;; reading and it is too weak to catch anything: `VAELII_WEB_PORT` is named in a
+  ;; docstring, in `--port` help text and in a startup line, so a floor a hundred lines
+  ;; *past* the read still found one of them and passed. `floor <= first-mention` keeps
+  ;; the whole point — insertion above moves the first mention down and the floor still
+  ;; holds, without bound — while a floor that has drifted past what it cites fails,
+  ;; which is the one thing a citation must not do quietly. The exact form is still
+  ;; honoured where a row wants it.
   (let [sites (surface-sites)]
     (doseq [[nm cite] (sort (documented))]
       (let [[path n] (str/split cite #":")
+            floor?   (str/ends-with? n "+")
+            start    (parse-long (str/replace n #"\+$" ""))
             f        (io/file path)
-            line     (when (.isFile f) (get (vec (str/split-lines (slurp f)))
-                                            (dec (parse-long n))))]
-        (is (some? line) (str nm ": " cite " names no line"))
-        (is (and line (str/includes? line nm))
-            (str nm ": " cite " does not name it"
-                 (when-let [real (seq (sites nm))]
-                   (str " — it is read at " (str/join ", " real)))))))))
+            ls       (when (.isFile f) (vec (str/split-lines (slurp f))))
+            first-at (when ls
+                       (first (keep-indexed
+                               (fn [i l] (when (str/includes? l nm) (inc i))) ls)))]
+        (is (some? ls) (str nm ": " cite " names no file"))
+        (when ls
+          (if floor?
+            (is (and first-at (<= start first-at))
+                (str nm ": the floor " cite " does not hold — "
+                     (if first-at
+                       (str path " first names it at line " first-at
+                            ", above the floor, so the floor has drifted past what it cites")
+                       (str "nothing in " path " names it at all"))
+                     (when-let [real (seq (sites nm))]
+                       (str "; it is read at " (str/join ", " real)))))
+            (is (when-let [l (get ls (dec start))] (str/includes? l nm))
+                (str nm ": " cite " does not name it"
+                     (when-let [real (seq (sites nm))]
+                       (str " — it is read at " (str/join ", " real)))))))))))
+
+(deftest a-citation-floor-is-round-so-it-survives-an-edit-above-it
+  ;; The floor only buys drift-tolerance if it is actually below the read, and rounding
+  ;; is what makes that true by construction rather than by luck. A floor typed at the
+  ;; exact read line is one deletion above from being wrong again, which is the failure
+  ;; this whole form exists to retire.
+  (doseq [[nm cite] (sort (documented))
+          :let [[_ n] (str/split cite #":")]
+          :when (str/ends-with? n "+")]
+    (is (zero? (mod (parse-long (str/replace n #"\+$" "")) 10))
+        (str nm ": the floor " cite " is not rounded — round it down to a multiple of 10"
+             " so an edit above it has somewhere to go"))))

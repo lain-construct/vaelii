@@ -58,9 +58,18 @@
 
 (defn consequent-predicate
   "The predicate a rule concludes.  A consequent of the form `(ist Ctx S)` (place S
-  into context Ctx) is indexed by S's predicate, not by ist."
+  into context Ctx) is indexed by S's predicate, not by ist.
+
+  A **generator** concludes a rule, so its key is `implies` — reached by peeling the
+  `set/*Rule` wrapper first, because that wrapper belongs to the rule being stamped
+  rather than to the generator (docs/generators.md).  Without the peel one generator
+  files under `set/defaultRule` and the next under `implies`, by nothing more than how
+  its stamped rule happened to be written, and the single cell that answers *which rules
+  are generators* would answer for some of them."
   [sentence]
-  (let [c (consequent sentence)]
+  (let [c0 (consequent sentence)
+        c  (let [inner (peek (sx/peel-rule-wrapper c0))]
+             (if (sx/implies? inner) inner c0))]
     (if (and (sequential? c) (= sx/ist-functor (first c)))
       (nm/functor (nth c 2))
       (nm/functor c))))
@@ -140,20 +149,61 @@
   [sentex]
   (boolean (seq (naf-antecedents sentex))))
 
-(defn- naf-query
-  "The query literal inside an `(unknown …)` antecedent — its argument, unwrapped past
-  a `thereExists` so the predicate a re-check keys on is the one the level-6 query
-  actually runs (`(unknown (thereExists ?x (parentOf ?x Tom)))` watches `parentOf`)."
+(defn watched-literals
+  "The literals a re-check must actually watch for the query literal `q` — the frames
+  peeled off until what is left is something a *fact* can carry.
+
+  A query operator's own functor is not one: no sentex is stored under `unknown`,
+  `thereExists` or `agg/count`, so a rule registered in the re-check index under one is
+  registered under a predicate nothing ever arrives on, and no fact can ever queue it.
+  The condition would then be evaluated correctly and re-evaluated never, which reads as
+  a guard that holds whatever happens.
+
+  So each frame yields what it reads: an `unknown` its conjuncts (recursively — a
+  conjunction is watched conjunct by conjunct, since it starts holding when the *last*
+  of them does), a `thereExists` its body, an aggregate its census body.  Anything else
+  is a literal a fact can carry, and is watched as itself.
+
+  A `not` frame is deliberately **not** peeled: the trigger side keys an arriving
+  `(not S)` under `not` too (`special/recheck-on-sentence` reads the sentence's own
+  functor), so the two agree — coarsely, one bucket for every negated condition, but
+  they agree, and peeling one side alone is what would break it.
+
+  One function for both readers: an `unknown` antecedent's query, and an `exceptWhen`
+  conjunct — which may itself be any of these, `exceptWhen`'s query being any closed
+  level-6 goal."
+  [q]
+  (cond
+    (sx/unknown? q)      (mapcat watched-literals (sx/naf-query-conjuncts q))
+    (sx/there-exists? q) (watched-literals (nth q 2))
+    (sx/aggregate? q)    (watched-literals (sx/aggregate-body q))
+    :else                [q]))
+
+(defn watched-predicates
+  "The predicates a re-check keys `queries` under — `watched-literals` of each, then its
+  functor.  What `exceptWhen`'s three registration sites and the stratification graph
+  read of an exception's conjuncts, and what `naf-predicates` reads of an `unknown`
+  antecedent's."
+  [queries]
+  (keep nm/functor (mapcat watched-literals queries)))
+
+(defn- naf-queries-of
+  "The query literals one `(unknown …)` antecedent is evaluated as: its conjuncts
+  (`sentex/naf-query-conjuncts`), each unwrapped to what the level-6 query reads.
+
+  **Every** conjunct, because the antecedent is only maintained if all of them are
+  watched: a conjunction blocks when all hold, so a fact arriving on any one of their
+  predicates can be what makes the whole condition hold, and a rule keyed on the first
+  conjunct alone would never be re-checked for the others."
   [unk]
-  (let [s (second unk)]
-    (if (sx/there-exists? s) (nth s 2) s)))
+  (mapcat watched-literals (sx/naf-query-conjuncts unk)))
 
 (defn naf-predicates-of
   "The predicates a raw rule *sentence*'s `unknown` antecedents mention — for the
   stratification check on a rule not yet stored (the mirror of the exception's
   negative dependence)."
   [rule-sentence]
-  (keep #(nm/functor (naf-query %)) (naf-antecedents-of rule-sentence)))
+  (keep nm/functor (mapcat naf-queries-of (naf-antecedents-of rule-sentence))))
 
 (defn naf-predicates
   "The predicates a rule's `unknown` antecedents mention — the keys the re-check index
@@ -164,12 +214,12 @@
   (naf-predicates-of (:sentence sentex)))
 
 (defn naf-queries
-  "The inner query literals of a rule's `unknown` antecedents (each unwrapped past a
-  `thereExists`), so the settle-time firing filter can shape them against a trigger
-  exactly as it shapes an exception's conjuncts — the ground ones narrow, the
+  "The inner query literals of a rule's `unknown` antecedents (each conjunct, unwrapped
+  past a `thereExists`), so the settle-time firing filter can shape them against a
+  trigger exactly as it shapes an exception's conjuncts — the ground ones narrow, the
   existential ones fall through to 'keep' like any non-flat conjunct."
   [sentex]
-  (map naf-query (naf-antecedents sentex)))
+  (mapcat naf-queries-of (naf-antecedents sentex)))
 
 ;; ---- aggregation: a rule antecedent that counts --------------------------
 ;; An aggregate antecedent is the other non-monotonic literal a rule body can carry:
@@ -367,22 +417,58 @@
   [form]
   (filter sx/variable? (tree-seq sequential? seq form)))
 
-(defn range-problems
-  "Why `antecedents => consequent` is not range-restricted, as a seq of problem
-  strings — empty when the rule is fine.  The value form, like the wff arms:
-  a caller that refuses wraps it in a throw, and a fixpoint that must not abort
-  can record it instead.
+;; ---- generators: a rule whose consequent is a rule -----------------------
+;; `(implies <antes> (implies <inner-antes> <inner-conseq>))` — a **generator**, whose
+;; firing stamps the inner rule out with its holes filled.  The scoping rule is
+;; computed, not annotated: the inner rule's variables that its enclosing antecedents
+;; also mention are **holes**, bound by the join and ground at mint; the rest are the
+;; stamped rule's own, and belong to it.  See docs/generators.md.
 
-  A head existential `(exists ?y C)` exempts **only** its marked variable(s): the
-  check runs over the inner `C`, and every consequent variable that is neither
-  antecedent-bound nor existentially marked is still a problem — so an accidental
-  typo is caught while a deliberate `∃` is allowed (docs/skolem.md)."
-  [antecedents consequent]
+(defn generated-rule
+  "The bare rule form a generator's `consequent` stamps out — the `(implies …)` inside
+  whatever `set/*Rule` wrapper the author put on it — or nil when the consequent
+  concludes a fact, which is every ordinary rule.
+
+  The wrapper is peeled here and *kept* by the caller that mints: it sets the
+  **stamped** rule's direction, which is the only place a direction can be written for
+  a rule nobody types out."
+  [consequent]
+  (let [inner (peek (sx/peel-rule-wrapper consequent))]
+    (when (sx/implies? inner) inner)))
+
+(defn generator?
+  "Is this rule *sentence* a generator — does it conclude a rule?"
+  [sentence]
+  (some? (generated-rule (consequent (inner-rule sentence)))))
+
+(defn generator-sentex?
+  "Is this stored rule sentex a generator?  Read off the record's `:consequent`, which
+  is where the canonicalized rule kept it."
+  [sentex]
+  (boolean (some-> (:consequent sentex) generated-rule)))
+
+(defn holes
+  "The variables a generator's stamped rule takes from the firing — those its
+  enclosing `antecedents` also mention, as a set.
+
+  Computed rather than declared, which is the whole reason a generator needs no
+  vocabulary of its own: sharing a variable name with the antecedents *is* how an
+  author says \"fill this in\", and the remaining variables are the stamped rule's own
+  by the same token.  Two spellings cannot disagree, because there is only one."
+  [antecedents generated]
+  (let [ante-vars (into #{} (mapcat deep-vars antecedents))]
+    (into #{} (filter ante-vars) (deep-vars generated))))
+
+(defn- ordinary-range-problems
+  "`range-problems` for a rule that concludes a *fact* — every rule but a generator.
+  `bound` is what counts as bound beside the antecedents' own variables: empty for a
+  written rule, and a generator's holes for the rule it stamps out."
+  [antecedents consequent bound]
   (let [exists?   (sx/head-exists? consequent)
         evars     (if exists? (sx/head-exists-vars consequent) #{})
         cbody     (if exists? (sx/head-exists-body consequent) consequent)
         cvars     (deep-vars cbody)
-        ante-vars (into #{} (mapcat deep-vars antecedents))]
+        ante-vars (into (set bound) (mapcat deep-vars) antecedents)]
     (cond-> []
       (and (sequential? cbody) (= 'and (first cbody))
            (empty? (rest cbody)))
@@ -400,6 +486,39 @@
                   :when (and (not= '_ v) (not (ante-vars v)) (not (evars v)))]
               (str "rule is not range-restricted: consequent variable " v
                    " is unbound by the antecedents"))))))
+
+(defn range-problems
+  "Why `antecedents => consequent` is not range-restricted, as a seq of problem
+  strings — empty when the rule is fine.  The value form, like the wff arms:
+  a caller that refuses wraps it in a throw, and a fixpoint that must not abort
+  can record it instead.
+
+  A head existential `(exists ?y C)` exempts **only** its marked variable(s): the
+  check runs over the inner `C`, and every consequent variable that is neither
+  antecedent-bound nor existentially marked is still a problem — so an accidental
+  typo is caught while a deliberate `∃` is allowed (docs/skolem.md).
+
+  A **generator** is checked one level in, and the two claims are about *different*
+  rules.  The generator's own range restriction is vacuous — its consequent is a rule
+  rather than a conclusion, and the stamped rule's free variables are unbound on
+  purpose — so what is checked is the **stamped** rule's, with the holes counted as
+  bound because substitution makes them ground before anything is stored.  Checking it
+  here rather than at firing is what makes the refusal reach the author: a generator
+  that can only ever stamp junk is refused where it is written, not once per binding at
+  the far end of a fixpoint."
+  [antecedents consequent]
+  (if-let [generated (generated-rule consequent)]
+    (let [hs (holes antecedents generated)]
+      (cond-> []
+        (empty? hs)
+        (conj (str "rule generator shares no variable with the rule it generates, so"
+                   " every firing stamps the same rule: share the variable that is"
+                   " meant to vary, or write the rule itself"))
+        :always
+        (into (ordinary-range-problems (sx/rule-antecedents generated)
+                                       (sx/rule-consequent generated)
+                                       hs))))
+    (ordinary-range-problems antecedents consequent nil)))
 
 (defn check-range-restricted
   "Throw `:type :not-range-restricted` unless every consequent variable is bound by
@@ -419,14 +538,38 @@
 
 ;; ---- the functor a rule is indexed by ------------------------------------
 
+(def ^:private generated-roles
+  "The `applied-literals` roles that sit inside a generator's stamped rule."
+  #{:generated-antecedent :generated-consequent})
+
 (defn variable-functor-literals
   "The `[role literal]` pairs of a rule whose functor is a **variable** — `(?p ?x ?y)`,
   or the dotted rest `(?pred . ?args)`.  Read through `naming/applied-literals`, so the
   frames descended into are the ones the naming check descends: a negated antecedent, an
-  `ist` consequent, a head existential, an aggregate's body."
+  `ist` consequent, a head existential, an aggregate's body.
+
+  Inside a generator's stamped rule the question is asked of **non-holes only**, and
+  that is the carve the whole feature rests on.  The index's claim is on what gets
+  stored as a rule; a stamped rule is a pattern, and what gets stored is the mint —
+  checked in its own right, by this function, when it is minted.  A **hole** in functor
+  position is therefore fine, because substitution makes it concrete before anything is
+  keyed on it, and that is what lets one generator range over a family of predicates
+  while every rule the index ever sees has a concrete functor.
+
+  A stamped variable functor that is *not* a hole is refused as loudly as any other,
+  and it has to be: nothing will ever bind it, so every mint it produces is the
+  accepted-and-inert rule this check exists to keep out — and refusing it here names
+  the generator, where refusing it at the mint would name a rule the author never
+  wrote."
   [sentence]
-  (filterv (fn [[_ lit]] (sx/variable? (nm/functor lit)))
-           (nm/applied-literals sentence)))
+  (let [inner     (inner-rule sentence)
+        generated (generated-rule (consequent inner))
+        hs        (if generated (holes (antecedents inner) generated) #{})]
+    (filterv (fn [[role lit]]
+               (let [f (nm/functor lit)]
+                 (and (sx/variable? f)
+                      (not (and (generated-roles role) (hs f))))))
+             (nm/applied-literals sentence))))
 
 (defn check-indexable-functors
   "Throw `:type :not-indexable` when a literal of the rule `sentence` puts a variable in

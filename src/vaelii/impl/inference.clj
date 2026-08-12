@@ -595,13 +595,20 @@
            ;; binding map's keys are the query's variables, so `:bindings` names a slot
            ;; only the wrapped shape has
            answer (fn [s] (if (and (map? s) (contains? s :bindings)) (:bindings s) s))]
-       (first (reduce (fn [[acc seen] s]
-                        (let [k (answer s)]
-                          (if (contains? seen k)
-                            [acc seen]
-                            [(conj acc s) (conj seen k)])))
-                      [[] #{}]
-                      (mapcat deref runs)))))))
+       ;; a racer that throws must not abandon the others mid-search: nothing would
+       ;; consume their answers, and each is a complete search running to exhaustion
+       ;; on the send-off pool
+       (try
+         (first (reduce (fn [[acc seen] s]
+                          (let [k (answer s)]
+                            (if (contains? seen k)
+                              [acc seen]
+                              [(conj acc s) (conj seen k)])))
+                        [[] #{}]
+                        (mapcat deref runs)))
+         (catch Throwable t
+           (run! future-cancel runs)
+           (throw t)))))))
 
 (defn solutions
   "Every solution of `goals` in `context`, as `prove` returns them — a vector of binding

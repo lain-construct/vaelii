@@ -64,15 +64,27 @@ lein cli repl --starter                                                    # int
 - **`export <dir>`** writes the KB out as a portable dump (`vaelii.core/export!`) and
   prints the writer's summary. `--variant
   records|records+index`, `--compression gzip|xz|none`. The destination must be empty or
-  absent; a refusal is printed as `error: …` in the engine's own words, with a non-zero
-  exit status — the same message the daemon and the browser report, because none of them
-  writes one of its own.
+  absent; a refusal is printed as `error: …` **on stderr** in the engine's own words,
+  with a non-zero exit status — the same message the daemon and the browser report,
+  because none of them writes one of its own, and on the stream that leaves stdout's
+  data parseable when a script redirects it.
 - **Options:** `--dir <path>` selects the durable backend (recovered on open, so it
   persists across invocations); `--memory` says the ephemeral default out loud — and
   contradicts `--dir`, so naming both is refused; `--starter` loads the shipped schema
-  so you can explore the ontology; `--strength monotonic` marks an `assert`
-  known-true. A flag outside the roster, or one missing its value, is one line and
-  exit 1.
+  so you can explore the ontology; `--strength monotonic` marks an `assert` or
+  `assert-rule` known-true — for a rule that is the rule's own defeat class, not the
+  class its firings confer (a bare rule already concludes at its weakest antecedent).
+  A flag outside the roster, one missing its value, or one whose "value"
+  is the next flag (`--dir --starter` names no directory) is one line on stderr and
+  exit 1. The REPL loop is the one place errors stay on stdout: it is a conversation,
+  and its errors belong in the transcript beside the line that caused them.
+- **A flag belongs to the commands that read it**, and one carried by a command that
+  does not is refused the same way rather than dropped — an ignored option reads from
+  outside exactly like an honoured one. The first three above name the KB and go
+  anywhere; `--strength` is `assert` and `assert-rule`'s, `--depth` is `query` and
+  `query?`'s, `--variant` and `--compression` are `export`'s, and `repl` carries all of
+  them because its options are fixed at session start and each line reuses them. `help`
+  prints the owner beside each flag, and the refusal names what the command does read.
 - **`repl`** holds the KB in-process, so a memory KB accumulates for the session. Each
   line is `<cmd> <edn-forms…>`.
 
@@ -487,9 +499,24 @@ Three things hold for every row:
 
 The names themselves are frozen: `config_surface_test` collects them from the sources and
 pins them against `test/golden/config-surface.edn`, both directions, and checks that every
-one has a row below and that every citation resolves to a line that names it. Renaming or
+one has a row below and that every citation resolves. Renaming or
 removing one is **Breaking** (CONTRIBUTING §3.8). Three rows are outside that net and say
 so where they sit.
+
+**A "Read at" cell is a floor, not an address.** `web.clj:5800+` reads *start at line
+5800 and read down*, and the number is rounded to a multiple of ten. An exact line was
+checked exactly and drifted the moment anything above it was edited — a comment six
+screens up failed the surface test with a diff that had nothing to do with
+configuration, and the fix was always to retype a number nobody reads as a number.
+
+The rule the test applies is **floor ≤ the file's first mention of the switch**, which
+is what makes the tolerance real and the check still worth running. Insertion above
+moves that first mention *down* and the floor keeps holding, without bound; a floor that
+has drifted *past* what it cites fails, as does a wrong file or a switch renamed out
+from under its row. Checking "named anywhere at or below the floor" instead was the
+obvious reading and is too weak to catch anything — `VAELII_WEB_PORT` is named in a
+docstring, in `--port` help text and in a startup line, so a floor a hundred lines past
+the read still found one of them. Set a new floor by rounding the first mention down.
 
 ### Operator
 
@@ -497,15 +524,15 @@ so where they sit.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_API_TOKEN` | `src/vaelii/impl/guard.clj:157` | any string; blank or whitespace-only is unset | unset | The one shared bearer token: with it set every daemon request carries `Authorization: Bearer …` or is answered 401, and a client and an attached browser present it from their own environment. |
-| `VAELII_ALLOWED_HOSTS` | `src/vaelii/impl/guard.clj:55` | comma-separated host names | unset | The `Host` headers a server answers, overriding the list the bind address implies. |
-| `VAELII_MAX_BODY_BYTES` | `src/vaelii/impl/guard.clj:176` | a positive whole number of bytes | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
-| `VAELII_WEB_PORT` | `src/vaelii/impl/web.clj:5807` | a port number | `3000` | The port the browser binds. An unparseable value falls through to the property rather than failing the start. |
-| `vaelii.web.port` | `src/vaelii/impl/web.clj:5808` | a port number | `3000` | The same port, read after the variable. |
-| `VAELII_DEV` | `src/vaelii/impl/config.clj:245` | the boolean vocabulary | `false` | Whether the browser re-reads its stylesheet per request and serves it uncached. |
-| `VAELII_PROFILER` | `src/vaelii/impl/config.clj:255` | the boolean vocabulary | `false` | Whether the browser starts the sampling profiler's UI. Off unless asked for: it attaches an agent to the JVM and serves on a port of its own with no authentication. The dependency ships in the `:repl` profile, so `lein browser` has it and `lein run -m vaelii.web` does not — with it absent the start logs a line and `/caches` says so rather than linking to nothing. |
-| `VAELII_PROFILER_PORT` | `src/vaelii/impl/config.clj:261` | a port number | `8080` | Where that UI binds. Read only when the switch above says to start one. |
-| `VAELII_LOG_LEVEL` | `src/vaelii/impl/config.clj:299` | `error` `warn` `info` `debug` `trace`, case-insensitive | unset | The level the engine's own statements print at, installed as the engine loads. Unset installs no backend at all, which is a setting rather than a default. |
+| `VAELII_API_TOKEN` | `src/vaelii/impl/guard.clj:140+` | any string; blank or whitespace-only is unset | unset | The one shared bearer token: with it set every daemon request carries `Authorization: Bearer …` or is answered 401, and a client and an attached browser present it from their own environment. |
+| `VAELII_ALLOWED_HOSTS` | `src/vaelii/impl/guard.clj:40+` | comma-separated host names | unset | The `Host` headers a server answers, overriding the list the bind address implies. |
+| `VAELII_MAX_BODY_BYTES` | `src/vaelii/impl/guard.clj:160+` | a positive whole number of bytes | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
+| `VAELII_WEB_PORT` | `src/vaelii/impl/web.clj:5830+` | a port number | `3000` | The port the browser binds. An unparseable value falls through to the property rather than failing the start. |
+| `vaelii.web.port` | `src/vaelii/impl/web.clj:5830+` | a port number | `3000` | The same port, read after the variable. |
+| `VAELII_DEV` | `src/vaelii/impl/config.clj:240+` | the boolean vocabulary | `false` | Whether the browser re-reads its stylesheet per request and serves it uncached. |
+| `VAELII_PROFILER` | `src/vaelii/impl/config.clj:240+` | the boolean vocabulary | `false` | Whether the browser starts the sampling profiler's UI. Off unless asked for: it attaches an agent to the JVM and serves on a port of its own with no authentication. The dependency ships in the `:repl` profile, so `lein browser` has it and `lein run -m vaelii.web` does not — with it absent the start logs a line and `/caches` says so rather than linking to nothing. |
+| `VAELII_PROFILER_PORT` | `src/vaelii/impl/config.clj:250+` | a port number | `8080` | Where that UI binds. Read only when the switch above says to start one. |
+| `VAELII_LOG_LEVEL` | `src/vaelii/impl/config.clj:280+` | `error` `warn` `info` `debug` `trace`, case-insensitive | unset | The level the engine's own statements print at, installed as the engine loads. Unset installs no backend at all, which is a setting rather than a default. |
 
 **The durable store.** All system properties, all read at `open-kb`.
 
@@ -522,49 +549,49 @@ image that only macOS and Linux can swap.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `vaelii.disk.dir` | `src/vaelii/impl/disk/backend.clj:247` | a directory path | `<java.io.tmpdir>/vaelii-disk` | The base a disk KB's space directory hangs under when no `:dir` names one. |
-| `vaelii.disk.fsync` | `src/vaelii/impl/config.clj:166` | `dsync`, or unset | unset | Whether every append is durable when it returns (`dsync`), or durability waits for the tick below. |
-| `vaelii.disk.sync-ms` | `src/vaelii/impl/config.clj:200` | a whole number ≥ 0; `0` stops the daemon | `3000` | The durability daemon's tick, in milliseconds. |
-| `vaelii.disk.auto-compact` | `src/vaelii/impl/config.clj:159` | the boolean vocabulary | `true` | Whether background and opportunistic compaction runs at all — one knob for the tick and the close path. |
-| `vaelii.disk.compact-dead-ratio` | `src/vaelii/impl/config.clj:207` | a number from 0 to 1 | `0.5` | The dead fraction a log must reach before compacting it is worth the write. |
-| `vaelii.disk.compact-min-interval-ms` | `src/vaelii/impl/config.clj:213` | a whole number ≥ 0 | `300000` | The floor between two auto-compactions of one backend. |
-| `vaelii.disk.compress` | `src/vaelii/impl/config.clj:176` | `zstd` `lz4` `none` `off` `false` | uncompressed | The codec durable frames are written with. |
-| `vaelii.disk.tokens` | `src/vaelii/impl/config.clj:186` | the boolean vocabulary | `false` | Whether sentex bodies are written as token ids. Reading is never gated on it — a frame carries its own tag. |
-| `vaelii.disk.cache` | `src/vaelii/impl/config.clj:194` | a whole number ≥ 0; `0` disables the cache | `65536` | Hot records held in memory per kind. |
-| `vaelii.disk.lock` | `src/vaelii/impl/config.clj:220` | the boolean vocabulary | `true` | Whether the single-writer `FileLock` is taken when a directory opens. Off removes the enforcement and not the contract. |
-| `vaelii.index.snapshot` | `src/vaelii/impl/config.clj:226` | the boolean vocabulary | `false` | Whether the mapped index image is written and read. Publishing one is refused on Windows whatever this says. |
+| `vaelii.disk.dir` | `src/vaelii/impl/disk/backend.clj:240+` | a directory path | `<java.io.tmpdir>/vaelii-disk` | The base a disk KB's space directory hangs under when no `:dir` names one. |
+| `vaelii.disk.fsync` | `src/vaelii/impl/config.clj:10+` | `dsync`, or unset | unset | Whether every append is durable when it returns (`dsync`), or durability waits for the tick below. |
+| `vaelii.disk.sync-ms` | `src/vaelii/impl/config.clj:160+` | a whole number ≥ 0; `0` stops the daemon | `3000` | The durability daemon's tick, in milliseconds. |
+| `vaelii.disk.auto-compact` | `src/vaelii/impl/config.clj:10+` | the boolean vocabulary | `true` | Whether background and opportunistic compaction runs at all — one knob for the tick and the close path. |
+| `vaelii.disk.compact-dead-ratio` | `src/vaelii/impl/config.clj:200+` | a number from 0 to 1 | `0.5` | The dead fraction a log must reach before compacting it is worth the write. |
+| `vaelii.disk.compact-min-interval-ms` | `src/vaelii/impl/config.clj:210+` | a whole number ≥ 0 | `300000` | The floor between two auto-compactions of one backend. |
+| `vaelii.disk.compress` | `src/vaelii/impl/config.clj:170+` | `zstd` `lz4` `none` `off` `false` | uncompressed | The codec durable frames are written with. |
+| `vaelii.disk.tokens` | `src/vaelii/impl/config.clj:60+` | the boolean vocabulary | `false` | Whether sentex bodies are written as token ids. Reading is never gated on it — a frame carries its own tag. |
+| `vaelii.disk.cache` | `src/vaelii/impl/config.clj:180+` | a whole number ≥ 0; `0` disables the cache | `65536` | Hot records held in memory per kind. |
+| `vaelii.disk.lock` | `src/vaelii/impl/config.clj:210+` | the boolean vocabulary | `true` | Whether the single-writer `FileLock` is taken when a directory opens. Off removes the enforcement and not the contract. |
+| `vaelii.index.snapshot` | `src/vaelii/impl/config.clj:220+` | the boolean vocabulary | `false` | Whether the mapped index image is written and read. Publishing one is refused on Windows whatever this says. |
 
 **Finding a KB.**
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_KB_PATH` | `src/vaelii/impl/catalog.clj:256` | `:`-separated directory list | `./kbs` and `~/.vaelii/kbs` | The directories KB discovery walks. |
-| `vaelii.kb.path` | `src/vaelii/impl/catalog.clj:256` | as above | as above | The same list, read after the variable. |
-| `VAELII_KB_CATALOG` | `src/vaelii/impl/catalog.clj:262` | a file path | `~/.vaelii/catalog.edn` | The file naming KBs that live outside the search path. |
-| `vaelii.kb.catalog` | `src/vaelii/impl/catalog.clj:263` | a file path | as above | The same file, read after the variable. |
+| `VAELII_KB_PATH` | `src/vaelii/impl/catalog.clj:20+` | `:`-separated directory list | `./kbs` and `~/.vaelii/kbs` | The directories KB discovery walks. |
+| `vaelii.kb.path` | `src/vaelii/impl/catalog.clj:250+` | as above | as above | The same list, read after the variable. |
+| `VAELII_KB_CATALOG` | `src/vaelii/impl/catalog.clj:20+` | a file path | `~/.vaelii/catalog.edn` | The file naming KBs that live outside the search path. |
+| `vaelii.kb.catalog` | `src/vaelii/impl/catalog.clj:260+` | a file path | as above | The same file, read after the variable. |
 
 **What the engine reasons with.**
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_ARBITRATE_CONSTRAINTS` | `src/vaelii/impl/config.clj:233` | the boolean vocabulary | `false` | Whether the process arbitrates a definitional clash rather than refusing it. A KB naming a `:constraints` policy overrides it. |
-| `VAELII_ASSERTIVE_ARG_TYPES` | `src/vaelii/impl/config.clj:239` | the boolean vocabulary | `false` | Whether the argument constraints entail types as well as constrain them ([argtypes.md](argtypes.md)). |
-| `VAELII_ASP_SOLVER` | `src/vaelii/impl/config.clj:277` | `clingo` `clasp` | unset | Which ASP backend solves. Unset is auto: in-process clingo when it loads, else clasp. A name outside the roster is refused rather than read as auto. |
-| `vaelii.asp.solver` | `src/vaelii/impl/config.clj:276` | `clingo` `clasp` | unset | The same choice, and it is read **first**. |
-| `VAELII_CLINGO_MAX_BYTES` | `src/vaelii/impl/config.clj:283` | a whole number of bytes, 0 or more | `3000` | The program size above which auto mode routes a plain-ASP program to clasp even where clingo loads. |
-| `vaelii.clingo.lib` | `src/vaelii/impl/asp/clingo.clj:29` | a library name or an absolute path | `clingo`, resolved through `jna.library.path` | Which libclingo the in-process bridge loads. |
+| `VAELII_ARBITRATE_CONSTRAINTS` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether the process arbitrates a definitional clash rather than refusing it. A KB naming a `:constraints` policy overrides it. |
+| `VAELII_ASSERTIVE_ARG_TYPES` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether the argument constraints entail types as well as constrain them ([argtypes.md](argtypes.md)). |
+| `VAELII_ASP_SOLVER` | `src/vaelii/impl/config.clj:270+` | `clingo` `clasp` | unset | Which ASP backend solves. Unset is auto: in-process clingo when it loads, else clasp. A name outside the roster is refused rather than read as auto. |
+| `vaelii.asp.solver` | `src/vaelii/impl/config.clj:50+` | `clingo` `clasp` | unset | The same choice, and it is read **first**. |
+| `VAELII_CLINGO_MAX_BYTES` | `src/vaelii/impl/config.clj:280+` | a whole number of bytes, 0 or more | `3000` | The program size above which auto mode routes a plain-ASP program to clasp even where clingo loads. |
+| `vaelii.clingo.lib` | `src/vaelii/impl/asp/clingo.clj:20+` | a library name or an absolute path | `clingo`, resolved through `jna.library.path` | Which libclingo the in-process bridge loads. |
 
 **The model host.**
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_LLM_PROVIDER` | `src/vaelii/impl/llm/provider.clj:42` | `ollama` `anthropic` | unset | Which backend the LLM pipeline calls. |
-| `vaelii.llm.provider` | `src/vaelii/impl/llm/provider.clj:41` | `ollama` `anthropic` | unset | The same choice, read **first**. |
-| `VAELII_OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:128` | a base URL | `http://localhost:11434` | Where the Ollama backend connects. |
-| `VAELII_OLLAMA_MODEL` | `src/vaelii/impl/llm/ollama.clj:136` | a model name | `phi4:14b` | The model a turn runs. |
-| `VAELII_OLLAMA_GENERATION_MODEL` | `src/vaelii/impl/llm/ollama.clj:142` | a model name | `qwen3-coder:30b` | The model the page-generation path runs. |
-| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/impl/llm/ollama.clj:149` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value reads as the default. |
-| `VAELII_OLLAMA_KEEP_ALIVE` | `src/vaelii/impl/llm/ollama.clj:157` | an Ollama duration (`30m`, `0`) | `30m` | How long the host is asked to hold the model resident after a turn. |
+| `VAELII_LLM_PROVIDER` | `src/vaelii/impl/llm/provider.clj:10+` | `ollama` `anthropic` | unset | Which backend the LLM pipeline calls. |
+| `vaelii.llm.provider` | `src/vaelii/impl/llm/provider.clj:10+` | `ollama` `anthropic` | unset | The same choice, read **first**. |
+| `VAELII_OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:40+` | a base URL | `http://localhost:11434` | Where the Ollama backend connects. |
+| `VAELII_OLLAMA_MODEL` | `src/vaelii/impl/llm/ollama.clj:40+` | a model name | `phi4:14b` | The model a turn runs. |
+| `VAELII_OLLAMA_GENERATION_MODEL` | `src/vaelii/impl/llm/ollama.clj:60+` | a model name | `qwen3-coder:30b` | The model the page-generation path runs. |
+| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/impl/llm/ollama.clj:90+` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value reads as the default. |
+| `VAELII_OLLAMA_KEEP_ALIVE` | `src/vaelii/impl/llm/ollama.clj:80+` | an Ollama duration (`30m`, `0`) | `30m` | How long the host is asked to hold the model resident after a turn. |
 
 **Read, not ours.** Four names another project defines and the engine reads. An operator
 still sets them, and a rename by Anthropic or Ollama is their change rather than a break
@@ -572,17 +599,17 @@ here.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:128` | a base URL; a bind address (`0.0.0.0`, `::`, `*`) is ignored | unset | Ollama's own variable, read after `VAELII_OLLAMA_HOST`. A host binds `0.0.0.0`; nothing connects to it. |
-| `ANTHROPIC_API_KEY` | `src/vaelii/impl/llm/anthropic.clj:123` | an API key | unset | The credential sent as `x-api-key`, tried first. |
-| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/impl/llm/anthropic.clj:125` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
-| `ANTHROPIC_BASE_URL` | `src/vaelii/impl/llm/anthropic.clj:432` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
+| `OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:40+` | a base URL; a bind address (`0.0.0.0`, `::`, `*`) is ignored | unset | Ollama's own variable, read after `VAELII_OLLAMA_HOST`. A host binds `0.0.0.0`; nothing connects to it. |
+| `ANTHROPIC_API_KEY` | `src/vaelii/impl/llm/anthropic.clj:110+` | an API key | unset | The credential sent as `x-api-key`, tried first. |
+| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/impl/llm/anthropic.clj:110+` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
+| `ANTHROPIC_BASE_URL` | `src/vaelii/impl/llm/anthropic.clj:410+` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
 
 **The build stamp.**
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `vaelii.build` | `src/vaelii/impl/io/export.clj:241` | any label | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
-| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:241` | any label | as above | The same label, read after the property. |
+| `vaelii.build` | `src/vaelii/impl/io/export.clj:240+` | any label | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
+| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:240+` | any label | as above | The same label, read after the property. |
 
 ### Developer — the suite and the scripts
 
@@ -590,23 +617,23 @@ CI sets these too; nothing in a deployment does.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_TEST_BACKEND` | `test/vaelii/test_util.clj:150` | a `<records>-<index>` backend name (`memory`, `disk`, `memory-columnar`, …), or `overlay` | `memory` | Which of the eight stores the whole suite runs on. |
-| `VAELII_TEST_TMS` | `test/vaelii/test_util.clj:159` | `reference` `dense` | `reference` | Which truth-maintenance representation the suite runs on. |
-| `VAELII_TEST_SPACE` | `test/vaelii/test_util.clj:124` | a whole number from 5 to 15 | `15` | The top of the two-space block the suite's KBs live on, so two runs can have distinct directories. |
-| `VAELII_TEST_LOG_LEVEL` | `project.clj:152` | `error` `warn` `info` `debug` `trace` | `error` | The floor the `:test` profile installs the engine's logging at, through `set-log-level` itself. |
-| `VAELII_LLM_LIVE` | `test/vaelii/test_util.clj:208` | `1` `true` `yes` | unset | The consent to call a real model. The `^:llm` mark is the separate half, and both are needed. |
-| `VAELII_RETE` | `test/vaelii/test_util.clj:47` | the boolean vocabulary | `false` | Runs the suite's forward chaining through the incremental matcher instead of the reference. |
-| `VAELII_HIER` | `test/vaelii/test_util.clj:105` | the boolean vocabulary | `true` | The set-algebra context-scoped retrieval. `0` routes every match through the reference nested fan-out instead. |
-| `VAELII_QUERY_ENGINE` | `test/vaelii/test_util.clj:64` | `dfs` `inference` `hybrid` | unset | Runs every `prove` on the engine named rather than the goal-stack DFS. |
-| `VAELII_QUERY_STRATEGY` | `test/vaelii/test_util.clj:93` | a tactician `tactics/tacticians` names, such as `breadth-first` | unset | Which tactician orders the node engine's goals. Only meaningful beside the row above. |
-| `VAELII_CLINGO_LIB` | `project.clj:87` | a directory holding `libclingo` | `/opt/homebrew/lib` | What the `+with-clingo` profile points `jna.library.path` at. |
-| `VAELII_COLOR` | `scripts/gate.sh:123` | `always` `never` | unset | Whether `lein gate` and `lein lint` colour their output; unset asks the terminal. |
-| `VAELII_GATE_OUT` | `scripts/test-parallel.sh:44` | a directory | `target/gate` | Where the parallel test stage writes its per-shard logs. `lein gate` sets it to that run's own directory, so the shard logs land beside the stage logs rather than in a directory two gates share. |
-| `VAELII_GATE_TIMINGS` | `scripts/test-parallel.sh:45` | a file | `target/gate/test-timings.tsv` | The per-namespace timings the test stage bin-packs its shards from. **Per checkout, not per run** — they are feedback for the *next* gate, so they sit above the run directory and every run shares them. Inside a per-run directory each gate starts blind and falls back to round-robin sharding, which is slower and silent. |
-| `GATE_JOBS` | `scripts/gate.sh:98` | a whole number | unset | The test stage's shard count. **Unpinned** — see below. |
-| `PERF_TOLERANCE` | `scripts/gate.sh:225` | a multiplier (`1.5`) | unset | Passed through to `lein perf --tolerance`, for a loaded box. **Unpinned.** |
-| `TEST_BACKENDS_OUT` | `scripts/test-backends.sh:125` | a directory | `target/test-backends` | Where `lein test-backends` writes one log per run. **Unpinned.** |
-| `TEST_SWEEPS_OUT` | `scripts/test-sweeps.sh:119` | a directory | `target/test-sweeps` | Where `lein test-sweeps` writes one log per run. **Unpinned.** |
+| `VAELII_TEST_BACKEND` | `test/vaelii/test_util.clj:130+` | a `<records>-<index>` backend name (`memory`, `disk`, `memory-columnar`, …), or `overlay` | `memory` | Which of the eight stores the whole suite runs on. |
+| `VAELII_TEST_TMS` | `test/vaelii/test_util.clj:150+` | `reference` `dense` | `reference` | Which truth-maintenance representation the suite runs on. |
+| `VAELII_TEST_SPACE` | `test/vaelii/test_util.clj:120+` | a whole number from 5 to 15 | `15` | The top of the two-space block the suite's KBs live on, so two runs can have distinct directories. |
+| `VAELII_TEST_LOG_LEVEL` | `project.clj:130+` | `error` `warn` `info` `debug` `trace` | `error` | The floor the `:test` profile installs the engine's logging at, through `set-log-level` itself. |
+| `VAELII_LLM_LIVE` | `test/vaelii/test_util.clj:200+` | `1` `true` `yes` | unset | The consent to call a real model. The `^:llm` mark is the separate half, and both are needed. |
+| `VAELII_RETE` | `test/vaelii/test_util.clj:30+` | the boolean vocabulary | `false` | Runs the suite's forward chaining through the incremental matcher instead of the reference. |
+| `VAELII_HIER` | `test/vaelii/test_util.clj:100+` | the boolean vocabulary | `true` | The set-algebra context-scoped retrieval. `0` routes every match through the reference nested fan-out instead. |
+| `VAELII_QUERY_ENGINE` | `test/vaelii/test_util.clj:50+` | `dfs` `inference` `hybrid` | unset | Runs every `prove` on the engine named rather than the goal-stack DFS. |
+| `VAELII_QUERY_STRATEGY` | `test/vaelii/test_util.clj:70+` | a tactician `tactics/tacticians` names, such as `breadth-first` | unset | Which tactician orders the node engine's goals. Only meaningful beside the row above. |
+| `VAELII_CLINGO_LIB` | `project.clj:80+` | a directory holding `libclingo` | `/opt/homebrew/lib` | What the `+with-clingo` profile points `jna.library.path` at. |
+| `VAELII_COLOR` | `scripts/gate.sh:110+` | `always` `never` | unset | Whether `lein gate` and `lein lint` colour their output; unset asks the terminal. |
+| `VAELII_GATE_OUT` | `scripts/test-parallel.sh:40+` | a directory | `target/gate` | Where the parallel test stage writes its per-shard logs. `lein gate` sets it to that run's own directory, so the shard logs land beside the stage logs rather than in a directory two gates share. |
+| `VAELII_GATE_TIMINGS` | `scripts/test-parallel.sh:40+` | a file | `target/gate/test-timings.tsv` | The per-namespace timings the test stage bin-packs its shards from. **Per checkout, not per run** — they are feedback for the *next* gate, so they sit above the run directory and every run shares them. Inside a per-run directory each gate starts blind and falls back to round-robin sharding, which is slower and silent. |
+| `GATE_JOBS` | `scripts/gate.sh:60+` | a whole number | unset | The test stage's shard count. **Unpinned** — see below. |
+| `PERF_TOLERANCE` | `scripts/gate.sh:60+` | a multiplier (`1.5`) | unset | Passed through to `lein perf --tolerance`, for a loaded box. **Unpinned.** |
+| `TEST_BACKENDS_OUT` | `scripts/test-backends.sh:70+` | a directory | `target/test-backends/run-<pid>` | Where `lein test-backends` writes one log per run; the default is per-run, with `latest` pointing at the newest. **Unpinned.** |
+| `TEST_SWEEPS_OUT` | `scripts/test-sweeps.sh:50+` | a directory | `target/test-sweeps` | Where `lein test-sweeps` writes one log per run. **Unpinned.** |
 
 Those four are the names the contract test does not freeze, and the reason is what a
 regex can tell apart: `${VAELII_…}` in a shell script is name-shaped enough for one
@@ -619,9 +646,9 @@ inputs to the colour decision and not knobs of this project's.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_BENCH_STORE` | `bench/vaelii/bench/survey.clj:372` | a directory holding a record log | `~/.vaelii/kbs/store` | The corpus the real-corpus benchmarks sample when the command line names none. |
-| `VAELII_SURVEY_STORE` | `bench/vaelii/bench/survey.clj:373` | a directory holding a record log | as above | A second name for the same directory, read when the row above is unset. |
-| `VAELII_PYRAMID_CORPUS` | `bench/vaelii/bench/pyramid.clj:52` | a directory holding `vaelii.txt` | none — a run without it is refused, naming itself | The join.1k corpus the pyramid benchmark reads. It is a field-harness artifact and is not in this repo, so a default could only name whoever wrote one. |
+| `VAELII_BENCH_STORE` | `bench/vaelii/bench/survey.clj:360+` | a directory holding a record log | `~/.vaelii/kbs/store` | The corpus the real-corpus benchmarks sample when the command line names none. |
+| `VAELII_SURVEY_STORE` | `bench/vaelii/bench/survey.clj:20+` | a directory holding a record log | as above | A second name for the same directory, read when the row above is unset. |
+| `VAELII_PYRAMID_CORPUS` | `bench/vaelii/bench/pyramid.clj:20+` | a directory holding `vaelii.txt` | none — a run without it is refused, naming itself | The join.1k corpus the pyramid benchmark reads. It is a field-harness artifact and is not in this repo, so a default could only name whoever wrote one. |
 
 ## Not here
 

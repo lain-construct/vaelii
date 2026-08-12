@@ -314,6 +314,47 @@
             d        (first (v/supporting-justifications kb flies-id))]
         (is (= :default (:strength d)))))))
 
+(tu/deftest-kb a-rules-own-defeat-class-is-the-one-its-assertion-states
+  ;; Two different questions read two different slots, and the rule door must not
+  ;; answer the first with a constant.  `:strength` is the rule's *own* class, and comes
+  ;; from `opts` as it does at the fact door; what a firing confers is `:defeasible`'s to
+  ;; say (`chain/rule-view-of`), so storing a rule known-true leaves its conclusions
+  ;; where they were.  Nothing in the engine defeats a rule (docs/nmtms.md states the
+  ;; absence), so the slot is one that reads back rather than one that moves belief —
+  ;; which is why `defeat-class` is asserted below beside the record: it is the read a
+  ;; caller has, and the whole of what the flag buys them.
+  (let [bird (tu/tmp-type) flies (tu/tmp-pred) chirps (tu/tmp-pred) tweety (tu/tmp-ind)
+        h (v/assert-rule kb [(list bird '?x)] (list flies '?x) 'UContext
+                         {:strength :monotonic})]
+    (is (= :monotonic (:strength (v/sentex kb h))) "the flag reaches the record")
+    (is (= :monotonic (v/defeat-class kb h)) "...and reads back off the handle")
+    (testing "and it is not the class the firing confers — a bare rule caps at its weakest antecedent"
+      (v/assert kb (list bird tweety) 'UContext)                     ; default
+      (let [c (:id (first (v/sentexes-matching kb (list flies tweety) 'UContext)))]
+        (is (= :default (v/defeat-class kb c)))))
+    (testing "a second spelling states the class again, and the record follows it"
+      (let [d (v/assert-rule kb [(list bird '?y)] (list chirps '?y) 'UContext)]
+        (is (= :default (:strength (v/sentex kb d))))
+        (is (= d (v/assert-rule kb [(list bird '?y)] (list chirps '?y) 'UContext
+                                {:strength :monotonic}))
+            "one rule, one handle — the re-assertion is not a second sentex")
+        (is (= :monotonic (:strength (v/sentex kb d)))
+            "the slot the identity key does not carry is not dropped with it")))
+    (testing "and it resolves from content, so the two orders agree"
+      ;; The third slot follows the two beside it (`reconcile-rule-slots!`): the stronger
+      ;; claim stands, because a re-assert carrying no `:strength` states nothing about
+      ;; the class and reading that silence as a downgrade is what would make the same
+      ;; two assertions answer differently in the two orders.  Narrowing one is
+      ;; `retract!` and re-assert, as it is for direction and defeasibility.
+      (let [chomps (tu/tmp-pred)
+            plain-first (v/assert-rule kb [(list bird '?z)] (list chomps '?z) 'UContext)]
+        (v/assert-rule kb [(list bird '?z)] (list chomps '?z) 'UContext {:strength :monotonic})
+        (is (= :monotonic (:strength (v/sentex kb plain-first))) "plain then monotonic")
+        ;; ...and the same pair the other way round, on the rule asserted monotonic above
+        (v/assert-rule kb [(list bird '?x)] (list flies '?x) 'UContext)
+        (is (= :monotonic (:strength (v/sentex kb h))) "monotonic then plain")
+        (is (= :monotonic (v/defeat-class kb h)) "the read-back agrees with the record")))))
+
 ;; ---- canonical variables, literal order, symmetry, comparisons ----------
 
 (tu/deftest-kb canonical-variables-are-positional-and-reversible

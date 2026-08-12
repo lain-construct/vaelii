@@ -665,6 +665,24 @@
                      'WellContext))
         "the count *is* 2, so the check holds, so the unknown does not")))
 
+(tu/deftest-kb an-unknown-over-aggregate-rechecks-on-the-body-s-predicate
+  ;; the rule's re-check keys are the body's functor, not `agg/count` — a functor no
+  ;; fact ever carries, so a rule keyed on it would never be re-checked and the
+  ;; conclusion drawn at the old census would stay believed whatever arrived
+  (tu/with-terms [childOf soloChildIn Ana Bo Cy]
+    (v/assert kb (list 'implies
+                       (list 'and (list childOf '?c '?x)
+                             (list 'unknown (list 'agg/count 2 '?v (list childOf '?v '?x))))
+                       (list soloChildIn '?x))
+              'WellContext)
+    (v/assert kb (list childOf Bo Ana) 'WellContext)
+    (is (v/ask? kb (list soloChildIn Ana) 'WellContext)
+        "one child: the count is not 2, the unknown holds, the rule concludes")
+    (v/assert kb (list childOf Cy Ana) 'WellContext)
+    (is (not (v/ask? kb (list soloChildIn Ana) 'WellContext))
+        "two children: the arriving fact re-checks the rule and the conclusion is
+        withdrawn, rather than kept on the census it was drawn at")))
+
 ;; ---- what level 6 does and does not reach --------------------------------
 
 (tu/deftest-kb a-forward-derived-fact-is-counted

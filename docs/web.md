@@ -417,8 +417,13 @@ in the background never stops you writing to the one on screen.
 
 `/kbs/export` is not guarded either, for a third reason: it writes the *filesystem*
 rather than a KB, so a load filling some other KB is no reason to refuse it. What an
-export cannot survive is the KB it is walking being written, and that is
-`catalog/export-entry!`'s own refusal to make ([catalog.md](catalog.md)).
+export cannot survive is the KB it is walking being written, and that exclusion runs
+both ways: `catalog/export-entry!` refuses to start while a loader writes the KB, and
+while the walk runs `write-refusal` refuses the write routes for that KB
+(`catalog/exporting-kb?`, asked by identity — the job claims no writer, so the claim
+registry cannot answer for it). The export job also takes the write monitor before it
+walks, so a synchronous write already past the refusal drains first rather than
+interleaving, exactly as a chaining job's does ([catalog.md](catalog.md)).
 
 ## Long work as jobs
 
@@ -540,13 +545,14 @@ while a load is running. It leaves the structural caches alone (the symbol pool,
 compiled relation algebras), and the page names which those are by asking the rows rather
 than by hard-coding them.
 
-**A clear reaches as wide as the counters it resets**, which is wider than the KB whose
-page it was pressed on. The scope split is not only a rendering question: a row whose
-rates belong to the process has its rates reset for the process, so a clear here zeroes
-the hit and miss counters every other KB's page is reading. The literal cache is that row
-— its entries go for this KB alone, its counters for all of them — and no other KB loses
-an entry or a belief; what a second reader loses is the measurement they were partway
-through. The page says which rows those are the same way it says which are left alone, by
+**A clear reaches the KB it was pressed on, and no further.** The scope split is not only
+a rendering question: a row whose rates belong to the process keeps them through a clear —
+the entries dropped are this KB's alone, and the hit and miss counters every other KB's
+page is reading keep running, since they are a measurement a second reader may be partway
+through. The literal cache is that row — its entries go for this KB alone, its counters
+belong to all of them — and no other KB loses an entry, a counter or a belief. Zeroing
+the process-wide rates is `clear-caches`' `:counters?` option, which the button does not
+pass. The page says which rows those are the same way it says which are left alone, by
 asking the rows for `:clearable?` and `:counters` rather than by naming a cache in prose
 that would outlive it.
 

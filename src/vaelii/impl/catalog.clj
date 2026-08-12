@@ -693,11 +693,16 @@
 
 (defn- entry-key
   "The key an entry is filed under: the source id, suffixed when that source can be
-  loaded more than once (the generator, at several shapes)."
+  loaded more than once (the generator, at several shapes).  The suffix is one past
+  the highest still loaded, not a count — after `generated#1` of two is unloaded, a
+  count would name `generated#2` again and collide with the live entry."
   [{:keys [id repeat?]}]
   (if-not repeat?
     id
-    (str id "#" (inc (count (filter #(str/starts-with? % (str id "#")) (:order @state)))))))
+    (let [prefix (str id "#")
+          taken  (keep #(when (str/starts-with? % prefix) (parse-long (subs % (count prefix))))
+                       (:order @state))]
+      (str prefix (inc (reduce max 0 taken))))))
 
 (defn- drop-entry!
   "Forget entry `key` — the registry half of `unload!`, and what a load that never started
@@ -811,8 +816,10 @@
     ;; progress report, and a phase that reports none (opening a large store scans its
     ;; whole record log before it says anything) can outlast the wait — so say the entry
     ;; is still stopping and leave it whole rather than pulling the stores out from under
-    ;; a live writer.
-    (when (= :running (:status e))
+    ;; a live writer.  `:cancelling` is still that writer — a previous unload's cancel
+    ;; whose thread has not stopped yet — so it takes the same wait, or the retry the
+    ;; refusal below asks for would skip straight to the release.
+    (when (#{:running :cancelling} (:status e))
       (cancel! key)
       ;; A job the registry has already dropped — one still running six hours later is
       ;; presumed wedged — answers no status at all, which is not a settled one either, so
@@ -910,11 +917,20 @@
         e   (entry key)
         kb  (:kb e)]
     (when (:records kb)
-      (let [n        (try (v/sentex-count kb) (catch Exception _ 0))
-            belief?  (or (zero? n) (boolean (first (jtms/datums (:tms kb)))))
-            settled? (= :done (:status e))]
+      ;; a store that cannot even be counted is the *most* caveated state, not the
+      ;; least: folded into 0 it read as "nothing stored, nothing to miss" and the
+      ;; page rendered a damaged KB as a healthy, fully settled one
+      (let [n        (try (v/sentex-count kb) (catch Exception _ ::unreadable))
+            ;; `in-datums`, not `datums`: the question is whether anything is
+            ;; *believed*, and a node exists per handle after any `recover` — a
+            ;; recover over a strength-less store builds every node OUT, which is
+            ;; precisely the state this caveat exists to point at
+            belief?  (if (= ::unreadable n)
+                       false
+                       (or (zero? (long n)) (boolean (first (jtms/in-datums (:tms kb))))))
+            settled? (and (not= ::unreadable n) (= :done (:status e)))]
         (when-not (and settled? belief?)
-          {:key key :name (:name e) :status (:status e)
+          {:key key :name (:name e) :status (if (= ::unreadable n) :unreadable (:status e))
            :progress (:progress e) :belief? belief?})))))
 
 ;; ---- exporting -----------------------------------------------------------
@@ -937,9 +953,24 @@
   []
   (boolean (some #(= :export (:kind %)) (jobs/running))))
 
+(defn exporting-kb?
+  "Is `kb` the one a running export is still walking?  Asked by identity, like
+  `write-blocked?`, and it is that question's reciprocal: `export-entry!` refuses to
+  *start* while a loader writes the KB, and this is what lets the write doors refuse
+  while the walk runs — the walk fetches record by record with no snapshot to walk
+  instead, so a write landing mid-walk gives the dump no single state to be of."
+  [kb]
+  (boolean (and kb
+                (some #(and (= :export (:kind %))
+                            (identical? kb (:kb (entry (:entry %)))))
+                      (jobs/running)))))
+
 (defn export-entry!
   "Write the KB in entry `key` out as a dump in `dir`, on its own thread, and return the
-  job.  `opts` are `vaelii.core/export!`'s (`:variant`, `:compression`).
+  job.  `opts` are `vaelii.core/export!`'s (`:variant`, `:compression`), plus
+  `:run-in` — a wrapper the walk runs inside, which is how the browser hands its write
+  monitor so a synchronous write already past the refusals drains before the walk
+  starts rather than interleaving with it.
 
   Three refusals, each about something an export cannot be correct in the face of:
 
@@ -952,6 +983,11 @@
   - **the KB is still loading.**  `export!` walks it record by record with no snapshot to
     walk instead, so a dump of a KB something is still writing is a dump of no single
     state.
+
+  The last refusal runs the other way too: while the walk runs, `exporting-kb?`
+  answers true for this KB, and the browser's write door refuses with it — the job
+  claims no writer, so the claim registry cannot say it.  (A daemon's export needs no
+  such flag: `serve` files `:export` with the writes, under its own monitor.)
 
   `!` for what a cancelled one leaves behind: a directory holding part of a dump.  It is
   not a *loadable* dump — `meta.edn` is written last and is what `classify` keys on — but
@@ -974,10 +1010,14 @@
       (throw (ex-info (str (:name e) " is still loading — a dump of a KB something is"
                            " still writing is a dump of no single state")
                       {:type :still-loading :key key})))
-    (let [id (jobs/submit
+    (let [run-in (:run-in opts (fn [work] (work)))
+          opts   (dissoc opts :run-in)
+          id (jobs/submit
               {:label      (str "Export " (:name e))
                :kind       :export
-               ;; a dump is bytes on the filesystem, so this claims no writer — but it is
+               ;; a dump is bytes on the filesystem, so this claims no writer — claiming
+               ;; one would refuse a load of some *other* KB, which has no bearing on the
+               ;; dump; `exporting-kb?` is how the write doors refuse for this one.  It is
                ;; never hard-interrupted either, for the same reason a KB-writing job is
                ;; not: an interrupt mid-frame leaves a file torn rather than short
                :result-url "/kbs"
@@ -985,7 +1025,7 @@
                :variant    (:variant opts :records)
                :progress   {:phase :starting :done 0}}
               (fn [progress!]
-                (let [summary (v/export! kb (str dir) (assoc opts :on-progress progress!))]
+                (let [summary (run-in #(v/export! kb (str dir) (assoc opts :on-progress progress!)))]
                   (trove/log! {:level :info :id ::exported
                                :msg (str "exported KB " key " to " (:dir summary))
                                :data summary})

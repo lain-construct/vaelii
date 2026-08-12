@@ -557,3 +557,9 @@ than failing:
   neither engine; `CoreContext`'s `(implies (?pred . ?args) (ist UniverseContext (?pred
   . ?args)))` is one, stating for a reader what the decontextualized-predicate lift does
   in code.
+
+  A **generator's** stamped rule is the other exemption, and it is the one that buys
+  something back: a variable functor there is a *hole*, filled with a concrete predicate
+  before anything is keyed on it, so one generator ranges over a family of predicates
+  while every rule the index sees has a concrete functor.  A stamped variable functor
+  that is not a hole is refused like any other.  See [generators.md](generators.md).

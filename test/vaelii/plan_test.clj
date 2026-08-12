@@ -26,6 +26,7 @@
             [vaelii.core :as v]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -1159,3 +1160,75 @@
         (is (= 2 (count p)))
         (is (every? #(contains? % :est-matches) p))
         (is (= parentOf (first (:goal (first p)))))))))
+
+;; ---- the subtype fan ----------------------------------------------------
+
+(defn- hierarchy!
+  "A `genl` tree of `depth` levels, `branching` children per node, rooted at `t 0`, with
+  one instance per type in the lower half — so `specs` of the root is the whole tree and a
+  unary literal on it fans over all of it.  Returns how many types it holds."
+  [kb ctx t ind depth branching]
+  (let [n (reduce + (take depth (iterate #(* % branching) 1)))]
+    (v/assert-many kb
+                   (concat (for [i (range 1 n)]
+                             (list 'genl (symbol (str t "_" i))
+                                   (symbol (str t "_" (quot (dec i) branching)))))
+                           (for [i (range (quot n 2) n)]
+                             (list (symbol (str t "_" i)) (symbol (str ind "I" i)))))
+                   ctx {:chain? false})
+    n))
+
+(tu/deftest-kb the-fan-over-a-subtype-closure-is-the-general-walks-own-number
+  ;; DECISION (07-join-estimation, and this namespace's "Two estimators"): `est-matches`
+  ;; bounds a literal from above, and a reading of 1 is a *proof* it matches at most once
+  ;; — `rank-blocks` reads a block of them as a proof the block cannot multiply and
+  ;; `cartesian-factors` rests on the same claim.  So reading the subtype roots directly
+  ;; instead of walking a built literal per subtype is a constant-factor change and
+  ;; nothing else: **equality**, and against the walk itself rather than against a number
+  ;; written down here.
+  (tu/with-terms [plan_t PlanNode PlanQ PlanContext]
+    (let [types (hierarchy! kb PlanContext plan_t PlanNode 5 3)
+          typ   (fn [i] (symbol (str plan_t "_" i)))
+          ;; the general walk, reached by construction: `prefix-estimate` per subtype, the
+          ;; path any argument shape but a bare open variable takes
+          ;; the general walk, reached by construction — with `est-matches`' one earlier
+          ;; branch in front of it, since a literal with nothing left open is answered as
+          ;; a *test* and never reaches the fan at all
+          walked (fn [goal bound]
+                   (let [[t a] goal
+                         ix (:index kb)]
+                     (if (#'plan/closed? goal bound)
+                       1
+                       (min 1000000000
+                            (reduce (fn [acc t']
+                                      (+ acc (#'plan/prefix-estimate
+                                              ix (list t' a) bound p/count-at p/count-children)))
+                                    0
+                                    (tax/specs (:taxonomy kb) t PlanContext))))))
+          est    (fn [goal bound] (plan/est-matches kb goal bound {:context PlanContext}))]
+      (testing "the hierarchy is deep enough that the fan is the branch under test"
+        (is (< 100 types))
+        (is (< (est (list (typ (dec types)) '?x) #{}) (est (list (typ 0) '?x) #{}))))
+      (testing "an open atom argument — the shape the direct read answers"
+        (doseq [i [0 1 (quot types 2) (dec types)]]
+          (let [goal (list (typ i) '?x)]
+            (is (= (walked goal #{}) (est goal #{})) (str "at " (typ i))))))
+      (testing "and the shapes that must still take the walk, because their prefix is deeper"
+        (doseq [[goal bound]
+                [;; a bound variable: the walk charges an average branch, not the extent
+                 [(list (typ 0) '?x) '#{?x}]
+                 ;; a compound argument: its own tokens extend the prefix past the functor
+                 [(list (typ 0) (list PlanQ '?n PlanNode)) #{}]
+                 [(list (typ 0) (list PlanQ '?n PlanNode)) '#{?n}]]]
+          (is (= (walked goal bound) (est goal bound))
+              (str (pr-str goal) " under " (pr-str bound)))))
+      (testing "a ground argument never reaches the fan at all — it is a test, and 1"
+        (is (= 1 (est (list (typ 0) (symbol (str PlanNode "I" (quot types 2)))) #{}))))
+      (testing "and `explain` reports the walk's number for the literal that fans"
+        (doseq [gs [[(list (typ 0) '?x) (list PlanQ '?x '?y)]
+                    [(list PlanQ '?x '?y) (list (typ 0) '?x)]]]
+          (let [row (first (filter #(= (typ 0) (first (:goal %)))
+                                   (plan/explain kb gs PlanContext)))]
+            (is (some? row) (str "the broad literal is in the plan — " (pr-str gs)))
+            (is (= (walked (:goal row) (:bound-before row)) (:est-matches row))
+                (pr-str gs))))))))

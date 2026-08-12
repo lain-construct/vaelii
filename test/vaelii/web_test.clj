@@ -354,6 +354,54 @@
     (when (re-find #"Violations" body)
       (is (re-find #"· run \d+" body) "each dropped conclusion names its run"))))
 
+(deftest a-violation-about-no-sentence-renders-without-a-nil-link
+  ;; Four of the ledger's kinds are about a *pair* or a *budget* rather than a dropped
+  ;; sentence, so they carry a `:detail` and no `:sentence` or `:context`: the
+  ;; cross-context reports and both sweep notices.  The row rendered both fields
+  ;; unconditionally, and `term-link`'s fallback arm links whatever it is handed — so
+  ;; each printed the text "nil" beside a live link to `/term?q=nil`.
+  (let [kb tu/*kb*]
+    (tu/with-terms [AContext BContext WContext left_t right_t Pip]
+      (v/assert kb (list 'disjoint left_t right_t) 'UniverseContext)
+      (v/assert kb (list 'genl left_t 'thing) 'UniverseContext)
+      (v/assert kb (list 'genl right_t 'thing) 'UniverseContext)
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
+      (v/assert kb (list left_t Pip) AContext)
+      (v/assert kb (list right_t Pip) BContext)
+      (is (some #(= :disjoint (:violation %)) (v/violations kb))
+          "the sentence-less exposure entry is on the ledger")
+      (let [body (:body (GET "/stats"))]
+        (is (not (re-find #"q=nil" body)) "and the page links no term called nil")
+        (is (not (re-find #"(?m)^\s*nil\s+@" body)) "nor prints one")))))
+
+(deftest a-standing-clash-links-its-two-terms-and-not-the-pair-it-came-in
+  ;; `:held` is a vector of `[type context]` pairs. Handed to `term-link` whole it took
+  ;; the fallback arm, which links whatever it is given — so every reported clash offered
+  ;; `/term?q=[dog AContext]`, a term no KB holds. Same failure as the `q=nil` row one
+  ;; screen up, and the same cause: a renderer destructuring an entry shape it assumed.
+  (let [kb tu/*kb*]
+    (tu/with-terms [AContext BContext WContext left_t right_t Pip]
+      (v/assert kb (list 'disjoint left_t right_t) 'UniverseContext)
+      (v/assert kb (list 'genl left_t 'thing) 'UniverseContext)
+      (v/assert kb (list 'genl right_t 'thing) 'UniverseContext)
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
+      (v/assert kb (list left_t Pip) AContext)
+      (v/assert kb (list right_t Pip) BContext)
+      (is (seq (v/exposed-clashes kb)) "the standing question finds the pair")
+      (let [body (:body (GET "/stats" "clashes=1"))]
+        (is (not (re-find #"q=%5B|q=\[" body))
+            "no link to a bracketed [type context] pair")
+        (is (re-find (re-pattern (str "q=" (name left_t))) body)
+            "the type itself is linked")
+        (is (re-find (re-pattern (str "q=" (name AContext))) body)
+            "and so is the context it was written in")))))
+
 (deftest the-standing-disjointness-question-is-asked-not-assumed
   (testing "it is behind a control, because it is computed rather than filed"
     (let [body (:body (GET "/stats"))]

@@ -12,7 +12,7 @@
   the shared lattice is two siblings under UniverseContext, with the joint viewer
   (when one exists) below both.  The membership-last route's acceptance test is
   `disjoint_test/a-general-context-may-be-given-what-a-specific-one-forbids`."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.rules :as vr]
@@ -676,3 +676,288 @@
                       settle/*rebuilding?* true]
               (v/assert k (list 'disjoint t1 t2) 'UniverseContext))
             (is (= [:disjoint] (mapv :kind (v/contradictions k))))))))))
+
+;; ---- the other two kinds, across the same edge ---------------------------
+;;
+;; `disjoint` was the only kind the ledger could say, so under `:refuse` a `functional`
+;; slot filled either side of a `genlContext` edge and an `asymmetric` claim written
+;; across one were neither refused nor reported.  Same lattice as the disjointness
+;; cases above: two siblings neither of which sees the other, and a joint viewer below
+;; both that sees the whole pair.
+
+(defn- split-lattice!
+  "The declaration and the two siblings with a joint viewer below both — everything but
+  the two clashing claims, so a test can choose the order those arrive in."
+  [kb {:keys [a b w decl pred]}]
+  (v/assert kb (list decl pred) 'UniverseContext)
+  (v/assert kb (list 'genlContext a 'UniverseContext) 'UniverseContext)
+  (v/assert kb (list 'genlContext b 'UniverseContext) 'UniverseContext)
+  (v/assert kb (list 'genlContext w a) 'UniverseContext)
+  (v/assert kb (list 'genlContext w b) 'UniverseContext))
+
+(defn- split-pair!
+  "Two claims of one predicate, one in each sibling, with a joint viewer below both —
+  admissible to both writers, since neither sibling sees the other."
+  [kb {:keys [a b one two] :as spec}]
+  (split-lattice! kb spec)
+  (v/assert kb one a)
+  (v/assert kb two b))
+
+(tu/deftest-kb a-functional-slot-filled-across-an-edge-is-reported
+  ;; The hole this closes.  Neither writer can see the other's filler, so neither is
+  ;; refused; the joint viewer sees both, and that is what the entry names.
+  (tu/with-terms [AContext BContext WContext birthYear Tom]
+    (let [one (list birthYear Tom 1970)
+          two (list birthYear Tom 1980)]
+      (split-pair! kb {:a AContext :b BContext :w WContext :decl 'functional
+                       :pred birthYear :one one :two two})
+      (let [vs (filter #(= :functional (:violation %)) (v/violations kb))]
+        (is (= 1 (count vs)) "one entry for the pair, not one per side")
+        (is (= #{WContext} (get-in (first vs) [:detail :visible-from])))
+        (is (= birthYear (get-in (first vs) [:detail :pred])))
+        (is (= #{[one AContext] [two BContext]}
+               (set (get-in (first vs) [:detail :clash])))))
+      (testing "and belief is untouched — this reports, it does not decide"
+        (is (seq (v/sentexes-matching kb one AContext)))
+        (is (seq (v/sentexes-matching kb two BContext)))
+        (is (empty? (v/contradictions kb)))))))
+
+(tu/deftest-kb an-asymmetric-claim-written-across-an-edge-is-reported
+  (tu/with-terms [AContext BContext WContext largerThan Rex Pip]
+    (let [one (list largerThan Rex Pip)
+          two (list largerThan Pip Rex)]
+      (split-pair! kb {:a AContext :b BContext :w WContext :decl 'asymmetric
+                       :pred largerThan :one one :two two})
+      (let [vs (filter #(= :asymmetric (:violation %)) (v/violations kb))]
+        (is (= 1 (count vs)))
+        (is (= #{WContext} (get-in (first vs) [:detail :visible-from])))
+        (is (= #{[one AContext] [two BContext]}
+               (set (get-in (first vs) [:detail :clash])))))
+      (testing "belief untouched"
+        (is (seq (v/sentexes-matching kb one AContext)))
+        (is (seq (v/sentexes-matching kb two BContext)))
+        (is (empty? (v/contradictions kb)))))))
+
+(deftest the-report-is-the-same-in-either-arrival-order
+  ;; Both halves can sit in one settle's region and each convicts the other, so a pair
+  ;; keyed on the walked side would be filed twice — or read differently — depending on
+  ;; which arrived last.  **The two arms share one term set and run over two cleared
+  ;; KBs**, so the entries are comparable as values: an arm-local `with-terms` would make
+  ;; them differ for a reason that has nothing to do with order.
+  (tu/with-terms [AContext BContext WContext birthYear Tom]
+    (let [one (list birthYear Tom 1970)
+          two (list birthYear Tom 1980)
+          spec {:a AContext :b BContext :w WContext :decl 'functional :pred birthYear}
+          run  (fn [first-half second-half]
+                 (tu/with-cleared-kb [k tu/fresh]
+                   (split-lattice! k spec)
+                   (v/assert k first-half (if (= first-half one) AContext BContext))
+                   (v/assert k second-half (if (= second-half one) AContext BContext))
+                   (mapv #(dissoc % :run)
+                         (filter (comp #{:functional} :violation) (v/violations k)))))
+          a (run one two)
+          b (run two one)]
+      (is (= 1 (count a)) "one entry for the pair, whichever half arrived last")
+      (is (= a b) "and the identical entry, contexts and visible-from included"))))
+
+(tu/deftest-kb every-context-that-sees-the-pair-is-named-not-just-the-convicting-one
+  ;; `:visible-from` is a property of the pair, so a second joint viewer belongs in it.
+  ;; Reading it off whichever vantage happened to convict would make the entry a function
+  ;; of which half the region held.
+  (tu/with-terms [AContext BContext WContext VContext birthYear Tom]
+    (let [one (list birthYear Tom 1970)
+          two (list birthYear Tom 1980)]
+      (split-lattice! kb {:a AContext :b BContext :w WContext
+                          :decl 'functional :pred birthYear})
+      ;; a second, incomparable viewer of both siblings, in place before the facts
+      (v/assert kb (list 'genlContext VContext AContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext VContext BContext) 'UniverseContext)
+      (v/assert kb one AContext)
+      (v/assert kb two BContext)
+      (let [vs (filter (comp #{:functional} :violation) (v/violations kb))]
+        (is (= 1 (count vs)))
+        (is (= #{WContext VContext} (get-in (first vs) [:detail :visible-from]))
+            "both joint viewers, not the one that was enumerated first")))))
+
+(tu/deftest-kb a-wide-slot-is-capped-and-says-so
+  ;; The entries are not bounded by the region: one slot filled from N contexts a single
+  ;; vantage sees is N-1 pairs off one arriving fact, and the ledger keeps 1000.
+  (tu/with-terms [WContext birthYear Tom]
+    (v/assert kb (list 'functional birthYear) 'UniverseContext)
+    (let [ctxs (vec (repeatedly 8 #(tu/tmp-ctx "Src")))]
+      (doseq [c ctxs]
+        (v/assert kb (list 'genlContext c 'UniverseContext) 'UniverseContext)
+        (v/assert kb (list 'genlContext WContext c) 'UniverseContext))
+      (doseq [[i c] (map-indexed vector (butlast ctxs))]
+        (v/assert kb (list birthYear Tom (+ 1900 i)) c))
+      (v/clear-violations! kb)
+      (binding [settle/*exposure-instance-budget* 3]
+        (v/assert kb (list birthYear Tom 1999) (last ctxs)))
+      (let [vs   (v/violations kb)
+            cut  (filter (comp #{:constraint-exposure-truncated} :violation) vs)
+            pair (filter (comp #{:functional} :violation) vs)]
+        (is (= 3 (count pair)) "capped at the budget")
+        (is (= 1 (count cut)) "and the cut is never silent")
+        (is (< 3 (get-in (first cut) [:detail :pairs]))
+            "the notice says how many pairs there were")))))
+
+(tu/deftest-kb under-arbitrate-the-pair-is-weighed-and-nothing-is-filed
+  ;; The test that catches the gate applied in the wrong place.  Under `:arbitrate` the
+  ;; vantages are already asked, so the pair is decided rather than reported — and this
+  ;; pass must add nothing there, or the ledger and `contradictions` both claim it.
+  (tu/with-neutral-kb [k #(v/open-kb (assoc tu/scratch-space :constraints :arbitrate))]
+    (tu/with-terms [AContext BContext WContext birthYear Tom]
+      (split-pair! k {:a AContext :b BContext :w WContext :decl 'functional
+                      :pred birthYear
+                      :one (list birthYear Tom 1970) :two (list birthYear Tom 1980)})
+      (is (seq (v/contradictions k)) "the vantage decides it")
+      (is (empty? (filter (comp #{:functional :asymmetric} :violation) (v/violations k)))
+          "and the ledger does not also claim it"))))
+
+(tu/deftest-kb a-pair-both-writers-could-see-is-refused-not-reported
+  ;; The gap is cross-context only.  Written in one context the assert door sees the
+  ;; whole pair and refuses, which is what `:refuse` means — nothing reaches the ledger.
+  (tu/with-terms [birthYear Tom]
+    (v/assert kb (list 'functional birthYear) 'UniverseContext)
+    (v/assert kb (list birthYear Tom 1970) 'UniverseContext)
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (v/assert kb (list birthYear Tom 1980) 'UniverseContext)))
+    (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))
+
+(tu/deftest-kb a-self-tuple-in-two-contexts-orders-on-the-context
+  ;; The converse of `(P a a)` is itself, so both halves print the same sentence and a
+  ;; key stopping at the sentence leaves them in whatever order the walk supplied — which
+  ;; is the side the region held.  `content-order` keys on sentence *then* context and so
+  ;; does the half ordering; this is the case that tells the two keys apart.
+  (tu/with-terms [AContext BContext WContext beats Rex]
+    (let [claim (list beats Rex Rex)]
+      (split-lattice! kb {:a AContext :b BContext :w WContext
+                          :decl 'asymmetric :pred beats})
+      (v/assert kb claim AContext)
+      (v/assert kb claim BContext)
+      (let [vs (filter (comp #{:asymmetric} :violation) (v/violations kb))]
+        (is (= 1 (count vs)))
+        (let [[[_ c1] [_ c2]] (get-in (first vs) [:detail :clash])]
+          (is (= [c1 c2] (sort-by str [AContext BContext]))
+              "the two halves are ordered by context, the sentences being equal")
+          (is (= c1 (:context (first vs)))
+              "and the entry's own context is the first of that ordered pair"))))))
+
+(tu/deftest-kb a-rebuild-reports-nothing-because-nothing-newly-moved
+  ;; Same rule as the disjointness pass beside it: a `recover`'s region is the whole KB,
+  ;; so *newly* visible has no meaning there and every standing pair would be refiled.
+  (tu/with-terms [AContext BContext WContext birthYear Tom]
+    (split-lattice! kb {:a AContext :b BContext :w WContext
+                        :decl 'functional :pred birthYear})
+    (v/assert kb (list birthYear Tom 1970) AContext)
+    (v/clear-violations! kb)
+    (binding [settle/*rebuilding?* true]
+      (v/assert kb (list birthYear Tom 1980) BContext))
+    (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))
+
+(tu/deftest-kb a-predicate-carrying-both-properties-reads-both-postings
+  ;; The vantage search reads the argument-1 posting a partner could be in and no other:
+  ;; a functional partner shares argument 1, an asymmetric one holds it in argument 2.
+  ;; A predicate declared both needs both reads, and dropping either loses a pair rather
+  ;; than costing a scan — which a narrowing done for cost is exactly how to get wrong.
+  (tu/with-terms [AContext BContext WContext ranks Tom Pip Vic]
+    (split-lattice! kb {:a AContext :b BContext :w WContext
+                        :decl 'functional :pred ranks})
+    (v/assert kb (list 'asymmetric ranks) 'UniverseContext)
+    (testing "the functional partner, which shares argument 1"
+      (v/assert kb (list ranks Tom 1) AContext)
+      (v/assert kb (list ranks Tom 2) BContext)
+      (is (seq (filter (comp #{:functional} :violation) (v/violations kb)))))
+    (testing "and the asymmetric partner, whose argument 1 is the other side's argument 2"
+      ;; fresh subjects: a converse pair on Tom would also be a second filler of Tom's
+      ;; functional slot, and the door would refuse it before any of this ran
+      (v/clear-violations! kb)
+      (v/assert kb (list ranks Pip Vic) AContext)
+      (v/assert kb (list ranks Vic Pip) BContext)
+      (is (seq (filter (comp #{:asymmetric} :violation) (v/violations kb)))))))
+
+(tu/deftest-kb an-edge-arriving-after-both-facts-still-exposes-the-pair
+  ;; The arrival order the region alone cannot see: visibility itself moves, so a pair
+  ;; whose halves are already stored and already believed becomes jointly visible without
+  ;; either half being relabelled. Neither is in the moved region, so the `genlContext`
+  ;; edge has to reach out to them — the same trigger `exposure-candidates` answers for
+  ;; disjointness, over the binary-fact parallel of `members-in-cone`.
+  (tu/with-terms [AContext BContext WContext birthYear Tom]
+    (let [one (list birthYear Tom 1970)
+          two (list birthYear Tom 1980)]
+      (v/assert kb (list 'functional birthYear) 'UniverseContext)
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb one AContext)
+      (v/assert kb two BContext)
+      (is (empty? (filter (comp #{:functional} :violation) (v/violations kb)))
+          "nothing sees the pair yet")
+      (v/assert kb (list 'genlContext WContext AContext) 'UniverseContext)
+      (is (empty? (filter (comp #{:functional} :violation) (v/violations kb)))
+          "seeing one side is not seeing the clash")
+      (v/assert kb (list 'genlContext WContext BContext) 'UniverseContext)
+      (let [vs (filter (comp #{:functional} :violation) (v/violations kb))]
+        (is (= 1 (count vs)) "the edge that completes the view reports the pair")
+        (is (= #{WContext} (get-in (first vs) [:detail :visible-from])))
+        (is (= #{[one AContext] [two BContext]}
+               (set (get-in (first vs) [:detail :clash]))))))))
+
+(deftest the-edges-may-arrive-in-either-position-and-the-report-is-the-same
+  ;; The whole point of the trigger: facts-then-edges and edges-then-facts are the same
+  ;; knowledge, so they are one entry either way. Two cleared KBs over one term set, so
+  ;; the entries compare as values.
+  (tu/with-terms [AContext BContext WContext birthYear Tom]
+    (let [one   (list birthYear Tom 1970)
+          two   (list birthYear Tom 1980)
+          decl! (fn [k]
+                  (v/assert k (list 'functional birthYear) 'UniverseContext)
+                  (v/assert k (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+                  (v/assert k (list 'genlContext BContext 'UniverseContext) 'UniverseContext))
+          edges! (fn [k]
+                   (v/assert k (list 'genlContext WContext AContext) 'UniverseContext)
+                   (v/assert k (list 'genlContext WContext BContext) 'UniverseContext))
+          facts! (fn [k] (v/assert k one AContext) (v/assert k two BContext))
+          run   (fn [first! second!]
+                  (tu/with-cleared-kb [k tu/fresh]
+                    (decl! k) (first! k) (second! k)
+                    (mapv #(dissoc % :run)
+                          (filter (comp #{:functional} :violation) (v/violations k)))))
+          edges-last  (run facts! edges!)
+          edges-first (run edges! facts!)]
+      (is (= 1 (count edges-first)))
+      (is (= edges-first edges-last)
+          "the identical entry whichever half of the setup arrived last"))))
+
+(tu/deftest-kb an-edge-whose-cone-is-cut-short-says-so
+  ;; The trigger reaches out of the region, so it is budgeted like every other sweep —
+  ;; and a bounded sweep that reads as full coverage is the failure all of them guard
+  ;; against.
+  ;; Distinct subjects, so the cone is full of candidates and *none* of them pairs — the
+  ;; entry filed can then only be the sweep's, not the "more pairs than I will file" one
+  ;; the same kind also carries.
+  (tu/with-terms [SrcContext WContext birthYear]
+    (v/assert kb (list 'functional birthYear) 'UniverseContext)
+    (v/assert kb (list 'genlContext SrcContext 'UniverseContext) 'UniverseContext)
+    (doseq [i (range 6)]
+      (v/assert kb (list birthYear (tu/tmp-ind "Subj") (+ 1900 i)) SrcContext))
+    (v/clear-violations! kb)
+    (binding [settle/*exposure-instance-budget* 2]
+      (v/assert kb (list 'genlContext WContext SrcContext) 'UniverseContext))
+    (let [vs  (v/violations kb)
+          cut (filter (comp #{:constraint-exposure-truncated} :violation) vs)]
+      (is (empty? (filter (comp #{:functional} :violation) vs))
+          "no pair is reported — the subjects are distinct")
+      (is (seq cut) "and the cut is still never silent")
+      (is (pos? (get-in (first cut) [:detail :unswept]))
+          "it names how many edges went unswept"))))
+
+(tu/deftest-kb siblings-with-no-joint-viewer-report-nothing
+  ;; The ∃-vantage reading, for these two kinds: the claims coexist and no single
+  ;; context sees both, so there is nobody the pair is a clash for.
+  (tu/with-terms [AContext BContext birthYear Tom]
+    (v/assert kb (list 'functional birthYear) 'UniverseContext)
+    (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+    (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+    (v/assert kb (list birthYear Tom 1970) AContext)
+    (v/assert kb (list birthYear Tom 1980) BContext)
+    (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))

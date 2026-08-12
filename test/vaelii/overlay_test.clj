@@ -161,6 +161,30 @@
       (is (= (v/sentex-count base) (v/sentex-count f))))
     (v/clear! base)))
 
+(deftest a-fork-inherits-the-bases-preservation
+  ;; The preservation reads — the declaration gates, the claim, the licence — cross
+  ;; the seam like every other read: a fork-local `genl` edge fires the base's rule
+  ;; through the base's declaration and claim, fork-side only, and the base comes
+  ;; back byte-identical.
+  (let [base (doto (v/open-kb {:backend :memory :space [::preserve-base] :recover? false})
+               (v/clear!))]
+    (v/assert base '(argPreserving tmpLargerThan 1 genl) 'UniverseContext)
+    (v/assert base '(tmpLargerThan tmp_dog tmp_cat) 'UniverseContext)
+    (v/assert base '(implies (tmpLargerThan ?x ?y) (tmpOutweighs ?x ?y)) 'UniverseContext)
+    (let [before (base-snapshot base)
+          f      (v/fork base)]
+      (v/assert f '(genl tmp_chi tmp_dog) 'UniverseContext)
+      (is (seq (v/sentexes-matching f '(tmpOutweighs tmp_chi tmp_cat) 'UniverseContext))
+          "the fork-local edge fired the base's rule through the base's declaration")
+      (is (empty? (v/sentexes-matching base '(tmpOutweighs tmp_chi tmp_cat) 'UniverseContext))
+          "and the base derived nothing")
+      (is (= before (base-snapshot base)) "byte-identical, not merely equivalent")
+      (testing "retracting the fork-local edge withdraws what it licensed"
+        (v/retract! f (v/handle-of f '(genl tmp_chi tmp_dog) 'UniverseContext))
+        (is (empty? (v/sentexes-matching f '(tmpOutweighs tmp_chi tmp_cat)
+                                         'UniverseContext)))))
+    (v/clear! base)))
+
 (deftest a-fork-writes-only-to-itself
   (let [base   (fresh-base 2)
         before (base-snapshot base)
@@ -173,6 +197,32 @@
     (testing "and the base saw none of it"
       (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'OverlayContext))))
       (is (= before (base-snapshot base)) "the base is byte-identical"))
+    (v/clear! base)))
+
+(deftest two-forks-naming-the-default-storage-stay-independent
+  ;; `{:backend :memory}` — the docstring's own spelling of the default — is not a
+  ;; remount: fork opts naming neither a `:space` nor a `:dir` take a fresh fork
+  ;; space, where they once landed on the shared process default (space 0) and two
+  ;; such forks saw each other's writes
+  (let [base (fresh-base 12)
+        f1   (v/fork base {:backend :memory})
+        f2   (v/fork base {:backend :memory})]
+    (v/assert f1 '(dog Rex) 'OverlayContext {:strength :monotonic})
+    (is (seq (v/sentexes-matching f1 '(dog Rex) 'OverlayContext)) "the writer sees it")
+    (is (empty? (v/sentexes-matching f2 '(dog Rex) 'OverlayContext))
+        "its sibling, taken with the same spelled-out default, does not")
+    (v/clear! base)))
+
+(deftest a-dense-overlay-half-projects-its-entries
+  ;; the merged projection reads its pairs with `first`: the tiered backend's
+  ;; kv-entries yields plain vectors where the map-backed ones yield MapEntrys, so a
+  ;; fork whose own index is `:dense` threw ClassCastException on any walk of the
+  ;; merged view — an export of such a fork died before its first frame
+  (let [base (fresh-base 10)
+        f    (v/fork base {:index :dense})]
+    (v/assert f '(dog Rex) 'OverlayContext {:strength :monotonic})
+    (is (seq (doall (kv/kv-entries (:backend (:index f)))))
+        "the merged projection realizes")
     (v/clear! base)))
 
 (deftest retracting-an-inherited-premise-in-a-fork-leaves-the-base-alone

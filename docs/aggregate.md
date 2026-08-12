@@ -65,6 +65,12 @@ runs — the same contract `unknown` has ([naf.md](naf.md)), and refused with th
 (`sentex/deferred-predicates`), so canonical antecedent order and the planner both
 pin it after its binders and neither can hoist it.
 
+**The body is one literal.** A conjunctive body is refused
+(`:type :quantified-conjunction`), for the reason [naf.md](naf.md) gives: the conjuncts
+would share `?v`, and the level-6 registry answers one goal at a time, so counting them
+independently would count a different witness per conjunct. Count over a conjunction by
+concluding it — a rule whose consequent names the joined relation, counted in turn.
+
 Grouping falls out of that, with no `GROUP BY` construct to design:
 
 ```clojure
@@ -363,7 +369,7 @@ concludes never reaches the store.
 | `sentex/deferred-predicates` | the five, so canonical order and the planner pin them after their binders |
 | `sentex/free-vars` | one arm subtracting both slots |
 | `sentex/deferred-input-vars` / `-output-vars` | what a computed literal reads and what it writes, in one place for the three consumers |
-| `sentex/check-naf-closed` | closure and binder-locality, plus the reduction-slot and computed-input refusals |
+| `sentex/check-naf-closed` | closure and binder-locality, plus the reduction-slot, computed-input and conjunctive-body refusals |
 | `naming/literals` | one frame arm, so the body is checked as a goal |
 | `rules/recheck-predicates` | unions the aggregate bodies' predicates |
 | `rules/post-join-literals` | which antecedents the join withholds for the placement phase |

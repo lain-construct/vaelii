@@ -160,11 +160,18 @@
   (when-let [sym (get (formats) kind)]
     (try
       (some-> (requiring-resolve sym) deref)
-      (catch Exception e
-        ;; a missing namespace is the expected outcome when the plugin is not installed;
-        ;; a *broken* one is not, so say which happened rather than swallowing both
+      ;; a missing namespace is the expected outcome when the plugin is not installed;
+      ;; a *broken* one is not — a plugin that is installed and fails to compile logged
+      ;; at :debug sends the operator to reinstall what is already there
+      (catch java.io.FileNotFoundException e
         (trove/log! {:level :debug :id ::unavailable
                      :msg  (str "no reader for " kind ": " (.getMessage e))})
+        nil)
+      (catch Exception e
+        (trove/log! {:level :warn :id ::broken-reader
+                     :msg  (str "the reader for " kind " is on the classpath and failed"
+                                " to load: " (.getMessage e))
+                     :error e})
         nil))))
 
 (defn reader!

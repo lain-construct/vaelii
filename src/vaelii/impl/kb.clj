@@ -106,13 +106,27 @@
 ;; (`vaelii.impl.feed`).  A field rather than a bare key for the same reason as
 ;; `:naming`: every settle reads it to decide whether to accumulate anything, and a KB
 ;; nobody is listening to should pay a field read and not a hash lookup.
+;; `rule-antecedents` and `rule-contexts` are the rule rosters `special` bumps on every
+;; rule index/unindex and reads per settle for the visibility seeds — fields for the
+;; same reason as `:matches` and `:feed`.
+;;
+;; `excepted` is the visibility roster beside `:opposed`, and kept the same way: `{context
+;; -> {except-handle -> hidden-handle}}` for the stored `(except (sentexHandle H))` facts,
+;; maintained O(1) at the store and removal choke points and rebuilt by `recover`.  It
+;; holds **storage**, not belief — an except's own handle is what a reader checks `in?`
+;; against — for the reason `:opposed` holds storage: belief moves without a sentex
+;; arriving or leaving, so a roster that tried to track it would be maintained at a choke
+;; point that does not exist.  A field rather than a bare key because `res/excepted-handles`
+;; reads it per placement and per candidate justification (docs/exceptions.md, "Visibility
+;; removal").
 ;; `dir` is the record store's directory when the records are durable, else nil. It is
 ;; here so `core/close!` can release the exclusive FileLock the disk backend takes:
 ;; without it a long-running process could not hand a directory to another process, or
 ;; reopen it elsewhere, until the JVM exited.
 (defrecord KB [records index tms taxonomy provers solver conflicts program violations
-               contradictions recheck refused settle-stats chain-stats opposed negations
-               clashes supersessions reports qcn matches closures naming constraints feed dir])
+               contradictions recheck refused settle-stats chain-stats opposed excepted
+               negations clashes supersessions reports qcn qcn-joined matches closures
+               naming constraints rule-antecedents rule-contexts feed dir])
 
 ;; ---- storage selection: two independent axes ------------------------------
 ;;
@@ -656,6 +670,13 @@
                      :settle-stats (atom {:iterations 0 :passes 0 :histogram {}})
                      :chain-stats  (atom {:runs 0 :last nil})
                      :opposed   (atom #{})
+                     ;; `{context -> {except-handle -> hidden-handle}}` — which stored
+                     ;; `(except (sentexHandle H))` facts sit in which context, so a
+                     ;; reader takes the visible ones off the map rather than fetching
+                     ;; every except record in the KB.  Kept at the same two choke
+                     ;; points as `:opposed`, and rebuilt by `recover` for the same
+                     ;; reason: it is derived from storage and no store holds it
+                     :excepted  (atom {})
                      ;; `{pred -> how many rules take it as an antecedent}` — the roster
                      ;; `special/visibility-seeds` enumerates instead of walking a context
                      ;; cone.  Kept O(1) at the rule index/unindex choke points, exactly
@@ -680,6 +701,11 @@
                      :supersessions (atom nil)
                      :reports   (atom {})
                      :qcn       (atom {})
+                     ;; the join baselines beside the network cache, never inside it:
+                     ;; the resident cache clears wholesale at its bound, and a baseline
+                     ;; is bookkeeping whose loss degrades every later delta join to a
+                     ;; full one — bounded by (calculi × reader contexts), not by reads
+                     :qcn-joined (atom {})
                      :matches   (atom {})
                      ;; one shape, not a map of stamped entries: every entry in it is
                      ;; retired by the same clock move, so the stamp belongs to the map
@@ -960,8 +986,7 @@
          visible? (if (sx/variable? context)
                     (constantly true)
                     (let [up (tax/context-up (:taxonomy kb) context)] #(contains? up %)))
-         hidden?  (let [ex (res/excepted-handles kb context)]
-                    (if (empty? ex) (constantly false) #(contains? ex %)))]
+         hidden?  (or (res/hidden-fn kb context) (constantly false))]
      ;; the argument root goes straight to the sentexes holding x in argument
      ;; position 1, instead of every sentex mentioning x anywhere (any position, any
      ;; nesting) — this runs on every unary assert, via disjoint-problem.
@@ -1055,13 +1080,16 @@
 ;; ---- storage helpers ----------------------------------------------------
 
 (defn canon-stamp
-  "What a raw sentence's canonical form is a function of, beyond the sentence itself:
-  the set of predicates declared `symmetric`, which is the one thing
-  `resolution/kb-sentex` reads off the KB.  `observe/*handle-cache*` stamps its entries
-  with it, so a lookup memoized under one reading of that set is never served under
-  another."
+  "What a cached handle lookup is valid under: **which KB** it was asked of, and the
+  set of predicates declared `symmetric` — the one thing `resolution/kb-sentex` reads
+  off the KB, so a lookup memoized under one reading of that set is never served
+  under another.  The record store rides in the stamp because `with-handle-cache`
+  deliberately reuses an outer run's map: a nested run on a *second* KB (a chaining
+  callback asserting elsewhere) shares the cache, and two KBs declaring nothing
+  symmetric would otherwise stamp the one shared empty set — KB-B reading KB-A's
+  handles."
   [kb]
-  (tax/props (:taxonomy kb) :symmetric))
+  [(:records kb) (tax/props (:taxonomy kb) :symmetric)])
 
 (defn find-sentex-handle
   "The handle of an existing sentex for `sentence` in `context`, or nil.  A **ground**
@@ -1072,15 +1100,22 @@
   (let [stamp (canon-stamp kb)]
     (or (observe/cached-handle stamp sentence context)
         (let [probe  #(first (p/lookup (:index kb) (sx/path (res/kb-sentex kb % context))))
-              direct (probe sentence)]
+              built  (res/kb-sentex kb sentence context)
+              direct (first (p/lookup (:index kb) (sx/path built)))]
           (if direct
             ;; only this arm fills the cache, and the difference is what the answer
             ;; *says*.  Here it is "this sentence is stored at this handle" — true until
             ;; the sentex is removed, which is a choke point.  The mirror arm's answer is
             ;; "this sentence resolves to the handle of its mirror", which additionally
             ;; needs the mirror to keep resolving; the stamp covers that, but a firing
-            ;; never asks it, so there is nothing to buy by widening the contract
-            (observe/cache-handle! stamp sentence context direct)
+            ;; never asks it, so there is nothing to buy by widening the contract.
+            ;; **Cached only when the spelling survives canonicalization**: the removal
+            ;; choke point clears the canonical key (`integrate/sentex-removed!`), so an
+            ;; entry keyed on a spelling canonicalization rewrites — a sorted symmetric
+            ;; literal, a folded comparison — would outlive its sentex as a stale handle
+            (if (= sentence (:sentence built))
+              (observe/cache-handle! stamp sentence context direct)
+              direct)
             ;; the global property, matching kb-sentex's key discipline: storage sorted
             ;; the arguments (or did not), and which it did cannot vary by who is looking
             (let [sym? #(tax/has-prop? (:taxonomy kb) :symmetric %)]
@@ -1174,6 +1209,95 @@
             (into #{} (comp (filter #(opposed? idx %)) (map sx/canon))
                   (p/children idx [:false])))))
 
+;; ---- the visibility roster ------------------------------------------------
+;; `res/excepted-handles` answers which handles a believed `(except (sentexHandle H))`
+;; hides from a view context, and it is asked **per placement** and per candidate
+;; justification during a chaining run.  Read off the index it is E record fetches, E
+;; `jtms/in?` calls and a `tax/context-up` per call, for E excepts anywhere in the KB —
+;; measured at 89% of a chaining run's wall clock at E=1,000 (`lein bench-hotreads`).
+;;
+;; What the roster removes is the *fetches*: which except sits in which context, and what
+;; each hides, are facts about storage, so they are maintained here at the two choke
+;; points and read as a map.  What stays a read is belief — `jtms/in?` on the except's own
+;; handle — and the `context-up` walk, both of which move without a sentex arriving or
+;; leaving.  This is `:opposed`'s bargain exactly (belief-blind storage, filtered by the
+;; reader), and it is the second idiom rather than a stamped memo because the scope that
+;; asks is the scope that writes: forward chaining moves the change clock per conclusion,
+;; so a clock-stamped memo would be retired between one placement and the next
+;; (`literal-cache/lookup`).
+
+(defn except-target
+  "The handle a visibility `(except (sentexHandle H))` sentence hides, or nil for any
+  other sentence — including `(not (except …))`, whose functor is `not`.  The one shape
+  test the roster keys on, so a sentence that is not an `except` costs a `=` on its
+  functor at the store choke point and nothing else."
+  [sentence]
+  (when (and (sequential? sentence)
+             (= sx/except-functor (first sentence))
+             (= 2 (count sentence)))
+    (sx/handle-id (second sentence))))
+
+(defn- roster-add
+  "`m` with the except stored at `eh` in `ctx`, hiding `target`, recorded."
+  [m ctx target eh]
+  (update-in m [ctx target] (fnil conj #{}) eh))
+
+(defn- roster-drop
+  "`m` with that entry gone, and any level it emptied gone with it — so an entry means
+  *something is hidden here*, and the roster's own emptiness is the read's O(1) gate."
+  [m ctx target eh]
+  (let [ehs   (disj (get-in m [ctx target] #{}) eh)
+        inner (if (empty? ehs)
+                (dissoc (get m ctx) target)
+                (assoc (get m ctx) target ehs))]
+    (if (empty? inner) (dissoc m ctx) (assoc m ctx inner))))
+
+(defn note-excepted!
+  "Record (`true`) or drop (`false`) a visibility `except` in the `:excepted` roster,
+  from the sentex itself: the context it holds in, the handle it hides, and its own
+  handle.  Called
+  at the store primitive (`create-sentex`, every add) and the removal choke point
+  (`integrate/sentex-removed!`, every remove), so no store path can bypass it; `recover`
+  rebuilds the roster with `rebuild-excepted!`.
+
+  A no-op for every sentence that is not an `except`, which on any corpus is all but a
+  handful — and unlike `note-opposed!` beside it this reads **nothing off the index**, so
+  a bulk load whose backing atom is stale mid-load (`memory/*bulk-txn*`) is not a case
+  this has to be correct across.
+
+  **Target outside, except handles inside**, because that is the question the hot caller
+  asks: `chain/antecedent-hidden?` wants to know whether *these two or three* handles are
+  hidden, and this shape answers it with a lookup per handle instead of materializing
+  every handle hidden anywhere in the cone.  A **set** of except handles under each
+  target, since two excepts in one context may name one target and the first removal must
+  not retire what the second still hides — the same non-interference `special/bump-roster!`
+  keeps with a count, done with identities because an except has exactly one."
+  [kb sentex add?]
+  (when-let [target (except-target (:sentence sentex))]
+    (let [ctx (:context sentex)
+          eh  (:id sentex)]
+      (swap! (:excepted kb) (if add? roster-add roster-drop) ctx target eh))))
+
+(defn rebuild-excepted!
+  "Recompute `:excepted` from storage — the scan `recover` needs, since the roster is
+  derived state no store holds, and the one a **fork** needs for the same reason: a fork's
+  belief is rebuilt over the merged view rather than inherited, so its own roster starts
+  empty over a base full of excepts (docs/overlay.md).
+
+  Enumerates the stored `except` facts through the functor root, which spans both
+  polarities — a `(not (except H))` roots there too and `except-target` drops it."
+  [kb]
+  (let [recs (:records kb)]
+    (reset! (:excepted kb)
+            (reduce (fn [m h]
+                      (if-let [s (p/get-sentex recs h)]
+                        (if-let [target (except-target (:sentence s))]
+                          (roster-add m (:context s) target h)
+                          m)
+                        m))
+                    {}
+                    (p/sentexes-with-functor (:index kb) sx/except-functor)))))
+
 (defn create-sentex
   "Store `sentence` in `context` as a new sentex, index it, and return `[handle sentex]`.
 
@@ -1205,6 +1329,8 @@
      ;; maintain the P/¬P coincidence set for settle (this store may have completed an
      ;; opposing pair); the remove mirror is `integrate/sentex-removed!`
      (note-opposed! kb (:sentence s))
+     ;; ...and the visibility roster, at the same point and with the same mirror
+     (note-excepted! kb s true)
      [h s])))
 
 (defn find-or-create-sentex

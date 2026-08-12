@@ -121,7 +121,10 @@
   a line the reviewer reads, so it is visible rather than hidden."
   [entry]
   (let [[sentence context] (when (sequential? entry) entry)]
-    (when (and (seq? sentence) (= sx/ist-functor (first sentence)))
+    ;; `sequential?`, not `seq?`: the line is model-written EDN read before canon, so
+    ;; a bracketed `[ist …]` is the same sentence — and a bracket must not be the
+    ;; escape hatch from the one check that keeps the context the caller's.
+    (when (and (sequential? sentence) (seq sentence) (= sx/ist-functor (first sentence)))
       {:type :context-escape
        :message (str "the sentence is an `ist`, so it would be filed in "
                      (pr-str (second sentence)) " rather than in " (pr-str context)

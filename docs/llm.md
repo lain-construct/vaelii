@@ -76,9 +76,12 @@ is the argument for it and the measurement against `phi4:14b`, control group inc
 surface the daemon and the browser reach a KB through. `tools/schemas` derives the
 model's tools from its **read subset** rather than transcribing them: parameter names
 and arities come from each `vaelii.core` var's own `:arglists`, descriptions from its
-docstring. Of its 65 entries seven are writes and one more resolves to a `!` var, so
-the model sees 57. A read added to `serve/ops` becomes a tool with no edit here; a
-signature change is picked up on the next build.
+docstring. Of its 65 entries nine are filed with the writes — seven that store, plus
+`:preview`, which stores nothing but holds the process's single writer and advances
+the handle counter, and `:clear-caches`, which mutates the process's measurement
+state — and one more resolves to a `!` var, so the model sees 55. A read added to
+`serve/ops` becomes a tool with no edit here; a signature change is picked up on the
+next build.
 
 Names are munged to the provider's identifier grammar — `:find-sentexes` becomes
 `kb_find_sentexes`, `:ask?` becomes `kb_ask_p` (so it stays distinct from `kb_ask`).

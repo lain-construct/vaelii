@@ -103,34 +103,39 @@
   "Solve `aspif-text` with clingo `arg-strs` (clasp-style flags). Returns
    {:result <bitset> :models [{:atoms [str] :cost [long] :optimal? bool} ...]}."
   [arg-strs aspif-text]
-  (let [tmp   (doto (java.io.File/createTempFile "vaelii-aspif" ".aspif") .deleteOnExit)
-        _     (spit tmp aspif-text)
-        argcs (mapv cstr arg-strs)                 ; retained through control_new
-        argv  (if (seq argcs) (ptr-array argcs) Pointer/NULL)
-        files (ptr-array [(cstr (.getPath tmp))])
-        ctlr  (PointerByReference.)]
-    (chk! "control_new" (ci "clingo_control_new" argv (Long/valueOf (count argcs))
-                            Pointer/NULL Pointer/NULL (Integer/valueOf 20) ctlr))
-    (let [ctl (.getValue ctlr)]
-      (try
-        (chk! "load_aspif" (ci "clingo_control_load_aspif" ctl files (Long/valueOf 1)))
-        (let [hr (PointerByReference.)]
-          (chk! "solve" (ci "clingo_control_solve" ctl mode-yield Pointer/NULL (Long/valueOf 0)
-                            Pointer/NULL Pointer/NULL hr))
-          (let [h (.getValue hr)
-                models (loop [acc []]
-                         (chk! "resume" (ci "clingo_solve_handle_resume" h))
-                         (let [mr (PointerByReference.)]
-                           (chk! "model" (ci "clingo_solve_handle_model" h mr))
-                           (if-let [m (.getValue mr)] (recur (conj acc (read-model m))) acc)))
-                res (IntByReference.)]
-            (chk! "get" (ci "clingo_solve_handle_get" h res))
-            (ci "clingo_solve_handle_close" h)
-            (when (seq argcs) argcs)                 ; keep arg strings alive past the call
-            {:result (.getValue res) :models models}))
-        (finally
-          (cv "clingo_control_free" ctl)
-          (.delete tmp))))))
+  ;; the delete guards everything from creation on — a `spit` or `control_new` throw
+  ;; must not leave the file behind — and no `deleteOnExit`, whose hook set retains
+  ;; every path for the process's life; the finally below covers every exit
+  (let [tmp (java.io.File/createTempFile "vaelii-aspif" ".aspif")]
+    (try
+      (spit tmp aspif-text)
+      (let [argcs (mapv cstr arg-strs)                 ; retained through control_new
+            argv  (if (seq argcs) (ptr-array argcs) Pointer/NULL)
+            files (ptr-array [(cstr (.getPath tmp))])
+            ctlr  (PointerByReference.)]
+        (chk! "control_new" (ci "clingo_control_new" argv (Long/valueOf (count argcs))
+                                Pointer/NULL Pointer/NULL (Integer/valueOf 20) ctlr))
+        (let [ctl (.getValue ctlr)]
+          (try
+            (chk! "load_aspif" (ci "clingo_control_load_aspif" ctl files (Long/valueOf 1)))
+            (let [hr (PointerByReference.)]
+              (chk! "solve" (ci "clingo_control_solve" ctl mode-yield Pointer/NULL (Long/valueOf 0)
+                                Pointer/NULL Pointer/NULL hr))
+              (let [h (.getValue hr)
+                    models (loop [acc []]
+                             (chk! "resume" (ci "clingo_solve_handle_resume" h))
+                             (let [mr (PointerByReference.)]
+                               (chk! "model" (ci "clingo_solve_handle_model" h mr))
+                               (if-let [m (.getValue mr)] (recur (conj acc (read-model m))) acc)))
+                    res (IntByReference.)]
+                (chk! "get" (ci "clingo_solve_handle_get" h res))
+                (ci "clingo_solve_handle_close" h)
+                (when (seq argcs) argcs)                 ; keep arg strings alive past the call
+                {:result (.getValue res) :models models}))
+            (finally
+              (cv "clingo_control_free" ctl)))))
+      (finally
+        (.delete tmp)))))
 
 (def ^:private mode-args
   {:label                ["--opt-mode=optN" "--models=1"]

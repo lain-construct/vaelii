@@ -40,6 +40,16 @@
                ["a bad functor"        (list 'BadPred Muffet) TheContext       :naming]
                ["a variable in a fact" (list dog '?x) TheContext             :not-ground]
                ["genl over an individual" (list 'genl Muffet dog) TheContext   :not-well-formed]
+               ;; negation lives on facts: a rule under `not` would store a sentence
+               ;; its own key cannot be computed from, so both doors refuse it —
+               ;; wrapped exactly as bare, since the wrappers peel before the test
+               ["a negated rule"
+                (list 'not (list 'implies (list dog '?x) (list 'animal '?x)))
+                TheContext                                                     :not-well-formed]
+               ["a negated wrapped rule"
+                (list 'not (list 'set/defaultRule
+                                 (list 'implies (list dog '?x) (list 'animal '?x))))
+                TheContext                                                     :not-well-formed]
                ["an unbound consequent variable"
                 (list 'implies (list dog '?x) (list 'animal '?y)) TheContext :not-range-restricted]
                ;; the rule index is keyed by predicate, and a variable names none — so
@@ -320,6 +330,111 @@
         (testing "and the over-long one stored nothing"
           (is (empty? (v/sentexes-matching kb (list dog '?x) IstContext))))))))
 
+(deftest ist-reads-nothing-so-it-is-refused-anywhere-it-would-have-to
+  ;; `ist` places: `assert` finds-or-creates in Ctx, a consequent names where its
+  ;; conclusion lands.  Put one where a rule *reads* and it is indexed and matched under
+  ;; the functor `ist`, which no sentex carries — so it satisfies nothing, and the rule
+  ;; decides itself on a context it never consulted.  Four layers already read the frame
+  ;; as meaningful (the naming check descends the context slot, range restriction counts
+  ;; its variables as bound, canonicalization sorts it by the inner predicate), which is
+  ;; what makes silence here a rule the engine reported as accepted.
+  ;;
+  ;; The exception and NAF frames are why it is refused rather than left inert: an
+  ;; unmatchable `exceptWhen` query is a guard that never guards, and an unmatchable
+  ;; `unknown` is satisfied by that same emptiness, so the rule fires unconditionally.
+  ;; A rule that does nothing announces itself; a guard that passes everything does not.
+  (tu/with-neutral-kb [kb kb-with-starter]
+    (tu/with-terms [dog barks Muffet IstContext]
+      (let [before (v/sentex-count kb)
+            ante   (list 'ist IstContext (list dog '?x))
+            reads  {"a positive antecedent"
+                    (list 'implies ante (list barks '?x))
+                    "one antecedent of a conjunction"
+                    (list 'implies (list 'and (list dog '?x) ante) (list barks '?x))
+                    "a negated antecedent"
+                    (list 'implies (list 'and (list dog '?x) (list 'not ante))
+                          (list barks '?x))
+                    "a NAF antecedent"
+                    (list 'implies (list 'and (list dog '?x) (list 'unknown ante))
+                          (list barks '?x))
+                    "an exceptWhen query"
+                    (list 'exceptWhen ante (list 'implies (list dog '?x) (list barks '?x)))}]
+        (doseq [[label sentence] reads]
+          (testing label
+            (is (= #{:not-well-formed} (types-of-check kb sentence 'UniverseContext)))
+            (is (= :not-well-formed (assert-type kb sentence 'UniverseContext))
+                "and it is the type assert throws for the same sentence")))
+        (testing "the message names the two ways to make S visible instead"
+          (let [msg (:message (first (v/check kb (list 'implies ante (list barks '?x))
+                                              'UniverseContext)))]
+            (is (re-find #"decontextualizedPredicate" msg))
+            (is (re-find #"genlContext" msg))))
+        (testing "an ist consequent is untouched — it is the placement escape hatch"
+          (is (= [] (v/check kb (list 'implies (list dog '?x) (list 'ist IstContext (list barks '?x)))
+                             'UniverseContext))))
+        (testing "and nothing any of it named was stored"
+          (is (= before (v/sentex-count kb))))))))
+
+(deftest the-NAF-literal-checks-are-predicted-not-only-thrown
+  ;; These live in `sentex/check-naf-closed`, which the constructor runs — so both
+  ;; *storage* doors had them and the dry-run door did not, `check` predicting an assert
+  ;; without building a sentex.  A caller validating a rule before writing it was told
+  ;; the rule was admissible and then handed a throw, which is the one answer `check`
+  ;; must never give.  Now in `checks/check-rule!`, the list every door reads.
+  (tu/with-neutral-kb [kb kb-with-starter]
+    (tu/with-terms [person likes kidOf sick adult loner]
+      (let [before (v/sentex-count kb)]
+        (doseq [[label sentence expected]
+                [["an unknown whose variable no generator binds"
+                  (list 'implies (list 'and (list person '?x) (list 'unknown (list likes '?x '?z)))
+                        (list loner '?x))
+                  :naf-not-closed]
+                 ["a conjunct of one that is open — closure is per conjunct"
+                  (list 'implies (list 'and (list person '?x)
+                                       (list 'unknown (list 'and (list adult '?x)
+                                                            (list likes '?x '?z))))
+                        (list loner '?x))
+                  :naf-not-closed]
+                 ["a quantified variable escaping its thereExists"
+                  (list 'implies (list 'and (list person '?x) (list 'thereExists '?x (list adult '?x)))
+                        (list loner '?x))
+                  :quantifier-not-local]
+                 ["a conjunction under a quantifier, which needs a join"
+                  (list 'implies (list 'and (list person '?x)
+                                       (list 'unknown (list 'thereExists '?c
+                                                            (list 'and (list kidOf '?x '?c)
+                                                                  (list sick '?c)))))
+                        (list loner '?x))
+                  :quantified-conjunction]
+                 ["an aggregate body that spells the same shape"
+                  (list 'implies (list 'and (list person '?x)
+                                       (list 'agg/count '?n '?c (list 'and (list kidOf '?x '?c)
+                                                                      (list sick '?c)))
+                                       (list 'lessThan 1 '?n))
+                        (list loner '?x))
+                  :quantified-conjunction]
+                 ["an aggregate reducing over a constant"
+                  (list 'implies (list 'and (list person '?x)
+                                       (list 'agg/count '?n 'Ada (list kidOf '?x 'Ada)))
+                        (list loner '?x))
+                  :not-well-formed]
+                 ["an empty NAF conjunction, which nothing can make derivable"
+                  (list 'implies (list 'and (list person '?x) (list 'unknown (list 'and)))
+                        (list loner '?x))
+                  :not-well-formed]]]
+          (testing label
+            (is (= #{expected} (types-of-check kb sentence 'UniverseContext)))
+            (is (= expected (assert-type kb sentence 'UniverseContext))
+                "and it is the type assert throws for the same sentence")))
+        (testing "and the well-formed conjunctive rule is admissible at both doors"
+          (is (= [] (v/check kb (list 'implies (list 'and (list person '?x)
+                                                     (list 'unknown (list 'and (list adult '?x)
+                                                                          (list sick '?x))))
+                                      (list loner '?x))
+                             'UniverseContext))))
+        (testing "and nothing any of it named was stored"
+          (is (= before (v/sentex-count kb))))))))
+
 ;; ---- assert-inert runs the same shape guards ----------------------------
 
 (deftest assert-inert-refuses-the-shapes-assert-refuses
@@ -348,3 +463,38 @@
           (is (nat-int? h))
           (is (not (v/in? kb h)) "inert means never a premise")
           (v/retract! kb h))))))
+
+(deftest assert-inert-refuses-a-rule
+  ;; A rule is indexed where it is *created* — `assert-rule-sentence`'s new branch and
+  ;; the generator mint — so one stored by this door is one no chainer can reach, and it
+  ;; stays unreachable: asserting the same rule afterwards resolves to the stored sentex,
+  ;; takes the existing branch and does not index it either.  What that leaves is a rule
+  ;; `in?` calls believed and no fact ever fires, which is the accepted-and-inert state
+  ;; `check-generator` refuses at the other door.  A labeling labels atoms.
+  ;;
+  ;; The *other* inertness is the rule's own `set/inertRule` — believed, indexed and
+  ;; browsable, firing neither way — which is what a documentation-only rule wants (a
+  ;; transitivity the cached closure computes instead) and what
+  ;; `direction_test/inert-rule-is-documentation-only` pins.  The refusal's message names
+  ;; it, since a caller reaching for this door usually meant that one.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [bird flies Tweety InertContext]
+      (let [before (v/sentex-count kb)
+            rule   (list 'implies (list bird '?x) (list flies '?x))]
+        (doseq [[what sentence] [["a bare implies"      rule]
+                                 ["a set/defaultRule"   (list 'set/defaultRule rule)]
+                                 ["a set/backwardRule"  (list 'set/backwardRule rule)]]]
+          (testing what
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (v/assert-inert kb sentence InertContext)))]
+              (is (= :not-indexable (:type (ex-data e)))
+                  "the type check-generator uses for a rule that cannot exercise what it claims"))))
+        (is (= before (v/sentex-count kb)) "and no refusal stored anything")
+        (testing "the atoms a labeling actually materializes are untouched"
+          (let [h  (v/assert-inert kb (list bird Tweety) InertContext)
+                nh (v/assert-inert kb (list 'not (list bird Tweety)) InertContext)]
+            (is (nat-int? h))
+            (is (nat-int? nh))
+            (is (not (v/in? kb h)))
+            (v/retract! kb h)
+            (v/retract! kb nh)))))))

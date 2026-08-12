@@ -76,7 +76,7 @@
   (kv/kv-remove-from-set meta-kv k id))
 
 (defrecord OverlayRecordStore
-           [overlay base meta-kv base-highest counter
+           [overlay base meta-kv counter
             hidden? sx-tombstoned jd-tombstoned pv-tombstoned released]
 
   p/RecordStore
@@ -180,10 +180,15 @@
 
   (unmark-premise! [this id]
     (let [id (long id)]
-      (when-not (p/get-sentex overlay id)
+      (if (p/get-sentex overlay id)
+        (p/unmark-premise! overlay id)
+        ;; materialize the override only when there is a mark to remove — the teardown
+        ;; unmarks every datum it retracts, and copying a derived base record here
+        ;; would write a frame whose only fate is the tombstone that follows
         (when-let [sx (p/get-sentex this id)]
-          (p/put-sentex overlay (assoc sx :id id))))
-      (p/unmark-premise! overlay id)
+          (when (some? (:strength sx))
+            (p/put-sentex overlay (assoc sx :id id))
+            (p/unmark-premise! overlay id))))
       ;; The base's own mark cannot be removed, so it is released instead.  Whether the
       ;; base holds one is read off the record's `:strength`, which is what a premise mark
       ;; *is* on both record stores — `mark-premise` writes it there, and the disk store's
@@ -243,7 +248,6 @@
      {:overlay        overlay
       :base           base
       :meta-kv        meta-kv
-      :base-highest   (dec base-next)
       :counter        (atom (max base-next own-next))
       :hidden?        (atom (some? (kv/kv-get meta-kv cleared-key)))
       :sx-tombstoned  (atom (set (kv/kv-members meta-kv sx-tombstone-key)))

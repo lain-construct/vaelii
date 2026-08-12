@@ -9,8 +9,12 @@
   it starts with the handle term primitives (`vaelii.impl.sentex`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -313,3 +317,101 @@
       (testing "no conclusion is placed in the cone"
         (is (empty? (v/sentexes-matching kb (list sparkles gold) cm)))
         (is (nil? (v/handle-of kb (list sparkles gold) cm)))))))
+
+;; ---- except: the roster the read is served from -------------------------
+;; `res/excepted-handles` is asked per placement and per candidate justification, so it
+;; reads the KB's `:excepted` roster — `{context -> {except-handle -> hidden-handle}}`,
+;; maintained at the store and removal choke points — rather than fetching every stored
+;; `except` record and re-deriving its target.  A roster that drifts from storage is a
+;; wrong *belief* and not a slow one: a fact left visible that should be hidden, or
+;; hidden that should not be.  So what these pin is the equality against a full scan,
+;; held at every point a sentex can arrive or leave.
+
+(defn- excepted-by-scan
+  "The reference read: every stored `except` fetched from the record store, filtered by
+  belief and by whether `view-context` sees where it was asserted.  This is what
+  `res/excepted-handles` computed before it had a roster to read off, kept here as the
+  oracle — the roster is only correct if it answers the same thing."
+  [kb view-context]
+  (if (sx/variable? view-context)
+    #{}
+    (let [up (tax/context-up (:taxonomy kb) view-context)]
+      (into #{}
+            (comp (map #(p/get-sentex (:records kb) %))
+                  (filter some?)
+                  (filter #(jtms/in? (:tms kb) (:id %)))
+                  (filter #(contains? up (:context %)))
+                  (keep #(sx/handle-id (second (:sentence %)))))
+            (p/sentexes-with-functor (:index kb) sx/except-functor)))))
+
+(defn- roster-agrees?
+  "Does the roster answer the scan, from every context in play — and does the membership
+  read (`res/excepted?`, which the per-placement caller goes through) answer the same
+  thing as the set read for every handle either of them could be asked about?  A
+  divergence there is a firing blocked or admitted against a hidden set nothing else
+  agrees with, which is exactly the drift that makes an incrementally-maintained roster a
+  wrong belief rather than a slow one."
+  [kb contexts]
+  (let [handles (into #{} (mapcat #(excepted-by-scan kb %)) contexts)]
+    (every? (fn [c]
+              (let [scanned (excepted-by-scan kb c)]
+                (and (= scanned (res/excepted-handles kb c))
+                     (every? #(= (contains? scanned %) (res/excepted? kb % c)) handles))))
+            contexts)))
+
+(tu/deftest-kb the-roster-answers-what-a-full-scan-of-storage-answers
+  ;; Every way a roster entry can be created, defeated, revived or removed, with the
+  ;; scan checked after each — an arrival, a second except in another context on the
+  ;; same target, a defeat, a revival, a retraction, and the target's own removal.
+  (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm") cm (tu/tmp-ctx "Cm")
+        ctxs [gp pm cm 'WellContext 'UniverseContext '?ctx]
+        shiny (tu/tmp-pred) gold (tu/tmp-ind) lead (tu/tmp-ind)]
+    (v/assert kb (list 'genlContext gp 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlContext pm gp) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlContext cm pm) 'UniverseContext {:strength :monotonic})
+    (is (roster-agrees? kb ctxs) "an empty roster and an empty scan")
+    (let [h  (v/assert kb (list shiny gold) gp {:strength :monotonic})
+          h2 (v/assert kb (list shiny lead) gp {:strength :monotonic})]
+      (is (roster-agrees? kb ctxs) "storing a fact is not storing an except")
+      (let [e1 (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})]
+        (is (roster-agrees? kb ctxs) "one except, one context")
+        (is (= #{h} (res/excepted-handles kb cm)) "and it is the target that is hidden")
+        (let [e2 (v/assert kb (list 'except (sx/sentex-handle h)) cm {:strength :monotonic})
+              ;; :default, so the monotonic negation below can defeat it — a monotonic
+              ;; except and a monotonic negation are a contradiction, not a defeat
+              e3 (v/assert kb (list 'except (sx/sentex-handle h2)) pm {:strength :default})]
+          (is (roster-agrees? kb ctxs) "a second except on one target, and a second in one context")
+          (is (= #{h h2} (res/excepted-handles kb cm)))
+          (testing "a defeated except is out of the roster's answer, being out of belief"
+            (v/assert kb (list 'not (list 'except (sx/sentex-handle h2))) pm
+                      {:strength :monotonic})
+            (is (roster-agrees? kb ctxs))
+            (is (= #{h} (res/excepted-handles kb cm)) "h2 is visible again"))
+          (testing "retracting one of two excepts on a target leaves the other hiding it"
+            (v/retract! kb e2)
+            (is (roster-agrees? kb ctxs))
+            (is (= #{h} (res/excepted-handles kb cm)) "e1 still hides h from cm"))
+          (v/retract! kb e3)
+          (is (roster-agrees? kb ctxs) "and the defeated one's record can go too")
+          (testing "retracting the last except empties the roster"
+            (v/retract! kb e1)
+            (is (roster-agrees? kb ctxs))
+            (is (empty? (res/excepted-handles kb cm)))))))))
+
+(tu/deftest-kb the-roster-survives-a-recover
+  ;; The roster is derived from storage and no store holds it, so `recover` rebuilds it
+  ;; — the same standing `rebuild-opposed!` has, and the one a **fork** rides on, since
+  ;; a fork recovers over the merged view rather than inheriting its base's belief.
+  (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm")
+        shiny (tu/tmp-pred) gold (tu/tmp-ind)]
+    (v/assert kb (list 'genlContext gp 'WellContext) 'UniverseContext {:strength :monotonic})
+    (v/assert kb (list 'genlContext pm gp) 'UniverseContext {:strength :monotonic})
+    (let [h (v/assert kb (list shiny gold) gp {:strength :monotonic})]
+      (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})
+      (is (= #{h} (res/excepted-handles kb pm)))
+      (v/recover kb)
+      (testing "the rebuilt roster hides exactly what the pre-recover one did"
+        (is (= #{h} (res/excepted-handles kb pm)))
+        (is (roster-agrees? kb [gp pm 'WellContext]))
+        (is (not (v/ask? kb (list shiny gold) pm)) "and the read still follows it")
+        (is (v/ask? kb (list shiny gold) gp))))))

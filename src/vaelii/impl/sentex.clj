@@ -215,7 +215,12 @@
   variables during unification."
   [x]
   (and (symbol? x)
-       (let [n (clojure.core/name x)]
+       ;; hinted explicitly rather than left to inference off `name`'s own `^String`:
+       ;; this is the engine's most-called predicate (`substitute` calls it per term),
+       ;; and a rewriter that reaches the form without the inference — cloverage's
+       ;; instrumentation does — turns the interop into a reflective `getMethods` copy
+       ;; per call.  The hint is what makes the dispatch direct no matter who reads it.
+       (let [^String n (clojure.core/name x)]
          (or (= n "_") (.startsWith n "?")))))
 
 (defn- form-vars
@@ -627,6 +632,30 @@
   [form]
   (and (sequential? form) (= there-exists-functor (first form)) (= 3 (count form))))
 
+(defn naf-query-conjuncts
+  "The conjunct literals an `(unknown …)` antecedent's query is evaluated as — the
+  inner `(and …)` unwrapped, a single literal as a one-element vector.  The `unknown`
+  spelling of `exception-query-conjuncts`, and the same reading: `unknown` is
+  `exceptWhen` inlined per literal, so its query is a closed conjunction evaluated
+  block-if-**all**-hold, and one evaluator (`provers/exception-holds?`) answers both.
+
+  Closure is what makes the flat reading correct: every variable is bound before the
+  query runs (`check-naf-closed`), so the conjuncts share nothing after substitution
+  and each is an independent ground existence check.  A conjunction under a
+  *quantifier* would not be — that is a join, and `check-naf-closed` refuses it.
+
+  **Flattened all the way down**, because a nested `and` is not a goal any prover
+  claims: left as one conjunct it would be handed to the registry, come back
+  unanswerable, and read as *not derivable* — so the whole conjunction would never hold
+  and the antecedent would guard nothing.  Conjunction is associative, so flattening is
+  the reading rather than a normalization of it."
+  [unk]
+  (letfn [(flat [q]
+            (if (and (sequential? q) (= and-functor (first q)))
+              (mapcat flat (rest q))
+              [q]))]
+    (vec (flat (second unk)))))
+
 (defn quantified-vars
   "The variables a `thereExists` binder introduces, as a set — its second element is a
   single variable or a *sequence* of them.  A written vector `[?x ?y]` is accepted, but
@@ -819,11 +848,28 @@
                                  " consumes bindings rather than producing them, so its"
                                  " inputs must be bound first")
                             {:type :naf-not-closed :unbound (vec loose)
-                             kind lit :antecedents (vec antes)}))))]
+                             kind lit :antecedents (vec antes)}))))
+        quantified-body-check
+        ;; A conjunction is legal where every conjunct is *closed*, because closure is
+        ;; what makes it a set of independent ground checks rather than a join — and
+        ;; the level-6 registry, which answers one goal at a time, has no join.  Under a
+        ;; quantifier the conjuncts share the binder, so the flat reading would answer
+        ;; each from a different witness: "has a sick child" would hold of anyone with a
+        ;; child while anyone at all is sick.  Refused here rather than mis-evaluated.
+        (fn [lit body kind]
+          (when (and (sequential? body) (= and-functor (first body)))
+            (throw (ex-info (str (clojure.core/name kind) " quantifies a conjunction,"
+                                 " which needs a join to answer: its conjuncts share the"
+                                 " bound variable, and each is evaluated on its own."
+                                 "  Bind the witness with a generator antecedent instead")
+                            {:type :quantified-conjunction kind lit
+                             :antecedents (vec antes)}))))]
     ;; locality: each thereExists / aggregate binder occurs only within its own literal
     (doseq [te (filter there-exists? (tree-seq sequential? seq scope))]
-      (local-check te (quantified-vars te) :thereExists))
+      (local-check te (quantified-vars te) :thereExists)
+      (quantified-body-check te (nth te 2) :thereExists))
     (doseq [ag (filter aggregate? (tree-seq sequential? seq scope))]
+      (quantified-body-check ag (aggregate-body ag) :aggregate)
       (if-let [v (aggregate-value-var ag)]
         (local-check ag #{v} :aggregate)
         (throw (ex-info (str "aggregate reduces over " (pr-str (nth ag 2))
@@ -831,6 +877,14 @@
                              " value being reduced, so a constant there reduces over"
                              " nothing and no prover can answer it")
                         {:type :not-well-formed :aggregate ag
+                         :antecedents (vec antes)}))))
+    ;; an `unknown`'s conjunction is real, and empty is not one of its shapes
+    (doseq [unk (filter unknown? antes)]
+      (when (empty? (naf-query-conjuncts unk))
+        (throw (ex-info (str "unknown antecedent " (pr-str unk) " queries an empty"
+                             " conjunction, which nothing can make derivable — so the"
+                             " unknown always holds and the antecedent guards nothing")
+                        {:type :not-well-formed :unknown unk
                          :antecedents (vec antes)}))))
     ;; closure: every consuming literal's inputs are bound by the generators or by a
     ;; deferred literal written before it — so the scan is left to right, accumulating
@@ -863,7 +917,9 @@
   "The N of a canonical variable ?varN, or nil for any other variable."
   [x]
   (when (variable? x)
-    (let [n (clojure.core/name x)]
+    ;; hinted for `variable?`'s reason, one screen up: this is the file's other
+    ;; `name`-then-interop pair, and it reflects under the same rewriter
+    (let [^String n (clojure.core/name x)]
       (when (.startsWith n "?var")
         (try (Long/parseLong (subs n 4)) (catch Exception _ nil))))))
 
@@ -1002,8 +1058,34 @@
   [form]
   (let [[p x y] form] (list p y x)))
 
+(defn- sort-naf-conjuncts
+  "Put the conjuncts of an `(unknown (and …))` antecedent into canonical order and drop
+  repeats, so two spellings of one NAF condition are one rule.  The same claim
+  `sort-conjuncts` makes for an exceptWhen exception, and for the same reason: the
+  conjuncts are independent ground checks, so their written order is not their
+  identity.
+
+  Sorted **blind to variables**, unlike the exception's — an exception's conjuncts are
+  aligned to the rule's canonical varmap before they are sorted (`vaelii.core`), while
+  this runs on the surface literal, where the author's variable names are still what
+  they wrote.
+
+  Nesting goes with the order: `naf-query-conjuncts` flattens, so a nested spelling and
+  the flat one store as the same rule, and a lone conjunct loses the `and` it never
+  needed.  An empty conjunction is left exactly as written for `check-naf-closed` to
+  refuse — rewriting it here would erase the shape the diagnostic names."
+  [form]
+  (if (and (unknown? form) (sequential? (second form))
+           (= and-functor (first (second form))))
+    (let [cs (vec (distinct (sort cmp-blind (naf-query-conjuncts form))))]
+      (cond
+        (empty? cs)      form
+        (= 1 (count cs)) (list unknown-functor (first cs))
+        :else            (list unknown-functor (apply list and-functor cs))))
+    form))
+
 (defn- normalize-literal [form symmetric?]
-  (-> form fold-comparison (sort-symmetric-args symmetric?)))
+  (-> form fold-comparison sort-naf-conjuncts (sort-symmetric-args symmetric?)))
 
 ;; ---- chained comparisons collapse into one variable-arity literal -------
 
@@ -1408,6 +1490,34 @@
   [sentence]
   (second (peel-not (canon sentence))))
 
+(defn- ist-read-problem
+  "The refusal an `(ist Ctx S)` in antecedent or exception position carries.
+
+  `ist` **places**: `assert` finds-or-creates S in Ctx, and a rule consequent names
+  where its conclusion lands.  Nothing reads through it.  The literal is indexed and
+  matched under the functor `ist` (`rules/antecedent-predicates`, `res/match-pattern`),
+  which no sentex is ever stored with, so it satisfies nothing and no arriving datum
+  triggers it.
+
+  Which way that falls out depends on the frame, and **every** way is a rule deciding
+  itself on a context it never read: a positive antecedent is never satisfied, so the
+  rule cannot fire; an `exceptWhen` query never matches, so the guard never guards and
+  the conclusion it was written to block stands believed; and an `(unknown (ist …))` is
+  satisfied by the same emptiness, so the rule fires unconditionally.  The middle two
+  are why this is refused rather than left inert — a rule that does nothing is visible,
+  and a guard that passes everything is not.
+
+  What such an author wants is for S to be **visible** where the rule is, and there are
+  two ways to say that: `(decontextualizedPredicate P)` takes every `(P ...)` into
+  UniverseContext, which every context sees, and a `genlContext` edge puts Ctx in the
+  rule's own cone.  Under either the literal is written plainly, and belief no longer
+  turns on a frame the matcher cannot honor."
+  [role]
+  (str "ist places a conclusion and reads nothing: an (ist Ctx S) "
+       (clojure.core/name role) " matches no stored sentex, so it decides the rule"
+       " without ever consulting Ctx — make S visible with (decontextualizedPredicate P)"
+       " or a genlContext edge, and write S plainly"))
+
 (defn connective-problems
   "Structural problems with `sentence`'s connective frames, as strings (empty if OK) —
   read by `check` and thrown by `assert` under `:not-well-formed` before anything is
@@ -1421,7 +1531,16 @@
     antecedent or consequent position matches nothing and checks as nothing;
   * a head existential outside consequent position — `exists` marks a consequent
     variable for skolemization and is not a predicate;
-  * a nested `implies` — a rule is a sentence, not a literal;
+  * an `(ist Ctx S)` in antecedent or exception position — `ist` places and never
+    reads, so the literal matches nothing (`ist-read-problem`);
+  * a nested `implies` anywhere but a rule's consequent — a rule is a sentence, not a
+    literal, and consequent position is the one place it means something else: a
+    **generator**, whose firing stamps the inner rule out (docs/generators.md).  A
+    third level is refused, so a generator generates a rule and not another generator;
+  * a negated rule — `not` over an `implies`, bare or wrapped: negation lives on
+    facts, and what a rule's negation would mean is said as an exception or a
+    retraction instead (the record has no shape for it — a rule under `not` would
+    store a sentence its own key cannot be computed from);
   * a top-level `and` — a conjunction is an antecedent or a query, never one
     assertable sentence; assert its conjuncts."
   [sentence]
@@ -1452,15 +1571,18 @@
                     (walk role (nth form 2)))
               [(str "exceptWhen takes a query and a rule, got arity " (dec n))])
             (= h not-functor)
-            (if (= 2 n)
-              (walk role (second form))
-              [(str "not takes one sentence, got arity " (dec n))])
+            (cond
+              (not= 2 n)
+              [(str "not takes one sentence, got arity " (dec n))]
+              (implies? (peek (peel-rule-wrapper (second form))))
+              ["a rule cannot be negated; retract it, or state the exception the negation means"]
+              :else (walk role (second form)))
             (= h ist-functor)
-            (if (= 3 n)
-              (walk role (nth form 2))
-              (if (= :sentence role)
-                []            ; the top-level ist arity has its own `:shape` contract
-                [(str "ist takes a context and a sentence, got arity " (dec n))]))
+            (cond
+              (contains? #{:antecedent :exception} role) [(ist-read-problem role)]
+              (= 3 n)        (walk role (nth form 2))
+              (= :sentence role) []  ; the top-level ist arity has its own `:shape` contract
+              :else [(str "ist takes a context and a sentence, got arity " (dec n))])
             (= h and-functor)
             (if (= :sentence role)
               ["a conjunction is not one assertable sentence; assert its conjuncts"]
@@ -1469,16 +1591,39 @@
             (cond
               (not= 3 n)
               [(str "implies takes antecedents and one consequent, got arity " (dec n))]
-              (not= :sentence role)
-              [(str "a rule cannot stand as a " (clojure.core/name role) " literal")]
-              :else
+              (= :sentence role)
               (into (vec (mapcat #(walk :antecedent %) (rule-antecedents form)))
-                    (walk :consequent (rule-consequent form))))
+                    (walk :consequent (rule-consequent form)))
+              ;; A rule **in consequent position** is a generator's head: the rule its
+              ;; firing stamps out (docs/generators.md).  Its own parts are checked in
+              ;; the ordinary rule roles, so every arm below — `ist`, a head
+              ;; existential, a negated antecedent — holds of the stamped rule exactly
+              ;; as it holds of a written one.
+              ;;
+              ;; One level, and the third is refused here rather than by recursion:
+              ;; the scoping rule that makes a generator readable is that the stamped
+              ;; rule's free variables are its own, and a rule that stamps a generator
+              ;; would need two such splits in one sentence with nothing in the
+              ;; spelling to say which variable belongs to which.
+              (= :consequent role)
+              (let [c (rule-consequent form)]
+                (into (vec (mapcat #(walk :antecedent %) (rule-antecedents form)))
+                      (if (implies? (peek (peel-rule-wrapper c)))
+                        ["a generated rule cannot itself generate a rule; a rule generator nests one level"]
+                        (walk :consequent c))))
+              :else
+              [(str "a rule cannot stand as a " (clojure.core/name role) " literal")])
             (head-exists? form)
             (if (= :consequent role)
               (walk role (head-exists-body form))
               [(str "exists marks a rule consequent; it cannot stand in "
                     (clojure.core/name role) " position")])
+            ;; A NAF body is a query standing in its literal's own position, so it is
+            ;; checked in that role — an `(unknown (ist …))` is refused exactly as the
+            ;; bare literal is, and for the sharper reason (`ist-read-problem`).  Only
+            ;; where `unknown` means anything: it is an antecedent/exception construct,
+            ;; and a top-level one is not a sentence this check is owed an opinion on.
+            (and (unknown? form) (not= :sentence role)) (walk role (second form))
             (there-exists? form) (walk role (nth form 2))
             (aggregate? form)    (walk role (aggregate-body form))
             :else []))))]

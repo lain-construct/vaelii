@@ -28,22 +28,46 @@
             [vaelii.core :as v])
   (:import [java.io PushbackReader]))
 
+(defn- layer-files
+  "The `<Context>.txt` file names in layer sub-directory `dir`, read off whichever
+  classpath shape holds them: a filesystem tree (repl / lein / test) is listed as a
+  directory, and a packaged jar is listed by its own entries — anchored on
+  `kb/CoreContext.txt` when the jar carries no directory entry for `kb/<dir>` to
+  resolve.  Any other protocol is refused rather than answered nil: nil here starts
+  a KB with the upper and middle layers silently absent, the exact failure
+  `read-sentences` exists to refuse one file at a time."
+  [dir]
+  (let [want (str "kb/" dir "/")
+        res  (or (io/resource (str "kb/" dir)) (io/resource "kb/CoreContext.txt"))]
+    (when res
+      (case (.getProtocol res)
+        "file" (when-let [d (io/resource (str "kb/" dir))]
+                 (keep (fn [^java.io.File f]
+                         (let [n (.getName f)]
+                           (when (str/ends-with? n ".txt") n)))
+                       (.listFiles (io/file d))))
+        "jar"  (let [conn ^java.net.JarURLConnection (.openConnection res)]
+                 (seq (for [^java.util.jar.JarEntry e (enumeration-seq (.entries (.getJarFile conn)))
+                            :let [n (.getName e)]
+                            :when (and (str/starts-with? n want)
+                                       (str/ends-with? n ".txt")
+                                       (not (str/includes? (subs n (count want)) "/")))]
+                        (subs n (count want)))))
+        (throw (ex-info (str "kb/" dir " sits behind classpath protocol "
+                             (.getProtocol res) ", which layer discovery cannot list")
+                        {:type :missing-resource :dir dir :url (str res)}))))))
+
 (defn layer-contexts
   "The context symbols whose KB files live in the layer sub-directory `dir`
   (\"upper\" / \"middle\"), sorted for determinism.  Discovered from the classpath, so
   dropping a new `<Context>.txt` in `kb/<dir>/` loads it with no code change — every
-  context is loaded on kb start by default.  (File-classpath discovery, so a repl /
-  lein / test tree; a packaged jar would need an explicit manifest.)"
+  context is loaded on kb start by default, from a filesystem tree and from a
+  packaged jar alike (`layer-files`)."
   [dir]
-  (when-let [res (io/resource (str "kb/" dir))]
-    (when (= "file" (.getProtocol res))
-      (->> (.listFiles (io/file res))
-           (keep (fn [^java.io.File f]
-                   (let [n (.getName f)]
-                     (when (str/ends-with? n ".txt")
-                       (symbol (subs n 0 (- (count n) 4)))))))
+  (some->> (layer-files dir)
+           (map #(symbol (subs % 0 (- (count %) 4))))
            (sort-by str)
-           vec))))
+           vec))
 
 (defn- resource-path
   "The classpath path of the KB file for `context`, optionally under layer `dir`."

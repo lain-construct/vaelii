@@ -238,14 +238,17 @@
 
 (s/fdef vaelii.core/term-role
   :args (s/cat :term ::term)
-  :ret  (s/nilable #{:variable :number :context :individual :predicate :type}))
+  :ret  (s/nilable #{:variable :number :context :individual :predicate :type
+                     :lexeme :sense}))
 
 (s/fdef vaelii.core/disjoint-metatypes :args (s/cat :kb ::kb))
 (s/fdef vaelii.core/metatype-members   :args (s/cat :kb ::kb :m ::term))
 
 (s/fdef vaelii.core/genls  :args (s/cat :kb ::kb :t ::term :context (s/? ::context)))
 (s/fdef vaelii.core/specs  :args (s/cat :kb ::kb :t ::term :context (s/? ::context)))
-(s/fdef vaelii.core/genl?  :args (s/cat :kb ::kb :sub ::term :super ::term) :ret boolean?)
+(s/fdef vaelii.core/genl?
+  :args (s/cat :kb ::kb :sub ::term :super ::term :context (s/? ::context))
+  :ret boolean?)
 (s/fdef vaelii.core/types    :args (s/cat :kb ::kb))
 (s/fdef vaelii.core/contexts :args (s/cat :kb ::kb))
 (s/fdef vaelii.core/context-up   :args (s/cat :kb ::kb :c ::context))
@@ -260,10 +263,16 @@
 
 ;; ---- reads: equality closure --------------------------------------------
 
-(s/fdef vaelii.core/representative :args (s/cat :kb ::kb :term ::term))
-(s/fdef vaelii.core/same-class?    :args (s/cat :kb ::kb :a ::term :b ::term) :ret boolean?)
-(s/fdef vaelii.core/equiv-class    :args (s/cat :kb ::kb :term ::term))
-(s/fdef vaelii.core/deprecated?    :args (s/cat :kb ::kb :term ::term) :ret boolean?)
+(s/fdef vaelii.core/representative
+  :args (s/cat :kb ::kb :term ::term :context (s/? ::context)))
+(s/fdef vaelii.core/same-class?
+  :args (s/cat :kb ::kb :a ::term :b ::term :context (s/? ::context))
+  :ret boolean?)
+(s/fdef vaelii.core/equiv-class
+  :args (s/cat :kb ::kb :term ::term :context (s/? ::context)))
+(s/fdef vaelii.core/deprecated?
+  :args (s/cat :kb ::kb :term ::term :context (s/? ::context))
+  :ret boolean?)
 
 ;; ---- reads: term index & extents ----------------------------------------
 

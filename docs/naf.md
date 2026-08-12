@@ -98,6 +98,52 @@ sweep / revive — differing only in **polarity and combination**:
 
 The two block conditions are OR'd wherever a firing's block status is decided.
 
+### `S` may be a conjunction
+
+```clojure
+(implies (and (bird ?x) (unknown (and (flies ?x) (adult ?x)))) (walks ?x))
+;; birds walk, unless they are known to be adults that fly
+```
+
+The exception's conjunction, inlined per literal — and read the same way, since the
+same evaluator answers both (`provers/exception-holds?`): the conjunction is derivable
+only if **every** conjunct is, so one conjunct short leaves `(unknown S)` holding and
+the rule fires. Closure is what makes that flat reading correct, exactly as it does for
+an exception: every variable is bound before the query runs, so after substitution the
+conjuncts share nothing and each is an independent ground existence check. No join, and
+level 6 needs no conjunctive goal form.
+
+Conjunct order is **not** the rule's identity — the conjuncts are sorted (blind to
+variable names) in the constructor, so two spellings of one condition are one rule, the
+claim `sort-conjuncts` makes for an exception. Nesting is not either: `(and A (and B
+C))` flattens, because conjunction is associative and a nested `and` is a goal no prover
+claims — left as one conjunct it would come back unanswerable, read as *not derivable*,
+and the whole query would never hold. A lone conjunct loses the `and` it never needed,
+and a repeated one is dropped.
+
+A conjunct may itself be a `thereExists`: the binder is local to that one conjunct, so
+the conjuncts still share nothing, and the predicate watched is the one *inside* the
+quantifier.
+
+Every conjunct's predicate is posted in the re-check index, not just the first: a
+conjunction blocks on the *last* of its conjuncts to arrive, so a rule watching one of
+them would miss the arrival that completes the query. The predicate posted is the one
+the conjunct *reads* (`rules/watched-predicates`, shared with the exception's own
+registration) — an aggregate conjunct is watched by its census body, an existential one
+by what it quantifies. A negated conjunct is watched under `not`, which is also how the
+trigger side keys an arriving `(not S)`.
+
+**A conjunction under a quantifier is refused** (`:type :quantified-conjunction`) — a
+`thereExists` or an aggregate whose body is an `(and …)`. There the conjuncts share the
+binder, so answering each independently would take each from a *different* witness: "has
+a sick child" would hold of anyone with a child while anyone at all was sick. That is a
+join, the level-6 registry answers one goal at a time, and the honest response is a
+refusal at assert time rather than an answer computed the wrong way. So the existential
+`unknown` is one literal deep — `(unknown (thereExists ?c (parentOf ?c Tom)))` — and a
+witness that has to satisfy two conditions is written as a generator antecedent that
+binds it. An **empty** conjunction is refused for the sibling reason: nothing can make
+it derivable, so the antecedent would guard nothing.
+
 ### Evaluated in the placement context, not the join
 
 An `unknown` antecedent is **not** a join filter. Forward chaining *skips* it in the
@@ -234,6 +280,10 @@ implementations.
   *whether* a witness exists, never *which*; that is inherent to negation as failure.
 - **One-level quantification.** `free-vars` respects a `thereExists` one level deep;
   nested quantifiers inside a single literal are not round-one scope.
+- **No joined NAF query.** A conjunction is a set of independent ground checks, so a
+  quantified one is refused rather than answered per-witness (above). The same limit
+  `exceptWhen` states as "no existential exception", and the same workaround: bind the
+  witness with a generator antecedent.
 
 ## Where the pieces are
 
@@ -241,7 +291,10 @@ implementations.
   authoritative; members of `default-provers` and of the `wff` refusal table.
 - **Representation** in `sentex`: `unknown?` / `there-exists?` recognizers, `free-vars`
   respecting the quantifier, `unknown` in `deferred-predicates`, the standalone
-  `thereExists` desugar, and `check-naf-closed` (closure + quantifier locality).
+  `thereExists` desugar, `naf-query-conjuncts` (the query's conjuncts, the `unknown`
+  spelling of `exception-query-conjuncts`) with the conjunct sort beside the other
+  literal normalizations, and `check-naf-closed` (closure, quantifier locality, and the
+  quantified-conjunction refusal).
 - **Forward chaining**: `unknown` skipped in the join and blocked at derive time per
   placement context (`naf-blocks?`), alongside the exception.
 - **Belief maintenance**: `justification-excepted?` blocks on a NAF antecedent too;
@@ -264,7 +317,12 @@ implementations.
 open-goal refusal, the combination, non-assertibility), the `unknown` antecedent firing
 and derive-time block, order-independence (block-and-sweep on late arrival, revival on
 retract), `unknown (thereExists …)` and standalone positive `thereExists` in a rule, the
-closure and locality refusals, and the stratification cycle refusals.
+conjunctive query (`naf-query-conjuncts` itself, block only when every conjunct holds,
+every conjunct's predicate watched — including a `thereExists` conjunct's, the goal and
+backward-rule readings agreeing with the antecedent one, and order, nesting, repetition
+and a lone conjunct all not being the rule's identity), the closure, locality,
+quantified-conjunction and empty-conjunction refusals, and the stratification cycle
+refusals — through *any* conjunct, which is the edge a single-predicate key would miss.
 
 ## The third member of the family
 

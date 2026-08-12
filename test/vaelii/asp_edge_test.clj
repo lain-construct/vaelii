@@ -58,6 +58,19 @@
   [content handles]
   (into #{} (map #(get-in content [% :sentence])) handles))
 
+(deftest the-program-text-does-not-depend-on-nogood-arrival-order
+  ;; translate sorts the nogoods by their members' content keys before anything is
+  ;; emitted: settle hands them in arrival order, and every emission — violation
+  ;; atoms, constraints, minimize, show — walks that seq, so an unsorted one
+  ;; rendered two logically identical programs as different ASPIF text
+  (when asp?
+    (let [content {1 {:sentence '(a X) :context 'C} 2 {:sentence '(not (a X)) :context 'C}
+                   3 {:sentence '(b X) :context 'C} 4 {:sentence '(not (b X)) :context 'C}}
+          n1      {:nogood #{1 2} :priority 0 :sentence '(contradicts A)}
+          n2      {:nogood #{3 4} :priority 0 :sentence '(contradicts B)}
+          text    (fn [ngs] (:aspif (edge/translate (solve/program #{1 2 3 4} ngs content))))]
+      (is (= (text [n1 n2]) (text [n2 n1]))))))
+
 ;; ---- 1. the encoding, driven directly ----------------------------------
 
 (deftest a-tie-defeats-exactly-one-side

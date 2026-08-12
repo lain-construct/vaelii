@@ -97,6 +97,28 @@
                 (is (= off on) (str "symmetric diverged on " (pr-str pat) " @ " ctx))
                 both)))))
 
+(deftest a-symmetric-spec-does-not-mirror-its-plain-super
+  ;; `(symmetric Sub)` under `(genl Sub Super)` widens the candidate buckets for a
+  ;; `Super` goal — but whether a candidate may match mirrored is that candidate's own
+  ;; functor's question.  A stored `(Super A B)` must not answer `(Super ?x A)` through
+  ;; the mirror the symmetric sub earned, and the two retrieval paths must agree.
+  (tu/with-kb [kb]
+    (tu/with-terms [likes adores Karl Lena Mio]
+      (v/assert kb (list 'symmetric adores) 'UniverseContext)
+      (v/assert kb (list 'genl adores likes) 'UniverseContext)
+      (v/assert kb (list likes Karl Lena) 'UniverseContext)     ; plain super, one way
+      (v/assert kb (list adores Mio Karl) 'UniverseContext)     ; symmetric sub
+      (let [answers (fn [pat]
+                      (let [[off on] (both-ways #(res/matches-visible kb pat 'UniverseContext))]
+                        (is (= off on) (str "the two paths diverged on " (pr-str pat)))
+                        (into #{} (map #(get (second %) '?x)) on)))]
+        ;; the sub's own fact answers directly; the super's `(likes Karl Lena)` must
+        ;; not come back as `?x = Lena` through a mirror `likes` never declared
+        (is (= #{Mio} (answers (list likes '?x Karl))))
+        ;; and the mirror still answers where it is declared: the symmetric sub's
+        ;; fact read in the order nothing stored
+        (is (= #{Mio} (answers (list adores Karl '?x))))))))
+
 ;; A `not`-headed sentence is rejected by `hierarchical-literal?`, and `matches-hierarchical`
 ;; then calls the same `matches-visible*` the flag-off branch calls — so comparing the two
 ;; flag settings on a negative literal compares one function with itself and holds whatever

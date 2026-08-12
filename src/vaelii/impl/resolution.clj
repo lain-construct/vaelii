@@ -381,6 +381,33 @@
   (or (not (and (symbol? context) (not (sx/variable? context))))
       (tax/sees? (:taxonomy kb) context rule-ctx)))
 
+(defn rule-believed?
+  "May the rule at `handle` chain — is it believed?
+
+  A rule is a sentex, so the fourth invariant holds of it as it holds of a fact: a
+  *stored* rule is not a *believed* one.  Both chainers reach a rule through the rule
+  index, which posts on storage and knows nothing of belief, so without this a rule
+  whose support has gone on holding conclusions the KB no longer has grounds for — and
+  a **derived** rule (one a generator stamped out, docs/generators.md) would never come
+  back out of the KB at all, since retracting what licensed it is the only way it can
+  leave.
+
+  A sentex the TMS holds no node for is available, not disbelieved: answering \"not
+  believed\" of an absence would be reading it as a verdict, where what it says is that
+  the network was never asked.  For a **rule** that arm is defence rather than a live
+  case — `core/assert-inert` refuses a rule (`:not-indexable`), so a stored rule has
+  been through a door that premised it — and it is worth keeping only because a wrong
+  answer here is a rule that silently stops firing.
+
+  An **inert rule** is a different thing and is *not* what this arm is about: it is
+  believed like any other rule and gated by its `:direction` alone
+  (`rules/forward-sentex?` / `backward-sentex?`), which is what makes it documentation
+  rather than an absence (docs/inference.md)."
+  [kb handle]
+  (let [tms (:tms kb)]
+    (or (not (jtms/known-datum? tms handle))
+        (jtms/in? tms handle))))
+
 (defn visible-supporter-fn
   "`handle -> boolean`, memoized: does `context` see the context the sentex `handle`
   was asserted from?  nil when `context` is nil or a `?var` — the unscoped path, which
@@ -669,9 +696,17 @@
           ;; A variable functor is never a symmetric literal (`sx/symmetric-literal?`
           ;; asks the taxonomy about the functor, and a variable has no property), so
           ;; the reference runs no mirror probe for it and neither may this.
+          ;; `sym?` is a *gate*, per call: it widens `lead-candidates`' bucket
+          ;; selection, where a superset is safe.  Whether a given candidate may match
+          ;; mirrored is that candidate's own functor's question (`sym-preds` below,
+          ;; at the probe) — the reference asks `sx/symmetric-literal?` per fanned
+          ;; sub-predicate, and mirroring every candidate because *some* spec is
+          ;; symmetric would admit `(knows Bob Ann)` for `(knows ?x Bob)` whenever a
+          ;; symmetric predicate sits anywhere under `knows`.
           sym?  (and (not var-fn?)
                      (= 2 (count args))
                      (boolean (some #(contains? specs %) (tax/props tax :symmetric))))
+          sym-preds (when sym? (tax/props tax :symmetric))
           seen  (volatile! #{})
           ;; The pattern sentex is a function of the candidate's functor and context
           ;; alone — the argument list is the caller's, fixed for the whole call — and
@@ -726,7 +761,7 @@
                                         (unify (:context pat) (:context stored)
                                                (unify (:sentence pat) (:sentence stored))))))
                             b (or (order false)
-                                  (when (and sym? (= 2 (count args)))
+                                  (when (and sym? (contains? sym-preds f'))
                                     (order true)))]
                         (when b (vswap! seen conj h) [h b stored])))))))
             (lead-candidates kb specs args sym?)))))
@@ -739,37 +774,111 @@
   `except` in some context hides its target *there and below*, not from the more
   general contexts above it, so an any-context read still sees it).
 
-  Storage-cheap: gated on the `except` functor root's cardinality, so a KB with no
-  `except` pays a single count and returns `#{}`."
+  **Read off the KB's `:excepted` roster, not off the index.**  The roster is
+  `{context -> {hidden-handle -> #{except-handle}}}`, maintained at the store and removal
+  choke points (`kb/note-excepted!`) exactly as `:opposed` is, so what this does per call
+  is a deref, one `contains?` per context *holding* an except, and one `jtms/in?` per
+  except in a visible one.  What it no longer does is fetch a record per except in the KB
+  and re-derive its target from its sentence — which on a chaining run is per placement
+  and per candidate justification, and was 89% of the run's wall clock at 1,000 excepts
+  (`lein bench-hotreads`).
+
+  **The O(1) gate is the empty roster**, which is where the functor-root count used to
+  be and is both cheaper and tighter: a KB storing only `(not (except H))` roots under
+  `except` and counts non-zero, while the roster — which holds only sentences that
+  actually hide something — is empty and says so.
+
+  The *iteration* is over the roster rather than over the up-closure because the roster
+  is the smaller side by construction: it holds one entry per context that states an
+  except, where `context-up` holds every context the reader inherits from.
+
+  Belief stays a read, and has to: an `except` can be defeated or revived without any
+  sentex arriving or leaving, so there is no choke point a believed-set could be
+  maintained at.  That is the line `:opposed` draws too (blind to belief, filtered by
+  whoever reads it), and it is why this is a roster rather than a clock-stamped memo —
+  the scope that asks is forward chaining, which writes while it reads, so a stamped
+  entry would be retired between one placement and the next.
+
+  **A caller asking about particular handles wants `excepted?`**, which answers the same
+  question without materializing this set."
   [kb view-context]
-  (let [ix (:index kb)]
-    (if (or (sx/variable? view-context)
-            (zero? (p/count-with-functor ix sx/except-functor)))
+  (let [by-ctx @(:excepted kb)]
+    (if (or (empty? by-ctx) (sx/variable? view-context))
       #{}
-      (let [up (tax/context-up (:taxonomy kb) view-context)]
-        (into #{}
-              (comp (map #(p/get-sentex (:records kb) %))
-                    (filter some?)
-                    (filter #(jtms/in? (:tms kb) (:id %)))       ; believed excepts only
-                    (filter #(contains? up (:context %)))         ; visible from view-context
-                    (keep #(sx/handle-id (second (:sentence %)))))
-              (p/sentexes-with-functor ix sx/except-functor))))))
+      (let [up  (tax/context-up (:taxonomy kb) view-context)
+            tms (:tms kb)]
+        (persistent!
+         (reduce-kv (fn [acc ctx entries]
+                      (if-not (contains? up ctx)                 ; visible from view-context
+                        acc
+                        (reduce-kv (fn [a target ehs]
+                                     (if (some #(jtms/in? tms %) ehs) (conj! a target) a))
+                                   acc entries)))
+                    (transient #{})
+                    by-ctx))))))
+
+(defn hidden-fn
+  "A predicate `(fn [handle]) -> boolean` answering, for **one** `view-context`, what
+  `excepted-handles` answers for all of them at once — or **nil** when that vantage hides
+  nothing at all.
+
+  Nil rather than `(constantly false)` on purpose: it is the caller's O(1) gate, and one
+  that lets it skip its filter outright instead of running a predicate that can only ever
+  answer false.  Every caller is on a hot path and almost every KB hides nothing at all,
+  so that distinction is the common case rather than an edge of it.
+
+  The gate is **storage**, not belief: a cone holding excepts that are all currently
+  defeated still gets a predicate, which then answers false for everything.  Deciding
+  otherwise would mean asking `jtms/in?` of every except in the cone to find out whether
+  to build a predicate that asks `jtms/in?` of two of them.
+
+  The roster and the `context-up` closure are read **once**, here, and the returned
+  predicate does a map lookup per context that states an except plus a `jtms/in?` per
+  except naming the handle asked about — usually none.  That is the trade against
+  materializing the hidden set: building the set is one pass over every except in the
+  reader's cone regardless of how many handles will be asked about, and the callers ask
+  about a rule's two or three antecedents, or about matches one at a time.  Since a set
+  is only cheaper once the questions outnumber the excepts, and the questions are bounded
+  by the answer set while the excepts are not, the predicate is the right default and the
+  set is kept for the caller that genuinely wants every hidden handle."
+  [kb view-context]
+  (let [by-ctx @(:excepted kb)]
+    (when-not (or (empty? by-ctx) (sx/variable? view-context))
+      (let [up  (tax/context-up (:taxonomy kb) view-context)
+            ;; only the contexts that both state an except and are visible from here —
+            ;; computed once, so the predicate walks nothing it will always reject
+            live (into [] (comp (filter #(contains? up (key %))) (map val)) by-ctx)
+            tms  (:tms kb)]
+        (when (seq live)
+          (fn [handle]
+            (boolean (some (fn [entries]
+                             (some #(jtms/in? tms %) (get entries handle)))
+                           live))))))))
+
+(defn excepted?
+  "Is the sentex at `handle` hidden from `view-context` by a believed `except`?  The
+  one-shot form of `hidden-fn`, for a caller with a single handle to ask about."
+  [kb handle view-context]
+  (boolean (when-let [hidden? (hidden-fn kb view-context)] (hidden? handle))))
 
 (defn without-excepted
   "Drop the `[handle …]` matches whose handle is hidden from `view-context` by a
-  believed `except` — the visibility-removal filter, a no-op (identical seq) when
-  nothing is excepted."
+  believed `except` — the visibility-removal filter, and the **identical seq** when the
+  reader's cone stores no except at all, which is almost every read of almost every KB."
   [kb view-context matches]
-  (let [ex (excepted-handles kb view-context)]
-    (if (empty? ex) matches (remove #(contains? ex (first %)) matches))))
+  (if-let [hidden? (hidden-fn kb view-context)]
+    (remove #(hidden? (first %)) matches)
+    matches))
 
-(defn- retired-for?
+(defn retired-for?
   "Does `sentence` name a term the reader has retired — i.e. is it *not* in normal form
   for that reader?  Asked term by term rather than by building the rewritten sentence,
   since the answer is a disjunction and the first displaced symbol settles it, and gated
   per symbol on `merged?` (one `contains?` against a snapshot held by the caller) so an
   unmerged sentence never reaches the election.  `visible` is the caller's **delay** over
-  the supporter memo, forced only by a symbol that got that far."
+  the supporter memo, forced only by a symbol that got that far.  Public for the reads
+  whose match shape `without-retired` cannot take — `qcn-kb/refuted-pairs` yields
+  `[handle a b]` triples with no sentex at index 2, so it filters with this directly."
   [kb visible merged? sentence]
   (sx/some-symbol? (fn [t]
                      (and (merged? t) (not (sx/variable? t))

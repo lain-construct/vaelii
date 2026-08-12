@@ -722,7 +722,8 @@
   new exception blocks)."
   [kb meta-sentex]
   (let [rh    (sx/exceptWhen-rule-handle (:sentence meta-sentex))
-        preds (keep nm/functor (sx/exception-query-conjuncts (:sentence meta-sentex)))]
+        preds (rules/watched-predicates
+               (sx/exception-query-conjuncts (:sentence meta-sentex)))]
     (when rh
       (p/index-exception (:index kb) rh preds)
       (mark-recheck kb [rh] :all))
@@ -740,7 +741,8 @@
                            (filter #(and (sx/exceptWhen-meta? (:sentence %))
                                          (= rh (sx/exceptWhen-rule-handle (:sentence %)))
                                          (not= dropping-id (:id %))))
-                           (mapcat #(keep nm/functor (sx/exception-query-conjuncts (:sentence %)))))
+                           (mapcat #(rules/watched-predicates
+                                     (sx/exception-query-conjuncts (:sentence %)))))
                      (p/sentexes-with-term (:index kb) (sx/sentex-handle rh)))
         rsx    (p/get-sentex (:records kb) rh)]
     (into others (when rsx (rules/recheck-predicates rsx)))))
@@ -754,7 +756,8 @@
   losing an exception may revive what it was blocking."
   [kb meta-sentex]
   (let [rh        (sx/exceptWhen-rule-handle (:sentence meta-sentex))
-        this-preds (keep nm/functor (sx/exception-query-conjuncts (:sentence meta-sentex)))]
+        this-preds (rules/watched-predicates
+                    (sx/exception-query-conjuncts (:sentence meta-sentex)))]
     (when rh
       (p/unindex-exception! (:index kb) rh this-preds)
       (when-let [remaining (seq (rule-remaining-recheck-preds kb rh (:id meta-sentex)))]
@@ -1855,10 +1858,15 @@
   the justification's antecedents, so retracting *that* declaration withdrew the merge
   while the other still stood — and which of the two it was depended on the order they
   arrived in.  `tax/prop-supporters` is the whole set, defeated members included (its
-  docstring says why: a derivation revives by itself when its supporter does), and the
-  equality takes a justification from each — the shape `deduce-lift` already uses for the
-  same reason, so retracting one of two declarations leaves the merge standing on the
-  other.  Sorted only to make each antecedent list stable to read; the *set* of
+  docstring says why: a derivation revives by itself when its supporter does), **and
+  unfiltered by what `context` sees** — the whole set on the visibility axis too, and
+  deliberately: filtering to visible supporters would make the surviving merge depend
+  on which declaration was retracted first, and
+  `a-merge-rests-on-every-functional-declaration-not-on-one-of-them` pins both
+  directions on independent predicates so no arbitrary choice can pass as this.  The
+  equality takes a justification from each — the shape `deduce-lift` already uses for
+  the same reason, so retracting one of two declarations leaves the merge standing on
+  the other.  Sorted only to make each antecedent list stable to read; the *set* of
   justifications is what carries the meaning, and a set has no order to depend on."
   [kb sentence context handle]
   (let [tax  (:taxonomy kb)

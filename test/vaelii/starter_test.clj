@@ -8,12 +8,58 @@
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.seed :as seed]
             [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
 (use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
 (use-fixtures :each (tu/neutral))
+
+(defn- authored-sentences
+  "Every sentence the shipped ontology's own source files contain, paired with the context
+  whose file holds it — `CoreContext.txt` plus every discovered file under `kb/upper/` and
+  `kb/middle/`.  Read from the classpath the way the starter reads them, so a file added
+  to a layer is swept with no edit here."
+  []
+  (concat (for [s (seed/read-sentences 'CoreContext nil)] ['CoreContext s])
+          (for [dir ["upper" "middle"]
+                c   (seed/layer-contexts dir)
+                s   (seed/read-sentences c dir)]
+            [c s])))
+
+(tu/deftest-kb every-sentence-the-starter-ships-is-well-formed-once-it-is-all-loaded
+  ;; **Loading is not checking**, and the gap between the two is where the shipped
+  ;; ontology can go wrong quietly.  `seed/load-sentences` asserts in file order and
+  ;; retries, so a sentence is judged against whatever had arrived when its turn came —
+  ;; and the argument checks are open-world, abstaining on a term the KB cannot yet place.
+  ;; `(hasCapability bird flying)` was admitted exactly that way: `argIsa … 1 animal` had
+  ;; nothing to say about `bird` before `(genl bird animal)` landed, and once it landed
+  ;; nothing went back to look.  There is no retroactive `:arg-type` report, so
+  ;; `violations` stayed empty and the KB shipped seven facts its own checker convicts.
+  ;;
+  ;; This is the check that closes it: every sentence an author wrote, put to `check`
+  ;; against the FULLY loaded KB, where every declaration and every placement is in.  The
+  ;; ordering that admitted it cannot hide it here.
+  ;;
+  ;; Authored sentences rather than stored ones, which is what lets this cover the rules:
+  ;; a rule reaches the store split into slots and an `exceptWhen` as a `sentexHandle`
+  ;; reference, both engine encodings that no `.txt` contains.  The stored side is swept
+  ;; by `ontology-test/every-fact-the-starter-ships-satisfies-the-declarations-it-ships`,
+  ;; which catches what a rule *derives* — six of those seven facts — and the two together
+  ;; cover what either alone would miss.
+  (let [authored (authored-sentences)
+        guilty   (for [[c s] authored
+                       :let  [ps (try (v/check kb s c)
+                                      (catch clojure.lang.ExceptionInfo e
+                                        [{:type (:type (ex-data e) :threw)
+                                          :message (ex-message e)}]))]
+                       :when (seq ps)]
+                   [s c (mapv :type ps) (:message (first ps))])]
+    (is (< 1000 (count authored))
+        "the sweep found the shipped files — an empty read would pass vacuously")
+    (is (empty? guilty)
+        (str "shipped sentences their own KB convicts: " (vec guilty)))))
 
 (tu/deftest-kb starter-loads-and-reasons
   (testing "the universal rule fires on natural-world facts, landing in NaturalWorldContext"
@@ -68,7 +114,8 @@
   (testing "every domain relation is documented"
     (doseq [p '[parentOf grandparentOf childOf ancestorOf siblingOf marriedTo
                 motherOf fatherOf
-                likes eats owns partOf locatedIn hasCapability mortal birthYearOf olderThan
+                likes eats owns partOf locatedIn hasCapability capabilityType
+                mortal birthYearOf olderThan
                 weightOf heightOf heavierThan tallerThan]]
       (is (seq (core-context/comment-of kb p)) (str "relation " p)))))
 

@@ -63,8 +63,10 @@ dilemma, not of a badly-written exception.
 An `(unknown S)` **antecedent** is the same mechanism inlined per-literal — the rule
 does not conclude for a binding under which `S` is derivable — and it reuses
 everything below (the level-6 evaluation, the re-check index, block / sweep / revive,
-the stratification graph), differing only in that each `unknown` is an independent
-block condition rather than a conjunction. See [naf.md](naf.md).
+the stratification graph), including the conjunction: `S` may be an `(and …)`, read
+block-if-all-hold by this same evaluator. What differs is that each `unknown`
+antecedent is an independent block condition, where a rule's exceptions are one.
+See [naf.md](naf.md).
 
 ### The exception is a query, not a literal
 
@@ -158,11 +160,24 @@ That allows an index at *rule* granularity:
 Rules are few, so this is the scale of the existing rule index — tens of entries,
 never millions.
 
-**"Mentions" means a symbol in functor position at any nesting depth**, not just
-the top-level functor of each conjunct, since a level-6 query can reach a predicate
-through a subterm. When in doubt, **over-approximate**: a spurious re-check costs
-one query, while a missed one is a correctness bug that shows up as a conclusion
-that should have been swept and wasn't.
+**"Mentions" means the predicate each conjunct *reads*, with the query frames peeled**
+(`rules/watched-predicates`). A conjunct may itself be a query operator — the exception
+is any closed level-6 goal, so `(unknown S)`, a `thereExists` and an aggregate all
+stand there — and none of those functors is one a sentex is ever stored under. Keyed on
+the operator, the rule sits in the index under a predicate nothing arrives on: the
+exception is evaluated correctly once and re-evaluated never, which from the outside is
+a guard that answers whatever happened first. So an `unknown` yields its conjuncts'
+predicates, a `thereExists` its body's, an aggregate its census body's.
+
+`not` is the one frame left alone, because the *trigger* side keys an arriving `(not S)`
+under `not` as well — one coarse bucket for every negated condition, but the two agree,
+and peeling one side alone is what would break it.
+
+When in doubt, **over-approximate**: a spurious re-check costs one query, while a
+missed one is a correctness bug that shows up as a conclusion that should have been
+swept and wasn't. A predicate reachable only through a *subterm* is not indexed, and
+the `genl` and equality edge triggers are what cover the conditions that move without
+one.
 
 Two consequences worth stating:
 
@@ -191,6 +206,15 @@ firings are filtered before a single query is paid for:
 - Substituting the firing's bindings into the rule's exception conjuncts yields ground
   literals. Closure guarantees they are ground, and this is pure structure manipulation
   — **no store access at all**, which is what makes the filter worth running.
+- The conjuncts are read through their **query frames** first
+  (`rules/watched-literals`, the same peel the index keys on), because a shape test
+  needs a literal a *fact* could carry. An exception that is itself a query operator has
+  no shape however ground it is — `(unknown (qskip PX7))` is unreadable to the filter —
+  so unpeeled it answers "cannot tell" every time and keeps the rule's whole history.
+  That is where the shape is commonest, too: `(unknown S)` holds exactly while `S` is
+  absent, which is the state a firing is *refused* in, so such a rule accumulates its
+  history in the refusal record rather than as justifications. Both populations are
+  filtered the same way and both peel.
 - A triggering fact can only answer a ground exception literal when their argument
   lists agree **and** the fact's predicate lies in the exception predicate's `specs`
   closure. That closure is the in-memory taxonomy, not the stored index. The `specs` half is
@@ -247,10 +271,13 @@ to say whether the move blocked or released), and whatever the sweep itself queu
 deleting a fact can release some other rule's exception at derive time, where no block
 ever existed to lift.
 
-A pass is **productive** when the blocked set moved. Two things force one that did not.
+A pass is **productive** when the blocked set moved. Three things force one that did not.
 An **aggregate** antecedent binds a *value*, so a count going 1 ⇒ 2 licenses a firing no
-block ever suppressed. And a released **refusal** — the next section — is a firing that
-never held a justification for the blocked set to have said anything about.
+block ever suppressed. A released **refusal** — the next section — is a firing that never
+held a justification for the blocked set to have said anything about. And a **revived**
+datum is one whose firing was never attempted, because the join ran while it was OUT and
+the matcher is belief filtered; that one is not an exception mechanism at all, and it is
+[nmtms.md](nmtms.md#a-revived-datum-is-a-datum-the-agenda-has-not-seen)'s to explain.
 
 **Nothing caches the exception's truth**, so nothing can drift from belief. The
 index is a hint about what to re-check and never an answer — which is what

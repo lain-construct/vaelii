@@ -243,3 +243,14 @@
       (is (nil? (jobs/job id)))
       (is (empty? (jobs/jobs)))
       (is (empty? (jobs/running))))))
+
+(deftest cancelling-a-settled-job-leaves-its-terminal-status
+  ;; the :cancelling write goes through update-job! guarded on the job not having
+  ;; settled: stamped over a just-filed :done, the job never settled, the sweep kept
+  ;; it, `writer` kept naming it, and every later writing job was refused against
+  ;; work that had already finished
+  (let [id (jobs/submit {:label "Done already" :kind :test} (constantly {:ok true}))]
+    (settled id)
+    (jobs/cancel! id)
+    (is (= :done (:status (jobs/job id)))
+        "a settled status is terminal, whatever a late cancel asks")))

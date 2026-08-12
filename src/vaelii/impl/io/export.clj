@@ -198,9 +198,15 @@
   "The index's entries as `[key value]` frames.  `p/index-entries` is the protocol's own
   projection, so this streams what the backend holds rather than deriving anything: a
   writer that called `index-sentex` would be `reindex` with extra steps, and would be
-  writing an index it had just computed instead of the one the KB was answering from."
+  writing an index it had just computed instead of the one the KB was answering from.
+
+  Each pair is normalized to a **vector** on the way out: the backends emit a mix of
+  `MapEntry`s and plain vectors (the map-backed stores yield entries, the tiered one
+  yields vectors, the columnar one yields both), and nippy gives `MapEntry` its own
+  type id — so without this, two byte-identical logical indexes froze to
+  byte-different dumps according to which backend held them."
   [index]
-  (p/index-entries index))
+  (map (fn [[k v]] [k v]) (p/index-entries index)))
 
 (defn- provenance-frames
   "The `[handle provenance-map]` frames for the handles that have one.  Provenance is

@@ -227,7 +227,12 @@
   — while a context below the merge sees both it and the twin migration placed there,
   so an unfiltered fan-out hands back one fact twice, under two names the reader knows
   denote one thing (`res/without-retired`, docs/equality.md).  That is an artifact of
-  the fan-out, not something the fan-out found."
+  the fan-out, not something the fan-out found.
+
+  The `except` visibility filter is deliberately **not** here: it lives in
+  `res/matches-visible`, which is level 4, so an excepted handle is matched at this
+  level and gone at the next — that difference is level 4's contribution made visible,
+  and `an-excepted-fact-is-the-one-answer-that-falls-out-of-the-stack` pins it."
   [kb goal context]
   (map (fn [[h b s]] (stored-result 3 h b s))
        (if (sx/variable? context)

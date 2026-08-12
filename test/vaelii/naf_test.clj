@@ -28,7 +28,24 @@
     (is (= '#{?y} (sx/free-vars '(thereExists ?x (parentOf ?x ?y))))))
   (testing "the two combine — (unknown (thereExists ?x (P ?x ?y))) is free only in ?y"
     (is (= '#{?y} (sx/free-vars '(unknown (thereExists ?x (parentOf ?x ?y))))))
-    (is (= #{}    (sx/free-vars '(unknown (thereExists ?x (parentOf ?x Tom))))))))
+    (is (= #{}    (sx/free-vars '(unknown (thereExists ?x (parentOf ?x Tom)))))))
+  (testing "a conjunction contributes every conjunct's variables, so closure covers all of them"
+    (is (= '#{?x ?y} (sx/free-vars '(unknown (and (flies ?x) (parentOf ?x ?y))))))
+    (is (= '#{?x} (sx/free-vars '(unknown (and (thereExists ?c (parentOf ?x ?c))
+                                               (adult ?x))))))))
+
+(deftest naf-query-conjuncts-flattens-to-what-is-evaluated
+  (testing "a bare literal is one conjunct"
+    (is (= '[(flies Tweety)] (sx/naf-query-conjuncts '(unknown (flies Tweety))))))
+  (testing "a conjunction is its conjuncts"
+    (is (= '[(flies Tweety) (adult Tweety)]
+           (sx/naf-query-conjuncts '(unknown (and (flies Tweety) (adult Tweety)))))))
+  (testing "nesting is flattened — a nested `and` is a goal no prover claims"
+    (is (= '[(a X) (b X) (c X)]
+           (sx/naf-query-conjuncts '(unknown (and (a X) (and (b X) (c X))))))))
+  (testing "a quantifier is left intact: it is the prover's, not the flattener's"
+    (is (= '[(thereExists ?c (parentOf ?c Tom))]
+           (sx/naf-query-conjuncts '(unknown (thereExists ?c (parentOf ?c Tom))))))))
 
 ;; ---- unknown: closed-world negation -------------------------------------
 
@@ -154,6 +171,47 @@
       (testing "and splitting the class again revives it"
         (is (v/ask? kb (list rr Retired) 'WellContext))))))
 
+(tu/deftest-kb a-merge-can-complete-a-conjunction-through-the-conjunct-that-was-short
+  ;; The conjunctive reading of the merge channel: `qq` holds of one spelling and `rr` of
+  ;; the other, so under the firing's own binding the conjunction is one conjunct short
+  ;; and the rule concludes.  Merging the two makes *both* answerable under one
+  ;; representative — with nothing on either predicate arriving or leaving, so no
+  ;; predicate-keyed trigger sees it and `recheck-equality-edge` is the whole channel.
+  (tu/with-terms [pp qq rr ss Kept Retired]
+    (v/assert kb (list 'implies (list 'and (list pp '?x)
+                                      (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
+                       (list ss '?x))
+              'WellContext)
+    (v/assert kb (list qq Kept) 'WellContext)
+    (v/assert kb (list rr Retired) 'WellContext)
+    (v/assert kb (list pp Retired) 'WellContext)
+    (is (v/ask? kb (list ss Retired) 'WellContext)
+        "derived while qq reaches Kept and the firing binds Retired")
+    (let [h (v/assert kb (list 'rewriteOf Kept Retired) 'WellContext)]
+      (testing "the merge answers both conjuncts under one representative, so it is swept"
+        (is (= 1 (count (v/sentexes-matching kb (list qq '?x) 'WellContext)))
+            "and qq's own extent never moved")
+        (is (empty? (v/sentexes-matching kb (list ss '?x) 'WellContext))
+            "under either spelling — the conclusion migrated and then went"))
+      (v/retract! kb h)
+      (testing "and splitting the class again revives it"
+        (is (v/ask? kb (list ss Retired) 'WellContext))))))
+
+(tu/deftest-kb a-conjunction-reaches-the-same-belief-when-the-merge-arrives-first
+  ;; The oracle for the test above.  Merged first, the firing is refused at derive time
+  ;; and no trigger is involved at all, so the two orders must agree.
+  (tu/with-terms [pp qq rr ss Kept Retired]
+    (v/assert kb (list 'rewriteOf Kept Retired) 'WellContext)
+    (v/assert kb (list 'implies (list 'and (list pp '?x)
+                                      (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
+                       (list ss '?x))
+              'WellContext)
+    (v/assert kb (list qq Kept) 'WellContext)
+    (v/assert kb (list rr Retired) 'WellContext)
+    (v/assert kb (list pp Retired) 'WellContext)
+    (is (empty? (v/sentexes-matching kb (list ss '?x) 'WellContext))
+        "merged first, the rule never concludes")))
+
 (tu/deftest-kb an-unknown-reaches-the-same-belief-when-the-merge-arrives-first
   ;; the oracle for the test above: merged first, the firing is refused at derive time
   ;; and no trigger is involved at all, so the two orders must agree.
@@ -198,14 +256,249 @@
       (is (v/ask? kb (list 'aParent Dad) 'WellContext))
       (is (not (v/ask? kb (list 'aParent Childless) 'WellContext))))))
 
+;; ---- a conjunctive NAF query --------------------------------------------
+;; `(unknown (and A B))` is `exceptWhen`'s conjunction inlined per literal: closure
+;; leaves every conjunct ground, so they share nothing after substitution and each is an
+;; independent existence check — block if **all** hold.  One evaluator answers both
+;; (`provers/exception-holds?`), so the two cannot drift.
+
+(tu/deftest-kb unknown-over-a-conjunction-blocks-only-when-every-conjunct-holds
+  (tu/with-terms [pp qq rr ss Both One Neither]
+    (v/assert kb (list 'implies (list 'and (list pp '?x)
+                                      (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
+                       (list ss '?x))
+              'WellContext)
+    (v/assert kb (list qq Both) 'WellContext)
+    (v/assert kb (list rr Both) 'WellContext)
+    (v/assert kb (list qq One) 'WellContext)
+    (doseq [i [Both One Neither]] (v/assert kb (list pp i) 'WellContext))
+    (testing "every conjunct derivable — the query holds, so the firing is blocked"
+      (is (not (v/ask? kb (list ss Both) 'WellContext))))
+    (testing "one conjunct short is not the query holding"
+      (is (v/ask? kb (list ss One) 'WellContext))
+      (is (v/ask? kb (list ss Neither) 'WellContext)))))
+
+(tu/deftest-kb every-conjunct-of-a-NAF-query-is-watched
+  ;; The re-check index is keyed per predicate, and a conjunction blocks on the *last*
+  ;; of its conjuncts to arrive — so a rule posted under the first predicate alone would
+  ;; never be re-checked for the second, and belief would depend on arrival order.
+  (tu/with-terms [pp qq rr ss Aa]
+    (v/assert kb (list 'implies (list 'and (list pp '?x)
+                                      (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
+                       (list ss '?x))
+              'WellContext)
+    (v/assert kb (list pp Aa) 'WellContext)
+    (v/assert kb (list qq Aa) 'WellContext)
+    (is (v/ask? kb (list ss Aa) 'WellContext)
+        "one conjunct holding leaves the query underivable")
+    (let [h (v/assert kb (list rr Aa) 'WellContext)]      ; the *second* conjunct, last
+      (testing "completing the conjunction blocks and sweeps the conclusion"
+        (is (not (v/ask? kb (list ss Aa) 'WellContext)))
+        (is (nil? (v/handle-of kb (list ss Aa) 'WellContext))))
+      (v/retract! kb h)
+      (testing "and breaking it again revives the conclusion by re-derivation"
+        (is (v/ask? kb (list ss Aa) 'WellContext))))))
+
+(tu/deftest-kb a-conjunctive-NAF-goal-agrees-with-the-rule-antecedent
+  ;; The backward reading of the same query: `UnknownProver` answers a conjunction the
+  ;; way `exception-holds?` does, or `ask` and forward chaining would disagree about one
+  ;; rule.
+  (tu/with-terms [qq rr Both One]
+    (v/assert kb (list qq Both) 'WellContext)
+    (v/assert kb (list rr Both) 'WellContext)
+    (v/assert kb (list qq One) 'WellContext)
+    (is (not (v/ask? kb (list 'unknown (list 'and (list qq Both) (list rr Both)))))
+        "both conjuncts derivable — the conjunction is known")
+    (is (v/ask? kb (list 'unknown (list 'and (list qq One) (list rr One))))
+        "one conjunct short — the conjunction is not derivable")))
+
+(tu/deftest-kb a-nested-NAF-conjunction-is-flattened-not-left-as-a-goal
+  ;; A nested `and` is not a goal any prover claims, so left as one conjunct it would come
+  ;; back unanswerable and read as *not derivable* — the conjunction never holding, the
+  ;; antecedent guarding nothing.  Conjunction is associative, so flattening is the
+  ;; reading; the canonical form is flat, which is what makes the two spellings one rule.
+  (tu/with-terms [pp qq rr tt ss All]
+    (let [nested (list 'implies (list 'and (list pp '?x)
+                                      (list 'unknown (list 'and (list qq '?x)
+                                                           (list 'and (list rr '?x)
+                                                                 (list tt '?x)))))
+                       (list ss '?x))
+          flat   (list 'implies (list 'and (list pp '?y)
+                                      (list 'unknown (list 'and (list qq '?y) (list rr '?y)
+                                                           (list tt '?y))))
+                       (list ss '?y))
+          h1     (v/assert kb nested 'WellContext)
+          h2     (v/assert kb flat 'WellContext)]
+      (is (= h1 h2) "the nested spelling and the flat one are one rule")
+      (doseq [p [pp qq rr tt]] (v/assert kb (list p All) 'WellContext))
+      (is (not (v/ask? kb (list ss All) 'WellContext))
+          "every conjunct of the flattened query holds, so the firing is blocked"))))
+
+(tu/deftest-kb a-thereExists-conjunct-is-watched-by-what-it-quantifies
+  ;; A conjunct may itself be an existential — legal, because the binder is local to that
+  ;; one conjunct, so the conjuncts still share nothing.  The re-check key has to be the
+  ;; predicate *inside* the quantifier (`watched-query` per conjunct): keyed on
+  ;; `thereExists`, which no fact carries, the arrival that completes the query is invisible.
+  (tu/with-terms [person kidOf adult lonely Ppp Qqq]
+    (v/assert kb (list 'implies (list 'and (list 'person '?x)
+                                      (list 'unknown
+                                            (list 'and (list 'thereExists '?c (list kidOf '?x '?c))
+                                                  (list adult '?x))))
+                       (list lonely '?x))
+              'WellContext)
+    (v/assert kb (list 'person Ppp) 'WellContext)
+    (v/assert kb (list adult Ppp) 'WellContext)
+    (is (v/ask? kb (list lonely Ppp) 'WellContext)
+        "adult but childless — the existential conjunct is short, so the query does not hold")
+    (let [h (v/assert kb (list kidOf Ppp Qqq) 'WellContext)]
+      (testing "a witness arriving completes the query through the *existential* conjunct"
+        (is (not (v/ask? kb (list lonely Ppp) 'WellContext))))
+      (v/retract! kb h)
+      (testing "and removing it revives the conclusion"
+        (is (v/ask? kb (list lonely Ppp) 'WellContext))))))
+
+(tu/deftest-kb a-conjunctive-NAF-antecedent-is-honoured-by-a-backward-only-rule
+  ;; The companion of the single-literal case below: a backward-only rule is never
+  ;; pre-materialized, so whoever expands it evaluates the conjunction itself.
+  (tu/with-terms [pp qq rr ss Both One]
+    (v/assert kb (list 'set/backwardRule
+                       (list 'implies (list 'and (list pp '?x)
+                                            (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
+                             (list ss '?x)))
+              'WellContext)
+    (v/assert kb (list pp Both) 'WellContext)
+    (v/assert kb (list qq Both) 'WellContext)
+    (v/assert kb (list rr Both) 'WellContext)
+    (v/assert kb (list pp One) 'WellContext)
+    (v/assert kb (list qq One) 'WellContext)
+    (is (empty? (v/prove kb (list ss Both) 'WellContext))
+        "both conjuncts derivable — the rule does not conclude")
+    (is (seq (v/prove kb (list ss One) 'WellContext))
+        "one conjunct short — it does")))
+
+(tu/deftest-kb a-negated-conjunct-is-watched-and-blocks-when-it-arrives
+  ;; `not` is the one frame the watched-predicate walk leaves alone, because the trigger
+  ;; side keys an arriving `(not S)` under `not` as well — coarse, one bucket for every
+  ;; negated condition, but the two agree, and peeling one side alone is what would break
+  ;; it.  The claim is the arrival, so this is the test that would catch a peel.
+  (tu/with-terms [bb ff aa oo Ned]
+    (v/assert kb (list 'implies (list 'and (list bb '?x)
+                                      (list 'unknown (list 'and (list 'not (list ff '?x))
+                                                           (list aa '?x))))
+                       (list oo '?x))
+              'WellContext)
+    (v/assert kb (list bb Ned) 'WellContext)
+    (v/assert kb (list aa Ned) 'WellContext)
+    (is (v/ask? kb (list oo Ned) 'WellContext)
+        "the negated conjunct is not derivable, so the conjunction is short")
+    (v/assert kb (list 'not (list ff Ned)) 'WellContext)
+    (is (not (v/ask? kb (list oo Ned) 'WellContext))
+        "and its arrival completes the query, so the conclusion is swept")))
+
+(tu/deftest-kb an-aggregate-conjunct-is-watched-by-its-census-body
+  ;; An aggregate's own functor is a predicate no fact carries, so the key has to be what
+  ;; its body counts — the per-conjunct case of what `naf-predicates` has always done for
+  ;; a bare aggregate query.
+  (tu/with-terms [person kidOf adult gg Moe K1 K2]
+    (v/assert kb (list 'implies (list 'and (list 'person '?x)
+                                      (list 'unknown
+                                            (list 'and (list 'agg/count 2 '?c (list kidOf '?x '?c))
+                                                  (list adult '?x))))
+                       (list gg '?x))
+              'WellContext)
+    (v/assert kb (list 'person Moe) 'WellContext)
+    (v/assert kb (list adult Moe) 'WellContext)
+    (v/assert kb (list kidOf Moe K1) 'WellContext)
+    (is (v/ask? kb (list gg Moe) 'WellContext)
+        "one kid — the census is not 2, so the conjunction is short")
+    (v/assert kb (list kidOf Moe K2) 'WellContext)
+    (is (not (v/ask? kb (list gg Moe) 'WellContext))
+        "the count reaching 2 completes the query, on a predicate the aggregate frames")))
+
+(tu/deftest-kb conjunct-order-is-not-a-NAF-rule-s-identity
+  ;; The claim `sort-conjuncts` makes for an exceptWhen exception, and for the same
+  ;; reason: independent ground checks, so their written order is not their identity.
+  (tu/with-terms [pp qq rr ss]
+    (let [h1 (v/assert kb (list 'implies (list 'and (list pp '?x)
+                                               (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
+                                (list ss '?x))
+                       'WellContext)
+          h2 (v/assert kb (list 'implies (list 'and (list pp '?y)
+                                               (list 'unknown (list 'and (list rr '?y) (list qq '?y))))
+                                (list ss '?y))
+                       'WellContext)
+          h3 (v/assert kb (list 'implies (list 'and (list pp '?z)
+                                               (list 'unknown (list 'and (list qq '?z) (list rr '?z)
+                                                                    (list qq '?z))))
+                                (list ss '?z))
+                       'WellContext)]
+      (is (= h1 h2) "two spellings of one conjunction are one rule")
+      (is (= h1 h3) "and a repeated conjunct is not a different condition"))))
+
+(tu/deftest-kb a-one-conjunct-NAF-and-loses-the-and-it-never-needed
+  (tu/with-terms [mm nn zz]
+    (let [h1 (v/assert kb (list 'implies (list 'and (list mm '?x)
+                                               (list 'unknown (list 'and (list nn '?x))))
+                                (list zz '?x))
+                       'WellContext)
+          h2 (v/assert kb (list 'implies (list 'and (list mm '?y) (list 'unknown (list nn '?y)))
+                                (list zz '?y))
+                       'WellContext)]
+      (is (= h1 h2) "a lone conjunct is the bare literal, and stores as it"))))
+
 ;; ---- well-formedness of NAF rule antecedents ----------------------------
 
+(tu/deftest-kb a-quantified-conjunction-is-refused
+  ;; The conjuncts share the binder, so answering them independently would take each
+  ;; from a different witness — "has a sick child" would hold of anyone with a child
+  ;; while anyone at all was sick.  Level 6 answers one goal at a time and has no join,
+  ;; so the form is refused rather than mis-evaluated.
+  (tu/with-terms [person childOf sick lonely counted]
+    (testing "a thereExists over a conjunction, inside an unknown"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"quantifies a conjunction"
+           (v/assert kb (list 'implies
+                              (list 'and (list person '?x)
+                                    (list 'unknown (list 'thereExists '?c
+                                                         (list 'and (list childOf '?x '?c)
+                                                               (list sick '?c)))))
+                              (list lonely '?x))
+                     'WellContext))))
+    (testing "and an aggregate over one, which needs the same join"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"quantifies a conjunction"
+           (v/assert kb (list 'implies
+                              (list 'and (list person '?x)
+                                    (list 'agg/count '?n '?c (list 'and (list childOf '?x '?c)
+                                                                   (list sick '?c)))
+                                    (list 'lessThan 1 '?n))
+                              (list counted '?x))
+                     'WellContext))))))
+
+(tu/deftest-kb an-empty-NAF-conjunction-is-refused
+  (tu/with-terms [person nobody]
+    (testing "nothing can make it derivable, so it would guard nothing"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"empty conjunction"
+           (v/assert kb (list 'implies (list 'and (list person '?x) (list 'unknown (list 'and)))
+                              (list nobody '?x))
+                     'WellContext))))))
+
 (tu/deftest-kb unknown-must-be-closed-by-the-generators
-  (tu/with-terms [person likes loner]
+  (tu/with-terms [person likes knows loner]
     (testing "an unknown whose free variable no generator binds is refused"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not closed"
            (v/assert kb (list 'implies (list 'and (list 'person '?x) (list 'unknown (list 'likes '?x '?z)))
+                              (list 'loner '?x))
+                     'WellContext))))
+    (testing "and so is a conjunction one of whose conjuncts is open — closure is what
+              makes the conjuncts independent ground checks"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"not closed"
+           (v/assert kb (list 'implies (list 'and (list 'person '?x)
+                                             (list 'unknown (list 'and (list knows '?x)
+                                                                  (list likes '?x '?z))))
                               (list 'loner '?x))
                      'WellContext))))))
 
@@ -236,6 +529,27 @@
            (v/assert kb (list 'implies (list 'and (list 'dd '?x) (list 'unknown (list 'ee '?x)))
                               (list 'ee '?x))
                      'WellContext))))))
+
+(tu/deftest-kb a-cycle-through-any-conjunct-of-a-NAF-conjunction-is-refused
+  ;; Every conjunct is a negative dependency, not just the first: the negative edges are
+  ;; drawn from `rules/naf-predicates`, which reads the whole conjunction, so a rule
+  ;; concluding *any* conjunct's predicate closes a cycle through negation.  Keyed on the
+  ;; conjunction's own functor instead, the check would see one predicate — `and`, which
+  ;; nothing concludes — and refuse nothing at all.
+  (tu/with-terms [gg aa bb cc]
+    (is (v/assert kb (list 'implies (list 'and (list gg '?x)
+                                          (list 'unknown (list 'and (list aa '?x) (list bb '?x))))
+                           (list cc '?x))
+                  'WellContext)
+        "the acyclic conjunctive rule is accepted")
+    (testing "closing the loop through the first conjunct is refused"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"not stratified"
+           (v/assert kb (list 'implies (list cc '?x) (list aa '?x)) 'WellContext))))
+    (testing "and through the second, which is the one a single-predicate key would miss"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"not stratified"
+           (v/assert kb (list 'implies (list cc '?x) (list bb '?x)) 'WellContext))))))
 
 ;; ---- backward agreement: a NAF antecedent under rule expansion ----------
 ;; A backward-only rule cannot be pre-materialized by forward chaining, so whoever

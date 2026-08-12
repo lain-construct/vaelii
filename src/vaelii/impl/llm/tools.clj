@@ -30,17 +30,22 @@
 ;; ---- which ops the model may reach --------------------------------------
 
 (def write-ops
-  "The mutating ops in `serve/ops`.  A new mutating op **must** be listed here — the
-  exposed tool set is `(keys serve/ops)` minus this, so an omission would hand the
-  model a write.  Ops resolving to a `!` var are excluded independently, which catches
-  the ones spelled with the warning already.
+  "The ops in `serve/ops` the model may not reach.  A new mutating op **must** be
+  listed here — the exposed tool set is `(keys serve/ops)` minus this, so an omission
+  would hand the model a write.  Ops resolving to a `!` var are excluded
+  independently, which catches the ones spelled with the warning already.
 
   That second mechanism is a backstop, not the rule: `!` means *irreversible*
   (`docs/api.md`), and a write that merely mutates is spelled without one.  So every
   mutating op is listed here explicitly, including the ones the `!` sweep cannot see —
-  `:edit` and `:edit-with-consequences` both store, and neither carries the suffix."
+  `:edit` and `:edit-with-consequences` both store, and neither carries the suffix.
+  `:preview` stores nothing but belongs here all the same: it applies its batch and
+  rolls it back, so it holds the process's single writer, advances the handle counter
+  and moves the chain and settle statistics — `serve` and `access` both file it with
+  the writes for that reason.  `:clear-caches` mutates the process's measurement
+  state, which is nothing to hand a model that is being measured through it."
   #{:assert :assert-rule :assert-many :retract :edit :edit-with-consequences
-    :forward-chain})
+    :forward-chain :preview :clear-caches})
 
 (defn- core-var
   "The `vaelii.core` var an op keyword names, or nil."

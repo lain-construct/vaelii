@@ -168,6 +168,18 @@
                    (wrap-input (ByteArrayInputStream. bs) compression)))]
     (thaw-until-eof in)))
 
+(defn- check-frame-count!
+  "Refuse a stream that ended early.  A torn chunk reads as a clean EOF — the
+  decompressor cannot tell a truncated file from a finished one — so the only witness
+  a truncated dump leaves is the count `meta.edn` states, and this is the same
+  comparison `replay-index!` makes for the index entries.  Nil `stated` (a dump that
+  states no count) checks nothing."
+  [what n stated]
+  (when (and stated (< (long n) (long stated)))
+    (throw (ex-info (str "the dump states " stated " " (name what) " and the stream"
+                         " ended after " n " — a torn or truncated dump")
+                    {:type :truncated-dump :kind what :read n :stated stated}))))
+
 (defn- read-chunked-seq
   "Lazy seq of frames from a v6+ chunked stream file: a run of `[int32 length]
   [compressed chunk]`.  Chunks are read serially and thawed on demand, so the whole
@@ -357,7 +369,7 @@
   fact about the frames rather than about the policy.
 
   Returns `{:sx-meta {dump-id {:handle h :rule? bool :strength s}} :embedding #{handle}
-  :collapsed n :minted n :fingerprint {…} :naming {…}}` — the source of the old→new id map
+  :collapsed n :minted n :frames n :fingerprint {…} :naming {…}}` — the source of the old→new id map
   and the premise decisions, plus the handles whose stored content names another sentex
   (needing a rewrite once the map is complete, unless every handle was preserved and the
   map is the identity), plus the fingerprint of what was stored and the count of what the
@@ -373,10 +385,12 @@
         embed     (volatile! #{})
         collapsed (volatile! 0)
         minted    (volatile! 0)
+        frames-n  (volatile! 0)          ; what the stream yielded, for the torn check
         naming    (volatile! nm/empty-tally)
         fprint    (fp/accumulator)]
     (doseq [frame frames]
       (tick!)
+      (vswap! frames-n inc)
       (let [fm    (decode frame)
             _     (vswap! naming nm/tally (:sentence fm) (:context fm))
             did   (:id fm)
@@ -417,6 +431,7 @@
                                      :rule?    (some? (:antecedent rec))
                                      :strength (:strength fm)}))))
     {:sx-meta @sx-meta :embedding @embed :collapsed @collapsed :minted @minted
+     :frames @frames-n
      :fingerprint (fprint) :naming @naming}))
 
 (defn- rewrite-embedded-handles!
@@ -686,16 +701,38 @@
         rules   (volatile! 0)
         minted  (volatile! 0)
         naming  (volatile! nm/empty-tally)
-        fprint  (fp/accumulator)]
+        fprint  (fp/accumulator)
+        ;; a handle is an identity, so a dump naming one twice with different content
+        ;; is a broken dump, and storing the second frame would destroy the first
+        ;; record silently — the same refusal `import-sentexes!` makes, kept a BitSet
+        ;; (a bit per handle) so the streaming path stays streaming
+        ids     (java.util.BitSet.)]
     (mem/with-bulk-writes (:backend index)
       (doseq [frame frames]
         (let [fm  (decode frame)
               _   (vswap! naming nm/tally (:sentence fm) (:context fm))
-              rec (res/kb-sentex kb (:sentence fm) (:context fm))
+              ;; born carrying its strength, ours only, exactly as the belief path
+              ;; stores it: the premise mark rides on the record, and `recover` is
+              ;; what turns this corpus into a believing KB later — a record stored
+              ;; strength-less here would recover with **nothing** believed, every
+              ;; handle a derivation with no justification to ground it
+              rec (cond-> (res/kb-sentex kb (:sentence fm) (:context fm))
+                    (and preserve? (:strength fm))
+                    (assoc :strength (strength-class (:strength fm))))
               h   (if (and preserve? (:id fm))
-                    (p/put-sentex records (assoc rec :id (:id fm)))
+                    (let [did (long (:id fm))]
+                      (when (and (<= 0 did) (< did Integer/MAX_VALUE))
+                        (when (.get ids (int did))
+                          (throw (ex-info (str "dump names handle " did " twice")
+                                          {:type :duplicate-handle :handle did})))
+                        (.set ids (int did)))
+                      (p/put-sentex records (assoc rec :id did)))
                     (do (when preserve? (vswap! minted inc))
                         (p/put-sentex records rec)))
+              ;; the stores also keep the premise set as its own roster, and
+              ;; `recover` walks that roster — the record already holds this
+              ;; strength, so the mark is the set-add and no second record write
+              _   (when (:strength rec) (p/mark-premise records h (:strength rec)))
               c   (vswap! n inc)]
           (fprint h rec)
           (if index?
@@ -709,8 +746,10 @@
 
 (defn- import-records-only!
   "The `{:belief? false}` path: store + index every sentex in one streaming pass, no
-  justifications, no premises, no TMS — so no JTMS node or justification is created.  The
-  corpus is stored and indexed (browsable by term / functor / argument / context,
+  justifications and no TMS — no JTMS node is created.  The premise marks are kept:
+  each record of ours is born with its dump strength and rostered in `premise-ids`,
+  which costs nothing per frame and is what a later `recover` rebuilds belief from.
+  The corpus is stored and indexed (browsable by term / functor / argument / context,
   `find-sentexes`, counts, `lookup` levels 0-1) but not belief-filtered-queryable
   (`query` / `ask` read the empty TMS).  This is what lets a corpus far past what
   `recover`'s per-node relabel scales to still be loaded.
@@ -851,6 +890,7 @@
           (if-not belief?
             (let [summary (import-records-only! kb dir meta compression read-fn decode
                                                 (ours? meta) report-every on-progress)]
+              (check-frame-count! :sentexes (:sentexes summary) (:sentex-count meta))
               (trove/log! {:level :info :id ::import-complete
                            :msg  (str "import-dump (records-only) complete: "
                                       (:sentexes summary) " sentexes indexed, no belief")
@@ -858,9 +898,10 @@
               summary)
             (let [ours?    (ours? meta)
                   tick     (fn [phase total] (ticker on-progress phase total report-every))
-                  {:keys [sx-meta embedding collapsed minted fingerprint naming]}
+                  {:keys [sx-meta embedding collapsed minted fingerprint naming frames]}
                   (import-sentexes! kb (read-fn (io/file dir sentex-file) compression)
                                     decode ours? (tick :sentexes (:sentex-count meta)))
+                  _ (check-frame-count! :sentexes frames (:sentex-count meta))
                   _ (when-let [line (nm/tally-line naming)]
                       (trove/log! {:level :warn :id ::naming-disagreement
                                    :msg  (str "this corpus and `assert` disagree: " line)

@@ -246,3 +246,50 @@
         (is (not (v/in? kb2 orig)) "and still superseded after it")
         (is (= [{'?x Yankee}] (v/query kb2 (list admires Kim '?x) VisContext))
             "so Vis reports the one fact once, in the name Vis elects")))))
+
+(tu/deftest-kb recover-gives-a-rule-back-the-class-its-assertion-stated
+  ;; A rule's premise strength is now the caller's to state, so it is a value that has
+  ;; to survive a restart like a fact's.  The rebuild reads `premise-strength` per
+  ;; stored premise and marks each at what it finds, so nothing here is rule-specific —
+  ;; which is the claim, since a rebuild that re-marked rules at a constant would put
+  ;; a known-true rule back defeasible and no read of the rule would say so.
+  (tu/with-terms [bird flies]
+    (let [rule (list 'implies (list bird '?x) (list flies '?x))
+          h    (v/assert-rule kb [(list bird '?x)] (list flies '?x) 'UniverseContext
+                              {:strength :monotonic})]
+      (is (= :monotonic (:strength (v/sentex kb h))))
+      (let [kb2 (restart)]
+        (v/recover kb2)
+        (is (= :monotonic (:strength (v/sentex kb2 h))) "the record came back with it")
+        (is (true? (v/premise? kb2 h)) "and as a premise")
+        (is (= :monotonic (v/defeat-class kb2 h)) "so the class reads back after the rebuild")
+        (is (= h (v/handle-of kb2 rule 'UniverseContext)) "at the same handle")))))
+
+(tu/deftest-kb recover-replays-an-inherited-firing-and-its-reasons
+  ;; A firing that joined on an inherited claim rests on justifications like any
+  ;; other, so the rebuild replays it — and its recorded reasons still carry
+  ;; retraction afterwards, which is what makes the replay a belief and not a copy.
+  (tu/with-terms [dog_t cat_t chihuahua_t maine_coon_t largerThan outweighs]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genl chihuahua_t dog_t) 'UniverseContext)
+      (v/assert kb (list 'genl maine_coon_t cat_t) 'UniverseContext)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'UniverseContext)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'UniverseContext)
+      (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext))
+    (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
+              'UniverseContext)
+    (let [goal (list outweighs chihuahua_t maine_coon_t)
+          h    (v/handle-of kb goal 'UniverseContext)]
+      (is (v/in? kb h))
+      (let [kb2 (restart)]
+        (v/recover kb2)
+        (is (v/in? kb2 h) "the firing is IN again after the rebuild")
+        (let [reasons (into #{}
+                            (comp (mapcat :because) (map :sentence))
+                            (:support (v/why kb2 h)))]
+          (is (contains? reasons (list largerThan dog_t cat_t)))
+          (is (contains? reasons (list 'genl chihuahua_t dog_t)))
+          (is (contains? reasons (list 'argPreserving largerThan 1 'genl))))
+        (testing "a post-recover retraction of a reason still withdraws it"
+          (v/retract! kb2 (v/handle-of kb2 (list 'genl chihuahua_t dog_t) 'UniverseContext))
+          (is (not (v/in? kb2 h))))))))

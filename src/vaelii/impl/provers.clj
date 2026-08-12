@@ -90,7 +90,7 @@
 ;; `solve-goal-with` over the whole `registry`; `parse-rule` builds the `exceptWhen`
 ;; guard that a rule read carries; `solve-inverted` composes the metadata provers minus
 ;; itself.
-(declare parse-rule solve-inverted registry solve-goal-with)
+(declare parse-rule solve-inverted solve-mirrored registry solve-goal-with)
 
 (defn- pvar? [x] (sx/variable? x))
 (defn- has-var? [form] (boolean (some pvar? (tree-seq sequential? seq form))))
@@ -142,7 +142,7 @@
 
   Cheap by construction on the two that could be hot: `inherit/positions` is behind a
   root-intersection gate on any declaration naming this predicate, and
-  `tax/inverse-of` is a cached taxonomy read.  `concluding-rule-handles` is the one
+  `tax/inverses-under` is one map read on a KB declaring no inverses.  `concluding-rule-handles` is the one
   that touches the index, and it is the spec closure probed against the consequent
   index — bounded by the concluding-rule count, never the taxonomy."
   [kb goal context]
@@ -151,7 +151,7 @@
       (cond-> #{}
         (seq (inherit/positions kb pred context))            (conj :preserving)
         (seq (res/concluding-rule-handles kb pred context)) (conj :rules)
-        (tax/inverse-of (:taxonomy kb) pred context)         (conj :inverse)))))
+        (seq (tax/inverses-under (:taxonomy kb) pred context)) (conj :inverse)))))
 
 (defn sole-prover
   "The prover that may answer `goal` **alone**, or nil for the union path.
@@ -250,7 +250,9 @@
         ;; closure holds of themselves, and binds one variable rather than two.  Stated
         ;; rather than left to fall through: `{a x b y}` with two equal keys throws
         ;; `IllegalArgumentException: Duplicate key` out of a prover and past `ask`
-        ;; untyped, where the goal has a perfectly good (usually empty) answer.
+        ;; untyped.  The cached closures are **reflexive** (`genls t` includes `t`), so
+        ;; the answer is every node the relation holds at all — the `:when` follows the
+        ;; closure rather than asserting a reflexivity of its own.
         (= a b) (for [x all :when (contains? (up x) x)] {a x})
         :else (for [x all, y (up x)] {a x b y})))))
 
@@ -337,12 +339,15 @@
   "The one-hop lookup patterns for `node` under `pred`, each binding `?rv` to the
   neighbour.  `dir` is `:succ` (node in argument 1) or `:pred` (node in argument 2).
 
-  **One probe per visible `(inverse P Q)`, plus the direct one.**  `(P x y)` and `(Q y x)`
-  are one edge recorded two ways, so a chain whose middle hop was written on a partner
-  is on the graph the walk sees rather than a break in it.  `inverses-of` answers the
-  empty set for nearly every predicate, so the ordinary walk pays one map read per node —
-  and where a KB declares two partners both are probed, since answering off one of them
-  would put a hop's visibility at the mercy of which declaration landed last.
+  **One probe per visible `(inverse P' Q)` with `P'` at-or-below `pred`, plus the direct
+  one.**  `(P x y)` and `(Q y x)` are one edge recorded two ways, so a chain whose middle
+  hop was written on a partner is on the graph the walk sees rather than a break in it —
+  and a partner declared for a *sub-predicate* records a sub-predicate tuple, which is a
+  `pred` tuple by subsumption, so its spelling is a hop here too (`inverses-under`).
+  The partner set is empty for nearly every predicate, so the ordinary walk pays one map
+  read per node — and where a KB declares two partners both are probed, since answering
+  off one of them would put a hop's visibility at the mercy of which declaration landed
+  last.
 
   The partner is probed with `matches-visible` on the swapped literal, **not** by
   delegating a goal to the registry.  That keeps the step relation a function of the KB
@@ -352,7 +357,7 @@
   A `P` declared its own inverse yields the two probes of a symmetric predicate, which is
   what such a declaration says."
   [kb dir pred node context]
-  (let [qs (sort (tax/inverses-of (:taxonomy kb) pred context))]
+  (let [qs (sort (tax/inverses-under (:taxonomy kb) pred context))]
     (if (= dir :succ)
       (into [(list pred node '?rv)] (map #(list % '?rv node)) qs)
       (into [(list pred '?rv node)] (map #(list % node '?rv)) qs))))
@@ -363,7 +368,7 @@
   (node in argument 2).
 
   The key stays `[dir pred node context]` and covers everything the step relation reads:
-  `inverses-of` is a function of exactly `pred` and `context`, both already in it.  The
+  `inverses-under` is a function of exactly `pred` and `context`, both already in it.  The
   neighbours are a set of **terms**, so an edge recorded in both spellings — or reached
   through both probes of a self-inverse predicate — contributes one member, not two."
   [kb dir pred node context]
@@ -393,7 +398,7 @@
   seed set and not an enumeration of the vocabulary — bounded by the extent, the way
   `DisjointnessProver`'s open goal is bounded by the declarations."
   [kb pred context]
-  (let [qs   (sort (tax/inverses-of (:taxonomy kb) pred context))
+  (let [qs   (sort (tax/inverses-under (:taxonomy kb) pred context))
         ends (fn [pat k] (keep #(get (second %) k) (res/matches-visible kb pat context)))]
     (distinct (apply concat
                      (ends (list pred '?lv '?rv) '?lv)
@@ -673,14 +678,19 @@
   (est-bindings [_ kb goal _] (est-by-functor kb goal))
   (cost         [_ _ _ _] :lookup)
   (completeness [_ _ _ _] 50)                 ; augments the fact prover
+  ;; Delegates the mirrored goal rather than reading raw matches, for `InverseProver`'s
+  ;; reason: a symmetric predicate's mirror composes with the *other* provers, so the
+  ;; mirror of a claim that is preserved or computed — not stored — is still an answer.
+  ;; See `solve-mirrored` for the re-entry bound.
   (solve [_ kb goal context]
-    (let [[pred a b] goal] (map second (res/matches-visible kb (list pred b a) context)))))
+    (let [[pred a b] goal]
+      (solve-mirrored kb pred a b context))))
 
 (defrecord InverseProver []
   Prover
   (applicable? [_ kb goal context]
     (and (sequential? goal) (= 2 (count (rest goal)))
-         (some? (tax/inverse-of (:taxonomy kb) (first goal) context))))
+         (boolean (seq (tax/inverses-under (:taxonomy kb) (first goal) context)))))
   (est-bindings [_ kb goal _] (est-by-functor kb goal))
   (cost         [_ _ _ _] :lookup)
   (completeness [_ _ _ _] 50)
@@ -1036,9 +1046,16 @@
   ;; derives.
   (completeness [_ _ _ _] 100)
   (solve [_ kb goal context]
-    (let [inner (sx/canon (second goal))]
-      ;; NAF: the argument is *un*known exactly when the level-6 query finds nothing.
-      (if (seq (take 1 (solve-goal-with kb (registry kb) inner context)))
+    ;; NAF: the argument is *un*known exactly when the level-6 query finds nothing.  A
+    ;; conjunctive argument is derivable only if **every** conjunct is — the reading
+    ;; `exception-holds?` gives an exceptWhen's conjuncts, and the same one, since the
+    ;; goal is ground (`applicable?`) and the conjuncts therefore share nothing.  An
+    ;; empty conjunction never holds, as an empty exception never does.
+    (let [cs (sx/naf-query-conjuncts goal)]
+      (if (and (seq cs)
+               (every? (fn [c]
+                         (seq (take 1 (solve-goal-with kb (registry kb) (sx/canon c) context))))
+                       cs))
         []                                        ; S is derivable → (unknown S) fails
         [{}]))))                                  ; S is not derivable → (unknown S) holds
 
@@ -1116,16 +1133,22 @@
 
   The scoped read is asked per value, so it takes `merged-term-pred`'s one-snapshot
   gate rather than `merged?`'s per-call deref: a KB that has merged nothing drops the
-  filter outright and a value that is in no class costs one set membership."
+  filter outright and a symbol that is in no class costs one set membership.  A
+  **compound** value takes the recursive `representative-term` — the closure is keyed
+  by symbol, so the flat lookup hands a compound back unchanged, and `(QuantityFn 5
+  Kilogram)` beside `(QuantityFn 5 Kg)` under a merged unit would count as two values
+  (`res/representative-term`'s own example)."
   [kb goal v context]
   (let [merged (tax/merged-term-pred (:taxonomy kb))
         vis    (when merged (res/visible-supporter-fn kb context))]
     (->> (solve-goal-with kb (registry kb) (sx/canon (sx/aggregate-body goal)) context)
          (keep #(get % v))
          (reduce (fn [{:keys [seen out] :as acc} x]
-                   (let [k (if (and merged (symbol? x) (merged x))
-                             (res/representative-in kb vis x)
-                             x)]
+                   (let [k (cond
+                             (not merged)    x
+                             (symbol? x)     (if (merged x) (res/representative-in kb vis x) x)
+                             (sequential? x) (res/representative-term kb vis x)
+                             :else           x)]
                      (if (contains? seen k)
                        acc
                        {:seen (conj seen k) :out (conj out x)})))
@@ -1343,12 +1366,15 @@
 
   A rule the asking context cannot see is not a candidate (`res/rule-visible-from?`):
   a rule is a sentex, inherited by the ordinary `genlContext` up-cone like everything
-  else."
+  else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
+  consequent index posts on storage, so belief is asked of the record here exactly as
+  forward chaining asks it of a trigger."
   [kb goal context]
   (when (sequential? goal)
     (->> (res/concluding-rule-handles kb (first goal) context)
          (map #(p/get-sentex (:records kb) %))
          (filter rules/backward-sentex?)
+         (filter #(res/rule-believed? kb (:id %)))
          (filter #(res/rule-visible-from? kb context (:context %)))
          (map #(parse-rule kb % context)))))
 
@@ -1424,6 +1450,30 @@
   [kb goal context]
   (solve-goal-with kb (registry kb) goal context))
 
+(def ^:private ^:dynamic *mirror-depth*
+  "How many mirror delegations are on the stack.  `solve-mirrored` re-enters the
+  registry, and the mirror of a mirror is the original goal — so unbounded delegation
+  is a loop, and a mutual `symmetric` + `inverse` pair could ping between the two
+  delegates the same way.  Two levels admit every one-mirror-plus-one-partner
+  composition; past the bound the mirror falls back to the raw stored read, which is
+  the whole of what it answered before it delegated at all."
+  0)
+
+(defn- solve-mirrored
+  "Solutions for the mirrored spelling of the symmetric `(pred a b)` — `(pred b a)`
+  through the engine minus this prover, so the mirror composes with facts, the
+  closures, preservation and the partner spellings rather than reading storage alone.
+  The mirror of an *inherited* claim is the case that needs it: nothing is stored, and
+  a raw read answers nothing for a claim `verdict` proves."
+  [kb pred a b context]
+  (if (< *mirror-depth* 2)
+    (binding [*mirror-depth* (inc *mirror-depth*)]
+      (let [pv (remove #(instance? SymmetricProver %) (registry kb))]
+        ;; realized inside the binding: the depth guard is dynamic, and a lazy answer
+        ;; escaping the scope would re-enter at depth zero — the loop this bounds
+        (doall (solve-goal-with kb pv (list pred b a) context))))
+    (map second (res/matches-visible kb (list pred b a) context))))
+
 (defn- solve-inverted
   "Solutions for the inverted spelling of `(pred a b)` — the partner predicate with
   the arguments swapped — through the engine over a restricted prover list:
@@ -1434,12 +1484,15 @@
   them; what the delegation buys is composition with the *other* metadata provers
   (transitive, symmetric, reflexive) and facts.
 
-  **Every declared partner, not one.**  Nothing refuses a second `(inverse P R)` beside
-  a standing `(inverse P Q)`, and answering off whichever the taxonomy happened to hold
-  would make a goal's answer a function of declaration order — so each partner is asked
-  and the solutions are unioned, deduped like any other multi-prover union."
+  **Every declared partner of the predicate or a sub-predicate of it, not one.**
+  Nothing refuses a second `(inverse P R)` beside a standing `(inverse P Q)`, and
+  answering off whichever the taxonomy happened to hold would make a goal's answer a
+  function of declaration order — so each partner is asked and the solutions are
+  unioned, deduped like any other multi-prover union.  A partner of a *sub-predicate*
+  is in the set for the subsumption reason `inverses-under` states: its spelling holds
+  sub-predicate tuples, and those answer the super-predicate's goal."
   [kb pred a b context]
-  (let [qs (tax/inverses-of (:taxonomy kb) pred context)
+  (let [qs (tax/inverses-under (:taxonomy kb) pred context)
         pv (remove #(instance? InverseProver %) (registry kb))]
     (->> qs
          (sort)                                  ; content-keyed, so the order is stable

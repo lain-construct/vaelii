@@ -123,14 +123,19 @@
 
 (defn- bands
   "The predicate names split into `layers` bands: band 0 is the base (what facts are
-  stated over), band k is what a layer-k rule concludes."
+  stated over), band k is what a layer-k rule concludes.  A band past the vocabulary
+  is dropped rather than emitted empty — two predicates under eight layers is two
+  bands, and a rule can only conclude into a band that names a predicate (an empty
+  band would put `(nth [] …)` inside the lazy rule draw, mid-load)."
   [preds layers]
   (let [base (max 1 (quot preds (max 2 layers)))
         rest (max 1 (quot (- preds base) (max 1 (dec layers))))]
     (into [(mapv pred-name (range base))]
-          (for [k (range 1 layers)]
-            (mapv pred-name (range (min preds (+ base (* (dec k) rest)))
-                                   (min preds (+ base (* k rest)))))))))
+          (for [k     (range 1 layers)
+                :let  [b (mapv pred-name (range (min preds (+ base (* (dec k) rest)))
+                                                (min preds (+ base (* k rest)))))]
+                :when (seq b)]
+            b))))
 
 (defn- antecedent-counts
   "A distribution of antecedent counts peaking at `peak` — the shape a real rule corpus
@@ -306,6 +311,9 @@
        (report :done nil)
        {:params  p
         :units   units
-        :stored  (reduce + 0 (map #(v/count-in-context kb %) (v/contexts kb)))
+        ;; the stored count, counted as storage: summing per-context reads the
+        ;; *believed* genlContext closure, which undercounts a context no believed
+        ;; edge reaches
+        :stored  (v/sentex-count kb)
         :derived (:derived chained 0)
         :truncated? (boolean (:truncated? chained))}))))

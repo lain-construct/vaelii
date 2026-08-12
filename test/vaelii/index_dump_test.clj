@@ -374,6 +374,24 @@
                     (is (= :remapped (:handle-policy (imp/import-dump kb dir)))
                         "and the import says so, which is what the index decision reads")))))))
 
+(deftest a-truncated-stream-refuses-rather-than-importing-a-prefix
+  ;; a torn chunk reads as a clean EOF — the decompressor cannot tell a truncated
+  ;; file from a finished one — so the frames read are counted against what meta.edn
+  ;; states.  The failure this closes: a smaller KB reported as a successful import.
+  (exported "truncated"
+            (fn [dir _t]
+              (let [f      (io/file dir "sentexes.nippy.stream")
+                    frames (vec (#'imp/read-chunked-seq f :none))]
+                (#'export/write-frames! f (butlast frames)
+                                        {:compression :none :chunk-size 10000})
+                (with-kb* (first index-backends) "trunc"
+                  (fn [kb]
+                    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                         (imp/import-dump kb dir)))]
+                      (is (= :truncated-dump (:type (ex-data e))))
+                      (is (= (dec (count frames)) (:read (ex-data e))))
+                      (is (= (count frames) (:stated (ex-data e)))))))))))
+
 ;;; ── the records-only path ─────────────────────────────────────────────
 
 (deftest the-records-only-path-replays-too-and-skips-its-inline-build

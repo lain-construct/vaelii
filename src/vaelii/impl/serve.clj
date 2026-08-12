@@ -263,12 +263,16 @@
   error — still reads as one; a *new* refusal type belongs in this set the day it is
   born, and `wire_contract_test` pins the pairing."
   #{:naming :not-well-formed :not-ground :not-range-restricted :not-indexable
-    :shape :sentence
+    :shape
     :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind :arity
     :disjoint :functional :asymmetric :unknown-option :bad-handle
     :unknown-handle :bad-level :exception-not-closed :not-stratified :naf-not-closed
-    :quantifier-not-local :not-watchable :not-checkable :not-assertible
+    :quantifier-not-local :quantified-conjunction
+    :not-watchable :not-checkable :not-assertible
     :bad-table-entry
+    ;; `:export` is in `ops`, so its destination refusals are caller mistakes too —
+    ;; a directory that exists and is not empty is not a backend fault
+    :no-destination :not-a-directory :not-empty :export-busy :unsupported-format
     ;; the feed's four (docs/feed.md).  The two ceilings are the odd ones and are here
     ;; on purpose: the daemon is at capacity rather than the request being malformed,
     ;; but the caller is who can fix it — by dropping a subscription, or by polling on a

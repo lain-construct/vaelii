@@ -209,16 +209,24 @@
   tombstone is deliberately left in place: a deleted key that is re-populated holds what
   the overlay put there and nothing the base held."
   [overlay k m]
-  (kv/kv-remove-from-set overlay (removed-key k) m)
+  ;; guarded: nearly every key a fork writes has no removal record at all, and on a
+  ;; durable overlay half an unconditional remove is a WAL frame per posting that
+  ;; removed nothing
+  (when (kv/kv-member? overlay (removed-key k) m)
+    (kv/kv-remove-from-set overlay (removed-key k) m))
   (kv/kv-add-to-set overlay k m))
 
 (defn- remove-from-set*
   "Drop `m` from the overlay's own set, and — when the base contributes it to the merged
-  view — record it as removed, since the base's set cannot be edited."
+  view — record it as removed, since the base's set cannot be edited.  The base is asked
+  through `kv-member?`, never `kv-members`: a retract on a fork emits one of these per
+  term of the sentex plus one per root key, and materializing the base's whole posting
+  to answer each membership would cost a 100M-handle set walk per probe on a `:dense`
+  base — the same rule `merged-member?` states, eight lines up."
   [overlay base k m]
   (kv/kv-remove-from-set overlay k m)
   (when (and (not (shadowed? overlay k))
-             (contains? (kv/kv-members base k) m))
+             (kv/kv-member? base k m))
     (kv/kv-add-to-set overlay (removed-key k) m)))
 
 ;; ---- the decorator --------------------------------------------------------
@@ -280,7 +288,9 @@
   ;; base's are walked lazily.
   (kv-entries [_]
     (locking lock
-      (let [own (into {} (remove (comp reserved-key? key)) (kv/kv-entries overlay))
+      ;; `first`, not `key`: the contract says entries are pairs, and the tiered
+      ;; backend yields plain vectors where the map-backed ones yield `MapEntry`s
+      (let [own (into {} (remove (comp reserved-key? first)) (kv/kv-entries overlay))
             own-merged (mapv (fn [[k v]]
                                [k (if (set? v) (merged-members overlay base k) v)])
                              own)

@@ -63,9 +63,20 @@ any of its grounds.
 
 The **informant is excluded from the cap**. A rule is one of its own justification's
 antecedents — that is what makes retracting or defeating the rule withdraw everything
-it licensed — but that is a *validity* role, not a ground. Since `assert` gives a rule
-`:default` like anything else, capping on it too would put every derived datum at
-`:default`.
+it licensed — but that is a *validity* role, not a ground. A rule takes `:default`
+unless its own assertion says otherwise, exactly as a fact does, so capping on it too
+would put every datum an ordinary rule licensed at `:default`.
+
+**A rule's own class and a rule's defeasibility are two slots answering two questions,
+and only one of them moves belief.** `:strength` is the class the *rule* is held at —
+`opts :strength` at the door, what `defeat-class` answers for its handle, what a
+solver would be shown. `:defeasible` is what its firings confer, per the two bullets
+above. Nothing in the engine defeats a rule, so the first slot takes part in no
+contest: a negated rule is refused at the door as not well-formed, and the two things
+that make a dilemma — a stored P/¬P coincidence and an arbitrable argument violation
+([solving.md](solving.md)) — are both about facts. So asserting a rule `:monotonic`
+records the class the caller stated and reads back; what makes a rule's *conclusions*
+indefeasible is writing it bare rather than as a `set/defaultRule`.
 
 This makes the class equation **recursive**: a node's class depends on its
 antecedents' classes. `jtms/region-classes` solves it as a **least fixpoint inside
@@ -406,6 +417,121 @@ The solver seam below therefore has no caller on the negation path. It is kept b
 `set-solver` is public and because arbitration is still the right answer for nogoods
 that are not plain rebuttals.
 
+### A revived datum is a datum the agenda has not seen
+
+Step 1's revival is a **relabel**, and a relabel is only half of what a revival owes. It
+brings back everything that is still stored — the defeated default, and the conclusions
+resting on it, which a defeat withdraws without sweeping because they stay groundable.
+What it cannot bring back is a conclusion that was never derived, and while a datum is
+OUT there is a whole class of those: `chain/*matcher*` is belief filtered, so an OUT
+datum is not a match, and a rule's *other* antecedent arriving meanwhile joins against
+nothing and attempts no firing at all.
+
+Nothing else in the settle can find that firing afterwards. It holds no justification,
+so it is in no blocked set for `released-rules` to read; it reached no placement, so it
+left no entry for `released-refusals` to re-ask ([exceptions.md](exceptions.md)). And
+the record that *would* cover it is the wrong shape — one entry per refused firing is
+bounded by what a rule declined to place, where one entry per **non-match** is bounded
+by nothing. So the trigger is read where the belief moved rather than where a firing was
+declined: `settle` re-seeds the revived datums onto the chaining agenda and the ordinary
+fixpoint does the rest.
+
+**Which datums those are is the whole of the cost question**, because a relabelled
+region is mostly datums that did not move, and everything the window *created* reads as
+newly believed too. The JTMS keeps three sets per window, cleared together when `settle`
+finishes with them:
+
+| | |
+|---|---|
+| `touched` | the relabelled regions — a superset of every handle whose belief could have moved |
+| `touched-in` | of those, the ones already believed when the window first relabelled them |
+| `touched-new` | the ones whose **node this window created** |
+
+`jtms/revived` is `touched` minus both, filtered to what is believed now. The middle
+column is what the change feed and `preview` already read to say which way each handle
+moved ([feed.md](feed.md)); the third exists for this and only this. Without it every
+asserted fact and every conclusion drawn from one would be re-seeded, since each is in
+its settle's region, believed at the end of it and not at the start — which is a second
+forward chain over the whole window, on the hottest path in the engine. The distinction
+exists only at the moment of creation: by the time the relabel runs, a brand-new node and
+one that has been OUT for a hundred settles are both unbelieved nodes about to become
+believed, and nothing in the graph tells them apart.
+
+The seeds are **datums**, so re-chaining one costs what asserting it costs — a join per
+rule keyed by its predicate. Seeding the *rules* instead, which is the granularity the
+three exception triggers work at, joins each rule over its whole extent, and here that is
+a different asymptotic rather than a constant: re-chaining one datum of a two-antecedent
+rule is linear in the partner's extent where re-chaining the rule is linear in the
+product. Measured on that rule at n facts a side, both arms deriving nothing new because
+every conclusion is already placed:
+
+| | one datum | the rule | |
+|---|---|---|---|
+| n=80 (6,400 conclusions) | 2.9 ms | 222.6 ms | 76x |
+| n=240 (57,600 conclusions) | 8.1 ms | 1953.3 ms | 241x |
+
+So the gap widens with the KB rather than sitting at a constant, which is the answer to
+whether the re-check triggers want to be one mechanism: they are one *idea* over
+several different populations — the rules a taxonomy edge queued, an aggregate's moved
+value, a refused firing's recorded bindings, a relabelled revival, and the spelling an
+un-merge gives back — each with an instrument narrow enough for its own, and a single
+pass would have to fall back on the widest of them. That is the coarse re-join
+[exceptions.md](exceptions.md) measures at 122x through the other door.
+
+They split on granularity, and the table above is why. The three that can name a
+**datum** — a released refusal's re-derived conclusion, a relabelled revival, and an
+un-merged spelling — hand it to `settle/rechain-seeds` and pay what asserting it pays.
+The two that cannot name one — a rule queued with `:all` by a taxonomy edge, and an
+aggregate whose bound value moved — have only the rule to go on, so they take the
+extent-wide re-join through `rechain-exception-rules` and are kept as narrow as possible
+at the trigger instead.
+
+A datum is seeded once per settle however many passes run, and a datum that revives and
+is defeated again inside one settle is never seeded at all: the set is read after the
+resolve, so it describes where the pass landed rather than what it passed through.
+
+A pass that revived something is **productive** even when the blocked set stands still,
+for the same reason an aggregate's is: there is no block to move, and without that the
+loop would converge having derived nothing.
+
+A **rebuild** stands aside (`settle/*rebuilding?*`): `recover` relabels the whole graph,
+so most of what it believes reads as newly believed, and none of it is owed a
+re-derivation because the stored justifications it replays already carry everything that
+was derived.
+
+#### The other half: a spelling an un-merge gives back
+
+One kind of revival is not in the region at all, and it needs a second channel rather
+than a wider net. A datum displaced by an equality merge is OUT while its **twin** joins
+in its place, so a partner arriving during the merge concludes at the twin's spelling.
+Stop believing the equality — retract it, or withdraw what a derived one rests on — and
+the twin is swept while the displaced spelling comes back. The conclusion has to be made
+again at the surviving spelling, or the KB believes both antecedents of a forward rule
+and holds neither spelling of what they conclude.
+
+Supersession is a belief change with **no relabel behind it**, and deliberately so: a
+superseded datum stays in `:in` for `valid?`'s purposes, because its twin is justified
+*by it* and forcing it OUT structurally would leave the merge believing neither spelling
+([equality.md](equality.md)). So the flip is in none of the three window sets, and
+`jtms/revived` cannot be taught to see it.
+
+`special/refresh-supersessions` is where the answer exists — `settle-finish` already
+brackets it to tell a caller which way each handle moved — and by then the loop has
+converged. So the spellings it gives back go into `settle/*unmerged-sink*`, and **`settle`
+re-seeds them and settles again**, the way `core/retract!` already settles twice around
+its own re-derivation. Rounds are bounded by `max-unmerge-rounds`; two is the shape of
+every real case, and a third would be a bug reported rather than a hang.
+
+Two other designs lose to that one on what they cost elsewhere. **Moving the reconcile
+into the loop** keeps a single fixpoint, which is the better property in the abstract —
+but `settle-finish` decides what the settle moved by diffing the supersession map it
+brackets, so a reconcile that ran earlier would have to thread its own flips forward or a
+merge would stop being reported as `:believed-removed` at all: a change to what every
+preview and feed event says, to fix a re-derivation. A **re-enter signal** from
+`settle-finish` is this same loop with the bound further from what it bounds. What the
+shipped shape costs is that a KB whose settle un-merges something settles twice; one that
+does not pays a deref of an unbound var.
+
 ### Which door the content came through
 
 One logical situation, one representation: the nogood above, however the content
@@ -687,12 +813,42 @@ for a `functional` predicate, the converse of an `asymmetric` claim.
 
 The vantages run under the KB's constraint policy, like the retroactive sweeps. A pair
 split across a visibility edge is exactly the clash neither writer could see, so under
-`:refuse` it stays the exposure pass's business — a `:disjoint` entry in `violations`
-naming the contexts it is visible from, with belief untouched. Under `:arbitrate` every
-route agrees. The exposure pass covers **disjointness only**, so under `:refuse` a
-functional slot filled either side of the edge, or an asymmetric claim written across
-one, is neither refused nor reported: the door sees one half and the ledger has no entry
-kind for it.
+`:refuse` it stays the reporting path's business — an entry in `violations` naming the
+contexts the pair is visible from, with belief untouched. Under `:arbitrate` every route
+agrees and the pair is weighed wherever it can be seen whole.
+
+**All three arbitrable kinds are reported there, each by its own entry kind.**
+Disjointness is the exposure pass (`:disjoint`, above); `functional` and `asymmetric`
+are a second pass beside it, and the two differ in what they have to look at rather
+than in what they say. A separation reaches back over every instance below the types it
+separates, so the disjointness pass sweeps every trigger; a `functional` or `asymmetric`
+clash needs **both halves stated**, so on an ordinary write its candidates are the moved
+region's own binary facts and it sweeps nothing.
+
+**One trigger reaches past the region, and it has to.** A `genlContext` edge moves
+*visibility*, so a pair whose halves are already stored and already believed becomes
+jointly visible without either half being relabelled — neither is in the region, and
+reporting the same knowledge only when the edges happened to arrive before the facts is
+precisely the arrival-order dependence the pass exists to remove. So an edge in the
+region reaches out over the cone it newly sees (`constraint-facts-in-cone`, the
+binary-fact parallel of the disjointness pass's `members-in-cone`) and spends the same
+`*exposure-instance-budget*` doing it. Past the cap the cost is the cap:
+`perf`'s `constraint-exposure-context-edge` holds it there.
+
+A late `(functional P)` or `(asymmetric P)` **declaration** is the arrival order that
+remains uncovered, and it is an absence rather than an oversight: that reach is
+`clash-candidates`' sweep, which runs only under `:arbitrate`, so under this policy
+nothing performs it — the same shape of absence `arity` has, recorded here rather than
+implied.
+
+The second pass is **`:refuse`-only**, gated before any root is read, and behind an O(1)
+check that the KB declares either property at all. Under `:arbitrate` the vantages are
+already asked, so reporting there as well would have the ledger and `contradictions`
+both claim one clash — which is also why a pair *this settle arbitrated* is excluded
+from both passes. Each entry names the predicate, the two `[sentence context]` halves in
+printed order, and the vantage; the halves are ordered by content rather than by which
+side the region held, so the same knowledge in either arrival order files the same entry
+once.
 
 **One sentence stated in two visible contexts is two sentexes**, and a claim that denies
 it denies both. The same membership in a general context and in one that sees it can
@@ -832,3 +988,9 @@ so a caller discriminates on that rather than guessing from which keys are prese
   labeling as a specialization context — but belief itself still commits silently.
   See [asp.md](asp.md).
 - Cardinality/aggregate contradictions are not expressed; a nogood is a flat set.
+- **An equality is not defeasible by its own negation.** Once `(rewriteOf Pref Dep)`
+  merges the two, every sentence naming `Dep` is rewritten — including
+  `(not (rewriteOf Pref Dep))`, which is stored as a claim about `Pref` alone and so
+  clashes with nothing and defeats nothing. The ways an equality stops being believed are
+  retracting it and withdrawing what a *derived* one rests on; both un-merge, and both are
+  re-seeded ("The other half" above).

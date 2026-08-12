@@ -47,19 +47,29 @@
     :clingo (if @clingo-backend :clingo :clasp)   ; fall back if unavailable
     (if @clingo-backend :clingo :clasp)))
 
+(defonce ^:private clasp-usable
+  ;; probed once per JVM: the binary's presence does not flicker, and `clasp/available?`
+  ;; forks a process to answer — a probe per routing decision would cost what the
+  ;; routing exists to save
+  (delay (clasp/available?)))
+
 (defn- choose-backend
   "Pure backend policy. Given the explicit `configured` choice
    (:clasp / :clingo / nil for auto), whether clingo is `available?`, the
-   program `nbytes`, and the auto-mode `max-bytes` cutoff, return :clingo or
-   :clasp. Explicit config is honored verbatim (clingo falls back to clasp when
-   unavailable); AUTO mode picks clingo only for available + small programs.
-   Split out from `backend-for` so the policy is unit-testable without a loaded
-   libclingo or env juggling."
-  [configured available? nbytes max-bytes]
+   program `nbytes`, the auto-mode `max-bytes` cutoff, and whether the clasp
+   binary can run, return :clingo or :clasp. Explicit config is honored verbatim
+   (clingo falls back to clasp when unavailable); AUTO mode picks clingo for
+   available + small programs, and past the cutoff hands off to clasp only when
+   clasp can actually run — a loadable clingo solving a large program is a cost
+   regression, where routing to a binary the machine does not have is a refusal
+   `available?` promised would not happen. Split out from `backend-for` so the
+   policy is unit-testable without a loaded libclingo or env juggling."
+  [configured available? nbytes max-bytes clasp-runs?]
   (case configured
     :clasp  :clasp
     :clingo (if available? :clingo :clasp)
-    (if (and available? (<= (long nbytes) (long max-bytes)))
+    (if (and available?
+             (or (<= (long nbytes) (long max-bytes)) (not clasp-runs?)))
       :clingo
       :clasp)))
 
@@ -70,7 +80,8 @@
    programs prefer clasp (clingo's per-solve slope regresses past the crossover —
    see `clingo-max-program-bytes`)."
   [nbytes]
-  (choose-backend (configured) (some? @clingo-backend) nbytes (clingo-max-program-bytes)))
+  (choose-backend (configured) (some? @clingo-backend) nbytes (clingo-max-program-bytes)
+                  @clasp-usable))
 
 (defn solve
   "Solve `aspif-text` in `mode` via the selected backend. Contract identical to
@@ -94,6 +105,7 @@
      :brave    (clasp/solve aspif-text :classify-supportable)}))
 
 (defn available?
-  "True if the selected backend can solve in this environment."
+  "True if the selected backend can solve in this environment.  The clasp answer is
+  the once-per-JVM probe, not a fresh fork per ask — routing reads the same delay."
   []
-  (if (= :clingo (backend)) true (clasp/available?)))
+  (if (= :clingo (backend)) true @clasp-usable))

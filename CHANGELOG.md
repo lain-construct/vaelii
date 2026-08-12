@@ -1,5 +1,853 @@
 # Changelog
 
+## 0.6.0 — 2026-08-12
+
+What a stored rule is worth. A rule can now conclude a rule, a NAF guard written as a
+conjunction guards instead of firing unconditionally, and every door that reaches a rule
+reads **belief** rather than storage. Beside them, the arrival-order dependences left in
+the belief loop itself are closed — a revived datum, an un-merged spelling, and every
+report, digest and election that keyed on retrieval order — and two reads that grew with
+what the KB *holds* rather than with what the write *touched* now read forward off the
+region: `except`'s visibility set and the planner's subtype fan.
+
+**Three entries are Breaking**, which is what makes this a minor rather than a point
+release: the daemon answers an export refusal 400 where it answered 500, the model's tool
+surface drops two ops, and the CLI's refusals move to stderr. Seven Refusal entries batch
+here rather than each forcing its own release, which is what §3.8 of `CONTRIBUTING.md`
+designates a minor for. Every Breaking and every Refusal entry carries its *Migration*
+line.
+
+**Triage, for a 0.5.1 caller.** This is the index to what touches something you have
+written.
+
+| If your code… | Then |
+|---|---|
+| treats a 5xx from the daemon's `:export` op as a backend fault | the five destination refusals answer **400** now; retry logic keyed on 5xx stops retrying a caller mistake |
+| drives `:preview` or `:clear-caches` through the LLM tool surface | they are no longer exposed to a model — call the op on the daemon or the API directly |
+| writes `(ist Ctx S)` in an antecedent or an `exceptWhen` | refused `:not-well-formed`; say it with `decontextualizedPredicate` or a `genlContext` edge |
+| passes `(ist Ctx S)` to a read | it answers now instead of returning empty, with the named context winning over the argument |
+| writes `(unknown (and A B))` as a guard | it guards now; it fired unconditionally before. Under a quantifier the same shape is refused |
+| branches on `violations`' `:violation` with a defaultless `case` | `:functional`, `:asymmetric` and `:constraint-exposure-truncated` are new kinds |
+| runs `check` over `(not (implies …))` | refused `:not-well-formed` at both doors, where `check` passed it and `assert` threw |
+| runs a `:refuse` KB and reads an empty `violations` as a clean bill | cross-context `functional` and `asymmetric` pairs are reported there now |
+| passes `--strength` to the CLI's `assert-rule`, or reads CLI refusals off stdout | the flag is honoured now, and refusals print on stderr |
+| forks a KB with an opts map naming neither `:space` nor `:dir` | the fork lands on its own space instead of the shared process default |
+| asks a `symmetric` predicate about a claim that is inherited rather than stored | the mirror composes with the other provers now, so an `ask` can answer more |
+| writes a kind-level `(hasCapability <kind> …)` against the shipped ontology | kind-level claims are `capabilityType`; `hasCapability` is the instance-level reading alone |
+
+**The shipped ontology now satisfies the declarations it ships.** `hasCapability` was
+read at two levels by one symbol, and one symbol gets one argument check.
+
+- **A capability claim about a *kind* is `capabilityType`, and about a *member* is
+  `hasCapability`.** `(hasCapability bird flying)` said the kind flies and
+  `(hasCapability Tweety flying)` said one bird does, off a single predicate whose first
+  position was declared `argIsa … animal` — right for the member and wrong for the kind,
+  since `bird` lies *under* `animal` rather than in it. So seven facts the starter shipped
+  were convicted by a declaration the starter also shipped: `check` reported `:arg-type` on
+  each and re-asserting any of them threw, while loading them was silent. They loaded
+  because the declaration lives in `LifeContext` and the facts in `BiologyContext`, an
+  ordering the open-world reading accepts and for which `violations` files no retroactive
+  `:arg-type` report — so nothing said a word. The kind-level content moves to
+  `capabilityType`, a `typeRelationPredicate` taking `argGenl` on both positions and
+  carrying the `argPreserving`/`argPreservingInverse` pair that reaches the kinds beneath
+  and the capabilities above; `hasCapability` keeps `argIsa … 1 animal` and is the
+  instance-level reading alone. No kind-level travelling rule replaces the six conclusions
+  that vanish with it: `argPreservingInverse` answers them at retrieval, and nothing at
+  that level rests on a record. Guards: `ontology-test` asks each reading its own
+  question and checks neither answers the other's, plus **two sweeps for the gate that
+  was missing**, since loading is not checking and the ordering that admits a sentence is
+  gone by the time anyone reads it. `starter-test`'s
+  `every-sentence-the-starter-ships-is-well-formed-once-it-is-all-loaded` puts all 1,150
+  sentences of `resources/kb/` to `check` against the fully loaded KB — the *authored*
+  side, so it covers the rules, which reach the store as slots and a `sentexHandle`
+  reference no `.txt` contains. `ontology-test`'s
+  `every-fact-the-starter-ships-satisfies-the-declarations-it-ships` walks the *stored*
+  facts, which is what catches the six a rule derived. Either alone misses what the other
+  finds.
+  *Class:* none. `resources/kb/` is data rather than surface (`CONTRIBUTING.md` §3.8), so
+  a content edit rides any release; what it owes is the roster that makes it visible, and
+  the sweep above is it.
+  [docs/inherit.md](docs/inherit.md), [docs/taxonomy.md](docs/taxonomy.md).
+- **The pairing is prose, because the vocabulary cannot state it.**
+  `typeToInstancePred` is the link recording that two predicates are the type-level and
+  instance-level readings of one relation, and it constrains its second argument to an
+  `instanceRelationPredicate`. `hasCapability` cannot carry that mark: it relates one
+  animal to a capability *kind*, and a marked predicate must use one argument-check family
+  for every position, so the mark would cost `(argGenl hasCapability 2 capability)`.
+  `relationKind` classifies a predicate whose two ends sit at one level — `resultIsa` and
+  `functionCorrespondingPredicate` are unmarked for the same reason — so the pair is named
+  in both comments and the enforced check is kept over the inert link.
+
+**A guard keyed on the operator instead of on what it reads.** Two doors and one index
+were answering about negation-as-failure conditions without ever being asked again.
+
+- **An `exceptWhen` whose query is itself a query operator is now watched by what the
+  query reads.** The exception is any closed level-6 goal, so `(unknown S)`, a
+  `thereExists` and an aggregate all stand there — and the re-check index was keyed on
+  the conjunct's own functor, which for those three is a symbol no sentex is ever stored
+  under. The rule sat in the index under a predicate nothing arrives on, so no fact could
+  queue it: the exception was evaluated correctly the first time and re-evaluated never,
+  which is not an exception that fails safe but one that answers whatever happened first
+  — `(exceptWhen (unknown S) R)` blocked `R` forever, including after `S` became
+  derivable and the guard should have released. The stratification graph read the same
+  keys, so a cycle through such an exception reached no rule and was refused nowhere.
+  `rules/watched-predicates` peels the frames — an `unknown` to its conjuncts, a
+  `thereExists` to its body, an aggregate to its census body — and is read by all four
+  sites that key on them (the live registration, its removal half, the index rebuild, and
+  the stratification graph), so a rebuilt index cannot disagree with a live one. `not` is
+  deliberately not peeled: the trigger side keys an arriving `(not S)` under `not` too,
+  so the two agree. Guards: `except_recheck_test`'s release-after-the-fact case, which is
+  the direction an initial answer cannot show, and its stratification twin.
+  *Class:* neither label — belief moves for a rule of this shape, and no working caller
+  exists to break, the guard having answered from arrival order rather than from content.
+  [docs/exceptions.md](docs/exceptions.md).
+- **And the settle-time narrowing peels the same frames, or fixing the key would have
+  bought a quadratic.** The filter that decides *which firings* to re-evaluate
+  substitutes the firing's bindings into each block literal and asks whether the trigger
+  could answer it; a literal that is not flat and ground has no shape to test and is
+  kept, which is the safe direction and, for an exception that *is* a query operator, is
+  every firing every time — `(unknown (qskip PX7))` reads as unshaped however specific it
+  is. With the rule now correctly queued, that made the re-check cost the rule's whole
+  history per arriving fact: **48 → 192** level-6 evaluations for the same 6 triggers as
+  the firing count went 8 → 32, against **0** once the frames are peeled, the triggers
+  being about individuals no firing binds. Both populations peel — the placed
+  justifications and the **refusal record**, which is where this shape accumulates, since
+  `(unknown S)` holds exactly while `S` is absent and that is the state a firing is
+  refused in. Guard: `except_recheck_test`'s counting test for the query-operator shape,
+  beside the flat one it mirrors — a call count rather than a clock, for the reason that
+  file gives. *Class:* neither label — a cost, and one no released engine ever paid, the
+  key that would have reached these firings having landed in the same change.
+  [docs/exceptions.md](docs/exceptions.md).
+- **`check` predicts the NAF-literal refusals instead of only `assert` throwing them.**
+  Closure, quantifier locality, the aggregate reduction slot, a quantified or empty
+  conjunction — all of them live in `sentex/check-naf-closed`, which the *constructor*
+  runs, so both storage doors had them and the dry-run door did not: `check` predicts an
+  assert without building a sentex. A caller validating a rule before writing it was told
+  the rule was admissible and then handed a throw, which is the one answer `check` must
+  never give. Moved into `checks/check-rule!`, the list every door reads, so the
+  prediction is made where a prediction can see it. Guard: `check_test` holds seven
+  shapes to one `:type` at both doors and to no writes. *Class:* **Additive** — `check`
+  reports problems where it reported none, which is the promise its docstring already
+  made.
+  [docs/naf.md](docs/naf.md).
+
+**A rule can conclude a rule.** `(implies <antes> (implies <antes'> <conseq'>))` is a
+**generator**: its firing stores the rule it concludes, holes filled.
+
+- **The hole split is computed, not declared.** A variable the generator's own
+  antecedents also mention is a hole — bound by the join, ground in the mint; every
+  other variable in the stamped rule is that rule's own and survives as a variable.
+  Sharing a name *is* how an author says "fill this in", so there is no template
+  vocabulary, no holes vector that could disagree with the template it annotates, and no
+  synthetic predicate joining two sentences that have to be kept in step. Range
+  restriction moves one level in accordingly: the generator's own is vacuous — its
+  consequent is a rule, not a conclusion — so what is checked is the **stamped** rule's,
+  with the holes counted as bound. A **hole may stand in functor position**, which is
+  the point: one generator ranges over a family of predicates while every rule the index
+  ever keys on has a concrete functor, so the variable-predicate refusal stands
+  untouched and its advice — *assert the instantiated rules, one per predicate* — stops
+  being manual labour. A stamped variable functor that is *not* a hole is refused like
+  any other. *Class:* **Additive** — a shape that was refused is now accepted.
+  [docs/generators.md](docs/generators.md).
+- **A mint is derived content, which is the reason to mint rather than macro-expand.**
+  The stamped rule is justified by the firing (antecedent handles plus the generator's),
+  not marked a premise, so retracting or defeating what licensed it un-believes it
+  through the ordinary relabel and it stops firing — no separate un-mint path, and
+  `why` on a conclusion reads through a real rule handle to the facts that produced it.
+  It is stored through the same check list the assert door runs (`checks/check-rule!`,
+  now the one reader both doors share, so a check added at one cannot be missing at the
+  other) and polycanonicalized the same way; a mint that cannot stand is dropped and
+  recorded rather than thrown, since a fixpoint may not abort halfway through itself.
+  Both arrival orders agree with no sweep of the generator's own: a generator is an
+  ordinary rule, and a newly asserted or newly minted rule is a datum that joins over
+  what is already stored.
+- **Rules now follow belief, and that is what makes the above work.** Both chainers
+  reached a rule through the rule index, which posts on storage and knows nothing of
+  belief, so a rule whose support had gone went on firing forward and answering backward
+  goals. `res/rule-believed?` is asked at all four sites (`chain/fire-rules-for`,
+  `chain/process-datum`, and both `candidate-rules`). A sentex the TMS holds no node for
+  is *available*, not disbelieved — an `:inert` rule is stored outside belief on purpose
+  — so the arm reads an absence as an absence. No shipped behaviour moves: until now
+  nothing could make a stored rule un-believed. *Class:* **Additive**, for that reason.
+- **One level of nesting, and five refusals.** A rule generating a generator is
+  `:not-well-formed` — the scoping rule needs one split per sentence, and a second would
+  have nothing in the spelling to disambiguate it. An `exceptWhen` on the *stamped* rule
+  is refused the same way, and this one is a silence rather than a nesting: an exception
+  is a meta-sentex keyed by the rule's handle, split off by the assert path, which a
+  firing does not run — so the mint would be a rule whose guard had evaporated, firing on
+  exactly the bindings its author wrote it not to. An `(unknown …)` antecedent inside the
+  stamped rule, or an `exceptWhen` on the generator, both work and the message names
+  them. A `set/backwardRule` generator is
+  `:not-indexable`: no backward goal asks for a rule, so it would claim a capability it
+  cannot exercise. A generator sharing no variable with the rule it stamps is
+  `:not-range-restricted` — every firing would stamp the same rule. And a **generator
+  cycle** — a stamped rule concluding a predicate some generator reads — is
+  `:not-stratified`, refused outright rather than depth-capped, because a cap makes the
+  KB's contents a function of how long the chainer ran; the check runs both directions at
+  every generator's assert, or the cycle would be admitted whenever the two were
+  asserted in the other order. `check` predicts every one of them.
+
+**A NAF guard written as a conjunction now guards.** `(unknown (and A B))` is the
+`exceptWhen` conjunction inlined per literal, and reads the same way: block when every
+conjunct is derivable.
+
+- **The form was accepted and inert, in three places at once.** No prover claims the
+  functor `and`, so `chain/unknown-inner-holds?` handed the whole `(and A B)` to the
+  level-6 registry as one goal, got no answer, and read "not derivable" — which is the
+  `unknown` *holding*, so the rule fired unconditionally. The two bookkeeping reads were
+  blind the same way and for the same reason: `rules/naf-predicates` posted the rule in
+  the re-check index under the predicate `and`, which no fact ever carries, so no arriving
+  datum could ever queue it; and `checks/negative-predicates` drew its stratification edge
+  from that same functor, so a cycle through such an `unknown` was invisible to the check
+  that exists to refuse one. An author who wrote a two-condition guard got a rule with no
+  guard at all, and nothing said so. `sentex/naf-query-conjuncts` is the one accessor all
+  three now read — the `unknown` spelling of `exception-query-conjuncts` — so the query's
+  conjuncts are evaluated by `provers/exception-holds?` (block-if-all, the exception's own
+  evaluator, which is what keeps the two from drifting), every conjunct's predicate is
+  watched by the re-check index, and every one is a negative edge. `UnknownProver` reads
+  the same accessor, so the goal `(unknown (and A B))` and the antecedent agree. Neither
+  order nor nesting nor repetition is the rule's identity: the conjuncts are sorted as an
+  exception's are, and flattened, because a nested `and` is a goal no prover claims either
+  — one left whole would come back unanswerable and read as not derivable, which is the
+  same silent hold one layer down. A conjunct may itself be a `thereExists`, its binder
+  being local to it, and the predicate watched is the one inside the quantifier. Guards:
+  `naf_test`'s eleven new cases, including the arrival on the *second* conjunct's
+  predicate, which is what the old index could not see, and the stratification cycle
+  closed through that same conjunct, which is what the old negative edge could not see.
+  *Class:* neither label — belief moves for a stored rule of this shape, but no
+  working caller exists to break: the guard never guarded, so no author's code was doing
+  what its author believed.
+  [docs/naf.md](docs/naf.md).
+- **A conjunction under a quantifier is refused** — `(unknown (thereExists ?c (and …)))`
+  and the aggregate body that spells the same shape, both `:type :quantified-conjunction`.
+  There the conjuncts share the binder, and the registry answers one goal at a time: read
+  flat, each conjunct would be satisfied by a *different* witness, so "has a sick child"
+  would hold of anyone with a child while anyone at all was sick. Accepting it stores a
+  guard that convicts on evidence about two unrelated individuals, which is worse than the
+  inert one it replaces — so `sentex/check-naf-closed` refuses it at the door, naming the
+  repair (bind the witness with a generator antecedent). The existential `unknown` is
+  therefore one literal deep, which is what it always evaluated as. An **empty**
+  conjunction is refused beside it as `:not-well-formed`: nothing can make it derivable,
+  so the antecedent guards nothing. *Class:* **Refusal** — no working caller exists, both
+  shapes having silently held rather than blocked; the new `:type` keyword is Additive.
+  *Migration:* bind the witness with a generator antecedent and leave one literal under the
+  `unknown`; a KB that asserted either shape was storing a guard that never blocked.
+  [docs/naf.md](docs/naf.md), [docs/aggregate.md](docs/aggregate.md).
+
+**The strictest policy stops being the leakiest.** Under `:refuse` a cross-context
+`functional` or `asymmetric` clash was neither refused nor reported; both are now ledger
+entries, beside the `:disjoint` one that already was.
+
+- **Two of the three clash kinds slipped through exactly where nothing was meant to.**
+  The definitional checks are scoped to the writer's own cone, so a pair split across a
+  `genlContext` edge is invisible to both writers and the assert door refuses nothing.
+  Under `:arbitrate` that is answered by the vantages — a context that sees the pair
+  whole weighs it — but under `:refuse` the vantages are deliberately withheld, and the
+  exposure ledger had an entry kind for **disjointness only**. So a `functional` slot
+  filled either side of the edge, and an `asymmetric` claim written across one, stood
+  believed and unmentioned in the policy chosen precisely to let nothing through.
+  `settle/expose-constraint-clashes!` is the reporting half: `:functional` and
+  `:asymmetric` entries carrying `:pred`, the two `[sentence context]` halves as
+  `:clash`, and the `:visible-from` vantage, shaped like the `:disjoint` entry beside
+  them. It reports and never decides — belief is untouched under `:refuse` by
+  construction, `contradictions` stays the answer to what was *arbitrated*, and a pair
+  this settle arbitrated is excluded exactly as the disjointness pass excludes one.
+  Guards: `exposure_test`'s twelve new cases, including the `:arbitrate` counterpart that
+  catches the gate applied in the wrong place, and the same-context case that must still
+  refuse rather than report. *Class:* **Additive** — a new entry kind in an accumulating
+  ledger, and both renderers read `(name (:violation v))` rather than dispatching on a
+  closed set. A `:refuse` KB that saw an empty `violations` may now see entries, which is
+  the point rather than a migration.
+  [docs/nmtms.md](docs/nmtms.md).
+- **The discovery is the refusal's, asked from somewhere else.** The pass re-derives each
+  clash through `checks/arbitrable-violations` from the vantages `clash-vantages` names —
+  the same two reads `clash-askers` makes under `:arbitrate` — so the report cannot drift
+  from what the door would refuse, and closing the gap widened no vantage. The pair was
+  always visible from there; what was missing was an entry kind to say so.
+- **It costs a KB that declares neither property two `seq`s.** The pass is `:refuse`-only
+  and gated before any root is read, behind an O(1) check on the declared vocabulary
+  (`tax/props :functional` / `:asymmetric`). Its candidates are the moved region's own
+  binary facts rather than a declaration's reach, so on a plain assert it works out no
+  extent — which also means a `(functional P)` arriving *after* the facts it convicts is
+  the arbitrating sweep's question and not this pass's, an absence
+  [docs/taxonomy.md](docs/taxonomy.md) states rather than implies.
+- **A `genlContext` edge is the one trigger that reaches past the region, and it has to.**
+  Visibility itself moves there: a pair whose halves are both stored and both believed
+  becomes jointly visible with neither half relabelled, so taking candidates from the
+  moved region alone reported the same knowledge when the edges arrived *before* the facts
+  and never when they arrived after — the arrival-order dependence the pass exists to
+  remove, showing up in the pass itself. An edge in the region reaches out over the cone it
+  newly sees (`constraint-facts-in-cone`, the binary-fact parallel of the disjointness
+  pass's `members-in-cone`, spending the same `*exposure-instance-budget*`), so both passes
+  answer that trigger the same way. Below the cap a cone walk is proportional to the cone,
+  deliberately; the checkable property is flatness *past* it, and
+  `perf`'s `constraint-exposure-context-edge` reads 0.89x across 8x the facts behind one
+  edge at a budget of 100. It failed on its first run at 5.42x, against a claim that was
+  what was wrong.
+- **And a KB that declares one costs what the region holds, which took a second pass to
+  make true.** The vantage search read the argument-1 posting of *both* arguments of a
+  candidate, where only one can hold a partner — a `functional` partner shares argument
+  1, an `asymmetric` one holds it at argument 2 — and on a term shared across an extent
+  the useless posting *is* the extent. Asserting into a declared-asymmetric slot sharing
+  argument 1 grew 2.88x from 250 to 2000 facts against a flat 0.91x with the pass off,
+  which is 3.9x per assert at the top end. `settle/partner-contexts` now reads the one
+  posting each declared property could hold a partner in, and the same load reads 0.89x.
+  The narrowing is on the shared path, so the `:arbitrate` vantages stop making the same
+  useless read. `perf`'s **`constraint-exposure-shared-arg`** is the gate and is the only
+  check in that file whose KB declares a predicate property — every other builds with
+  `fresh-kb`, which declares none, so the pass shuts at its vocabulary gate and the suite
+  could not see it at all. It failed on its first run.
+- **Entries are capped, and never silently.** The candidates are the region but the
+  *entries* are not: one slot filled from N contexts a single vantage sees is N−1 pairs
+  off one arriving fact, against a ledger that keeps 1000. One pass files at most
+  `settle/*exposure-instance-budget*` and files a **`:constraint-exposure-truncated`**
+  entry when it had more. A separate kind from the two sweep notices for the reason they
+  are separate from each other: a reader acts differently on *these pairs went
+  unreported* than on *this trigger went unswept*. The same entry says how many
+  `genlContext` edges went unswept, with a sample, a cone walk that stopped being the same
+  class of thing to a reader — pairs visible and unreported, nothing left undecided.
+- **One entry per pair, keyed on content.** Both halves can sit in one settle's region and
+  each convicts the other, so a report keyed on the walked side would file a pair twice —
+  or read differently — depending on which arrived last. The entry is keyed on the handle
+  pair, the halves are ordered by printed form, and the top-level `:sentence` / `:context`
+  name the first of that ordered pair rather than the side that found it. Guard:
+  `exposure_test/the-report-is-the-same-in-either-arrival-order`.
+
+**A hidden set kept where the sentexes are, not rebuilt per placement.** `except`'s
+visibility read cost as much as the KB hides, every time it was asked — which is once per
+placement and once per candidate justification. It reads a roster maintained at the store
+now, and is flat in what the KB hides.
+
+- **The read was linear in the number of excepts and is now flat in it.**
+  `res/excepted-handles` answers which handles a believed `(except (sentexHandle H))` hides
+  from a view context, and it fetched a record, re-derived a target and asked `jtms/in?` for
+  every stored `except` in the KB per call. `kb/note-excepted!` maintains
+  `{context -> {hidden-handle -> #{except-handle}}}` at `create-sentex` and
+  `integrate/sentex-removed!` instead — beside the `:opposed` coincidence set, on the same
+  terms and for the same reason, and rebuilt by `recover` because it is derived from storage
+  and no store holds it. On a chaining run of 400 facts and 380 derivations
+  (`lein bench-hotreads`, best of 3):
+
+  | excepts | µs/derivation | ns/read | share of the run |
+  |---|---|---|---|
+  | 0 | 237.0 → 243.0 | 216 → 125 | 0.7% → 0.4% |
+  | 10 | 184.4 → 165.3 | 3,562 → 594 | 12.0% → 2.5% |
+  | 100 | 380.4 → 156.3 | 25,936 → 638 | 56.3% → 2.5% |
+  | 1,000 | 2,294.1 → 143.6 | 185,458 → 553 | 88.8% → 3.1% |
+
+  E = 0 is unmoved, which is the second claim: a KB that hides nothing still pays one
+  question and gets an empty answer. *Class:* neither label — `res/excepted-handles` keeps
+  its arity, its contract and its answer set; what moved is where it reads them from.
+  [docs/contexts.md](docs/contexts.md).
+- **Belief stays a read, and the roster is storage only.** An `except` can be defeated or
+  revived with no sentex arriving or leaving, so there is no choke point a believed-set
+  could be maintained at — the roster holds what is *stored*, and whoever reads it filters
+  by belief, which is the line `:opposed` draws. It is also why this is a roster rather
+  than a clock-stamped memo: the scope that asks is forward chaining, which writes while it
+  reads, so a stamped entry would be retired between one placement and the next.
+- **The callers with handles in hand stopped materializing a set to look one up.**
+  `res/hidden-fn` hands back a predicate over one view context — nil when that vantage hides
+  nothing, so a caller skips its filter rather than running one that can only answer false.
+  `without-excepted`, `chain/antecedent-hidden?` and `kb/types-of` take it;
+  `excepted-handles` remains for the caller that wants every hidden handle. Building the set
+  costs one pass over the reader's excepts however few handles will be asked about, and the
+  questions are bounded by the answer set while the excepts are not.
+- **The gate is the roster being empty, which is tighter than the count it replaces** — a KB
+  storing only `(not (except H))` roots under `except` and counts non-zero. Six
+  `assert_cost_test` budgets are re-pinned for the index reads that gate no longer makes,
+  every one of them downward.
+- **A roster that drifts is a wrong belief, not a slow one**, so the guard is an oracle
+  rather than a behaviour test: `meta_sentex_test` compares it against a full scan of
+  storage after every kind of arrival, defeat, revival and removal, across a `recover`, and
+  compares `hidden-fn` against the set read for every handle either could be asked about.
+- **The planner's subtype fan is made cheap rather than remembered.** `est-matches` costs a
+  unary type literal over the type's whole subtype closure — the one branch that is not a
+  handful of O(1) index reads, asked once per pick, per plan, per firing attempt, and
+  **13.2%** of a forward chaining run on a 364-type hierarchy. For the shape that costs, the
+  argument a bare open variable, the general walk is provably a long way round to
+  `count-at [t']`: the literal's token stream is the functor, which extends the trie
+  prefix, and then the variable, which stops the walk. `fan-of-roots` reads those counts
+  directly and the fan halves, to 6.8%. Any deeper prefix — a compound argument, or a
+  partly-bound one — still takes the general walk, because for those the prefix genuinely
+  is deeper. *Class:* neither label; the number returned is identical by construction, and
+  `plan_test` pins it against the walk itself rather than against a number written down in
+  a test. [docs/inference.md](docs/inference.md).
+- **Remembering that answer instead does not work, and the harness says so on both paths.**
+  A memo stamped on the change clock measures **0.98–0.99×** under chaining, because the
+  run's own placements retire the entry between one plan and the next; on a query, where
+  nothing moves the clock and every plan after the first would be served, the fan is under
+  3% of the run and it measures **0.91–1.04×**. A finer stamp is unsound rather than merely
+  fiddly — the estimate bounds from above, a reading of 1 is a proof `rank-blocks` and
+  `cartesian-factors` rest on, so an entry computed before a placement is too small.
+  `lein bench-hotreads`'s third arm reports both paths, so the next reader inherits the
+  measurement rather than the idea.
+- **`lein perf` gains the check that would have caught the visibility walk.** The read is
+  now flat in what a KB hides, and flatness is a growth claim a ratio *can* see — which the
+  old shape was not, being linear in it. `visibility-reading` times a scoped read at 8 and
+  1,024 excepts, all of them hiding decoys the read never returns, so n moves the filter's
+  input and leaves its output alone. Calibrated from both ends as this file requires:
+  **0.91× and 0.90×** on full runs, against **27.33×** measured by running the check against
+  a tree that re-derives the hidden set per call. The bound is the flat claim's own 2.0×.
+  The literal cache is bound off inside it, because a repeat read under an unmoved clock is
+  served whole from that cache and would report the filter free at both sizes — while the
+  caller the check exists for, forward chaining, moves the clock per placement and meets
+  this read cold every time.
+
+**`ist` places, and four layers had it half-reading.** A rule cannot qualify a premise by
+the context to read it from, and now says so at the door instead of storing a rule that
+decides itself on a context it never consulted.
+
+- **An `(ist Ctx S)` in antecedent or `exceptWhen` position is refused as
+  `:not-well-formed`.** The literal is indexed and matched under the functor `ist`
+  (`rules/antecedent-predicates`, `res/match-pattern`), which no sentex carries, so it
+  satisfies nothing and no arriving datum triggers it — while four layers around it read
+  the frame as meaningful: the naming check descends the context slot and refuses a
+  non-context there, range restriction counts the slot's variables as **bound** by an
+  antecedent that will never bind them, canonicalization sorts the literal by its inner
+  predicate, and well-formedness accepted it in every role. So `check` reported no
+  problems and `assert` returned a handle. What accepting it does to the store is the
+  argument for the class: a positive antecedent yields a stored rule that cannot fire; an
+  `exceptWhen` query never matches, so the guard never guards and the conclusion it was
+  written to block **stands believed**; and an `(unknown (ist …))` is satisfied by that
+  same emptiness, so the rule fires unconditionally. A rule that does nothing announces
+  itself — the other two do not, which is why this is refused rather than left inert. The
+  refusal names the two ways to say what such an author meant, since a violation reported
+  without its repair is a second lookup: `(decontextualizedPredicate P)` takes every
+  `(P ...)` into UniverseContext, which every context sees, and a `genlContext` edge puts
+  `Ctx` in the rule's own cone — under either the premise is written plainly, and the
+  context topology decides what is readable from where. The NAF frame is now descended by
+  the connective walk in its literal's own role, which is what carries the refusal into
+  `(unknown …)`; a top-level one is not descended, `unknown` being an
+  antecedent/exception construct. Guard: `check_test`'s five frames, holding both doors to
+  one `:type` and the store to no writes. *Class:* **Refusal** — no working caller exists,
+  the shape having never matched anything. *Migration:* say it with
+  `(decontextualizedPredicate P)` or a `genlContext` edge into the rule's own cone — the
+  refusal names both.
+  [docs/contexts.md](docs/contexts.md).
+- **And it reads on a caller's behalf, which is the half that was missing.** `(ist Ctx S)`
+  handed to a read returned nothing at all — the most natural thing to type against a
+  context, answering as though the context were empty. Every read taking a **sentence and
+  a context** now takes one, asking S in Ctx with the named context **winning over the
+  argument**, which is the resolution `assert` already makes: one form, one meaning on
+  both sides of the KB. That is `sentexes-matching`, `handle-of`, `ask`, `prove`, `query`,
+  `query-plan`, `ask-within`, `prove-within`, `why-not`'s sentence arity and the three
+  level diagnostics — the rule being the surface, so there is no list to learn.
+  `contexts-of` and `find-sentexes` take no context and ask *which* contexts hold a
+  sentence, so the form is not a question they have; `isa?` / `genls` take a context but a
+  term rather than a sentence. Each door answers at its own notion of a context, and the
+  two families differ on purpose: retrieval returns the sentexes **stored** in `Ctx`,
+  while the reasoning doors answer from everything `Ctx` **inherits**. Both are "in
+  `Ctx`", a fact `Ctx` inherits being true in `Ctx`, so the difference is the doors' and
+  not `ist`'s — pinned rather than reconciled. This grants **no** visibility a context
+  argument did not already grant, which is what separates it from the antecedent above:
+  naming `AContext` is what `(sentexes-matching kb S 'AContext)` has always done, and the
+  caller asking has said so, where a rule reading `Ctx` on the sly would decide belief
+  from a context its own cannot see. Guards: `context_scoping_test`'s four, including the
+  whole-surface one and the sibling lattice where the answer is a context the asker cannot
+  see. *Class:* **Additive** — a goal shape that returned empty now answers, and no read's
+  behavior on any other input moves.
+  [docs/api.md](docs/api.md), [docs/contexts.md](docs/contexts.md).
+- **Two read shapes are refused instead of answered empty.** A wrong-arity `(ist Ctx)` or
+  `(ist Ctx S junk)` is `assert`'s own `:shape` — the same refusal on the read doors that
+  `assert` and `check` already made, so a caller cannot get a silent empty from a form the
+  write door rejects. And an `(ist …)` standing as a **conjunct** of a vector goal is
+  `:not-well-formed`: a join's conjuncts share their bindings, so there is no per-literal
+  context to honor, and it is the antecedent question wearing another frame. What
+  accepting them does is the argument for the class — both return an empty result set,
+  which is indistinguishable from a true negative, so the caller reads "nothing holds"
+  where the engine meant "I did not understand the question". *Class:* **Refusal** — no
+  working caller exists, both shapes having answered nothing. *Migration:* nothing; both
+  forms returned an empty result set, so no answer a caller held moves.
+  [docs/api.md](docs/api.md).
+
+**A datum that comes back believed goes back on the agenda.** Two routes let belief
+arrive with nothing chaining behind it, so the same knowledge in one order concluded and
+in the other did not — the invariant the README states first, failing in the loop that
+exists to hold it.
+
+- **A revived antecedent licenses the firing its defeat withheld.** `chain/*matcher*` is
+  belief-filtered, so an OUT datum is not a match and the join yields no candidate;
+  reviving it yielded none either, because the firing that never happened left no
+  justification for a blocked set to release and reached no placement for the refusal
+  record to re-ask. Both existing instruments are blind to it by construction. So the
+  trigger is read where the belief moved: `jtms/revived`, with `settle` re-seeding those
+  datums onto the chaining agenda. The cost half is **`jtms/touched-new`**, a third window
+  set naming the nodes the window created — without it every asserted fact and every
+  conclusion drawn from one reads as newly believed, and the re-seed becomes a second
+  forward chain per settle. The distinction exists only at creation, so both TMS
+  representations take it there. A rebuild stands aside: `recover` relabels the whole graph
+  and replays justifications that already carry what was derived. *Class:* neither label —
+  belief moves only toward conclusions the same knowledge already reached in another
+  order, which is not a contract a caller could hold. Guards: `revived_datum_test` and
+  twenty orderings in `order_independence_test`, six of which disagreed.
+  [docs/nmtms.md](docs/nmtms.md).
+- **The equality door of the same defect, and `jtms/revived` cannot see it.** A merge
+  displaces a spelling and its twin joins in its place, so a partner arriving mid-merge
+  concludes at the twin; stop believing the equality and the twin is swept while the
+  displaced spelling comes back — leaving both antecedents of a forward rule believed and
+  neither spelling of their conclusion held. Supersession moves belief with **no relabel
+  behind it**, deliberately (a superseded datum stays `:in` so its twin's justification
+  survives), so the flip is in none of the three window sets. `refresh-supersessions` is
+  where the answer exists — `settle-finish` already brackets it — so the spellings it gives
+  back go into `*unmerged-sink*` and `settle` re-seeds and settles again, bounded by
+  `max-unmerge-rounds`, the way `retract!` already settles twice around its own
+  re-derivation. Two alternative designs lose on what they cost elsewhere and
+  [docs/nmtms.md](docs/nmtms.md) says why; the route is not reachable by negating the
+  equality, since the merge rewrites the negation's own terms. *Class:* neither label, on
+  the entry above's argument. Guards: both un-merge routes — a retracted equality and a
+  functional merge losing a filler — plus twenty orderings, six of which disagreed, and a
+  cost guard on `rechain-seeds` whose merging arm requires that displacing a spelling puts
+  nothing on the agenda. [docs/equality.md](docs/equality.md).
+
+**An answer picked from a fan is keyed on content, never on arrival.** Fourteen reads
+elected a survivor, a representative or a display line by retrieval order, which under the
+columnar index is assertion order — so the same knowledge answered differently depending
+on how it was loaded.
+
+- **Two keys were being elided by an ambient print setting.** `solve/content-key` and
+  `skolem/rule-digest` bind the print vars off: a caller's `*print-length*` cut the content
+  — and `content-key`'s last-resort handle — out of a key that decides arbitration and out
+  of a digest stored durably in `termOfUnit` content, felling both back to arrival order.
+  The same binding is now made wherever EDN is written for something other than a human to
+  read: the browser's editor seed line, `diff-order`, the proposal panel's hidden line and
+  the LLM selection's edit line, since elided EDN is legal EDN naming something else — a
+  saved but untouched editor panel would retract the real fact and store the mutilated one.
+- **The elections themselves.** `dedup-constant` resolves a colliding expression to the
+  survivor `group-collisions` elects; a clash report sorts each side's justifications by the
+  key `core/supporting-justifications` reads through; `one-supporter` breaks a same-context
+  tie on the printed sentence; a term commented in two contexts glosses from the
+  content-least; `rewrite-target` answers nil unless exactly one believed `rewriteOf` names
+  the expression, as `correspondence-of` already did; `why-not`'s `:contradicted-by` and
+  `excepted-argument`'s completion are content-ordered; `quality`'s rule line adds the
+  context to its tie key, one implication in two contexts having shared sentence and
+  signature ahead of the display cap; `strongest-per-tuple` and `support-for` break class
+  ties on printed form after the context, the matcher being type-aware; `edge/translate`
+  sorts nogoods by member content before emission, so two arrival orders render one ASPIF
+  text; and `label-context` mints its `ist` copies in content order, as `label-dilemmas`
+  does. `core/supporting-justifications` answers in content order at the source —
+  informant's sentence, then antecedent sentences — which is what `preview`'s named reason,
+  `why`'s `:support` and a clash report's `:justifications` all read through.
+- **And the handle cache stopped answering from another KB.** `canon-stamp` carries the
+  record store beside the symmetric set and stamps compare with `=`: `with-handle-cache`
+  reuses an outer run's map, and two KBs declaring nothing symmetric stamped the one shared
+  empty set, so a nested run on a second KB read the first KB's handles.
+  `find-sentex-handle` caches only a spelling canonicalization leaves alone, the removal
+  choke point clearing the canonical key — a mirrored or folded spelling's entry outlived
+  its sentex as a stale handle. `asymmetry-problems` compares the canonical converse, so a
+  folded comparison predicate's opposing sentexes are found at all.
+  *Class:* neither label for all three bullets — every read answers the same set, in an
+  order that is now a function of the content; the previous order was not reproducible for
+  the same knowledge, so there was nothing stable to depend on.
+
+**A collected NAT leaves none of its bookkeeping behind.** `nat/bookkeeping-handles`
+answered lazily and the caller retracts what it hands back, so the answer was being
+computed against a KB the loop had already torn pieces out of: whether a sentex is one of
+`k`'s own is read off `k`'s `termOfUnit`, and a tail forced after that map's own retraction
+finds no expression. The materialized result types and the correspondence projection behind
+it therefore stopped looking like bookkeeping and stayed stored — a raw `nat/` symbol left
+naming a constant the sweep had collected, in the retrieval orders that hand back the map
+first and not in the others. The set and the sweep's own orphan list are both realized
+before the first retraction now. *Class:* neither label; what it removes is bookkeeping for
+a constant that no longer exists.
+
+**A stored sentex is not a believed one, and five reads had it the wrong way round.**
+Beside the rule index above, four reads took storage for belief and one took belief for
+storage.
+
+- ASP grounding takes only **believed** assumption and constraint rules; a superseded rule
+  minted choice heads and went on forbidding models. The `{:belief? false}` import stores
+  each record with its dump strength and premise mark, so a later `recover` has premises to
+  believe rather than a store where nothing grounds. The catalog's belief caveat probes for
+  a believed **datum** rather than for any node, which a `recover` over a strengthless store
+  builds per handle with all of them OUT. The generator reports `:stored` as storage rather
+  than as a sum over the believed context closure.
+- The **converse** correction is the reified-NAT sweep: uses count by **storage**, since a
+  stored-but-OUT use revives and an inert choice head has no node, so collecting the map
+  from under either dangles the constant and re-reifying mints a second one. The teardown
+  list stops belief-filtering for the same reason, and [docs/nat.md](docs/nat.md) says
+  stored where it said believed. *Class:* neither label — each read now answers the question
+  its docstring already claimed.
+
+**Retrieval answers what the reference answers.** Four matching reads disagreed with the
+fan-out they are checked against, three of them silently.
+
+- **The mirror probe asks the candidate's own functor.** `matches-hierarchical` mirrored a
+  candidate whenever *some* predicate under the queried one was symmetric, so with a
+  symmetric sub-predicate anywhere in the hierarchy a stored `(knows Bob Ann)` answered
+  `(knows ?x Bob)` — an extra answer the reference fan-out refuses, on the **default**
+  retrieval path. *Class:* neither label; the answer withdrawn was one the two paths
+  disagreed about, and `docs/inference.md` names the fan-out as the arbiter.
+- **`naf-query` unwraps an aggregate as it unwraps `thereExists`**, so a rule with an
+  `unknown`-over-aggregate antecedent re-checks on the body's predicate rather than on
+  `agg/count`, which no fact carries: the count moving no longer leaves the old conclusion
+  believed, and stratification sees the negative edge. The same shape as the `and` guard
+  above, arriving through the aggregate frame.
+  [docs/naf.md](docs/naf.md), [docs/aggregate.md](docs/aggregate.md).
+- **Three spellings stop being three sentences.** The rete alpha matcher skips `exceptWhen`
+  meta-sentexes as `res/match-one` does; `aggregate-values` normalizes compound values
+  through `representative-term`, so two spellings of one merged measure count once; and the
+  three pre-canon reads that gated on the list spelling take the vector spelling as the same
+  sentence, which canonicalization has always made it — the NAT leaf test reifies a
+  vector-spelled application instead of storing the raw compound beside the constant, the
+  editor line's `ist` guard catches a bracketed `ist` rather than letting it file into the
+  model's context, and the reified-constant expansion walk descends the antecedent vector a
+  rule's record keeps. [docs/canonicalization.md](docs/canonicalization.md).
+
+**A symmetric or inverse reading composes with what is derived.** The mirror answered off
+storage alone, so a claim that was *inherited* rather than stored had no mirror at all.
+
+- **The mirror delegates instead of reading storage.** `(pred b a)` goes back through the
+  registry minus `SymmetricProver`, so the mirror of a preserved, inherited or computed
+  claim is an answer; `*mirror-depth*` bounds the re-entry at two levels and falls back to
+  the raw stored read past it. *Class:* neither label — answers are added, none withdrawn.
+  [docs/inference.md](docs/inference.md).
+- **A partner declared on a sub-predicate is the same edge.** `tax/inverses-under` reads
+  the partners of `p` and of everything under it, consulting the spec closure only where
+  an inverse exists at all; the self-pair arm says what it answers.
+  [docs/taxonomy.md](docs/taxonomy.md).
+- **The mirror licenses the forward door too, and the firing names the symmetry it read
+  through**, so retracting the `(symmetric …)` withdraws what only the mirror licensed.
+  The declaration named is the stored sentence's functor's, the matcher mirroring each
+  fanned literal on its own. [docs/inherit.md](docs/inherit.md).
+- **A defeat inside arbitration re-joins what its sentence licensed**, over closures
+  refreshed to what is believed now. Belief flips with nothing arriving or leaving, so
+  nothing queues the re-join an arrival would, and the rest of the settle would otherwise
+  walk a closure still holding the defeated edge.
+  [docs/inherit.md](docs/inherit.md), [docs/nmtms.md](docs/nmtms.md).
+
+**A negated rule is refused at the door.** `(not (implies …))`, bare or wrapped, built a
+`RuleSentex` whose key cannot be computed — so `check` answered admissible and `assert`
+then threw a bare `IndexOutOfBoundsException` from inside the store.
+
+- `connective-problems` refuses the form as **`:not-well-formed`** at both doors, a
+  `:type` a caller can discriminate on where a JVM exception was neither catchable by kind
+  nor predictable by `check`. *Class:* **Refusal** — no working caller exists: the shape
+  never reached storage, it reached a stack trace. *Migration:* nothing; assert it as the
+  positive rule with the negation in the consequent, which is what could be stored all
+  along.
+- **And a rule cannot be stored inert.** `assert-inert` is the labeling primitive — a
+  recorded truth value, never a claim about the base KB — and a labeling labels atoms, so
+  nothing it exists for wants a rule. What one bought was a rule sentex that had never
+  been through `index-rule-sentex`, since that runs where a rule is *created*: no chainer
+  could reach it, and nothing afterwards could, an `assert` of the same rule resolving to
+  the stored sentex and taking the branch that does not index. The state on the other side
+  was a rule `in?` called believed and no fact ever fired — the accepted-and-inert shape
+  `check-generator` refuses at the other door, with the same **`:not-indexable`**.
+  The message names the **other** inertness, which is what a caller landing here usually
+  wants: `set/inertRule` is a rule that is believed, indexed and browsable and fires
+  neither way — the spelling for a rule kept as documentation, a transitivity the cached
+  closure computes instead ([taxonomy.md](docs/taxonomy.md)). This door's inertness is the
+  sentex's: not a premise, so never believed at all. One word for two states, so the
+  distinction is now stated where each is defined — a **glossary** entry covering both
+  (and recording that there is no `:inert` *strength*, the assertable classes being
+  `:default` and `:monotonic`), `inference.md` on why indexing an inert rule is the point,
+  `taxonomy.md` on writing the transitivity down rather than leaving the KB's most
+  important rule unwritten, and `solving.md` on why this door refuses one.
+  `res/rule-believed?` justified its absent-node arm by naming `assert-inert` and arguing
+  from the `:inert` direction, two different things, and says what it means now. Guards:
+  an inert rule is believed, `:default`, and posted under both its antecedent and its
+  consequent predicates — the browsability half nothing pinned — and the transitivity
+  pattern runs end to end, the closure answering `genl?` / `provable?` / `ask` while the
+  rule materializes no edge of its own. *Class:* **Refusal** — every caller
+  of this door materializes a labeling's atoms and their negations, which are untouched.
+  *Migration:* a rule meant as documentation is `set/inertRule` (or `{:direction :inert}`)
+  through `assert` / `assert-rule`; a rule already stored inert is one nothing was firing,
+  so `retract!` the handle and assert it.
+- Beside it, five legal API calls stop failing under `clojure.spec` instrumentation:
+  `genl?`, `representative`, `same-class?`, `equiv-class` and `deprecated?` carry their
+  context arity in the spec, and `term-role`'s `:ret` admits `:lexeme` and `:sense`. The
+  dead `:arity` declaration row is gone, with `declared-arity`'s unused reader parameter and
+  the comment claiming otherwise, and `mint-nat!`'s docstring says which of the three
+  asserts chain (`termOfUnit` never does).
+
+**Storage keeps no dead frames, and a torn dump refuses.** A round of durability fixes
+across the disk store, the overlay and both import paths — the class the gate's memory
+backend cannot see, which is why the matrix exists.
+
+- **`:truncated-dump`** (rostered): a dump stream that ends early reads as a clean EOF, so
+  the frames read are counted and compared against what `meta.edn` states, on both the
+  belief and records-only paths — the comparison `replay-index!` already makes for index
+  entries. The records-only import likewise refuses a dump naming a **handle twice**, a
+  BitSet per handle so the streaming path stays streaming; the second frame silently
+  destroyed the first record and counted both. *Class:* **Refusal** — no working caller
+  exists: one input is a truncated file, the other loses a record it reports as loaded.
+  *Migration:* nothing; re-export the dump. Both refusals name what was read against what
+  was promised.
+- **No frame whose only fate is a tombstone.** `unmark-premise!` re-stores only a record
+  that carries a strength, on the disk store and the overlay alike (which also stops
+  materializing an override for a derived base record), and the overlay's set insert removes
+  a removal record only when one exists, so a durable fork stops paying two WAL frames per
+  posting. The memory store marks a premise only for a **stored** record, so `premise-ids`
+  agrees with the disk store for the same call sequence.
+- **And two reads at open.** `validate-idx-tail!` rides `scan-idx!`'s chunked walk instead
+  of paying one seek and one buffer per slot across the whole idx on every open of every
+  kind; `rebuild-premises!` tombstones crash damage only (`:damaged-dictionary`,
+  `:malformed-record`) and rethrows `:unknown-frame`, because a build that cannot read a log
+  must not delete it. The fork projection reads entries with `first` rather than `key` — the
+  tiered backend yields plain vectors where the map-backed ones yield `MapEntry`s, so a
+  dense overlay half threw `ClassCastException` on any export of the fork — and index
+  entries are normalized to vectors at the **export frame**, nippy freezing the two
+  differently, so a byte-identical logical index stops dumping byte-differently per backend.
+  The dead `:base-highest` field is gone.
+
+**The uberjar loads the ontology it ships.** Layer discovery listed a directory, which a
+packaged jar need not carry, so an uberjar started with `CoreContext` alone and no upper or
+middle layer — silently, the KB simply being smaller than the same tree run from source.
+
+- Discovery lists the jar's own entries, anchored on `kb/CoreContext.txt` when the jar
+  carries no directory entry, and an unlistable protocol is **refused** rather than answered
+  nil. *Class:* neither label — a caller running from source saw every layer already, and
+  one running the uberjar was getting a KB nobody meant to ship. Beside it: the load
+  generator drops a band past the vocabulary instead of drawing from an empty one
+  (predicates 2 under layers 3 put `(nth [] 0)` inside the lazy rule draw, mid-load, after
+  the vocabulary had been asserted), and `refuted-pairs` drops retired spellings with
+  `res/retired-for?` as the positive read drops them through `without-retired`, a reader
+  below a merge otherwise carrying one negative constraint under two names it knows denote
+  one thing.
+
+**ASP routes to a solver that can actually run.** `AUTO` handed off past the size cutoff on
+`available?` alone, so a machine carrying `libclingo` and no `clasp` binary solved small
+programs and threw on large ones — the failure arriving with the workload rather than at
+the probe.
+
+- The handoff is gated on a **once-per-JVM probe** that the binary runs, which the facade's
+  `available?` now reads rather than forking `clasp --version` per ask. A missing binary is
+  `:solver-unavailable`: `shell/sh` execs directly, so the failure is an `IOException` and
+  the exit-127 arm could never run. `clingo`'s aspif temp file is deleted on **any** exit,
+  `control_new` failures included, instead of leaking to `deleteOnExit`'s never-collected
+  hook. `dense-roots`' reserved family 2 throws **`:reserved-family`** (rostered in
+  `type_contract_test`) instead of pinning a three-element decode for a key whose real shape
+  is four, the packed long having no room for the predicate. *Class:* **Refusal** for the
+  two new `:type`s — no working caller exists, both paths having thrown or mis-decoded.
+  *Migration:* nothing; install `clasp` if you were relying on the large-program path, which
+  was throwing.
+
+**The daemon answers a caller's mistake with 400, and the model's tool surface loses two
+ops.** Both are contract changes a working caller observes, and both are why this release
+is a minor.
+
+- **`:export`'s destination refusals are client errors.** `:no-destination`,
+  `:not-a-directory`, `:not-empty`, `:export-busy` and `:unsupported-format` join
+  `serve/client-error-types`, so a directory that exists and is not empty stops counting as
+  a backend fault at every reverse proxy and 5xx alarm between the caller and the daemon.
+  `:sentence` leaves the set, a type nothing throws. *Class:* **Breaking** — a status code,
+  §3.8's own example. *Migration:* a client that retries on 5xx and reports 4xx will now
+  report these instead of retrying, which is the intent; `wire_contract_test` pins the
+  pairing.
+- **`:preview` and `:clear-caches` are excluded from the tool surface a model reaches.**
+  `:preview` stores nothing but holds the single writer and advances the handle counter, and
+  `:clear-caches` resets process measurement state — neither is a read, whatever its name
+  suggests. *Class:* **Breaking** — the exposed tool set is `(keys serve/ops)` minus a
+  roster, and this removes two from it. *Migration:* call either op on the daemon or through
+  `vaelii.core` directly; nothing about the ops themselves moves.
+- **A cancel cannot unsettle a finished job.** `jobs/cancel!` writes `:cancelling` through
+  `update-job!` guarded on the job not having settled: stamped over a just-filed `:done`,
+  the job never settled, the sweep kept it, the writer kept naming it, and every later
+  writing job was refused against work that finished long before.
+
+**The browser writes what it shows, and shows what the ledger holds.** Four rendering and
+lifecycle defects, each one a renderer or a guard assuming a shape the data does not have.
+
+- **A violation about no sentence is not a link to a term called nil.** Four ledger kinds
+  are about a pair or a budget rather than a dropped sentence, so they carry a `:detail` and
+  no `:sentence`; both renderers read those fields unconditionally and `term-link`'s
+  fallback links whatever it is handed, so each row printed "nil" beside a live link to
+  `/term?q=nil`. The mirror image beside it: `:message` sits at the top level on
+  `:non-confluent` and `:aggregate` where every other kind puts it under `:detail`, and both
+  renderers read only the `:detail` spelling, so the one line those entries exist to print
+  was replaced by the generic fallback. Both read either now, and `core/violations` states
+  plainly that `:sentence` and `:context` are not on every entry — the roster this exposed
+  as incomplete (`:constraint-exposure-truncated` had reached the changelog and nothing
+  else) is stated in all four places. The standing-clash row had the same defect from the
+  other end, handing each `[type context]` pair to `term-link` whole.
+- **The editor survives a conjunction line, and an export holds the write doors.**
+  `edit-post` keeps the positional pairing per entry and lets a conjunction-concluding line
+  (a vector of handles, assert-shaped) fall to unpaired, where `v/sentex` refused it
+  `:bad-handle` *after* the write had landed and reported failure for a KB that had changed.
+  `write-refusal` refuses while an export walks the KB (`catalog/exporting-kb?`, by identity,
+  so a load of another KB is untouched) and the export job drains the write monitor before
+  the walk; `unload!` waits for a `:cancelling` loader exactly as for a `:running` one, the
+  retry the still-stopping refusal asks for having skipped the guard and cleared the stores
+  under the live writer; and a repeat source's key suffix is one past the highest still
+  loaded rather than a count, so unloading `generated#1` of two no longer collides the next
+  load with the live `generated#2`. The caches page and [docs/web.md](docs/web.md) say what
+  the clear does — this KB's entries alone, counters left running — instead of promising a
+  process-wide zeroing the handler cannot ask for.
+- **A fork with an opts map lands on its own space.** Fork opts naming neither `:space` nor
+  `:dir` merge over `fresh-overlay-opts`: a non-empty map without one sent the fork's
+  writable half to the shared process default, space 0, where two such forks saw each
+  other's writes and a plain `open-kb` saw both. Naming a space explicitly is still the
+  remount. *Class:* neither label — the shape it replaces had two forks writing over one
+  another, which no caller can have been depending on.
+  [docs/overlay.md](docs/overlay.md).
+- **A KB whose store cannot be counted renders `:unreadable`**, not as a healthy empty one
+  (`active-caveat` folded the throw into zero); a broken foreign reader logs `:warn` with the
+  cause, and only a genuinely absent plugin stays `:debug`, the old line having sent
+  operators to reinstall what was already installed; the torn-snapshot refusal carries
+  `:entries`/`:expected` in its ex-data as its dictionary sibling does; and a portfolio racer
+  that throws cancels the other racers instead of leaving complete searches running for
+  nobody.
+
+**CLI flags mean what they say.** Four parsing defects, one of which stored knowledge at a
+strength the caller did not ask for.
+
+- `assert-rule` passes the `--strength` it parsed — accepted-and-dropped stored a known-true
+  rule at `:default`, so the record carried a class the caller had not asked for and
+  `defeat-class` answered it. What that class governs is narrow, and worth stating so the
+  fix is not read as more: it is the *rule's own*, nothing in the engine defeats a rule
+  (a negated rule is refused, and a dilemma is a fact-level thing —
+  [nmtms.md](docs/nmtms.md)), and what a firing confers is `:defeasible`'s to say.
+  **Asserting a rule that is already stored now marks the premise**, which is the same
+  door reading the same option and matters more than the class does: a generator's
+  stamped rule is a conclusion resting on the generator, so asserting it returned a
+  handle for a rule that retracting the generator took away — the assertion bought no
+  ground of its own. **The class resolves from content, as the two slots beside it do**
+  (`:direction`, `:defeasible` — [canonicalization.md](docs/canonicalization.md)): the
+  stronger of the assertions stands, since a re-assert carrying no `:strength` states
+  nothing about the class, and reading that silence as a downgrade left `defeat-class`
+  answering differently for the same two assertions in the two orders. *Migration:*
+  narrowing a rule's class is `retract!` and re-assert, exactly as it already is for
+  direction and defeasibility. A value
+  flag **refuses a following flag as its value** (`:shape`), instead of opening a directory
+  literally named `--starter` and loading no schema. **A flag belongs to the commands that
+  read it**, and one carried elsewhere is refused rather than dropped: `match …
+  --strength monotonic` bound the option, ran a read that never looks at it, and reported
+  nothing — from the outside, indistinguishable from a strength that was applied. The
+  three KB flags (`--dir`, `--memory`, `--starter`) go with any command, `repl` carries the
+  union since its options are fixed at start and every line reuses them, and `help` names
+  the owner of each. Refusals print on **stderr**, so a
+  script reading stdout as EDN gets data and the terminal gets the diagnostic; the REPL
+  loop keeps stdout on purpose, its errors belonging in the transcript. *Class:*
+  **Breaking** for the stream move — a script capturing only stdout stops seeing refusals —
+  and for the per-command roster, since a line carrying a flag its command ignored now
+  exits 1; **Refusal** for the flag-as-value. *Migration:* redirect with `2>&1` if you were
+  reading refusals off stdout; drop the flags your commands were ignoring; re-assert any
+  rule whose `--strength` was dropped if you read the slot back.
+- `test-backends.sh` gives each run `target/test-backends/run-<pid>` with a `latest`
+  symlink, two concurrent matrices having deleted each other's live disk scratch and
+  interleaved one log, and its header names the `:fan` four-assertion divergence instead of
+  calling every count difference a skip. The shellcheck roster gains `test-parallel.sh` and
+  `run-bench-caches.sh`, the two drivers nothing checked.
+
+**Three more costs read the change rather than the KB.** The pattern the `except` roster and
+the planner fan above are the largest cases of.
+
+- The overlay's removal record asks the base `kv-member?` instead of materializing the whole
+  posting per probe, the rule `merged-member?` already states. `refresh-equality` walks the
+  moved handles through a handle-to-edge reverse map — the moved-edges discipline the
+  transitive relations hold — instead of re-asking belief of every supporter and re-deriving
+  every edge per merge. And the qualitative join baselines live in their own bounded map, so
+  the resident cache clearing at its limit no longer degrades every later delta join to a
+  full one. *Class:* neither label; each answers what it answered.
+- `settle`'s `clash-candidates` sorts the moved region only when something reads the order.
+  It sorted twice per settle — `content-order` over `revisit` and over `touched` — before
+  reading `checks/arbitrating?`, and the only reader of that order is the budgeted
+  declaration sweep below it, which runs under `arbitrating?`. So a `:refuse` KB, the
+  default, paid two sorts per settle to feed a pass that was never going to run.
+- `core/check`'s docstring says what it predicts and what it does not: it answers `assert`'s
+  refusals under the KB's **current** constraint policy, and `arbitrable` is narrower than
+  `clashing`. Guard: `constraint_policy_test` runs its cases under both policies.
+
 ## 0.5.1 — 2026-08-11
 
 What a write pays, and what an instrument can see. A run of costs that grew with what the
@@ -14,9 +862,8 @@ feed crosses the process boundary as a subscription with a cursor, long work is 
 with a screen that watches it, `kb-quality` reads the knowledge where every other instrument
 reads the engine, and the conjunctive planner costs a join rather than a column of literals.
 
-**No entry is Breaking**, which is why this is a patch. Two carry a *Migration* line anyway,
-because a caller can observe them and should be told what to expect. Each entry says what a
-reader would observe; the mechanism is in the subsystem's doc, and the entry links it.
+**No entry is Breaking**, which is why this is a patch. Three carry a *Migration* line anyway,
+because a caller can observe them and should be told what to expect.
 
 **Triage, for a 0.5.0 caller.** This is the index to what touches something you have written.
 
@@ -26,696 +873,472 @@ reader would observe; the mechanism is in the subsystem's doc, and the entry lin
 | calls `clear-caches` and expects the literal cache's hit rate to zero | pass `{:counters? true}`; the reset is off by default |
 | walks a `declared-transitive` predicate that also declares an `inverse` | the walk sees the inverse-recorded hops too, so an `ask` can answer more |
 | branches on `violations`' `:violation` with a defaultless `case` | `:arbitration-truncated` is a new kind |
+| builds on the shipped Space or Time vocabulary | an argument position that held `thing` now names a type, so an assert 0.5.0 accepted can meet an `:arg-type` refusal — widen the convicting declaration it names, or state the argument at a type the position admits |
 
 **Belief, and what a settle pays.**
 
 - **A preview's capped diff is ordered by content, not by handle.** `preview` and
-  `edit-with-consequences!` built `:believed-added` / `:believed-removed` off a relabelled
-  region sorted numerically — handles, so assertion order — and `:max-results` then took a
-  prefix. The browser's proposal panel caps at 50, so the same batch against the same
-  knowledge showed a *different fifty* depending on the order the KB was loaded in, with
-  `:bounded?` reporting true either way. Both halves rank on sentence then context
-  (`diff-order`) now, ranked where each caller caps: `preview` sorts the built entries, and
-  `moved-handles` ranks the handles because its callers cap before building — the liveness
-  test fetches every record already, so the key costs no read. *Migration:* a caller reading
-  the first N of either half gets a different N — a different, better-defined N. *Class:*
-  neither label. The sequence a caller could observe was not reproducible for the same
-  knowledge: it moved with the order the KB was loaded in, so there was nothing stable to
-  depend on and no working caller could hold it as a contract. The previous docstring called
-  handle order "a fact about the KB and not about the batch", which is exactly backwards — a
-  handle is allocated in assertion order — so what this restores is the invariant the README
-  states of every tie-break, on a public read that was breaking it.
+  `edit-with-consequences!` built `:believed-added` / `:believed-removed` off a region sorted
+  numerically — handles, so assertion order — and `:max-results` took a prefix of that, so the
+  browser's 50-row panel showed a *different fifty* depending on the order the KB was loaded
+  in, with `:bounded?` true either way. Both halves rank on sentence then context
+  (`diff-order`), at the point each caller caps. *Migration:* a caller reading the first N of
+  either half gets a different N — a different, better-defined N. *Class:* neither label; the
+  sequence moved with load order, so there was nothing stable to hold as a contract.
   [docs/preview.md](docs/preview.md).
-- **The pass that decides told nobody when it ran out of budget.** A declaration arriving
-  after the content it convicts reaches back over that content, bounded by
-  `settle/*exposure-instance-budget*`. The *reporting* half filed `:exposure-truncated`; the
-  *arbitrating* half, which spends the same budget before anything is **decided**, said
-  nothing — so a KB could leave standing a pair a finished sweep would have defeated and show
-  a clean ledger. It files **`:arbitration-truncated`** (`:triggers` `:sample` `:budget`
-  `:message`), one entry per settle rather than per pass, counting a trigger reached after the
-  budget was spent as unswept. A separate kind from its twin because a reader acts on the two
-  differently — *unreported* against *undecided* — and because `functional` and `asymmetric`
-  reach back on the deciding path and on no other. Guards:
-  `exposure_test/an-arbitration-sweep-cut-short-says-so` and the three beside it. The budget
-  is drawn per `clash-candidates` call and that runs once per settle *pass*, so a settle that
-  iterates draws it more than once — which is worth stating precisely, because it sounds like
-  an order dependence and is not one: every pass walks its region in `content-order` and
-  `touched` only accumulates, so the sweep meets the same triggers in the same sequence
-  whatever order the same knowledge was written in. What a cut **does** leave is stated where
-  the budget is: the pairs past it go *undecided this settle* rather than decided the other
-  way, and discovery accumulates in `:clashes`, so a later settle's region can surface them.
-  Guard: `exposure_test/a-budgeted-sweep-decides-the-same-pair-in-either-arrival-order`, which
-  observes both write orders decide the same **set** of pairs at a budget covering one reach
-  of two. *Class:* Additive — both violation renderers read
-  `(name (:violation v))` rather than dispatching on a closed set.
-  [docs/taxonomy.md, "Neither cut is silent"](docs/taxonomy.md).
+- **The pass that decides told nobody when it ran out of budget.** A declaration arriving after
+  the content it convicts reaches back over that content, bounded by
+  `settle/*exposure-instance-budget*`. The reporting half filed `:exposure-truncated`; the
+  *arbitrating* half, which spends the same budget before anything is decided, said nothing —
+  so a KB could leave standing a pair a finished sweep would have defeated and show a clean
+  ledger. It files **`:arbitration-truncated`** (`:triggers` `:sample` `:budget` `:message`),
+  one entry per settle. The pairs past a cut go *undecided this settle* rather than decided the
+  other way, and discovery accumulates in `:clashes`, so a later settle's region can surface
+  them. *Class:* Additive — both renderers read `(name (:violation v))` rather than dispatching
+  on a closed set. [docs/taxonomy.md, "Neither cut is silent"](docs/taxonomy.md).
 - **Every mutation sorted every standing clash report.** `record-clashes!` ordered `conflicts`
   and `contradictions` by content on the settle path, so an assert into a KB holding N standing
   dilemmas paid O(N log N) to order a reading nobody had asked for. The vectors are stored in
-  arrival order and **`settle/ranked`** puts a reading in content order at the point it is
-  read: 1.60 → 1.07 ms per assert at 800 standing dilemmas, against 1.05 ms for the same
-  workload before the ordering existed. `lein perf`'s `negation-arbitration` reads 10.02x
-  against its 12x bound, from 12.65x failing, and `clash-arbitration` 8.09x against its 15x;
-  both are full-run readings, and `vaelii.bench.perf`'s header states why that is the only
-  reading these two have. Guard:
-  `order_independence_test/the-reported-lists-are-content-ordered-not-arrival-ordered`, which
-  observes the reported *sequence* over every ordering of three independent pairs. *Class:*
-  neither label — both readings answer exactly what they did, in the same order.
+  arrival order and **`settle/ranked`** orders at the read: 1.60 → 1.07 ms per assert at 800
+  standing dilemmas, against 1.05 ms before the ordering existed. `perf`'s
+  `negation-arbitration` reads 10.02x against its 12x bound, from 12.65x failing. *Class:*
+  neither label — both readings answer what they did, in the same order.
 - **A belief flip cost what the taxonomy held rather than what moved.** `refresh-relation` read
-  the settle's region *backward*: deciding whether to run walked every supporter, and running
-  recomputed the believed-supporter set of every edge. One flip measured 176.6 ms in a 64k-edge
-  relation and 8.2 ms merely to decide the relation was untouched; through the engine,
-  defeating and reviving one `genl` edge cost **6.87x across 8x the edges the flip is not
-  about**. `:handle-edge`, the transpose of `:support`, lets the scope be read forward off the
-  moved handles instead: 9.2 µs at 64k edges, **0.61x across the same 8x**. `perf`'s
-  `taxonomy-belief-flip` is the gate.
+  the region backward: deciding whether to run walked every supporter, and running recomputed
+  every edge's believed-supporter set — 176.6 ms in a 64k-edge relation, and **6.87x across 8x
+  the edges the flip is not about**. `:handle-edge`, the transpose of `:support`, lets the scope
+  be read forward off the moved handles: 9.2 µs at 64k edges, **0.61x** across the same 8x.
+  Gate: `taxonomy-belief-flip`.
   [docs/taxonomy.md, "The belief reconcile is scoped to the moved region"](docs/taxonomy.md).
-- **Every settle paid the size of the KB's declared vocabulary to learn it had nothing to
+- **Every settle paid the size of the declared vocabulary to learn it had nothing to
   reconcile.** `:cache-support` holds every `disjoint` pair, predicate property, `inverse` and
-  declared `arity` at once — tens of thousands on a corpus of OpenCyc's order — and the five
-  flat caches read it backward. The *gate miss*, the settle that touches no declaration and is
-  nearly every settle, measured 5.0 ms at 32k declarations for finding nothing; a flip measured
-  95 ms. Read forward off `:cache-handle-keys`, the same readings are 5 µs and 1 µs, flat
-  across 64x the declarations, and defeating and reviving one `(disjoint a b)` moves 1.2x
-  across 8x the declarations where it moved 7.0x. `perf`'s `flat-cache-belief-flip` is the gate.
+  declared `arity` at once, and the five flat caches read it backward: the gate miss — nearly
+  every settle — measured 5.0 ms at 32k declarations for finding nothing, and a flip 95 ms.
+  Read forward off `:cache-handle-keys` they are 5 µs and 1 µs, flat across 64x the
+  declarations. Gate: `flat-cache-belief-flip`.
   [docs/taxonomy.md, "The belief reconcile is scoped to the moved region"](docs/taxonomy.md).
 - **What the scoping removed was a rescan four writers were leaning on.** `add-edge` /
   `del-edge` and `support-add` / `support-drop` run with no `believed?` in hand, so they
-  recompute an edge's or an entry's contexts from every *recorded* supporter. On the
-  single-supporter case that is already the believed reading; on a **shared** one it is a
-  superset, and losing the last *believed* supporter of something two sentexes still assert is
-  a deactivation only a `believed?` can make — which the whole-KB rescan corrected without
-  being asked. A writer touching a shared edge or entry records it in `:dirty` /
-  `:cache-dirty` and the reconcile takes those whether or not belief moved there: a set
-  proportional to the edits, never to the KB, and one a bulk load of distinct declarations
-  never enters. The flat-cache oracle fails 95 assertions across its 25 random edit-and-flip
-  trials without `:cache-dirty`.
-  [docs/taxonomy.md, "The belief reconcile is scoped to the moved region"](docs/taxonomy.md).
+  recompute contexts from every *recorded* supporter — the believed reading on a single
+  supporter, a superset on a **shared** one, which the whole-KB rescan corrected unasked. A
+  writer touching a shared edge or entry records it in `:dirty` / `:cache-dirty` and the
+  reconcile takes those whether or not belief moved there: a set proportional to the edits,
+  never to the KB. Without `:cache-dirty` the flat-cache oracle fails 95 assertions.
 - **The index behind the flat caches is a multimap where the closures' is 1:1.** A `genl`
   sentence names one edge, so `:handle-edge` can be `{handle edge}`; the flat-cache writers key
-  one entry per sentence too, but nothing in the structure says so and removal is per-(handle,
-  key) — a 1:1 index would let the first `support-drop` take a handle out from under an entry
-  the same sentex still supports, which reads as a cache that quietly stops being reconciled
-  rather than as a crash.
+  one entry per sentence but nothing in the structure says so, and a 1:1 index would let the
+  first `support-drop` take a handle out from under an entry the same sentex still supports.
 - **The two caches that still gate read whichever side is smaller.** The equality partition and
   the rewrite rules hold asserted term-identity claims rather than vocabulary, and the equality
-  scan rebuilds `:out`, which is relation-wide state — so both gate rather than scope.
-  `moved-touches?` walked the supporter set unconditionally, so deciding a 32k-entry cache was
-  untouched cost 4.9 ms whatever the settle's own region was; it compares the two counts and
-  walks the smaller, at 0.9 µs for both caches at every size measured.
+  scan rebuilds relation-wide state, so both gate rather than scope. `moved-touches?` compares
+  the two counts and walks the smaller — 0.9 µs at every size, from 4.9 ms to decide a
+  32k-entry cache was untouched.
 - **A taxonomy edge retired every memo, because a counter says something moved without saying
-  what.** Two guards in `settle` retired a whole memo on a generation counter, so at 400
-  standing dilemmas one `genl` edge with nothing above or below it cost 800
+  what.** At 400 standing dilemmas one `genl` edge with nothing above or below it cost 800
   `checks/arbitrable-violations` calls, and one `genlContext` edge under a context no
-  contradiction was stated in re-derived all 400 opposed bodies. Both cost zero now.
-  `clash-nogoods` weighs the `genl` relation **per pair**: a pair of unary memberships is
-  decided by `disjoint?` of the two types its sentexes name, so the memo stamps those two
-  supertype closures and carries any pair whose reading stands — `[type context]`-keyed, and
-  taking the global closure only where the member's own context already sees the whole of it.
-  `negation-nogoods` records the joint-visibility verdict for each context pair it crosses and
-  re-derives only the entries whose verdicts moved. Gates: `taxonomy-edge-arbitration` and
-  `context-edge-arbitration`, each red before and green after, with `settle_region_cost_test`
-  beside them.
+  contradiction was stated in re-derived all 400 opposed bodies. Both cost zero:
+  `clash-nogoods` weighs the `genl` relation **per pair**, keyed `[type context]`, and
+  `negation-nogoods` records the joint-visibility verdict per context pair and re-derives only
+  what moved. Gates: `taxonomy-edge-arbitration` and `context-edge-arbitration`.
 - **Two more settle-path guards charged the whole KB.** `refresh-supersessions` runs every
-  settle — the closure changes on retraction too, and that path moves no label — and
-  re-examined every displaced spelling each time: a record fetch, a rewrite through the closure
-  and a store probe apiece, which on the `owl:sameAs` volume an RDF import emits is one probe
-  per standing merge per write. It is narrowed to `jtms/touched` plus migration's own output,
-  with the closure compared rather than assumed: one unrelated retraction against 400 standing
-  merges was 400 `rewrite-term*` calls and 9.06x across 16x the merges, and is 0 calls and
-  1.70x. Beside it, a negated exception conjunct registers under the functor `not`, which hides
-  the predicate it is about — so the `genls(super)` walk could not decide it and waved it
-  through to `:all`, costing one level-6 query per firing the rule had ever made, per `genl`
-  edge written anywhere. Keyed on `specs(sub)` instead, the contravariant twin: at 800 firings,
-  1,600 exception evaluations and 10.16x become 0 and 0.91x, and an edge on the conjunct's own
-  predicate still re-checks every firing.
+  settle and re-examined every displaced spelling each time — one probe per standing merge per
+  write, which is what an `owl:sameAs` import emits. Narrowed to `jtms/touched` plus
+  migration's own output, one unrelated retraction against 400 standing merges falls from 400
+  `rewrite-term*` calls and 9.06x to 0 calls and 1.70x. Beside it, a negated exception conjunct
+  registers under the functor `not`, which hides the predicate it is about, so the `genls(super)`
+  walk waved it through to `:all` — one level-6 query per firing the rule had ever made, per
+  `genl` edge written anywhere. Keyed on `specs(sub)` instead: at 800 firings, 1,600 exception
+  evaluations and 10.16x become 0 and 0.91x.
   [docs/equality.md](docs/equality.md), [docs/exceptions.md](docs/exceptions.md).
 - **A `disjointMetatype`'s membership is vocabulary, not a roster.** `clash-vocabulary` carried
-  the metatype *roster* and not the metatype *membership*, and the two are not the same claim:
-  `(disjointMetatype M)` separates M's members by being consulted, so `(M b_t)` leaving stops
-  separating `a_t` from `b_t` while the mark still stands, no closure moves, and neither member
-  of the standing pair is in the region. The memo carried the pair, so the KB kept reporting a
-  dilemma the oracle does not report. Only the **departure** was silent — a member arriving is
-  its own sentex and reaches its pairs through `metatype-member-reach` — which is why the
-  assert-shaped tests never saw it, and `clash_oracle_test`'s ontology declares no metatype at
-  all, so the randomized stream could not generate the shape either. The membership map is a
-  value like the four beside it, so a settle that moves no member abandons nothing.
+  the metatype roster and not the metatype *membership*: `(disjointMetatype M)` separates M's
+  members by being consulted, so `(M b_t)` leaving stops separating `a_t` from `b_t` while the
+  mark still stands, no closure moves, and neither member of the standing pair is in the
+  region — so the KB kept reporting a dilemma the oracle does not. Only the **departure** was
+  silent, a member arriving reaching its pairs through `metatype-member-reach`.
 
 **Where arrival order was deciding an answer.**
 
 - **A predicate's second declared inverse hid its first, and which one survived was the order
   they arrived in.** `(inverse P Q)` and `(inverse P R)` are both legal and the taxonomy held
-  **one** partner per predicate, so the later declaration displaced the earlier and every
-  reader of `inverse-of` answered off whichever that was: `(transitive beforeEv)` proved
-  `(beforeEv A C)` with `afterEv` declared second and **failed** with it declared first — the
-  order independence the README states as an invariant, broken by a legal pair of declarations.
-  Retracting one was worse: `cache-uninstall` dropped the predicate's whole entry, leaving `P`
-  with no inverse while `(inverse P Q)` was still believed. `:inverse` is
-  `{predicate -> #{partners}}` now, maintained in both directions the way `:disjoint-index`
-  is; **`tax/inverses-of`** is the set the step relation and `solve-inverted` read, and
-  **`inverse-of`** keeps its shape — one partner or nil — and answers the lexicographically
-  smallest, so a caller wanting *a* partner gets a content-keyed answer rather than an
-  order-keyed one. `vaelii.core/inverse-of` is unchanged in arity and return. *Class:* neither
-  label — no working caller can have depended on which of two declarations won, since nothing
-  documented which would. [docs/taxonomy.md, "The step relation"](docs/taxonomy.md).
-- **`kb-quality` ranked its capped lists on the handle**, which is assertion order — so two
-  loads of the same knowledge reported the same `:never-count` over a different `:never`, and
-  the examples moved with the order an author happened to write the rules in while the counts
-  beside them did not. The listed sets rank on content now: the consequent predicate and the
-  sorted antecedent predicates, both already in the vocabulary pass, with the stored sentence
-  breaking a tie only within a group that shares a signature — so the store is read for the
-  listed rules rather than for every rule in the set. *Class:* neither label — `kb-quality`
-  is new in this release and has never shipped the handle-ranked reading.
+  one partner per predicate, so `(transitive beforeEv)` proved `(beforeEv A C)` with `afterEv`
+  declared second and **failed** with it declared first; retracting one dropped the predicate's
+  whole entry, leaving `P` with no inverse while `(inverse P Q)` was still believed. `:inverse`
+  is `{predicate -> #{partners}}` now, maintained in both directions as `:disjoint-index` is.
+  **`tax/inverses-of`** is the set the step relation and `solve-inverted` read; **`inverse-of`**
+  keeps its shape — one partner or nil — and answers the lexicographically smallest.
+  `vaelii.core/inverse-of` is unchanged in arity and return. *Class:* neither label — nothing
+  documented which of two declarations won.
+  [docs/taxonomy.md, "The step relation"](docs/taxonomy.md).
+- **`kb-quality` ranked its capped lists on the handle**, which is assertion order, so two loads
+  of the same knowledge reported the same `:never-count` over a different `:never`. The listed
+  sets rank on content — consequent predicate, then sorted antecedent predicates, the stored
+  sentence breaking a tie within a signature — so the store is read for the listed rules rather
+  than for every rule. *Class:* neither label; `kb-quality` is new in this release.
 - **A prompt is cut by content, and a sample says it is one.** The LLM prompt builders took
-  their lines and *then* sorted them, so the page a model was shown for a term with more
-  mentions than the cap was a prefix of the index's own order — arrival order, since handles
-  are allocated in assertion order — and the same knowledge loaded twice proposed against two
-  different pages. The sort precedes the cut now, at each of the four sites, and the heading
-  tells the model it is looking at a sample rather than the whole record. `:max-scan` (4000)
-  replaces a hidden 4x oversample and is stated rather than derived, the number chosen so the
-  fetch is noise beside the model call the prompt is built for. Guard:
-  `llm_page_test/the-cap-takes-the-content-first-lines-not-the-first-stored`, which
-  discriminates — restoring the take-then-sort makes it pick the first-stored fact over the
-  content-third line. `used-with`'s own scan cap is the one place arrival order still shows,
-  and closing it means walking the extent. *Class:* neither label — `vaelii.impl.llm.*` is
-  impl, and what moves is which lines a model sees. [docs/llm.md](docs/llm.md).
-- **The scan above the cut was ordered by the index, which is not an order at all.** The four
-  sorted cuts sat on top of a `take` over the term index's posting set, and that set is a
-  Clojure **set** rather than a handle-ordered list — so the sample was hash-ordered, moved with
-  the index's representation, and differed between the columnar and KV backends over identical
-  knowledge. The handles are sorted before the cap now, which costs a sort and **no extra record
-  reads**, the posting set being materialized either way. Be exact about what that buys: below
-  the bound a page is a function of the knowledge alone; *at* the bound it is a sample of the
-  term's **earliest** mentions, because ranking sentences by content means fetching all of them,
-  which is the cost the bound exists to refuse. The heading already tells the model it is
-  reading a sample. Guard: the same knowledge asserted in three orders yields one page, and it
-  fails without the sort.
+  their lines and *then* sorted them, so a term with more mentions than the cap was shown a
+  prefix of arrival order, and the same knowledge loaded twice proposed against two different
+  pages. The sort precedes the cut at all four sites, and the heading tells the model it is
+  looking at a sample. `:max-scan` (4000) replaces a hidden 4x oversample. `used-with`'s own
+  scan cap is the one place arrival order still shows, and closing it means walking the extent.
+  *Class:* neither label — `vaelii.impl.llm.*` is impl. [docs/llm.md](docs/llm.md).
+- **The scan above the cut was ordered by the index, which is not an order at all.** Those four
+  cuts sat on a `take` over the term index's posting **set** — hash-ordered, moving with the
+  representation, and differing between the columnar and KV backends over identical knowledge.
+  The handles are sorted before the cap, which costs a sort and no extra record reads. Below the
+  bound a page is a function of the knowledge alone; *at* the bound it is a sample of the term's
+  earliest mentions, ranking by content meaning fetching all of them.
 - **A card's cut is a count, including the cut that was not counted.** `used-with` claimed
-  everything its scan missed was "still offered under a later tier", and that is false for
-  exactly the predicates it exists to find: one used with the term but never declared and never
-  `argIsa`'d lives in that tier alone, so a scan miss drops it from the card rather than
-  demoting it. Its cap is 200 facts, which a common term passes routinely. `:dropped` gains
-  **`:unscanned`** — the facts at each position the scan never read, one O(1) `count-with-arg`
-  apiece and no record fetched — and the card says so in words: *this card did not read N
-  further facts about this term; a relation used only there is not listed above.* Beside it, the
-  fifth site of the ordering bug: `correct.clj` took `first` of a position's `argIsa`
-  declarations, so two contexts declaring one position decided by index order whether a
-  reversed-argument alternative was offered and whether `:confidence` read `:low` or `:medium`.
-  It ranks by **specificity** now — narrowest first, name breaking the tie — which is the honest
-  reading of two constraints, since a term must satisfy both to stand there.
+  everything its scan missed was "still offered under a later tier", which is false for exactly
+  the predicates it exists to find — one used with the term but never declared and never
+  `argIsa`'d lives in that tier alone. `:dropped` gains **`:unscanned`**, one O(1)
+  `count-with-arg` per position, and the card says in words that it did not read N further
+  facts. Beside it, `correct.clj` took `first` of a position's `argIsa` declarations, so two
+  contexts declaring one position decided by index order whether a reversed-argument
+  alternative was offered; it ranks by **specificity** now, narrowest first.
 - **A declaration's supporters were being lost or arbitrarily chosen, and the cycle goal could
-  throw.** Three fixes on one path. The `disjointMetatype` sweep walked the *believed*
-  memberships where it records *supporters*, so a membership defeated at that moment never
-  entered `:cache-handle-keys` and clearing the defeat could never revive it — belief depending
-  permanently on whether the defeat or the declaration arrived first, and the live KB
-  disagreeing with the recovered one over the same store, since `rebuild-taxonomy`'s second
-  pass reads what is stored. It reads `stored-declarations` now, the same helper that pass
-  uses. A KB may state `(functional P)` in two contexts, which is two handles and is refused by
-  nothing, and `derive-functional-equalities` took `first` of them into the justification's
-  antecedents — so retracting that one withdrew a merge the other still licensed, and which it
-  was depended on arrival order; every supporter contributes a justification now
-  (`tax/prop-supporters`), the shape `deduce-lift` already uses. And `(P ?x ?x)` ranked its
-  answers with a bare `sort`: those are terms, a term need not be `Comparable`, and an
-  unreifiable function application stays structural in argument position — so a cycle relating
-  two of them threw `ClassCastException` out of `ask`. It is `sort-by pr-str`, the key this
-  file ranks terms by elsewhere.
+  throw.** The `disjointMetatype` sweep walked the *believed* memberships where it records
+  *supporters*, so a membership defeated at that moment never entered `:cache-handle-keys` and
+  clearing the defeat could never revive it — and the live KB disagreed with the recovered one
+  over the same store. It reads `stored-declarations` now.
+  `derive-functional-equalities` took `first` of a `(functional P)` stated in two contexts, so
+  retracting that one withdrew a merge the other still licensed; every supporter contributes a
+  justification (`tax/prop-supporters`). And `(P ?x ?x)` ranked answers with a bare `sort`,
+  which threw `ClassCastException` out of `ask` on two structural terms; it is `sort-by pr-str`.
 
 **The model backends, the apply path, and what they refuse.**
 
 - **A credential that cannot ride in an HTTP header is refused by name and never by value.**
-  `anthropic/credentials` handed the environment's value straight to
-  `HttpRequest.Builder.header`, and the JDK rejects a CR, LF, control or non-ASCII character with
-  an `IllegalArgumentException` whose message **quotes the value verbatim**. Nothing on that path
-  caught it and the browser renders an error message onto the proposal panel, so a `.env` ending
-  in CRLF — or a `$(cat key)` in a shell that keeps the newline — was one hop from putting an API
-  key on a page. The header call is caught and re-raised as
-  `{:type :llm-bad-credential :header "x-api-key"}`, which names the header and carries no value,
-  and the two environment reads are trimmed so the common case never reaches the JDK. Trimming is
-  not the guarantee — a control character mid-string still gets there — which is why the catch is
-  what the promise in `credentials` rests on. *Class:* Additive: a `:type` where none was.
+  The JDK rejects a CR, LF, control or non-ASCII header character with an
+  `IllegalArgumentException` **quoting the value verbatim**, and the browser renders an error
+  onto the proposal panel — so a `.env` ending in CRLF was one hop from putting an API key on a
+  page. The header call is re-raised as `{:type :llm-bad-credential :header "x-api-key"}`,
+  carrying no value, and the environment reads are trimmed so the common case never reaches the
+  JDK. *Class:* Additive: a `:type` where none was.
 - **A streamed body has a deadline, so a host that goes quiet releases the thread.** A request's
-  `.timeout` bounds the response *arriving*; a streamed turn is almost entirely what comes after
-  that, since the lines are pulled off the socket once `send` has returned — and the browser's
-  page path always streams, which is the one path the option was written for. Both transports
-  read the body under a daemon watchdog that closes it at `:timeout-ms`, measured from before the
-  send so the option bounds the whole turn, and a failure after the watchdog fires is
-  `{:type :llm-timeout :timeout-ms n}` rather than whatever a closed socket raises. *Class:*
-  neither label — a read that outlives the timeout its caller configured is the defect, not a
-  contract anything could depend on.
-- **A 200 whose body is not JSON carries a `:type` like every other refusal here.** A proxy in
-  front of the host answering HTML, or a chunk truncated mid-object, escaped as the JSON
-  library's own exception — the one thing in this tree a caller could not discriminate on. Both
-  transports raise `{:type :llm-bad-response :status s :excerpt …}`, the excerpt bounded at 200
-  characters and in the data rather than the message. *Class:* Additive. Beside them, the `ant`
-  credential probe is killed at five seconds rather than waited on — `available?` reaches it on
-  the request that runs a turn, so a wedged CLI wedged a request thread on what is only a probe —
-  and a backend that probes available and then will not build now logs a warning naming the
-  backend instead of falling through to the stub in silence, with `opts` never in the line since
-  it may carry a credential.
+  `.timeout` bounds the response *arriving*, and a streamed turn is almost entirely what comes
+  after — the path the browser always takes. Both transports read the body under a daemon
+  watchdog that closes it at `:timeout-ms`, measured from before the send, and a failure after
+  it fires is `{:type :llm-timeout :timeout-ms n}`. *Class:* neither label.
+- **A 200 whose body is not JSON carries a `:type` like every other refusal here.** A proxy
+  answering HTML, or a chunk truncated mid-object, escaped as the JSON library's own exception —
+  the one thing here a caller could not discriminate on. Both transports raise
+  `{:type :llm-bad-response :status s :excerpt …}`, bounded at 200 characters and in the data.
+  *Class:* Additive. Beside it the `ant` credential probe is killed at five seconds rather than
+  waited on, and a backend that probes available and then will not build logs a warning naming
+  the backend instead of falling through to the stub in silence.
 - **A turn the model ran out of tokens in was being diffed into proposed deletions.**
-  `:stop-reason` was read only through `refused?`, so `"max_tokens"` was not a status — and on
-  the selection path every row the model never reached came back as a `:remove`, which is a
-  transport artifact rendered to a human reviewer as an intended retraction. Truncation is
-  decided **before** the diff now: `:truncated` is a status on the paths whose answer is diffed
-  (carrying no batch at all, and placed ahead of the tool-use arm so a half-written tool call
-  cannot run) and `:answer-truncated?` is a flag on the additive paths, where a short answer
-  costs assertions rather than proposing a retraction. `propose-page` also lifts `:page-found`
-  and `:page-truncated?` out of metadata into the returned map, where a `select-keys` cannot drop
-  them — the sample heading reached the model and nothing reached the reviewer.
-- **`apply-proposal!` catches, settles, and says what landed.** It calls `edit!`, which
-  `vaelii.core` documents as **not a transaction**: `check-edit` grades each add against the KB
-  as it stands, so two jointly-inconsistent adds both pass, and a throw at entry N left 1..N−1
-  stored **and skipped the settle** — a KB holding a prefix nothing had reconciled, reported to
-  the caller as a bare exception. It returns `{:result :applied :failed-at :error}` now, with the
-  settle run by hand on the failure path, so a partial apply is a believed prefix a caller can
-  read rather than a stranded one. Guard: a `disjoint` batch that `check-batch` passes, asserting
-  `:applied 1`, `:failed-at 1`, and that the settle histogram moved.
+  `:stop-reason` was read only through `refused?`, so every row the model never reached came
+  back as a `:remove` — a transport artifact rendered to a human reviewer as an intended
+  retraction. Truncation is decided **before** the diff: `:truncated` is a status on the diffed
+  paths (carrying no batch, and ahead of the tool-use arm so a half-written tool call cannot
+  run) and `:answer-truncated?` a flag on the additive ones. `propose-page` lifts `:page-found`
+  and `:page-truncated?` into the returned map where a `select-keys` cannot drop them.
+- **`apply-proposal!` catches, settles, and says what landed.** It calls `edit!`, which is
+  documented as **not a transaction**, so a throw at entry N left 1..N−1 stored and **skipped
+  the settle** — a KB holding a prefix nothing had reconciled, reported as a bare exception. It
+  returns `{:result :applied :failed-at :error}`, with the settle run by hand on the failure
+  path.
 - **A `StackOverflowError` reading model text read as "the model proposed nothing".** Every read
-  of model-written EDN caught `Exception`, and a deeply nested form throws an `Error` — the same
-  hole `web.clj` had already closed and stated. Eleven sites across the session, tool, score and
-  oracle namespaces catch `Throwable` now, and the mechanism was measured rather than assumed:
-  the EDN reader overflows around 5,000 nestings, but **`sentex/canon` overflows at 500**, well
-  inside what the reader accepts without complaint, which makes the score path's handle lookup
-  the sharpest of them. Cheshire does not overflow at all — Jackson refuses past depth 1000 with
-  an ordinary exception — so the comment there states the policy rather than a mechanism that
-  does not apply. One of those sites marked its parse failure with `(.getMessage e)`, which is
-  **nil** for a `StackOverflowError`, so the nil fell through to the map branch and returned an
-  empty batch: a crash presented as a model with nothing to say. It names the class now.
-- **The `^:llm` consent gate could be satisfied by a helper that does not consent.** `lein test`
-  makes no model call, held by two independent things — the `^:llm` mark and the
-  `VAELII_LLM_LIVE` gate — and the meta-test that keeps them agreeing accepted *a call to any fn
-  named `live-model`* as proof. One namespace defined a `live-model` that was a bare provider
-  constructor with no gate in it, so a new marked test there calling only that helper would have
-  satisfied both meta-tests and dialled out unconsented. The scanner follows the call now rather
-  than matching the name: it collects the names a file defines whose own source reaches
-  `live-llm?`, to a fixpoint, and consent is proved by calling the gate or one of those. The head
-  regex also takes `defspec`, which brought one more test into scope. Six marked tests, all
-  proving consent; nothing unmarked consents.
+  of model-written EDN caught `Exception`, and a deeply nested form throws an `Error`. Eleven
+  sites catch `Throwable` now, and the depths were measured rather than assumed: the EDN reader
+  overflows around 5,000 nestings and **`sentex/canon` at 500**, well inside what the reader
+  accepts. One site marked its parse failure with `(.getMessage e)` — **nil** for a
+  `StackOverflowError` — so the nil fell through to the map branch and returned an empty batch:
+  a crash presented as a model with nothing to say. It names the class now.
+- **The `^:llm` consent gate could be satisfied by a helper that does not consent.** The
+  meta-test keeping the mark and `VAELII_LLM_LIVE` in agreement accepted *a call to any fn named
+  `live-model`*, and one namespace defined one that was a bare provider constructor with no gate
+  in it. The scanner follows the call now: it collects, to a fixpoint, the names whose own source
+  reaches `live-llm?`, and takes `defspec` as a head too. Six marked tests, all proving consent.
 
 **The taxonomy and its closures.**
 
-- **A `genlContext` edge out of a context that sees another one back never returned.** Three
-  asserts reach it: `(genlContext A B)`, `(genlContext B A)`, then any edge out of `A`. The
-  depth potential ranks the **condensation**, so `A` and `B` are level as one component, and
-  `raise-depth` lifted the single node — which put `A` above its own mate, which forced `B`
-  above `A`, round the cycle without end. The lift moves whole components now, and the
-  condensation being a DAG is what terminates it. `taxonomy_depth_test` bounds the call on a
-  daemon thread rather than trusting it, because a suite that hangs reports nothing.
+- **A `genlContext` edge out of a context that sees another one back never returned.** The depth
+  potential ranks the **condensation**, so `A` and `B` are level as one component, and
+  `raise-depth` lifted the single node — which put `A` above its own mate, round the cycle
+  without end. The lift moves whole components, and the condensation being a DAG terminates it.
+  `taxonomy_depth_test` bounds the call on a daemon thread rather than trusting it.
 - **Retracting one edge of a context cycle cost the whole context graph.** A deletion can split
   a strongly connected component, so `deactivate` surrendered the depth potential and rebuilt
-  every component in the relation: **11.19x across 16x a background the retraction is not
-  about**, where an acyclic edge on the identical KB is flat. An edge can only break the strong
-  connectivity of a component whose induced subgraph it belongs to, so an edge merely
-  *incident* on a cycle is left alone; when both endpoints share one, that component's subgraph
-  is re-run through Tarjan and the pieces ranked against each other and against what they point
-  at. The same retraction reads **0.97x**, and `lein perf` gains
-  `retract-context-cycle-scaling` — the first check in the file to build a context cycle at
-  all, which is why a whole-relation repair per deleted cycle edge stayed invisible.
+  every component: **11.19x across 16x a background the retraction is not about**. An edge can
+  only break the strong connectivity of a component it belongs to, so an edge merely *incident*
+  on a cycle is left alone; the same retraction reads **0.97x**. Gate:
+  `retract-context-cycle-scaling`.
 - **A repeated closure ask reads the answer instead of walking it again.**
   `TransitivePredicateProver`'s open-argument arms hold the reach per
-  `[direction predicate node context]` on the KB, stamped with the change clock: **0.10–0.14x
-  on a repeat over a 2,000- to 8,000-node chain, and no record read at all**. A **closed** goal
-  reads the cache without filling it, since computing a closure to store would charge a two-hop
-  question for the whole extent. The clock is the whole invalidation story and is what makes
-  the cache follow belief — a relabel moves it, so a defeated edge retires the closure that
-  crossed it. The bound counts **members**, not entries. **Additive**: no answer moves, and
-  `caches`/`clear-caches` show and drop it like every other.
+  `[direction predicate node context]`, stamped with the change clock: **0.10–0.14x on a repeat
+  over a 2,000- to 8,000-node chain, and no record read at all**. A **closed** goal reads the
+  cache without filling it, computing a closure to store charging a two-hop question for the
+  whole extent. The clock is the whole invalidation story and is what makes the cache follow
+  belief. **Additive**: no answer moves.
   [docs/taxonomy.md, "What is cached, what is not, and why"](docs/taxonomy.md).
-- **`(P ?x ?x)` cost a closure per node to answer nothing.** The one-variable arm of a
-  declared-transitive goal asked `reaches?` of every source term, and `reaches?` walks that
-  source's whole reach in order to *fail* — so an acyclic chain, which is what a `before` or
-  `partOf` relation ordinarily is, cost O(n²) to answer the empty set it always answers. It is
-  one iterative Tarjan condensation over the step relation now (`on-a-cycle`, O(V+E));
-  iterative because a component's depth is a chain's length. The answers are unchanged.
+- **`(P ?x ?x)` cost a closure per node to answer nothing.** The one-variable arm asked
+  `reaches?` of every source term, and `reaches?` walks that source's whole reach in order to
+  *fail* — so an acyclic chain cost O(n²) to answer the empty set it always answers. One
+  iterative Tarjan condensation over the step relation now (`on-a-cycle`, O(V+E)). The answers
+  are unchanged.
 - **A transitive predicate's hops are the believed matches, and the inverse spelling is one of
-  them.** `(transitive before)` walked stored `before` facts, so `(inverse before after)` on
-  the same relation left every hop recorded as an `after` fact off the graph — the chain broke
-  mid-walk and the answer came back negative with no diagnostic, on a shape that is ordinary
-  temporal modelling. `succs` / `preds-of` probe the partner literal beside the direct one,
-  deduped as a set of neighbour terms; the probe is a `matches-visible` call and never a goal
-  handed back to the registry, which keeps the step relation a function of the KB alone.
-  `(inverse P P)` is a legal declaration and now a storable one — the flat-cache key was the
-  checked `#{p q}` literal, which threw `Duplicate key` out of `assert`. *Migration:* an `ask`
-  over a declared-transitive predicate returns **at least** what it did and never less, so the
-  only caller affected is one that counted on an inverse-recorded hop being invisible —
-  including through negation as failure, since `unknown` and `exceptWhen` read the same list.
-  *Class:* neither label, on §3.8's own precedent: an author who declared
-  `(inverse before after)` and got a walk that ignored every `after` fact was not getting what
-  they believed, which is the case Go's compatibility promise exempts and SemVer calls an
-  internal change that fixes incorrect behavior.
+  them.** `(transitive before)` walked stored `before` facts, so `(inverse before after)` left
+  every `after`-recorded hop off the graph — the chain broke mid-walk and answered negative with
+  no diagnostic. `succs` / `preds-of` probe the partner literal beside the direct one, as a
+  `matches-visible` call rather than a goal handed back to the registry. `(inverse P P)` is a
+  legal declaration and now a storable one. *Migration:* an `ask` over a declared-transitive
+  predicate returns **at least** what it did and never less, so the only caller affected is one
+  that counted on an inverse-recorded hop being invisible — including through `unknown` and
+  `exceptWhen`, which read the same list. *Class:* neither label, on §3.8's own precedent.
   [docs/taxonomy.md, "The step relation"](docs/taxonomy.md).
 - **The closure walk's per-edge cost is measured, and the record fetch is the minority of it.**
-  A walk of *n* nodes pays *n* `get-sentex` calls, and `lein bench-walk` times the walk against
-  a direct sweep over the same records on the same mount rather than assuming the share. What
-  it finds is a threshold rather than a slope, and the threshold is the hot-record LRU's
-  capacity: under it a `:disk` fetch is 0.06 µs and *cheaper* than the `:memory` one; past it
-  the fetch is a page-in at 3.03 µs and reaches 21% of the hop, with the `:disk` walk at 0.61x
-  the `:memory` one. `:disk-memory` lands with `:disk` at every size, which says the record
-  store is the whole of the difference. [docs/taxonomy.md, "What one hop costs"](docs/taxonomy.md),
-  [docs/storage.md](docs/storage.md).
+  `lein bench-walk` times an *n*-node walk against a direct sweep over the same records on the
+  same mount. What it finds is a threshold rather than a slope, and the threshold is the
+  hot-record LRU's capacity: under it a `:disk` fetch is 0.06 µs and *cheaper* than the `:memory`
+  one; past it the fetch is a page-in at 3.03 µs and reaches 21% of the hop.
+  [docs/taxonomy.md, "What one hop costs"](docs/taxonomy.md), [docs/storage.md](docs/storage.md).
 
 **Reified NATs, and what a retraction sweeps.**
 
-- **A unary fact about a reified NAT was deleted with the constant, silently.** One clause of
-  the orphan sweep matched on **arity alone**: any believed `(p K)` read as a materialized
-  `resultIsa` type with no test that anything had declared one, so `(prime (PrimeFn Seven))` —
-  a claim somebody asserted — made `K` look orphaned the moment its other uses went, and the
-  sweep retracted the claim with the constant. No error, no report. Bookkeeping is decided by
-  **authorship** now: `nat/minted-for` re-derives what `mint-nat!` wrote from the same believed
-  declarations the mint read, and everything else naming `K` is somebody's assertion whatever
-  its arity. `nat_test` gains the two cases that separate the readings. The one constant this
-  keeps that arity would have collected is one whose `resultIsa` was retracted after the mint —
-  and holding it is the direction to err in. *Class:* neither label. The set of sentexes
-  surviving a retraction moves in both directions here, which is observable — but a caller
-  whose unary claim about a reified constant was being deleted underneath them was not getting
-  what they believed, and the materialized `(T K)` this now keeps is a believed sentence nobody
-  has withdrawn.
-- **One retraction cost what the whole KB had ever reified.** The sweep asked "which constant
-  is orphaned?" by matching `(termOfUnit ?k ?e)` — every NAT in the KB — after every teardown
-  and to a fixpoint, so retracting a plain fact that names no NAT cost **16.70x across 16x the
-  NATs the retraction is not about**, linear, which on a corpus of OpenCyc's order is seconds
-  per retraction. No benchmark saw it, because the sweep is gated on the KB declaring a
-  `reifiableFunction` and no synthetic probe declares one. It asks only about the constants the
-  teardown's own removals named (`nat/constants-named-by` → `nat/orphaned-among`), each settled
-  by one inverted-term-index read: **1.22x across the same 16x**, and flat is the claim, gated
-  by `retract-nat-scaling`. The teardown also stopped reading the expression and the
-  correspondence declarations at all — `assert_cost_test`'s `nat-orphan-teardown` re-pins from
-  1,700 functor-root reads to 1,400 and from 100 trie-lookups to none.
+- **A unary fact about a reified NAT was deleted with the constant, silently.** One clause of the
+  orphan sweep matched on **arity alone**, so `(prime (PrimeFn Seven))` — a claim somebody
+  asserted — made `K` look orphaned once its other uses went, and the sweep retracted the claim
+  with the constant. No error, no report. Bookkeeping is decided by **authorship** now:
+  `nat/minted-for` re-derives what `mint-nat!` wrote from the same believed declarations, and
+  everything else naming `K` is somebody's assertion whatever its arity. The one constant this
+  keeps that arity would have collected is one whose `resultIsa` was retracted after the mint,
+  and holding it is the direction to err in. *Class:* neither label — the surviving set moves in
+  both directions, but a caller whose unary claim was being deleted underneath them was not
+  getting what they believed.
+- **One retraction cost what the whole KB had ever reified.** The sweep asked "which constant is
+  orphaned?" by matching `(termOfUnit ?k ?e)` — every NAT in the KB — after every teardown and
+  to a fixpoint: **16.70x across 16x the NATs the retraction is not about**, linear, which on a
+  corpus of OpenCyc's order is seconds per retraction. No benchmark saw it, the sweep being
+  gated on a declared `reifiableFunction` that no synthetic probe declares. It asks only about
+  the constants the teardown's own removals named, one inverted-term-index read apiece:
+  **1.22x**, gated by `retract-nat-scaling`.
 - **A teardown records only what a sweep will read.** `integrate/removal-sink` retains every
-  sentex that leaves the store for the length of a teardown, which on a cascade is the whole
-  cascade held in a vector — and it exists for the reified-NAT orphan sweep, which is itself
-  gated on the KB declaring a reifiable function. The gate now decides whether the record is
-  kept, so a KB that reifies nothing pays nothing. `edit!` reads the sink before its adds, so a
-  batch declaring the KB's first reifiable function finds a nil sink and takes the whole-KB arm
-  — the stricter question, and the right one for a batch that has only just made reification
-  possible.
-- **The removals reach that sweep through `integrate/*removed-sink*`**, because they arrive
-  from three places and only one is the caller's: the dependency-directed sweep, the settle
-  that follows it, and the orphan sweep's own retractions. The third is what makes the region
-  grow with the fixpoint, so a NAT nested in a collected orphan's expression is still collected
-  rather than left dangling as a raw `nat/` symbol. `preview`'s rollback keeps the whole-KB
-  sweep and says why: the batch it undoes runs with the settle sweep off, so the claim it owes
-  is about all of the KB. A use that merely stops being **believed** is not a use that went and
-  does not make its constant a candidate — collecting on a defeated use would delete the
-  `termOfUnit` map while a stored sentence still names the constant. `nat_test` gains the
-  cascade case and the settle-swept case.
+  sentex that leaves the store for the length of a teardown — on a cascade, the whole cascade in
+  a vector — and it exists for a sweep that is itself gated on a declared reifiable function.
+  The gate decides whether the record is kept, so a KB that reifies nothing pays nothing.
+  `edit!` reads the sink before its adds, so a batch declaring the KB's first reifiable function
+  finds a nil sink and takes the whole-KB arm.
+- **The removals reach that sweep through `integrate/*removed-sink*`**, arriving from three
+  places of which only one is the caller's: the dependency-directed sweep, the settle that
+  follows, and the orphan sweep's own retractions — the third being what makes the region grow
+  with the fixpoint, so a NAT nested in a collected orphan's expression is collected rather than
+  left dangling. A use that merely stops being **believed** is not a use that went.
 
 **The change feed, and the daemon under load.**
 
 - **The change feed crosses the process boundary, as a subscription with a cursor.** `watch`
-  takes a function and a function does not cross an EDN wire, so the daemon's half is the one
-  thing request/response can carry: `:watch` answers a token, `:poll` reads that subscription's
-  ring forward from an integer cursor, `:unwatch` drops it, `:watchers` says what is open. All
-  four live in `serve/feed-ops` rather than `serve/ops`, which is what keeps a subscription out
-  of the model's tool set. `:lagged` is on every reply rather than only the bad ones, since a
-  feed with a silent gap is worse than polling; `{:wait-ms n}` parks the request outside the
-  write monitor, capped at 30 s. A test drives a batch through `POST /op` and compares the
-  wire's events against an in-process listener's after a full EDN round trip.
+  takes a function and a function does not cross an EDN wire, so the daemon's half is what
+  request/response can carry: `:watch` answers a token, `:poll` reads that subscription's ring
+  forward from an integer cursor, `:unwatch` drops it, `:watchers` says what is open. All four
+  live in `serve/feed-ops` rather than `serve/ops`, which is what keeps a subscription out of
+  the model's tool set. `:lagged` is on every reply rather than only the bad ones, and
+  `{:wait-ms n}` parks the request outside the write monitor, capped at 30 s.
   [docs/feed.md, "Across the wire"](docs/feed.md).
 - **A parked long poll held a thread nothing counted, so the feed could stall the daemon it
-  exists to keep live.** Moving the wait outside the write monitor stops a parked poll blocking
-  the *writer* and does nothing about the *worker threads*, which were never bounded — ring's
-  pool defaults to 50, the subscription ceiling was 64, and nothing related the two. 55
-  concurrent polls drove the pool to 50/50 busy and `/health` from 62 ms to 25,997 ms, and one
-  subscription was enough, since nothing bounded polls per token. `subscribe/max-parked` (16)
-  bounds how many may wait and `serve/http-threads` (50) is stated rather than defaulted so the
-  pair is checkable. Over the ceiling a poll *asking to wait* is refused
-  (**`:too-many-waiters`**, 400) and told to poll on a timer; one that does not ask, or whose
-  events are already there, is never refused. *Class:* neither label, and the reason is the
-  same for every refusal in this run of entries — the feed itself is new in this release, so
-  there is no 0.5.0 caller to have written against the unbounded shape.
+  exists to keep live.** 55 concurrent polls drove ring's 50-thread pool to 50/50 busy and
+  `/health` from 62 ms to 25,997 ms, one subscription being enough since nothing bounded polls
+  per token. `subscribe/max-parked` (16) bounds how many may wait and `serve/http-threads` (50)
+  is stated rather than defaulted so the pair is checkable. Over the ceiling a poll *asking to
+  wait* is refused (**`:too-many-waiters`**, 400); one that does not ask, or whose events are
+  already there, is never refused. *Class:* neither label — the feed is new in this release.
 - **Two ways the feed could be taken down or lied to, and the bounds that stop them.**
-  `{:wait-ms 1e300}` answered 500: the option was validated as a `number?`, which admits a
-  magnitude no long holds and admits `##NaN`, which coerced to 0 and turned the long poll into
-  one that answers instantly forever — it is `nat-int?` now, capped before the coercion rather
-  than after. And a subscription dropped *while it was being registered* took the whole feed
-  down permanently: an unguarded `assoc-in` **recreated** an entry that had gone, with no
-  `:polled-at` in it, so `reap` — which runs at the head of every feed op — read `(- at nil)`
-  and threw for every later call on that daemon. Guarded like its two siblings now. What one
-  caller can allocate is bounded three ways, since nothing authenticates `POST /op` on the
-  loopback default: 64 subscriptions, 256 events per ring, and one nobody has polled inside
-  five minutes reaped at the next call. Reaching a ceiling refuses the **new** subscription
-  (`:too-many-subscriptions`) rather than evicting somebody else's. *Class:* neither label —
-  new surface refusing input it never shipped accepting.
-- **The ceilings bound the event count, not the bytes**, and `docs/feed.md` says so: an event
-  carries one settle's whole relabelled region, and 20 batches of 500 facts left one abandoned
-  subscription holding 10,000 preview entries. `:watchers` is what an operator reads against
-  that, and it reports `:delivered` and `:pending` — both client docstrings said `cursor`, the
-  one word neither field may use, since neither number is the reader's position.
-  `vaelii.client/watchers`, `vaelii.serve/feed-ops` and `vaelii.serve/op-names` join
-  `public_api_test`'s roster, which is a subset check and had been letting them through
-  unnamed. The browser is untouched, and that is a decision: its live regions poll an htmx
-  fragment, which is the right pattern for a progress bar, and a job's percentage is not belief
-  moving.
+  `{:wait-ms 1e300}` answered 500: validated as `number?`, which admits a magnitude no long
+  holds and admits `##NaN`, which coerced to 0 and made the long poll answer instantly forever.
+  It is `nat-int?`, capped before the coercion. And a subscription dropped *while it was being
+  registered* took the whole feed down permanently: an unguarded `assoc-in` recreated an entry
+  with no `:polled-at`, so `reap` — at the head of every feed op — threw for every later call on
+  that daemon. What one caller can allocate is bounded three ways, nothing authenticating
+  `POST /op` on the loopback default: 64 subscriptions, 256 events per ring, and one unpolled
+  for five minutes reaped at the next call. A ceiling refuses the **new** subscription
+  (`:too-many-subscriptions`) rather than evicting somebody else's. *Class:* neither label.
+- **The ceilings bound the event count, not the bytes**, and [docs/feed.md](docs/feed.md) says
+  so: an event carries one settle's whole relabelled region, and 20 batches of 500 facts left
+  one abandoned subscription holding 10,000 preview entries. `:watchers` reports `:delivered`
+  and `:pending` — both client docstrings said `cursor`, the one word neither may use, neither
+  number being the reader's position. `vaelii.client/watchers`, `vaelii.serve/feed-ops` and
+  `vaelii.serve/op-names` join `public_api_test`'s roster, a subset check that had been letting
+  them through unnamed. The browser is untouched, and that is a decision: its live regions poll
+  an htmx fragment, and a job's percentage is not belief moving.
 
 **Conjunctive query planning.**
 
 - **Planning one fixed conjunction is flat in the size of the KB, and a gate says so.** The cost
   model divides by the trie's distinct-value count at a position and asked for it once per
-  literal per plan — and `(count (children …))` answers that by *materializing* the child set,
-  so planning a conjunction that never changed cost 25x more against 32x the facts, per rule
-  expansion, per node in the node engine and per `prove` call. `p/count-children` is the same
-  number off a cardinality instead. **Additive** — a new `IndexStore` read, and the two
-  implementations of that protocol are the only ones that owed it. `lein perf` gains
-  `plan-scaling`, which reads flat with the count and 24.6x without, and `backend_parity_test`
-  carries the new read. The O(1) has one exception and it is the overlay's merge rule, which
-  `overlay_test` holds to the same answer at every depth.
+  literal per plan, and `(count (children …))` answers that by *materializing* the child set —
+  25x more against 32x the facts, per rule expansion, per node, per `prove` call.
+  `p/count-children` is the same number off a cardinality. **Additive** — a new `IndexStore`
+  read, owed by the two implementations of that protocol. `plan-scaling` reads flat with the
+  count and 24.6x without; the one exception is the overlay's merge rule.
   [docs/indexing.md](docs/indexing.md), [docs/overlay.md](docs/overlay.md).
 - **A conjunction is costed as a join rather than as a column of literals.** `plan/est-rows`
-  sits beside `est-matches` and answers the other question — not *can* this literal fan out, a
-  sound upper bound, but *how much*, an expectation that is wrong in both directions and
-  composes for exactly that reason. It returns the relation's shape
-  (`{:rows 400 :vars #{?x ?y} :distinct {?x 20}}`), and the planner threads that summary
-  through its fold, so the *k*-th pick is costed against the rows reaching it rather than
-  against its own extent. Two literals that each look cheap can join to something enormous; on
-  a rule with three or more antecedents a per-literal count's error is multiplicative.
+  answers the question `est-matches` does not — not *can* this literal fan out, a sound upper
+  bound, but *how much*, an expectation wrong in both directions and composing for exactly that
+  reason. It returns the relation's shape (`{:rows 400 :vars #{?x ?y} :distinct {?x 20}}`) and
+  the planner threads it through its fold, so the *k*-th pick is costed against the rows
+  reaching it. On three or more antecedents a per-literal count's error is multiplicative.
   [docs/inference.md, "Conjunctive query planning"](docs/inference.md).
 - **A count the trie read beats one inferred.** `:distinct` holds only the column the walk can
-  reach — the trie narrows left to right — and the join divides by the larger of the counts the
-  two sides *read*. Where neither read it the model falls back on a proxy rather than dividing
-  by nothing, because calling that join a cartesian product is the error that compounds fastest
-  with depth. A variable repeated inside one literal is the same join and priced the same way.
-  **No statistics table**: every number is already in the count-aware trie, and a second source
-  of truth about cardinality would need maintaining on every write. The generators are split
-  into blocks — two literals sharing a variable are one connected component — and the blocks are
-  ranked by adjacent transposition, a descending sort on `s/(n−1)`, optimal in O(k log k), with
-  two placements outside the law because they are claims an estimate cannot make: a block
-  *proved* to match at most once runs first, and the block reached by the caller's bindings, the
-  evaluables or the recursive literal runs before the rest.
+  reach, and the join divides by the larger of the counts the two sides *read*; where neither
+  read it the model falls back on a proxy rather than calling the join a cartesian product,
+  which is the error that compounds fastest with depth. **No statistics table**: every number is
+  already in the count-aware trie. The generators are split into blocks — two literals sharing a
+  variable are one connected component — ranked by adjacent transposition, a descending sort on
+  `s/(n−1)`, with two placements outside the law because they are claims an estimate cannot
+  make: a block *proved* to match at most once runs first, and so does the block reached by the
+  caller's bindings, the evaluables or the recursive literal.
 - **The estimator is measured before the plans are, and `lein bench-plan` reports the curve.**
   q-error per join depth is the go/no-go: flat in the depth means the estimates compose. It
   reads **1.00 at every depth through six literals** on a uniform chain, and 1.00 / 2.75 / 2.87
-  on a corpus built to break the independence assumption — wrong, and flat, where a model whose
-  error compounded per join would read about 7.5 at depth 3. Against an oracle over all 24
-  permutations of randomized four-way joins the planned order runs a mean **1.13x** the best
-  possible (2.18x before), and the same conjunction as a **rule's** antecedents runs 7.1x and
-  8.4x faster planned at four and five antecedents. Two assumptions are stated rather than
-  pretended away — independence, and that the counts span every context where a read is scoped
-  to one — and `plan_test` pins all three consequences.
-- **`query-plan` carries the numbers the order turned on.** Additive: a join plan's rows gain
-  `:est-rows`, `:est-prefix` and `:block` beside the `:est-matches` already there, and the
-  browser's plan table shows the same columns. The three together are what makes a surprising
-  plan diagnosable — a literal placed early on a small `:est-matches` whose `:est-prefix` then
-  jumps is the model being wrong about a *join*, not about a literal. They are read off the plan
-  that ran rather than recomputed beside it, through the same two calls the planner costs with.
+  on a corpus built to break the independence assumption — wrong, and flat, where a compounding
+  model would read about 7.5 at depth 3. Against an oracle over all 24 permutations of
+  randomized four-way joins the planned order runs a mean **1.13x** the best possible (2.18x
+  before), and the same conjunction as a rule's antecedents runs 7.1x and 8.4x faster planned at
+  four and five antecedents. Two assumptions are stated rather than pretended away.
+- **`query-plan` carries the numbers the order turned on.** Additive: `:est-rows`,
+  `:est-prefix` and `:block` beside the `:est-matches` already there, in the browser's plan table
+  too. A literal placed early on a small `:est-matches` whose `:est-prefix` then jumps is the
+  model being wrong about a *join*, not about a literal. They are read off the plan that ran.
 
 **The browser: jobs, caches, and a reading of the knowledge.**
 
 - **Long work is one mechanism: a job registry, and the screen that watches it.**
-  `vaelii.impl.jobs` holds every operation that takes minutes rather than milliseconds — filling
-  a KB from a corpus, writing one back out, joining every rule over everything stored — with one
+  `vaelii.impl.jobs` holds every operation that takes minutes rather than milliseconds, with one
   status vocabulary (`:running` → `:cancelling` → `:done` / `:cancelled` / `:failed`), one
-  progress reading and one cancel. The browser gained `/jobs`, `/jobs/rows` (a self-terminating
-  poll) and `/jobs/cancel`; a job survives the request that started it, so closing the tab stops
-  nothing. A finished job's report stays an hour and nothing unsettled is ever dropped, because
-  forgetting a job releases its writer claim and a thread still running is still writing. The
-  catalog's load and export were **moved onto** the registry rather than left beside it, so the
-  panel and the loader can no longer tell two stories.
-  [docs/web.md, "Long work as jobs"](docs/web.md).
+  progress reading and one cancel; the browser gained `/jobs`, `/jobs/rows` and `/jobs/cancel`.
+  A job survives the request that started it, a finished job's report stays an hour, and nothing
+  unsettled is ever dropped, since forgetting a job releases its writer claim while a thread
+  still running is still writing. The catalog's load and export were moved **onto** the registry
+  rather than left beside it. [docs/web.md, "Long work as jobs"](docs/web.md).
 - **`POST /chain` is a job, with the derivation bound on the form.** A fixpoint over a corpus was
   minutes of this process's one writer inside a request, with nothing on screen and no way to
-  stop it short of killing the browser. It reports about four times a second, takes a cancel at
-  its next report, and carries `:max-derivations` as a field — and a run that settles inside 250
-  ms still answers with the `/stats` page and its derivation count, so nothing small acquires a
-  spinner. What a stopped run leaves is stated beside the button: a KB holding a prefix of the
-  run rather than a corrupt one.
+  stop it. It reports about four times a second, takes a cancel at its next report, and carries
+  `:max-derivations`; a run that settles inside 250 ms still answers with the `/stats` page, so
+  nothing small acquires a spinner. What a stopped run leaves is stated beside the button.
 - **A second writing job is refused as `:job-busy`, where a second load answered `:busy`.** One
   job writes at a time — a load and a chaining run each claim the writer, an export claims
-  nothing — and the refusal names the job that holds it rather than queueing behind it. **Not
-  Breaking**: `:busy` was thrown at one site in `vaelii.impl.catalog` and read by
-  `vaelii.impl.web` alone, both inside the impl boundary, so no caller the boundary covers could
-  discriminate on it. It carries an entry because `type_contract_test` holds every `:type` in
-  the sources, public surface or not.
-- **The browser's status words are the registry's**, so an entry on `/kbs` says `running` and
-  `done` where it said `loading` and `ready`, and the CSS classes move with them. A
-  screen-scraper is the only caller that can observe this; the vocabulary being one rather than
-  two is the point.
-- **What this process is holding, on a page — caches, heap, and the profiler.** `/kbs` measured
-  heap; nothing measured what the engine holds *beside* the store, which is a dozen derived
-  structures whose whole purpose is that a repeated question is not recomputed. `caches` is one
-  read over all of them — entries, the bound they are cleared wholesale at, what one entry
-  counts, and the hit rate where anything counts one — and `/caches` renders it beside the heap
-  strip it reuses. A hit rate is the cost model's report card: "the second query was fast" is a
-  demo, and "because it was served from a cache, and here is the rate" is evidence. `/stats`,
-  `/kbs` and `/jobs` each carry a line to it, and a test asserts all three. `VAELII_PROFILER`
-  starts `clj-async-profiler`'s UI with the browser (`VAELII_PROFILER_PORT` moves it off 8080)
-  through a `requiring-resolve`, so it exists without the dependency and says so when the class
-  is absent rather than linking to a port nothing is listening on.
+  nothing — and the refusal names the job that holds it. **Not Breaking**: `:busy` was thrown at
+  one impl site and read by one impl namespace. It carries an entry because
+  `type_contract_test` holds every `:type` in the sources.
+- **The browser's status words are the registry's**, so `/kbs` says `running` and `done` where it
+  said `loading` and `ready`. A screen-scraper is the only caller that can observe it.
+- **What this process is holding, on a page — caches, heap, and the profiler.** Nothing measured
+  what the engine holds *beside* the store, which is a dozen derived structures whose whole
+  purpose is that a repeated question is not recomputed. `caches` is one read over all of them —
+  entries, the bound they are cleared at, what one entry counts, and the hit rate where anything
+  counts one — rendered at `/caches`. A hit rate is the cost model's report card. `VAELII_PROFILER`
+  starts `clj-async-profiler`'s UI through a `requiring-resolve`, so it exists without the
+  dependency and says so when the class is absent.
   [docs/web.md, "What this process is holding"](docs/web.md).
 - **A number's scope is part of the answer, because two of them differ.** A row carries `:scope`
-  for what its entries count and `:counters` for what its hit and miss counters count, and the
-  literal cache is the awkward case: its entries are one KB's and its counters are global across
-  every KB in the process. Rendering the second as the first attributes another KB's work to
-  this one, so the page says *rates: this process* and a test asserts it with two live KBs.
-  `:unit` is on every row for the neighbouring reason, and `:limit` takes a thunk where the
-  bound is a dynamic var — the field a reader consults to ask whether a cache is about to flush
-  is the last one that may be stale.
+  for what its entries count and `:counters` for what its counters count: the literal cache's
+  entries are one KB's and its counters are global, so rendering the second as the first
+  attributes another KB's work to this one. `:unit` is on every row for the neighbouring reason,
+  and `:limit` takes a thunk where the bound is a dynamic var.
 - **The list is complete rather than merely finite.** Every cache-holding namespace declares
-  itself into a register at load, so there is no central list to forget to add to — and a cache
-  in a namespace this process never loaded has no row at all, which is the honest answer where a
-  row of zeroes would claim a cache that does not exist. Two tests hold the line: a roster, and
-  a scan of the sources for the bounded-cache constant. A row that throws is reported as a cache
-  that could not answer, and costs its own row and no other.
+  itself into a register at load, so there is no central list to forget — and a cache in a
+  namespace this process never loaded has no row, which is the honest answer where a row of
+  zeroes would claim a cache that does not exist. A row that throws is reported as a cache that
+  could not answer, and costs its own row and no other.
 - **The clear is a measuring instrument, not an edit — and `clear-caches` took a KB and reached
-  past it.** It drops every derived cache and reports what went; nothing is destroyed, since
-  every entry is derived, so it is bare rather than `!`, moves no belief, holds no writer, and
-  is usable *while* a load runs. It leaves the structural caches alone, where dropping entries
-  costs the sharing they exist for. But it also reset the literal cache's hit and miss counters,
-  which are process-wide — so asking one KB to drop its entries zeroed the rate every other KB
-  in the JVM was reporting, mid-measurement. The counter reset is `{:counters? true}` now, off
-  by default and named at the call site, with `:counters-reset` in the reply;
-  `literal-cache/clear-cache` drops entries only and `literal-cache/reset-counters` is the wider
-  control it was split from. *Class:* neither label — `clear-caches` is new in this release and
-  has never shipped with the wider behaviour.
+  past it.** It drops every derived cache and reports what went; nothing is destroyed, so it is
+  bare rather than `!`, moves no belief, holds no writer, and is usable *while* a load runs. It
+  also reset the literal cache's process-wide hit and miss counters, so asking one KB to drop
+  its entries zeroed the rate every other KB in the JVM was reporting. That reset is
+  `{:counters? true}` now, off by default, with `:counters-reset` in the reply. *Class:* neither
+  label — `clear-caches` is new in this release.
 
 **The shipped ontology.**
 
 - **The shipped ontology decontextualizes predicate metadata and nothing else.**
   `SocietyContext` declared `(decontextualizedPredicate marriedTo)`, the one *domain* relation
-  carrying a mark the rest of the ontology reserves for claims about a **predicate**. A marriage
-  stated in any context was therefore deduced into UniverseContext and became a claim of the
-  whole KB, so a story, a jurisdiction or a hypothesis could not hold one the rest of the KB did
-  not share. It also reached past what the declaration names: a rule fires on the lifted copy
-  too, so `SocialContext`'s marriage rule placed `knows` within reach of every data context —
-  **decontextualized by consequence**, declared nothing. The declaration is gone; `marriedTo`
-  keeps `symmetric`, and a KB that wants marriages lifted asserts the declaration itself, where a
-  reader of that KB can see it. A roster test pins the shipped set to the metadata marks plus
-  `genlContext`. *Class:* no label — ontology **content**, not the surface a caller writes
-  against (§3.8); what `decontextualizedPredicate` means is unchanged.
-  [docs/contexts.md, "What the shipped ontology declares it of"](docs/contexts.md).
+  carrying a mark the rest of the ontology reserves for claims about a **predicate** — so a
+  marriage stated anywhere became a claim of the whole KB, and a story, jurisdiction or
+  hypothesis could not hold one the rest of the KB did not share. It reached past what the
+  declaration names, too: a rule fires on the lifted copy, so `SocialContext`'s marriage rule put
+  `knows` within reach of every data context. The declaration is gone; `marriedTo` keeps
+  `symmetric`, and a KB that wants marriages lifted asserts the declaration where its reader can
+  see it. *Class:* no label — ontology **content**, not the surface a caller writes against
+  (§3.8). [docs/contexts.md, "What the shipped ontology declares it of"](docs/contexts.md).
 - **Every argument position in the shipped ontology is declared.** 227 `argIsa` / `argGenl`
   declarations across `CoreContext` and the four upper contexts that carried none, at `thing`
-  throughout — the point being that every position is *stated*, not that any is narrowed, since a
-  constraint at the root never convicts. What that buys is schema completeness, a wrong-position
-  refusal, and an edit rather than an addition when a position is later narrowed.
-  `argGenl genl 2` is the single position left undeclared and `CoreContext` says why beside it.
-  [docs/argtypes.md](docs/argtypes.md).
+  throughout — the point being that every position is *stated*, not that any is narrowed. What it
+  buys is schema completeness, a wrong-position refusal, and an edit rather than an addition when
+  a position is later narrowed. `argGenl genl 2` is the one position left undeclared, and
+  `CoreContext` says why beside it. [docs/argtypes.md](docs/argtypes.md).
 - **Six types enter the upper ontology, and the declarations narrow onto them**, so an argument
   constraint refuses something rather than only recording that the position was considered.
   `spatial_thing` takes `physical_object` beneath it, `time_point` sits under `temporal_thing`,
   `function` beside `predicate`, and `integer`, `character_string` and `context` name themselves.
-  Space takes `spatial_thing` on all 100 of its positions, Time takes `temporal_thing` on 46 and
-  `time_point` on 16 — meeting at `startOf` and `endOf` — and the meta-vocabulary takes
-  `predicate`, `function`, `context`, `integer` and `character_string` where it held `thing`, so
-  `(before genlContext genl)` is an `:arg-type` refusal. A position stays at `thing` where that
-  is the true answer and says so at the site. *Class:* no label — `resources/kb/` is ontology
-  **content** rather than the surface a caller writes against (§3.8), and what it owes instead
-  is the roster that pins the shipped set, which is `vocabulary_audit_test` over
-  `vaelii.impl.vocabulary`. *Migration:* a KB built on the shipped Space or Time vocabulary can
-  be refused where 0.5.0 accepted it — the refusal names its convicting declaration, so widen
-  that declaration or state the argument at a type the position admits.
+  Space takes `spatial_thing` on all 100 of its positions, Time `temporal_thing` on 46 and
+  `time_point` on 16, and the meta-vocabulary takes `predicate`, `function`, `context`, `integer`
+  and `character_string` where it held `thing` — so `(before genlContext genl)` is an `:arg-type`
+  refusal. *Class:* no label — ontology content (§3.8); what it owes instead is the roster that
+  pins the shipped set, `vocabulary_audit_test`. *Migration:* a KB built on the shipped Space or
+  Time vocabulary can be refused where 0.5.0 accepted it — the refusal names its convicting
+  declaration, so widen that or state the argument at a type the position admits.
 - **Flight is a capability of a kind, and the kind that cannot is an exception.** `flies` was a
-  verb-shaped one-place predicate, which says the thing in a shape that cannot be generalized:
-  every further ability needs a further predicate and nothing relates them. It is
-  `(hasCapability bird flying)` now, and `canTravel` goes the same way for the same reason —
-  `travelling` is a capability and `flying` a kind of it, so what flies travels off the `genl`
-  closure rather than off a second rule. Three nouns enter the upper ontology: `capability`
-  under `intangible`, with `flying` and `travelling` under it, so the abilities form a hierarchy
-  where two predicates formed nothing. `hasCapability` is read at **both** levels and carries no
+  verb-shaped one-place predicate, which says the thing in a shape that cannot be generalized. It
+  is `(hasCapability bird flying)` now, and `canTravel` goes the same way — `travelling` is a
+  capability and `flying` a kind of it, so what flies travels off the `genl` closure rather than
+  off a second rule. Three nouns enter the upper ontology: `capability` under `intangible`, with
+  `flying` and `travelling` under it. `hasCapability` is read at **both** levels and carries no
   `relationKind`: `(hasCapability bird flying)` says the kind flies, `(hasCapability Tweety
-  flying)` says one bird does, and a rule joins them rather than either being the other — the
-  quantifier between them being the one this KB has always declined to guess. Its first position
-  takes `argIsa` and not `argGenl` even though it holds a kind half the time, `argGenl` being
-  the one argument check that is not open-world about an individual. The exception is written
-  twice, because there are two things to except: `(not (hasCapability penguin flying))` at the
-  kind, which stops what `penguin` inherited through `(argPreserving hasCapability 1 genl)` and
-  leaves crow and eagle flying, and an `exceptWhen` on the descent rule at the member.
-  `ontology_test` is where the mini-ontology's modelling decisions are pinned. *Class:* no
-  label — ontology **content** rather than the surface a caller writes against (§3.8).
-- **`has-prop?` and `props` accept every kind the engine marks.** `::prop-kind`, the spec gating
-  both, named six of the ten kinds the special table records — so `:asymmetric`, which
-  `has-prop?`'s own docstring and `docs/api.md` both list, along with `:abducible`,
-  `:reifiable` and `:unreifiable`, were documented calls that **instrumentation refused**.
-  Uninstrumented callers never saw it, which is why it sat there. `prop-entry` records its kind
-  in the table entry under `:prop`, so the roster is derivable from the vocabulary that defines
-  it, and `special-table-test` holds the marked set and the specced set equal **in both
-  directions** — a kind the spec omits is a refused call, and a kind the spec names that nothing
-  marks is a `has-prop?` that can only ever answer false.
+  flying)` says one bird does, and a rule joins them rather than either being the other. The
+  exception is written twice, because there are two things to except: `(not (hasCapability
+  penguin flying))` at the kind, which leaves crow and eagle flying, and an `exceptWhen` on the
+  descent rule at the member. *Class:* no label — ontology content (§3.8).
+- **`has-prop?` and `props` accept every kind the engine marks.** `::prop-kind` named six of the
+  ten kinds the special table records, so `:asymmetric` — which `has-prop?`'s own docstring and
+  `docs/api.md` both list — along with `:abducible`, `:reifiable` and `:unreifiable` were
+  documented calls that **instrumentation refused**. `prop-entry` records its kind in the table
+  entry under `:prop`, so the roster is derivable from the vocabulary that defines it, and
+  `special-table-test` holds the marked set and the specced set equal in both directions.
 
 **Storage, and the instruments that price it.**
 
 - **A bulk load is decomposed, and the index write is 57% of it.** `lein bench-loadphase` loads
   one corpus repeatedly through the same door, each run with one more phase stubbed out from the
-  outside in, so consecutive runs differ by exactly one phase and the deltas **sum to the
-  baseline**. At 1,000,000 distinct binary facts on the `:memory` pair — 43.4 µs/fact, 23,100
-  facts/s — the index write is **56.8%**, the JTMS node and premise mark 21.5%, the
-  special-predicate suite 10.5%, the public `assert` prelude 6.7%, the record store 3.5% and
-  canonicalization 2.0%. Two `KvBackend` decorators split the index write further: postings
-  35–39%, key streams 11–15%, count maintenance 6–10% — so the **counts are priced and are not
-  the lever**, recomputing them once at the end saving a tenth at most and buying it by making
-  `count-with-functor` answer a stale number for the length of a load. Two write-side tricks
-  measured **worse** and are reported rather than built: a transient for the whole load ran 5–7%
-  slower, and sorting by trie key buys locality a hash map has nowhere to spend. The same ladder
-  at 100,000 facts puts the index write at 56.5%, so no phase changes character with N.
+  outside in, so consecutive runs differ by one phase and the deltas **sum to the baseline**. At
+  1,000,000 distinct binary facts on the `:memory` pair — 43.4 µs/fact, 23,100 facts/s — the
+  index write is **56.8%**, the JTMS node and premise mark 21.5%, the special-predicate suite
+  10.5%, the public `assert` prelude 6.7%, the record store 3.5% and canonicalization 2.0%. Two
+  decorators split the index write further: postings 35–39%, key streams 11–15%, count
+  maintenance 6–10% — so the **counts are priced and are not the lever**. Two write-side tricks
+  measured worse and are reported rather than built: a transient for the whole load ran 5–7%
+  slower, and sorting by trie key buys locality a hash map has nowhere to spend.
   [docs/storage.md, "What a bulk load costs"](docs/storage.md).
 - **The one write on that path that grows with the corpus is guarded, and the load reports its
-  own rate.** A store posts its sentence's body to the negation memo's `:dirty` set, which is one
-  `conj` per fact into a set that ends a load holding an entry per fact of the corpus. Both
-  readers filter it by `:opposed` first, so `kb/note-opposed!` writes only for a body opposed
-  before the store or after it. **It does not move the wall clock** (0.994x at 250,000 facts over
-  five pairs, the two arms alternated A-B-B-A inside one JVM so accumulated drift lands on both);
-  what it removes is a structure proportional to the corpus, which is a claim about a
-  ten-million-fact load's heap. Beside it, the in-memory record store's `mark-premise` stops
-  re-`assoc`ing a strength the record already carries. And `bulk-assert-facts!` reads
-  `:on-progress`: `{:phase :loading :done n :elapsed-ms ms :facts-per-sec r}` every 100,000 facts
-  and `{:phase :done :total n …}` after the closing settle, so the last event is a rate for the
-  whole load. [docs/storage.md](docs/storage.md), [docs/api.md](docs/api.md).
+  own rate.** A store posts its sentence's body to the negation memo's `:dirty` set, one `conj`
+  per fact into a set that ends a load holding an entry per fact. Both readers filter by
+  `:opposed` first, so `kb/note-opposed!` writes only for a body opposed before the store or
+  after it. It does not move the wall clock (0.994x at 250,000 facts); what it removes is a
+  structure proportional to the corpus, which is a claim about a ten-million-fact load's heap.
+  Beside it, `bulk-assert-facts!` reads `:on-progress` — `{:phase :loading :done n :elapsed-ms ms
+  :facts-per-sec r}` every 100,000 facts, and a closing `{:phase :done :total n …}`.
+  [docs/storage.md](docs/storage.md), [docs/api.md](docs/api.md).
 - **The workload profile grows the two arms no reasoning workload runs, and prices a
   retraction.** Every arm `lein bench-profile` had was a load, a chaining run, a proof or a
-  synthetic probe, so the term index and the term roster read **zero** on every corpus — which
-  reads as a family nobody uses and means a family no *reasoner* uses. The **interactive arm**
-  makes the reads an application makes, and its read table is the inverse of every other arm's:
-  on the shipped starter, 88% `:term-index`, 12% `:term-roster`. The **churn arm** retracts a
-  sample of premises and puts each one back, which is the only way `unindex-sentex!` runs at all;
-  it is net-neutral by construction and says so when it is not. A fifth tally `:retracts` catches
-  what that costs, kept apart from `:writes` because `:dead` — the trie nodes a removal emptied —
-  is decided by what else shares the prefix rather than by the sentex. On the starter a
-  retraction is ≤23.8 batch ops against an assert's 18.1. The goal report also gains **an open
-  compound after an open position**, the shape the trie cannot prefix *and* the argument roots do
-  not key. [docs/profile.md](docs/profile.md).
-- **Eleven checks join the perf gate, and one of them was widened before it ever shipped.** The
-  new checks are `flat-cache-belief-flip`, `taxonomy-belief-flip`, `retract-context-cycle-scaling`,
+  synthetic probe, so the term index and roster read **zero** on every corpus — which reads as a
+  family nobody uses and means a family no *reasoner* uses. The **interactive arm** makes the
+  reads an application makes, and its read table is the inverse of every other arm's: 88%
+  `:term-index`, 12% `:term-roster` on the shipped starter. The **churn arm** retracts a sample
+  of premises and puts each back, the only way `unindex-sentex!` runs at all. A fifth tally
+  `:retracts` catches what that costs, kept apart from `:writes` because `:dead` is decided by
+  what else shares the prefix. On the starter a retraction is ≤23.8 batch ops against an assert's
+  18.1. [docs/profile.md](docs/profile.md).
+- **Eleven checks join the perf gate, and one of them was widened before it ever shipped.**
+  `flat-cache-belief-flip`, `taxonomy-belief-flip`, `retract-context-cycle-scaling`,
   `retract-merge-scaling`, `retract-nat-scaling`, `closure-membership`, `plan-scaling`,
   `quality-report-scaling`, `genl-edge-negation-recheck`, `taxonomy-edge-arbitration` and
-  `context-edge-arbitration` — and **`standing-clash-reading`**, which does not gate. That last
-  one costs what the entry at the top of this section moved: ordering the standing clash set at
-  the read is a path `lein perf` had no check on at all, and the argument for putting it there
-  was about how often a reading is asked for rather than about what one costs. It runs
-  `contradictions` at `negation-arbitration`'s sizes over the identical KB, so the write cost and
-  the read cost of one standing set are quotable against each other. **27 checks in the vector,
-  and all 27 judge.** A read of the standing set is Ω(n log n) by construction rather than flat,
-  so the number that sits above that floor is read off a full run at both ends: healthy it reads
-  85.4x and 80.9x over a floor near 66x, and with the read filtering the standing set by cross
-  product — the shape the claim rules out — it reads 937.8x. It ships at **175x**, twice the
-  worse healthy reading and 5.4x under the defective one. Calibrating it from both ends is what
-  the bound is worth having: a placeholder meaning "nobody has measured this" had to be a number
-  no reading reaches, and 1000x let the cross-product shape pass. All 27 are in the default set
-  and none is skippable.
-  `retract-merge-scaling` was written at a 10x bound and ships at **18x**: it reads 5.66x run
-  alone and 10.49x in place, because `lein perf` runs one JVM over the whole vector and a check's
-  reading depends on what ran before it. That position dependence is the reason two of these
-  bounds look loose beside the claim they gate, and it is a property of the harness rather than
-  of the engine.
+  `context-edge-arbitration` — plus **`standing-clash-reading`**, which costs what the standing
+  clash entry above moved. **27 checks in the vector, and all 27 judge.** A read of the standing
+  set is Ω(n log n) by construction, so its bound is calibrated from both ends: healthy it reads
+  85.4x and 80.9x over a floor near 66x, and with the read filtering by cross product — the shape
+  the claim rules out — 937.8x. It ships at **175x**. `retract-merge-scaling` reads 5.66x alone
+  and 10.49x in place and ships at 18x, `lein perf` running one JVM over the whole vector: that
+  position dependence is a property of the harness rather than of the engine.
 
 ## 0.5.0 — 2026-08-07
 
@@ -1156,7 +1779,7 @@ so the rest can be read at leisure.
   neither the cause nor the fix. *Migration:* none — the property never worked where it is
   now refused. `docs/storage.md`.
 - **Breaking: `assert-rule` refuses a rule literal whose predicate is a variable.**
-  `(implies ((?p ?x ?y) (transitive ?p)) (?p ?y ?x))` asserted cleanly and was indexed
+  `(implies (and (?p ?x ?y) (transitive ?p)) (?p ?y ?x))` asserted cleanly and was indexed
   under `?var0`, which no arriving fact and no goal can spell — so the rule answered no
   backward goal at all and fired forward only when the concrete-predicate antecedent
   beside it arrived. Two arrival orders, two answers, from a rule the engine reported as

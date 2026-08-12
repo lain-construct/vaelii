@@ -286,6 +286,88 @@
         (is (seq (v/sentexes-matching kb '(flies Sky) 'UniverseContext)) "revived"))))
   (tu/clear-kb! (tu/test-kb)))
 
+(deftest a-revival-that-owes-a-derivation-is-order-independent
+  ;; The revival above only had to *relabel*: the conclusion was still stored, so
+  ;; recomputing belief brought it back.  This one owes a **derivation**.  A rule joins
+  ;; two facts, one is defeated, and the other arrives while it is OUT — so the join runs
+  ;; against a belief-filtered matcher that cannot see the defeated half and no firing is
+  ;; ever attempted.  Lifting the defeat then moves a label and leaves nothing behind for
+  ;; a blocked set or a refusal record to read, so the conclusion exists only if the
+  ;; revived datum went back on the agenda (`vaelii.revived-datum-test`).
+  ;;
+  ;; Not `one-outcome!`, because these ops do not permute freely: a lift cannot precede
+  ;; the defeat it lifts, and tying the two together as one op would remove the very
+  ;; window this is about — the partner arriving *between* them.  So the three ordered
+  ;; steps are held in sequence and the two free ops are slid through every position they
+  ;; have: the partner into each of the 4 gaps, and the rule into each of the 5 gaps of
+  ;; what that leaves.  Twenty orderings, and the ones where the partner lands in the
+  ;; middle are the defect.
+  (let [assert-a  #(v/assert % '(vpA VOne VTwo) 'UniverseContext)
+        defeat-a  #(v/assert % '(not (vpA VOne VTwo)) 'UniverseContext
+                             {:strength :monotonic})
+        lift-a    #(v/retract! % (v/handle-of % '(not (vpA VOne VTwo)) 'UniverseContext))
+        partner   #(v/assert % '(vpB VTwo VThree) 'UniverseContext {:strength :monotonic})
+        rule      #(v/assert-rule % '[(vpA ?x ?z) (vpB ?z ?y)] '(vpC ?x ?y) 'UniverseContext
+                                  {:direction :forward})
+        insert    (fn [ops i op] (vec (concat (take i ops) [op] (drop i ops))))
+        observe   (fn [kb]
+                    {:joined     (boolean (seq (v/sentexes-matching kb '(vpC VOne VThree)
+                                                                    'UniverseContext)))
+                     :antecedent (boolean (seq (v/sentexes-matching kb '(vpA VOne VTwo)
+                                                                    'UniverseContext)))})
+        outcomes  (into {}
+                        (for [p (range 4)
+                              r (range 5)
+                              :let [ops (insert (insert [assert-a defeat-a lift-a] p partner)
+                                                r rule)
+                                    kb  (tu/fresh)]]
+                          (do (doseq [op ops] (op kb))
+                              [[p r] (observe kb)])))]
+    (is (= #{{:joined true :antecedent true}} (into #{} (vals outcomes)))
+        (str "a fact that comes back believed must derive what it could not while it was "
+             "OUT, in every order — " (pr-str (into (sorted-map) outcomes)))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest an-un-merge-that-owes-a-derivation-is-order-independent
+  ;; The same claim as the test above through the **equality** door, which reaches it by
+  ;; a different route and has to: a merge displaces a spelling with no relabel behind
+  ;; it, so the flip is in none of the window sets a revival is read off.  While the
+  ;; merge stands the twin joins in the displaced spelling's place, so a partner arriving
+  ;; then concludes at the twin — and un-merging sweeps the twin and gives the original
+  ;; back, leaving the conclusion to be derived again at the surviving spelling or not at
+  ;; all.  Mechanism and the second merge route: `vaelii.revived-datum-test`.
+  ;;
+  ;; Same shape as its sibling: the ordered steps held in sequence, the two free ops slid
+  ;; through every gap they have.  The orderings where the partner lands between the
+  ;; merge and the un-merge are the defect.
+  (let [fact      #(v/assert % '(uqA UDep UZed) 'UniverseContext {:strength :monotonic})
+        merge-it  #(v/assert % '(rewriteOf UPref UDep) 'UniverseContext
+                             {:strength :monotonic})
+        un-merge  #(v/retract! % (v/handle-of % '(rewriteOf UPref UDep) 'UniverseContext))
+        partner   #(v/assert % '(uqB UZed UWye) 'UniverseContext {:strength :monotonic})
+        rule      #(v/assert-rule % '[(uqA ?x ?z) (uqB ?z ?y)] '(uqC ?x ?y)
+                                  'UniverseContext {:direction :forward})
+        insert    (fn [ops i op] (vec (concat (take i ops) [op] (drop i ops))))
+        observe   (fn [kb]
+                    {:conclusions (set (map :sentence
+                                            (v/sentexes-matching kb '(uqC ?x ?y)
+                                                                 'UniverseContext)))
+                     :antecedent  (boolean (seq (v/sentexes-matching kb '(uqA UDep UZed)
+                                                                     'UniverseContext)))})
+        outcomes  (into {}
+                        (for [p (range 4)
+                              r (range 5)
+                              :let [ops (insert (insert [fact merge-it un-merge] p partner)
+                                                r rule)
+                                    kb  (tu/fresh)]]
+                          (do (doseq [op ops] (op kb))
+                              [[p r] (observe kb)])))]
+    (is (= #{{:conclusions #{'(uqC UDep UWye)} :antecedent true}}
+           (into #{} (vals outcomes)))
+        (str "a spelling an un-merge gives back must derive what its twin could not, in "
+             "every order — " (pr-str (into (sorted-map) outcomes)))))
+  (tu/clear-kb! (tu/test-kb)))
+
 ;; ---- the taxonomy caches follow suit ------------------------------------
 
 (deftest genl-closure-is-order-independent

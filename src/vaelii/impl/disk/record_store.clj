@@ -258,9 +258,13 @@
         (swap! premises conj id)))
     nil)
   (unmark-premise! [_ id]
+    ;; the same guard as mark-premise, pointing the other way: a derived record's
+    ;; :strength is already nil, and re-storing it would append a frame whose only
+    ;; fate is the tombstone the retraction writes right after
     (let [k (:sentexes kinds)]
       (when-let [sx (fetch k id)]
-        (store! k id (assoc sx :strength nil) false)))
+        (when (some? (:strength sx))
+          (store! k id (assoc sx :strength nil) false))))
     (swap! premises disj id)
     nil)
   (premise-ids      [_] (set @premises))
@@ -290,7 +294,8 @@
 
   It is read off the **slots**, so it costs one sequential pass over a 24-byte-per-record
   file and decodes nothing.  That is the whole point: an image exists so an open reads
-  bytes rather than records, and validating it against `fingerprint/of-records` would put
+  bytes rather than records, and validating it against a content digest (walking every
+  record through `fingerprint/accumulator`) would put
   all of them back on the open path.  What it detects is every way the record set can
   change under a snapshot — a record added, deleted, or re-stored (a re-store appends a
   new frame, so the handle's offset moves)."
@@ -392,8 +397,16 @@
         walk    (if dict @(:live-ids k) unsaid)
         damaged (volatile! 0)]
     (doseq [id walk]
+      ;; only crash damage is repaired by tombstoning: a token the dictionary does not
+      ;; hold or a body the codec cannot parse is the log's tail having outrun its
+      ;; neighbours.  `:unknown-frame` is the opposite case — a build that cannot
+      ;; decode a *valid* record — and rethrows, because a build that cannot read a
+      ;; log must not delete it.
       (let [sx (try (fetch k id)
-                    (catch clojure.lang.ExceptionInfo _
+                    (catch clojure.lang.ExceptionInfo t
+                      (when-not (#{:damaged-dictionary :malformed-record}
+                                 (:type (ex-data t)))
+                        (throw t))
                       (vswap! damaged inc)
                       (kill! k id)
                       nil))]

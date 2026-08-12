@@ -135,12 +135,16 @@
 ;; ---- grounding: assumptionRules × visible facts → choice heads -----------
 
 (defn- assumption-rules
-  "Every `assumptionRule` visible from `base` — scoped to `base` and its genlContext
-  up-closure, never the whole KB."
+  "Every **believed** `assumptionRule` visible from `base` — scoped to `base` and its
+  genlContext up-closure, never the whole KB.  `sentexes-in-context` reads storage, so
+  the belief question is asked here, as both chainers ask it: a defeated or superseded
+  assumptionRule must not mint choice heads.  `rule-believed?` rather than `jtms/in?`
+  so an `:inert` rule stays available — this run is the fourth consumer of a rule's
+  firing beside the three chainers, and it reads rules by the same rule they do."
   [kb base]
   (for [ctx (distinct (cons base (v/context-up kb base)))
         s   (v/sentexes-in-context kb ctx)
-        :when (rules/assumption? s)]
+        :when (and (rules/assumption? s) (res/rule-believed? kb (:id s)))]
     s))
 
 (defn- ground-heads
@@ -237,12 +241,13 @@
 ;; which the direct-clash detectors above — always one shared individual — cannot.
 
 (defn- constraint-rules
-  "Every constraint rule visible from `base` — scoped to `base` and its genlContext
-  up-closure, like `assumption-rules`."
+  "Every **believed** constraint rule visible from `base` — scoped to `base` and its
+  genlContext up-closure, and belief-filtered, like `assumption-rules`: a defeated or
+  superseded constraint must not go on forbidding models."
   [kb base]
   (for [ctx (distinct (cons base (v/context-up kb base)))
         s   (v/sentexes-in-context kb ctx)
-        :when (rules/constraint? s)]
+        :when (and (rules/constraint? s) (res/rule-believed? kb (:id s)))]
     s))
 
 (defn- choice-arg-index

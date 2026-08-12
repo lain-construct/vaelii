@@ -159,7 +159,10 @@
   wrong answer."
   [stamp sentence context]
   (when-let [^java.util.Map c *handle-cache*]
-    (when (identical? stamp (.get c stamp-key))
+    ;; `=`, not `identical?`: the stamp is a composite (the KB's record store, then
+    ;; the symmetric-predicate set), rebuilt per call — the store half compares by
+    ;; identity inside it, which is the isolation the composite exists for
+    (when (= stamp (.get c stamp-key))
       (.get c [sentence context]))))
 
 (defn cache-handle!
@@ -169,7 +172,7 @@
   no cache is bound."
   [stamp sentence context handle]
   (when-let [^java.util.Map c *handle-cache*]
-    (when-not (identical? stamp (.get c stamp-key))
+    (when-not (= stamp (.get c stamp-key))
       (.clear c)
       (.put c stamp-key stamp))
     (.put c [sentence context] handle))

@@ -32,7 +32,7 @@
   **A node's child structure is tiered on its width, and that is a measurement.**  The
   splice above costs O(children already there), and nothing bounds a node's width: the
   level-2 node holds one child per distinct first argument of a predicate, so an
-  array-only node structure loads one broad relation — `(isa X T)`, `(genl S T)`, any hot
+  array-only node structure loads one broad relation — `(genl S T)`, any hot
   relation — in time quadratic in that relation's own extent.  It is the *node* that is
   expensive, not the trie: holding 200k facts fixed and varying only the widest node's
   fan-out, an array-only structure reads 4.2 s at 2,000 children, 9.0 s at 20,000 and

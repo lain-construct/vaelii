@@ -61,10 +61,14 @@
   "The one editable EDN line for a sentex: `[sentence context]`, plus
   `{:strength :monotonic}` when it is known-true, so a rewrite keeps it."
   [s]
-  (let [sent (wrapped-sentence s) ctx (:context s)]
-    (if (= :monotonic (:strength s))
-      (pr-str [sent ctx {:strength :monotonic}])
-      (pr-str [sent ctx]))))
+  ;; print vars bound off, as the browser's own `edit-line` binds them: the line is
+  ;; read back as EDN, and an elided sentence is legal EDN that no longer names its
+  ;; sentex
+  (binding [*print-length* nil *print-level* nil *print-meta* false]
+    (let [sent (wrapped-sentence s) ctx (:context s)]
+      (if (= :monotonic (:strength s))
+        (pr-str [sent ctx {:strength :monotonic}])
+        (pr-str [sent ctx])))))
 
 (defn selected
   "The selection as `[{:handle :sentex :key [sentence context] :strength :line \"…\"} …]`,

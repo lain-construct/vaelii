@@ -515,21 +515,22 @@
   passes this check and surfaces later as a thaw failure on that one handle
   (`:type :malformed-record`, `vaelii.impl.disk.codec`), which is a read that refuses
   rather than a wrong record.  Detecting the splice itself would take a per-slot checksum,
-  which the 24-byte slot has no room for; the `gen` word is reserved and written as 0."
+  which the 24-byte slot has no room for; the `gen` word is reserved and written as 0.
+
+  Rides `scan-idx!`'s chunked walk — the caller passes the whole idx as the window, and
+  a per-id `read-slot` at that width is a seek and a buffer allocation per slot where
+  the chunked read pays one per 4096."
   ^long [^RandomAccessFile idx-raf ^RandomAccessFile log-raf ^long window]
   (let [count-slots (quot (.length idx-raf) slot-bytes)
         start       (max 0 (- count-slots window))
-        log-len     (.length log-raf)]
-    (loop [id start repaired 0]
-      (if (>= id count-slots)
-        repaired
-        (let [slot (read-slot idx-raf id)]
-          (cond
-            (or (nil? slot) (:tombstone? slot) (= empty-offset (:offset slot)))
-            (recur (inc id) repaired)
-            (> (+ (:offset slot) 4 (:length slot)) log-len)
-            (do (tombstone-slot! idx-raf id) (recur (inc id) (inc repaired)))
-            :else (recur (inc id) repaired)))))))
+        log-len     (.length log-raf)
+        repaired    (volatile! 0)]
+    (scan-idx! idx-raf (fn [id offset length _flags]
+                         (when (and (>= (long id) start)
+                                    (> (+ (long offset) 4 (long length)) log-len))
+                           (tombstone-slot! idx-raf id)
+                           (vswap! repaired inc))))
+    @repaired))
 
 ;; ---- crash-safe compaction ----------------------------------------------
 ;; A log is rewritten (never edited in place) with only its live frames into a temp,

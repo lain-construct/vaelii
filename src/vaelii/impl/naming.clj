@@ -130,7 +130,12 @@
   {:sentence   "sentence"
    :antecedent "rule antecedent"
    :consequent "rule consequent"
-   :exception  "exceptWhen exception"})
+   :exception  "exceptWhen exception"
+   ;; a generator's stamped rule (docs/generators.md) — named apart from the
+   ;; generator's own literals, because an author reading the rejection has two rules
+   ;; in one sentence to tell apart
+   :generated-antecedent "generated rule antecedent"
+   :generated-consequent "generated rule consequent"})
 
 (def problem-classes
   "What a naming violation *is*, as a keyword, with the human line under it.  A rejection
@@ -201,9 +206,19 @@
 
          (= sx/and-functor h) (vec (mapcat #(applied-literals role %) (rest form)))
 
+         ;; A rule in **consequent** position is a generator's stamped rule
+         ;; (docs/generators.md), and its literals are tagged as such: the naming
+         ;; invariants hold of them exactly as they hold of a written rule's — a
+         ;; stamped `(feels ?a ?e)` is still a predicate application — but the
+         ;; *index* has no claim on them, because what gets indexed is the mint and
+         ;; not the pattern.  `rules/variable-functor-literals` reads the tag to draw
+         ;; that line, which is what lets a hole stand in functor position.
          (and (= sx/rule-functor h) (= 3 n))
-         (into (vec (mapcat #(applied-literals :antecedent %) (sx/rule-antecedents form)))
-               (applied-literals :consequent (sx/rule-consequent form)))
+         (let [gen?  (= :consequent role)
+               arole (if gen? :generated-antecedent :antecedent)
+               crole (if gen? :generated-consequent :consequent)]
+           (into (vec (mapcat #(applied-literals arole %) (sx/rule-antecedents form)))
+                 (applied-literals crole (sx/rule-consequent form))))
 
          ;; `(ist Ctx S)` directs S into Ctx; S is the literal (Ctx is checked by
          ;; `ist-context-problems`)

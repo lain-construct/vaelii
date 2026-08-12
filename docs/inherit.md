@@ -26,7 +26,10 @@ So it is **declared**, per predicate, per argument position:
 `R` is any **transitive** relation — `genl` and `genlContext` through their cached
 closures, or a predicate declared `(transitive R)` walked over the stored facts. With
 `R` = `genl`, `argPreserving` is downward inheritance and `argPreservingInverse` is
-upward.
+upward. With `R` = `genlContext` the preserved argument **names a context**, and the
+same two directions read the lattice: a claim about a wide context reaches every
+context below it — a decree stated of a whole world holds in each of its scenarios —
+and the inverse form carries a claim about a narrow context up to the ones above it.
 
 Naming the relation is what keeps this from being a `genl` special case. An argument can
 be preserved along `partOf` just as readily:
@@ -44,6 +47,14 @@ predicate that has no other purpose. Both are ordinary stored sentexes read thro
 `matches-visible`, exactly as `argIsa` and `argGenl` are — context-scoped and
 belief-following, with no cache of their own. Several declarations may name **one**
 position; their reaches union, since each independently licenses the claim.
+
+A declaration is read for the goal's **own** predicate. It no more descends to a
+sub-predicate than `transitive` or `symmetric` does: distribution over subkinds is a
+claim about the relation that has it, and `muchLargerThan` may fail to distribute
+where `largerThan` distributes. The sub-predicate's *facts* still serve the
+super-predicate's goals — the claim reach fans through `matches-visible` like every
+read — so the asymmetry is the semantics: facts travel up the predicate hierarchy,
+licences do not travel down it.
 
 ## Two of them ship
 
@@ -131,6 +142,18 @@ vocabulary for it is `(typeToInstancePred TypePred InstancePred)` — declared i
 CoreContext and **deliberately inert**: it records the pairing for a reader and the
 engine infers nothing from it, because the quantifier reading is exactly the thing
 nothing here fixes.
+
+**It cannot state a pair whose instance half is mixed**, and the shipped ontology holds
+one. `(argIsa typeToInstancePred 2 instanceRelationPredicate)` requires the second
+argument to be marked, and a marked predicate takes one argument-check family for *every*
+position — `argIsa` throughout for an instance relation, `argGenl` throughout for a type
+one. A predicate relating one individual to a *kind* satisfies neither and is left
+unmarked, which `relationKind`'s own comment says of `resultIsa` and
+`functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one capability
+kind. So `capabilityType`/`hasCapability` are named as a pair in their comments and not by
+the predicate that exists to name pairs — declaring the mark to satisfy it would trade an
+argument check that convicts for a link nothing reads. `partType`/`partOf` is the pair the
+link does state, both halves relating individuals to individuals.
 
 ## Specificity, and why it is not the deleted axis
 
@@ -317,6 +340,25 @@ the trigger set so the work is done once (`inherit/rejoin-rules`,
 `chain/rejoin-preserving`). The sentences that move one are the declaration itself, a
 claim on the predicate, a fact on the relation — a `genl` or `genlContext` edge included
 — `(transitive R)`, and `(asymmetric P)`.
+
+**A defeat inside arbitration moves the same joins with no sentence arriving at all.**
+Belief flips where the solver clears a dilemma, nothing is stored or removed, and so
+nothing queues the re-join an arrival would. `settle`'s `preserved-rejoins-for` reads the
+rules each defeated sentence licensed and re-chains them like any blanket mark, so a
+firing whose named witness went OUT either re-derives through a route that witness did not
+travel or is withdrawn by its own re-check. The closures are refreshed at the same point
+(`refresh-after-defeat`, the mirror of the revival refresh `settle*` opens with, scoped by
+`jtms/touched` the same way) — otherwise the rest of the settle walks a closure still
+holding the defeated edge, and the next defeat round's nogoods read belief as it was.
+
+**A mirrored antecedent licenses the forward door too, and the firing says so.** A claim
+whose stored orientation is not the tuple it was read at came through the symmetric
+mirror, and that reading rests on a `(symmetric …)` declaration exactly as a fact-relation
+reach rests on `(transitive R)` — so the justification names it, and retracting the
+symmetry withdraws what only the mirror licensed. The matcher mirrors each fanned literal
+on *its own* declaration, so the one named is the stored sentence's functor's, which is
+the goal predicate's only where the two coincide; a symmetry declared on a sub-predicate
+therefore moves every preserved super it feeds.
 
 **A more specific contrary claim withdraws a conclusion with nothing retracted.**
 `(typicallyLargerThan maine_coon chihuahua)` undercuts the inherited

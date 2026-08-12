@@ -1,6 +1,7 @@
 ;; LifeContext — relations about organisms: kinship (parentOf/childOf/siblingOf/
 ;; ancestorOf/grandparentOf), age (birthYearOf/olderThan/mortal), and behaviour
-;; (eats, and hasCapability over the capability kinds flying/travelling). Sees
+;; (eats, and the capabilityType/hasCapability pair over the capability kinds
+;; flying/travelling). Sees
 ;; CoreContext; UniverseContext sees it, so any relation here is visible from every
 ;; context.
 
@@ -87,13 +88,30 @@
 (argIsa grandparentOf 1 animal)
 (argIsa grandparentOf 2 animal)
 
+(comment capabilityType
+         "(capabilityType ?kind ?capability) means that a ?kind can do ?capability. The type-level reading of hasCapability: (capabilityType bird flying) says the kind flies, where (hasCapability Tweety flying) says one bird does. Two predicates rather than one because they are two claims — a claim about a kind and a claim about a member — and one symbol read at both levels has to declare one position's argument check for both, which is a choice that convicts whichever half it was not written for. Declared argPreserving along genl on the FIRST position, which carries a claim about a kind down to its subkinds: a kind of bird flies with nothing written about it. Declared argPreservingInverse along genl on the second, which carries it UP the capability hierarchy: flying is a kind of travelling, so whatever flies travels. Paired with hasCapability, and the pairing moves no claim between the two: going from the kind to its members needs a quantifier reading (every bird, or some bird) that nothing here fixes, so the descent is a rule written where the kinds are. The comment below hasCapability says why that pairing is prose rather than a typeToInstancePred sentex.")
+(binaryPredicate capabilityType)
+(typeRelationPredicate capabilityType)
+(argGenl capabilityType 1 animal)
+(argGenl capabilityType 2 capability)
+(argPreserving capabilityType 1 genl)
+(argPreservingInverse capabilityType 2 genl)
+
 (comment hasCapability
-         "(hasCapability ?thing ?capability) means that ?thing can do ?capability. Read at BOTH levels, which is why it carries no relationKind: (hasCapability bird flying) says the kind flies, (hasCapability Tweety flying) says one bird does, and the two are joined by a rule rather than by either being the other. That is deliberate — a claim about a kind and a claim about a member are different claims, and moving between them needs a quantifier reading (every bird, or some bird) the KB will not guess. The first position takes argIsa and NOT argGenl, though it holds a kind half the time: argGenl is the one argument check that is not open-world about an individual — it knows a CapitalCamelCase name can never be a subtype of anything and convicts rather than abstaining — so the pair that would narrow a kind-only slot empties this one. argIsa admits both, a kind reaching animal through its own genl closure. Declared argPreserving along genl on the first position, which carries a claim about a kind down to its subkinds: a kind of bird flies with nothing written about it. Declared argPreservingInverse along genl on the second, which carries it UP the capability hierarchy: flying is a kind of travelling, so whatever flies travels.")
+         "(hasCapability ?animal ?capability) means that ?animal can do ?capability. The instance-level reading: (hasCapability Tweety flying) says this bird flies and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relationKind because it is MIXED — the first position holds one animal and takes argIsa, the second names a capability KIND and takes argGenl — and the metatype classifies a predicate whose two ends sit at one level, so resultIsa and functionCorrespondingPredicate are left unmarked for the same reason. Declared argPreservingInverse along genl on the second position, which carries a claim up the capability hierarchy: whatever flies travels.")
 (binaryPredicate hasCapability)
 (argIsa hasCapability 1 animal)
 (argGenl hasCapability 2 capability)
-(argPreserving hasCapability 1 genl)
 (argPreservingInverse hasCapability 2 genl)
+
+;; The pairing is stated in both comments above and NOT as (typeToInstancePred
+;; capabilityType hasCapability), which the KB refuses: that predicate constrains its
+;; second argument to an instanceRelationPredicate, and hasCapability carries no
+;; relationKind because it is mixed.  So the one link that records a type/instance pair
+;; cannot record a pair whose instance half is mixed.  Declaring the mark to satisfy it
+;; would cost (argGenl hasCapability 2 capability) — an argument check that convicts —
+;; to gain a link the engine reads nothing from (vocabulary/roster calls it inert), so
+;; the check stays and the pairing is prose.
 
 (comment livesIn
          "(livesIn ?animal ?place) means that ?animal makes its home in ?place. Where the animal belongs rather than where it is at this moment, which is what locatedIn says. A default rule carries the one to the other, so an animal that lives somewhere is taken to be there unless something better is known.")

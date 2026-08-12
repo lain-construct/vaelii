@@ -124,10 +124,16 @@
         {:text (first-clause text)}))))
 
 (defn- comment-template
-  "The template for `term`, or nil when the KB says nothing about it."
+  "The template for `term`, or nil when the KB says nothing about it.  A term can
+  carry a believed `comment` in more than one context, so the pick is content-least
+  rather than retrieval order — the gloss reads the same however the KB was loaded."
   [kb term]
-  (when-let [text (first (v/sentexes-matching kb (list 'comment term '?text) '?ctx))]
-    (template (nth (:sentence text) 2 nil))))
+  (when-let [hit (->> (v/sentexes-matching kb (list 'comment term '?text) '?ctx)
+                      (sort-by (fn [sx]
+                                 (binding [*print-length* nil *print-level* nil]
+                                   (pr-str [(:sentence sx) (str (:context sx))]))))
+                      first)]
+    (template (nth (:sentence hit) 2 nil))))
 
 ;; ---- rendering a term ----------------------------------------------------
 

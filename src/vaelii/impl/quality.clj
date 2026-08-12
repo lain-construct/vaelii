@@ -145,7 +145,11 @@
        (sort-by key)
        (mapcat (fn [[_ hs]]
                  (if (next hs)
-                   (sort-by (fn [h] (pr-str (:sentence (rule-line kb h))))
+                   ;; the context joins the key: one implication stated in two contexts
+                   ;; shares sentence and signature, and the residual tie fell to the
+                   ;; handle set's iteration order — ahead of the `take limit` cap
+                   (sort-by (fn [h] (let [rl (rule-line kb h)]
+                                      [(pr-str (:sentence rl)) (str (:context rl))]))
                             hs)
                    hs)))
        (take limit)

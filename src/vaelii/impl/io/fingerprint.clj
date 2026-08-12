@@ -31,10 +31,11 @@
   records are *the same* — not whether an adversary can forge one.  A dump is not a
   trust boundary; if it were, this would be a real digest and signed.
 
-  **Two granularities, one rule.**  `of-records` hashes what a record *says*, and needs
-  the record — which is what a dump's reader has in hand anyway.  `of-slots` hashes
-  where each record *is*: `(id, offset, length)` off the idx, no frame decoded and no
-  record fetched.  The mapped index snapshot (`vaelii.impl.disk.index-snapshot`) is
+  **Two granularities, one rule.**  `accumulator` (over `record-hash`) folds in what a
+  record *says*, and needs the record — the export rides it on the sentex walk it is
+  already making, and the import rides it on the frames it is already decoding.
+  `slot-accumulator` (over `slot-hash`) folds in where each record *is*:
+  `(id, offset, length)` off the idx, no frame decoded and no record fetched.  The mapped index snapshot (`vaelii.impl.disk.index-snapshot`) is
   checked with that one, because an image exists to make an open cost bytes read rather
   than records read, and a content digest would put every record back on the open path.
   It is the coarser hash in one direction and the finer one in the other: it cannot see
@@ -104,12 +105,3 @@
          (vswap! digest (fn [^long d] (unchecked-add d (slot-hash h offset length)))))
        nil))))
 
-(defn of-records
-  "The fingerprint of every sentex in `store`, by walking it — what the *writer* records.
-  A reader never calls this: it accumulates while storing instead, since a second pass
-  over the records to validate a cache would cost more than the cache saves."
-  [store sentex-ids get-sentex]
-  (let [acc (accumulator)]
-    (doseq [h sentex-ids]
-      (when-let [sx (get-sentex store h)] (acc h sx)))
-    (acc)))

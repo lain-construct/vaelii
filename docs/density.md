@@ -183,7 +183,7 @@ these backends: a representation chosen for how it *holds* data has to be re-che
 against how the code *writes* it. Minting an edge in the sorted pair splices both arrays,
 so it costs O(children already there) — and nothing bounds a node's width. The level-2 node
 holds one child per distinct first argument of a predicate, so an array-only node
-structure loads one broad relation — `(isa X T)`, `(genl S T)`, any hot relation in a
+structure loads one broad relation — `(genl S T)`, any hot relation in a
 real ontology — in time quadratic in *that relation's own extent*. The cost tracks the
 node, not the corpus. Holding 200k facts fixed and varying only the widest node's
 fan-out:

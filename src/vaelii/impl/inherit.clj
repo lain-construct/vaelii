@@ -477,7 +477,10 @@
   first would key an *admission* decision on handle iteration order — and handles are
   allocated in assertion order, which is the one thing belief may never depend on.
   The maximum over the class lattice is a function of the content alone, and the ties
-  it leaves are broken on the context **name** for the same reason."
+  it leaves are broken on the context **name**, then the sentence's printed form, for
+  the same reason: one tuple can carry two sentences in one context at one class (the
+  matcher is type-aware, so a goal fans over sub-predicates), and a tie left to the
+  retrieval order would survive differently under the retrieval sweeps."
   [kb polarity found]
   (->> found
        (map (fn [[tuple h sxr]]
@@ -486,7 +489,10 @@
                :class (or (jtms/defeat-class (:tms kb) h) :default)}))
        (group-by :tuple)
        (map (fn [[_ cs]]
-              (first (sort-by (juxt #(- (st/rank-of (:class %))) #(str (:context %))) cs))))))
+              (first (sort-by (juxt #(- (st/rank-of (:class %)))
+                                    #(str (:context %))
+                                    #(pr-str (:sentence %)))
+                              cs))))))
 
 (defn claims
   "Every believed claim bearing on the ground goal `(P a1 … an)`, each tagged with the
@@ -624,15 +630,22 @@
 
 (defn- one-supporter
   "One handle for a believed `sentence` visible from `context`, chosen on the
-  supporting sentex's **context name** — never on its handle, which is allocated in
-  assertion order.  Which supporter a firing names decides where its conclusion can be
-  placed, so picking the first the index yielded would make placement depend on the
-  order the KB was built in."
+  supporting sentex's **context name and printed sentence** — never on its handle,
+  which is allocated in assertion order.  Which supporter a firing names decides
+  where its conclusion can be placed, so picking the first the index yielded would
+  make placement depend on the order the KB was built in.  The sentence is the
+  second key because the matches are a fan, not one sentence: a sub-predicate's
+  sentex answers a query on its `genl`, so two matches can share a context while
+  spelling different claims."
   [kb sentence context]
   (->> (res/matches-visible kb sentence context)
        (keep (fn [[h _]]
                (when-let [sxr (p/get-sentex (:records kb) h)]
-                 (when (jtms/in? (:tms kb) h) [(str (:context sxr)) h]))))
+                 (when (jtms/in? (:tms kb) h)
+                   [[(str (:context sxr))
+                     (binding [*print-length* nil *print-level* nil]
+                       (pr-str (:sentence sxr)))]
+                    h]))))
        (sort-by first)
        first
        second))
@@ -729,7 +742,9 @@
   conclusion a second justification resting on nothing the first did not already name.
 
   One claim is named where several survive, chosen on defeat class first and then on
-  content — the tuple and the context, both spellings rather than handles."
+  content — the tuple, the context and the sentence, all spellings rather than
+  handles (one tuple can carry two sentences at one class and context, the matcher
+  being type-aware, and the chosen handle lands in a recorded justification)."
   [kb goal context]
   (with-memo
     (let [pred (nm/functor goal)
@@ -752,10 +767,27 @@
                                                  acc))
                                              [(:handle c)]
                                              (range (count args)))]
-                         {:claim (:handle c) :handles (vec (distinct hs))}))
+                         ;; A claim whose stored orientation is not the tuple it was
+                         ;; read at came through the symmetric mirror, and that reading
+                         ;; rests on a `(symmetric …)` declaration exactly as a
+                         ;; fact-relation reach rests on `(transitive R)`: name it, so
+                         ;; retracting the symmetry withdraws what only the mirror
+                         ;; licensed.  The matcher mirrors each fanned literal on *its
+                         ;; own* declaration, so the one named is the stored sentence's
+                         ;; functor's — the goal predicate's only when they coincide.
+                         (let [hs (if (and (= 2 (count args))
+                                           (not= (vec (nm/args (:sentence c))) (:tuple c)))
+                                    (if-let [sh (one-supporter
+                                                 kb (list 'symmetric (nm/functor (:sentence c)))
+                                                 context)]
+                                      (conj hs sh)
+                                      hs)
+                                    hs)]
+                           {:claim (:handle c) :handles (vec (distinct hs))})))
                      (sort-by (juxt #(- (st/rank-of (:class %)))
                                     #(str (:tuple %))
-                                    #(str (:context %)))
+                                    #(str (:context %))
+                                    #(pr-str (:sentence %)))
                               sv))))))))))
 
 ;; ---- enumerating what a claim licenses -----------------------------------
@@ -788,7 +820,16 @@
 
   A preserved position is left open even where the literal pins it: the claim licensing
   that term is stated *above* it, and narrowing to the term itself would find only the
-  diagonal."
+  diagonal.
+
+  A **symmetric** predicate's claim is a statement of both orientations, and an open
+  probe surfaces only the stored one — the mirror shares its handle, so the matcher's
+  mirrored probe of an open pattern adds no second row.  Ground probes bake the
+  orientation into the pattern (which is how the backward door reads the mirror), so
+  the swap has to happen here: a tuple whose stored sentence's own functor is declared
+  symmetric — the fan surfaces sub-predicates, and the matcher mirrors each fanned
+  literal on *its* declaration — is also read backwards, kept where the pattern's
+  pinned positions still agree."
   [kb pred args poss context]
   (let [by-n (by-position poss (count args))
         pat  (mapv (fn [i]
@@ -796,15 +837,33 @@
                        (if (or (by-n (inc i)) (and (symbol? a) (sx/variable? a)))
                          (probe-var i)
                          a)))
-                   (range (count args)))]
-    (for [[h b] (res/matches-visible kb (cons pred pat) context)
-          :when (jtms/in? (:tms kb) h)
-          :let  [t (mapv (fn [i]
-                           (let [p (nth pat i)]
-                             (if (= p (probe-var i)) (get b p) p)))
-                         (range (count args)))]
-          :when (every? some? t)]
-      [t h])))
+                   (range (count args)))
+        base (for [[h b] (res/matches-visible kb (cons pred pat) context)
+                   :when (jtms/in? (:tms kb) h)
+                   :let  [t (mapv (fn [i]
+                                    (let [p (nth pat i)]
+                                      (if (= p (probe-var i)) (get b p) p)))
+                                  (range (count args)))]
+                   :when (every? some? t)]
+               [t h])]
+    (if-not (= 2 (count args))
+      base
+      (let [tx   (:taxonomy kb)
+            syms (into #{} (filter #(tax/has-prop? tx :symmetric %))
+                       (res/sub-predicates kb pred nil))]
+        (if (empty? syms)
+          base
+          (concat base
+                  (for [[t h] base
+                        :let  [sxr (p/get-sentex (:records kb) h)
+                               f   (some-> sxr :sentence nm/functor)]
+                        :when (and f (contains? syms f))
+                        :let  [rt [(nth t 1) (nth t 0)]]
+                        :when (and (not= rt t)
+                                   (every? #(let [pp (nth pat %)]
+                                              (or (= pp (probe-var %)) (= pp (nth rt %))))
+                                           (range 2)))]
+                    [rt h])))))))
 
 (defn- licensed-product
   "Every tuple a claim stated at `w` licenses that the literal's arguments admit — the
@@ -875,8 +934,9 @@
     every reach walked along it, with neither of its terms appearing anywhere near `P`;
   * the **declaration** itself, which names `P` at argument 1;
   * `(transitive R)`, the licence `usable-relation?` reads at use, which names no `P`
-    at all, and `(asymmetric P)`, which is what gives a converse the standing to deny
-    an inherited claim.
+    at all; `(asymmetric P)`, which is what gives a converse the standing to deny
+    an inherited claim; and `(symmetric P)`, which makes the mirror of every stored
+    claim a claim — arriving late it licenses tuples nobody re-joined for.
 
   The reads are **global** and not belief-filtered, exactly as `declared`'s are and for
   the same reason: over-selecting costs a join that derives what is already there,
@@ -893,6 +953,11 @@
           (contains? declarations f) (when (symbol? arg1) #{arg1})
           (= 'transitive f)          (into #{} (comp (filter #(= arg1 (second %))) (map first)) decls)
           (= 'asymmetric f)          (when (some #(= arg1 (first %)) decls) #{arg1})
+          ;; the mirror is applied per fanned literal on its own declaration, so a
+          ;; symmetry on a sub-predicate moves every preserved super it feeds
+          (= 'symmetric f)           (when (symbol? arg1)
+                                       (let [ups (tax/genls (:taxonomy kb) arg1)]
+                                         (into #{} (comp (filter #(ups (first %))) (map first)) decls)))
           :else (let [preds (tax/genls (:taxonomy kb) f)]
                   (into #{}
                         (comp (filter (fn [[p r]] (or (preds p) (preds r)))) (map first))

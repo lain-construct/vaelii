@@ -118,6 +118,34 @@
   that, and once the numbers compose the ordering does not need a search at all: the
   transposition law sorts.
 
+  ## Why the subtype fan is made cheap rather than remembered
+
+  One branch of `est-matches` is not an O(1) index read: a **unary type literal** sums an
+  estimate over the type's whole subtype closure, and `order` asks for it once per pick.
+  `memoizing` collects the repeats inside one plan — the first pick fans and the rest hit
+  its cache — and there it stops, so what is left is one fan per plan, per firing attempt.
+
+  It is made cheap **by construction** rather than cached: for the shape that costs, the
+  argument a bare open variable, the general walk is provably `count-at [t']` per subtype
+  and `fan-of-roots` reads exactly that (see the section above it).  That halves the fan
+  — 13.2% of a forward chaining run at 364 subtypes down to 6.8% (`lein bench-hotreads`)
+  — while the number it returns cannot move, which is the only kind of change this
+  estimate admits.
+
+  **Remembering the answer does not work**, and both halves of why are measured rather
+  than argued.  A cache stamped with `observe/change-clock` is retired between one plan
+  and the next by the chaining run's own placements, and turning one on measures
+  **0.98–0.99×** there.  On a query, where nothing moves the clock and every plan after
+  the first would be served, the fan is under 3% of the run — 120 estimates against a
+  search that dominates them, where chaining makes 901 — and it measures **0.91–1.04×**.
+  So the entry is either invalid or not worth having, by path.
+
+  A **finer** stamp is what would reach it, and it is unsound rather than merely fiddly:
+  the estimate bounds a literal from *above*, an estimate of 1 is a proof `rank-blocks`
+  and `cartesian-factors` rest on, and a fact placed under one subtype makes an entry
+  computed before it too small.  Reaching this cost again means making the fan cheaper
+  again — a count maintained per closure, say — not holding its answer for longer.
+
   ## What is never reordered
 
   Ordering here is an execution decision and must not change the answer set.  Two
@@ -294,6 +322,44 @@
                              args)]
     (when (seq counts) (apply min counts))))
 
+;; ---- the subtype fan, walked once per subtype and no more ----------------
+;;
+;; Every branch of `est-matches` is a handful of O(1) index reads except the unary type
+;; one, which runs `prefix-estimate` **per subtype** — and that is the branch the broad
+;; antecedent this namespace's docstring names goes down.  `specs` is memoized on the
+;; taxonomy generation so the closure's *fetch* is O(1); what is not O(1) is the fan over
+;; it, and `order` asks for it once per pick, per plan, per firing attempt.
+;;
+;; For the shape that actually costs — `(animal ?x)`, the argument a bare free variable —
+;; the general walk is provably a long way round to one number.  `sx/key-stream` of
+;; `(t' ?x)` is two tokens: the functor, which is known and extends the prefix, and the
+;; variable, which is neither known nor closed and stops the walk.  So `prefix-estimate`
+;; returns `count-at [t']` and nothing else — after building a literal, linearizing it,
+;; and running a three-way `cond` per token, per subtype.  `fan-of-roots` reads the same
+;; counts directly.
+;;
+;; It is a **constant-factor** change and has to be: the number must not move at all, and
+;; the equality above is why it cannot.  Any other argument shape — a compound, which puts
+;; its own tokens on the prefix, or a partly-bound one, which turns on what `bound` holds
+;; — takes the general walk, because for those the prefix genuinely is deeper than `[t']`.
+
+(defn- open-atom?
+  "Is `term` a bare variable this literal leaves open — an atom (so it contributes exactly
+  one trie token), a variable (so the token is not a value), and not already bound (so the
+  walk cannot charge it an average branch)?  The three conditions under which
+  `prefix-estimate` over `(t term)` is exactly `count-at [t]`."
+  [term bound]
+  (and (sx/variable? term)
+       (not (sequential? term))
+       (not (contains? bound term))))
+
+(defn- fan-of-roots
+  "The subtype closure's summed extent: `count-at [t']` per subtype, added.  What the
+  general walk computes for an open atom argument, without building a literal per subtype
+  to discover it."
+  [ix specs count-at]
+  (reduce (fn [acc t'] (+ acc (long (count-at ix [t'])))) 0 specs))
+
 (defn est-matches
   "Estimated number of stored facts a literal matches, given the variables already
   `bound`.  This is the literal's fan-out — the number by which it multiplies the
@@ -347,14 +413,17 @@
        ;; instances at all.  A non-type predicate has a singleton closure, so this
        ;; degenerates to the ordinary path for it.
        (unary-literal? goal)
-       (let [[t a] goal]
-         ;; the same scoped fan the matcher will walk (`res/sub-predicates`): an
-         ;; invisible subtype contributes no matches, so it must contribute no cost
+       (let [[t a] goal
+             ;; the same scoped fan the matcher will walk (`res/sub-predicates`): an
+             ;; invisible subtype contributes no matches, so it must contribute no cost
+             specs (tax/specs (:taxonomy kb) t context)]
          (min unbounded
-              (reduce (fn [acc t']
-                        (+ acc (prefix-estimate ix (list t' a) bound count-at count-children)))
-                      0
-                      (tax/specs (:taxonomy kb) t context))))
+              (if (open-atom? a bound)
+                (fan-of-roots ix specs count-at)
+                (reduce (fn [acc t']
+                          (+ acc (prefix-estimate ix (list t' a) bound count-at count-children)))
+                        0
+                        specs))))
 
        :else
        (min (prefix-estimate ix goal bound count-at count-children)

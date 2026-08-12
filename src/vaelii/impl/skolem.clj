@@ -85,9 +85,13 @@
   independence rules out; the chase literature keys skolem terms the same way, on the
   rule and its existential position, never on a store id."
   [rule]
-  (let [s (pr-str [(:antecedents rule) (:consequent rule) (:context rule)])
+  ;; print vars bound off: the digest lands in stored `termOfUnit` content, and an
+  ;; ambient *print-length*/*print-level* (a REPL's, typically) would elide the rule
+  ;; out of its own identity — two rules digesting alike merge their witnesses
+  (let [s (binding [*print-length* nil *print-level* nil *print-meta* false]
+            (pr-str [(:antecedents rule) (:consequent rule) (:context rule)]))
         d (.digest (java.security.MessageDigest/getInstance "SHA-1")
-                   (.getBytes s "UTF-8"))]
+                   (.getBytes ^String s "UTF-8"))]
     (apply str (map #(format "%02x" %) d))))
 
 (defn skolemize-conclusion

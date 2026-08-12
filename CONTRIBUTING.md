@@ -516,6 +516,23 @@ remote shell. See [`.github/SECURITY.md`](.github/SECURITY.md).
 - **Merges may be rewritten.** Vaelii may squash, reword or amend your commits when
   merging, so they may not land verbatim.
 
+**A release rewinds `develop`, and we rebase your branch onto it.** Each release is
+squashed onto `main` and `develop` is reset to that commit, so an open pull request's
+base moves out from under it — and GitHub notifies nobody when a base branch is
+rewritten. So we replay your commits onto the new `develop`, force-push your branch,
+and say so on the pull request. Your local clone will then be behind the rewritten
+branch: resync with `git fetch origin && git reset --hard origin/<your-branch>`, but
+only if you have nothing unpushed on it, and rebase your own local work if you do.
+
+This needs **Allow edits by maintainers**, the checkbox on your pull request, which
+is ticked by default and yours to control. Leave it on and we do the rebase; untick
+it and the pull request gets the commands to run yourself instead. We also leave the
+commands rather than touch the branch if the rebase conflicts with the release.
+
+Nothing of yours is lost either way. The `develop` you branched from is kept as
+`develop-pre-vX.Y.Z`, and your own commits stay reachable at `refs/pull/<n>/head`
+whatever happens to any branch.
+
 **Open an issue before you open a pull request.** Any issue or pull request may be
 closed at any time, for any reason, without comment — one with no matching issue
 especially. Even with a matching issue, Vaelii may resolve it directly rather than

@@ -319,41 +319,48 @@
 ;; Measured, not designed.  Each is what the engine does today at `n` = 100; the point of
 ;; writing them down is that the next change to any of these numbers is visible.  A
 ;; failure prints the delta per family, so re-pinning is reading the report.
+;;
+;; **`:functor-root` counts no visibility gate, and that is worth knowing before reading
+;; it as high.**  Every assert runs a settle and a settle asks `res/excepted-handles`,
+;; whose gate is the KB's own `:excepted` roster being empty (`kb/note-excepted!`) — a
+;; deref, and no index read.  A gate keyed on the `except` functor root instead would add
+;; three reads per assert to every workload here and seven to `rule-fired`, on a KB that
+;; excepts nothing; none of that is in these numbers.
 
 (def ^:private budgets
   [{:name    :plain
     :build   plain
     :sentexes 100
     :reads   {:argument-root 300 :argument-slot 100 :exception-index 100
-              :functor-root 1300 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 202 :slots 200}}
 
    {:name    :membership
     :build   membership
     :sentexes 100
     :reads   {:argument-root 400 :argument-slot 200 :exception-index 100
-              :functor-root 1400 :rule-index 200 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1000 :rule-index 200 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
    {:name    :declared
     :build   declared
     :sentexes 100
     :reads   {:argument-root 400 :argument-slot 200 :exception-index 100
-              :functor-root 1400 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 300 :roots 400 :roster 0 :slots 200}}
 
    {:name    :negative
     :build   negative
     :sentexes 100
     :reads   {:argument-root 300 :argument-slot 100 :exception-index 200
-              :functor-root 1300 :rule-index 100 :trie-counts 200 :trie-lookup 100}
+              :functor-root 1000 :rule-index 100 :trie-counts 200 :trie-lookup 100}
     :writes  {:levels 400 :terms 400 :roots 400 :roster 103 :slots 101}}
 
    {:name    :compound
     :build   compound
     :sentexes 100
     :reads   {:argument-root 300 :argument-slot 100 :exception-index 100
-              :functor-root 1300 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 800 :terms 600 :roots 400 :roster 104 :slots 200}}
 
    ;; 200 indexed sentexes for 100 asserts — the rule concludes one apiece
@@ -361,7 +368,7 @@
     :build   rule-fired
     :sentexes 200
     :reads   {:argument-root 600 :argument-slot 200 :exception-index 300
-              :functor-root 2200 :rule-index 200 :trie-counts 200 :trie-lookup 200}
+              :functor-root 1500 :rule-index 200 :trie-counts 200 :trie-lookup 200}
     :writes  {:levels 1000 :terms 800 :roots 800 :roster 200 :slots 400}}])
 
 ;; The retraction half.  `:unindexed` is the retraction budgets' `:sentexes` — how many

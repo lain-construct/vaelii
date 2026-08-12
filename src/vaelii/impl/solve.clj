@@ -71,9 +71,13 @@
   no principled winner, and a real ASP backend would enumerate both answer sets.
   Arbitrary but stable is the contract; arbitrary and order-dependent is a bug."
   [program handle]
-  (pr-str [(get-in program [:content handle :sentence])
-           (get-in program [:content handle :context])
-           handle]))                                 ; last resort: identical content
+  ;; the print vars are bound off: an ambient *print-length* (a REPL's, typically)
+  ;; would elide the very content — and the last-resort handle — that makes this key
+  ;; total, and the arbitration would fall back to arrival order
+  (binding [*print-length* nil *print-level* nil *print-meta* false]
+    (pr-str [(get-in program [:content handle :sentence])
+             (get-in program [:content handle :context])
+             handle])))                              ; last resort: identical content
 
 (def local-solver
   "A deterministic stub standing in for a real answer-set solver: satisfy

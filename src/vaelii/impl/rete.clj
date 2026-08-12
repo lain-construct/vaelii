@@ -207,7 +207,11 @@
   [kb by-functor sentence context]
   (let [pat (res/kb-sentex kb sentence context)]
     (keep (fn [stored]
-            (when (jtms/in? (:tms kb) (:id stored))
+            ;; the exceptWhen guard is the reference's too (`res/match-one`): a rule's
+            ;; exception meta-sentex is internal bookkeeping, stored Atomic and so
+            ;; admitted into the alpha memories, and must never surface as a fact
+            (when (and (jtms/in? (:tms kb) (:id stored))
+                       (not (sx/exceptWhen-meta? (:sentence stored))))
               (when (= (:truth pat) (:truth stored))
                 (when-let [b (res/unify (:context pat) (:context stored)
                                         (res/unify (:sentence pat) (:sentence stored)))]

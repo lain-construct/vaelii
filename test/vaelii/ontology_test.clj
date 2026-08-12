@@ -43,33 +43,37 @@
 
 (tu/deftest-kb what-a-kind-can-do-reaches-the-kinds-beneath-it
   ;; One sentence is stored.  Everything else here is the taxonomy being read.
+  ;; `capabilityType`, not `hasCapability`: this is the kind talking, and the two readings
+  ;; are two predicates (`the-two-capability-readings-are-two-predicates-and-say-so`).
   (testing "the stated claim"
-    (is (v/ask? kb '(hasCapability bird flying) B)))
+    (is (v/ask? kb '(capabilityType bird flying) B)))
   (testing "and the kinds nobody wrote anything about"
-    (is (v/ask? kb '(hasCapability eagle flying) B))
-    (is (v/ask? kb '(hasCapability sparrow flying) B)))
+    (is (v/ask? kb '(capabilityType eagle flying) B))
+    (is (v/ask? kb '(capabilityType sparrow flying) B)))
   (testing "inherited rather than stored — one sentex carries all of it"
-    (is (empty? (v/sentexes-matching kb '(hasCapability eagle flying) '?ctx))))
+    (is (empty? (v/sentexes-matching kb '(capabilityType eagle flying) '?ctx))))
   (testing "and it climbs the capability hierarchy: what flies travels"
-    (is (v/ask? kb '(hasCapability bird travelling) B))
-    (is (v/ask? kb '(hasCapability eagle travelling) B))))
+    (is (v/ask? kb '(capabilityType bird travelling) B))
+    (is (v/ask? kb '(capabilityType eagle travelling) B)))
+  (testing "answered by argPreservingInverse, so the kind level stores no rule's output"
+    (is (empty? (v/sentexes-matching kb '(capabilityType bird travelling) '?ctx)))))
 
 (tu/deftest-kb a-nearer-claim-stops-an-inherited-default-at-itself
   ;; The genl-level counterpart of `exceptWhen`.  There is no rule to block here — the
   ;; reach is the taxonomy's — so what stops it is a claim about the nearer kind.
   (testing "the excepted kind"
-    (is (not (v/ask? kb '(hasCapability penguin flying) B))))
+    (is (not (v/ask? kb '(capabilityType penguin flying) B))))
   (testing "its siblings are untouched, which is what makes this an exception"
-    (is (v/ask? kb '(hasCapability eagle flying) B))
-    (is (v/ask? kb '(hasCapability crow flying) B)))
+    (is (v/ask? kb '(capabilityType eagle flying) B))
+    (is (v/ask? kb '(capabilityType crow flying) B)))
   (testing "and the general claim survives being excepted"
-    (is (v/ask? kb '(hasCapability bird flying) B))))
+    (is (v/ask? kb '(capabilityType bird flying) B))))
 
 (tu/deftest-kb the-exception-is-a-claim-and-not-merely-a-silence
   ;; "Penguins do not fly" is something the KB says, not something it fails to say.  An
   ;; application can query it and argue from it; an absence supports no argument.
   (testing "at the kind"
-    (is (seq (v/sentexes-matching kb '(not (hasCapability penguin flying)) '?ctx))))
+    (is (seq (v/sentexes-matching kb '(not (capabilityType penguin flying)) '?ctx))))
   (testing "and at the member, by its own rule"
     (is (seq (v/sentexes-matching kb '(not (hasCapability Tweety flying)) N)))))
 
@@ -84,6 +88,54 @@
   (testing "and the flightless member gets neither"
     (is (not (v/ask? kb '(hasCapability Tweety flying) N)))
     (is (empty? (v/sentexes-matching kb '(hasCapability Tweety travelling) N)))))
+
+(tu/deftest-kb the-two-capability-readings-are-two-predicates-and-say-so
+  ;; One symbol read at both levels has to pick one argument check for both, and whichever
+  ;; it picks convicts the half it was not written for: `argIsa … 1 animal` is right for
+  ;; `(… Tweety flying)` and wrong for `(… bird flying)`, since a kind is not a member of
+  ;; the type it lies under.  So: two predicates, the kind-level one marked, and the pair
+  ;; named in prose because the predicate that names pairs cannot take a mixed half.
+  (testing "the kind-level half relates kinds, and says so"
+    (is (v/ask? kb '(typeRelationPredicate capabilityType))))
+  (testing "the instance-level half is MIXED — one animal to one capability kind — so it
+            carries no relationKind, and its two positions take different checks"
+    (is (not (v/ask? kb '(instanceRelationPredicate hasCapability))))
+    (is (not (v/ask? kb '(typeRelationPredicate hasCapability))))
+    (is (v/ask? kb '(argIsa hasCapability 1 animal)))
+    (is (v/ask? kb '(argGenl hasCapability 2 capability))))
+  (testing "so the pairing cannot be declared — typeToInstancePred constrains its second
+            argument to a marked instance half, and this one is mixed"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (v/assert kb '(typeToInstancePred capabilityType hasCapability)
+                           'LifeContext))))
+  (testing "and neither reading answers the other's question"
+    (is (not (v/ask? kb '(hasCapability bird flying) B)))
+    (is (not (v/ask? kb '(capabilityType Sam flying) N)))))
+
+(tu/deftest-kb every-fact-the-starter-ships-satisfies-the-declarations-it-ships
+  ;; The guard the `hasCapability` split existed to install.  A declaration arriving after
+  ;; the content it convicts is accepted — that is the open-world reading, and `violations`
+  ;; carries no retroactive report for `:arg-type` — so the starter could hold seven facts
+  ;; its own checker rejected and nothing said a word.  Loading is not the check; this is.
+  ;;
+  ;; Facts only.  A rule reaches `check` as its `implies` form and an `exceptWhen` as a
+  ;; `sentexHandle` reference, and both are engine-minted encodings rather than anything a
+  ;; `.txt` author wrote — `check` reads them out of the rule that gives their variables
+  ;; meaning, so convicting them says nothing about the shipped content.
+  (let [encoding? (fn [s] (let [s (if (and (seq? s) (= 'not (first s))) (second s) s)]
+                            (and (seq? s) (contains? '#{implies exceptWhen} (first s)))))
+        facts     (->> (v/terms kb)
+                       (mapcat #(v/find-sentexes kb %))
+                       (reduce (fn [m sx] (assoc m (:id sx) sx)) {})
+                       vals
+                       (remove #(some? (:antecedent %)))
+                       (remove #(encoding? (:sentence %))))
+        guilty  (for [sx    facts
+                      :let  [ps (v/check kb (:sentence sx) (:context sx))]
+                      :when (seq ps)]
+                  [(:sentence sx) (:context sx) (mapv :type ps)])]
+    (is (empty? guilty)
+        (str "shipped facts their own declarations convict: " (vec guilty)))))
 
 ;; ---- the exception mechanism itself, apart from birds --------------------
 

@@ -327,6 +327,26 @@ trie a sentex is indexed by: its key tokens then context as the final
 level, connective-free and α-renamed. Each node carries a count, a child-label
 set, and the handles at that node. See [indexing.md](indexing.md).
 
+**Inert** ![kb](../.github/badges/cat-kb.svg): One word for two things, and they
+differ in whether the KB *believes* what it stores.
+
+- An **inert rule** — `set/inertRule`, or `{:direction :inert}` — is believed,
+  indexed and browsable, and chains in neither direction. It is a rule kept as
+  **documentation**: the transitivity of `genl` is written down where a reader
+  looks for it while the cached closure is what actually computes it
+  ([taxonomy.md](taxonomy.md)). Its own `:strength` is an ordinary class —
+  there is no `:inert` strength, the two assertable classes being `:default`
+  and `:monotonic`.
+- An **inert sentex** — `core/assert-inert` — is stored, indexed and durable but
+  **never a premise**, so it is never believed by anything: the primitive behind a
+  solve's materialized labeling, a recorded truth value rather than a claim
+  ([solving.md](solving.md)). It takes atoms and their negations; a **rule** is
+  refused (`:not-indexable`), the door that indexes a rule being the one that
+  creates it.
+
+See [inference.md](inference.md) for the first and [solving.md](solving.md) for
+the second.
+
 **`ist`** ![kb](../.github/badges/cat-kb.svg): "Is true in" — `(ist Ctx S)`
 finds-or-creates `S` in `Ctx` and returns its handle. Not stored as data; in a
 rule consequent it places `S` into the named context. See
@@ -671,11 +691,16 @@ none. See [canonicalization.md](canonicalization.md).
 **`violations`** ![inference](../.github/badges/cat-inference.svg): The
 accumulating ledger of conclusions *dropped* on the derivation path — a failed
 argIsa / disjoint / functional check, a placement-less firing, or a derived
-cycle through negation — recorded rather than thrown. Four kinds drop nothing
-and report: a retroactive `:arity` reach, a `:non-confluent` pair of equations,
-and the two that say a bounded sweep did not finish — `:exposure-truncated`
-(clashes went unreported) and `:arbitration-truncated` (content a declaration
-implicates went undecided). See [inference.md](inference.md), [nmtms.md](nmtms.md).
+cycle through negation — recorded rather than thrown. Three groups drop nothing
+and report: the **cross-context** clashes neither writer could see (`:disjoint`,
+`:functional` and `:asymmetric`, each carrying `:visible-from`, and the latter two
+under `:refuse` only); the three that say bounded work did not cover everything —
+`:exposure-truncated` and `:arbitration-truncated`, both sweeps cut short, and
+`:constraint-exposure-truncated`, which is not a sweep but a pass finding more pairs
+than it will file; and a retroactive `:arity` reach beside a `:non-confluent` pair of
+equations. An entry about a pair or a budget carries no `:sentence` or `:context`.
+See [inference.md](inference.md),
+[nmtms.md](nmtms.md).
 
 **Visibility (genlContext up-closure)** ![kb](../.github/badges/cat-kb.svg):
 Which sentexes a context can use — those asserted in it or in any context it sees

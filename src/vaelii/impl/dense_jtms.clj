@@ -25,7 +25,7 @@
 
   ```
     nodes / premises / in / groundable / defeated / blocked
-    touched / touched-in                                       RoaringBitmap
+    touched / touched-in / touched-new                         RoaringBitmap
     depths                                    Int2IntOpenHashMap  (absent => 0)
     supports / consequences   Int2ObjectOpenHashMap<IntPostings>  (absent => empty)
     a justification            columns keyed by id, never an object  (see below)
@@ -183,6 +183,7 @@
                    ^RoaringBitmap blocked
                    ^RoaringBitmap touched
                    ^RoaringBitmap touched-in
+                   ^RoaringBitmap touched-new
                    ^RoaringBitmap mono
                    ^clojure.lang.Atom superseded]
 
@@ -208,7 +209,9 @@
   (-superseded [_] @superseded)
   (-touched [_] (rb-set touched))
   (-touched-in [_] (rb-set touched-in))
-  (-reset-touched [_] (locking lock (.clear touched) (.clear touched-in)) nil)
+  (-touched-new [_] (rb-set touched-new))
+  (-reset-touched [_]
+    (locking lock (.clear touched) (.clear touched-in) (.clear touched-new)) nil)
   (-supports [_ datum] (adj-set supports datum))
   (-dependents [_ datum] (adj-set conseqs datum))
   (-justification [this jid] (when (rb-has? jids jid) (just-record this jid)))
@@ -492,7 +495,10 @@
         depths ^Int2IntOpenHashMap (.-depths this)]
     (if (rb-has? ^RoaringBitmap (.-nodes this) d)
       (.put depths d (int (min (.get depths d) (int depth))))
+      ;; the window's record of what it created, taken here because this is the only
+      ;; line that knows — see `jtms/touched-new`
       (do (rb-add! ^RoaringBitmap (.-nodes this) d)
+          (rb-add! ^RoaringBitmap (.-touched-new this) d)
           (.put depths d (int depth))))
     nil))
 
@@ -746,8 +752,9 @@
                        (rb-longs ^RoaringBitmap (.-mono this)))
      :in         (rb-set ^RoaringBitmap (.-in this))
      :groundable (rb-set ^RoaringBitmap (.-groundable this))
-     :touched    (rb-set ^RoaringBitmap (.-touched this))
-     :touched-in (rb-set ^RoaringBitmap (.-touched-in this))}))
+     :touched     (rb-set ^RoaringBitmap (.-touched this))
+     :touched-in  (rb-set ^RoaringBitmap (.-touched-in this))
+     :touched-new (rb-set ^RoaringBitmap (.-touched-new this))}))
 
 ;; ---- construction -------------------------------------------------------
 
@@ -765,6 +772,7 @@
               (doto (Int2IntOpenHashMap.) (.defaultReturnValue no-informant))
               (Int2ObjectOpenHashMap.) (Int2ObjectOpenHashMap.) (Int2ObjectOpenHashMap.)
               (rb)                                             ; j-mono
-              (rb) (rb) (rb) (rb) (rb) (rb) (rb)               ; in groundable defeated blocked
-                                                               ; touched touched-in mono
+              (rb) (rb) (rb) (rb) (rb) (rb) (rb) (rb)          ; in groundable defeated blocked
+                                                               ; touched touched-in touched-new
+                                                               ; mono
               (atom {})))

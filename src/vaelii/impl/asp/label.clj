@@ -284,7 +284,11 @@
   [kb ctx base]
   (let [tms (:tms kb)
         program (v/last-program kb)
-        believed (filter #(jtms/in? tms %) (:assumptions program))]
+        ;; content order, as `label-dilemmas` orders the same set: `:assumptions` is
+        ;; a handle set, and hash iteration would mint the copies — and return the
+        ;; `:handles` a caller retracts — in an order that tracks assertion order
+        believed (sort-by #(solve/content-key program %)
+                          (filter #(jtms/in? tms %) (:assumptions program)))]
     (v/assert kb (list 'genlContext ctx base) base {:strength :monotonic})
     {:context ctx
      :handles (into [] (keep (fn [h]

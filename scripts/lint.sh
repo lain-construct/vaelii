@@ -176,7 +176,8 @@ check shellcheck -- shellcheck scripts/lint.sh scripts/lint-glossary.sh scripts/
                                scripts/coverage.sh scripts/gate.sh scripts/test-backends.sh \
                                scripts/test-sweeps.sh scripts/lib/suite-marks.sh \
                                scripts/update-badges.sh scripts/link-checkouts.sh \
-                               scripts/check-reflection.sh
+                               scripts/check-reflection.sh scripts/test-parallel.sh \
+                               scripts/run-bench-caches.sh
 check reflect    -- bash scripts/check-reflection.sh
 check unused     -- python3 scripts/check-unused-publics.py
 

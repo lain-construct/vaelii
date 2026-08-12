@@ -190,18 +190,34 @@ it hides its target.
 
 The removal is **total**, not just for reads:
 
-- **Reads.** `res/matches-visible` and `sentexes-matching` drop a handle in
-  `res/excepted-handles` of the view context — the believed excepts visible from
-  there, resolved through `context-up`. Gated on the `except` functor root, so a KB
-  using no `except` pays one count.
+- **Reads.** `res/matches-visible` and `sentexes-matching` drop a handle hidden from the
+  view context — the believed excepts visible from there, resolved through `context-up`.
 - **Derivations.** A rule firing that used `H` as an antecedent and placed its
   conclusion in the cone rests on a fact that context can no longer see, so the
   conclusion is **blocked and swept** — the derivation-side twin of `exceptWhen`, run
   through the same block/sweep/revive machinery (`chain/justification-excepted?` and
-  `place-conseq` read the hidden set per placement). A firing that arrives *after* the
+  `place-conseq` ask per placement). A firing that arrives *after* the
   except is never placed in the cone; a late except sweeps what already fired; and
   retracting the except **re-derives** what it was hiding. A conclusion placed *above*
   the cone (a context that does not see the except) is untouched.
+
+**What the two of them read.** Both go through the KB's `:excepted` roster —
+`{context → {hidden-handle → #{except-handle}}}`, maintained O(1) at the store and
+removal choke points (`kb/note-excepted!`) exactly as the `:opposed` coincidence set is,
+and rebuilt by `recover` because it is derived from storage and no store holds it. A KB
+that excepts nothing has an empty roster, and that is the gate: a deref, and no index
+read. A KB that excepts something pays one map lookup per context stating an except, plus
+a `jtms/in?` per except naming the handle asked about — **belief stays a read**, since an
+except can be defeated or revived with no sentex arriving or leaving, which is the same
+line `:opposed` draws.
+
+Callers with particular handles in hand — a firing's two or three antecedents, or matches
+arriving one at a time — take `res/hidden-fn`, a predicate over one view context, rather
+than `res/excepted-handles`, which materializes every handle hidden anywhere in the cone.
+The set costs one pass over the reader's excepts however few handles will be asked about;
+the predicate costs a lookup per question, and the questions are bounded by the answer set
+while the excepts are not. On a chaining run over a KB with 1,000 excepts the difference
+is 16× the whole run (`lein bench-hotreads`).
 
 The re-check triggers are the except arriving or leaving (`special/recheck-except`,
 keyed on the handle it names rather than a predicate) and any `genlContext` edge change
@@ -224,6 +240,53 @@ into the named context `Ctx` instead of the computed placement — overriding th
 default maximal-contexts rule. `Ctx` may be a variable bound by an antecedent (e.g.
 `(genlContext ?c UniverseContext) ⇒ (ist ?c ...)`). The rule is indexed by `S`'s predicate,
 not by `ist`, and range-restriction covers the inner sentence and the context slot.
+
+**ist in a query.** Every read taking a sentence and a context takes `(ist Ctx S)` as its
+goal, asking `S` in `Ctx` with the **named context winning over the argument** — the same
+resolution `assert` makes, so one form means one thing on both sides of the KB. That is
+`sentexes-matching`, `handle-of`, `ask`, `prove`, `query`, `query-plan`, `ask-within`,
+`prove-within`, `why-not`'s sentence arity, and the three level diagnostics; `contexts-of`
+and `find-sentexes` take no context and ask *which* contexts hold a sentence, so the form
+is not a question they have, and `isa?` / `genls` take a context but a **term** rather
+than a sentence.
+
+Each door answers at its own notion of a context, and the two families differ:
+`sentexes-matching` is an exact-context retrieval, so it returns the sentexes stored in
+`Ctx`, while the reasoning doors answer from everything `Ctx` inherits. Both are "in
+`Ctx`" — a fact `Ctx` inherits is true in `Ctx` — so the difference is the doors', not
+`ist`'s.
+
+Two shapes are refused rather than answered empty, since a read reporting nothing looks
+like a true negative: a wrong arity is `assert`'s own `:shape`, and an `(ist …)` standing
+as a **conjunct** of a join is `:not-well-formed`, a join's conjuncts sharing their
+bindings and so having no per-literal context. Ask the whole conjunction in `Ctx` instead.
+
+**ist places, and never reads on a rule's behalf.** There is no `ist` on the antecedent
+side: a rule cannot qualify a premise by the context to read it from, and `(ist Ctx S)` in
+antecedent or
+`exceptWhen` position is refused as `:not-well-formed`. Such a literal is indexed and
+matched under the functor `ist`, which no sentex carries, so it satisfies nothing — and
+the way that falls out depends on the frame it sits in. A positive antecedent is never
+satisfied and the rule cannot fire; an `exceptWhen` query never matches, so the guard
+never guards and the conclusion it was written to block stands believed; an `(unknown
+(ist …))` is satisfied by that same emptiness, so the rule fires unconditionally. The
+middle two are why this is a refusal rather than an inert shape: a rule that does nothing
+announces itself, and a guard that passes everything does not.
+
+The reading a rule wants is that `S` be **visible** where it is stated, which is what the
+two mechanisms below this section say — `(decontextualizedPredicate P)` takes every
+`(P ...)` into UniverseContext, which every context sees, and a `genlContext` edge puts
+`Ctx` in the rule's own cone. Under either the premise is written plainly, and it is the
+`genlContext` topology rather than a per-rule annotation that decides what is readable
+from where. `sentex/ist-read-problem` carries the refusal and names both.
+
+**Why the query takes what the antecedent is refused**, since it is one form treated two
+ways: the query grants no visibility the context argument did not already grant.
+`(sentexes-matching kb S AContext)` has always answered `AContext`'s facts from anywhere,
+and `(ist AContext S)` is a spelling of it — the caller asking about `AContext` has said
+so. A rule antecedent is the other case: nobody asked, the rule's own context may not see
+`Ctx`, and what comes back decides *belief* rather than answering one caller.
+`context_scoping_test` pins both halves.
 
 **The predicate meta-ontology** is a worked example. Predicates are reified as
 individuals under `predicate` (itself a `thing`): `unaryPredicate` (types and
@@ -256,6 +319,16 @@ dotted rest pattern quantifies over any predicate and its arguments (see
 in code, so the rule is never indexed or fired; it only records the intent. The
 declaration is ordinary predicate metadata, read back with
 `(has-prop? kb :decontextualized pred)`.
+
+**The mark itself is read globally, not through the asserting fact's cone.** A
+`(decontextualizedPredicate P)` stated *anywhere* lifts every `(P ...)` in the KB,
+including facts stated in contexts that cannot see the declaration. That is
+deliberate (`special/deduce-lifts` says so at the read): the lift decides the
+*storage* context, and gating it on what could see the declaration would be circular
+— the whole point of the copy is to make the fact visible to readers the stating
+context knows nothing about. What it costs is stated here rather than hidden: a
+declaration in one theory publishes a sibling theory's `(P ...)` extent KB-wide, so
+the mark belongs in a schema context, not a contingent one.
 
 ### Why UniverseContext, and not a target the declaration names
 

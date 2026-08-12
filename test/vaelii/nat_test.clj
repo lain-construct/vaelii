@@ -171,6 +171,27 @@
         (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
         (is (empty? (nat/orphaned-constants kb)))))))
 
+(tu/deftest-kb the-bookkeeping-set-is-an-answer-rather-than-a-plan
+  ;; The caller retracts what `bookkeeping-handles` hands back, and the question
+  ;; "is this one of `k`'s own?" is itself read off `k`'s `termOfUnit` — so an answer
+  ;; still being computed while the caller acts on it reads a KB the caller has already
+  ;; torn the map out of, and everything after that point stops looking like
+  ;; bookkeeping.  What survives is a materialized type naming a collected constant.
+  ;; The order the term index yields decides whether it happens, so the two tests above
+  ;; witness it only in some retrieval orders; this one pins the property instead.
+  (tu/with-terms [FruitFn AppleTree fruit color]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'UniverseContext)
+    (v/assert kb (list 'resultIsa FruitFn fruit) 'UniverseContext)
+    (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'UniverseContext)
+          k  (k-of kb h)
+          hs (nat/bookkeeping-handles kb k)]
+      ;; the claim is that nothing in the answer is still pending, not that it is a
+      ;; vector — `counted?` covers the collection this returns, `realized?` a seq some
+      ;; other realization produced, and a lazy tail satisfies neither
+      (is (or (counted? hs) (realized? hs))
+          "realized before it is returned, not as the caller consumes it")
+      (is (= 2 (count hs)) "the map and the one materialized result type"))))
+
 ;; The sweep asks about the constants the teardown's removals named, so a nested NAT —
 ;; whose only reference is the expression the *outer* constant's map holds — is reached
 ;; only on the round after the outer one goes.  Its collection is what says the region
@@ -330,6 +351,22 @@
       (testing "the NAT resolves to the declared real term"
         (is (= (list 'locatedIn Paris 'Europe) (:sentence (v/sentex kb h))))
         (is (seq (v/sentexes-matching kb (list 'locatedIn (list CapitalFn France) '?where) '?ctx)))))))
+
+(tu/deftest-kb two-rewrite-declarations-mint-fresh-rather-than-electing-one
+  ;; `rewrite-target` answers only a **unique** believed declaration, as
+  ;; `correspondence-of` answers its twin question: picking between two by whichever
+  ;; the retrieval yielded first would store `(likes Tom Mary)` or `(likes Tom
+  ;; Maria)` according to arrival order — divergent stored state, inherited by every
+  ;; later read.  Two declarations are a disagreement, not a tie to break.
+  (tu/with-terms [MotherFn Muffet Mary Maria]
+    (v/assert kb (list 'reifiableFunction MotherFn) 'UniverseContext)
+    (v/assert kb (list 'rewriteOf Mary (list MotherFn Muffet)) 'UniverseContext)
+    (v/assert kb (list 'rewriteOf Maria (list MotherFn Muffet)) 'UniverseContext)
+    (let [h      (v/assert kb (list 'likes 'Tom (list MotherFn Muffet)) 'UniverseContext)
+          stored (nth (:sentence (v/sentex kb h)) 2)]
+      (is (nat/reified-nat-symbol? stored)
+          "a fresh constant stands until the disagreement is resolved")
+      (is (not (contains? #{Mary Maria} stored))))))
 
 ;; ---- recover: the reifiable gate + reified NAT data survive a rebuild -----------
 

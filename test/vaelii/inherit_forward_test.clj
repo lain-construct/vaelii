@@ -222,6 +222,204 @@
     (is (holds? kb (list aboutIt thing_t)) "and two")
     (is (holds? kb (list aboutIt dog_t)) "the stated one, by the ordinary matcher")))
 
+(tu/deftest-kb a-context-argument-carries-a-firing-down-the-lattice
+  ;; The relation can be the context hierarchy: preserved along `genlContext`, a claim
+  ;; naming a wide context fires for the contexts below it, off the same cached closure
+  ;; the backward door walks (`inherit_test`).
+  (tu/with-terms [appliesIn noticed TheDecree WideContext NarrowContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext WideContext ctx) ctx)
+      (v/assert kb (list 'genlContext NarrowContext WideContext) ctx)
+      (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) ctx))
+    (v/assert kb (list appliesIn TheDecree WideContext) ctx)
+    (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c)) ctx)
+    (testing "the subcontext, by inheritance — and both doors agree on it"
+      (is (holds? kb (list noticed NarrowContext)))
+      (is (v/ask? kb (list noticed NarrowContext) ctx)))
+    (testing "the stated one, by the ordinary matcher"
+      (is (holds? kb (list noticed WideContext)))
+      (is (v/ask? kb (list noticed WideContext) ctx)))
+    (testing "and nothing upward, through either door"
+      (is (not (holds? kb (list noticed ctx))))
+      (is (not (v/ask? kb (list noticed ctx) ctx))))
+    (testing "the firing rests on the edge it travelled"
+      (v/retract! kb (v/handle-of kb (list 'genlContext NarrowContext WideContext) ctx))
+      (is (not (holds? kb (list noticed NarrowContext)))
+          "retracting the lattice edge withdraws the conclusion")
+      (v/assert kb (list 'genlContext NarrowContext WideContext) ctx)
+      (is (holds? kb (list noticed NarrowContext))
+          "and the edge arriving last reconnects and re-fires it"))))
+
+(tu/deftest-kb a-defeated-witness-with-a-surviving-route-keeps-the-doors-agreeing
+  ;; `support-for` names one witness — a shortest path — and arbitration can defeat
+  ;; that witness with no sentence arriving or leaving: the denial lands where it sees
+  ;; nothing, and a lattice edge arriving later exposes the pair.  The firing has to
+  ;; re-derive through the route the named witness did not travel, in the very settle
+  ;; that defeated it, or the fixpoint holds less than the backward door still proves.
+  (tu/with-terms [dog_t mid_t chi_t cat_t largerThan noted AContext BContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      ;; the long route, visible everywhere; the short edge, visible only from A
+      (v/assert kb (list 'genl mid_t dog_t) 'UniverseContext)
+      (v/assert kb (list 'genl chi_t mid_t) 'UniverseContext)
+      (v/assert kb (list 'genl chi_t dog_t) AContext)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'UniverseContext)
+      (v/assert kb (list largerThan dog_t cat_t) 'UniverseContext))
+    (v/assert kb (list 'implies (list largerThan '?x '?y) (list noted '?x '?y))
+              'UniverseContext)
+    (let [goal (list noted chi_t cat_t)]
+      (is (seq (v/sentexes-matching kb goal AContext))
+          "the firing lands beside the short edge it named")
+      (testing "the denial lands where it sees nothing, and nothing moves"
+        (v/assert kb (list 'not (list 'genl chi_t dog_t)) BContext {:strength :monotonic})
+        (is (seq (v/sentexes-matching kb goal AContext))))
+      (testing "the lattice edge exposes the pair, and the firing re-derives on the
+                surviving route in the settle that defeated its witness"
+        (v/assert kb (list 'genlContext BContext AContext) 'UniverseContext)
+        (is (v/ask? kb (list largerThan chi_t cat_t) 'UniverseContext)
+            "the backward door still proves the claim through the long route")
+        (is (seq (v/sentexes-matching kb goal 'UniverseContext))
+            "and the fixpoint holds it again, homed where the long route is visible")
+        (is (v/ask? kb goal 'UniverseContext))
+        (is (v/ask? kb goal AContext) "both vantages agree with the prover")))))
+
+(tu/deftest-kb the-mirror-licenses-a-firing-in-either-order
+  ;; A symmetric predicate's stored claim states both orientations, so the mirror
+  ;; orientation licenses inheritance like the stored one — through the forward door as
+  ;; much as the backward, whichever of the claim and the symmetry arrived first.  The
+  ;; firing names the symmetric declaration it was read through, so withdrawing the
+  ;; symmetry withdraws exactly what only the mirror licensed.
+  (doseq [sym-first? [true false]]
+    (testing (if sym-first? "the symmetry arrives before the claim" "the symmetry arrives last")
+      (tu/with-terms [dog_t cat_t chihuahua_t nearTo seen]
+        (v/with-deferred-settle kb
+          (v/assert kb (list 'genl chihuahua_t dog_t) ctx)
+          (v/assert kb (list 'argPreserving nearTo 1 'genl) ctx))
+        (doseq [s (if sym-first?
+                    [(list 'symmetric nearTo)
+                     (list 'implies (list nearTo '?x '?y) (list seen '?x '?y))
+                     (list nearTo cat_t dog_t)]
+                    [(list nearTo cat_t dog_t)
+                     (list 'implies (list nearTo '?x '?y) (list seen '?x '?y))
+                     (list 'symmetric nearTo)])]
+          (v/assert kb s ctx))
+        (testing "the tuple only the mirror licenses, through both doors"
+          (is (v/ask? kb (list nearTo chihuahua_t cat_t) ctx))
+          (is (holds? kb (list seen chihuahua_t cat_t)))
+          (is (v/ask? kb (list seen chihuahua_t cat_t) ctx)))
+        (testing "the firing names the symmetry it was read through"
+          (let [reasons (into #{}
+                              (comp (mapcat :because) (map :sentence))
+                              (:support (v/why kb (v/handle-of kb (list seen chihuahua_t cat_t)
+                                                               ctx))))]
+            (is (contains? reasons (list 'symmetric nearTo)))
+            (is (contains? reasons (list nearTo cat_t dog_t)))))
+        (testing "withdrawing the symmetry withdraws what only the mirror licensed"
+          (v/retract! kb (v/handle-of kb (list 'symmetric nearTo) ctx))
+          (is (not (holds? kb (list seen chihuahua_t cat_t))))
+          (is (not (v/ask? kb (list nearTo chihuahua_t cat_t) ctx)))
+          (is (holds? kb (list seen cat_t dog_t)) "the stated orientation is untouched")
+          (v/assert kb (list 'symmetric nearTo) ctx)
+          (is (holds? kb (list seen chihuahua_t cat_t)) "and re-asserting restores it"))))))
+
+(tu/deftest-kb a-defeated-reason-withdraws-the-firing-and-revival-restores-it
+  ;; The JTMS half of `retracting-any-reason-withdraws-the-conclusion`: belief loss
+  ;; without retraction.  Each reason in turn is defeated by a known-true contrary and
+  ;; revived by that contrary's retraction, and the firing follows it out and back
+  ;; through both doors.
+  (tu/with-terms [dog_t cat_t chihuahua_t maine_coon_t largerThan outweighs]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genl chihuahua_t dog_t) ctx)
+      (v/assert kb (list 'genl maine_coon_t cat_t) ctx)
+      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
+      (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx)
+      (v/assert kb (list largerThan dog_t cat_t) ctx))
+    (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y)) ctx)
+    (let [goal (list outweighs chihuahua_t maine_coon_t)]
+      (is (holds? kb goal))
+      (doseq [reason [(list 'genl chihuahua_t dog_t)
+                      (list largerThan dog_t cat_t)]]
+        (testing (str "defeating " (pr-str reason))
+          (v/assert kb (list 'not reason) ctx {:strength :monotonic})
+          (is (not (holds? kb goal)) "the defeated reason takes the firing out")
+          (is (not (v/ask? kb goal ctx)))
+          (v/retract! kb (v/handle-of kb (list 'not reason) ctx))
+          (is (holds? kb goal) "and the revival re-derives it")
+          (is (v/ask? kb goal ctx)))))))
+
+(tu/deftest-kb an-R-fact-arriving-last-connects-and-fires
+  ;; genl has the shuffled oracle and genlContext the relanding edge; this is the
+  ;; declared relation's turn: the trigger index cannot connect `partOf` to the
+  ;; preserved predicate, so only the preserving re-join fires these.
+  (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive partOf) ctx)
+      (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) ctx))
+    (v/assert kb (list needsMaintenance Car) ctx)
+    (v/assert kb (list 'implies (list needsMaintenance '?x) (list schedule '?x)) ctx)
+    (is (not (holds? kb (list schedule Piston))) "nothing connects the part yet")
+    (v/assert kb (list partOf Engine Car) ctx)
+    (is (holds? kb (list schedule Engine)) "one hop, connected by the late fact")
+    (v/assert kb (list partOf Piston Engine) ctx)
+    (is (holds? kb (list schedule Piston)) "and the second hop extends the reach")
+    (testing "withdrawing and re-asserting the transitivity round-trips the firings"
+      (v/retract! kb (v/handle-of kb (list 'transitive partOf) ctx))
+      (is (not (holds? kb (list schedule Piston))))
+      (v/assert kb (list 'transitive partOf) ctx)
+      (is (holds? kb (list schedule Piston))))))
+
+(tu/deftest-kb a-batch-and-a-sequence-reach-the-same-firings-off-genl
+  ;; One `with-deferred-settle` batch and the same content asserted one at a time
+  ;; must land the same conclusions, for the declared relation and the lattice alike —
+  ;; the batch's closing fixpoint interleaves the re-joins the sequence took one per
+  ;; arrival.
+  (doseq [batch? [true false]]
+    (testing (if batch? "one deferred batch" "one assert at a time")
+      (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston
+                      appliesIn noticed TheDecree WideContext NarrowContext]
+        (let [content [(list 'transitive partOf)
+                       (list 'argPreserving needsMaintenance 1 partOf)
+                       (list partOf Engine Car)
+                       (list partOf Piston Engine)
+                       (list needsMaintenance Car)
+                       (list 'implies (list needsMaintenance '?x) (list schedule '?x))
+                       (list 'genlContext WideContext ctx)
+                       (list 'genlContext NarrowContext WideContext)
+                       (list 'argPreserving appliesIn 2 'genlContext)
+                       (list appliesIn TheDecree WideContext)
+                       (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c))]]
+          (if batch?
+            (v/with-deferred-settle kb
+              (doseq [s content] (v/assert kb s ctx)))
+            (doseq [s content] (v/assert kb s ctx))))
+        (is (holds? kb (list schedule Piston)) "the part chain fired")
+        (is (holds? kb (list schedule Engine)))
+        (is (holds? kb (list noticed NarrowContext)) "and the lattice fired")
+        (is (not (holds? kb (list noticed ctx))))))))
+
+(tu/deftest-kb a-genlContext-carried-firing-descends-to-where-the-lattice-is-visible
+  ;; Placement for the lattice relation: the claim in one branch, the edge in another,
+  ;; and the conclusion lands only where both are visible — the context below the two.
+  (tu/with-terms [appliesIn noticed TheDecree WideContext NarrowContext
+                  LeftContext RightContext DownContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext LeftContext ctx) ctx)
+      (v/assert kb (list 'genlContext RightContext ctx) ctx)
+      (v/assert kb (list 'genlContext DownContext LeftContext) ctx)
+      (v/assert kb (list 'genlContext DownContext RightContext) ctx)
+      (v/assert kb (list 'genlContext WideContext ctx) ctx)
+      (v/assert kb (list 'genlContext NarrowContext WideContext) ctx)
+      (v/assert kb (list 'argPreserving appliesIn 2 'genlContext) ctx))
+    (v/assert kb (list appliesIn TheDecree WideContext) LeftContext)
+    (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c))
+              RightContext)
+    (is (seq (v/sentexes-matching kb (list noticed NarrowContext) DownContext))
+        "the conclusion is homed below both branches")
+    (is (empty? (v/sentexes-matching kb (list noticed NarrowContext) LeftContext))
+        "and not in a branch that cannot see the rule")
+    (is (v/ask? kb (list noticed NarrowContext) DownContext))))
+
 ;; ---- joining with an ordinary antecedent --------------------------------
 
 (tu/deftest-kb an-inherited-antecedent-joins-with-a-matched-one

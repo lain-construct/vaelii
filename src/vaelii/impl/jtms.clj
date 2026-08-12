@@ -148,12 +148,17 @@
 ;; ---- labelling ----------------------------------------------------------
 
 (defn- ensure* [state datum depth]
-  (update-in state [:nodes datum]
-             (fn [n]
-               (if n
-                 (update n :depth min depth)
-                 {:datum datum :premise? false
-                  :depth depth :supports #{} :consequences #{}}))))
+  (if-let [n (get-in state [:nodes datum])]
+    (assoc-in state [:nodes datum] (update n :depth min depth))
+    ;; A node the window **created** is noted as it is created, and that is the only
+    ;; place the distinction exists: by the time the relabel that follows reads the
+    ;; graph, a brand-new node and a stored one that has been OUT for a hundred settles
+    ;; look identical — neither is believed, and both are about to be.  `touched-new` is
+    ;; what separates them (see `revived`).
+    (-> state
+        (assoc-in [:nodes datum] {:datum datum :premise? false
+                                  :depth depth :supports #{} :consequences #{}})
+        (update :touched-new (fnil conj #{}) datum))))
 
 (defn- valid?
   "Is justification `j` currently satisfied under the IN set `in` and the blocked set
@@ -180,8 +185,9 @@
   justification's antecedents, which is what makes retracting or defeating the rule
   withdraw everything it licensed — but that is a *validity* role, not a ground.
   Capping on it as well would fold the rule's assumption strength into every
-  conclusion, and since `assert` gives a rule `:default` like anything else, that
-  alone would put every derived datum at `:default`.  The strength a rule contributes
+  conclusion — and a rule takes `:default` unless its own assertion says otherwise,
+  exactly as a fact does, so that alone would put every datum an ordinary rule
+  licensed at `:default`.  The strength a rule contributes
   is already carried by `:strength` on the justification (`:monotonic` for a bare
   rule, `:default` for a `set/defaultRule`)."
   [j classes]
@@ -650,6 +656,7 @@
   (-superseded       [tms]       "The `datum -> reason` supersession map.")
   (-touched          [tms]       "Datums whose region was relabelled since the reset.")
   (-touched-in       [tms]       "Of those, the ones already believed when first relabelled.")
+  (-touched-new      [tms]       "Datums whose node this window created.")
   (-reset-touched    [tms]       "Clear the touched sets.")
   (-supports         [tms datum] "Justification ids concluding `datum`.")
   (-dependents       [tms datum] "Justification ids using `datum` as an antecedent.")
@@ -705,7 +712,8 @@
   (-superseded [_] (:superseded @state {}))
   (-touched [_] (:touched @state #{}))
   (-touched-in [_] (:touched-in @state #{}))
-  (-reset-touched [_] (swap! state assoc :touched #{} :touched-in #{}) nil)
+  (-touched-new [_] (:touched-new @state #{}))
+  (-reset-touched [_] (swap! state assoc :touched #{} :touched-in #{} :touched-new #{}) nil)
   (-supports [_ datum] (get-in @state [:nodes datum :supports] #{}))
   (-dependents [_ datum] (get-in @state [:nodes datum :consequences] #{}))
   (-justification [_ jid] (get-in @state [:justs jid]))
@@ -756,7 +764,8 @@
   (Rules live in the stores as sentexes, not here.)"
   []
   (->RefTms (atom {:nodes {} :justs {} :defeated #{} :blocked #{} :superseded {}
-                   :classes {} :in #{} :groundable #{} :touched #{} :touched-in #{}})))
+                   :classes {} :in #{} :groundable #{}
+                   :touched #{} :touched-in #{} :touched-new #{}})))
 
 ;; ---- public API ---------------------------------------------------------
 ;;
@@ -818,11 +827,43 @@
   than from part-way through it: a datum relabelled twice keeps the earlier answer."
   [tms] (-touched-in tms))
 
+(defn touched-new
+  "The datums whose **node this window created** — the ones that had no label to move
+  because they had no node.  `touched-in` cannot say this: a brand-new datum and a
+  stored one that has been OUT since the settle before both read as \"not believed when
+  the window opened\", and they are the two halves `revived` has to keep apart."
+  [tms] (-touched-new tms))
+
+(defn revived
+  "The datums this window brought **back**: relabelled, believed now, not believed when
+  the window opened, and already in the graph before it opened.
+
+  A revival is the one belief move nothing downstream of it has seen.  A datum arriving
+  is chained from as it arrives; a datum losing belief withdraws its conclusions through
+  the justifications that name it.  A datum that goes OUT and comes back has neither —
+  no arrival to chain from, no justification to withdraw — and while it was OUT the
+  belief-filtered matcher hid it, so a partner that arrived meanwhile joined against
+  nothing.  `settle` re-seeds these onto the agenda for exactly that reason.
+
+  The three window sets between them are the whole belief delta, and this is the corner
+  of it that costs work rather than a report: `touched` minus `touched-in` is what
+  gained belief, and minus `touched-new` is the part of *that* which is not a datum the
+  writer has already chained from."
+  [tms]
+  (let [t (touched tms)]
+    (if (empty? t)
+      #{}
+      (let [was-in (touched-in tms)
+            born   (touched-new tms)]
+        (into #{}
+              (comp (remove was-in) (remove born) (filter #(in? tms %)))
+              t)))))
+
 (defn reset-touched!
-  "Clear the accumulated touched sets (see `touched` / `touched-in`).  `settle` clears
-  them once it has read them, at the *end* — so the window a caller sees spans
-  everything since the last settle finished, which for `edit` is the whole deferred
-  batch and its one settle rather than the settle alone."
+  "Clear the accumulated touched sets (see `touched` / `touched-in` / `touched-new`).
+  `settle` clears them once it has read them, at the *end* — so the window a caller sees
+  spans everything since the last settle finished, which for `edit` is the whole
+  deferred batch and its one settle rather than the settle alone."
   [tms] (-reset-touched tms) tms)
 
 (defn superseded

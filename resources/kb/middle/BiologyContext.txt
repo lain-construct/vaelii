@@ -40,9 +40,12 @@
   (set/defaultRule (implies (and (animal ?x)) (breathesAir ?x))))
 
 ;; ---- what a kind can do, and the kind that cannot -----------------------
-;; Flight is a claim about the KIND, so it is stated of bird once and reaches every kind
-;; of bird through (argPreserving hasCapability 1 genl) — crow, eagle and every species
-;; added later, with nothing written about any of them.
+;; Flight is a claim about the KIND, so it is said with capabilityType — the type-level
+;; reading — stated of bird once and reaching every kind of bird through
+;; (argPreserving capabilityType 1 genl): crow, eagle and every species added later, with
+;; nothing written about any of them.  hasCapability is the instance-level reading and
+;; says nothing here; neither implies the other, and the descent below is what crosses
+;; between them.
 ;;
 ;; The exception is a **more specific claim**, not a rule with an exceptWhen: an
 ;; inherited default is undercut by a claim about the nearer kind, so stating that
@@ -53,8 +56,8 @@
 ;;
 ;; The negative is a positive claim that penguins are flightless, which an application
 ;; can query and argue from, rather than the mere absence of a flight claim.
-(hasCapability bird flying)
-(not (hasCapability penguin flying))
+(capabilityType bird flying)
+(not (capabilityType penguin flying))
 
 ;; ---- and down to the individuals ----------------------------------------
 ;; The claim about the kind does not reach its members on its own: "birds fly" and "this
@@ -77,13 +80,18 @@
 ;; and stores nothing, and what rests on a conclusion is only visible as a cascade if it
 ;; is a record with a justification. The rule is what makes the consequence go out with
 ;; its ground and come back re-derived, which is the whole of what the walkthrough shows.
+;;
+;; At the KIND level there is no such rule, and the asymmetry is the point: nothing there
+;; rests on the conclusion, so capabilityType's own argPreservingInverse is left to answer
+;; it at retrieval.  A kind-level rule would store a record per kind to say what the
+;; declaration already says.
 (implies (and (hasCapability ?x flying)) (hasCapability ?x travelling))
 
 ;; And the negative, which is not the same statement as the blocked default: the rule
 ;; above declines to conclude for a penguin, while this concludes something — that this
 ;; particular penguin cannot fly — which an application can query and argue from. The
-;; kind-level (not (hasCapability penguin flying)) says it of the kind; this says it of
-;; the member, and neither follows from the other for the reason hasCapability's own
+;; kind-level (not (capabilityType penguin flying)) says it of the kind; this says it of
+;; the member, and neither follows from the other for the reason typeToInstancePred's own
 ;; comment gives.
 (implies (and (penguin ?x)) (not (hasCapability ?x flying)))
 

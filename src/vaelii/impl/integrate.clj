@@ -109,4 +109,7 @@
   ;; maintain the P/¬P coincidence set (this removal may have dissolved an opposing
   ;; pair); read after `unindex-sentex!` so the departing fact is already gone
   (kb/note-opposed! kb (:sentence sentex))
+  ;; ...and the visibility roster, the remove half of `kb/create-sentex`'s add.  Order
+  ;; does not matter to this one — it reads the departing sentex rather than the index
+  (kb/note-excepted! kb sentex false)
   (special/recheck-on-sentence kb (:sentence sentex)))

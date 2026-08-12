@@ -62,6 +62,16 @@ position is operational rather than logical:
 - The **recursive** literal of a recursive rule. Reordering it could turn a
   right-recursive rule left-recursive, which the backward chainers cannot execute.
 
+## A NAF conjunction's conjuncts sorted
+
+`(unknown (and A B))` and `(unknown (and B A))` are one rule. The conjuncts are
+independent ground existence checks — closure leaves every variable bound before the
+query runs — so their written order, and a repeat, are not their identity. Sorted with
+the variable-blind comparator, since this runs on the surface literal, where the
+author's variable names are still what they wrote. The exceptWhen exception gets the
+same treatment one layer up (`sentex/sort-conjuncts`, applied in `vaelii.core` once the
+query is aligned to the rule's varmap).
+
 ## Symmetric arguments sorted — ground literals only
 
 A *ground* `(siblingOf Bob Ann)` and `(siblingOf Ann Bob)` store as one sentex. A
@@ -107,6 +117,16 @@ outright. Both resolutions are commutative and idempotent, which is what the pai
 has to be: keying the slot on which assertion arrived first would let the same two
 assertions in the two orders reach two sets of beliefs, and order independence is
 not negotiable ([nmtms.md](nmtms.md)).
+
+A **third** slot resolves the same way, and for the same reason read one step
+further. `:strength` — the class the rule itself is held at, `opts :strength` at the
+door — is not in the identity key either, and it takes the **stronger** of the two
+assertions. A re-assert carrying no `:strength` states nothing about the class, so
+reading that silence as a downgrade would make `defeat-class` answer differently for
+the same two assertions in the two orders. No *belief* moves either way, nothing in
+the engine defeating a rule ([nmtms.md](nmtms.md)), which is why this one is about
+what a caller reads back rather than about what the KB believes. Narrowing any of
+the three is `retract!` and re-assert, never a second spelling.
 
 ## Result
 

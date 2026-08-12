@@ -28,6 +28,24 @@
       (is (v/ask? kb (list 'genl dog animal) 'UniverseContext))
       (is (not (v/ask? kb (list 'genl animal dog) 'UniverseContext))))))
 
+(tu/deftest-kb the-self-pair-goal-answers-the-reflexive-closure
+  ;; `genls` / `context-up` are reflexive closures, so a self-pair holds of every node
+  ;; the relation holds at all — the arm exists to bind one variable rather than throw
+  ;; on a duplicate map key, and its answer is the node set, not the empty set.
+  (tu/with-terms [dog_t animal_t AContext]
+    (v/assert kb (list 'genl dog_t animal_t) 'UniverseContext)
+    (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+    (testing "ground self-pairs are decided by the reflexive closure"
+      (is (v/ask? kb (list 'genl dog_t dog_t) 'UniverseContext))
+      (is (v/ask? kb (list 'genlContext AContext AContext) 'UniverseContext)))
+    (testing "the open self-pair binds every node of the relation, without throwing"
+      (let [xs (set (map #(get % '?x) (v/ask kb (list 'genl '?x '?x) 'UniverseContext)))]
+        (is (contains? xs dog_t))
+        (is (contains? xs animal_t)))
+      (let [cs (set (map #(get % '?x)
+                         (v/ask kb (list 'genlContext '?x '?x) 'UniverseContext)))]
+        (is (contains? cs AContext))))))
+
 (tu/deftest-kb disjointness-prover-answers-disjoint
   (let [dog (tu/tmp-type) cat (tu/tmp-type) fish (tu/tmp-type)]
     (v/assert kb (list 'disjoint dog cat) 'UniverseContext)
@@ -294,3 +312,206 @@
     (is (v/ask? kb (list nx a c) 'UniverseContext))
     (is (v/ask? kb (list nx a a) 'UniverseContext) "reflexive around the loop, and it returns")
     (is (= #{a b c} (set (map #(get % '?y) (v/ask kb (list nx a '?y) 'UniverseContext)))))))
+
+(tu/deftest-kb the-walk-reads-hops-through-the-subsumption-fan
+  ;; Each hop of the walk is a `matches-visible` read, so a hop written on a
+  ;; *sub-predicate* of the transitive one is on the graph: the closure composes with
+  ;; the predicate hierarchy rather than reading one functor's postings.  The edge
+  ;; arrives late and is retracted again, because the failures worth catching here are
+  ;; a fan that reads every predicate and a closure cache that outlives the edge —
+  ;; both invisible to a test that asserts everything first and asks once.
+  (tu/with-terms [largerThan muchLargerThan A B C]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive largerThan) 'UniverseContext)
+      (v/assert kb (list muchLargerThan A B) 'UniverseContext)
+      (v/assert kb (list largerThan B C) 'UniverseContext))
+    (is (not (v/ask? kb (list largerThan A C) 'UniverseContext))
+        "without the edge the sub-predicate's fact is not a hop, and the chain is broken")
+    (v/assert kb (list 'genl muchLargerThan largerThan) 'UniverseContext)
+    (is (v/ask? kb (list largerThan A C) 'UniverseContext)
+        "the late edge puts the first hop on the graph")
+    (is (not (v/ask? kb (list largerThan C A) 'UniverseContext)) "and not backwards")
+    (is (= #{B C} (set (map #(get % '?y)
+                            (v/ask kb (list largerThan A '?y) 'UniverseContext))))
+        "the open goal enumerates through the fan too")
+    (is (not (v/ask? kb (list muchLargerThan A C) 'UniverseContext))
+        "transitivity stays with the predicate that declared it")
+    (v/retract! kb (v/handle-of kb (list 'genl muchLargerThan largerThan)
+                                'UniverseContext))
+    (is (not (v/ask? kb (list largerThan A C) 'UniverseContext))
+        "and retracting the edge breaks the chain again")))
+
+(tu/deftest-kb a-partner-spelled-edge-of-a-sub-predicate-is-an-edge-of-the-super
+  ;; (inverse P' Q) with (genl P' P): a stored (Q y x) is (P' x y), and a P' tuple is a
+  ;; P tuple by subsumption, however it is spelled — so the partner spelling answers the
+  ;; super-predicate's one-hop goal and is a hop of its walk, like every other spelling
+  ;; of the same edge.
+  (tu/with-terms [before strictlyBefore laterThan A B C]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive before) 'UniverseContext)
+      (v/assert kb (list 'genl strictlyBefore before) 'UniverseContext)
+      (v/assert kb (list 'inverse strictlyBefore laterThan) 'UniverseContext)
+      (v/assert kb (list before A B) 'UniverseContext)
+      (v/assert kb (list laterThan C B) 'UniverseContext))
+    (is (v/ask? kb (list strictlyBefore B C) 'UniverseContext)
+        "the sub-predicate reads its own partner")
+    (is (v/ask? kb (list before B C) 'UniverseContext)
+        "and so does the super-predicate: the same tuple under the wider name")
+    (is (v/ask? kb (list before A C) 'UniverseContext)
+        "so the chain crosses the partner-spelled hop")
+    (is (not (v/ask? kb (list before C A) 'UniverseContext)) "and not backwards")
+    (is (= #{B C} (set (map #(get % '?y)
+                            (v/ask kb (list before A '?y) 'UniverseContext))))
+        "the open walk enumerates across it")))
+
+(tu/deftest-kb a-sub-predicates-partner-composes-only-where-it-is-declared
+  ;; The composed read rests on the inverse declaration like the fan rests on the genl
+  ;; edge: a partner declared where the asker cannot see it contributes no spelling.
+  (tu/with-terms [before2 strictlyBefore2 laterThan2 A B C AContext BContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'transitive before2) 'UniverseContext)
+      (v/assert kb (list 'genl strictlyBefore2 before2) 'UniverseContext)
+      (v/assert kb (list 'inverse strictlyBefore2 laterThan2) AContext)
+      (v/assert kb (list before2 A B) 'UniverseContext)
+      (v/assert kb (list laterThan2 C B) 'UniverseContext))
+    (is (v/ask? kb (list before2 A C) AContext)
+        "the declaring context composes the chain")
+    (is (not (v/ask? kb (list before2 A C) BContext))
+        "a sibling that cannot see the declaration gets no partner spelling")))
+
+(tu/deftest-kb the-transitive-licence-is-read-from-the-asking-context-by-the-prover
+  ;; `applicable?` reads `(transitive p)` from the vantage — the prover's own half of
+  ;; the licence scoping `inherit_test` pins for preservation.  A fresh KB, because
+  ;; CoreContext decontextualizes `transitive` and would lift the declaration where
+  ;; every context sees it.
+  (tu/with-terms [reaches X Y Z AContext BContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'transitive reaches) AContext)
+      (v/assert kb (list reaches X Y) 'UniverseContext)
+      (v/assert kb (list reaches Y Z) 'UniverseContext))
+    (is (v/ask? kb (list reaches X Z) AContext) "the declaring context composes the chain")
+    (is (not (v/ask? kb (list reaches X Z) BContext))
+        "a sibling holding both hops and no licence closes nothing")
+    (is (not (v/ask? kb (list reaches X Z) 'UniverseContext))
+        "and neither does the root, which cannot see down to the licence")))
+
+(tu/deftest-kb a-partner-hop-is-read-from-the-asking-context
+  ;; The other scoping channel of the partner probe: the declaration was visible
+  ;; everywhere, and the partner *fact* is not.
+  (tu/with-terms [before after A B C AContext BContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'transitive before) 'UniverseContext)
+      (v/assert kb (list 'inverse before after) 'UniverseContext)
+      (v/assert kb (list before A B) 'UniverseContext)
+      (v/assert kb (list after C B) AContext))
+    (is (v/ask? kb (list before A C) AContext) "A sees the partner-spelled hop")
+    (is (not (v/ask? kb (list before A C) BContext))
+        "the hop lives where B cannot see it")
+    (is (not (v/ask? kb (list before A C) 'UniverseContext)))))
+
+(tu/deftest-kb the-partner-probe-fans-over-the-partners-sub-predicates
+  ;; The partner probe goes through `matches-visible`, so a hop stored under a
+  ;; *sub-predicate of the partner* is the same edge again: `(immediatelyAfter C B)`
+  ;; is an `after` fact by subsumption, and an `after` fact is a `before` edge.
+  (tu/with-terms [before after immediatelyAfter A B C]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive before) 'UniverseContext)
+      (v/assert kb (list 'inverse before after) 'UniverseContext)
+      (v/assert kb (list 'genl immediatelyAfter after) 'UniverseContext)
+      (v/assert kb (list before A B) 'UniverseContext)
+      (v/assert kb (list immediatelyAfter C B) 'UniverseContext))
+    (is (v/ask? kb (list before A C) 'UniverseContext))
+    (is (not (v/ask? kb (list before C A) 'UniverseContext)) "and not backwards")
+    (is (= #{B C} (set (map #(get % '?y)
+                            (v/ask kb (list before A '?y) 'UniverseContext)))))))
+
+(tu/deftest-kb a-cycle-closed-on-the-partner-spelling-is-found
+  ;; The `(P ?x ?x)` arm seeds and steps through the partner probes too, so a cycle
+  ;; whose return edge is spelled on the partner — or on the mirror — is a cycle.
+  (testing "the return edge on the declared partner"
+    (tu/with-terms [follows precedes N0 N1]
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'transitive follows) 'UniverseContext)
+        (v/assert kb (list 'inverse follows precedes) 'UniverseContext)
+        (v/assert kb (list follows N0 N1) 'UniverseContext)
+        (v/assert kb (list precedes N0 N1) 'UniverseContext))
+      (is (= #{N0 N1}
+             (set (map #(get % '?x) (v/ask kb (list follows '?x '?x) 'UniverseContext)))))))
+  (testing "every edge of a symmetric transitive predicate is on a two-cycle"
+    (tu/with-terms [linkedTo M0 M1]
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'transitive linkedTo) 'UniverseContext)
+        (v/assert kb (list 'symmetric linkedTo) 'UniverseContext)
+        (v/assert kb (list linkedTo M0 M1) 'UniverseContext))
+      (is (= #{M0 M1}
+             (set (map #(get % '?x) (v/ask kb (list linkedTo '?x '?x) 'UniverseContext)))))))
+  (testing "a cycle only one context can close answers only there"
+    (tu/with-terms [routesTo K0 K1 AContext BContext]
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+        (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+        (v/assert kb (list 'transitive routesTo) 'UniverseContext)
+        (v/assert kb (list routesTo K0 K1) 'UniverseContext)
+        (v/assert kb (list routesTo K1 K0) AContext))
+      (is (= #{K0 K1}
+             (set (map #(get % '?x) (v/ask kb (list routesTo '?x '?x) AContext)))))
+      (is (empty? (v/ask kb (list routesTo '?x '?x) BContext))))))
+
+(tu/deftest-kb the-open-extent-includes-partner-spelled-pairs
+  ;; A wholly-open transitive goal answers from the extent, and the extent speaks both
+  ;; spellings: a pair recorded only on the partner is in it, and the derived
+  ;; transitive pair is not — the walk contributes nothing with both ends open.
+  (tu/with-terms [before after A B C]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive before) 'UniverseContext)
+      (v/assert kb (list 'inverse before after) 'UniverseContext)
+      (v/assert kb (list before A B) 'UniverseContext)
+      (v/assert kb (list after C B) 'UniverseContext))
+    (is (= #{[A B] [B C]}
+           (set (map (juxt #(get % '?x) #(get % '?y))
+                     (v/ask kb (list before '?x '?y) 'UniverseContext))))
+        "the stored extent in both spellings, and no derived pair")))
+
+(tu/deftest-kb a-defeated-edge-is-not-answered-from-the-held-set-by-a-closed-goal
+  ;; The closed arm consults the closure cache an open ask filled; a mid-chain defeat
+  ;; retires the entry through the change clock, and the fallthrough walk refuses the
+  ;; disbelieved hop.  The one sequence where a clock bug answers a ground pair from a
+  ;; dead closure.
+  (tu/with-terms [feeds A B C]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitive feeds) 'UniverseContext)
+      (v/assert kb (list feeds A B) 'UniverseContext)
+      (v/assert kb (list feeds B C) 'UniverseContext))
+    (is (= #{B C} (set (map #(get % '?y) (v/ask kb (list feeds A '?y) 'UniverseContext))))
+        "the open ask holds the closure")
+    (v/assert kb (list 'not (list feeds B C)) 'UniverseContext {:strength :monotonic})
+    (is (not (v/ask? kb (list feeds A C) 'UniverseContext))
+        "the defeated hop is not answered from the held set")
+    (is (= #{B} (set (map #(get % '?y) (v/ask kb (list feeds A '?y) 'UniverseContext)))))
+    (v/retract! kb (v/handle-of kb (list 'not (list feeds B C)) 'UniverseContext))
+    (is (v/ask? kb (list feeds A C) 'UniverseContext)
+        "and the revived hop closes the chain again")))
+
+(tu/deftest-kb the-walk-travels-only-hops-the-asker-can-see
+  ;; And each hop is read *from the asking context*: a middle hop stored where the
+  ;; asker cannot see it is a break in the chain, not an edge of it.  The licence has
+  ;; the same scoping (`inherit_test`); this pins the hops themselves.
+  (tu/with-terms [reachesTo A B C AContext BContext]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlContext AContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'genlContext BContext 'UniverseContext) 'UniverseContext)
+      (v/assert kb (list 'transitive reachesTo) 'UniverseContext)
+      (v/assert kb (list reachesTo A B) 'UniverseContext)
+      (v/assert kb (list reachesTo B C) AContext))
+    (is (v/ask? kb (list reachesTo A C) AContext) "A sees both hops")
+    (is (not (v/ask? kb (list reachesTo A C) BContext))
+        "the middle hop lives where B cannot see it")
+    (is (not (v/ask? kb (list reachesTo A C) 'UniverseContext))
+        "visibility reads upward only, so the root does not see A's hop either")
+    (is (v/ask? kb (list reachesTo A B) BContext) "the visible half still answers")))

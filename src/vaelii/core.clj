@@ -159,10 +159,19 @@
   ([kb] (fork kb {}))
   ([kb opts]
    (let [own    (dissoc opts :tms :naming :constraints)
+         ;; a RAM overlay that names no :space would land on the shared process
+         ;; default (space 0) — two such forks would see each other's writes, and a
+         ;; plain open-kb in the same JVM would see both — so any opts naming neither
+         ;; a :space nor a :dir take the fresh fork space, exactly as no opts do;
+         ;; naming one explicitly stays the remount spelling
+         own    (cond
+                  (not (seq own))              (mount/fresh-overlay-opts)
+                  (or (:space own) (:dir own)) own
+                  :else                        (merge (mount/fresh-overlay-opts) own))
          forked (kb/open-kb {:records  :overlay
                              :index    :overlay
                              :base-stores {:records (:records kb) :index (:index kb)}
-                             :overlay  (if (seq own) own (mount/fresh-overlay-opts))
+                             :overlay  own
                              :tms      (:tms opts :reference)
                              :naming   (:naming opts (:naming kb :strict))
                              :constraints (:constraints opts (:constraints kb))
@@ -784,24 +793,6 @@
 ;; and re-marking it default can't leave a stale non-defeasible justification.  To change a rule's
 ;; direction or defeasibility, retract it first.
 
-(defn- check-no-imperative
-  "Refuse a `do/` imperative anywhere inside a rule — antecedent, consequent, or
-  `exceptWhen` query.
-
-  A rule is evaluated inside the forward-chaining fixpoint, and an imperative there
-  would run a number of times that depends on firing order while mutating the KB the
-  fixpoint is still computing over.  Order independence and locality are the two
-  invariants the TMS is built on (docs/nmtms.md); a side effect inside the fixpoint
-  breaks both at once.  So a `do/` form is legal only at the top level of an `assert`,
-  where the caller decided when it happens (docs/labeling.md).
-
-  Walks the whole form rather than the three slots, so a nesting cannot smuggle one
-  past — the check is about a fixpoint reaching it, not about where it was written."
-  [sentence]
-  (when-let [bad (first (filter sx/do-form? (tree-seq sequential? seq sentence)))]
-    (throw (ex-info (str "a do/ imperative cannot appear in a rule: " (pr-str bad))
-                    {:type :not-assertible :form bad :sentence sentence}))))
-
 ;; ---- premise marking, and the one hook `preview` needs -------------------
 
 (def ^:dynamic ^:private *premise-audit*
@@ -828,36 +819,67 @@
   (jtms/add-premise (:tms kb) h strength)
   (p/mark-premise (:records kb) h strength))
 
-(defn- check-rule-sentence
-  "Every pre-storage check a rule must pass, as a step that writes nothing.
+(defn- check-generator
+  "The three refusals that are a **generator**'s alone — a rule whose consequent is a
+  rule (docs/generators.md).  Everything else it must satisfy it satisfies as a rule,
+  through `checks/check-rule!`.
 
-  Factored out of `assert-rule-sentence` so `assert` can run it over **all** the
-  conjuncts of a polycanonicalized rule before storing *any* of them.
-  `(implies A (and C1 C2))` is split into one rule per conjunct and then `mapv`d,
-  and a `mapv` is not a transaction: with the checks inline, a refusal on C2 left
-  C1 already stored, indexed, and chained from, while the caller saw a throw and
-  reasonably concluded nothing had been asserted."
+  **Forward-only.** A generator's conclusion is a rule, and there is no backward goal
+  whose answer is one — `concluding-rule-handles` reads a goal's predicate, and a
+  generator's consequent predicate is `implies`, which names nothing a query asks for.
+  A `set/backwardRule` generator would therefore be stored claiming a capability it
+  cannot exercise, which is the accepted-and-inert state the indexability refusal
+  exists to keep out of the KB.  `:inert` stays legal: it claims nothing.
+
+  **No `exceptWhen` on the stamped rule.** An exception is not a rule field — it is a
+  separate meta-sentex keyed by the rule's handle, split off and stored by the assert
+  path (`assert-exceptWhen-meta!`), which a firing does not run.  So a stamped
+  `exceptWhen` would reach the store as nothing at all: the mint would be a rule whose
+  guard had silently evaporated, firing on exactly the bindings its author wrote it not
+  to.  A guard that is dropped in silence is worse than one refused, so it is refused.
+  An `exceptWhen` on the **generator** is a different and legal thing — it says when not
+  to stamp — and the message points there.
+
+  **No generator cycle.** A stamped rule whose conclusion feeds some generator's
+  antecedent is a rule set that mints rules that mint rules, with no fixpoint anybody
+  has bounded.  Refused outright rather than capped, the same call stratification makes
+  for a cycle through negation: the alternative is a KB whose size depends on how long
+  the chainer was allowed to run."
   [kb sentence context]
-  (let [inner       (rules/inner-rule sentence)
-        [direction] (sx/peel-rule-wrapper sentence)]
-    ;; on the sentence **as written**, not on `inner`: `inner-rule` peels the
-    ;; `exceptWhen` wrapper and takes the exception query with it, so guarding the
-    ;; inner rule let an imperative through in the one rule slot that is re-evaluated
-    ;; most often
-    (check-no-imperative sentence)
-    (rules/check-range-restricted (rules/antecedents inner) (rules/consequent inner))
-    ;; A rule the index cannot key on, refused before it is stored — except when it is
-    ;; `:inert`, which runs in neither engine and so promises nothing the index has to
-    ;; answer for.  `CoreContext`'s `(implies (?pred . ?args) (ist UniverseContext (?pred
-    ;; . ?args)))` is that case: the decontextualized-predicate lift is implemented in
-    ;; code, and the rule states it for a reader.
-    (when-not (= :inert direction)
-      (rules/check-indexable-functors inner))
-    (nm/check! (:naming kb) inner context)
-    ;; the rule-set check, before anything is stored: an `exceptWhen` is negation as
-    ;; failure, and a cycle through it would make the settled state depend on
-    ;; arrival order (docs/exceptions.md)
-    (checks/check-stratified kb sentence inner context)))
+  (let [inner     (rules/inner-rule sentence)
+        consequent (rules/consequent inner)
+        generated (rules/generated-rule consequent)
+        ;; `peel-rule-wrapper` reports the wrapper it found, and a bare rule has none —
+        ;; the record's default is what nil means here, as it does at the constructor
+        direction (or (first (sx/peel-rule-wrapper sentence)) :both)]
+    (when (seq (nth (sx/peel-rule-wrapper consequent) 2))
+      (throw (ex-info (str "the rule a generator generates cannot carry an exceptWhen:"
+                           " an exception is stored as a meta-sentex against the rule's"
+                           " handle, and a firing has no way to split one off, so it"
+                           " would be dropped in silence.  Put the condition in the"
+                           " generated rule's antecedents as an (unknown …), or put the"
+                           " exceptWhen on the generator to say when not to generate")
+                      {:type :not-well-formed :sentence sentence :context context})))
+    (when-not (contains? #{:forward :both :inert} direction)
+      (throw (ex-info (str "a rule generator is forward-only: its conclusion is a rule,"
+                           " and no backward goal asks for one.  Drop the"
+                           " set/backwardRule wrapper — the wrapper on the rule it"
+                           " generates is what sets that rule's direction")
+                      {:type :not-indexable :direction direction :sentence sentence})))
+    (when-let [cyc (checks/generator-cycle kb inner generated context)]
+      (throw (ex-info (str "a rule generator cannot generate a rule that feeds a"
+                           " generator: " cyc)
+                      {:type :not-stratified :sentence sentence :context context
+                       :cycle cyc})))))
+
+(defn- check-rule-sentence
+  "Every pre-storage check a rule must pass, as a step that writes nothing —
+  `checks/check-rule!`, the list both storage doors read (the other being a generator
+  firing, `chain/place-conclusion`), plus the two a generator alone owes."
+  [kb sentence context]
+  (checks/check-rule! kb sentence context)
+  (when (rules/generator? sentence)
+    (check-generator kb sentence context)))
 
 (defn- join-direction
   "The direction a rule stated two ways holds in: the **least restrictive** of the two.
@@ -938,21 +960,70 @@
 
   Idempotent: a re-asserted rule resolves to the existing sentex.  Where the two
   spellings disagree about direction or defeasibility, the slots are resolved from
-  content rather than from which arrived first — see `reconcile-rule-slots!`."
+  content rather than from which arrived first — see `reconcile-rule-slots!`.
+
+  **`opts :strength` reaches the record here exactly as it does at the fact door**, and
+  it is the rule's *own* defeat class — whether a contradicting default can defeat the
+  rule itself.  What a firing confers on its conclusion is a different question with a
+  different authority: `chain/rule-view-of` reads it off `:defeasible`, so a rule stored
+  at `:monotonic` still concludes at its weakest antecedent unless it is bare.  Nothing
+  in the engine defeats a rule, so the slot is one that reads back rather than one that
+  moves belief — `docs/nmtms.md` states the absence.
+
+  **Re-marking on the existing branch is the mark itself, not only its class.**  A rule
+  can be stored and not be a premise — a generator's stamped rule is a *conclusion*,
+  resting on the generator's justification — and asserting it is a second and
+  independent ground for it, exactly as asserting an already-derived fact is at the
+  other door.  Left unmarked, `assert` answered with a handle for a rule that the next
+  retraction of the generator took away with it.
+
+  All three slots resolve alike, and from **content**: `:direction` and `:defeasible`
+  in `reconcile-rule-slots!`, `:strength` below by taking the stronger.  A re-assert
+  carrying no `:strength` states nothing about the class — the `:default` it falls back
+  to is the door's fallback, not the caller's claim — so reading that silence as a
+  downgrade would leave `defeat-class` answering differently for the same two assertions
+  in the two orders.  No belief moves either way, nothing defeating a rule; this is what
+  a caller reads back.  Narrowing any of the three is `retract!` and re-assert."
   [kb sentence context opts]
   (check-rule-sentence kb sentence context)
-  (let [[h s new?] (kb/find-or-create-sentex kb sentence context :default)]
+  (let [strength   (get opts :strength :default)
+        [h s new?] (kb/find-or-create-sentex kb sentence context strength)]
     (if new?
       (do
-        (mark-premise kb h :default)      ; a rule premise is :default; its conclusions
-                                          ; are capped by derive-conclusion
+        (mark-premise kb h strength)
         (special/index-rule-sentex kb h s)
         ;; defeasible or not, a forward-capable rule seeds the one agenda: `chain`
         ;; joins it over existing facts (process-datum -> fire-rule) at its own strength
         (when (and (:chain? opts true) (rules/forward-sentex? s))
           (chain/chain-all kb [h] opts))
         (when-not *defer-settle?* (settle/settle kb)))
-      (reconcile-rule-slots! kb h s sentence context opts))
+      (do
+        (reconcile-rule-slots! kb h s sentence context opts)
+        ;; `find-or-create-sentex` hands back the stored record and drops the strength
+        ;; the second assertion carried, the same way it drops the direction the
+        ;; reconcile above puts back — and the mark is worth making for a second reason
+        ;; than the class: a stored rule need not be a premise at all (a generator's
+        ;; stamped rule is a *conclusion*, resting on the generator's justification), and
+        ;; asserting one is an independent ground for it, exactly as asserting an
+        ;; already-derived fact is at the fact door.
+        ;;
+        ;; **Resolved from content, like the two slots above it.**  `strength/max` takes
+        ;; the stronger, so the two orders agree and a third assertion changes nothing —
+        ;; the rule `reconcile-rule-slots!` holds for `:direction` and `:defeasible`, and
+        ;; it holds here for the same reason: a re-assert carrying no `:strength` states
+        ;; nothing about the class, so reading that silence as a downgrade made
+        ;; `defeat-class` answer differently for the same two assertions in either order.
+        ;; Narrowing one is `retract!` and re-assert, as it is for the other two.  A
+        ;; record with no class yet — nil, so not a premise — ranks 0 and takes the
+        ;; incoming class.
+        (let [resolved (strength/max (:strength s) strength)]
+          (when (not= resolved (:strength s))
+            (mark-premise kb h resolved)
+            ;; the mark relabels, and a door that moves a label settles before it
+            ;; returns.  A class move alone moves none, nothing in the engine defeating
+            ;; a rule — but the *first* mark of a rule that was only ever concluded puts
+            ;; it IN, and that revives whatever it licenses.
+            (when-not *defer-settle?* (settle/settle kb))))))
     h))
 
 ;; A `set/defaultRule` wrapper sets `:defeasible` on the record, so the one rule path
@@ -998,7 +1069,7 @@
         ;; literal `docs/naming.md` says is refused.  The store holding what the front
         ;; door refuses is the shape of corruption these checks exist to stop.
         (run! #(nm/check! (:naming kb) % context) aligned)
-        (check-no-imperative meta-s)
+        (checks/check-no-imperative meta-s)
         (checks/check-exceptWhen-stratified kb rule-handle (keep nm/functor aligned) context)
         (let [strength   (get opts :strength :default)
               [h s new?] (kb/find-or-create-sentex kb meta-s context strength)]
@@ -1709,6 +1780,7 @@
     :arg-type              an argIsa constraint on an argument
     :disjoint              a type membership the taxonomy separates
     :functional            a second, irreconcilable value for a functional slot
+    :asymmetric            the converse of a claim a declared-asymmetric relation made
 
   plus three that are about the *request* rather than the knowledge: `:shape` (the
   context is not a symbol, the sentence is not an s-expression), `:unknown-option`
@@ -1717,6 +1789,19 @@
   contradicting the wrapper the sentence already carries — see `assert-opt-keys`) and
   `:not-checkable` (a top-level `do/` imperative — an instruction, which `check` will
   not run to find out what it does).
+
+  Two of the definitional problems are **constraint-policy-dependent**, because
+  `assert` is.  Under `:refuse` — the default — `check` reports a `:disjoint` or
+  `:functional` clash, since `assert` would throw one.  Under `:arbitrate` it reports an
+  *arbitrable* clash as nothing at all: `assert` admits the sentence and leaves `settle`
+  to weigh the pair it forms, so there is no problem at the door to report.
+
+  **Arbitrable is narrower than clashing**, and that is the half to read twice.  A clash
+  against **known-true** content is refused under either policy — admitting it would
+  store what the KB can never believe — so `check` reports one there whatever
+  `:constraints` says.  `:asymmetric` reads the opposing class that way in *both*
+  policies and is not policy-dependent at all.  What holds throughout is the promise
+  this docstring opens with: `check` predicts what `assert` would do.
 
   The stages run in `assert`'s order and stop at the first that finds anything, since
   each later one reads the KB assuming the earlier ones held.  A rule is checked the
@@ -2105,7 +2190,11 @@
             orphans (if sink
                       (nat/orphaned-among kb (nat/constants-named-by (subvec removed mark)))
                       (nat/orphaned-constants kb))
-            handles (distinct (mapcat #(nat/bookkeeping-handles kb %) orphans))]
+            ;; realized before the first retraction below, not while it runs: what
+            ;; counts as an orphan's bookkeeping is read off the bookkeeping itself,
+            ;; so a set computed lazily is a set computed partly against a KB this
+            ;; loop has already torn pieces out of
+            handles (vec (distinct (mapcat #(nat/bookkeeping-handles kb %) orphans)))]
         (when (and (seq handles) (< guard 64))
           (doseq [h handles] (retract! kb h))
           (recur (count removed) (inc guard)))))))
@@ -2188,6 +2277,56 @@
 ;; return **binding maps** (`{?x val ...}`); `lookup` returns
 ;; **level-result maps** (`{:level :handle :sentence :context :bindings}`).
 
+(defn- ist-goal
+  "`[goal context]` for a read whose goal may be an `(ist Ctx S)` — the sentence to ask,
+  and the context to ask it in.
+
+  `ist` reads here for the reason it writes at `assert`: `(ist Ctx S)` names the context
+  S is about, so a read resolves it exactly as the write door does, **the named context
+  winning over the argument**.  `(sentexes-matching kb '(ist AContext (p ?x)) 'BContext)`
+  asks AContext, as `(assert kb '(ist AContext S) 'BContext)` writes AContext; resolving
+  it the other way would answer about a context the caller did not name, and the two
+  doors would disagree about what one form means.
+
+  **Every read taking a sentence and a context takes one**, which is the whole rule and
+  is why there is no list to remember: `sentexes-matching`, `handle-of`, `ask`, `prove`,
+  `query`, `query-plan`, the two anytime forms, `why-not`'s sentence arity, and the three
+  level diagnostics.  The reads that take neither cannot: `contexts-of` and
+  `find-sentexes` take no context and ask *which* contexts hold a sentence, so a form
+  naming one is not a question they have, and `isa?` / `genls` take a context but their
+  subject is a **term** rather than a sentence.
+
+  `lookup`'s level 0 takes a vector as an index path rather than as a conjunction, and
+  needs no exemption: a path's elements are keywords and symbols, so none of them is a
+  sequential form the conjunct scan below can mistake for a literal.
+
+  Two shapes are refused rather than answered empty, both because the alternative is a
+  read that reports nothing and looks like an answer.  A wrong arity is `assert`'s own
+  `:shape`, one refusal on every door (`ist-shape-problem`).  An `(ist …)` **conjunct** of
+  a join is `:not-well-formed`: conjuncts share their bindings, so a per-conjunct context
+  is the antecedent question wearing a different frame, and it has the same answer — ask
+  the whole conjunction in Ctx, or make S visible where the rest of it is asked
+  (`sentex/ist-read-problem`)."
+  [goal context]
+  (cond
+    (vector? goal)
+    (do (when-let [bad (first (filter #(and (sequential? %) (seq %)
+                                            (= sx/ist-functor (first %)))
+                                      goal))]
+          (throw (ex-info (str "an (ist Ctx S) conjunct would ask one literal of a join in"
+                               " its own context: " (pr-str bad) " — ask the whole"
+                               " conjunction in Ctx instead, or make S visible where it"
+                               " is asked")
+                          {:type :not-well-formed :sentence bad :goal goal})))
+        [goal context])
+
+    (and (sequential? goal) (seq goal) (= sx/ist-functor (first goal)))
+    (if-let [[ctx s] (ist-parts goal)]
+      [s ctx]
+      (check-shape! (ist-shape-problem goal)))
+
+    :else [goal context]))
+
 (defn sentexes-matching
   "*Believed* sentexes matching `sentence` in `context` (context defaults to ?ctx).
   Literal (no subtype expansion); use `isa?` / rules for taxonomic queries, or `ask`
@@ -2202,9 +2341,14 @@
   test it or rely on it, only its keys.
 
   A ground reifiable NAT in the goal is reified to its existing constant first (dedup,
-  never mint), so it matches the stored atomic form; an unknown NAT matches nothing."
+  never mint), so it matches the stored atomic form; an unknown NAT matches nothing.
+
+  An `(ist Ctx S)` sentence asks S in Ctx, the named context winning over `context`
+  (`ist-goal`)."
   ([kb sentence] (sentexes-matching kb sentence '?ctx))
-  ([kb sentence context] (kb/sentexes-matching kb (nat/maybe-reify-for-read kb sentence) context)))
+  ([kb sentence context]
+   (let [[sentence context] (ist-goal sentence context)]
+     (kb/sentexes-matching kb (nat/maybe-reify-for-read kb sentence) context))))
 
 (defn ist
   "The ist operation: find or create sentence `s` in context `ctx`, returning its
@@ -2225,9 +2369,13 @@
   returned.  Test belief with `in?`, or use `sentexes-matching` (which filters it).
 
   A **ground** symmetric literal also probes its mirror, so `(siblingOf Ann Bob)`
-  finds a stored `(siblingOf Bob Ann)`."
+  finds a stored `(siblingOf Bob Ann)`.
+
+  Being ist's counterpart, it reads an `(ist Ctx S)` sentence the way `ist` writes one:
+  S is looked up in Ctx, which wins over `context` (`ist-goal`)."
   [kb sentence context]
-  (kb/find-sentex-handle kb sentence context))
+  (let [[sentence context] (ist-goal sentence context)]
+    (kb/find-sentex-handle kb sentence context)))
 
 (defn assert-inert
   "Store `sentence` in `context` as an **inert** sentex — indexed and persisted (so it
@@ -2244,8 +2392,9 @@
   with no per-context (ATMS) belief needed — coexistence falls out of not premising.
 
   Only the shape and naming invariants are enforced (a materialized head is already
-  well-formed); no constraint / wff / equality / chaining runs.  `assert-inert` is
-  additive, so no `!`; drop it with `retract!` on the returned handle."
+  well-formed); no constraint / wff / equality / chaining runs.  A **rule** is refused
+  (`:not-indexable`) — a labeling labels atoms, and the reason is below.  `assert-inert`
+  is additive, so no `!`; drop it with `retract!` on the returned handle."
   [kb sentence context]
   ;; `assert`'s own shape guards, in its precedence — context, then sentence.  Without
   ;; them this door stores what every other door refuses: `nm/literals` of a
@@ -2257,6 +2406,30 @@
   (check-shape! (connective-shape-problem sentence))
   (check-shape! (quantity-shape-problem sentence))
   (nm/check! (:naming kb) sentence context)
+  ;; ...and the one refusal that is this door's own.  A rule fires because
+  ;; `index-rule-sentex` put its predicates in the rule index, and that runs where a rule
+  ;; sentex is *created* — `assert-rule-sentence`'s new branch, and the generator mint.
+  ;; So a rule stored here is one no chainer can reach, and it stays that way: asserting
+  ;; the same rule afterwards resolves to this handle, takes the existing branch and does
+  ;; not index it either, which leaves a *believed* rule that silently never fires.  That
+  ;; is `check-generator`'s reasoning about the accepted-and-inert rule, at this door —
+  ;; and nothing this primitive exists for wants one, a labeling's materialized truth
+  ;; values being atoms and their negations.
+  ;;
+  ;; **Two inertnesses, and the message names the other one**, because the caller who
+  ;; lands here usually wants it: `set/inertRule` is a rule that is believed, indexed and
+  ;; browsable and fires neither way — the spelling for a rule kept as *documentation*,
+  ;; a transitivity a cached closure computes instead (docs/taxonomy.md).  This door's
+  ;; inertness is the sentex's: not a premise, so never believed at all.
+  (when (rules/rule-sentence? (rules/inner-rule sentence))
+    (throw (ex-info (str "a rule cannot be stored inert: nothing indexes it, so no"
+                         " chainer can reach it, and a later assert of the same rule"
+                         " resolves to the stored sentex and does not index it either."
+                         "  For a rule kept as documentation — stored, indexed and"
+                         " browsable, firing neither forwards nor backwards — assert"
+                         " set/inertRule (or {:direction :inert}), which is the other"
+                         " inertness: the rule is believed and never fires")
+                    {:type :not-indexable :sentence sentence :context context})))
   (first (kb/find-or-create-sentex kb sentence context)))
 
 (defn contexts-of
@@ -2303,11 +2476,14 @@
 
   A rule the asking context cannot see is not a candidate (`res/rule-visible-from?`):
   a rule is a sentex, inherited by the ordinary `genlContext` up-cone like everything
-  else."
+  else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
+  consequent index posts on storage, so belief is asked of the record here exactly as
+  forward chaining asks it of a trigger."
   [kb goal context]
   (->> (res/concluding-rule-handles kb (nm/functor goal) context)
        (map #(p/get-sentex (:records kb) %))
        (filter rules/backward-sentex?)
+       (filter #(res/rule-believed? kb (:id %)))
        (filter #(res/rule-visible-from? kb context (:context %)))
        (map #(provers/parse-rule kb % context))))
 
@@ -2446,10 +2622,13 @@
   answers: wrap it in `distinct` for an answer set, or reach for `query` / `ask`,
   which project to the goal's variables and answer each binding once.
 
-  `query-plan` on the same vector shows the chosen order and why."
+  `query-plan` on the same vector shows the chosen order and why.  An `(ist Ctx S)` goal
+  proves S in Ctx, the named context winning over `context`; one standing as a *conjunct*
+  is refused, a join having no per-literal context (`ist-goal`)."
   ([kb goal] (prove kb goal '?ctx))
   ([kb goal context]
-   (let [goal  (prepare-goal-for-read kb goal context)
+   (let [[goal context] (ist-goal goal context)
+         goal  (prepare-goal-for-read kb goal context)
          goals (goal-conjunction goal)]
      (if (inference-engine? nil)
        (inference/solutions kb goals context (query-options nil))
@@ -2474,10 +2653,14 @@
   closed-world readers (`exceptWhen`, `unknown`, `thereExists`, the aggregates) can run
   the same registry from inside a relabel loop.  A `set/backwardRule`'s conclusion
   exists only while a backchainer is looking for it, so `ask` does not see one: reach
-  for `query` with a `:max-depth`, or `prove`."
+  for `query` with a `:max-depth`, or `prove`.
+
+  An `(ist Ctx S)` goal asks S in Ctx, the named context winning over `context`
+  (`ist-goal`)."
   ([kb goal] (ask kb goal '?ctx))
   ([kb goal context]
-   (provers/ask kb (prepare-goal-for-read kb goal context) context)))
+   (let [[goal context] (ist-goal goal context)]
+     (provers/ask kb (prepare-goal-for-read kb goal context) context))))
 
 (defn ask?
   "Is `goal` answerable via the prover engine?  `ask`'s caveats are this one's too —
@@ -2527,7 +2710,8 @@
   ([kb goal] (query kb goal '?ctx nil))
   ([kb goal context] (query kb goal context nil))
   ([kb goal context opts]
-   (let [d     (query-depth opts)
+   (let [[goal context] (ist-goal goal context)
+         d     (query-depth opts)
          goals (goal-conjunction (prepare-goal-for-read kb goal context))]
      (cond
        ;; a depth: the node engine, whose leaf is the registry — so an antecedent is
@@ -2690,9 +2874,10 @@
   is why the pair does not read as a sorted list of independent costs."
   ([kb goal] (query-plan kb goal '?ctx))
   ([kb goal context]
-   (if (vector? goal)
-     (plan/explain kb goal context)
-     (provers/plan kb goal context))))
+   (let [[goal context] (ist-goal goal context)]
+     (if (vector? goal)
+       (plan/explain kb goal context)
+       (provers/plan kb goal context)))))
 
 (defn add-prover
   "Register an additional prover (implementing vaelii.impl.provers/Prover) on `kb`."
@@ -2910,9 +3095,10 @@
   reconstructs it."
   ([kb goal budget] (ask-within kb goal '?ctx budget))
   ([kb goal context budget]
-   (budget/collect (provers/ask-capped kb (prepare-goal-for-read kb goal context)
-                                       context (:max-cost budget))
-                   budget)))
+   (let [[goal context] (ist-goal goal context)]
+     (budget/collect (provers/ask-capped kb (prepare-goal-for-read kb goal context)
+                                         context (:max-cost budget))
+                     budget))))
 
 (defn- run-prove-step
   "One bounded step of the DFS prover, wrapped in the anytime contract.  The
@@ -2946,7 +3132,8 @@
   ignored here.)"
   ([kb goal budget] (prove-within kb goal '?ctx budget))
   ([kb goal context budget]
-   (let [goals (goal-conjunction (prepare-goal-for-read kb goal context))]
+   (let [[goal context] (ist-goal goal context)
+         goals (goal-conjunction (prepare-goal-for-read kb goal context))]
      (if (inference-engine? (:max-depth budget))
        ;; the node engine's continuation *is* the unrealized tail of its result
        ;; stream, and the frontier behind it is a value the session holds — so a
@@ -2992,7 +3179,9 @@
   At level 0 a *vector* goal is taken as an index path directly; anywhere else the
   goal is a sentence."
   ([kb level goal] (lookup kb level goal '?ctx))
-  ([kb level goal context] (lvl/lookup kb level goal context)))
+  ([kb level goal context]
+   (let [[goal context] (ist-goal goal context)]
+     (lvl/lookup kb level goal context))))
 
 (defn escalate
   "The cheapest level that answers `goal` — climb the stack from `floor` and stop at
@@ -3004,8 +3193,12 @@
   question about storage: level 1 ignores the goal's arguments and level 0 ignores
   belief, so either can report a hit it cannot verify.  Pass 0 to include them."
   ([kb goal] (escalate kb goal '?ctx))
-  ([kb goal context] (lvl/escalate kb goal context))
-  ([kb goal context floor] (lvl/escalate kb goal context floor)))
+  ([kb goal context]
+   (let [[goal context] (ist-goal goal context)]
+     (lvl/escalate kb goal context)))                ; `levels/query-floor` owns the default
+  ([kb goal context floor]
+   (let [[goal context] (ist-goal goal context)]
+     (lvl/escalate kb goal context floor))))
 
 (defn explain-levels
   "What every level yields for `goal`: a seq of {:level :name :count}.  The level at
@@ -3016,7 +3209,9 @@
   sentence, not why the KB holds it.  For that, see `why` / `why-not`, which walk the
   justification graph."
   ([kb goal] (explain-levels kb goal '?ctx))
-  ([kb goal context] (lvl/explain kb goal context)))
+  ([kb goal context]
+   (let [[goal context] (ist-goal goal context)]
+     (lvl/explain kb goal context))))
 
 (defn levels
   "The stack as data: {:level :name :below :adds} per level."
@@ -3172,9 +3367,16 @@
   "The definitional constraints a *derived* conclusion would have broken during the
   last forward-chaining run.  Each is
 
-    {:violation :arg-type|:disjoint|:functional|:not-stratified|:arity|:non-confluent
-                |:exposure-truncated|:arbitration-truncated
+    {:violation :arg-type|:disjoint|:functional|:asymmetric|:not-stratified|:arity
+                |:non-confluent|:exposure-truncated|:arbitration-truncated
+                |:constraint-exposure-truncated
      :sentence S :context C :rule handle :run n :detail {…}}
+
+  **`:sentence` and `:context` are not on every entry.** An entry about a *pair* or a
+  *budget* rather than a dropped sentence carries neither — the three cross-context
+  reports and all three cut notices below — so a consumer reads them with `when-let`
+  rather than unconditionally. `:message` is under `:detail` on every kind but
+  `:non-confluent` and `:aggregate`, which carry it at the top level.
 
   Three of those are ordinary dropped conclusions.  The others report something that was
   *not* dropped, and the `:detail` is what distinguishes them:
@@ -3184,16 +3386,29 @@
   | `:not-stratified` | a derived `genl` edge would put a negation cycle in the rule set | `:cycle` |
   | `:arity` + `:declared-after` | a declaration arrived after facts it convicts; the facts stand | `:count` `:sample` `:truncated` |
   | `:disjoint` + `:visible-from` | two memberships each admissible where stated, jointly visible as disjoint | `:exposure-truncated` |
+  | `:functional` / `:asymmetric` + `:visible-from` | two claims each admissible where stated, jointly visible as a clash — `:refuse` only | `:pred` `:clash` |
   | `:non-confluent` | two schematic equations disagree about a shared term; nothing dropped | `:rule` `:with` |
 
-  Two entries say a **bounded sweep did not finish**, so bounded work never reads as
-  full coverage — and they are separate because a reader acts on them differently.
-  `:exposure-truncated` means clashes went unreported; `:arbitration-truncated` means
-  content a declaration implicates went **undecided**, so a pair that would have been
-  defeated stands believed until a later settle surfaces it.  They do not cover the same
-  triggers either: `functional` and `asymmetric` reach back on the deciding path and on
-  no other.  Both carry `:triggers` `:sample` `:budget` `:message`, and both are one
-  entry per settle rather than one per trigger.
+  The three `+ :visible-from` rows are the **cross-context reports**: a pair neither
+  writer could see, named rather than decided, with belief untouched. Under `:arbitrate`
+  they do not appear — there the pair is weighed and answered by `contradictions`
+  instead. `:clash` is the two `[sentence context]` halves in printed order, so the same
+  knowledge in either arrival order files one identical entry.
+
+  Three entries say **bounded work did not cover everything**, so a cap never reads as
+  full coverage — and they are separate kinds because a reader acts on them differently.
+  Two are sweeps cut short: `:exposure-truncated` means clashes went unreported, and
+  `:arbitration-truncated` means content a declaration implicates went **undecided**, so
+  a pair that would have been defeated stands believed until a later settle surfaces it.
+  They do not cover the same triggers either: `functional` and `asymmetric` reach back on
+  the deciding path and on no other.  Both carry `:triggers` `:sample` `:budget`
+  `:message`, and both are one entry per settle rather than one per trigger.
+
+  The third is not a sweep.  `:constraint-exposure-truncated` says one pass found **more
+  clashing pairs than it will file** — a functional slot filled from N contexts one
+  vantage sees is N−1 pairs off a single arriving fact, against a ledger that keeps the
+  newest 1000 — and carries `:pairs` `:filed` `:budget` `:message`.  Nothing was swept
+  short and nothing went undecided; the pairs past the cap are visible and unreported.
 
   Why a retroactive `:arity` reach reports rather than decides, why a truncation is one
   entry per settle rather than per trigger, and what the instance budget bounds:
@@ -3534,11 +3749,21 @@
     (jtms/defeat-class (:tms kb) h)))
 
 (defn supporting-justifications
-  "Justifications that conclude `handle` (its supporting justifications).  Empty for a
-  nil handle; a non-handle is refused (`:bad-handle`)."
+  "Justifications that conclude `handle` (its supporting justifications), in
+  **content** order — the informant's sentence, then the antecedent sentences.
+  `jtms/supports` is a set of allocation-ordered ids, so an unsorted answer would say
+  which derivation happened to land first; `preview`'s named reason, `why`'s
+  `:support` and a clash report's `:justifications` all read through here, and each
+  is a surface the same knowledge must answer identically on whatever order it
+  arrived in.  Empty for a nil handle; a non-handle is refused (`:bad-handle`)."
   [kb handle]
   (if-some [h (the-handle handle "supporting-justifications")]
-    (keep #(justification kb %) (jtms/supports (:tms kb) h))
+    (let [sent (fn [x] (some->> x (p/get-sentex (:records kb)) :sentence))]
+      (sort-by (fn [j]
+                 (binding [*print-length* nil *print-level* nil]
+                   (pr-str [(str (:informant j)) (sent (:informant j))
+                            (mapv sent (:antecedents j)) (:bindings j)])))
+               (keep #(justification kb %) (jtms/supports (:tms kb) h))))
     ()))
 
 (defn dependent-justifications
@@ -3699,10 +3924,13 @@
                                :rewrites (jtms/supersession (:tms kb) handle)}))
       (jtms/defeated? (:tms kb) handle)
       (assoc base :believed? false :reason :defeated
-             :contradicted-by (vec (for [o (sentexes-matching kb (opposite-sentence (:sentence sx)) '?ctx)]
-                                     {:handle (:id o) :sentence (readable-sentence o)
-                                      :context (:context o)
-                                      :defeat-class (defeat-class kb (:id o))})))
+             ;; content-ordered: the matcher promises the set, not the order, and the
+             ;; order it happens to yield moves with the retrieval sweeps
+             :contradicted-by (->> (sentexes-matching kb (opposite-sentence (:sentence sx)) '?ctx)
+                                   (sort-by (juxt #(pr-str (:sentence %)) #(str (:context %))))
+                                   (mapv (fn [o] {:handle (:id o) :sentence (readable-sentence o)
+                                                  :context (:context o)
+                                                  :defeat-class (defeat-class kb (:id o))}))))
       :else
       (assoc base :believed? false :reason :unsupported
              :premise? (premise? kb handle)
@@ -3723,22 +3951,30 @@
   The exception is checked in the **query's** context, which is where the caller is
   asking from and where a conclusion would have been placed.  The ground exception is
   returned as a bare sentence when the rule states one conjunct and as a vector when it
-  states several, matching how it was written."
+  states several, matching how it was written.
+
+  The completion reported is the **content-least** — the rule's sentence, then the
+  ground exception — never the first the rule index happened to yield: two excepted
+  rules concluding one goal would otherwise make the whole answer a function of which
+  was asserted first."
   [kb sentence context]
-  (first
-   (for [rh   (p/rules-by-consequent (:index kb) (nm/functor sentence))
-         :let [rsx (p/get-sentex (:records kb) rh)]
-         :when (and rsx (rules/rule? rsx) (p/exception-rule? (:index kb) rh) (in? kb rh))
-         :let  [rule (chain/rule-view-of kb rh rsx)
-                b0   (res/unify (:consequent rule) sentence)]
-         :when b0
-         {:keys [bindings handles]} (chain/solve-rule kb (:antecedents rule) b0)
-         except (provers/rule-exceptions kb rh)
-         :when (chain/exception-holds? kb except bindings context)]
-     (let [ground (mapv #(sx/canon (res/substitute % bindings)) except)]
-       {:rule rh
-        :exception (if (= 1 (count ground)) (first ground) ground)
-        :via (vec handles)}))))
+  (->> (for [rh   (p/rules-by-consequent (:index kb) (nm/functor sentence))
+             :let [rsx (p/get-sentex (:records kb) rh)]
+             :when (and rsx (rules/rule? rsx) (p/exception-rule? (:index kb) rh) (in? kb rh))
+             :let  [rule (chain/rule-view-of kb rh rsx)
+                    b0   (res/unify (:consequent rule) sentence)]
+             :when b0
+             {:keys [bindings handles]} (chain/solve-rule kb (:antecedents rule) b0)
+             except (provers/rule-exceptions kb rh)
+             :when (chain/exception-holds? kb except bindings context)]
+         (let [ground (mapv #(sx/canon (res/substitute % bindings)) except)]
+           [(pr-str [(:sentence rsx) ground])
+            {:rule rh
+             :exception (if (= 1 (count ground)) (first ground) ground)
+             :via (vec handles)}]))
+       (sort-by first)
+       first
+       second))
 
 (defn why-not
   "Why does the KB *not* believe `handle`?  The complement of `why`, as data:
@@ -3769,10 +4005,12 @@
   there is nothing to pass to the handle arity.  A stored sentence delegates to that
   arity, except that a stored-but-disbelieved one is checked for an exception first —
   excepted is the more specific answer than unsupported.  Neither stored nor excepted
-  is `:not-stored`.  docs/exceptions.md, docs/equality.md."
+  is `:not-stored`.  It takes an `(ist Ctx S)` sentence, asking after S in Ctx and
+  reporting it under that context (`ist-goal`).  docs/exceptions.md, docs/equality.md."
   ([kb handle] (why-not-handle kb (the-handle handle "why-not")))
   ([kb sentence context]
-   (let [h (kb/find-sentex-handle kb sentence context)]
+   (let [[sentence context] (ist-goal sentence context)
+         h (kb/find-sentex-handle kb sentence context)]
      (if (and h (in? kb h))
        (why-not-handle kb h)
        (if-let [exc (excepted-argument kb sentence context)]
@@ -3836,7 +4074,10 @@
   panel caps at 50, so the same batch against the same knowledge would show a different
   fifty depending on the order the KB arrived in."
   [e]
-  [(pr-str (:sentence e)) (pr-str (:context e))])
+  ;; print vars bound off: both halves are capped, so a tie two elided long
+  ;; sentences fall into decides *which entries the caller is shown*
+  (binding [*print-length* nil *print-level* nil]
+    [(pr-str (:sentence e)) (pr-str (:context e))]))
 
 (defn- preview-added-entry [kb handle]
   (let [sx (sentex kb handle)]
@@ -4486,6 +4727,11 @@
   ;; the P/¬P coincidence set is derived from storage and no store holds it, so rebuild
   ;; it before the settle below reads it (`settle/negation-nogoods`)
   (kb/rebuild-opposed! kb)
+  ;; ...and the visibility roster, for the same reason and one more: a **fork** rebuilds
+  ;; its belief over the merged view rather than inheriting it (`fork`), so without this
+  ;; a fork would answer its base's excepts off a roster of its own that nothing filled.
+  ;; Before the settle for the same reason too — `justification-excepted?` reads it.
+  (kb/rebuild-excepted! kb)
   ;; ...and the settle that finishes the rebuild is told it *is* one, so the exposure
   ;; pass stays out of it: what it reports is what a change newly made jointly visible,
   ;; and a restore changes nothing (`settle/*rebuilding?*`).
@@ -4543,6 +4789,12 @@
   ;; deleted, and a stamp that still compares equal would carry entries naming them.
   ;; Clearing it says "reconcile everything", which is the answer for a wiped store.
   (some-> (:supersessions kb) (reset! nil))
+  ;; ...and the visibility roster, which is the one of these that would be *wrong* rather
+  ;; than merely stale: its entries are handles, the wipe resets the handle counter, and
+  ;; a reload would hand handle 42 to a new sentex the old roster still says is hidden.
+  ;; `:opposed` keys on bodies and cannot mistake one fact for another this way, which is
+  ;; why it is not here and this is.
+  (some-> (:excepted kb) (reset! {}))
   kb)
 
 (defn close!

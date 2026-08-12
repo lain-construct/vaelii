@@ -41,7 +41,11 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
 (assert-inert kb sentence context)              ; stored, indexed and durable, but NOT a premise:
                                                 ; never believed, never chained, never scanned for
                                                 ; contradictions — a recorded truth value
-                                                ; (docs/solving.md).  Drop it with `retract!`
+                                                ; (docs/solving.md).  Drop it with `retract!`.
+                                                ; A rule is refused (`:not-indexable`): nothing
+                                                ; would index it, so nothing could fire it.
+                                                ; The other inertness is `set/inertRule` — a
+                                                ; believed, indexed rule that fires neither way
 (with-deferred-settle kb & body)                ; run a batch, settle belief ONCE at the end
 (assert-many kb sentences context opts)         ; the collection form -> vector of handles
 (bulk-assert-facts! kb facts context opts?)     ; a trusted corpus's ground facts on the fast path:
@@ -218,6 +222,9 @@ default-chain-opts                              ; the bounds a chain run takes w
 (sentexes-with-functor kb pred [opts]) / (count-with-functor kb pred)    ; functor root
 (sentexes-with-arg kb pos term [opts]) / (count-with-arg kb pos term)    ; argument-position root
 (ist kb Ctx sentence)                           ; ist: find or create sentence in Ctx -> handle
+                                                ; `(ist Ctx S)` is also a READ goal — every read
+                                                ; taking a sentence and a context takes one, Ctx
+                                                ; winning over the argument (query family, above)
 (handle-of kb sentence context)                 ; find WITHOUT creating -> handle or nil (ist's counterpart)
 (contexts-of kb sentence)                       ; contexts a sentence is asserted in
 (provenance kb handle)                          ; the per-handle bookkeeping map, or nil
@@ -287,6 +294,15 @@ expansion each will do**.  Pick by what you are asking, not by habit:
 (`find-sentexes`, `sentexes-in-context`, …) return **sentex maps**; `query` / `ask` /
 `prove` return **binding maps**; `lookup` returns **level-result maps**
 (`{:level :handle :sentence :context :bindings}`).
+
+**Every read above takes an `(ist Ctx S)` goal**, asking `S` in `Ctx` with the named
+context winning over the `context` argument — the resolution `assert` makes, so the form
+means one thing on both sides of the KB.  So do `handle-of` and `why-not`'s sentence
+arity.  Retrieval answers the sentexes stored in `Ctx`; the reasoning doors answer from
+everything `Ctx` inherits.  A wrong arity is refused `:shape`, and an `(ist …)` standing as
+a **conjunct** of a vector goal is refused `:not-well-formed` — a join's conjuncts share
+their bindings, so there is no per-literal context to honor; ask the whole conjunction in
+`Ctx`.  There is no `ist` on a rule's antecedent side (docs/contexts.md).
 
 A **sentex map** has the stable keys `:id` (the handle), `:sentence`, `:context`,
 `:truth`, and for a rule `:antecedent` / `:consequent` / `:direction`.  Key into it.
@@ -532,16 +548,20 @@ differing in whether the exception names a species, a whole class, or a state th
 changes) and the rules with **connected conjunctive antecedents** (antecedents sharing
 a variable so they join — grandparentOf, part-location, owns-parts).
 
-**Every binary predicate says which level it relates at.** `relationKind` is a
-`disjointMetatype` over `instanceRelationPredicate` and `typeRelationPredicate`, and the
-shipped vocabulary marks all of them: `parentOf`, `northOf` and `madeOf` relate
-individuals; `genl`, `disjoint`, `largerThan` and `partType` relate kinds. *At most* one,
-not exactly one — five are honestly neither and are left unmarked rather than forced
-(`implies` is a connective; `rewriteOf` takes either role so long as its two sides agree;
-`resultIsa` and `resultGenl` relate a function to a type;
-`functionCorrespondingPredicate` relates a function to a predicate). The distinction is what
-`typeToInstancePred` is stated over, and it is the difference between `(largerThan dog
-cat)` — dogs are bigger than cats — and a claim about two particular animals.
+**A binary predicate says which level it relates at, unless its two ends disagree.**
+`relationKind` is a `disjointMetatype` over `instanceRelationPredicate` and
+`typeRelationPredicate`: `parentOf`, `northOf` and `madeOf` relate individuals; `genl`,
+`disjoint`, `largerThan`, `partType` and `capabilityType` relate kinds. *At most* one, not
+exactly one — the unmarked are those whose two ends sit at different levels, or at no
+level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
+sides agree; `resultIsa` and `resultGenl` relate a function to a type;
+`functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
+relates one animal to a capability kind). The mark is not decoration: it decides which
+argument-check family the predicate may use, one for **every** position, which is why a
+mixed predicate cannot carry one — `argIsa` on a `typeRelationPredicate` and `argGenl` on
+an `instanceRelationPredicate` are both refused `:arg-constraint-kind`. The distinction is
+what `typeToInstancePred` is stated over, and it is the difference between `(largerThan
+dog cat)` — dogs are bigger than cats — and a claim about two particular animals.
 
 **Contingent data lives in the tests.** The starter ships no cast: individuals, facts,
 and the worked fables hang **below WellContext** in the test-world. `test/vaelii/world.clj`

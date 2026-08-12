@@ -16,6 +16,17 @@
   {:types 12 :branching 3 :individuals 20 :predicates 9 :facts 40 :rules 8
    :forward 50 :defeasible 25 :antecedents 2 :layers 3 :contexts 2 :seed 5})
 
+(deftest a-plan-with-fewer-predicates-than-layers-still-draws-every-rule
+  ;; a band past the vocabulary is dropped rather than emitted empty: predicates 2
+  ;; under layers 3 otherwise puts `(nth [] …)` inside the lazy rule draw, and the
+  ;; throw lands mid-load, after the vocabulary has already been asserted
+  (doseq [[preds layers] [[2 3] [4 6] [2 8]]]
+    (let [p (gen/plan (assoc small :predicates preds :layers layers :rules 20))]
+      (is (= 20 (count (doall (:rules p))))
+          (str "every rule drawn at predicates " preds " layers " layers))
+      (is (every? (comp some? first :consequent) (:rules p))
+          "and every consequent names a predicate"))))
+
 ;; ---- the plan is a function of the parameters ---------------------------
 
 (deftest plan-is-deterministic-in-its-seed

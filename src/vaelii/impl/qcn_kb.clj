@@ -135,10 +135,21 @@
   is not an omission.  Subsumption runs the other way under negation: a negated
   *super*-predicate entails the negated sub, never the reverse, so the positive read's
   spec fan would be unsound here.  Nothing is lost, because a wider predicate's negation
-  contributes its own (larger) complement when that predicate is read in its turn."
+  contributes its own (larger) complement when that predicate is read in its turn.
+
+  Retired spellings are dropped with `res/retired-for?` rather than
+  `res/without-retired`, because the triples here carry no sentex at index 2 for that
+  filter to read — but they are dropped: a reader below a merge that keeps the
+  negative fact about a retired spelling while the positive read drops it would carry
+  one constraint under two names it knows denote one thing."
   [kb pred context]
-  (let [ix (:index kb)
-        up (when-not (pvar? context) (tax/context-up (:taxonomy kb) context))]
+  (let [ix       (:index kb)
+        up       (when-not (pvar? context) (tax/context-up (:taxonomy kb) context))
+        merged?  (tax/merged-term-pred (:taxonomy kb))
+        visible  (delay (res/visible-supporter-fn kb context))
+        retired? (if (and merged? (symbol? context) (not (pvar? context)))
+                   #(res/retired-for? kb visible merged? (:sentence %))
+                   (constantly false))]
     (->> (p/sentexes-with-functor ix pred)
          (keep (fn [h]
                  (when (jtms/in? (:tms kb) h)
@@ -146,7 +157,8 @@
                          b (when s (sx/body s))]
                      (when (and (= :false (:truth s))
                                 (sequential? b) (= 3 (count b)) (= pred (first b))
-                                (or (nil? up) (contains? up (:context s))))
+                                (or (nil? up) (contains? up (:context s)))
+                                (not (retired? s)))
                        (let [[_ a c] b]
                          (when (and (node-term? a) (node-term? c)) [h a c])))))))
          (res/without-excepted kb context))))
@@ -519,7 +531,7 @@
   differs."
   [kb calc context]
   (let [now  (join-baseline kb calc context)
-        base (some-> (:qcn kb) deref (get [(:name calc) context ::joined]))]
+        base (some-> (:qcn-joined kb) deref (get [(:name calc) context ::joined]))]
     {:baseline now
      :moved    (if (and base
                         (map? (:net base)) (map? (:net now))
@@ -533,10 +545,13 @@
   own full join (a rule arriving) does not, or the next delta would claim the others were
   covered too.
 
-  It shares the KB's resident-cache atom, which is cleared wholesale when it grows past
-  its bound; losing a baseline costs a full re-join and nothing else."
+  The baselines live in `:qcn-joined`, their own map beside the resident network
+  cache rather than inside it: the cache clears wholesale at its bound, and a
+  baseline is bookkeeping, not a memo — losing one silently degrades every later
+  delta join for that calculus and context to a full re-join.  The map is bounded by
+  (calculi × reader contexts), which no eviction is needed for."
   [kb calc context baseline]
-  (when-let [a (:qcn kb)]
+  (when-let [a (:qcn-joined kb)]
     (swap! a assoc [(:name calc) context ::joined] baseline))
   nil)
 

@@ -280,7 +280,11 @@
   (when-let [j (get-in @state [:jobs id])]
     (when-not (settled? j)
       (reset! (:cancel j) true)
-      (swap! state assoc-in [:jobs id :status] :cancelling)
+      ;; guarded inside the swap: the job's own thread may file its terminal status
+      ;; between the read above and this write, and :cancelling stamped over :done
+      ;; is a job that never settles — the sweep keeps it, `writer` keeps naming it,
+      ;; and every later writing job is refused against a job that already finished
+      (update-job! id (fn [j] (cond-> j (not (settled? j)) (assoc :status :cancelling))))
       (when (and (:interruptible? j) (nil? (:writes j)))
         ;; bounded, because a thread that has not published itself yet is one the
         ;; cooperative flag already covers — waiting on it forever would hang the request

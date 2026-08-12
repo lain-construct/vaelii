@@ -21,8 +21,12 @@
   in-memory and lives only for the process — useful for `repl` or a single compound
   session, pointless across one-shot commands.  `--starter` loads the shipped schema
   (types, contexts, relation rules) so you can explore the ontology.  `--strength
-  monotonic` marks an `assert` known-true.  `export` takes `--variant
+  monotonic` marks an `assert` or `assert-rule` known-true.  `export` takes `--variant
   records|records+index` and `--compression gzip|xz|none`.
+
+  **A flag belongs to the commands that read it** (`command-flags`), and one carried by
+  a command that does not is refused rather than dropped — those three are the driver's
+  and go anywhere, the rest do not.
 
   **One writer.**  A `--dir` KB takes the single-writer file lock (docs/storage.md), so
   the CLI and a daemon cannot own the same directory at once — by design."
@@ -36,8 +40,9 @@
 ;; ---- arg + option parsing ------------------------------------------------
 
 (def ^:private value-flags
-  "The value-taking flags any command may carry — the whole roster the commands
-  below read.  A flag outside it is refused, not keywordized: `--strenght monotonic`
+  "Every value-taking flag spelling the driver knows — what `parse-opts` will bind at
+  all, as against which command may carry which, that being `command-flags`' answer
+  one door further in.  A flag outside it is refused, not keywordized: `--strenght monotonic`
   accepted in silence would store known-true content at `:default` — the exact
   sentence the flag-with-no-value refusal beside it exists for, reached from the
   other side — and a misspelt `--dir` would open the in-memory KB, gone at exit."
@@ -64,11 +69,16 @@
           (recur (rest as) pos (assoc opts (keyword (subs a 2)) true))
           (not (value-flags a))
           (throw (ex-info (str "unknown flag: " a) {:type :unknown-option :flag a}))
-          :else (if-some [v (second as)]
-                  (recur (drop 2 as) pos (assoc opts (keyword (subs a 2)) v))
-                  (throw (ex-info (str a " needs a value and the line ends after it"
-                                       " — write " a " <value>")
-                                  {:type :unknown-option :flag a}))))))))
+          :else (let [v (second as)]
+                  ;; a following flag is not a value: `--dir --starter` otherwise opens
+                  ;; a directory literally named `--starter` and never loads the schema
+                  (if (and (some? v) (not (str/starts-with? v "--")))
+                    (recur (drop 2 as) pos (assoc opts (keyword (subs a 2)) v))
+                    (throw (ex-info (str a " needs a value and "
+                                         (if v (str "the next word is the flag " v)
+                                             "the line ends after it")
+                                         " — write " a " <value>")
+                                    {:type :unknown-option :flag a})))))))))
 
 (defn read-arg
   "One argv string as data: the EDN it reads as — a sentence, a context symbol, a handle
@@ -156,6 +166,55 @@
                              "\n  quote every argument: the shell eats ( ) [ ] and ?")
                         {:type :unknown-option :cmd cmd :given n :takes [mn mx]}))))))
 
+(def ^:private driver-flags
+  "The flags that say which KB to open rather than what a command does with it.  They
+  apply to every command, so `check-flags!` admits them everywhere."
+  #{:dir :memory :starter :help})
+
+(def ^:private command-flags
+  "The value flags each command reads, keyed by command word; a command absent from the
+  map reads none.  This is `assert-opt-keys`' rule at the shell door (docs/api.md): an
+  option is a request, and one the door cannot honour is refused rather than dropped.
+  `match … --strength monotonic` accepted and ignored reads from the outside exactly
+  like a strength that was applied.
+
+  `repl` is the union on purpose — its options are fixed at session start and every
+  line reuses them (`repl-loop`), so a flag there belongs to whichever line reads it."
+  {"assert"      #{:strength}
+   "assert-rule" #{:strength}
+   "query"       #{:depth}
+   "query?"      #{:depth}
+   "export"      #{:variant :compression}})
+
+(defn- flag-names [ks] (str/join ", " (map #(str "--" (name %)) (sort ks))))
+
+(defn check-flags!
+  "Refuse a flag `cmd` does not read, naming what it does read.
+
+  `-main` calls this rather than `dispatch`, and that placement is the whole of it: the
+  REPL reuses one option map for every line it runs, so a session opened `--strength
+  monotonic` must not have a later `match` line refused for carrying the session's
+  flag.  The line naming `repl` is checked against the union instead, and the lines
+  inside it against nothing.
+
+  An unknown command word is left alone, as `check-arity!` leaves it — `-main` reports
+  that as `:unknown-command`, which says more than a flag complaint about a command
+  that does not exist."
+  [cmd opts]
+  (when (some #{cmd} commands)
+    (let [allowed (if (= cmd "repl")
+                    (reduce into #{} (vals command-flags))
+                    (get command-flags cmd #{}))
+          unread  (remove (into driver-flags allowed) (keys opts))]
+      (when (seq unread)
+        (throw (ex-info (str cmd " does not read " (flag-names unread) " — it reads "
+                             (if (seq allowed) (flag-names allowed) "no options of its own")
+                             ".  A flag a command cannot honour is dropped in silence"
+                             " otherwise, which reads exactly like one that was applied.")
+                        {:type :unknown-option :cmd cmd
+                         :unread (mapv #(str "--" (name %)) (sort unread))
+                         :reads  (mapv #(str "--" (name %)) (sort allowed))}))))))
+
 (defn usage
   "The `--help` text: every command, its operands and a one-line gloss."
   []
@@ -171,14 +230,16 @@
                      (str "  " (format (str "%-" w "s")
                                        (str c (when (seq ops) (str " " ops))))
                           "   " gloss)))
-         "\n\nOptions:\n"
+         "\n\nOptions.  The first three name the KB and go with any command; the rest"
+         " belong to\nthe commands named beside them, and are refused elsewhere:\n"
          "  --dir <path>          the durable :disk KB (recovered on open); absent, in-memory\n"
          "  --memory              the in-memory KB, said explicitly\n"
          "  --starter             load the shipped starter schema\n"
-         "  --strength <s>        assert at :monotonic instead of :default\n"
-         "  --depth <n>           how far query expands rules\n"
+         "  --strength <s>        assert, assert-rule: :monotonic instead of :default\n"
+         "  --depth <n>           query, query?: how far to expand rules\n"
          "  --variant <v>         export: records | records+index\n"
-         "  --compression <c>     export: gzip | xz | none\n")))
+         "  --compression <c>     export: gzip | xz | none\n"
+         "  (repl takes all four — its options are fixed at start and each line reuses them)\n")))
 
 (defn dispatch
   "Run one command against `kb` and return its result (a handle, a seq of sentences /
@@ -192,7 +253,7 @@
         depth    (when-let [d (:depth opts)] {:max-depth (Long/parseLong (str d))})]
     (case cmd
       "assert"      (v/assert kb (nth args 0) (nth args 1) strength)
-      "assert-rule" (v/assert-rule kb (nth args 0) (nth args 1) (nth args 2))
+      "assert-rule" (v/assert-rule kb (nth args 0) (nth args 1) (nth args 2) strength)
       "match"       (mapv :sentence (v/sentexes-matching kb (nth args 0) (nth args 1)))
       "query"       (vec (v/query kb (nth args 0) (nth args 1) depth))
       "query?"      (v/query? kb (nth args 0) (nth args 1) depth)
@@ -259,6 +320,12 @@
 
 (defn- show [x] (if (coll? x) (pp/pprint x) (println x)))
 
+(defn- err!
+  "One diagnostic line on **stderr** — a refusal must not land inside the data a
+  script is reading off stdout."
+  [& parts]
+  (binding [*out* *err*] (apply println parts)))
+
 (defn- repl-loop
   "Interactive loop: each line is `<cmd> <edn-forms…>` (no `--flags` — options are
   fixed at repl start).  Holds `kb` in-process, so a memory KB accumulates for the
@@ -283,6 +350,9 @@
                           (println "already in a repl")
                           (show (dispatch kb cmd (read-forms rest*) opts))))
                       (catch Throwable e
+                        ;; stdout on purpose, alone among the error paths: the REPL is a
+                        ;; conversation, and its errors belong in the transcript beside
+                        ;; the line that caused them — nothing scripts this stream
                         (println "error:" (or (.getMessage e)
                                               (.. e getClass getSimpleName)))))
                     (recur)))))))
@@ -295,7 +365,7 @@
   ;; own vocabulary — one line and exit 1, the same courtesy the command arm extends
   (let [[positionals opts] (try (parse-opts argv)
                                 (catch clojure.lang.ExceptionInfo e
-                                  (println "error:" (.getMessage e))
+                                  (err! "error:" (.getMessage e))
                                   (System/exit 1)))
         [cmd & args] positionals
         ;; before the KB is opened: `--help` should answer on a machine with no KB,
@@ -303,9 +373,16 @@
         _  (when (or (:help opts) (= cmd "help"))
              (println (usage))
              (System/exit 0))
+        ;; and before the KB too, for the help arm's reason: a flag this command cannot
+        ;; honour is the operator's mistake, and answering it should not first take a
+        ;; `--dir` lock on a durable KB
+        _  (try (check-flags! cmd opts)
+                (catch clojure.lang.ExceptionInfo e
+                  (err! "error:" (.getMessage e))
+                  (System/exit 1)))
         kb (try (open-kb-from opts)
                 (catch clojure.lang.ExceptionInfo e
-                  (println "error:" (.getMessage e))
+                  (err! "error:" (.getMessage e))
                   (System/exit 1)))]
     (cond
       (or (nil? cmd) (= cmd "repl"))
@@ -325,14 +402,14 @@
       ;; `StackOverflowError` (the browser's untrusted-EDN reads make the same catch).
       (try (show (dispatch kb cmd (mapv read-arg args) opts))
            (catch clojure.lang.ExceptionInfo e
-             (println "error:" (.getMessage e))
+             (err! "error:" (.getMessage e))
              (System/exit 1))
            (catch Throwable e
-             (println "error:" (or (.getMessage e) (.. e getClass getSimpleName)))
+             (err! "error:" (or (.getMessage e) (.. e getClass getSimpleName)))
              (System/exit 1)))
 
       :else
-      (do (println "unknown command:" cmd)
-          (println "commands:" (str/join " " commands))
-          (println "`lein cli help` for what each one takes")
+      (do (err! "unknown command:" cmd)
+          (err! "commands:" (str/join " " commands))
+          (err! "`lein cli help` for what each one takes")
           (System/exit 2)))))

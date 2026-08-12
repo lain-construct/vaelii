@@ -115,9 +115,12 @@
 (defn reifiable-ground-nat?
   "True iff `form` is a ground `(F …)` whose head F is a reifiableFunction — a NAT we
   may reify.  Ground because an open NAT (`(F ?x)`) would need an enumerating prover to
-  mint anything, so it is left alone."
+  mint anything, so it is left alone.  `sequential?`, not `seq?`: reification runs
+  before `canon`, so a vector-spelled `[F …]` is the same NAT as `(F …)` — gating on
+  the list spelling alone would store the raw compound where the other spelling
+  stores the constant, two handles for one canonical sentence."
   [kb form]
-  (and (seq? form)
+  (and (sequential? form)
        (seq form)
        (reifiable-function? kb (first form))
        (ground-form? form)))
@@ -139,20 +142,34 @@
 (defn dedup-constant
   "The existing reified constant for the ground NAT expression `E`, or nil — the
   `E → K` half of the 1:1 map, so re-reifying an expression finds the constant
-  already minted for it rather than minting a second."
+  already minted for it rather than minting a second.  More than one constant can
+  name `E` (a `:bulk?` load skips this probe, and an import restores whatever the
+  dump held), and the answer is then the lexicographically smallest — the survivor
+  `group-collisions` elects — so a read resolves to the constant the merge repair
+  keeps rather than to whichever the retrieval yielded first."
   [kb E]
-  (some-> (first (kb/sentexes-matching kb (list 'termOfUnit '?k E) universal-context))
-          :sentence
-          second))
+  (->> (kb/sentexes-matching kb (list 'termOfUnit '?k E) universal-context)
+       (map #(second (:sentence %)))
+       sort
+       first))
 
 (defn rewrite-target
   "The real term `T` a `(rewriteOf T E)` declaration says the NAT expression `E`
   reifies to instead of a fresh constant, or nil.  A quoting-predicate declaration:
-  `E` is the literal NAT payload, `T` an existing atomic term."
+  `E` is the literal NAT payload, `T` an existing atomic term.
+
+  Nil when the believed declarations name **more than one target**, exactly as
+  `correspondence-of` answers its twin question: picking between them by whichever
+  the retrieval yielded first would store `(likes Tom Mary)` or `(likes Tom Maria)`
+  according to the order two `rewriteOf`s arrived — divergent *stored* state, which
+  every later read then inherits.  Two targets are a disagreement for the clash
+  machinery, not a tie for this read to break; two declarations of **one** target
+  (the engine's own reconcile writes those) are one answer."
   [kb E]
-  (some-> (first (kb/sentexes-matching kb (list 'rewriteOf '?t E) universal-context))
-          :sentence
-          second))
+  (let [ts (into #{} (comp (map #(second (:sentence %))) (take 2))
+                 (kb/sentexes-matching kb (list 'rewriteOf '?t E) universal-context))]
+    (when (= 1 (count ts))
+      (first ts))))
 
 (defn- result-targets
   "The distinct arg2s of believed `(<pred> head ?t)` facts — the result types of the
@@ -304,16 +321,18 @@
 ;; ---- display / export ----------------------------------------------------
 
 (defn- contains-reified-nat?
-  "True iff `form` contains a reified NAT constant anywhere."
+  "True iff `form` contains a reified NAT constant anywhere.  `sequential?` so the
+  walk descends a rule's antecedent vector, the one vector `canon` keeps."
   [form]
-  (boolean (some reified-nat-symbol? (tree-seq seq? seq form))))
+  (boolean (some reified-nat-symbol? (tree-seq sequential? seq form))))
 
 (defn expand-expression
   "Recursively replace every reified NAT constant in `form` with the functional
   expression it denotes — human-readable printing / export
   (`(color (FruitFn AppleTree) Red)`, never a raw `nat/` symbol).  Returns `form`
   UNCHANGED (same identity) when it holds no reified NAT, so content holding no reified NAT is
-  untouched; only reified NAT-bearing forms are rebuilt."
+  untouched; only reified NAT-bearing forms are rebuilt.  A vector rebuilds as a
+  vector — an antecedent list stays the shape its record stores."
   [kb form]
   (cond
     (reified-nat-symbol? form) (if-let [e (nat-expression kb form)]
@@ -321,6 +340,8 @@
                                  form)
     (and (seq? form) (contains-reified-nat? form))
     (apply list (map #(expand-expression kb %) form))
+    (and (vector? form) (contains-reified-nat? form))
+    (mapv #(expand-expression kb %) form)
     :else form))
 
 ;; ---- the reify walk (parameterized over the leaf action) -----------------
@@ -469,20 +490,29 @@
         sentexes))
 
 (defn orphan?
-  "Is the reified constant `k` orphaned — is every believed sentex naming it one of `k`'s
-  own bookkeeping sentexes?  False when nothing maps it: a constant with no believed
-  `termOfUnit` names no expression, so there is no map left to dangle.
+  "Is the reified constant `k` orphaned — is every **stored** sentex naming it one of
+  `k`'s own bookkeeping sentexes?  False when nothing maps it: a constant with no
+  believed `termOfUnit` names no expression, so there is no map left to dangle.
+
+  Uses count by storage, not belief: a stored-but-OUT use revives when the defeat
+  above it lifts, and an inert use (a labeling's choice head) has no TMS node at all
+  — collecting the map from under either would leave it dangling a raw `nat/`
+  symbol, and re-reifying the expression would then mint a second constant beside
+  the first, a collision no merge repair caused.  Only the map read
+  (`mapped-expressions`) follows belief, so a superseded spelling still answers
+  nothing.
 
   **One term-index read answers the whole question.**  `k`'s uses, its map and its
   materialized types are all sentexes naming `k`, so the inverted term index
   (docs/indexing.md) hands back the lot in the size of `k`'s own footprint, and nothing
   here is a function of how many other constants the KB has minted."
   [kb k]
-  (let [live (filterv #(jtms/in? (:tms kb) (:id %)) (kb/find-sentexes kb k))]
+  (let [all  (kb/find-sentexes kb k)
+        live (filterv #(jtms/in? (:tms kb) (:id %)) all)]
     (boolean
      (some (fn [E]
              (let [minted (delay (minted-for kb k E))]
-               (every? #(nat-bookkeeping-of? k minted %) live)))
+               (every? #(nat-bookkeeping-of? k minted %) all)))
            (mapped-expressions k live)))))
 
 (defn orphaned-constants
@@ -530,16 +560,25 @@
   (into #{} (mapcat #(reified-nats-in (:sentence %))) sentexes))
 
 (defn bookkeeping-handles
-  "The believed bookkeeping sentex handles of constant `k` — its `termOfUnit` and
-  materialized result-type premises, plus its correspondence projection — the ones to
-  retract when `k` is orphaned."
+  "The bookkeeping sentex handles of constant `k` — its `termOfUnit` and materialized
+  result-type premises, plus its correspondence projection — the ones to retract when
+  `k` is orphaned.  Not belief-filtered: once `k` is orphaned everything it owns
+  goes, and a bookkeeping sentex sitting OUT would otherwise stay stored, a map for
+  a constant the sweep has already collected.
+
+  **Realized before it returns**, because the caller retracts what it hands back and
+  `minted` is a read of the very sentexes being retracted: it asks `k`'s `termOfUnit`
+  which expression the mint wrote about, so a tail forced after the map's own
+  retraction answers `#{}` and the materialized types and the projection stop looking
+  like bookkeeping — left stored, naming a constant the sweep has collected.  Whether
+  that happens is decided by which sentex the term index hands back first, so a lazy
+  answer here is a dangling `nat/` symbol in some retrieval orders and not in others."
   [kb k]
   (let [minted (delay (if-let [E (nat-expression kb k)] (minted-for kb k E) #{}))]
-    (->> (kb/find-sentexes kb k)
-         (filter #(jtms/in? (:tms kb) (:id %)))
-         (filter #(nat-bookkeeping-of? k minted %))
-         (map :id)
-         distinct)))
+    (into [] (comp (filter #(nat-bookkeeping-of? k minted %))
+                   (map :id)
+                   (distinct))
+          (kb/find-sentexes kb k))))
 
 ;; ---- write-mode reify: mint + result-type materialization ----------------
 ;; A ground reifiable NAT is replaced by its opaque constant *before* WFF and the
@@ -582,11 +621,13 @@
   types are structural, not defeasible defaults.  `assert` stores synchronously, so a
   second occurrence of `E` in the same sentence dedups against this.
 
-  All three assertions are the *same* bookkeeping, so all three take the chaining the
-  caller asked for.  Minting is a step inside somebody else's assert, and a bulk load
-  that turned chaining off did so for the whole load: on OpenCyc the two unqualified
-  ones ran 46,346 chain fixpoints nobody wanted, most of whose conclusions were then
-  dropped for having no placement context."
+  The result types and the correspondence projection take the chaining the caller
+  asked for; `(termOfUnit K E)` is asserted with chaining off regardless — the
+  identity record is what the dedup probe reads, not content a rule fires on.
+  Minting is a step inside somebody else's assert, and a bulk load that turned
+  chaining off did so for the whole load: on OpenCyc the two unqualified ones ran
+  46,346 chain fixpoints nobody wanted, most of whose conclusions were then dropped
+  for having no placement context."
   ([kb E] (mint-nat! kb E true))
   ([kb E chain?]
    (let [k    (fresh-constant)

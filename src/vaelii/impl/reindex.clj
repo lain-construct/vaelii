@@ -24,8 +24,7 @@
   Named bare, like `recover`: the `!` convention marks destruction of stored
   *knowledge*, and this destroys only derived state and recreates it from the
   records, which stay untouched."
-  (:require [vaelii.impl.naming :as nm]
-            [vaelii.impl.observe :as observe]
+  (:require [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]))
@@ -54,7 +53,8 @@
   entry above."
   [index meta-sentex]
   (let [rh    (sx/exceptWhen-rule-handle (:sentence meta-sentex))
-        preds (keep nm/functor (sx/exception-query-conjuncts (:sentence meta-sentex)))]
+        preds (rules/watched-predicates
+               (sx/exception-query-conjuncts (:sentence meta-sentex)))]
     (when rh (p/index-exception index rh preds))))
 
 (defn index-one!

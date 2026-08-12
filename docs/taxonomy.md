@@ -12,6 +12,20 @@
 done with rules — the direct adjacency of the type graph is stored and the transitive
 closure is answered on demand (read-memoized per edge generation), never materialized.
 
+**Where the rule went, for a reader who looks for it.** A KB that computes transitivity
+in code rather than from a rule is a KB whose most important rule is written nowhere,
+and the spelling for writing one down without running it is the **inert rule**
+(`set/inertRule`, [inference.md](inference.md)): stored, believed, indexed under its
+predicates and browsable like any other rule, and chaining in neither direction — so the
+claim is on the record and no second engine computes it beside the closure. Asserting
+the same rule bare would not be documentation but a forward rule materializing what the
+cache already answers, one derived sentex per pair.
+
+What the shipped ontology states this way today is the global lifting rule in
+`CoreContext.txt`, not `genl`'s transitivity: `genl` carries its account in the
+`comment` on the predicate instead, where the closure is described rather than written
+as a sentence.
+
 ## genl: the type hierarchy
 
 `(genl Sub Super)` — every `Sub` is a `Super`. Types are unary predicates, rooted
@@ -103,7 +117,11 @@ Two things widen the scope past the moved edges, and both are load-bearing:
   belief change with no relabel to record it, and `recover`'s closing settle needs no
   widening at all — a rebuild labels the JTMS from nothing, so the region is already the
   whole KB (`taxonomy_belief_test/recover-does-not-revive-a-defeated-edge` is what holds
-  that, since the scoping depends on it).
+  that, since the scoping depends on it). The width of that by-hand widening is the
+  **whole standing supersession set**, so on a KB holding N live merges every settle
+  hands the reconcile an Ω(N) region — the reconcile stays proportional to what it was
+  handed, but what it is handed there grows with the merges standing, not with the
+  change.
 - **`:dirty` carries what a belief-blind writer left behind.** `add-edge` / `del-edge` run
   on the assert and retract paths, where no `believed?` is in hand, so they recompute an
   edge's `:edge-ctxs` from every recorded supporter rather than the believed ones. On the
@@ -164,7 +182,11 @@ and `genls` / `specs` walk it on demand.
   new child above its parent and pushing that lift to the child's descendants as far as
   it forces them — O(1) for a hierarchy loaded parent-before-child, since a fresh node
   has no descendants, and O(descendants) when it is not (which is what a batch defers;
-  see below). The lift moves whole **components**, since the potential ranks the
+  see below). The O(1) is conditioned on an empty `:scc`: the lift moves whole
+  components, and finding a component's members reads the `:scc` map, so it holds
+  always for `genl` (cycles are refused there) and for `genlContext` only while no
+  context cycle stands — with cyclic contexts in the map, an insert pays a walk of
+  the cyclic population. The lift moves whole **components**, since the potential ranks the
   condensation: a member raised alone would sit above its own mates, each of which then
   forces the next one round the cycle. No closure is touched. A redundant re-assert of
   an already-active edge is a no-op.
@@ -546,10 +568,24 @@ halves guard against, so each files one entry per settle: `:exposure-truncated` 
 `settle/expose-clashes!` and `:arbitration-truncated` from
 `settle/report-arbitration-cut!`, each carrying `:triggers` `:sample` `:budget`
 `:message`. They stay separate kinds because a reader acts differently on *went
-unreported* than on *went undecided*, and because the deciding path reaches back over
-`functional` and `asymmetric` where the reporting one has no arm at all — so a reader
-watching only the exposure entry would never learn that a predicate declared functional
-after its facts was swept short. The arbitration notice accumulates across the settle's
+unreported* than on *went undecided*, and because the deciding path **sweeps** for
+`functional` and `asymmetric` where the reporting one does not. The reporting path has
+those two arms (`settle/expose-constraint-clashes!`, docs/nmtms.md), and on an ordinary
+write they read the moved region's own binary facts rather than a declaration's reach —
+both halves of such a clash have to be stated. The consequence to keep in view is the
+same one either way: a reader watching only the exposure entry would never learn that a
+predicate declared functional after its facts was swept short.
+
+**A third notice, covering two bounds that pass shares.** Its `genlContext` trigger
+reaches out of the region over the cone the edge newly sees, budgeted exactly as the
+disjointness sweep beside it; and its *entries* are not bounded by the region either — a
+functional slot filled from N contexts one vantage sees is N−1 pairs off a single
+arriving fact, where the ledger keeps the newest 1000. So the pass files at most
+`settle/*exposure-instance-budget*` entries, stops its cone walk at the same cap, and
+files one **`:constraint-exposure-truncated`** naming whichever bound it met — `:pairs`
+`:filed` `:unswept` `:sample` `:budget` `:message`. One kind rather than two because a
+reader acts on them the same way: pairs are visible and unreported, and nothing went
+*undecided*, which is what separates this from `:arbitration-truncated`. The arbitration notice accumulates across the settle's
 passes and is filed once, since `settle/constraint-nogoods` re-runs its sweep every pass
 and one declaration cut in nine of them is one fact about the settle. Both notices are off
 while `settle/*rebuilding?*`; the arbitration **sweep** is not, because that flag does not
@@ -651,8 +687,9 @@ maintained by `integrate-sentex`:
   that is a narrower thing than what the engine can answer about a pair. A hop is a
   **believed match** (`res/matches-visible`), which is:
 
-  - a stored believed `(P x y)`, and nothing a defeated one supports — the walk follows
-    belief, like every other read;
+  - a stored believed `(P x y)` **visible from the asking context** — the walk follows
+    belief and visibility like every other read, so a hop stored where the asker cannot
+    see it is a break in the chain rather than an edge of it;
   - a stored `(P' x y)` for a sub-predicate `P'` of `P`, since the matcher fans the
     functor over its `genl` spec closure;
   - the **symmetric mirror**, for a `P` also declared symmetric — the mirrored probe
@@ -742,7 +779,10 @@ maintained by `integrate-sentex`:
   `tax/inverse-of` answers *a* partner — the lexicographically smallest, so a caller
   wanting one gets a content-keyed answer rather than an order-keyed one. `P` may be its
   own inverse, which says `(P a b)` iff `(P b a)` — the same claim `symmetric` makes, and
-  the cache key folds to the one-element set it names.
+  the cache key folds to the one-element set it names. **A partner declared on a
+  sub-predicate answers the super-predicate's goal**, since a sub-predicate's tuples are
+  the super's: `tax/inverses-under` is that set, and it consults the spec closure only
+  where some inverse exists at all, so a KB declaring none pays one lookup.
 - `(arity P n)` — the declared arity, cached rather than re-queried because the
   per-assert arity check reads it on every fact.
 - `(functional P)` — a *constraint*: `assert` rejects a second, different value

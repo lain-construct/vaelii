@@ -198,17 +198,21 @@
                     (v/assert kb (list qa Z Y) StoryContext {:strength :monotonic})
                     (is (empty? (v/sentexes-matching kb conclusion StoryContext))
                         "an OUT antecedent licenses no firing")
+                    ;; The retraction is the whole of it: lifting the defeat revives the
+                    ;; antecedent, and the settle puts it back on the agenda itself
+                    ;; (`settle/revived-seeds`).  No explicit `forward-chain` here, and
+                    ;; that absence is the test — the arrival ordering below has to hold
+                    ;; on the run a settle starts, not only on one a caller asks for.
                     (v/retract! kb defeater)
                     (is (seq (v/sentexes-matching kb (list pa X Z) StoryContext))
-                        "the defeated antecedent revived")
-                    ;; the revived fact carries the *older* handle of the pair, so the
-                    ;; run that re-derives from it has to order on arrival rather than
-                    ;; on the handle or the partner is filtered out from under it
-                    (v/forward-chain kb)))]
+                        "the defeated antecedent revived")))]
       (tu/with-cleared-kb [kb tu/fresh]
         (load! kb)
+        ;; the revived fact carries the *older* handle of the pair, so the run that
+        ;; re-derives from it has to order on arrival rather than on the handle, or the
+        ;; partner is filtered out from under it and this is empty
         (is (seq (v/sentexes-matching kb conclusion StoryContext))
-            "a run over the revived state derives the conclusion")
+            "the settle's own re-seed derives the conclusion")
         (let [h (kb/find-sentex-handle kb conclusion StoryContext)]
           (is (= 1 (count (jtms/supports (:tms kb) h)))
               "on exactly one justification, naming both antecedents")

@@ -57,6 +57,35 @@
           (is (some? (kb/find-sentex-handle kb s StoryContext))
               "and present the moment it is stored, with the cache still bound"))))))
 
+(tu/deftest-kb the-cache-is-scoped-to-one-kb
+  ;; `with-handle-cache` deliberately reuses an outer run's map, and two KBs
+  ;; declaring nothing symmetric once stamped the one shared empty set — a nested
+  ;; run on a second KB (a chaining callback asserting elsewhere) read the first
+  ;; KB's handles and justified against a handle in another store
+  (tu/with-terms [holds A StoryContext]
+    (tu/with-cleared-kb [kb2 #(tu/isolated-fresh)]
+      (let [s  (list holds A)
+            h1 (v/assert kb s StoryContext {:chain? false})]
+        (observe/with-handle-cache
+          (is (= h1 (kb/find-sentex-handle kb s StoryContext)) "filled under the first KB")
+          (is (nil? (kb/find-sentex-handle kb2 s StoryContext))
+              "the second KB, sharing the cache, does not read the first's handle"))))))
+
+(tu/deftest-kb a-spelling-canonicalization-rewrites-is-never-cached
+  ;; the removal choke point clears the **canonical** key, so an entry keyed on a
+  ;; raw spelling canonicalization rewrites — a symmetric literal's unsorted
+  ;; arguments — would outlive its sentex as a stale handle
+  (tu/with-terms [touches A B StoryContext]
+    (v/assert kb (list 'symmetric touches) StoryContext {:chain? false})
+    (let [h (v/assert kb (list touches B A) StoryContext {:chain? false})]
+      (observe/with-handle-cache
+        (is (= h (kb/find-sentex-handle kb (list touches A B) StoryContext)))
+        (is (= h (kb/find-sentex-handle kb (list touches B A) StoryContext)))
+        (v/retract! kb h)
+        (is (nil? (kb/find-sentex-handle kb (list touches A B) StoryContext))
+            "neither spelling survives the retraction")
+        (is (nil? (kb/find-sentex-handle kb (list touches B A) StoryContext)))))))
+
 (tu/deftest-kb handle-cache-is-invalidated-by-removal
   (testing "a retracted sentence stops resolving, cache bound or not"
     (tu/with-terms [holds A B StoryContext]

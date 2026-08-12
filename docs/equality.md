@@ -387,6 +387,17 @@ displaced it.
   ([exceptions.md](exceptions.md)). A rule concluding an equality from a
   `different` antecedent is a cycle through negation and is rejected — otherwise
   belief would depend on arrival order.
+- **A rule concluding one of the three relations does not merge.** The derivation path
+  runs the `:derived?` subset of the special-predicate table — the `genl` and
+  `genlContext` closure edges — so a rule-concluded `(sameAs A B)` is stored and
+  believed while the equality closure never learns it, no spelling is displaced, and no
+  violation is filed. **`recover` over that same store does learn it**, since the rebuild
+  replays the stored declarations, so a restarted KB and a running one disagree about the
+  edge. The one derivation that *does* merge is the engine's own:
+  `derive-functional-equalities` concludes through `derive-equality`, which integrates
+  like an assert. What keeps the general case off that path is that migration writes —
+  a twin per displaced fact, re-canonicalized, with the integrity checks re-run — and
+  `place-conclusion` reaches it from inside the join those writes would move.
 - **Symmetric predicates.** Argument sorting for a symmetric predicate is done at
   canonicalization time against the *stored* symbols. A later merge changes what
   the sorted order should be, so migration must re-canonicalize rather than
@@ -519,7 +530,12 @@ refuse.
   read it — so the stale spelling stops matching while everything derived from it
   stands. Recomputed from the closure each `settle`, like the other two, so a
   retracted equality gives the caller's premise back with no un-supersede path. Read
-  from the sentex's **own** context, the way migration writes it.
+  from the sentex's **own** context, the way migration writes it. Because the flip moves
+  belief with no relabel behind it, the spelling coming back is a **revival the settle's
+  region cannot see**, and it is re-seeded onto the chaining agenda through a channel of
+  its own — otherwise a conclusion the twin made while the merge stood is swept with the
+  twin and never remade at the surviving spelling
+  ([nmtms.md](nmtms.md#the-other-half-a-spelling-an-un-merge-gives-back)).
 - The reader-scoped half of it, `res/without-retired`, in `matches-visible` and
   `sentexes-matching-as-stored`: a match whose stored spelling the *asking* context has
   retired is dropped, so a reader below a merge reports the fact once, under the name it

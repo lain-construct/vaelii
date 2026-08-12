@@ -571,7 +571,8 @@
                              "unreadable"
                              (str (count v) " entries where the meta records " want))
                            " — and it holds the argument roots")
-                      {:type :torn-snapshot :path (fallback-path root)})))
+                      {:type :torn-snapshot :path (fallback-path root)
+                       :entries (when-not (= ::torn v) (count v)) :expected want})))
     v))
 
 (defn load!

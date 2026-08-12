@@ -130,11 +130,12 @@
     :no-dump :no-foreign-reader :not-a-directory :not-assertible
     :not-checkable :not-defeasible :not-edn :not-empty :not-indexable
     :not-a-report :not-found :not-ground :not-in-process :not-range-restricted :not-stratified
-    :not-watchable :not-well-formed :quantifier-not-local :report-only
-    :reset :shape :solver-failed :solver-unavailable
+    :not-watchable :not-well-formed :quantified-conjunction :quantifier-not-local
+    :report-only
+    :reserved-family :reset :shape :solver-failed :solver-unavailable
     :stacked-fork :stale-index-layout :still-loading :still-stopping
     :too-many-subscriptions :too-many-waiters
-    :torn-snapshot :unauthorized :unbound-deferred :unforkable-index :unknown-backend
+    :torn-snapshot :truncated-dump :unauthorized :unbound-deferred :unforkable-index :unknown-backend
     :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
     :unknown-op :unknown-option :unknown-source :unknown-subscription :unknown-tactician
     :unparseable :unreadable :unreadable-store :unsupported-compression
