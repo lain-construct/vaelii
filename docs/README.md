@@ -38,6 +38,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | judge whether a KB's knowledge is any good | [quality.md](quality.md) | [taxonomy.md](taxonomy.md), [inference.md](inference.md) |
 | read another system's KB in | [foreign.md](foreign.md) | [kbs.md](kbs.md) |
 | turn English into sentexes | [reading.md](reading.md) | [llm.md](llm.md) |
+| translate a Cyc concept to Vaelii | [cyc-rosetta-stone.md](cyc-rosetta-stone.md) | [api.md](api.md), [glossary.md](glossary.md) |
 | find the code behind a subsystem | [namespaces.md](namespaces.md) | [dependencies.md](dependencies.md) |
 | understand what a query costs | [indexing.md](indexing.md) | [density.md](density.md), [anytime.md](anytime.md) |
 | find out what shape of question my KB is asked | [profile.md](profile.md) | [indexing.md](indexing.md) |
@@ -54,6 +55,7 @@ page costs a sentence rather than a section.
 - [troubleshooting.md](troubleshooting.md) — indexed by symptom rather than subsystem: an empty query, a rule that will not fire, a refused `assert`, a KB holding facts nobody asserted.
 - [glossary.md](glossary.md) — every term used across these docs and the code, tagged by subsystem.
 - [commonsense.md](commonsense.md) — the questions this KB is asked, one per reasoning subsystem, what the schema had to grow to answer them, and the outside judge that reads the answers back.
+- [cyc-rosetta-stone.md](cyc-rosetta-stone.md) — concept-by-concept mapping between Cyc and Vaelii for readers who already know CycL.
 
 ## Core model & storage
 

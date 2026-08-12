@@ -1,10 +1,14 @@
 # Vaelii ↔ Cyc Rosetta Stone
 
+- **Covers:** concept-by-concept mapping between Cyc and Vaelii — vocabulary, operations, truth maintenance, rules, negation, privileged contexts, and what each system has that the other does not.
+- **Not here:** the Vaelii API itself → [api.md](api.md); the glossary behind the Vaelii terms → [glossary.md](glossary.md).
+- **Assumes:** familiarity with Cyc concepts (Mts, assertions, constants, collections, CycL); sentex, handle, context → [glossary.md](glossary.md).
+
 ## Core Concepts
 
 ```
 Cyc                → Vaelii
-microtheory (Mt)   → context
+Mt                 → context
 genlMt             → genlContext
 assertion          → sentex
 constant           → symbol (CapitalCamelCase individuals, snake_case types, camelCase preds)
@@ -22,7 +26,7 @@ wff?               → v/check. Checks argIsa, disjoint, functional, naming conv
 **argIsa is entailment, not restriction:** In Cyc, argIsa constraints are gates
 at assert time. In vaelii, they are entailment sources — `(argIsa parentOf 1 animal)`
 over `(parentOf Fred Mary)` ENTAILS `(animal Fred)`, it doesn't reject the assertion.
-Our bridge's `check-guarded` / `assert-guarded` enforces the restriction layer.
+To get Cyc-style rejection, a caller must wrap `v/assert` with a guard that runs `v/check` first and refuses on constraint violation.
 
 **Open-world silent acceptance:** Vaelii silently accepts any assertion with any
 predicate — `(fghgwgads 212)` stores without error. No predicate declaration check,
@@ -91,7 +95,7 @@ Cyc                → Vaelii API call
 assert             → (v/assert kb sentence context opts) → handle
 unassert           → (v/retract! kb handle) → {:removed-sentexes n :removed-justifications n}
 find-assertion-cycl → (v/sentexes-matching kb sentence context) — literal only, returns collection
-                     (sentex-matching via our bridge utils — singular, nil if ambiguous)
+                     (a caller wanting singular match can filter + assert uniqueness)
 ask (backward)     → (v/query kb goal ctx {:max-depth n}) — bounded backward chaining
 ask (unbounded)    → (v/prove kb goal ctx) — DFS backward chaining
 ask (boolean)      → (v/provable? kb goal ctx)
