@@ -4,7 +4,8 @@
   backward chainers (`prove` and the node engine), predicate subsumption, query planning, and
   the `ask` prover registry.
 - **Not here:** resumable, resource-bounded search → [anytime.md](anytime.md); belief
-  maintenance, defeat classes and contradiction resolution → [nmtms.md](nmtms.md).
+  maintenance, defeat classes and contradiction resolution → [nmtms.md](nmtms.md); this
+  same machinery named in Prolog's and Datalog's vocabulary → [from-prolog.md](from-prolog.md).
 - **Assumes:** sentex, context, `genl`, JTMS → [glossary.md](glossary.md).
 
 `vaelii.impl.rules`, `vaelii.impl.resolution`, `vaelii.impl.jtms`, the forward chainer in
@@ -31,8 +32,9 @@ the **vector** of handles in that case (a single handle otherwise).
 
 A rule that concludes a **rule** is a *generator*, and its firing stores the rule it
 concludes rather than a fact — the one place range restriction is asked one level in,
-since the stamped rule's own variables are unbound on purpose. See
-[generators.md](generators.md).
+since the stamped rule's own variables are unbound on purpose. The rule it stamps may
+stamp one in turn, at any depth, and a variable an enclosing level fills may head a
+literal. See [generators.md](generators.md).
 
 ## Rule direction (virtual predicates)
 
@@ -193,7 +195,8 @@ the depth guard, `exceptWhen`, a deferred antecedent, a symmetric non-trigger an
 a functional twin, sibling-context no-placement, and retraction. The whole suite also
 runs through it (`VAELII_RETE=1 lein test`) with a failing-set identical to the reference
 path. It is **off by default** (the reference matcher is the root of `chain/*matcher*`);
-`(rete/enable!)` installs it globally, `rete/chain-all` / `rete/track!` drive one KB.
+`(rete/enable!)` installs it globally, and `rete/track!` plus the caller's own
+`(binding [chain/*matcher* rete/rete-match-pattern] …)` scopes it to one KB.
 There is no **beta network**: TREAT re-joins from the alpha memories on every firing,
 so a repeated multi-way join is recomputed rather than cached.
 
@@ -234,8 +237,8 @@ Stamped on arrival, such a datum sorts after the partner already processed and s
 one that enumerates the pair. Four things then decline the filter outright, each because
 a firing there is enumerable at one trigger and not at the other:
 
-- **A handle the run never enqueued** has no arrival — the equality twins
-  `special/derive-functional-equalities` places, and every join outside a run.
+- **A handle the run never enqueued** has no arrival — a sentex some other write placed
+  while the run was going, and every join outside a run.
 - **A disbelieved trigger.** A datum triggers on `res/match1`, a plain unify; the join
   finds facts through `*matcher*`, which follows belief. So a spelling superseded by an
   equality merge still fires its rules while no other trigger's join can find it.
@@ -322,8 +325,11 @@ so the firing's justification names a witness for the `genl` path it climbed
 placement context can see) beside the fact and the rule. Retracting the edge therefore
 withdraws the conclusion through the ordinary dependency-directed sweep, and `why`
 shows the edge as one of the things the conclusion rests on rather than leaving the
-reader to wonder how a `fatherOf` fact satisfied a `parentOf` antecedent. See
-docs/contexts.md for the placement half and `subsumption_support_test`.
+reader to wonder how a `fatherOf` fact satisfied a `parentOf` antecedent. The `genlCx`
+edges the conclusion's context saw the rule and the facts over are named the same way
+and for the same reason, so both relations withdraw through one path. See
+docs/contexts.md for the placement half, `subsumption_support_test` and
+`placement_context_witness_test`.
 
 **Backward chaining has the dual.** `fire-rules-for` fans a *fact's* functor **up**
 over `genls` to find rules whose antecedent it triggers; the mirror image is that a

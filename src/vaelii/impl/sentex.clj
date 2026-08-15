@@ -254,6 +254,37 @@
                   :else                        acc))]
     (walk nil form)))
 
+;; The same two walks over *compounds* rather than symbols.  What asks for them is a
+;; check about a shape a sentence may hold anywhere — a `do/` imperative, an `ist`
+;; redirection, a quantifier, a non-finite measure — which has to descend arguments as
+;; well as frames, and so touches every node of every sentence asserted to find a form
+;; almost none of them contain.  Written directly for `some-symbol?`'s reason: the lazy
+;; seq a `tree-seq` builds costs several times the predicate it carries, and the sentence
+;; that holds nothing pays the whole of it.
+
+(defn some-form
+  "The first sub-form of `form` satisfying `pred` — `form` itself included, depth-first
+  pre-order, the order `(first (filter pred (tree-seq …)))` yields — or nil.  Descends
+  compounds and asks `pred` of every node, so `pred` decides what a node has to be.
+
+  Nil is the whole of \"no match\", so a `pred` that holds of `nil` or `false` reads as
+  one; every caller's holds of compounds, which are neither."
+  [pred form]
+  (if (pred form)
+    form
+    (when (sequential? form)
+      (reduce (fn [_ x] (when-let [hit (some-form pred x)] (reduced hit))) nil form))))
+
+(defn forms-where
+  "Every sub-form satisfying `pred`, depth-first pre-order, as a vector.  The collecting
+  form of `some-form` — a vector rather than nil, because its callers report *each* form
+  they find rather than gating on the first."
+  [pred form]
+  (letfn [(walk [acc x]
+            (let [acc (if (pred x) (conj acc x) acc)]
+              (if (sequential? x) (reduce walk acc x) acc)))]
+    (walk [] form)))
+
 ;; ---- virtual rule wrappers (canonicalized into the record) ---------------
 ;; `(set/forwardRule (implies …))` is not data about a rule — it *is* how the rule's
 ;; direction is written.  Like not / implies / and, the wrapper canonicalizes into
@@ -824,15 +855,15 @@
   than asking for the obvious writing order."
   [antes conseq exc]
   (let [scope    (vec (concat antes [conseq] exc))
-        rule-occ (frequencies (var-occurrences scope))
-        ;; a generator is a positive literal that *produces* bindings by matching —
-        ;; which the deferred literals (aggregates and `unknown` among them) never do
-        generators (remove #(or (unknown? %) (deferred-literal? %)) antes)
-        matched    (into #{} (mapcat var-occurrences) generators)
+        ;; Every check here is about a form most rules do not contain, and the readings
+        ;; they need are whole-rule walks.  So each is drawn where it is used: a rule
+        ;; with no quantifier never counts occurrences, and one with nothing that
+        ;; consumes bindings never reads what its generators bind.
+        rule-occ (delay (frequencies (var-occurrences scope)))
         local-check
         (fn [lit vars kind]
           (let [local (frequencies (var-occurrences lit))]
-            (when-let [leaked (seq (filter #(> (get rule-occ % 0) (get local % 0)) vars))]
+            (when-let [leaked (seq (filter #(> (get @rule-occ % 0) (get local % 0)) vars))]
               (throw (ex-info (str (clojure.core/name kind) " variable " (pr-str (vec leaked))
                                    " escapes its quantifier — a bound existential"
                                    " variable must appear only inside its own "
@@ -864,20 +895,23 @@
                                  "  Bind the witness with a generator antecedent instead")
                             {:type :quantified-conjunction kind lit
                              :antecedents (vec antes)}))))]
-    ;; locality: each thereExists / aggregate binder occurs only within its own literal
-    (doseq [te (filter there-exists? (tree-seq sequential? seq scope))]
-      (local-check te (quantified-vars te) :thereExists)
-      (quantified-body-check te (nth te 2) :thereExists))
-    (doseq [ag (filter aggregate? (tree-seq sequential? seq scope))]
-      (quantified-body-check ag (aggregate-body ag) :aggregate)
-      (if-let [v (aggregate-value-var ag)]
-        (local-check ag #{v} :aggregate)
-        (throw (ex-info (str "aggregate reduces over " (pr-str (nth ag 2))
-                             ", which is not a variable — the second slot names the"
-                             " value being reduced, so a constant there reduces over"
-                             " nothing and no prover can answer it")
-                        {:type :not-well-formed :aggregate ag
-                         :antecedents (vec antes)}))))
+    ;; locality: each thereExists / aggregate binder occurs only within its own literal.
+    ;; One walk for the two shapes — the rule is descended to *find* a quantifier, and
+    ;; descending it twice to find two kinds of one costs what finding them does.
+    (let [quantifiers (forms-where #(or (there-exists? %) (aggregate? %)) scope)]
+      (doseq [te (filter there-exists? quantifiers)]
+        (local-check te (quantified-vars te) :thereExists)
+        (quantified-body-check te (nth te 2) :thereExists))
+      (doseq [ag (filter aggregate? quantifiers)]
+        (quantified-body-check ag (aggregate-body ag) :aggregate)
+        (if-let [v (aggregate-value-var ag)]
+          (local-check ag #{v} :aggregate)
+          (throw (ex-info (str "aggregate reduces over " (pr-str (nth ag 2))
+                               ", which is not a variable — the second slot names the"
+                               " value being reduced, so a constant there reduces over"
+                               " nothing and no prover can answer it")
+                          {:type :not-well-formed :aggregate ag
+                           :antecedents (vec antes)})))))
     ;; an `unknown`'s conjunction is real, and empty is not one of its shapes
     (doseq [unk (filter unknown? antes)]
       (when (empty? (naf-query-conjuncts unk))
@@ -888,16 +922,23 @@
                          :antecedents (vec antes)}))))
     ;; closure: every consuming literal's inputs are bound by the generators or by a
     ;; deferred literal written before it — so the scan is left to right, accumulating
-    ;; each literal's outputs only once it has been passed
-    (reduce (fn [bound a]
-              (if (or (unknown? a) (deferred-literal? a))
-                (do (closed-check a bound (cond (unknown? a)   :unknown
-                                                (aggregate? a) :aggregate
-                                                :else          :deferred))
-                    (into bound (deferred-output-vars a)))
-                bound))
-            matched
-            antes)
+    ;; each literal's outputs only once it has been passed.  A rule with nothing that
+    ;; consumes bindings has nothing to close, and the scan below is the identity on it
+    ;; — so what its generators bind is read only where a consumer asks.
+    (when (some #(or (unknown? %) (deferred-literal? %)) antes)
+      (let [;; a generator is a positive literal that *produces* bindings by matching —
+            ;; which the deferred literals (aggregates and `unknown` among them) never do
+            generators (remove #(or (unknown? %) (deferred-literal? %)) antes)
+            matched    (into #{} (mapcat var-occurrences) generators)]
+        (reduce (fn [bound a]
+                  (if (or (unknown? a) (deferred-literal? a))
+                    (do (closed-check a bound (cond (unknown? a)   :unknown
+                                                    (aggregate? a) :aggregate
+                                                    :else          :deferred))
+                        (into bound (deferred-output-vars a)))
+                    bound))
+                matched
+                antes)))
     nil))
 
 (defn- fold-comparison
@@ -1028,7 +1069,7 @@
 (defn ground-term?
   "True when `t` contains no pattern variable anywhere."
   [t]
-  (not-any? variable? (tree-seq sequential? seq t)))
+  (not (some-symbol? variable? t)))
 
 (defn symmetric-literal?
   "A binary literal whose predicate is declared symmetric (and not a dotted form)."
@@ -1535,8 +1576,9 @@
     reads, so the literal matches nothing (`ist-read-problem`);
   * a nested `implies` anywhere but a rule's consequent — a rule is a sentence, not a
     literal, and consequent position is the one place it means something else: a
-    **generator**, whose firing stamps the inner rule out (docs/generators.md).  A
-    third level is refused, so a generator generates a rule and not another generator;
+    **generator**, whose firing stamps the inner rule out (docs/generators.md).  The
+    nesting is not capped there: a stamped rule may stamp one in turn, and each level
+    is checked in the ordinary rule roles;
   * a negated rule — `not` over an `implies`, bare or wrapped: negation lives on
     facts, and what a rule's negation would mean is said as an exception or a
     retraction instead (the record has no shape for it — a rule under `not` would
@@ -1591,26 +1633,20 @@
             (cond
               (not= 3 n)
               [(str "implies takes antecedents and one consequent, got arity " (dec n))]
-              (= :sentence role)
-              (into (vec (mapcat #(walk :antecedent %) (rule-antecedents form)))
-                    (walk :consequent (rule-consequent form)))
               ;; A rule **in consequent position** is a generator's head: the rule its
               ;; firing stamps out (docs/generators.md).  Its own parts are checked in
               ;; the ordinary rule roles, so every arm below — `ist`, a head
               ;; existential, a negated antecedent — holds of the stamped rule exactly
-              ;; as it holds of a written one.
+              ;; as it holds of a written one, at whatever depth it sits.
               ;;
-              ;; One level, and the third is refused here rather than by recursion:
-              ;; the scoping rule that makes a generator readable is that the stamped
-              ;; rule's free variables are its own, and a rule that stamps a generator
-              ;; would need two such splits in one sentence with nothing in the
-              ;; spelling to say which variable belongs to which.
-              (= :consequent role)
-              (let [c (rule-consequent form)]
-                (into (vec (mapcat #(walk :antecedent %) (rule-antecedents form)))
-                      (if (implies? (peek (peel-rule-wrapper c)))
-                        ["a generated rule cannot itself generate a rule; a rule generator nests one level"]
-                        (walk :consequent c))))
+              ;; The recursion is the whole of the nesting rule: a stamped rule that
+              ;; stamps a rule is read here exactly as the one above it was, and the
+              ;; scoping rule composes to match — a variable belongs to the outermost
+              ;; level whose antecedents mention it (`rules/nesting`), which is the
+              ;; level whose firing grounds it.
+              (contains? #{:sentence :consequent} role)
+              (into (vec (mapcat #(walk :antecedent %) (rule-antecedents form)))
+                    (walk :consequent (rule-consequent form)))
               :else
               [(str "a rule cannot stand as a " (clojure.core/name role) " literal")])
             (head-exists? form)
@@ -1723,7 +1759,10 @@
 ;; binds a *whole* subterm — `(p ?y b)` where `?y = (F (G a))` — must advance past a
 ;; stored subterm of unknown length.  Each compound is preceded by an **arity marker**
 ;; carrying its element count, so `index/lookup` skips exactly that many top-level
-;; children in O(1) (recursing for nested arity), with no balanced close-marker.
+;; children (recursing for nested arity), with no balanced close-marker.  What the
+;; marker buys is that *how many* to skip is read rather than scanned for; the skip
+;; itself still fans over the node's children, which is the frontier cost the secondary
+;; roots exist to keep a query off.
 ;;
 ;; The marker is a 2-vector `[::subterm k]`.  Nippy keeps keywords, ints, symbols and
 ;; strings as distinct types (see the storage note), and after linearization no trie
@@ -1813,7 +1852,7 @@
 (defn ground?
   "True when the sentence contains no pattern variables (anywhere, nested)."
   [{:keys [sentence]}]
-  (not-any? variable? (tree-seq sequential? seq sentence)))
+  (not (some-symbol? variable? sentence)))
 
 (defn subterms
   "Every subterm of a sentence — each atom and each compound subterm, recursively,
@@ -1862,7 +1901,7 @@
     (string? t)     false
     (variable? t)   false
     (symbol? t)     true
-    (sequential? t) (not-any? variable? (tree-seq sequential? seq t))
+    (sequential? t) (not (some-symbol? variable? t))
     :else           false))
 
 ;; ---- which compounds earn a key: a floor and a ceiling ------------------

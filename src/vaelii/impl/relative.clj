@@ -71,86 +71,49 @@
   grammar they are declared in.  The prover is **opt-in** on top of it: register it with
   `vaelii.core/add-prover`, and until then a KB stores and retrieves relative directions
   as ordinary facts without paying for the network."
-  (:require [clojure.set :as set]
+  (:require [vaelii.impl.projection :as proj]
             [vaelii.impl.qcn-kb :as qkb]))
 
 ;; ---- the algebra --------------------------------------------------------
-
-(def all-relations
-  "The nine base relative directions — the four sides, the four corners between them, and
-  coincidence.  Jointly exhaustive and pairwise disjoint, so exactly one holds of any two
-  things in one frame, and this is the universe of the algebra: the constraint on a pair
-  nothing is known about."
-  #{:left :right :front :behind :front-left :front-right :behind-left :behind-right :eq})
 
 (def relation->axes
   "Each base relation as its `[left-right front-back]` projection — where the target lies
   on the frame's left-right axis, and where on its front-back one.  The coordinates grow
   rightwards and frontwards, so `:lt` on the first axis is *to the left* and `:gt` on the
-  second is *in front*."
+  second is *in front*.  The nine base relations are these keys: the four sides, the four
+  corners between them, and coincidence, jointly exhaustive and pairwise disjoint, so
+  exactly one holds of any two things in one frame.
+
+  This table is the whole of what distinguishes the relative frame from the cardinal
+  directions (`vaelii.impl.orientation`); everything algebraic about them is
+  `vaelii.impl.projection`'s, computed from here."
   {:left  [:lt :eq], :front-left  [:lt :gt], :behind-left  [:lt :lt]
    :right [:gt :eq], :front-right [:gt :gt], :behind-right [:gt :lt]
    :front [:eq :gt], :behind      [:eq :lt], :eq           [:eq :eq]})
 
-(def axes->relation
-  "The projection read backwards.  It is **total** over the nine `[left-right front-back]`
-  combinations — three point relations on each of two axes, nine relations — which is what
-  makes composition total: whatever pair of point relations the axes compose to names a
-  relation, so no combination falls out of the algebra."
-  (set/map-invert relation->axes))
-
-(def point-compose
-  "The one-dimensional point algebra: `[a b]` → the relations possible between x and z
-  when a relates x to y and b relates y to z.  Only the two disagreeing pairs lose
-  information — x < y and y > z says nothing at all about x and z."
-  {[:lt :lt] #{:lt}, [:lt :eq] #{:lt}, [:lt :gt] #{:lt :eq :gt}
-   [:eq :lt] #{:lt}, [:eq :eq] #{:eq}, [:eq :gt] #{:gt}
-   [:gt :lt] #{:lt :eq :gt}, [:gt :eq] #{:gt}, [:gt :gt] #{:gt}})
-
-(defn compose
-  "The composition of two relation SETS: every relative direction possible from x to z
-  when the direction x→y is in `s1` and y→z is in `s2`.
-
-  Computed, never looked up.  Each relation is a pair of independent axis projections, so
-  composing them is composing each axis through `point-compose` and taking the product of
-  the two results — left-then-in-front is `:lt;:eq` = `:lt` on the left-right axis and
-  `:eq;:gt` = `:gt` on the front-back one, which is front-left.  Two opposite corners lose
-  both axes at once and compose to the whole universe.
-
-  Both relations are read in **one** frame, which is what makes the composition legitimate
-  at all: the network they live in is the network of a single context."
-  [s1 s2]
-  (into #{}
-        (for [d1 s1 d2 s2
-              :let [[al af] (relation->axes d1)
-                    [bl bf] (relation->axes d2)]
-              cl (point-compose [al bl])
-              cf (point-compose [af bf])]
-          (axes->relation [cl cf]))))
-
-(def point-converse
-  "The one-dimensional point algebra's converse: reading a relation backwards flips it."
-  {:lt :gt, :eq :eq, :gt :lt})
-
-(defn- converse-relation
-  "The converse of one base relation — flip both axes, so left becomes right and
-  front-left becomes behind-right.  Coincidence is its own converse."
-  [d]
-  (let [[l f] (relation->axes d)]
-    (axes->relation [(point-converse l) (point-converse f)])))
-
-(defn converse-set
-  "The converse of a relation set — how an asserted `(P a b)` constraint is read backwards
-  as the constraint on `(b a)`."
-  [rels]
-  (into #{} (map converse-relation) rels))
-
 (def relative-algebra
-  "Relative direction as a `vaelii.impl.qcn` relation algebra."
-  {:universe all-relations
-   :identity #{:eq}
-   :compose  compose
-   :converse converse-set})
+  "The relative frame as a `vaelii.impl.qcn` relation algebra — universe, identity,
+  composition and converse, all derived from the projection above."
+  (proj/algebra relation->axes))
+
+(def all-relations
+  "The universe of the algebra: the constraint on a pair nothing is known about."
+  (:universe relative-algebra))
+
+(def compose
+  "The composition of two relation SETS: every relative direction possible from x to z
+  when the direction x→y is in `s1` and y→z is in `s2`.  Computed axis-wise — see
+  `vaelii.impl.projection`.
+
+  Both relations are read in **one** frame, which is what makes the composition
+  legitimate at all: the network they live in is the network of a single context."
+  (:compose relative-algebra))
+
+(def converse-set
+  "The converse of a relation set — how an asserted `(P a b)` constraint is read backwards
+  as the constraint on `(b a)`.  Left becomes right and front-left behind-right;
+  coincidence is its own converse."
+  (:converse relative-algebra))
 
 ;; ---- the vocabulary -----------------------------------------------------
 
@@ -193,12 +156,6 @@
   and the two caches.  Everything below delegates to the shared glue, which is the same
   code the other calculi run."
   (qkb/calculus :relative relative-algebra relative-denotation))
-
-(defn constraint
-  "The constraint set on `[i j]` in `net`: `#{:eq}` on the diagonal, the recorded set,
-  else all nine (unknown)."
-  [net i j]
-  (qkb/constraint relative net i j))
 
 (defn possible-relative-directions
   "The base relations still possible from `a` to `b` in the frame `context` names, given

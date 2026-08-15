@@ -320,17 +320,28 @@ exactly which declaration and which two facts caused it, and retracting any one 
 them runs the existing sweep and un-merges. An opaque merge would be dangerous; an
 inspectable, reversible one is knowledge.
 
-**Both directions, because a declaration reaches the facts already stored exactly as it
-reaches the facts that follow.** `special/derive-functional-equalities` is a fact meeting
-the declaration — it runs on every asserted fact and on every derived conclusion — and
-`special/equate-existing` is the declaration meeting the facts, sweeping `P`'s extent off
-the functor root when `(functional P)` itself arrives. Whether two spellings denote one
-woman is a question about the KB's content, and an answer that depended on whether the
-schema or the facts were loaded first would be an answer about the file. Written the
-ordinary way — declaration first — the sweep finds an empty extent and costs one root
-read.
+**The mark is read up the predicate hierarchy**, since two `fatherOf` mothers for one
+child are two `parentOf` values and `(functional parentOf)` is what says a child has one
+([taxonomy.md](taxonomy.md)). The slot is probed at the marked predicate — `(parentOf a
+?v)` finds a filler written either way through the matcher's fan, where `(fatherOf a ?v)`
+would miss one written at the general spelling — and the merge then rests on the
+subsumption as well, so the `genl` edge handles join the declaration in the antecedents.
+Retracting the edge un-merges, exactly as retracting the declaration does; without them
+two names would stay merged on a declaration that no longer reaches either of them.
 
-The two directions ask one question from two sides, so neither can drift about what a
+**Three directions, because a declaration reaches the facts already stored exactly as it
+reaches the facts that follow, and so does the edge.**
+`special/derive-functional-equalities` is a fact meeting the declaration — it runs on
+every asserted fact and on every derived conclusion — `special/equate-existing` is the
+declaration meeting the facts, sweeping the functor roots of `P`'s whole `genl` spec
+subtree when `(functional P)` itself arrives, and `special/equate-under-edge` is the edge
+meeting both, sweeping the arriving `(genl sub super)`'s own subtree. Whether two
+spellings denote one woman is a question about the KB's content, and an answer that
+depended on whether the schema, the edge or the facts were loaded first would be an answer
+about the file. Written the ordinary way — declaration first — the sweep finds an empty
+extent and costs one root read.
+
+The three directions ask one question from three sides, so none can drift about what a
 functional slot licenses: the equality names both facts and the declaration whichever way
 round it was reached, and retracting any of the three un-merges. Re-deriving is
 idempotent — `same-class?` skips a pair the closure already holds and `has-justification?`
@@ -387,17 +398,31 @@ displaced it.
   ([exceptions.md](exceptions.md)). A rule concluding an equality from a
   `different` antecedent is a cycle through negation and is rejected — otherwise
   belief would depend on arrival order.
-- **A rule concluding one of the three relations does not merge.** The derivation path
-  runs the `:derived?` subset of the special-predicate table — the `genl` and
-  `genlCx` closure edges — so a rule-concluded `(sameAs A B)` is stored and
-  believed while the equality closure never learns it, no spelling is displaced, and no
-  violation is filed. **`recover` over that same store does learn it**, since the rebuild
-  replays the stored declarations, so a restarted KB and a running one disagree about the
-  edge. The one derivation that *does* merge is the engine's own:
-  `derive-functional-equalities` concludes through `derive-equality`, which integrates
-  like an assert. What keeps the general case off that path is that migration writes —
-  a twin per displaced fact, re-canonicalized, with the integrity checks re-run — and
-  `place-conclusion` reaches it from inside the join those writes would move.
+- **A rule concluding one of the three relations merges.** A rule-concluded
+  `(sameAs A B)` reaches `special/integrate-equality-sentex` — the same arm the table
+  runs for an asserted one — so the closure learns the edge, migration restates every
+  sentex it displaces, the retired spelling stops being believed, and a migration the
+  integrity checks refuse is filed as a violation. That has to hold, because
+  `rebuild-taxonomy` replays every stored `rewriteOf` / `sameAs` / `equals`: a
+  derivation path that skipped the merge would leave a running KB and its own restart
+  disagreeing about what the KB entails, silently and in both directions.
+
+  It is reached **by name rather than by the `:derived?` flag** `genl` carries, and the
+  reason is the return value: `integrate-transitive` discards what an arm hands back,
+  and here that is the work — the twins, which are seeds this chaining run has to take,
+  and the violations, which are somebody's to report. It runs **after the conclusion's
+  justification**, since migration justifies each twin by the equality edges it believes
+  and a node nothing supports yet merges nothing.
+
+  So the migration writes from inside the join that concluded the equality, and two
+  things make that safe rather than merely tolerable. The twins go **back on the
+  agenda**, like every other new datum `place-conclusion` returns — and they must,
+  because the retired spelling stops matching the moment the supersession lands, so a
+  rule that had not yet reached the original would otherwise fire on neither spelling.
+  And the arms migration runs re-enter neither `assert` nor `chain`: they add cache
+  entries, justifications and re-check queue items (`special/integrate-twin`). The
+  engine's own `derive-functional-equalities` concludes a merge from this same place, so
+  the cost is one the derivation path carries anyway.
 - **Symmetric predicates.** Argument sorting for a symmetric predicate is done at
   canonicalization time against the *stored* symbols. A later merge changes what
   the sorted order should be, so migration must re-canonicalize rather than
@@ -516,6 +541,13 @@ refuse.
 - The `different` prover: ground-only, refuses an open goal, reads the closure.
 - Routing in `special/integrate-sentex` / `disintegrate-sentex!`, beside `genl` and the
   predicate metadata. `different` is refused by `wff` on the way in.
+- The **derivation** path's routing, `special/integrate-equality-sentex`, called by name
+  from `chain/place-fact-conclusion` because the arm's return value is the twins and the
+  violations and the `:derived?` walk discards it ([taxonomy.md](taxonomy.md), "What a
+  rule may conclude"). The supersessions the merge produced are applied there too, by
+  the same `refresh-supersessions` call `assert` makes before it chains: a spelling
+  *starts* being displaced when migration says so, and reaches the reconcile only as its
+  `extra`, so a merge whose entries nobody hands over displaces nothing.
 - Migration (`migrate-sentex` / `migrate-class`): re-canonicalized rather than
   substituted, one justification per incident equality edge, and applied only where the
   equality is *visible* by the `genlCx` up-closure — once per **reader** whose

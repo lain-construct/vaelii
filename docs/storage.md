@@ -137,7 +137,10 @@ that are gone — the next open would answer every query out of them. So `:recor
 `:index` are for overriding *half* of a name, not for reaching a pair the table left out,
 and `VAELII_TEST_BACKEND` takes a name. `./scripts/test-backends.sh` (`lein
 test-backends`) runs the whole suite on all seven, one log and one ✔/✘ per run, plus an
-eighth over the `overlay` decorator. `backend_parity_test` also runs one scripted KB
+eighth over the `overlay` decorator; `./scripts/test-matrix.sh` runs those eight and the
+five sweeps concurrently, which is the same coverage in about a quarter of the wall
+clock, since a durable run's store is `<vaelii.disk.dir>/space-<n>` and each gets its
+own directory. `backend_parity_test` also runs one scripted KB
 session across every pair in an ordinary `lein test`, so a divergence fails without
 anyone remembering to.
 
@@ -168,6 +171,59 @@ size in question. `lein bench-reindex [facts] [rules] [index]` produces it. Meas
 Only the first column is the price of a derived index: the `recover` half is the TMS and
 taxonomy rebuild every durable KB already pays, and it dominates at this scale. So the
 open cost of *not* persisting the index is roughly 2× a durable-index open.
+
+#### And until it is rebuilt, the KB does not accept writes
+
+`{:recover? false}` over such a store is a legitimate thing to want — it is how a corpus
+past what `recover` scales to gets opened at all — but it leaves a KB that answers reads
+out of the records and cannot correctly take a write. Two separate reasons, and the
+distinction matters because they have different repairs:
+
+- **No belief.** Every definitional check the assert door runs bottoms out in `jtms/in?`,
+  so over an empty network they all match nothing and pass vacuously — and nothing
+  re-runs them later, so the store keeps content its own constraints forbid. `recover` is
+  the repair.
+- **No index.** `assert` dedups through `p/lookup`. Over an index that opened empty every
+  assert misses and mints a **second handle for a sentence already stored**, and
+  `reindex` cannot merge the two afterwards because they are two records rather than two
+  index entries. `reindex` is the repair, and `recover` alone is not — it reads the index
+  rather than writing it, which is the same reason it is not the repair for a read.
+
+So the write doors — `assert`, `assert-inert`, `retract!`, `edit!`, `preview` — refuse
+such a KB by name (`:unrecovered-kb`), reporting which of the two hold and naming the
+call that clears them. The ex-data carries **`:hazards`**, a sorted vector of
+`:no-belief` (the TMS is empty, so every definitional check passes vacuously) and
+`:no-index` (the derived index opened empty, so dedup misses and every assert mints a
+second handle for a sentence already stored), plus `:operation` and `:repair` — `recover`,
+or `reindex` where the index is the empty one, which `recover` alone does not fix because
+it reads the index rather than writing it. `check` and `check-edit` report the same
+refusal as a problem, since they answer for the door.
+
+`retract!` has two refusals of its own underneath that one, both about a handle the TMS
+has no node for. A **stored premise** is not an inert sentex however alike they look to a
+node test, and the dependency sweep a retraction owes cannot be computed over a network
+that was never built (`:unrecovered-premise`). A **derived** record is the third case and
+is told apart from neither: it carries no strength, so the premise roster does not name
+it, while the store holds the justifications that concluded it and any naming it as an
+antecedent — and the store keeps no index from a handle to the justifications citing it,
+so nothing per-handle can separate it from an inert one. Where belief was never built the
+teardown is therefore refused for every record (`:unrecovered-kb`); where it was built, a
+record with no node genuinely is inert. `vaelii.core/*write-unrecovered?*` accepts the
+first kind of write anyway for a caller who has read what it costs; nothing accepts the
+teardown of a handle whose dependents cannot be computed. `*bulk-load?*` deliberately is
+not that opt — it skips the dedup walk that is already missing.
+
+`preview` refuses where `edit!` does, which is the point of it. It implements a `:remove`
+as a premise suspension gated on `jtms/premise?`, false for every stored handle here, so
+it reports that nothing would change while `edit!` on the same batch deletes the record —
+a dry run silent about exactly the operation that cannot be taken back.
+
+**What the two unrefused writes leave behind**, which is why they are refused rather than
+warned about. A `retract!` deletes its record, reports `{:removed-sentexes 1}`, and leaves
+every stored justification naming that handle as an antecedent pointing at nothing; a
+re-`assert` of a stored sentence mints a second handle for it. The dangling justification
+is the worse of the two, since `recover` skips one — so the loss reads as silent disbelief
+rather than as a phantom, and neither is visible to a reader afterwards.
 
 #### The image (`vaelii.index.snapshot`, off by default)
 
@@ -587,14 +643,27 @@ way recovery is these two steps:
 - **JTMS** — the record store tracks live sentex ids, justification ids, and premise
   ids; each premise's assumption strength rides on its own sentex record (the
   `:strength` field, no side hash). `rebuild-tms` recreates a node per sentex, marks
-  premises at their stored strength, adds every justification as
-  a justification, and `relabel` recomputes belief. `recover` rebuilds the JTMS
+  premises at their stored strength, adds each justification whose antecedents and
+  conclusion the store still holds, and `relabel` recomputes belief. One naming a sentex
+  the store does not hold is **left out** and counted, logged once at `:warn` under
+  `::justifications-unrooted` with the count on `:data`: this is
+  the one path whose justifications come off a store rather than out of a firing, so it
+  is the only one that can reach `add-justification` with a datum that has no node, and
+  a justification *concluding* the phantom would make it IN — a KB believing a handle it
+  cannot show anyone. The informant is deliberately not checked; it is not a node
+  reference. `recover` rebuilds the JTMS
   *before* the taxonomy (`rebuild-taxonomy` reads **stored**, not believed,
   sentexes, so `:support` / `:cache-support` record every asserting sentex —
   belief-filtering the replay would drop a disbelieved supporter, and clearing
-  its defeat could never revive the entry) and then settles, whose
-  `refresh-beliefs` applies belief afterward, so strengths, defeats, and reported
-  conflicts are re-derived on restart and match either side of a restart.
+  its defeat could never revive the entry), then narrows the replayed caches to
+  belief with its own unconditional `refresh-beliefs` — inside the same depth
+  deferral, and *before* the settle, so everything the settle reads answers
+  through a taxonomy that already agrees with belief. The replay reads stored,
+  the reconcile narrows to believed, and the contract is the composition: an edge
+  supported by nothing was never in a region for the settle to reach, having been
+  OUT from the moment its node was made, while the replay had already made it
+  answer `genls`. Strengths, defeats, and reported conflicts are re-derived on
+  restart and match either side of it.
 
 Derivation depths reset to 0 on recovery (they only bound future chaining).
 

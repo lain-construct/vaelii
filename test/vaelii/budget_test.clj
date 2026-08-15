@@ -243,9 +243,6 @@
       (is (re-find #":max-ms" (ex-message e)) "the right spelling is in the message")
       (is (zero? @pulled) "nothing was realized on the way to the refusal")))
   (testing "a non-map budget is refused rather than read as unbounded"
-    ;; The keyword is the point — the refusal is what this asserts — so the
-    ;; type mismatch clj-kondo sees is the test's subject, not a defect.
-    #_{:clj-kondo/ignore [:type-mismatch]}
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
                           (budget/collect (range 5) :max-results))))
   (testing "the four rostered bounds all pass at every door"

@@ -22,8 +22,8 @@ with forward/backward inference and JTMS truth maintenance.
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.7.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.7.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.8.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.8.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
@@ -155,7 +155,9 @@ lein serve 4200 /var/lib/vaelii
 [contexts.md](docs/contexts.md) for what a read can see.
 [glossary.md](docs/glossary.md) defines the vocabulary. When something does not do what
 you meant — an empty query, a rule that will not fire, a KB holding facts nobody asserted
-— [troubleshooting.md](docs/troubleshooting.md) is indexed by symptom.
+— [troubleshooting.md](docs/troubleshooting.md) is indexed by symptom. If you already
+think in Cyc, answer set programming, Prolog or a production rule engine,
+[arriving.md](docs/arriving.md) maps that vocabulary onto this one.
 
 ## Contributing
 

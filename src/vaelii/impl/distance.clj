@@ -208,12 +208,6 @@
   code the other calculi run."
   (qkb/calculus :distance distance-algebra distance-denotation))
 
-(defn constraint
-  "The constraint set on `[i j]` in `net`: `#{:co}` on the diagonal, the recorded set, else
-  all seven (unknown)."
-  [net i j]
-  (qkb/constraint qualitative-distance net i j))
-
 (defn possible-distances
   "The distance classes still possible between `a` and `b` given everything believed in
   `context` — `#{}` when the network is inconsistent."

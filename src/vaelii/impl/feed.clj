@@ -203,9 +203,13 @@
   reconciled and the touched set is cleared, so a listener that writes starts a fresh
   settle rather than relabelling inside one.
 
-  A no-op while `*held?*` (an enclosing teardown owns the delivery), while `*enabled?*`
-  is false, when nothing above this layer installed a renderer, and when nothing
-  accumulated — four cheap reads, in that order.
+  A no-op while `*enabled?*` is false, while `*held?*` (an enclosing teardown owns the
+  delivery), when nothing above this layer installed a renderer, and when nothing
+  accumulated — in that order, and the first three are var reads.  The fourth is not a
+  read: `claim!` takes the accumulator with a `swap-vals!`, so a settle on a KB with a
+  renderer installed and nothing to say still pays one CAS.  That is the price of taking
+  the region and clearing it in one step, which is what stops a listener's own writes
+  from being delivered twice.
 
   Re-drains until the accumulator is empty, so a listener's own writes are reported
   too, and gives up at `max-delivery-rounds` with a `:warn` rather than spinning."

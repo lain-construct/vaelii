@@ -160,8 +160,8 @@ Four failures, each of which reads as something other than its cause:
   says why: `classify` recognises a corpus `meta.edn`, a dump's `:format-version` and a
   `records/` + `index/` pair, and a directory with none of them is not a KB. Convert
   first.
-* **A store opened without recover.** It reports `:ready` and stays that way, with 0
-  types. This is the one to watch for, because it is the case that looks finished.
+* **A store opened without recover.** Its load finishes `:done` and stays that way, with
+  0 types. This is the one to watch for, because it is the case that looks finished.
 
 ## Further
 

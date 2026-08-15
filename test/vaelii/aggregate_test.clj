@@ -386,8 +386,8 @@
             why  (v/why kb h)
             cited (into #{} (map :sentence)
                         (mapcat :because (:support why)))]
-        (is (= #{(list person Ann)} cited)
-            "the grouping fact and the rule — no child is named")
+        (is (= #{(list person Ann) (list 'genlCx CxLeft CxRoot)} cited)
+            "the grouping fact and the edge the placement saw the rule over — no child is named")
         (is (not (contains? cited (list childOf Ann 'C1)))))
       (testing "and retracting a counted fact moves the count regardless"
         (v/retract! kb h2)

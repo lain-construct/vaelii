@@ -74,9 +74,9 @@ default-chain-opts                              ; the bounds a chain run takes w
 (settle-stats kb) / (reset-settle-stats! kb)     ; the exceptWhen fixpoint's iteration instrumentation
 (chain-stats kb)                               ; {:runs n :last {:derived n :truncated? bool}} — a capped run is visible
 (violations kb) / (clear-violations! kb)         ; accumulating ledger of dropped derived conclusions (run-stamped, capped)
-(kb-quality kb opts)                            ; the four readings about the *knowledge* —
-                                                ; {:rules :extents :chains :taxonomy}, opts :limit
-                                                ; / :on-progress (which may throw to cancel)
+(kb-quality kb opts)                            ; the five readings about the *knowledge* —
+                                                ; {:rules :extents :chains :taxonomy :declarations},
+                                                ; opts :limit / :on-progress (which may throw to cancel)
 (quality-report quality)                        ; that map as Markdown; takes the map, not the KB
 (caches kb)                                     ; what the *process* holds beside the stores: one row per
                                                 ; cache — :entries :limit :unit :hits :misses :hit-rate,
@@ -157,12 +157,26 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; :provenance? bool :on-progress f} — 10000 records a
                                                ; frame, provenance written by default
 (import! kb dir opts?)                         ; read a dump back into the (empty) kb — export!'s
-                                               ; inverse.  opts {:belief? bool :report-every n
-                                               ; :on-progress f}:
-                                               ; :belief? true (the default) recovers belief too;
-                                               ; false stores and indexes only — browsable, not
+                                               ; inverse.  opts {:belief? true|:stored|false
+                                               ; :report-every n :on-progress f}:
+                                               ; true (the default) recovers belief too; :stored
+                                               ; stores every justification and premise mark and
+                                               ; leaves the recover for later; false reads no
+                                               ; justification stream at all — browsable, not
                                                ; belief-queryable, the path past what an in-RAM
-                                               ; JTMS scales to
+                                               ; JTMS scales to.  The summary counts two
+                                               ; disagreements with the dump and stops for
+                                               ; neither: :naming, stored but not re-assertable,
+                                               ; and :refused, not constructible at all and so
+                                               ; skipped with whatever rested on it.  A
+                                               ; remapped load also reports what its own
+                                               ; deletions cost, apart because they are
+                                               ; different facts: :orphaned-ids, dump ids the
+                                               ; load left naming nothing, and
+                                               ; :dropped-justifications-orphaned, the
+                                               ; deductions that went with them — as against
+                                               ; the deductions a dump simply hangs off
+                                               ; sentexes it never carried
 (isa? kb individual type [context])            ; transitive type membership (context-scoped)
 (types-of kb x [context])                      ; the believed types asserted of an individual
                                                ; — the matcher's own three filters:
@@ -235,7 +249,10 @@ default-chain-opts                              ; the bounds a chain run takes w
 (why kb handle opts?)                           ; proof tree: support -> rule + recursive antecedents,
                                                 ; terminating at premises, cycle-guarded, originalized
                                                 ; opts {:max-depth n} (default 256); a branch at the
-                                                ; cap reads {:truncated? true} — re-ask deeper
+                                                ; cap reads {:truncated? true} — re-ask deeper.  The
+                                                ; walk spends no JVM stack (explicit work stack), so
+                                                ; the cap bounds the tree returned, not the depth a
+                                                ; read can reach without overflowing
 (why-not kb handle)                             ; stored but OUT: :defeated (+ what contradicts it)
                                                 ; / :superseded (+ the restatement that displaced it)
                                                 ; / :unsupported (+ the missing antecedents) / :not-stored
@@ -247,6 +264,10 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; stored-but-disbelieved one is checked for an
                                                 ; exception first
 ;; introspection: sentex, justification, supporting-justifications, dependent-justifications, premise?, defeat-class
+;;   both justification listings are ordered by CONTENT — the informant's own sentence,
+;;   then the antecedent sentences — and so is the antecedent vector inside each
+;;   justification, which is what `why`'s :because and `why-not`'s :missing print.  So
+;;   the same knowledge reports identically whatever order it was loaded in (nmtms.md)
 
 ;; the log dial — process-wide, since one JVM has one `taoensso.trove/*log-fn*`, and
 ;; turnable on a process that is already running (docs/operations.md)
@@ -373,7 +394,7 @@ argIsa breach, plus `:trigger` and `:trigger-position` for the `interArgIsa` for
 names the argument whose type made the constraint fire; `:cycle` for a stratification
 one).  Three further types are about the *request* rather than the
 knowledge: `:shape` (the context is not a symbol, the sentence is not an
-s-expression), `:unknown-option` (a non-map `opts`, an `opts` key `assert` does not read, or a
+s-expression, or it is a **vector** — below), `:unknown-option` (a non-map `opts`, an `opts` key `assert` does not read, or a
 `:strength` that is not an assertable class — below) and `:not-checkable` (a top-level
 `do/` imperative, which `check` will not run to find out what it does).  The stages stop
 at the first that finds anything, since each later one reads the KB assuming the earlier
@@ -423,6 +444,26 @@ else.  See [feed.md](feed.md).
 
 ## Argument-shape contracts
 
+**A sentence is a list; a vector is a query's conjunction.**  Both doors are
+`sequential?`, and only one of them means "one sentence": a vector goal is what `query`
+and `prove` spell a **join** with (above), so the two doors read the same brackets two
+different ways.  So the write door refuses a top-level vector (`:shape`), which is the
+one shape it could otherwise take and answer differently for — `[likes Tom Ann]` stored
+the sentence `(likes Tom Ann)` and handed back to `prove` asked for a three-goal join of
+`likes`, `Tom` and `Ann`, which is no solutions and no error.  `assert`, `check`,
+`check-edit` and `assert-inert` share the guard; nested vectors are untouched, since the
+reading that collides is the top-level one.  Write the list.
+
+**The read doors refuse it too**, and for the mirror reason: a door that answers a
+*single goal* has the same two readings of one bracket, so `[likes Tom Ann]` handed to
+`ask` asked about a three-goal join written where one sentence was meant, and answered
+nothing rather than saying so.  `ask`, `ask?`, `ask-within`, `sentexes-matching`,
+`handle-of`, `prove`, `provable?`, `prove-within`, `query`, `query?`, `query-plan` and
+`abduce` refuse a top-level vector by name (`:shape`), carrying `:goal` — or `:conjunct`
+where the vector sits *inside* a conjunction, naming which element of the join it was.
+The doors that take a conjunction on purpose still take one; what is refused is a vector
+where a sentence goes.
+
 **`assert-opt-keys`** is the roster of every key `assert` / `assert-rule` reads, and a
 key off it is **refused** (`:unknown-option`) rather than ignored — as is a `:strength`
 outside `{:default :monotonic}`, and a non-map `opts` altogether.  The failures are
@@ -434,6 +475,12 @@ class the KB does not have; `(assert kb s ctx :monotonic)` names nothing at all.
 critic catches them before anything is written.  `why` holds its own `opts` to the same
 standard: it reads `:max-depth` alone, and a non-map `opts`, an unknown key, or a
 `:max-depth` that is not a natural number is refused (`:unknown-option`).
+
+**`edit-batch-keys`** is the same answer for the other batch door: every key an `edit`
+batch may carry, which is `#{:add :remove}` and is read by `edit`, `check-edit`,
+`preview` and `edit-with-consequences` alike — so the four cannot disagree about what a
+batch is.  Public for the reason `assert-opt-keys` is: a caller that can ask "is this a
+real key?" does not have to find out from a wrong answer.
 
 **Every door holds a roster, not just these two.**  An option map is a request, and a key
 a door does not read is a request it cannot honour — so it is refused rather than

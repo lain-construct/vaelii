@@ -23,10 +23,10 @@
   moves with JIT warmth by more than either read is worth.
 
   **`excepted-handles`** (`vaelii.impl.resolution`) answers which handles a believed
-  `(except (sentexHandle H))` hides from a view context.  It opens with an O(1) gate on
-  the `except` functor root, so a KB that hides nothing pays one count; with E excepts
-  it is E record fetches, E `jtms/in?` calls and a `tax/context-up` **per call**, and
-  the callers are per-placement (`chain/place-conclusion` → `antecedent-hidden?`) and
+  `(except (sentexHandle H))` hides from a view context.  It opens on the emptiness of
+  the `:excepted` roster, so a KB that hides nothing pays one deref; past that it is a
+  `tax/context-up` and a `jtms/in?` per except stated in a visible context, **per call**,
+  and the callers are per-placement (`chain/place-conclusion` → `antecedent-hidden?`) and
   per candidate justification (`chain/justification-excepted?`).  The excepted targets
   are **decoys** — facts no rule reads — so E moves the cost of the read without moving
   what the run derives, which is what makes the rows comparable.

@@ -23,13 +23,22 @@
 #
 # Then the run's own output becomes a ✔/✘ per test namespace, printed as each
 # one finishes rather than at the end — so a suite eight minutes in has said
-# eight minutes' worth about where it is.  The marks alone, in groups of ten
-# across rows as wide as the terminal, each row closing with the count: a
-# progress bar whose bricks each mean something, and three lines a backend
-# rather than 165.  Everything else the suite prints (reflection warnings, the
-# engine's own :warn logs, the failure reports) goes to the log, and a failing
-# run names its failing namespaces under its summary line — which is where a
-# name is worth reading, since by then it is the answer to a question.
+# eight minutes' worth about where it is.  On a TERMINAL that is the marks alone,
+# in groups of ten across rows as wide as it, each row closing with the count: a
+# progress bar whose bricks each mean something, and three lines a backend rather
+# than 165.  Redirected to a log or a pipe it is one line per namespace instead —
+# named, counted and timed — because an unterminated row of ticks in a file
+# answers none of the questions a tail of it is asking.  `SUITE_PROGRESS` forces
+# either.  Everything else the suite prints (reflection warnings, the engine's own
+# :warn logs, the failure reports) goes to the log, and a failing run names its
+# failing namespaces under its summary line — which is where a name is worth
+# reading, since by then it is the answer to a question.
+#
+# Every line that carries a verdict carries the REVISION it is a verdict about:
+# the header, each backend's summary row, and the log's own first line.  Read per
+# run, not once, and a change between runs is called out where it happens — eight
+# runs are ~35 minutes, and a commit landing in the middle of them moves the
+# counts under the runs still to come.
 #
 # The FIRST mark of a run lands ~20s after its command line, and none of that
 # gap is this script: `lein test` boots a JVM and then compiles and loads every
@@ -46,10 +55,16 @@
 # other difference is a run that skipped something the others ran, which is
 # worth reading even when both runs are green.
 #
-# Runs are SEQUENTIAL by design.  Two disk-backed suites over one directory
-# would collide on the single-writer lock, and `VAELII_TEST_SPACE` only admits
-# six non-overlapping two-db blocks — so parallelism buys six runs, not
-# eight, at the cost of every run's timing being unreadable.
+# Runs here are SEQUENTIAL, and that is a choice about readability rather than a
+# constraint: one run at a time is one run's wall time, and a box you can still
+# use.  What forbids sharing is a DIRECTORY, not a count — a durable store lives
+# at `<vaelii.disk.dir>/space-<n>`, and every run below already gets its own
+# `vaelii.disk.dir`, so the single-writer lock is never contended and the
+# six-block `VAELII_TEST_SPACE` limit is about a case this does not create.
+# **`scripts/test-matrix.sh` is the concurrent one** — these eight and the five
+# sweeps at once, ~13 minutes against the ~55 the two scripts take in sequence,
+# and what to run when a change owes the matrix.  Reach for this script for one
+# axis, one backend, or a wall time that means something.
 #
 # A leading-colon argument is a TEST SELECTOR, passed straight to `lein test`
 # (project.clj defines them).  `:default` — what a bare run takes — skips the
@@ -72,6 +87,8 @@
 #
 # Env:
 #   TEST_BACKENDS_OUT   log directory (default target/test-backends)
+#   SUITE_PROGRESS      marks | lines | auto (default: marks on a terminal, lines
+#                       into anything else)
 #
 # ^C stops the suite that is running and then the script — one interrupt gets
 # you out of the whole matrix, not out of one run of it.
@@ -81,17 +98,15 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-# `<records>-<index>`, in the order they run: the three RAM-record pairs first
-# (fast, no files), then the four durable-record ones — derived indexes before
-# the durable one, so the runs that write least go first.
-#
-# `overlay` is an eighth run and not an eighth pair: it is the DECORATOR — a
-# private writable fork over a shared read-only base (docs/overlay.md) — with
-# the base left empty, which is the claim that a fork of nothing behaves exactly
-# like the thing it forked.
-ALL=(memory memory-dense memory-columnar
-     disk-memory disk-dense disk-columnar disk
-     overlay)
+# The roster, and the environment that selects each: `scripts/lib/suite-configs.sh`,
+# shared with `test-sweeps.sh` and `test-matrix.sh` so a new backend is one edit.
+# `overlay` is an eighth run and not an eighth pair: it is the DECORATOR — a private
+# writable fork over a shared read-only base (docs/overlay.md) — with the base left
+# empty, which is the claim that a fork of nothing behaves exactly like the thing it
+# forked.
+# shellcheck source=scripts/lib/suite-configs.sh
+. scripts/lib/suite-configs.sh
+ALL=("${ALL_BACKENDS[@]}")
 
 TMS=""
 FAIL_FAST=0
@@ -173,6 +188,9 @@ current_log=""
 diskdir=""
 FAILED=()
 DONE_RUNS=()
+rev=""
+prev_rev=""
+REVS=()
 
 # Two codes for one fact: shellcheck 0.10 split "this function is never called"
 # out of SC2317 into SC2329, so naming only the new one leaves the script red on
@@ -207,6 +225,7 @@ trap on_interrupt INT TERM
 
 echo "${BOLD}running the suite on ${#BACKENDS[@]} backend(s)${OFF}" \
      "${DIM}$SELECTOR — $RUN_NS_COUNT of $NS_COUNT namespaces${OFF}${TMS:+  (tms=$TMS)}"
+echo "${DIM}at $(revision_line)${OFF}"
 echo "${DIM}logs in $OUT_DIR/${OFF}"
 echo
 
@@ -237,6 +256,20 @@ for backend in "${BACKENDS[@]}"; do
   esac
   [[ -n "$TMS" ]] && envv+=(VAELII_TEST_TMS="$TMS")
 
+  # The revision THIS run is about to be taken at, read per run rather than once:
+  # eight runs are ~35 minutes and another agent landing a test in the middle of
+  # them moves the counts under the runs still to come.  Said out loud when it
+  # happens, because the symptom — counts that differ between backends — is the
+  # symptom of a run that skipped something, and telling them apart afterwards
+  # costs an investigation.
+  rev=$(revision_hash)
+  if [[ -n "$prev_rev" && "$rev" != "$prev_rev" ]]; then
+    echo "  ${RED}⚠${OFF} ${DIM}the tree moved: $prev_rev → $rev —" \
+         "counts below are not comparable with the ones above${OFF}"
+  fi
+  prev_rev="$rev"
+  REVS+=("$rev")
+
   # the command verbatim, so a run can be reproduced by copying the line, and
   # the log it is going to — printed BEFORE the run, so a suite still going is
   # already tailable
@@ -247,7 +280,7 @@ for backend in "${BACKENDS[@]}"; do
   # Every one of them, whatever the selector — narrowing what runs does not narrow
   # what is compiled.  Said out loud, because a silence nobody accounted for reads
   # as a hang.
-  echo "  ${DIM}loading a JVM and all $NS_COUNT test namespaces; the first mark waits on that${OFF}"
+  echo "  ${DIM}loading a JVM and all $NS_COUNT test namespaces; the first namespace waits on that${OFF}"
   start=$SECONDS
   # backgrounded and waited on, so ^C reaches the handler above rather than
   # being swallowed by a foreground child.  `tee` keeps the whole run in the
@@ -263,9 +296,11 @@ for backend in "${BACKENDS[@]}"; do
   # stdin, so give it none.
   # the stamp first, then append: a log has to say what it was run *against*, or a
   # count that moved because the tree moved is indistinguishable from one that moved
-  # because a run skipped something
-  revision_stamp > "$log"
-  env "${envv[@]}" lein test "$SELECTOR" < /dev/null 2>&1 | tee -a "$log" | ns_marks &
+  # because a run skipped something.  Labelled with the backend, so a per-config log
+  # names its config on line 1 as well as the revision
+  revision_stamp "backend $backend" > "$log"
+  RUN_START=$start                                 # the clock a `lines` run times against
+  env "${envv[@]}" lein test "$SELECTOR" < /dev/null 2>&1 | tee -a "$log" | ns_progress &
   child_pid=$!
   child_pgid=$(ps -o pgid= -p "$child_pid" 2>/dev/null | tr -d ' ')
   child_pgid="${child_pgid:-$child_pid}"
@@ -281,9 +316,11 @@ for backend in "${BACKENDS[@]}"; do
   summary=$(run_summary "$log")
   counts=$(run_counts "$log")
 
+  # the revision on the row itself: this is the line that gets quoted into a
+  # report, and a count quoted without one is a count nobody can reproduce
   if [[ $code -eq 0 ]]; then mark="$TICK"; else mark="$CROSS"; FAILED+=("$backend"); fi
-  printf '  %s %-16s %-52s %s\n' \
-    "$mark" "$backend" "${summary:-did not finish}${counts:+, $counts}" "$(hms $elapsed)"
+  printf '  %s %-16s %-52s %8s  %s\n' \
+    "$mark" "$backend" "${summary:-did not finish}${counts:+, $counts}" "$(hms $elapsed)" "$rev"
 
   # what failed, again, under the run's own summary — the marks above have
   # scrolled by the time an eight-run matrix ends
@@ -301,11 +338,28 @@ for backend in "${BACKENDS[@]}"; do
 done
 
 echo
+# One revision for the whole matrix is the case worth stating plainly; more than
+# one is the case worth stating loudly, since the runs then answer for different
+# trees and the failing-set-identical claim is about a tree.
+# guarded on the length: this is bash 3.2, where `"${a[@]}"` on an empty array is an
+# unbound-variable error under `set -u` rather than an empty list
+if [[ ${#REVS[@]} -eq 0 ]]; then
+  matrix_rev="at $(revision_hash)"
+else
+  uniq_revs=$(printf '%s\n' "${REVS[@]}" | sort -u | tr '\n' ' ')
+  if [[ $(printf '%s\n' "${REVS[@]}" | sort -u | wc -l) -gt 1 ]]; then
+    matrix_rev="across ${uniq_revs% }"
+  else
+    matrix_rev="at ${uniq_revs% }"
+  fi
+fi
+
 if [[ ${#FAILED[@]} -eq 0 ]]; then
-  echo "${GREEN}${BOLD}all ${#BACKENDS[@]} backends green${OFF}  ${DIM}($OUT_DIR/)${OFF}"
+  echo "${GREEN}${BOLD}all ${#BACKENDS[@]} backends green${OFF} ${matrix_rev}" \
+       "${DIM}($OUT_DIR/)${OFF}"
   exit 0
 fi
-echo "${RED}${BOLD}${#FAILED[@]} of ${#BACKENDS[@]} failed:${OFF} ${FAILED[*]}"
+echo "${RED}${BOLD}${#FAILED[@]} of ${#BACKENDS[@]} failed:${OFF} ${FAILED[*]} ${DIM}(${matrix_rev})${OFF}"
 # Same naming rule the run used, not a hardcoded `<backend>.log` — under any
 # selector but `:default` the log is `<backend>.<selector>.log`, and printing the
 # wrong path on a red run points whoever has to debug it at a file that isn't there.

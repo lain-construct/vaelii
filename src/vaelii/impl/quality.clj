@@ -1,9 +1,10 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.quality
-  "Four readings about the **knowledge**, where the rest of the instrumentation reads the
+  "Five readings about the **knowledge**, where the rest of the instrumentation reads the
   engine: which rules never fire, how skewed the predicate extents are, how deep the rule
-  graph's chains reach, and how much of the taxonomy is connected to anything.
+  graph's chains reach, how much of the taxonomy is connected to anything, and which
+  argument declarations name a position their predicate does not have.
 
   `settle-stats` and `chain-stats` answer *how the engine ran*.  These answer *whether the
   knowledge is any good*, which is the question the author of a large KB has and the one
@@ -14,8 +15,12 @@
   `rule -> firings` index would be a second copy of the JTMS adjacency to keep in step,
   which is the failure class the taxonomy's single `:support` map exists to avoid.  So the
   cost is
-  `O(terms + rules + firings + genl edges)` and never `O(sentexes)` — the **vocabulary**,
-  which on a KB of a million facts about a hundred individuals is a hundred-odd names:
+  `O(terms + rules + firings + ancestor pairs + declarations × super-predicates)` and never
+  `O(sentexes)` — the **vocabulary**, which on a KB of a million facts about a hundred
+  individuals is a hundred-odd names.  **Ancestor pairs and not edges**, which is the term
+  worth spelling out: `taxonomy-coverage` reads each type's whole `genl` up-closure to find
+  the root, so a chain of V types costs Θ(V²) where it has V−1 edges.  Vocabulary-sized on
+  any ontology anybody writes, which is the claim that matters, and not an edge count:
 
   - **One walk over the term roster**, and one is the number: the functor names come off it
     by filter, and the type-shaped names come off *those* rather than off the roster a
@@ -23,8 +28,8 @@
     formula above leads with.
   - **Three O(1) index reads per functor name** — the stored extent off the count-aware
     trie, and the rule postings *both* ways.  That is everything the extent and chain
-    readings need, and it is where the rule handles come from, so the record store is read
-    only for the handful of rules the report actually lists.
+    readings need, and it is where the rule handles come from, so nothing on this pass
+    reaches the record store beyond the handful of rules the report actually lists.
   - **The firing census reads each rule's own `:consequences` adjacency**, the candidate
     set `jtms/restrength-informant*` uses, and never scans the justification map.  At
     11.5M justifications that difference is the report existing or not.
@@ -32,15 +37,24 @@
     is cyclic in the ordinary case — `(genl ?a ?b) & (genl ?b ?c) => (genl ?a ?c)` alone
     makes it so — so memoizing a *path* re-explores the reachable subgraph along every one
     of them.  Memoize the component.
+  - **The declaration census enumerates the declarations** and asks each what binds its own
+    predicate's length, rather than asking every predicate what declares it.  That is a map
+    read where the predicate carries a length of its own and one arity read per
+    super-predicate where it inherits one, which is the `× super-predicates` above and the
+    one term of the formula that is not flat.  It is also the second reader of the record
+    store, for the declarations themselves — vocabulary, and therefore few.
 
   Every count is of what is **stored**.  A believed extent is O(n) per predicate
   (`vaelii.core/count-with-functor` says why), which would turn an O(predicates) report
   into an O(sentexes) one — and stored-vs-believed is exactly the distinction an author
-  wants to see rather than have chosen for them.  The firing census is the one reading that
-  consults belief, because \"fired and every conclusion defeated\" is a category and not a
-  rounding error."
+  wants to see rather than have chosen for them.  Two readings consult belief anyway: the
+  firing census, because \"fired and every conclusion defeated\" is a category and not a
+  rounding error, and the declaration census, because a disbelieved declaration constrains
+  nothing for a reason that has nothing to do with the position it names."
   (:require [clojure.string :as str]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
@@ -359,11 +373,101 @@
        :rooted  (or rooted 0)
        :islands (max 0 (- (count nodes) (or rooted 0)))})))
 
+;; ---- declarations that constrain nothing ---------------------------------
+;;
+;; `(argIsa parentOf 3 person)` is admitted while `parentOf` has no declared length —
+;; open-world, and the highest position a declaration names is a lower bound on the arity
+;; rather than a claim about it.  Then a length arrives, by any of the three routes
+;; `checks/declared-arity` reads, and the declaration is left constraining a position the
+;; predicate provably does not have.  It is not refused: refusing it would make the
+;; *binding's* arrival order decide what the KB holds.  It simply stops meaning anything,
+;; while the door refuses the identical sentence one line later.
+;;
+;; A `variableArity` predicate is the case where the length is not the last word, and the
+;; door's arm releases it: such a predicate reads a tuple of any length from its declared
+;; arity upward, so a position past that length is one its tuples really do reach.  Nothing
+;; of its is listed here, however high the position, because nothing of its is stranded.
+;;
+;; **Here rather than in the settle ledger**, and the asymmetry with `arity` is the whole
+;; argument.  A wrong-length *fact* is content an `assert` admitted because it could not
+;; have known, so `settle/report-arity-reach!` says *newly* — only the settle knows that.
+;; A stranded declaration is inert: it constrains nothing, refuses nothing and mints
+;; nothing, and it reads the same an hour later as at the moment it went stale.  There is
+;; no newly to report, so paying per write buys nothing a census does not give for free —
+;; and a per-declaration ledger entry would compete for the 1,000 slots `violations` keeps
+;; and log a `:warn` line each.  Measured: this walk is 0.008 ms at 32 declarations and
+;; 0.103 ms at 512, against 3.3 ms for the per-predicate probes a settle-side sweep over a
+;; 512-predicate subtree would have made.
+
+(def ^:private declaration-functors
+  "The argument constraints, in the order this walks them.  A vector rather than the
+  roster in `checks`, because this is a walk order and that is a membership test."
+  '[argIsa argGenl interArgIsa])
+
+(defn- stranded-declarations
+  "Which argument constraints name a position their predicate does not have.
+
+  **Enumerated, not probed per predicate.**  Declarations are vocabulary and vocabulary is
+  small — the whole bundled ontology has 298 — so reading all of them and asking each
+  about its own predicate is cheaper than asking each predicate what declares it, and it
+  does not grow with the spec subtree underneath.  What it does grow with is the hierarchy
+  *above*: `checks/declared-arity` is a map read for a predicate carrying a length of its
+  own and a walk of the supers for one that inherits its length, so the reading is
+  `O(declarations × super-predicates)` — the term the namespace's bound carries for it.
+
+  Belief-filtered, unlike the extent counts beside it: a stored, disbelieved declaration
+  constrains nothing for a reason that has nothing to do with its position, and listing it
+  here would name the wrong defect.
+
+  `:message` is the one `checks` wrote when it convicted, **carried rather than
+  re-derived**: a caller reading this map and a caller reading `check`'s answer are told
+  the same thing in the same words, and there is no second wording to drift from it.
+
+  One membership reader per context met, for the reason `settle`'s sweep holds one — a
+  reader memoizes for the life of one caller, so building one per declaration pays the
+  retrieval every time and throws the memo away unread."
+  [kb limit progress!]
+  (let [reader (let [cache (volatile! {})]
+                 (fn [ctx]
+                   (or (get @cache ctx)
+                       (let [r (kb/membership-reader kb ctx)]
+                         (vswap! cache assoc ctx r)
+                         r))))
+        stored (into []
+                     (comp (mapcat #(p/sentexes-with-functor (:index kb) %))
+                           (distinct)
+                           (keep #(p/get-sentex (:records kb) %))
+                           (filter #(= :true (:truth %)))
+                           (filter #(jtms/in? (:tms kb) (:id %))))
+                     declaration-functors)]
+    (progress! {:phase :declarations :done 0 :total (count stored)})
+    (let [found   (into []
+                        (keep (fn [sx]
+                                (let [ctx (:context sx)]
+                                  (when-let [v (checks/arg-position-violation
+                                                kb (:sentence sx) ctx (reader ctx))]
+                                    {:handle    (:id sx)
+                                     :sentence  (:sentence sx)
+                                     :context   ctx
+                                     :predicate (:predicate v)
+                                     :position  (:position v)
+                                     :arity     (:arity v)
+                                     :via       (:via v)
+                                     :message   (:message v)}))))
+                        stored)
+          ;; content order, so the listed set is a function of the vocabulary rather than
+          ;; of the handle order the index walked
+          ordered (sort-by (juxt (comp str :sentence) (comp str :context)) found)]
+      {:total          (count stored)
+       :stranded       (vec (take limit ordered))
+       :stranded-count (count found)
+       :truncated?     (> (count found) limit)})))
+
 ;; ---- the report ----------------------------------------------------------
 
 (defn census
-  "The four readings as one map — `{:rules … :extents … :chains … :taxonomy …}`.
-  `vaelii.core/kb-quality` is the door and documents the options."
+  "The five readings as one map — `{:rules … :extents … :chains … :taxonomy …
+  :declarations …}`.  `vaelii.core/kb-quality` is the door and documents the options."
   [kb {:keys [limit on-progress]}]
   ;; sequenced in a `let` rather than left to a map literal's argument order: the phases a
   ;; caller watching `:on-progress` sees are part of what this answers, and an evaluation
@@ -375,8 +479,10 @@
         rules     (firing-census kb pass handles limit progress!)
         extents   (extent-skew pass limit)
         chains    (chain-depth pass progress!)
-        taxonomy  (taxonomy-coverage kb pass progress!)]
-    {:rules rules :extents extents :chains chains :taxonomy taxonomy}))
+        taxonomy  (taxonomy-coverage kb pass progress!)
+        decls     (stranded-declarations kb limit progress!)]
+    {:rules rules :extents extents :chains chains :taxonomy taxonomy
+     :declarations decls}))
 
 ;; ---- the same map, as prose ----------------------------------------------
 ;; A separate function over the report rather than a second traversal of the KB, so
@@ -394,11 +500,18 @@
          "\n")))
 
 (defn report
-  "The `census` map as Markdown — the four readings in the order an author reads them,
+  "The `census` map as Markdown — the five readings in the order an author reads them,
   the counts first and the lists after.  A map that is not a `census` answer is refused
   (`:not-a-report`) rather than rendered as a page of zeros, which is what a caller passing
-  the wrong map would otherwise be handed and believe."
-  [{:keys [rules extents chains taxonomy] :as quality}]
+  the wrong map would otherwise be handed and believe.
+
+  `:declarations` is **not** in the shape test, and that is deliberate: a census answer
+  from before this reading existed is still a census answer, and refusing to render one
+  would turn a stored report into an unreadable one.  The section is written when the key
+  is there and omitted when it is not, and a listed entry's reason line is the `:message`
+  the census carries rather than a second derivation of it — which would be the same
+  sentence written twice, free to drift on either side."
+  [{:keys [rules extents chains taxonomy declarations] :as quality}]
   (when-not (and (map? quality) (:total rules) (:predicates extents)
                  (:rules chains) (:names taxonomy))
     (throw (ex-info (str "not a kb-quality report — want the map `kb-quality` answers, with"
@@ -449,4 +562,28 @@
           "fractions above is the finding rather than either one of them.\n")
      ;; no edge anywhere means no root to report against, which is a different statement
      ;; from a root nothing reaches — and an empty code span is neither
-     ".\n\nNo `genl` edge anywhere, so there is no root to measure reach against.\n")))
+     ".\n\nNo `genl` edge anywhere, so there is no root to measure reach against.\n")
+   (when declarations
+     (str "\n## Argument constraints that constrain nothing\n\n"
+          (commas (:total declarations)) " argument declaration"
+          (when (not= 1 (:total declarations)) "s") " — **"
+          (commas (:stranded-count declarations))
+          (if (= 1 (:stranded-count declarations))
+            " names a position its predicate does not have"
+            " name a position their predicate does not have")
+          "** (" (pct (:stranded-count declarations) (:total declarations)) ").\n\n"
+          "Such a declaration is admitted while the predicate has no declared length and\n"
+          "goes inert when one arrives, so it reads as enforced while enforcing nothing.\n"
+          "It is a finding rather than an error: nothing is wrong with the KB's belief,\n"
+          "and the fix is to correct the position, to declare the arity the author meant,\n"
+          "or to mark the predicate `variableArity` where its tuples really do reach that\n"
+          "far.\n"
+          (when (seq (:stranded declarations))
+            (str "\n"
+                 (str/join "\n"
+                           (for [{:keys [sentence context message]} (:stranded declarations)]
+                             (str "- `" (pr-str sentence) "` in `" context "`"
+                                  (when message (str " — " message)))))
+                 "\n"))
+          (when (:truncated? declarations)
+            "\nThe list is capped; the count above is not.\n")))))

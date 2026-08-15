@@ -84,11 +84,13 @@ otherwise picks for itself, and each must be failing-set-identical with the defa
 replaces, since every one is a cost decision rather than a semantic one.
 
 It blocks nothing and nobody waits on it, which is why a change touching storage, the
-index, records or recovery still owes `./scripts/test-backends.sh` a local run — a bug
-that shows up only under `disk-columnar` should reach you in the pull request, not the
-next morning. A change touching inference, matching or retrieval owes the sweep for the
-same reason: `VAELII_HIER=0 lein test` is one command, and the retrieval paths
-disagreeing is exactly the kind of thing only that run can see.
+index, records or recovery still owes those runs locally — a bug that shows up only under
+`disk-columnar` should reach you in the pull request, not the next morning. A change
+touching inference, matching or retrieval owes the sweep for the same reason: the
+retrieval paths disagreeing is exactly the kind of thing only that run can see.
+`./scripts/test-matrix.sh` (`lein test-matrix`) is how to pay both at once — the eight
+backends and the five sweeps concurrently, one JVM each, ~13 minutes rather than the ~55
+the two single-axis scripts take in sequence.
 
 ## 2. Project layout, and the one rule that matters
 
@@ -283,6 +285,22 @@ deployment script that set it keeps setting it and stops being obeyed — so it 
 `test/golden/config-surface.edn` and its row in `docs/operations.md` in the same commit.
 Adding one is Additive and owes the same golden and the same row.
 
+**The published API and the extension seams are pinned the same way.** Every public var
+of the six public namespaces is frozen with its arglists in
+`test/golden/api-surface.edn`, and the protocols a doc invites an out-of-tree
+implementation of — the storage contracts, `KvBackend`, `Solver`, `Prover`, `Provider` —
+in `test/golden/spi-protocols.edn`. Removing a var, or changing an arglist, is class 1
+and takes the label with a migration line. Adding one is Additive. **Both move the
+golden**, which is the point: a golden that only moved on a break would be regenerated
+by whoever hit the break, and the additions — the way a surface actually grows — would
+never be read by anyone. `lein regen-goldens` rewrites all three, and the diff belongs
+in the same commit as the change that caused it, where a reviewer sees the two together.
+
+Adding a **method to an existing seam** is class 1 rather than Additive, and it is the
+case people misfile: an implementer that satisfied the protocol yesterday satisfies it
+in part today, and finds out at the call site. Prefer a new protocol advertised beside
+the old one.
+
 **The shipped ontology's content is not part of that surface, and the line runs between
 the code and the data.** `resources/kb/` is data the engine ships, and a caller takes the
 ontology their engine version carries — there is no separate thing to pin, no way to hold
@@ -321,7 +339,7 @@ argument that no working caller exists — "the stored sentence can never match 
 query" is one; "probably nobody does that" is not. When in doubt, treat the
 change as class 1.
 
-Two process rules follow:
+Three process rules follow:
 
 - **Every Breaking and every Refusal entry carries a one-line *Migration:***
   stating what a caller of the previous release does about it — even when the
@@ -332,6 +350,30 @@ Two process rules follow:
   a reason it needs none (a fix to code the last release never shipped, say). An
   entry written at commit time is cheap; one reconstructed at release time is
   guesswork.
+- **Every Breaking and every Refusal entry also carries a `*Breaks:*` line, and
+  the release greps the siblings for it.** The line holds one backticked token
+  per name a caller would have written — a retired option key or symbol, an
+  ex-info `:type`, a fragment of a message somebody matches on, or the API name
+  whose behaviour moves. Prefer a token distinctive enough to be worth a grep:
+  `sentexes-matching` points at call sites, where a token that is also an
+  ordinary English word points at every README beside the code. More tokens than
+  fit on a line take a second `*Breaks:*` line.
+
+  `bash scripts/check-breaking-siblings.sh` (`lein check-siblings`) reads those
+  tokens off the unreleased section and greps every sibling checkout on the
+  machine for each, printing the hits with file and line. It is a **release
+  step**, not a gate: it reads other repositories, and which of them are cloned
+  is not a fact about this tree, so a missing sibling is named and costs nothing
+  and the run exits 0 whatever it finds. Every hit gets a verdict in the release
+  notes — fixed in the sibling, filed against the sibling, or a non-issue with
+  the sentence saying why. **Absence of hits is not proof**: the check greps
+  names, and a sibling can depend on a behaviour without spelling one.
+
+  The asymmetry is the argument. An entry that names a sibling it does not break
+  costs a maintainer one grep; an entry that names nobody ships a green release
+  and a red sibling, found by whoever pulls next — which is how the 0.5.0
+  `open-kb` option rename reached `vaelii-foreign`'s test scaffolding and a
+  downstream harness's benchmark cells.
 
 ## 4. Adding things
 
@@ -379,6 +421,7 @@ lein test :all                   # ...plus the ^:slow half
 lein test :slow                  # only the marked ones
 lein test-backends               # the whole suite once per backend (all eight)
 lein test-sweeps                 # ...and once per alternative implementation (all five)
+lein test-matrix                 # both at once, concurrently — ~13 min, not ~55
 ```
 
 **Tests are integration tests against the storage backend**, not unit tests over
@@ -443,6 +486,11 @@ mocks — the in-memory stores by default, with no external dependency.
   levels the dial does — `:error :warn :info :debug :trace` — so `=debug` adds the run
   boundaries (what a chaining run concluded, what a settle cost, the rule behind a
   dropped conclusion) and anything else fails the run by name rather than silencing it.
+  **The bench harnesses take the same floor for the same reason**, since a row's
+  *reading* is its verdict the way an assertion is the suite's: the clash rows drop
+  conclusions by construction and every `fresh-kb` opens over the space the row before it
+  filled, so `lein perf` printed 1,307 log lines around 39 verdicts. `:bench` raises the
+  floor, and `VAELII_BENCH_LOG_LEVEL=info lein perf` puts it back.
 - **Never gate on a piped test run.** `lein test 2>&1 | tail -30` reports `tail`'s exit
   status, always 0, so a red suite reads as green *and* the failure list is truncated
   out of the log. Redirect to a file, read the status, then grep it.
@@ -508,9 +556,27 @@ remote shell. See [`.github/SECURITY.md`](.github/SECURITY.md).
   preserves credit for several contributors. Never add one for a tool, bot, or other
   non-human author: it cannot sign the DCO (§9.4) or the CLA (§9.5), its output has no
   copyright holder the trailer could name, and it skews the contributor statistics.
+- **The `committer` field is covered too.** A commit names three parties — who wrote it,
+  who applied it, and whoever its trailers credit — and the rule above reaches all of
+  them. `committer` differing from `author` is ordinary and welcome: a maintainer
+  rebasing your branch, a patch applied by hand, the merge button. What it may not name
+  is a tool, bot or agent, for the same reason the other two may not.
+- **The `authorship` check is where that is decided**, beside `DCO` and `license/cla`.
+  Every author, committer and trailer on a pull request has to appear in
+  [`.github/AUTHORS.roster`](.github/AUTHORS.roster), which a maintainer writes on
+  `develop`. An account nobody has admitted fails closed, so the first pull request from
+  a new contributor waits on being added — a one-line commit, and it carries to every
+  later one. That line wants your GitHub login, which is what a commit you push is
+  matched on, plus any address you sign a trailer with, which is what a trailer is
+  matched on when it names no account. This is a judgement about who stands behind an
+  account, never about the tools someone writes with: use whatever you like, and sign
+  off as the author of the result. If the check blocks work that is otherwise good, it
+  is a rebase and not a rejection — re-author under the person who signs off, drop the
+  trailers naming anyone else, force-push.
 - **One change per commit** where feasible. Bundle related cleanups.
-- **Run `lein gate` before pushing** (§1.1), plus `./scripts/test-backends.sh` if you
-  touched storage and `lein test :all` if you touched inference, indexing or the TMS.
+- **Run `lein gate` before pushing** (§1.1), plus `lein test-matrix` if you touched
+  storage, the index, records, recovery, overlay, inference, the TMS or retrieval, and
+  `lein test :all` if you touched inference, indexing or the TMS.
 - **Don't `--no-verify`**: fix the hook failure rather than bypassing it.
 - **Don't amend pushed commits**: make a new one.
 - **Merges may be rewritten.** Vaelii may squash, reword or amend your commits when

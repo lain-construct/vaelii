@@ -12,7 +12,8 @@
 ```clojure
 (preview kb {:add [[sentence context opts?] …] :remove [handle …]} opts?)
 ;; => {:believed-added   [{:sentence S :context C :handle h|nil :premise? bool
-;;                         :justification {:informant i :rule S :antecedents [S …]}} …]
+;;                         :justification {:informant i :strength k :rule S
+;;                                         :antecedents [S …]}} …]
 ;;     :believed-removed [{:sentence S :context C :handle h :reason kw :detail {…}} …]
 ;;     :refused          [ …check-edit shape… ]
 ;;     :violations       [ …violations shape… ]
@@ -97,12 +98,45 @@ something else. Content that was already stored keeps its handle either way, so 
 defeated default and a blocked conclusion are both still addressable, which is what a
 UI wants to link to.
 
-`:justification` is one level, not `why`'s tree: the informant, the rule it names when
-that informant is a stored rule, and the antecedent sentences. A preview reports a whole
-batch's consequences, and a proof tree apiece would be a proof search apiece. A datum
-several derivations support names the **content-least** justification — the informant's
-sentence, then the antecedents — never whichever derivation happened to land first,
-so the same batch against the same knowledge names the same reason on any load order.
+`:justification` is one level, not `why`'s tree: the informant, the strength it confers,
+the rule it names when that informant is a stored rule, and the antecedent sentences. A
+preview reports a whole batch's consequences, and a proof tree apiece would be a proof
+search apiece. A datum several derivations support names the **content-least**
+justification — the informant's sentence, then the antecedents — never whichever
+derivation happened to land first, so the same batch against the same knowledge names the
+same reason on any load order.
+
+`:rule` is present only where the informant is a **handle**. Half the engine's informants
+are symbols — `rewriteOf`, `functional`, `decontextualizedPredicate`, `argIsa` — and
+those name no stored rule, so the key is absent rather than nil.
+
+**`:antecedents` is every sentex the firing rests on, and that is more than the facts.**
+A placement names one witness per reachability it used: the `genl` edges the match
+subsumed through, and the `genlCx` edges the placement saw each ingredient context over
+([contexts.md](contexts.md), [nmtms.md](nmtms.md)). Those edges are antecedents of the
+stored justification, so they are antecedents here — a rule in `CxLow` firing on a fact
+in `CxMid` reports the edges that let it see across:
+
+```clojure
+(preview kb {:add [['(puppy Muffet) 'CxMid]]})
+;; :believed-added
+;;   {:sentence (mortal Muffet) :context CxLow :handle nil :premise? false
+;;    :justification {:informant 4 :strength :monotonic
+;;                    :rule (implies (dog ?x) (mortal ?x))
+;;                    :antecedents [(genl puppy dog)
+;;                                  (genlCx CxLow CxMid)
+;;                                  (genlCx CxMid CxUniverse)
+;;                                  (puppy Muffet)]}}
+```
+
+That is what makes the list actionable. Belief reads the vector as a conjunction, so the
+justification holds only while all four do: previewing a `:remove` of the
+`(genlCx CxMid CxUniverse)` edge reports `(mortal Muffet)` gone, `:unsupported`, with
+that handle in the `:missing` list. An editor reading `:antecedents` is reading what it
+would have to take back. The rule handle is the one antecedent lifted out — it is in the
+stored vector too, and reporting it as `:rule` rather than as a fact is the only
+rearranging done. The order is the stored one, which is content (`kb/antecedent-order`),
+so it does not move with the load order.
 
 `:refused` is `check-edit`'s verdict plus anything that threw on the way in. `check` is
 a fair account of `assert`'s refusals, not a proof of one: a batch whose second line is
@@ -123,6 +157,16 @@ the negation of a believed default withdraws nothing: a defeasible tie is *repre
 not arbitrated ([nmtms.md](nmtms.md)), so both sides stay believed and both halves of the
 diff are silent about a clash the batch just created. Standing dilemmas are subtracted, so
 what is listed is what the batch is answerable for.
+
+## The one KB it refuses
+
+`preview` refuses an **unrecovered** KB exactly where `edit!` does (`:unrecovered-kb`,
+[storage.md](storage.md)), and that is the point of it rather than an inherited
+restriction. It implements a `:remove` as a premise suspension gated on `jtms/premise?`,
+which is false for every stored handle when the network was never built — so it reported
+that nothing would change while `edit!` on the same batch deleted the record. A dry run
+silent about exactly the operation that cannot be taken back is worse than no dry run, so
+the two doors refuse together.
 
 ## What moves anyway
 
@@ -211,10 +255,15 @@ about a batch that landed:
 ;;     :believed-added   [{:sentence (dog Muffet)    :premise? true  :handle 4 …}
 ;;                        {:sentence (mortal Muffet) :premise? false :handle 5
 ;;                         :justification {:rule (implies (dog ?x) (mortal ?x))
-;;                                         :antecedents [(dog Muffet)] :informant 3}}]
+;;                                         :antecedents [(dog Muffet)] :informant 3
+;;                                         :strength :monotonic}}]
 ;;     :believed-removed []
 ;;     :bounded?         false}
 ```
+
+The rule, the fact and the conclusion are all in one context there, so the placement
+reaches its ingredients reflexively and there is no edge to name — which is why that
+`:antecedents` is the fact alone where the previous section's is four sentexes.
 
 It exists because `edit!` reports the handles it stored, which is what the caller already
 said, and nothing about what followed. `:premise?` separates the two: a derived conclusion

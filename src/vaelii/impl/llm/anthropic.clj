@@ -34,6 +34,7 @@
   — see `credentials`."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
+            [vaelii.impl.llm.http :as http]
             [vaelii.impl.llm.protocol :as proto])
   (:import [java.io BufferedReader InputStream InputStreamReader]
            [java.lang ProcessBuilder$Redirect]
@@ -56,19 +57,11 @@
 
 ;; ---- deadlines ----------------------------------------------------------
 
-(defn- watchdog
-  "A daemon thread that runs `on-expiry` once `ms` have passed; interrupt it to cancel.
-  Daemon because a probe or a stalled read must never be the reason a JVM cannot exit."
-  ^Thread [ms on-expiry]
-  (doto (Thread. ^Runnable (fn []
-                             (try
-                               (Thread/sleep (long ms))
-                               (on-expiry)
-                               (catch InterruptedException _ nil)
-                               (catch Exception _ nil)))
-                 "vaelii-anthropic-deadline")
-    (.setDaemon true)
-    (.start)))
+(def ^:private endpoint
+  "How this provider's far end is named — in a message a reader sees, and in the
+  deadline thread's title.  `vaelii.impl.llm.http` takes it; it is the whole of what
+  distinguishes this namespace's transport from the Ollama one's."
+  {:label "the Anthropic API" :slug "anthropic"})
 
 ;; ---- credentials --------------------------------------------------------
 
@@ -99,7 +92,8 @@
           ^ProcessBuilder pb (ProcessBuilder. argv)
           _ (.redirectError pb ProcessBuilder$Redirect/DISCARD)
           ^Process proc (.start pb)
-          ^Thread killer (watchdog cli-timeout-ms #(.destroyForcibly ^Process proc))
+          ^Thread killer (http/watchdog endpoint cli-timeout-ms
+                                        #(.destroyForcibly ^Process proc))
           out (slurp (.getInputStream proc))
           exit (.waitFor proc)]
       (.interrupt killer)
@@ -238,25 +232,11 @@
     (.POST rb (HttpRequest$BodyPublishers/ofString ^String (json/generate-string payload)))
     rb))
 
-(defn- excerpt
-  "The opening of a body, for an exception's data.  A response can be megabytes and what
-  says *why* it would not parse is its first line, so the bound costs no diagnosis."
-  [^String s]
-  (when s (subs s 0 (min (.length s) 200))))
-
 (defn- decode
-  "A JSON body -> data.  Every refusal in this namespace carries a `:type`, and a 200
-  whose body is not JSON is one: a caller discriminates on the keyword, and the JSON
-  library's own exception is not something to discriminate on.  The text stays out of the
-  message and rides bounded in `:excerpt`."
-  [^String text status]
-  (try
-    (json/parse-string text)
-    (catch Exception e
-      (throw (ex-info (str "the Anthropic API answered " status
-                           " with a body that is not JSON")
-                      {:type :llm-bad-response :status status :excerpt (excerpt text)}
-                      e)))))
+  "This API's JSON-body refusal — `http/decode` with the endpoint supplied, so the read
+  sites below stay a one-argument call."
+  [text status]
+  (http/decode endpoint text status))
 
 (defn- api-error [status ^String body-text]
   (let [parsed (try (json/parse-string body-text) (catch Exception _ nil))]
@@ -354,30 +334,6 @@
      :usage        (:usage acc)
      :content      (mapv finish-block (vals (:blocks acc)))}))
 
-(defn- under-read-deadline
-  "Run `f` under a hard deadline on **reading** a response body: a daemon watchdog runs
-  `on-expiry` — closing the body, which is what makes a blocked read fail — once `ms` have
-  passed, and a failure raised after it fires is reported as `:llm-timeout` rather than as
-  whatever a closed socket happened to raise.
-
-  The request's own `.timeout` bounds the response *arriving*, and a streamed turn is
-  almost entirely what comes after that: the lines are pulled off the socket once `send`
-  has returned.  This is what stops a host that goes quiet mid-answer from holding the
-  calling thread for as long as it keeps the connection half-open.  `f` consumes its lines
-  eagerly, so returning from it means the body is read."
-  [ms on-expiry f]
-  (let [expired (atom false)
-        ^Thread wd (watchdog ms (fn [] (reset! expired true) (on-expiry)))]
-    (try
-      (f)
-      (catch Exception e
-        (if @expired
-          (throw (ex-info (str "the Anthropic API stopped answering while its response "
-                               "was being read")
-                          {:type :llm-timeout :timeout-ms ms}))
-          (throw e)))
-      (finally (.interrupt wd)))))
-
 (defn- do-stream [conn request on-event]
   (let [^HttpClient http (:http conn)
         payload (body request {:stream? true})
@@ -388,7 +344,8 @@
                                   (HttpResponse$BodyHandlers/ofInputStream))
         status (.statusCode resp)
         ^InputStream in (.body resp)]
-    (under-read-deadline
+    (http/under-read-deadline
+     endpoint
      (max 1 (- deadline (System/currentTimeMillis)))
      #(.close ^InputStream in)
      (fn []

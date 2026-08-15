@@ -37,6 +37,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | drive a KB from a shell or over a network | [operations.md](operations.md) | [api.md](api.md) |
 | judge whether a KB's knowledge is any good | [quality.md](quality.md) | [taxonomy.md](taxonomy.md), [inference.md](inference.md) |
 | read another system's KB in | [foreign.md](foreign.md) | [kbs.md](kbs.md) |
+| write for this engine when I already think in another one | [arriving.md](arriving.md) | [from-cyc.md](from-cyc.md), [from-asp.md](from-asp.md), [from-prolog.md](from-prolog.md), [from-production-rules.md](from-production-rules.md) |
 | turn English into sentexes | [reading.md](reading.md) | [llm.md](llm.md) |
 | find the code behind a subsystem | [namespaces.md](namespaces.md) | [dependencies.md](dependencies.md) |
 | understand what a query costs | [indexing.md](indexing.md) | [density.md](density.md), [anytime.md](anytime.md) |
@@ -54,6 +55,17 @@ page costs a sentence rather than a section.
 - [troubleshooting.md](troubleshooting.md) — indexed by symptom rather than subsystem: an empty query, a rule that will not fire, a refused `assert`, a KB holding facts nobody asserted.
 - [glossary.md](glossary.md) — every term used across these docs and the code, tagged by subsystem.
 - [commonsense.md](commonsense.md) — the questions this KB is asked, one per reasoning subsystem, what the schema had to grow to answer them, and the outside judge that reads the answers back.
+- [arriving.md](arriving.md) — the way in for a reader with a prior: which orientation page belongs to which background, and the facts that hold whatever you arrived from.
+
+## Arriving from another system
+
+[arriving.md](arriving.md) routes; these four are the mappings, each one-way orientation
+rather than a compatibility claim.
+
+- [from-cyc.md](from-cyc.md) — the OpenCyc and ResearchCyc vocabulary: `Mt` to context, collections as unary predicates, the four privileged contexts you already have names for, and the argument-type check that gates on the way in.
+- [from-asp.md](from-asp.md) — answer set programming: choice rules, integrity and weak constraints, the three negations, and the two structural differences — no grounding step, and belief is one labeling rather than a set of models.
+- [from-prolog.md](from-prolog.md) — Prolog and Datalog: the capitalization that means nearly the opposite here, clause order that is not control, the cut that does not exist, and retraction that reaches what rested on the premise.
+- [from-production-rules.md](from-production-rules.md) — CLIPS, Jess and Drools: a consequent that concludes rather than acts, the conflict resolution that is absent on purpose, and the alpha network that is opt-in with no beta network behind it.
 
 ## Core model & storage
 
@@ -72,7 +84,7 @@ page costs a sentence rather than a section.
 ## Inference & belief
 
 - [inference.md](inference.md) — rules as sentexes, rule direction, forward/backward chaining, predicate subsumption, incremental matching, the prover engine.
-- [generators.md](generators.md) — a rule whose consequent is a rule: the hole/own-variable split that needs no declaring, what a firing stamps out, why a mint retracts like any conclusion, and the one level of nesting.
+- [generators.md](generators.md) — a rule whose consequent is a rule: the hole/own-variable split that needs no declaring, what a firing stamps out, why a mint retracts like any conclusion, and the nesting that lets a level further out fill a functor.
 - [anytime.md](anytime.md) — resource-bounded / anytime inference: the budget, the resumable partial-result contract, the qualitative `cost` tier.
 - [levels.md](levels.md) — the lookup-to-query stack: eight named levels from a raw index read to full backchaining.
 - [abduction.md](abduction.md) — `abduce`: what would have to be true for a goal to be provable, minted as a defeasible hypothesis in a scratch context — the dead-end observer, the grant that gates it, and the isolation that makes an ignored call free.
@@ -106,7 +118,7 @@ page costs a sentence rather than a section.
 
 - [feed.md](feed.md) — `watch`: an application told that belief moved instead of asking again, off the settle that already computed it — one settle one event, standing queries as a filter over the moved region rather than a re-run, and what is refused because the region cannot answer it.
 - [operations.md](operations.md) — the operational surface: the `cli` driver, the headless EDN-over-HTTP daemon that is the single writer, and the zero-dep client threading an explicit connection.
-- [quality.md](quality.md) — `kb-quality`: four readings about the knowledge rather than the engine — which rules never fire, how skewed the predicate extents are, how deep the rule graph's chains reach, how much of the taxonomy reaches a root — each off state that already exists, and none of them a gate.
+- [quality.md](quality.md) — `kb-quality`: five readings about the knowledge rather than the engine — which rules never fire, how skewed the predicate extents are, how deep the rule graph's chains reach, how much of the taxonomy reaches a root, which argument declarations name a position their predicate does not have — each off state that already exists, and none of them a gate.
 - [profile.md](profile.md) — the workload instrument: which shapes of question a KB is asked, which index families answer them, what a trie walk costs in node probes, and what one assert or one retraction costs each family — off by default and a deref when off. Also the count-based gate built on it, which fails the suite when a change adds an index operation to either write path, the class `lein perf`'s ratios cannot see.
 - [web.md](web.md) — the reitit-ring browser for terms, sentexes, and justifications;
   a term page opens with its shape drawn, server-side and inside a read budget.

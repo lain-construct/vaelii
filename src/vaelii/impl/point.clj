@@ -135,12 +135,6 @@
   RCC-8, the cardinal directions and Allen's intervals run."
   (qkb/calculus :point point-algebra instant-denotation))
 
-(defn constraint
-  "The constraint set on `[i j]` in `net`: `#{:equal}` on the diagonal, the recorded set,
-  else all three (unknown)."
-  [net i j]
-  (qkb/constraint instants net i j))
-
 (defn possible-point-relations
   "The base relations still possible between instants `i1` and `i2` given everything
   believed in `context` — `#{}` when the network is inconsistent.

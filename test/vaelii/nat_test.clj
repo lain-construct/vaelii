@@ -10,6 +10,7 @@
   migration and remove rides the retraction sweep."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.nat :as nat]
@@ -57,6 +58,27 @@
       (testing "one termOfUnit maps the expression"
         (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k (list FruitFn AppleTree))
                                              'CxUniverse))))))))
+
+(tu/deftest-kb a-vector-spelled-nat-is-the-nat-the-list-spelling-names
+  ;; Reification runs **before** `canon`, and canon makes `[F a]` and `(F a)` one
+  ;; sentence — so a gate on the list spelling alone stores the raw compound for one
+  ;; spelling and the constant for the other: two handles and two maps for one claim,
+  ;; decided by how whoever typed it spelled a bracket.  Both arrival orders, since the
+  ;; second spelling has to resolve to what the first stored either way round.
+  (doseq [vector-first? [false true]]
+    (tu/with-terms [MotherFn Ann Tom likes]
+      (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+      (let [E         (list MotherFn Ann)
+            spellings [(list likes Tom E) (list likes Tom [MotherFn Ann])]
+            [a b]     (if vector-first? (reverse spellings) spellings)
+            ha        (v/assert kb a 'CxUniverse)
+            hb        (v/assert kb b 'CxUniverse)
+            what      (str (if vector-first? "vector" "list") " spelling first")]
+        (is (= ha hb) (str what ": one handle for one canonical sentence"))
+        (is (nat/reified-nat-symbol? (nth (:sentence (v/sentex kb ha)) 2))
+            (str what ": and it holds the constant rather than the compound"))
+        (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k E) 'CxUniverse)))
+            (str what ": one map for one expression"))))))
 
 ;; ---- 3. nested -----------------------------------------------------------
 
@@ -108,6 +130,33 @@
                                              'CxUniverse))))
         (is (some? (nat/dedup-constant kb (list FruitFn MalusTree))))))))
 
+(tu/deftest-kb a-collision-resolves-to-the-constant-the-repair-would-keep
+  ;; Two constants can name one expression without a rename: a `:bulk?` load skips the
+  ;; dedup probe and an import restores whatever the dump held, and neither is swept up
+  ;; by the next unrelated equality.  `group-collisions` elects the lexicographically
+  ;; smallest as the survivor a merge keeps, so the *read* has to answer with that one —
+  ;; answering with whichever the retrieval yielded first makes the expression denote a
+  ;; different term in a KB whose two maps arrived the other way round, and every later
+  ;; read inherits it.  So both orders, and one answer.
+  (doseq [smallest-first? [true false]]
+    (tu/with-terms [FruitFn AppleTree]
+      (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+      (let [E     (list FruitFn AppleTree)
+            ks    (vec (sort [(nat/fresh-constant) (nat/fresh-constant)]))
+            what  (str "the " (if smallest-first? "smallest" "largest") " asserted first")]
+        ;; staged the way the mint writes one — the map is `:monotonic` bookkeeping,
+        ;; and the second is the one no dedup probe stopped
+        (doseq [k (if smallest-first? ks (rseq ks))]
+          (v/assert kb (list 'termOfUnit k E) 'CxUniverse {:strength :monotonic}))
+        (is (= 2 (count (v/sentexes-matching kb (list 'termOfUnit '?k E) 'CxUniverse)))
+            (str what ": both maps stand, so there is a collision to resolve"))
+        (is (= (first ks) (nat/dedup-constant kb E)) what)
+        (is (= [(first ks)]
+               (vec (keep (fn [[survivor dups]]
+                            (when (= (set ks) (set (cons survivor dups))) survivor))
+                          (nat/colliding-constant-groups kb))))
+            (str what ": and the read named the survivor the repair elects"))))))
+
 ;; ---- 5. remove -----------------------------------------------------------
 
 (tu/deftest-kb removing-the-last-use-collects-the-orphaned-reified-nat
@@ -146,6 +195,68 @@
         (is (false? (nat/orphan? kb k))))
       (v/retract! kb hu)
       (testing "and once the claim is withdrawn the constant is collected after all"
+        (is (empty? (kb/find-sentexes kb k)))
+        (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
+        (is (empty? (nat/orphaned-constants kb)))))))
+
+;; A use is counted by **storage**, and the two tests below are the two ways a stored use
+;; is not a believed one.  Either way the constant has to stay: a sentence naming it is in
+;; the store, so collecting the map would leave that sentence holding a raw `nat/` symbol
+;; nothing maps — and re-reifying the expression would then mint a second constant beside
+;; the first, a collision no merge repair caused.
+
+(tu/deftest-kb a-defeated-use-keeps-the-constant-until-it-is-actually-removed
+  ;; The claim is defeated by the constant's own materialized result type, which is
+  ;; `:monotonic` bookkeeping — so nothing a *use* could be read off has moved, and the
+  ;; claim sits in the store exactly where a relabel can give it back.  Which is what
+  ;; happens two lines later.
+  (tu/with-terms [FruitFn AppleTree fruit_t stone_t color]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'resultIsa FruitFn fruit_t) 'CxUniverse)
+    (let [h (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
+          k (k-of kb h)]
+      ;; the claim first, the separation over it after — the retroactive case, and the
+      ;; policy under which a definitional clash is arbitrated rather than refused
+      (binding [checks/*arbitrate-constraints?* true]
+        (let [hs (v/assert kb (list stone_t k) 'CxUniverse)
+              hd (v/assert kb (list 'disjoint fruit_t stone_t) 'CxUniverse
+                           {:strength :monotonic})]
+          (testing "the claim is stored and OUT, outranked by the declared result type"
+            (is (false? (v/in? kb hs)))
+            (is (true? (v/in? kb (v/handle-of kb (list fruit_t k) 'CxUniverse)))))
+          (v/retract! kb h)
+          (testing "so the sweep that the last *believed* use leaving triggers keeps it"
+            (is (false? (nat/orphan? kb k)))
+            (is (= k (nat/dedup-constant kb (list FruitFn AppleTree))))
+            (is (some? (v/handle-of kb (list stone_t k) 'CxUniverse))))
+          (v/retract! kb hd)
+          (testing "and the defeat lifting revives a use naming a constant still mapped"
+            (is (true? (v/in? kb hs)))
+            (is (= (list FruitFn AppleTree) (nat/nat-expression kb k))))
+          (v/retract! kb hs)
+          (testing "removing it is what makes the constant an orphan, and it is collected"
+            (is (empty? (kb/find-sentexes kb k)))
+            (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
+            (is (empty? (nat/orphaned-constants kb)))))))))
+
+(tu/deftest-kb an-inert-use-keeps-the-constant-though-it-has-no-node-at-all
+  ;; The other half, and the one belief cannot speak about either way: an inert sentex —
+  ;; a labeling's materialized truth value — is never a premise, so it has no TMS node to
+  ;; be IN or OUT.  It still names the constant, and it is still in the store.
+  (tu/with-terms [FruitFn AppleTree noted Author color]
+    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (let [h (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
+          k (k-of kb h)
+          i (v/assert-inert kb (list noted Author k) 'CxUniverse)]
+      (is (nat/reified-nat-symbol? k))
+      (is (false? (v/in? kb i)) "inert: stored, and never believed")
+      (v/retract! kb h)
+      (testing "the believed use went and the inert one holds the constant"
+        (is (false? (nat/orphan? kb k)))
+        (is (= (list FruitFn AppleTree) (nat/nat-expression kb k)))
+        (is (= k (nat/dedup-constant kb (list FruitFn AppleTree)))))
+      (v/retract! kb i)
+      (testing "and once that goes too the sweep collects — no dangling nat/ symbol"
         (is (empty? (kb/find-sentexes kb k)))
         (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
         (is (empty? (nat/orphaned-constants kb)))))))

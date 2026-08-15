@@ -695,15 +695,21 @@ none. See [canonicalization.md](canonicalization.md).
 **`violations`** ![inference](../.github/badges/cat-inference.svg): The
 accumulating ledger of conclusions *dropped* on the derivation path — a failed
 argIsa / disjoint / functional check, a placement-less firing, or a derived
-cycle through negation — recorded rather than thrown. Three groups drop nothing
+cycle through negation — recorded rather than thrown. Four groups drop nothing
 and report: the **cross-context** clashes neither writer could see (`:disjoint`,
 `:functional` and `:asymmetric`, each carrying `:visible-from`, and the latter two
-under `:refuse` only); the three that say bounded work did not cover everything —
-`:exposure-truncated` and `:arbitration-truncated`, both sweeps cut short, and
-`:constraint-exposure-truncated`, which is not a sweep but a pass finding more pairs
-than it will file; and a retroactive `:arity` reach beside a `:non-confluent` pair of
-equations. An entry about a pair or a budget carries no `:sentence` or `:context`.
-See [inference.md](inference.md),
+under `:refuse` only); the five that say bounded work did not cover everything —
+`:exposure-truncated`, `:arbitration-truncated` and `:arity-truncated`, all three
+sweeps cut short, and `:constraint-exposure-truncated` and `:arity-report-truncated`,
+each a pass finding more than it will file — the first naming whichever bound it met, a
+cut walk or the entry cap, the second the cap alone; a retroactive
+`:arity` reach beside a `:non-confluent` pair of equations; and the provers' own —
+`:aggregate` for an extent that will not reduce, `:qualitative-inconsistency` and the two
+`:metric-temporal-*` for a network a context cannot satisfy. An entry about a pair or a
+budget carries no `:sentence` or `:context`, and a network report carries a `:context`
+with no `:sentence`. The roster of every kind, with the `:detail` keys each carries, is
+the set of tables in `core/violations`' docstring, pinned to the sources by
+`violation_roster_test`. See [inference.md](inference.md),
 [nmtms.md](nmtms.md).
 
 **Visibility (genlCx up-closure)** ![kb](../.github/badges/cat-kb.svg):

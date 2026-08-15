@@ -47,8 +47,8 @@
 
   The three entry points are spelled without `!` for `core/watch`'s reason: nothing here
   destroys stored knowledge (docs/api.md).  See docs/feed.md, \"Across the wire\"."
-  (:require [clojure.string :as str]
-            [vaelii.core :as core]))
+  (:require [vaelii.core :as core]
+            [vaelii.impl.opts :as opts]))
 
 (def max-subscriptions
   "How many live subscriptions one daemon holds at once.  Reached, a further `watch` is
@@ -253,13 +253,7 @@
   key at all answers instantly and forever, and the caller sees a feed that works beside
   a latency it has no way to explain."
   [opts]
-  (when (and (some? opts) (not (map? opts)))
-    (throw (ex-info (str "poll options must be a map, got " (pr-str opts))
-                    {:type :unknown-option :options (vec (sort poll-opt-keys))})))
-  (when-let [unknown (seq (sort-by pr-str (remove poll-opt-keys (keys opts))))]
-    (throw (ex-info (str "unknown poll option" (when (next unknown) "s") " "
-                         (str/join ", " (map pr-str unknown)))
-                    {:type :unknown-option :options (vec (sort poll-opt-keys))})))
+  (opts/check! opts poll-opt-keys "poll")
   (when-let [w (:wait-ms opts)]
     ;; `nat-int?` rather than `number?`: a double admits `##NaN`, which coerces to 0 and
     ;; turns a long poll into one that answers instantly forever — the silent-default

@@ -42,6 +42,37 @@
   the next thing to break."
   (:refer-clojure :exclude []))
 
+;; ---- the bound every registered cache takes ------------------------------
+
+(defn assoc-bounded
+  "Store `v` at `k` in map `m`, **clearing `m` wholesale** when it already holds `limit`
+  entries.
+
+  The bound policy, in one place rather than spelled out at each cache.  Wholesale
+  clearing rather than eviction is `literal-cache/cache-limit`'s argument and
+  `observe/resident-limit`'s before it: evicting exactly the right entry costs more
+  bookkeeping than the entry saved, and a cache that has grown past its bound is one
+  whose queries have moved on.  That is a judgement about every cache here at once, so
+  it is worth being able to revisit in one edit rather than six."
+  [m limit k v]
+  (assoc (if (>= (count m) limit) {} m) k v))
+
+(defn read-through
+  "The value at `k` in the map held by atom `cache`, else `(compute)` — stored under
+  `assoc-bounded`'s bound, and returned.
+
+  `find` rather than `get`, so a computed `nil` is a hit rather than a miss recomputed
+  forever.  `compute` runs outside the `swap!` because it is the expensive half and a
+  `swap!` retry must not run it twice: two callers racing one key both compute and both
+  store, and the second store is a no-op — the trade a memo of derived values wants over
+  holding a lock across the computation."
+  [cache limit k compute]
+  (if-let [hit (find @cache k)]
+    (val hit)
+    (let [v (compute)]
+      (swap! cache assoc-bounded limit k v)
+      v)))
+
 ;; `{cache-id descriptor}`.  A `defonce` because registration happens at namespace load
 ;; and reloading *this* namespace must not empty what the namespaces already loaded put
 ;; here; keyed by id, so reloading one of *them* replaces its own entry rather than

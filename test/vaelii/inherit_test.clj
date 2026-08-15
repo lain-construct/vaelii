@@ -14,6 +14,7 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.inherit :as inherit]
+            [vaelii.impl.resolution :as res]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -707,6 +708,43 @@
                                           :order order}))
             (str "monotonic in " (name strong) ", " (name first-where) " asserted first ["
                  i j "]: the converse of known-true content is refused either way"))))))
+
+(tu/deftest-kb the-supporter-a-fan-answers-with-is-the-content-least-not-the-first
+  ;; What licenses a reach along a fact-relation includes the `(transitive R)` the
+  ;; closure is taken under, and that licence is **read** rather than stored with the
+  ;; claim — `matches-visible` answers it, and `matches-visible` is type-aware.  So a
+  ;; sub-predicate's sentex answers the query for it and the matches are a fan rather
+  ;; than one sentence: three of them here, all in one context, spelling three different
+  ;; claims that the asserting context's name cannot separate.  The handle named is the
+  ;; one a recorded justification carries, so it decides what a later retraction
+  ;; withdraws — and it has to be a function of the content rather than of which of the
+  ;; three the retrieval happened to enumerate first.
+  (doseq [flip [false true]]
+    (tu/with-terms [partOf needsMaintenance Car Engine alphaTransitive betaTransitive]
+      (let [subs  [(list alphaTransitive partOf) (list betaTransitive partOf)]
+            fan   (cons (list 'transitive partOf) subs)
+            least (first (sort-by pr-str fan))
+            what  (str "the " (if flip "beta" "alpha") " sub-predicate asserted first")]
+        (v/with-deferred-settle kb
+          (v/assert kb (list 'genl alphaTransitive 'transitive) 'CxUniverse)
+          (v/assert kb (list 'genl betaTransitive 'transitive) 'CxUniverse)
+          ;; the plain declaration too: `argPreserving` refuses a relation nobody has
+          ;; said composes, and a sub-predicate's sentex does not mark the property
+          (v/assert kb (list 'transitive partOf) 'CxUniverse)
+          (doseq [s (if flip (reverse subs) subs)] (v/assert kb s 'CxUniverse))
+          (v/assert kb (list partOf Engine Car) 'CxUniverse)
+          (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) 'CxUniverse)
+          (v/assert kb (list needsMaintenance Car) 'CxUniverse))
+        (is (v/ask? kb (list needsMaintenance Engine) 'CxUniverse)
+            (str what ": the claim reaches down the part chain"))
+        (is (= 3 (count (res/matches-visible kb (list 'transitive partOf) 'CxUniverse)))
+            (str what ": the licence query is answered by a fan, or this proves nothing"))
+        (let [named (into #{} (map #(:sentence (v/sentex kb %)))
+                          (:handles (inherit/support-for kb (list needsMaintenance Engine)
+                                                         'CxUniverse)))]
+          (is (contains? named least) (str what ": the content-least of the fan is named"))
+          (is (= 1 (count (filter named fan)))
+              (str what ": and one of them, since one complete reason is the whole of it")))))))
 
 ;; ---- the exception re-check trigger ---------------------------------------
 

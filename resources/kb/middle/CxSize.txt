@@ -13,10 +13,12 @@
 ;; about the relation and not a fact about the world.
 ;;
 ;; Every pair below is between kinds that are **not** genl-related, and that is a
-;; requirement rather than a coincidence. `largerThan` is asymmetric, hence irreflexive,
-;; and preservation runs downward — so a claim about a kind and one of its own subkinds
-;; would license (largerThan K K) and contradict itself. (largerThan mammal mouse) is
-;; not a fact this ontology can hold, however true it sounds.
+;; requirement rather than a coincidence. Preservation runs downward, so a claim about a
+;; kind and one of its own subkinds would license (largerThan K K) — a kind reported
+;; larger than itself. (largerThan mammal mouse) is not a fact this ontology can hold,
+;; however true it sounds. The requirement is this file's own: (asymmetric largerThan)
+;; convicts against a believed opposing claim, and a self tuple has none, so nothing
+;; refuses the pair on the way in.
 ;;
 ;; The instance-level half moves in the opposite direction: nothing is inherited and
 ;; nothing is stated, since `heavierThan` and `tallerThan` are read off two measures

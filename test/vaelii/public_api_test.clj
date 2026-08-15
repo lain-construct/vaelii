@@ -334,9 +334,6 @@
           (is (re-find #":believed\?" (ex-message e))
               "the right spelling is in the message"))))
     (testing "a non-map opts is refused rather than read as no filter"
-      ;; The keyword is the point — the refusal is what this asserts — so the
-      ;; type mismatch clj-kondo sees is the test's subject, not a defect.
-      #_{:clj-kondo/ignore [:type-mismatch]}
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
                             (v/sentexes-in-context kb CxExtent :believed?))))
     (testing "the rostered spelling still filters"

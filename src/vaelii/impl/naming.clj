@@ -35,7 +35,8 @@
   (:refer-clojure :exclude [name])
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
-            [vaelii.impl.sentex :as sx]))
+            [vaelii.impl.sentex :as sx])
+  (:import (clojure.lang ExceptionInfo)))
 
 (defn- nm [s] (clojure.core/name s))
 
@@ -213,8 +214,13 @@
          ;; *index* has no claim on them, because what gets indexed is the mint and
          ;; not the pattern.  `rules/variable-functor-literals` reads the tag to draw
          ;; that line, which is what lets a hole stand in functor position.
+         ;;
+         ;; A stamped rule may stamp one in turn, so a *stamped* consequent is a
+         ;; generator's head by the same reading: the tag survives the whole nesting,
+         ;; and a literal three levels in still reads as stamped rather than as the
+         ;; author's own.
          (and (= sx/rule-functor h) (= 3 n))
-         (let [gen?  (= :consequent role)
+         (let [gen?  (contains? #{:consequent :generated-consequent} role)
                arole (if gen? :generated-antecedent :antecedent)
                crole (if gen? :generated-consequent :consequent)]
            (into (vec (mapcat #(applied-literals arole %) (sx/rule-antecedents form)))
@@ -269,8 +275,8 @@
       ;; The one fence around a lexeme, and the whole of it.  A surface form is what
       ;; somebody wrote, not a relation or a kind, so it cannot be applied to anything —
       ;; while as an *argument* it is ordinary, which is what lets `(sense lex/w s)` say
-      ;; what a lexeme means and `(genl s lex/w)` stand as the improver's unsensified
-      ;; edge until it crafts the sense that replaces it.
+      ;; what a lexeme means and `(genl s lex/w)` stand as an unsensified edge until a
+      ;; sense is crafted to replace it.
       (lexeme? f)
       {:class :lexeme-functor :role role :symbol f :literal literal}
 
@@ -309,13 +315,19 @@
 (defn- ist-context-problems
   "The `(ist Ctx S)` context slots that do not name a context.  A rule consequent
   `(ist Ctx S)` places S into Ctx, so that slot is a context name like the asserting
-  context — or a variable an antecedent binds, which is resolved at firing time."
+  context — or a variable an antecedent binds, which is resolved at firing time.
+
+  `sx/forms-where` rather than a `tree-seq`, and this is the check that wants it: an
+  `ist` can sit anywhere, so this is the only one here that descends **arguments** —
+  every node of every sentence asserted, to find a form almost none of them hold.
+  Depth-first pre-order either way, which is the order `problems` reports."
   [sentence]
-  (for [f (tree-seq sequential? seq sentence)
-        :when (and (sequential? f) (= sx/ist-functor (first f)) (= 3 (count f)))
-        :let [c (second f)]
-        :when (not (or (sx/variable? c) (context? c)))]
-    {:class :ist-context :role :sentence :symbol c :literal f}))
+  (mapv (fn [f] {:class :ist-context :role :sentence :symbol (second f) :literal f})
+        (sx/forms-where #(and (sequential? %)
+                              (= sx/ist-functor (first %))
+                              (= 3 (count %))
+                              (not (or (sx/variable? (second %)) (context? (second %)))))
+                        sentence)))
 
 (defn message
   "One `problems*` map rendered as the line a rejection carries.  Every message names
@@ -374,21 +386,23 @@
   a message that embeds the literal is unique per record, so counting them counts
   records.  Rendering is therefore separate and paid only where a message is read."
   [sentence context]
-  (into []
-        cat
-        [(when-not (context? context)
-           [{:class :context-name :role :sentence :symbol context :literal nil}])
-         (keep functor-problem (literals sentence))
-         (for [pair (literals sentence)
-               a    (args (second pair))
-               :let [p (argument-problem pair a)]
-               :when p]
-           p)
-         (ist-context-problems sentence)
-         ;; a bare `.` is the dotted rest-pattern marker; it belongs inside a rule
-         ;; antecedent, never as a top-level argument of an asserted sentence.
-         (when (some #(= sx/dot-marker %) (args sentence))
-           [{:class :dot-marker :role :sentence :symbol sx/dot-marker :literal sentence}])]))
+  (let [lits (literals sentence)]                     ; one walk, read twice
+    (into []
+          cat
+          [(when-not (context? context)
+             [{:class :context-name :role :sentence :symbol context :literal nil}])
+           (keep functor-problem lits)
+           (for [pair lits
+                 a    (args (second pair))
+                 :let [p (argument-problem pair a)]
+                 :when p]
+             p)
+           (ist-context-problems sentence)
+           ;; a bare `.` is the dotted rest-pattern marker; it belongs inside a rule
+           ;; antecedent, never as a top-level argument of an asserted sentence.
+           (when (some #(= sx/dot-marker %) (args sentence))
+             [{:class :dot-marker :role :sentence :symbol sx/dot-marker
+               :literal sentence}])])))
 
 (defn problems
   "Checkable naming violations for a sentence in a context (seq of strings): the
@@ -549,6 +563,32 @@
                      :msg  (str "stored, and probably not what was meant: " message)
                      :data {:sentence sentence :context context :advice id}})))))
 
+(defn- refusal
+  "The `:naming` refusal to throw, built with the `ExceptionInfo` **constructor** rather
+  than `ex-info`.
+
+  A refusal here is not a rare event, and that is by design.  The *checked* load — the
+  door a corpus takes when the point is to learn what this KB makes of it, rather than the
+  bulk path `tally` above is for — asserts one sentence at a time and **counts** what the
+  front door refuses, because which of these checks an ontology trips is the most useful
+  thing an import has to say about it.  So the throw is a reporting path taken a hundred
+  thousand times in a load, and what it costs shows up as the load's own profile.
+
+  `clojure.core/ex-info` (1.12) hands every exception it builds to `elide-top-frames`,
+  which materializes the whole trace into a `StackTraceElement[]` via
+  `Throwable.getStackTrace`, drops its own two frames and sets the array back — resolving
+  every frame to a class, method and line number, for a trace a counted refusal never
+  prints.  Since it walks the trace it materializes, the cost grows with how deep the
+  refusing call sits, and an import refuses from the bottom of one: 6.3 µs against the
+  constructor's 0.8 at the top of a stack, 23.7 against 4.4 forty frames down.  It is the
+  largest single cost in a load that refuses most of what it reads.
+
+  Nothing is lost by skipping it.  The frames elided are `ex-info`'s own, and the
+  constructor's top frame is `check!` — where the refusal was decided."
+  [ps sentence context]
+  (ExceptionInfo. (str "naming invariant: " (str/join "; " ps))
+                  {:type :naming :sentence sentence :context context}))
+
 (defn check!
   "Enforce `policy` on `sentence` in `context`: throw `:naming` under `:strict`, log
   under `:warn`, do nothing under `:off`.  The one place the three differ, so no caller
@@ -564,6 +604,5 @@
                      :msg  (str "naming invariant (stored anyway, :naming :warn): "
                                 (str/join "; " ps))
                      :data {:sentence sentence :context context}})
-        (throw (ex-info (str "naming invariant: " (str/join "; " ps))
-                        {:type :naming :sentence sentence :context context}))))
+        (throw (refusal ps sentence context))))
     (advise! policy sentence context)))

@@ -121,6 +121,47 @@
   ;; wholesale wipe (the whole index)
   (kv-clear! [b] "Remove every entry."))
 
+(defn unknown-op!
+  "Refuse a write op no fold here recognizes.  One throw, because there are two folds —
+  the persistent `apply-op` and the transient twin a bulk load takes — and which of them
+  a write went through is not something the op's readability depends on."
+  [op]
+  (throw (ex-info (str "unknown index write op " (pr-str op))
+                  {:type :unknown-frame :op op})))
+
+(defn apply-op
+  "Apply one `kv-batch` write op to map `m`, returning `[m' reply]`.  Only
+  `:increment`/`:decrement` carry a meaningful reply (the post-op counter value); the
+  rest reply nil.  `:remove-from-set` drops the key when the set empties, so an absent
+  key and an empty set are indistinguishable — a set with no members does not exist.
+
+  **The op semantics live here, with the protocol that names them, and not in the
+  backends.**  Both map-shaped backends fold their writes through this — the in-memory
+  one (`vaelii.impl.memory`) over its state map, the on-disk one
+  (`vaelii.impl.disk.kv`) over the RAM half of its write-ahead log, where it is also
+  what *replays* the log, since a WAL frame there is the write op itself rather than
+  the resulting value.  Written twice, the two copies could answer one op differently,
+  and the disk side is replay: a seventh op added to the live path and missed in the
+  fold would be a write that applies once and never comes back.
+
+  An unrecognized op is `:unknown-frame` rather than `case`'s bare
+  `IllegalArgumentException`, because on the disk side it is not a programming error
+  at all — it is a log written by some other build, and a build that cannot read a log
+  must be able to say so by name rather than delete it.  `unknown-op!` is that throw,
+  named so the transient fold beside this one raises the same thing: a bulk load taking
+  the transient path and an ordinary write taking this one may not disagree about what
+  an unreadable op is."
+  [m [op k a]]
+  (case op
+    :put  [(assoc m k a) nil]
+    :delete  [(dissoc m k) nil]
+    :increment (let [v (inc (long (get m k 0)))] [(assoc m k v) v])
+    :decrement (let [v (dec (long (get m k 0)))] [(assoc m k v) v])
+    :add-to-set [(update m k (fnil conj #{}) a) nil]
+    :remove-from-set (let [s (disj (get m k) a)]
+                       [(if (empty? s) (dissoc m k) (assoc m k s)) nil])
+    (unknown-op! op)))
+
 ;; ---- logical keys -------------------------------------------------------
 ;; Structured vectors — a backend encodes them (used directly as map keys in memory;
 ;; nippy-framed on disk).  The trie node's three keys share the [:trie …] prefix and
@@ -462,8 +503,10 @@
 
   ;; Predicate-agnostic reads, answered as a union over the slot roster's predicates.
   ;; One key in the overwhelmingly common case (a term occupies a given position under
-  ;; one predicate); a handful otherwise. The single-predicate case is allocation-free:
-  ;; the stored set is handed straight back, never copied into a union.
+  ;; one predicate); a handful otherwise. The single-predicate case never copies into a
+  ;; union, and on the two set-backed backends it is allocation-free outright — the
+  ;; stored set is handed straight back. The dense one still builds a set out of its
+  ;; int posting, and a fork still merges; what the branch saves them is the union.
   (sentexes-with-arg [_ pos term]
     (prof/record-read :argument-slot)
     (let [preds (kv-members backend (slot-key pos term))]

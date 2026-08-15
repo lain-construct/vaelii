@@ -506,12 +506,8 @@
   context, so it hangs off `observe/newly-seen?` instead: this KB, this context, this
   network.  A cache hit still reports if the KB has not said it yet."
   [kb context {:keys [net] :as prob} extra-nodes]
-  (let [result (if-let [hit (find @closure-cache net)]
-                 (val hit)
-                 (let [r (close net (into (nodes net) extra-nodes))]
-                   (swap! closure-cache
-                          (fn [c] (assoc (if (>= (count c) closure-cache-limit) {} c) net r)))
-                   r))]
+  (let [result (caches/read-through closure-cache closure-cache-limit net
+                                    #(close net (into (nodes net) extra-nodes)))]
     (when (and (= :inconsistent result)
                (observe/newly-seen? (:qcn kb) [::reported context] net))
       (report-inconsistency! kb context prob (cycle-nodes-of net)))

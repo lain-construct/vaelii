@@ -17,11 +17,12 @@
   and one *unassertable* one, `(different A B ...)`, which is negation as failure
   over that closure — the unique-name assumption OWL drops and vaelii keeps.
 
-  The four claims the shape makes are: a merge **migrates** every sentex mentioning
+  The five claims the shape makes are: a merge **migrates** every sentex mentioning
   the loser and **blocks** (never deletes) the stale spelling; congruence is a side
   effect of the term index, so a nested occurrence is rewritten too; the
-  representative is **content-keyed**, so it cannot depend on arrival order; and
-  `functional` **derives** an equality rather than throwing.
+  representative is **content-keyed**, so it cannot depend on arrival order;
+  `functional` **derives** an equality rather than throwing; and a **rule** may
+  conclude one of the three, which merges where the conclusion is placed.
 
   House rules apply as everywhere else: gensym'd temporaries via `tu/with-terms`,
   engine vocabulary (`rewriteOf`, `sameAs`, `equals`, `different`, `functional`,
@@ -35,7 +36,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (def ^:private merge-cost-ctx
-  "The context section 9's cost tests work in.  Literal rather than gensym'd, because
+  "The context section 10's cost tests work in.  Literal rather than gensym'd, because
   those tests build their own KB on the isolated pair and wipe it, which is what
   `tu/with-cleared-kb` is for."
   'CxMergeCost)
@@ -685,7 +686,102 @@
             (str "three values did not reach one class: "
                  (pr-str (mapv #(v/representative kb %) [a b c]))))))))
 
-;; ---- 7. disjointness -----------------------------------------------------
+(tu/deftest-kb a-functional-merge-a-rule-triggered-displaces-the-spelling-too
+  ;; The second value arrives as a rule's conclusion, so the merge happens from inside
+  ;; the chaining run rather than from the assert that started it.  The migration is the
+  ;; same either way, and so is what it owes: the twin is stored *and* the spelling it
+  ;; restates stops being believed.  Leaving the supersession to whatever runs next
+  ;; leaves both spellings believed — which is the state `recover` would not come back
+  ;; in, since the rebuild reads the twin off the store and displaces the original.
+  (tu/with-terms [motherOf parentOf caresFor Tom CxFam]
+    (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
+      (v/assert kb (list 'functional motherOf) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam)
+      (v/assert kb (list caresFor hi Tom) CxFam)
+      (v/assert-rule kb [(list parentOf '?x '?y)] (list motherOf '?x '?y) CxFam)
+      (v/assert kb (list parentOf Tom hi) CxFam)
+      (testing "the derived second value merges"
+        (is (v/same-class? kb lo hi)))
+      (testing "and the fact under the retired spelling is restated, not doubled"
+        (is (believed? kb (list caresFor lo Tom) CxFam))
+        (is (stored-not-believed? kb (list caresFor hi Tom) CxFam))))))
+
+;; ---- 7. an equality a rule concluded -------------------------------------
+;; DECISION (Interactions — A rule concluding one of the three relations merges): "a
+;; rule-concluded `(sameAs A B)` reaches `special/integrate-equality-sentex` — the same
+;; arm the table runs for an asserted one — so the closure learns the edge, migration
+;; restates every sentex it displaces, the retired spelling stops being believed, and a
+;; migration the integrity checks refuse is filed as a violation."  The live/rebuilt
+;; half of the same claim is
+;; `recovery-test/recover-agrees-about-a-rule-concluded-equality`.
+;;
+;; All three relations, because the derivation path dispatches on the functor: the two
+;; symmetric ones elect the smaller spelling and `rewriteOf` elects its first argument,
+;; so a fact written `(alias lo hi)` retires `hi` under every one of them.
+
+(defn- rule-concluded-merge!
+  "Assert a rule concluding `(rel ?x ?y)` from an ordinary fact, plus one fact naming
+  the spelling the merge retires, and fire it.  Returns `[lo hi]` — the elected
+  representative and the retired spelling."
+  [kb rel aliasOf caresFor Tom context]
+  (let [[lo hi] (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
+    (v/assert-rule kb [(list aliasOf '?x '?y)] (list rel '?x '?y) context)
+    (v/assert kb (list caresFor hi Tom) context)
+    (v/assert kb (list aliasOf lo hi) context)
+    [lo hi]))
+
+(tu/deftest-kb a-rule-concluding-an-equality-merges-like-an-asserted-one
+  (doseq [rel '[rewriteOf sameAs equals]]
+    (testing (str "a rule concluding " rel)
+      (tu/with-terms [aliasOf caresFor CxAlias]
+        (tu/with-terms [Tom]
+          (let [[lo hi] (rule-concluded-merge! kb rel aliasOf caresFor Tom CxAlias)]
+            (testing "the conclusion is stored and believed"
+              (is (believed? kb (list rel lo hi) CxAlias)))
+            (testing "and the closure holds the edge it states"
+              (is (v/same-class? kb lo hi)
+                  (str "the equality closure never learned the rule's conclusion "
+                       (pr-str (list rel lo hi))))
+              (is (= lo (v/representative kb hi))))
+            (testing "the retired spelling is blocked and its restatement believed"
+              (is (stored-not-believed? kb (list caresFor hi Tom) CxAlias))
+              (is (believed? kb (list caresFor lo Tom) CxAlias)))
+            (testing "and the only violation is the one the merge itself creates"
+              ;; `rewriteOf` files one, and it is the merge rather than the derivation
+              ;; that files it: the antecedent fact names both terms, so migration
+              ;; restates it as `(alias lo lo)`, the rule fires again on the
+              ;; restatement, and a self-edge is what `wff` refuses.  `(sameAs A A)` is
+              ;; accepted, so the two symmetric relations file nothing.
+              (is (= (if (= rel 'rewriteOf) #{:not-well-formed} #{})
+                     (set (map :violation (v/violations kb))))
+                  (str "unexpected violations: " (pr-str (v/violations kb)))))
+            (v/clear-violations! kb)))))))
+
+(tu/deftest-kb a-twin-a-derived-merge-created-fires-the-rules-that-match-it
+  ;; The twin is new content the run has not seen, so it goes back on the agenda exactly
+  ;; as the twin of an asserted merge does — and it has to, because the spelling it
+  ;; restates stops matching the moment the merge lands: a rule that had not yet reached
+  ;; the original would otherwise fire on neither.
+  ;;
+  ;; The second antecedent is what makes the twin the only route to the conclusion.  It
+  ;; holds of the representative and not of the retired spelling, so the join cannot
+  ;; succeed before the merge — and the conclusion cannot be a migrated twin of an
+  ;; earlier firing either, there having been none to migrate.
+  (tu/with-terms [aliasOf caresFor lives devotedTo Tom CxAlias]
+    (v/assert-rule kb [(list caresFor '?x '?y) (list lives '?x)]
+                   (list devotedTo '?x '?y) CxAlias)
+    (let [[lo hi] (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
+      (v/assert kb (list lives lo) CxAlias)
+      (v/assert-rule kb [(list aliasOf '?x '?y)] (list 'sameAs '?x '?y) CxAlias)
+      (v/assert kb (list caresFor hi Tom) CxAlias)
+      (is (nil? (v/handle-of kb (list devotedTo hi Tom) CxAlias))
+          "the join must not succeed before the merge, or the twin proves nothing")
+      (v/assert kb (list aliasOf lo hi) CxAlias)
+      (is (v/same-class? kb lo hi))
+      (is (believed? kb (list devotedTo lo Tom) CxAlias)
+          "the twin never reached the agenda: nothing fired off the restated fact"))))
+
+;; ---- 8. disjointness -----------------------------------------------------
 ;; DECISION (Interactions — Disjointness): "A merge can *create* a violation:
 ;; `(dog Rex)` + `(cat Fluffy)` + merge makes one individual both.  So migration runs
 ;; the integrity checks that `place-conclusion` already runs, and a derived violation
@@ -711,7 +807,7 @@
               other (if (= rep Rex) cat dog)]
           (is (nil? (v/handle-of kb (list other rep) CxPet))))))))
 
-;; ---- 8. well-formedness --------------------------------------------------
+;; ---- 9. well-formedness --------------------------------------------------
 ;; DECISION (Choosing the representative): "A `rewriteOf` cycle has no representative
 ;; and is rejected by `wff`, like a `genl` cycle."  Both the two-edge cycle and the
 ;; longer one, because a check that only compared the two arguments of the edge being
@@ -742,7 +838,7 @@
                    (v/assert kb (list 'rewriteOf A A) CxName)))
       (is (nil? (v/handle-of kb (list 'rewriteOf A A) CxName))))))
 
-;; ---- 9. what the supersession reconcile costs ----------------------------
+;; ---- 10. what the supersession reconcile costs ---------------------------
 ;;
 ;; The blocked spelling of section 3 is *derived state*: `special/refresh-supersessions`
 ;; recomputes it every settle so that a supersession cannot outlive the merge behind it.

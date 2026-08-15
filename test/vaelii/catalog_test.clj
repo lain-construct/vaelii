@@ -10,13 +10,31 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.catalog :as cat]
+            [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.jobs :as jobs]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.test-util :as tu]))
 
 ;; The catalog is process-global (one registry, one active KB), so every test starts and
 ;; ends with it empty — and the loads below run on the catalog's own spaces, well
 ;; clear of the block the suite owns.
 (use-fixtures :each (fn [f] (cat/reset-registry!) (try (f) (finally (cat/reset-registry!)))))
+
+(defn- beside-the-block
+  "A memory space of this namespace's own, **derived from the block the run owns** rather
+  than fixed.  Two tests below open a KB directly (they need a second `open-kb` over the
+  same stores, which is what makes an unrecovered store reproducible without a disk
+  fixture) and the in-memory backend keys its process-global registry by this value — so a
+  literal number is a store two runs on different blocks would share, and
+  `scripts/test-backends.sh` moves the block with `VAELII_TEST_SPACE` precisely so two runs
+  can proceed at once.
+
+  Spelled as `[::name block]`, which is `tu/plain-memory-space`'s own idiom: the block is
+  read back off that map because it is the only *public* spelling of what
+  `VAELII_TEST_SPACE` was parsed and range-checked into, and re-parsing the variable here
+  would be a second reading of it to keep in step."
+  [tag]
+  [tag (second (:space tu/plain-memory-space))])
 
 (defn- wait-for
   "Block until no load is running (or the deadline passes) — the tests drive an API that
@@ -45,19 +63,33 @@
   (let [root (io/file (System/getProperty "java.io.tmpdir")
                       (str "vaelii-catalog-test-" (System/nanoTime)))]
     (try
-      (let [corpus (io/file root "a-corpus")
-            dump   (io/file root "a-dump")
-            store  (io/file root "a-store")
-            plain  (io/file root "not-a-kb")]
-        (doseq [^java.io.File d [corpus dump store plain]] (.mkdirs d))
+      (let [corpus  (io/file root "a-corpus")
+            dump    (io/file root "a-dump")
+            store   (io/file root "a-store")
+            derived (io/file root "a-derived-index-store")
+            bare    (io/file root "records-but-no-store")
+            plain   (io/file root "not-a-kb")]
+        (doseq [^java.io.File d [corpus dump store derived bare plain]] (.mkdirs d))
         (spit (io/file corpus "meta.edn") (pr-str {:context-order '[CxOne]}))
         (spit (io/file dump "meta.edn")   (pr-str {:format-version 8 :sentex-count 42}))
         (.mkdirs (io/file store "records"))
         (.mkdirs (io/file store "index"))
+        (spit (io/file store "records" "format.edn") (pr-str {:format-version 1}))
         (is (= :corpus (cat/classify corpus)))
         (is (= :dump   (cat/classify dump)))
         (is (= :store  (cat/classify store)))
         (is (nil? (cat/classify plain)))
+        (testing "a store whose index is DERIVED writes no index/ at all and is a store
+                  all the same — :disk-columnar, :disk-dense and :disk-memory each look
+                  like this, which is every backend a corpus past a few million records
+                  is loaded into"
+          (.mkdirs (io/file derived "records"))
+          (spit (io/file derived "records" "format.edn") (pr-str {:format-version 1}))
+          (is (= :store (cat/classify derived))))
+        (testing "and the marker is the record writer's own stamp rather than the
+                  directory's name, so an empty records/ is still nothing"
+          (.mkdirs (io/file bare "records"))
+          (is (nil? (cat/classify bare))))
         (testing "an unreadable meta.edn makes a directory no KB rather than an error"
           (spit (io/file plain "meta.edn") "{not edn")
           (is (nil? (cat/classify plain)))))
@@ -200,7 +232,7 @@
   ;; exactly the state a store opened without `:recover?` is left in, reproduced without
   ;; a disk fixture: the memory stores are shared per space number, so a second `open-kb`
   ;; over the same pair sees every record and index entry and a *fresh*, empty TMS
-  (let [spaces {:backend :memory :space 60 :recover? false}
+  (let [spaces {:backend :memory :space (beside-the-block ::beliefless) :recover? false}
         built  (v/open-kb spaces)]
     (try
       (v/assert built '(dog Muffet) 'CxUniverse {})
@@ -211,6 +243,29 @@
           (is (= :done (:status c)) "it is not loading — that is what makes it a trap")
           (is (false? (:belief? c)))))
       (finally (v/clear! built)))))
+
+(deftest a-kb-whose-nodes-are-all-out-says-so-though-every-handle-has-one
+  ;; The other beliefless state, and the one a probe for *any* node reads as healthy:
+  ;; `recover` gives every stored record a node before it labels anything, so a store
+  ;; whose records ground nothing recovers into a full network with all of it OUT.  The
+  ;; result is a KB that is `:done`, has a node per handle, and believes not one thing —
+  ;; every belief-filtered read empty, which is exactly what the caveat exists to name.
+  (let [spaces {:backend :memory :space (beside-the-block ::all-out) :recover? false}
+        kb     (v/open-kb spaces)]
+    (try
+      ;; an inert sentex is the cheap way to a record nothing grounds: stored and
+      ;; indexed, never a premise, so the rebuild has a node to build and no strength
+      ;; to build it from
+      (v/assert-inert kb '(dog Muffet) 'CxUniverse)
+      (v/recover kb)
+      (is (seq (jtms/datums (:tms kb))) "the rebuild gave the stored record a node")
+      (is (empty? (jtms/in-datums (:tms kb))) "and nothing grounds it, so it is OUT")
+      (cat/register! "all-out" "Recovered from a store that grounds nothing" kb)
+      (is (cat/activate "all-out"))
+      (let [c (cat/active-caveat)]
+        (is (= :done (:status c)) "it is not loading — that is what makes it a trap")
+        (is (false? (:belief? c))))
+      (finally (v/clear! kb)))))
 
 (deftest unloading-clears-a-memory-kb-and-hands-the-browser-another
   (let [a (cat/load-source "core")
@@ -273,6 +328,34 @@
             (is (pos? (v/sentex-count kb)))
             ((requiring-resolve 'vaelii.impl.disk.backend/close-dir!) dir))))
       (finally
+        (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^java.io.File f))))))
+
+(deftest a-release-that-did-not-happen-is-not-reported-as-one
+  ;; The half of unloading nobody sees until it goes wrong: the release can fail — an
+  ;; index that will not fsync, a component that throws on close — and the directory is
+  ;; then in whatever state that left.  Logging it and dropping the entry would tell the
+  ;; operator it had released a KB it had not.
+  (let [dir (str (System/getProperty "java.io.tmpdir") "/vaelii-catalog-unclean-" (System/nanoTime))]
+    (try
+      (let [key (cat/load-source "core" {:dir dir})]
+        (is (wait-for))
+        (cat/activate key)
+        (with-redefs [disk/close-dir! (fn [_] (throw (ex-info "the index would not fsync" {})))]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"did not release cleanly"
+                                (cat/unload! key))))
+        (testing "the entry keeps its place, and says what happened to it"
+          (let [e (cat/entry key)]
+            (is (some? e) "dropping it would be the report that it released")
+            (is (= :unreleased (:status e)))
+            (is (re-find #"would not fsync" (:error e)))))
+        (testing "and it is not what the browser reads — a KB whose stores half-closed is
+                  the one thing here nobody can vouch for"
+          (is (not= key (cat/active))))
+        (testing "unloading it again retries the release, and this time it takes"
+          (is (true? (cat/unload! key)))
+          (is (nil? (cat/entry key)))))
+      (finally
+        (try (disk/close-dir! dir) (catch Exception _))
         (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^java.io.File f))))))
 
 (deftest a-failed-load-says-why-and-can-still-be-cleaned-up
@@ -440,6 +523,38 @@
         (cat/unload! "mine"))
       (finally
         (if prop (System/setProperty "vaelii.kb.path" prop) (System/clearProperty "vaelii.kb.path"))
+        (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
+(deftest unloading-gives-way-to-the-walk-it-would-have-emptied
+  (let [root (io/file (System/getProperty "java.io.tmpdir")
+                      (str "vaelii-catalog-unload-export-" (System/nanoTime)))
+        dump (io/file root "a-dump")]
+    (try
+      (.mkdirs root)
+      (tu/with-cleared-kb [kb tu/fresh]
+        (v/assert kb '(genl tmp_unload_type thing) 'CxUniverse)
+        (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
+        ;; `:run-in` is the wrapper the walk runs inside, so holding it here holds the
+        ;; export at exactly the point an in-flight reader sits: the job is running and
+        ;; the KB is spoken for.
+        (let [gate (promise)]
+          (cat/export-entry! "mine" (.getPath dump)
+                             {:compression :none :run-in (fn [work] @gate (work))})
+          (is (true? (cat/exporting-kb? kb)))
+          (testing "the unload gives way — the walk fetches record by record with no
+                    snapshot, so a release landing mid-walk would leave it a dump of a KB
+                    that stopped existing halfway through"
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"being exported"
+                                  (cat/unload! "mine"))))
+          (testing "and nothing was taken: the entry is whole and the KB is still live"
+            (is (some? (cat/entry "mine")))
+            (is (pos? (v/sentex-count kb))))
+          (deliver gate true)
+          (is (wait-for-export)))
+        (testing "once the walk is done the unload takes, as it always did"
+          (is (true? (cat/unload! "mine")))
+          (is (nil? (cat/entry "mine")))))
+      (finally
         (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
 
 (deftest an-export-refuses-what-it-cannot-be-a-dump-of

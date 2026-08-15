@@ -52,80 +52,44 @@
   *about* space, so CxCore keeps only the grammar they are declared in.  The prover
   is **opt-in** on top of it: register it with `vaelii.core/add-prover`, and until then a
   KB stores and retrieves directions as ordinary facts without paying for the network."
-  (:require [clojure.set :as set]
+  (:require [vaelii.impl.projection :as proj]
             [vaelii.impl.qcn-kb :as qkb]))
 
 ;; ---- the algebra --------------------------------------------------------
 
-(def all-directions
-  "The nine base directions — the eight compass points and coincidence.  Jointly
-  exhaustive and pairwise disjoint, so exactly one holds of any two places, and this is
-  the universe of the algebra: the constraint on a pair nothing is known about."
-  #{:n :ne :e :se :s :sw :w :nw :eq})
-
 (def direction->xy
   "Each base direction as its `[x-relation y-relation]` projection — where the target
-  lies on the east-west axis, and where on the north-south one."
+  lies on the east-west axis, and where on the north-south one.  The nine base
+  directions are these keys: the eight compass points and coincidence, jointly
+  exhaustive and pairwise disjoint, so exactly one holds of any two places.
+
+  This table is the whole of what distinguishes the cardinal directions from the
+  relative frame (`vaelii.impl.relative`); everything algebraic about them is
+  `vaelii.impl.projection`'s, computed from here."
   {:n  [:eq :gt], :ne [:gt :gt], :e [:gt :eq], :se [:gt :lt]
    :s  [:eq :lt], :sw [:lt :lt], :w [:lt :eq], :nw [:lt :gt]
    :eq [:eq :eq]})
 
-(def xy->direction
-  "The projection read backwards.  It is **total** over the nine `[x y]` combinations —
-  three point relations on each of two axes, nine directions — which is what makes
-  composition total: whatever pair of point relations the axes compose to names a
-  direction, so no combination falls out of the algebra."
-  (set/map-invert direction->xy))
-
-(def point-compose
-  "The one-dimensional point algebra: `[a b]` → the relations possible between x and z
-  when a relates x to y and b relates y to z.  Only the two disagreeing pairs lose
-  information — x < y and y > z says nothing at all about x and z."
-  {[:lt :lt] #{:lt}, [:lt :eq] #{:lt}, [:lt :gt] #{:lt :eq :gt}
-   [:eq :lt] #{:lt}, [:eq :eq] #{:eq}, [:eq :gt] #{:gt}
-   [:gt :lt] #{:lt :eq :gt}, [:gt :eq] #{:gt}, [:gt :gt] #{:gt}})
-
-(defn compose
-  "The composition of two direction SETS: every direction possible from x to z when the
-  direction x→y is in `s1` and y→z is in `s2`.
-
-  Computed, never looked up.  Each direction is a pair of independent axis projections,
-  so composing them is composing each axis through `point-compose` and taking the
-  product of the two results — north-then-east is `:eq;:gt` = `:gt` on x and `:gt;:eq` =
-  `:gt` on y, which is northeast.  Two opposite diagonals lose both axes at once and
-  compose to the whole universe."
-  [s1 s2]
-  (into #{}
-        (for [d1 s1 d2 s2
-              :let [[ax ay] (direction->xy d1)
-                    [bx by] (direction->xy d2)]
-              cx (point-compose [ax bx])
-              cy (point-compose [ay by])]
-          (xy->direction [cx cy]))))
-
-(def point-converse
-  "The one-dimensional point algebra's converse: reading a relation backwards flips it."
-  {:lt :gt, :eq :eq, :gt :lt})
-
-(defn- converse-direction
-  "The converse of one base direction — flip both axes, so north becomes south and
-  northeast southwest.  Coincidence is its own converse."
-  [d]
-  (let [[x y] (direction->xy d)]
-    (xy->direction [(point-converse x) (point-converse y)])))
-
-(defn converse-set
-  "The converse of a direction set — how an asserted `(P a b)` constraint is read
-  backwards as the constraint on `(b a)`."
-  [dirs]
-  (into #{} (map converse-direction) dirs))
-
 (def direction-algebra
-  "The cardinal directions as a `vaelii.impl.qcn` relation algebra."
-  {:universe all-directions
-   :identity #{:eq}
-   :compose  compose
-   :converse converse-set})
+  "The cardinal directions as a `vaelii.impl.qcn` relation algebra — universe, identity,
+  composition and converse, all derived from the projection above."
+  (proj/algebra direction->xy))
+
+(def all-directions
+  "The universe of the algebra: the constraint on a pair nothing is known about."
+  (:universe direction-algebra))
+
+(def compose
+  "The composition of two direction SETS: every direction possible from x to z when the
+  direction x→y is in `s1` and y→z is in `s2`.  Computed axis-wise — see
+  `vaelii.impl.projection`."
+  (:compose direction-algebra))
+
+(def converse-set
+  "The converse of a direction set — how an asserted `(P a b)` constraint is read
+  backwards as the constraint on `(b a)`.  North becomes south and northeast southwest;
+  coincidence is its own converse."
+  (:converse direction-algebra))
 
 ;; ---- the vocabulary -----------------------------------------------------
 
@@ -160,12 +124,6 @@
   is the same code RCC-8 and the interval algebra run."
   (qkb/calculus :cardinal direction-algebra direction-denotation))
 
-(defn constraint
-  "The constraint set on `[i j]` in `net`: `#{:eq}` on the diagonal, the recorded set,
-  else all nine (unknown)."
-  [net i j]
-  (qkb/constraint cardinal net i j))
-
 (defn possible-directions
   "The base directions still possible from place `a` to place `b` given everything
   believed in `context` — `#{}` when the network is inconsistent."
@@ -178,11 +136,6 @@
   directions remain possible."
   [kb context a b]
   (qkb/definite cardinal kb context a b))
-
-(defn inconsistent?
-  "Is the direction network visible from `context` unsatisfiable?"
-  [kb context]
-  (qkb/inconsistent? cardinal kb context))
 
 (defn orientation-prover
   "The cardinal-direction entailment prover, to register with `vaelii.core/add-prover`."

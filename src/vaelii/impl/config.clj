@@ -122,30 +122,34 @@
                                 :else       ""))
            {:min lo :max hi}))
 
+(defn- prop-number
+  "`nm` parsed by `parse`, `default` when unset, refused outside `lo`/`hi`.  The body the
+  two readers below share; `kind` is the noun the refusal spells, and it is the only
+  thing besides the parser that ever differed between them.
+
+  The bound test compares the parsed number rather than a coercion of it, so a whole
+  number past a double's exact range is still bounded exactly — the values read here are
+  capacities and byte caps, which is precisely where a caller can name one that large."
+  [nm default lo hi kind parse]
+  (if-let [v (raw nm)]
+    (let [n (try (parse v)
+                 (catch NumberFormatException _
+                   (refuse-number! nm v kind lo hi)))]
+      (when (or (and lo (< n lo)) (and hi (> n hi)))
+        (refuse-number! nm v kind lo hi))
+      n)
+    default))
+
 (defn prop-long
   "`nm` as a long, `default` when unset.  `lo`/`hi` bound it — every count read here is a
   duration or a capacity, so one below zero is a typo rather than a setting."
   [nm default lo hi]
-  (if-let [v (raw nm)]
-    (let [n (try (Long/parseLong v)
-                 (catch NumberFormatException _
-                   (refuse-number! nm v "a whole number" lo hi)))]
-      (when (or (and lo (< (long n) (long lo))) (and hi (> (long n) (long hi))))
-        (refuse-number! nm v "a whole number" lo hi))
-      n)
-    default))
+  (prop-number nm default lo hi "a whole number" #(Long/parseLong ^String %)))
 
 (defn prop-double
   "`nm` as a double, `default` when unset, bounded by `lo`/`hi` as `prop-long` is."
   [nm default lo hi]
-  (if-let [v (raw nm)]
-    (let [n (try (Double/parseDouble v)
-                 (catch NumberFormatException _
-                   (refuse-number! nm v "a number" lo hi)))]
-      (when (or (and lo (< (double n) (double lo))) (and hi (> (double n) (double hi))))
-        (refuse-number! nm v "a number" lo hi))
-      n)
-    default))
+  (prop-number nm default lo hi "a number" #(Double/parseDouble ^String %)))
 
 ;; ---- the switches -------------------------------------------------------
 ;; One accessor per switch, holding its domain and its default.  The call sites read

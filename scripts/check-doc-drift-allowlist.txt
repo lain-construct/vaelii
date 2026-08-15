@@ -2,9 +2,8 @@
 # flagged token. `#` comments allowed. A dead entry (matched nothing this run)
 # is reported as an advisory — prune it.
 
-# Third-party vars legitimately named in docs (taoensso.trove, hiccup2.core).
+# Third-party var legitimately named in docs (taoensso.trove).
 trove/log!
-h/raw
 
 # Unit, not a namespaced var (`m/s` in docs/quantity.md).
 m/s

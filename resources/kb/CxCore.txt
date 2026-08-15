@@ -294,7 +294,7 @@
 (decontextualizedPredicate symmetric)
 
 (comment asymmetric
-         "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory, which makes ?predicate irreflexive too, and a strict order such as largerThan is the usual case. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it.")
+         "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory, and a strict order such as largerThan is the usual case. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused.")
 (unaryPredicate asymmetric)
 (decontextualizedPredicate asymmetric)
 

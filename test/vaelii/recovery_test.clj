@@ -78,6 +78,35 @@
       (testing "and re-derives what it does"
         (is (v/disjoint? kb2 dog cat))))))
 
+(tu/deftest-kb recover-does-not-answer-through-an-unsupported-edge
+  ;; The replay reads **stored** declarations, so an edge whose record carries no premise
+  ;; mark and no justification is activated exactly as a supported one is — and nothing in
+  ;; the rebuild opposes it.  No defeat, no block, no supersession: the closing settle has
+  ;; no event to react to, and the region-scoped reconcile it runs when it does have one
+  ;; would not name this edge either.  So recovery reconciles against belief itself, before
+  ;; the settle.  The defeated twin of the claim is
+  ;; `taxonomy_belief_test/recover-does-not-revive-a-defeated-edge`, which the opposition
+  ;; alone would carry; a store whose records lost their strength marks is what presents
+  ;; the unsupported case, and the record store's own API is what stages it here.
+  (tu/with-terms [dog_t mammal_t Rex]
+    (v/assert kb (list 'genl dog_t mammal_t) 'CxUniverse)
+    (v/assert kb (list dog_t Rex) 'CxUniverse)
+    (let [h (v/handle-of kb (list 'genl dog_t mammal_t) 'CxUniverse)]
+      (p/unmark-premise! (:records kb) h)     ; the record survives, its support does not
+      (let [kb2 (restart)]
+        (v/recover kb2)
+        (is (not (v/in? kb2 h)) "nothing stored supports the edge")
+        (testing "so nothing derived from the closure answers through it"
+          (is (not (contains? (set (v/genls kb2 dog_t)) mammal_t)))
+          (is (not (contains? (set (v/types kb2)) mammal_t)))
+          (is (not (v/isa? kb2 Rex mammal_t))))
+        (testing "and the supporter is still stored, so re-marking it brings the edge back"
+          (p/mark-premise (:records kb2) h :default)
+          (v/recover kb2)
+          (is (v/in? kb2 h))
+          (is (contains? (set (v/genls kb2 dog_t)) mammal_t))
+          (is (v/isa? kb2 Rex mammal_t)))))))
+
 (tu/deftest-kb recover-rebuilds-disjoint-metatype-membership
   ;; A metatype's members are cached in memory, not stored: the only durable trace is
   ;; the `(M T)` sentexes themselves.  So recovery has to re-read them *after* the
@@ -99,9 +128,9 @@
   ;; stops constraining (docs/taxonomy.md).  Recovery must reproduce that, not merely
   ;; be self-consistent.  `rebuild-taxonomy` replays the *stored* disjoint (the
   ;; defeated one included) so `:cache-support` records every asserting sentex, and the
-  ;; `settle` at the end of `recover` then drops it by belief — the same answer either
-  ;; side of a restart.  A belief-filtered rebuild would lose the disbelieved supporter
-  ;; and clearing its defeat could never revive the entry.
+  ;; reconcile `recover` runs over the replay then drops it by belief — the same answer
+  ;; either side of a restart.  A belief-filtered rebuild would lose the disbelieved
+  ;; supporter and clearing its defeat could never revive the entry.
   (let [dog (tu/tmp-type) cat (tu/tmp-type)]
     (v/assert kb (list 'disjoint dog cat) 'CxUniverse {:strength :default})
     (v/assert kb (list 'not (list 'disjoint dog cat)) 'CxUniverse {:strength :monotonic})
@@ -112,6 +141,60 @@
       (is (not (v/disjoint? kb2 dog cat)) "nor after a restart")
       (is (= before (v/disjoint? kb2 dog cat))
           "the answer must not change across a restart"))))
+
+(tu/deftest-kb recover-agrees-about-a-rule-concluded-equality
+  ;; The live path reads the write and the rebuild reads the store, so a functor whose
+  ;; two arms differ is a KB that disagrees with its own restart about what it entails.
+  ;; A rule concluding one of the three equality relations is the case that asks it of
+  ;; the closure: the conclusion is stored like any other, `rebuild-taxonomy` replays
+  ;; every stored `rewriteOf` / `sameAs` / `equals`, and the derivation path has to have
+  ;; put the same edge in the running KB.  All three relations, since the arm is
+  ;; dispatched by functor.  The live half of the claim is
+  ;; `equality-test/a-rule-concluding-an-equality-merges-like-an-asserted-one`.
+  (doseq [rel '[rewriteOf sameAs equals]]
+    (testing (str "a rule concluding " rel)
+      (let [aliasOf  (tu/tmp-pred "alias")
+            caresFor (tu/tmp-pred "caresFor")
+            Tom      (tu/tmp-ind "Tom")
+            [lo hi]  (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
+        (v/assert-rule kb [(list aliasOf '?x '?y)] (list rel '?x '?y) 'CxUniverse)
+        (v/assert kb (list caresFor hi Tom) 'CxUniverse)
+        (v/assert kb (list aliasOf lo hi) 'CxUniverse)
+        (let [live-class (set (v/equiv-class kb hi))
+              live-rep   (v/representative kb hi)
+              live-in?   (v/in? kb (v/handle-of kb (list caresFor hi Tom) 'CxUniverse))
+              kb2        (restart)]
+          (v/recover kb2)
+          (testing "the rebuilt closure holds what the live one holds"
+            (is (= live-class (set (v/equiv-class kb2 hi)))
+                (str "the running KB and its own rebuild disagree about " hi "'s class: "
+                     (pr-str live-class) " live, "
+                     (pr-str (set (v/equiv-class kb2 hi))) " rebuilt"))
+            (is (= live-rep (v/representative kb2 hi))))
+          (testing "and they agree about the displaced spelling"
+            (is (= live-in?
+                   (v/in? kb2 (v/handle-of kb2 (list caresFor hi Tom) 'CxUniverse)))
+                "a restart changed whether the retired spelling is believed")))))))
+
+(tu/deftest-kb recover-agrees-about-a-rule-concluded-disjoint-metatype
+  ;; The same claim one functor over: `rebuild-taxonomy` replays every stored
+  ;; `disjointMetatype`, so a mark a rule concluded has to separate the metatype's
+  ;; members in the running KB as well, or the restart is what makes two types
+  ;; disjoint.  The members here are asserted; a member a rule *concludes* is a
+  ;; structural arm rather than a table entry and is where the derivation path stops
+  ;; (docs/taxonomy.md, "What a rule may conclude").
+  (let [seen (tu/tmp-pred "seen") m (tu/tmp-pred "kindOf")
+        a    (tu/tmp-type "aa")   b (tu/tmp-type "bb")]
+    (v/assert-rule kb [(list seen '?p)] (list 'disjointMetatype '?p) 'CxUniverse)
+    (v/assert kb (list m a) 'CxUniverse)
+    (v/assert kb (list m b) 'CxUniverse)
+    (v/assert kb (list seen m) 'CxUniverse)
+    (let [live (v/disjoint? kb a b)
+          kb2  (restart)]
+      (is live "a metatype a rule concluded does not separate its members")
+      (v/recover kb2)
+      (is (= live (v/disjoint? kb2 a b))
+          "a restart changed whether the metatype separates its members"))))
 
 (tu/deftest-kb rejected-assert-leaves-no-trace
   (let [dog (tu/tmp-type) animal (tu/tmp-type) muffet (tu/tmp-ind)]

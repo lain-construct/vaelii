@@ -27,6 +27,7 @@
             [vaelii.impl.memory :as mem]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
+            [vaelii.impl.opts :as opts]
             [vaelii.impl.overlay.mount :as mount]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
@@ -123,10 +124,15 @@
 ;; here so `core/close!` can release the exclusive FileLock the disk backend takes:
 ;; without it a long-running process could not hand a directory to another process, or
 ;; reopen it elsewhere, until the JVM exited.
+;; `unrecovered` is the write side of "this KB's derived state was never built over a
+;; store that already held records" — `{:no-belief bool :no-index bool :announced? bool}`,
+;; each key absent until something asks.  Reads over that state answer nothing and can be
+;; re-asked; a write lands content the store keeps, so the write doors ask
+;; `write-hazards` below.  An atom because `recover` and `reindex` clear what they build.
 (defrecord KB [records index tms taxonomy provers solver conflicts program violations
                contradictions recheck refused settle-stats chain-stats opposed excepted
                negations clashes supersessions reports qcn qcn-joined matches closures
-               naming constraints rule-antecedents rule-contexts feed dir])
+               naming constraints rule-antecedents rule-contexts feed dir unrecovered])
 
 ;; ---- storage selection: two independent axes ------------------------------
 ;;
@@ -339,16 +345,17 @@
   that took the default is indistinguishable downstream from one that asked for it, so
   the only place that can still tell is here, where what was written is still legible.
 
-  `where` names the map, since a fork's `:base` and `:overlay` carry opts of their own."
+  `where` names the map, since a fork's `:base` and `:overlay` carry opts of their own.
+
+  Through the shared door (`opts/check!`), which also refuses a non-map `opts` — the one
+  thing this door did not: `(open-kb :nope)` reached `keys` and came back as a bare
+  `IllegalArgumentException` about creating an ISeq, where every other public entry point
+  answers `:unknown-option`.  It is the most-used option map in the API and was the one
+  with no guard on the shape of it."
   [opts where]
-  (when-let [unknown (seq (sort-by pr-str (remove opt-keys (keys opts))))]
-    (throw (ex-info (str "unknown " where " option" (when (next unknown) "s") " "
-                         (str/join ", " (map pr-str unknown))
-                         " — open-kb reads " (str/join ", " (map pr-str (sort opt-keys)))
-                         ".  An option nothing reads takes the default in silence,"
-                         " which for a store number means sharing a store.")
-                    {:type :unknown-option :unknown (vec unknown)
-                     :options (vec (sort opt-keys))}))))
+  (opts/check! opts opt-keys where
+               (str "An option nothing reads takes the default in silence,"
+                    " which for a store number means sharing a store.")))
 
 ;; How many in-RAM KBs this process has opened on the **default** space without naming
 ;; it — read by `note-default-ram-space!` below.  `defonce` so a REPL reload does not
@@ -513,6 +520,116 @@
                                 " for :auto, or pass false to open in silence")))
                     {:type :unknown-option :recover? recover?
                      :options [:auto true :warn false]}))))
+
+;; ---- the write side of an unbuilt derived state --------------------------
+;;
+;; "Unrecovered" names one condition on the read side and two on the write side, and the
+;; two are repaired by different calls.  **No belief** is an empty TMS over a full record
+;; store: every definitional check reads `jtms/in?` and so passes vacuously, and no later
+;; moment re-runs them (`recover`'s closing settle binds `settle/*rebuilding?*`).  **No
+;; index** is the derived index opening empty over those same records: `assert` dedups
+;; through `p/lookup`, so every assert mints a fresh handle for a sentence already stored
+;; and `reindex` cannot merge the two, because they are two records.  A KB can hold either
+;; without the other — `recover` over a derived-index store builds belief and leaves the
+;; index empty — so they are reported separately and each names its own repair.
+;;
+;; Both are **declared** rather than probed for, and that is the load-bearing decision
+;; here.  A probe would have to read "the store holds records and this KB's TMS holds no
+;; node" — and that is a true reading of a perfectly healthy KB, because `assert-inert`
+;; stores a record and mints no node.  A KB of nothing but inert sentexes is
+;; record-for-record and node-for-node identical to one whose belief was never built, so
+;; the probe does not merely risk a false positive: on that KB it refuses every write, and
+;; the inert store is a shape the engine offers a door for.  Nor would it survive being
+;; right — one assert into a KB with no belief gives the TMS its first node and erases the
+;; evidence for the refusal it should still be making.
+;;
+;; So each hazard is a fact about how the KB came to hold what it holds — it opened over a
+;; populated store, or a loader filled it and skipped the recover — recorded where that is
+;; known: `open-kb` below, and the loader through `note-hazards!`.  What that costs is
+;; stated rather than hidden: a KB opened over an **empty** store which another KB then
+;; fills has no declaration to make and no way to infer one, so the same two-KB pairing is
+;; guarded or unguarded depending on which end opened first.  Belief is per-KB and the
+;; second KB's is behind by construction (`open-kb`'s docstring, and
+;; `note-default-ram-space!`); a write through the KB that is behind is as unchecked as any
+;; other write over an unbuilt network, and only the ordering that lets `open-kb` see the
+;; records catches it.
+
+(defn note-hazards!
+  "Record which of `{:no-belief :no-index}` hold for this KB — `{:no-belief false}` from
+  `core/recover`, `{:no-index false}` from `core/reindex`, and whatever it finds from
+  `open-kb`.  A key this does not mention is left as it was.  Returns `kb`.
+
+  Also, and necessarily, the seam an **importer** declares itself through: a load that
+  lands records and skips the recover (`:belief? false`, `:belief? :stored`) leaves
+  exactly this state in a KB that opened over an empty store, and nothing downstream can
+  work that out by reading — a records-only foreign load's store is byte-for-byte the
+  store a KB of `assert-inert` sentexes has.  Such a load says `{:no-belief true}` here."
+  [kb hazards] (swap! (:unrecovered kb) into hazards) kb)
+
+(defn write-hazards
+  "What about this KB makes a write into it wrong, as a map of the hazards that hold —
+  `{:no-belief true}`, `{:no-index true}`, both, or `{}` when neither does.  The write
+  doors read it (`core/check-writable!`); the read doors do not, since a read over an
+  unbuilt derived state answers nothing and can simply be re-asked.
+
+  Reports what was **declared** — by `open-kb` over a store that was already populated,
+  by a loader through `note-hazards!` — and retires what `recover` / `reindex` have
+  since built.  It infers nothing, for the reason above the seam: the state a probe
+  could see is indistinguishable from a supported arrangement, and this one is a fact
+  about the KB's history rather than about the current shape of two data structures.
+
+  **A standing hazard is confirmed against the store still holding something**, and reads
+  as absent while it does not.  Every hazard here is a claim about stored records, so an
+  empty store has nothing for one to be true of: there is no unbuilt belief over no
+  records, and the first assert into an empty store builds the network as it goes.
+
+  **The read does not retire the declaration**, which is the difference between reading
+  the hazard and clearing it.  An importer declares `{:no-belief true}` *before* its first
+  write, so that it holds for the whole load including one that throws part-way
+  (`io.import`), and at that moment the store is still empty — a read that cleared the
+  latch there would release the declaration for good and hand the finished load a KB whose
+  records are unbuilt and whose hazard is gone.  So the emptiness decides the answer and
+  nothing else, and retiring it is `discharge-over-empty-store!`'s, on the one event that
+  distinguishes the two cases.  Only ever asked when something is claimed: the healthy
+  answer reads the atom and no store."
+  [kb]
+  (let [held (into {} (filter (comp true? val)) (dissoc @(:unrecovered kb) :announced?))]
+    (cond
+      (empty? held)                                 {}
+      (some? (first (p/sentex-ids (:records kb))))  held
+      :else                                         {})))
+
+(defn discharge-over-empty-store!
+  "Retire a standing hazard when a **write door is about to write into an empty store**,
+  and answer whether one was retired.
+
+  This is the event that tells the importer's declaration apart from a stale one, which a
+  read of the atom cannot.  Both look identical — a hazard declared, no records yet — and
+  they differ in what happens next: the importer writes its records *around* the write
+  doors, at the dump's own handles, so it never arrives here and its declaration stands
+  for the whole load.  Anything else that emptied the store and is now asserting is
+  building this KB's network as it goes, and the hazard it would otherwise inherit is a
+  claim about records that are gone.
+
+  Discharging it here rather than at each wipe is what keeps the rule in one place.  A
+  store can be emptied by `p/clear-records!`, which any holder of the store can call —
+  `core/clear!` is one route, the suite's fixtures another, the perf harness a third — and
+  a rule every caller has to know is one three of them have already got wrong.
+
+  Costs a map read on a KB with no hazard standing, which is every healthy one after its
+  first write; the store read behind it is reached only while a hazard stands."
+  [kb]
+  (let [held (into {} (filter (comp true? val)) (dissoc @(:unrecovered kb) :announced?))]
+    (boolean
+     (when (and (seq held) (nil? (first (p/sentex-ids (:records kb)))))
+       (note-hazards! kb {:no-belief false :no-index false})
+       true))))
+
+(defn announce-once!
+  "True the first time it is called for `kb`, false afterwards — so the write-side escape
+  says what it is giving up once per KB rather than once per assert."
+  [kb]
+  (not (:announced? (first (swap-vals! (:unrecovered kb) assoc :announced? true)))))
 
 (defn- snapshot-mode?
   "Is this KB the one configuration a mapped index snapshot is for — durable records
@@ -719,7 +836,14 @@
                      :naming    naming
                      ;; likewise, and nil on purpose — the caller said nothing, so
                      ;; `checks/arbitrating?` reads the process default
-                     :constraints constraints})
+                     :constraints constraints
+                     ;; empty rather than `{:no-belief false :no-index false}`: a key
+                     ;; absent means *nobody has asked yet*, which is not the same
+                     ;; answer as "no".  The store is not populated until the branch
+                     ;; below runs (or an import fills it after this open returns), so
+                     ;; the belief half is settled by whoever first needs it and the
+                     ;; index half by this open — see `write-hazards`
+                     :unrecovered (atom {})})
         snapshot? (snapshot-mode? rkind ikind)]
     (when snapshot? (register-index-snapshot! (disk/disk-dir opts) istore rstore))
     ;; The durable index is gated on its key-layout sentinel before anything reads
@@ -861,40 +985,67 @@
       ;; one step longer than `recover`: rebuild the index from the records first, then
       ;; recover the TMS and taxonomy from both.  That ordering *is* `core/reindex`.
       (seq (p/sentex-ids (:records kb)))
-      (when recover?
-        (if (= :auto recover?)
-          (if index-durable?
-            (recover-fn kb)
-            ;; A derived index is rebuilt from the records here — unless a **mapped
-            ;; snapshot** of it survives and still describes them, in which case the
-            ;; rebuild is replaced by reading its bytes back
-            ;; (`vaelii.impl.disk.index-snapshot`).  The stamp decides; a snapshot that
-            ;; fails any part of it falls back to exactly the rebuild below, which is
-            ;; always legal because the index is derived state.
-            (let [snap (when snapshot?
-                         (map-index-snapshot! (disk/disk-dir opts) istore rstore))]
-              (if (= :mapped (:index snap))
-                (recover-fn kb)
-                ;; O(records), paid on every open — the standing cost of not persisting
-                ;; the index, and the number that decides whether persisting a snapshot
-                ;; of one is worth it, so it is reported rather than absorbed silently
-                (let [t0 (System/nanoTime)
-                      {:keys [sentexes rules]} (reindex-fn kb)
-                      ms (/ (- (System/nanoTime) t0) 1e6)]
-                  (trove/log! {:level :info :id ::reindexed-on-open
-                               :msg (format "rebuilt the derived index from %d records (%d rules) in %.0f ms%s"
-                                            (long sentexes) (long rules) ms
-                                            (if snap (str " — no usable index snapshot ("
-                                                          (name (:reason snap)) ")") ""))})))))
-          (trove/log! {:level :warn :id ::unrecovered-store
-                       :msg (str "the record store (space " space ") already holds sentexes "
-                                 "but this KB's TMS and taxonomy are empty"
-                                 (when-not index-durable?
-                                   ", and its index is derived state that opens empty")
-                                 " — queries will silently answer nothing.  Call "
-                                 (if index-durable? "(recover kb)" "(reindex kb)")
-                                 ", or construct with {:recover? :auto}; {:recover? false} "
-                                 "silences this.")})))
+      (do
+        (when recover?
+          (if (= :auto recover?)
+            (if index-durable?
+              (recover-fn kb)
+              ;; A derived index is rebuilt from the records here — unless a **mapped
+              ;; snapshot** of it survives and still describes them, in which case the
+              ;; rebuild is replaced by reading its bytes back
+              ;; (`vaelii.impl.disk.index-snapshot`).  The stamp decides; a snapshot that
+              ;; fails any part of it falls back to exactly the rebuild below, which is
+              ;; always legal because the index is derived state.
+              (let [snap (when snapshot?
+                           (map-index-snapshot! (disk/disk-dir opts) istore rstore))]
+                (if (= :mapped (:index snap))
+                  (recover-fn kb)
+                  ;; O(records), paid on every open — the standing cost of not persisting
+                  ;; the index, and the number that decides whether persisting a snapshot
+                  ;; of one is worth it, so it is reported rather than absorbed silently
+                  (let [t0 (System/nanoTime)
+                        {:keys [sentexes rules]} (reindex-fn kb)
+                        ms (/ (- (System/nanoTime) t0) 1e6)]
+                    (trove/log! {:level :info :id ::reindexed-on-open
+                                 :msg (format "rebuilt the derived index from %d records (%d rules) in %.0f ms%s"
+                                              (long sentexes) (long rules) ms
+                                              (if snap (str " — no usable index snapshot ("
+                                                            (name (:reason snap)) ")") ""))})))))
+            (trove/log! {:level :warn :id ::unrecovered-store
+                         :msg (str "the record store (space " space ") already holds sentexes "
+                                   "but this KB's TMS and taxonomy are empty"
+                                   (when-not index-durable?
+                                     ", and its index is derived state that opens empty")
+                                   " — queries will silently answer nothing.  Call "
+                                   (if index-durable? "(recover kb)" "(reindex kb)")
+                                   ", or construct with {:recover? :auto}; {:recover? false} "
+                                   "silences this.")})))
+        ;; The **write** side, settled here and only here: this is the one place that
+        ;; knows the store was already populated when this KB opened, and it reads what
+        ;; the dispatch above actually left rather than which arm it took — a mapped
+        ;; index snapshot populates the derived index without a `reindex`, and a
+        ;; `:recover? :warn` recovers nothing at all.
+        (note-hazards! kb {:no-belief (nil? (first (jtms/datums (:tms kb))))
+                           :no-index  (zero? (long (p/count-at (:index kb) [])))})
+        ;; ...and saying so, which `{:recover? false}` was silent about entirely.  The
+        ;; warning above describes what a *read* gets, and `false` asks not to hear it —
+        ;; a caller managing recovery itself already knows.  What that caller could not
+        ;; know is that the same state is not a read-only one: writes into it are refused
+        ;; by name, which is a different fact with a different repair, and this is the
+        ;; only moment before the refusal at which it can be said.  At `:info`, so
+        ;; `{:recover? false}` stays as quiet as it promised at `:warn` and above.
+        (when-let [hz (seq (write-hazards kb))]
+          (let [index? (contains? (into {} hz) :no-index)]
+            (trove/log! {:level :info :id ::unrecovered-store-writes
+                         :msg (str "this KB is open over a store whose "
+                                   (if index? "belief and index were" "belief was")
+                                   " never built, so writes into it are refused"
+                                   " (:type :unrecovered-kb).  Call "
+                                   (if index? "(reindex kb)" "(recover kb)")
+                                   " to make it writable, or bind"
+                                   " vaelii.core/*write-unrecovered?* to accept them"
+                                   " unchecked and un-deduplicated.")
+                         :data {:hazards (vec (sort (keys (into {} hz))))}}))))
 
       ;; The mirror case, and the more dangerous one: a derived index holding entries
       ;; for records that are *gone*.  Such an index is shared for the life of the JVM
@@ -1343,6 +1494,124 @@
      [h (p/get-sentex (:records kb) h) false]
      (let [[h s] (create-sentex kb sentence context strength)]
        [h s true]))))
+
+(defn antecedent-order
+  "`handles` as a justification's stored antecedent vector: ordered by what each
+  antecedent **says** — its printed sentence, then its context — never by the handle.
+
+  A handle is allocated in assertion order, so a vector in the order the derivation
+  built it is a record of which side arrived first.  A firing is seeded by the antecedent
+  that triggered it (`chain/complete-antecedents`), so `a(x,y) ⇐ b1, b2` arrives here as
+  `[h_b2 h_b1 rule]` under one arrival order and `[h_b1 h_b2 rule]` under the other, and
+  a merge derived from two facts arrives naming them in the order they were written.
+  Stored that way, everything that reads it would inherit that: `core/why`'s `:because`,
+  `why-not`'s `:missing`, `preview`'s `:antecedents`, the browser's justification line —
+  and `core/supporting-justifications`' sort key is computed *from* it, so the key whose
+  whole job is to make a list of justifications order-independent would itself be keyed
+  on arrival.
+
+  **The informant is ordered with the rest, not pinned to a position.**  It is named by
+  the record's own `:informant` slot, so a position would restate it; half the engine's
+  informants are symbols (`rewriteOf`, `functional`) that are no part of the vector at
+  all, so a position rule could not hold uniformly where one order over every antecedent
+  does.  Nothing reads a position: belief reads the antecedents as a **set**
+  (`jtms/valid?`, `jtms/has-justification?`), and `why` lifts the rule out by identity.
+
+  Keyed once per antecedent rather than once per comparison, and short-circuited below
+  two: this runs on the derivation path, where a firing builds one vector per placement
+  and a printed sentence is not free.
+
+  **Called where something is stored, never where something is only decided.**  A
+  printed sentence per antecedent is the price of the order, so it is paid once per
+  record written rather than once per firing: the callers are the justification writers
+  (`chain/place-fact-conclusion`, `chain/mint-rule`, `special/derive-equality`) and the
+  refusal ledger.  Everything upstream of them reads the antecedents as a **set** or as a
+  membership test — `jtms/has-justification?` keys on `[informant (set antecedents)]`,
+  `chain/antecedent-hidden?` is a `some` — so ordering upstream buys nothing and prices
+  the sort against firings rather than against records.  Keep it that way: move a call
+  **later** if a caller turns out to decide before it stores, never earlier."
+  [kb handles]
+  (if (< (count handles) 2)
+    (vec handles)
+    (let [recs (:records kb)
+          ;; The key is the one `pr-str` would write, and it is written the way `pr-str`
+          ;; writes it — `pr-on`'s body against a writer of our own — rather than through
+          ;; `pr-str` itself.  Same string for every value, `*print-dup*` included, and it
+          ;; drops the `*out*` rebinding `with-out-str` does per antecedent: a thread
+          ;; binding pushed and popped is about a third of what keying three handles
+          ;; costs, and this runs once per justification the engine stores.
+          k    (fn [h] (let [s (p/get-sentex recs h)
+                             w (java.io.StringWriter.)]
+                         (if *print-dup*
+                           (print-dup (:sentence s) w)
+                           (print-method (:sentence s) w))
+                         [(.toString w) (str (:context s))]))]
+      ;; print vars bound off, as everywhere EDN is written for something other than
+      ;; a human to read: an ambient `*print-length*` would elide two long sentences
+      ;; to one prefix, and the stable sort would fall back to the order the join
+      ;; happened to yield — which is the arrival order this exists to remove.  One
+      ;; frame for the whole vector, not one per antecedent — the keys are built inside
+      ;; it either way, and the vars are read by the printer rather than by the caller.
+      (binding [*print-length* nil *print-level* nil]
+        (->> handles (map (fn [h] [(k h) h])) (sort-by first) (mapv second))))))
+
+(defn justification-content-key
+  "The key every listing of justifications sorts on: what a justification **says** — the
+  informant, its antecedents' sentences, the firing's bindings, and the sentence and
+  context of what it concludes.  Returns the key fn, so a listing builds it once and the
+  record store is looked up through one closure.
+
+  Three readings share it and must not drift: `core/supporting-justifications`,
+  `core/dependent-justifications`, and a clash report's `:justifications`
+  (`settle/clash-report`).  All three start from a **set** of allocation-ordered ids
+  (`jtms/supports`, `jtms/dependents`), so an unsorted listing would say which
+  derivation happened to land first.
+
+  **The informant enters as its content, never as its handle.**  A rule informant
+  contributes the rule's sentence and context; a symbol informant (`rewriteOf`,
+  `functional`, `decontextualizedPredicate`) contributes the symbol.  Its handle would
+  be assertion order wearing a key's clothes — and it would decide the whole
+  comparison, since two justifications for one conclusion usually differ in their rule
+  before they differ in anything else.
+
+  The antecedent sentences are a key about content because the stored vector is itself
+  content-ordered (`antecedent-order`); computed off an arrival-ordered vector, the key
+  whose job is to make the *list* order-independent would be reading arrival order out
+  of each element instead.
+
+  The **consequence** is in the key for `dependent-justifications`, whose members
+  conclude different sentexes: one firing placed into two contexts differs in nothing
+  else, nor does a lifted copy from the fact it was lifted from.  It is constant across
+  the other two readings, which each list one conclusion's supports, so it moves
+  nothing there.
+
+  Two justifications with equal keys say the same thing and print the same way; only
+  their ids separate them, and an id is the arrival order this key exists to keep out."
+  [kb]
+  (let [recs (:records kb)
+        ;; **with the context**, because `antecedent-order` sorts on it: a key coarser
+        ;; than the ordering it is derived from leaves one firing placed into two
+        ;; contexts tied, and a tie falls back to `jtms/supports`' id order, which is the
+        ;; arrival order this key exists to keep out.  `core/preview` reads
+        ;; `(first (supporting-justifications …))`, so the tie is not cosmetic there
+        sent (fn [x] (when-let [s (some->> x (p/get-sentex recs))]
+                       [(:sentence s) (str (:context s))]))]
+    (fn [j]
+      (let [inf (:informant j)
+            isx (when (integer? inf) (p/get-sentex recs inf))
+            c   (some->> (:consequence j) (p/get-sentex recs))]
+        ;; print vars bound off, for `antecedent-order`'s reason: an elided sentence is
+        ;; a tie, and a tie falls back to the id set's own order
+        (binding [*print-length* nil *print-level* nil]
+          (pr-str [(if (integer? inf) (:sentence isx) (str inf)) (str (:context isx))
+                   (mapv sent (:antecedents j))
+                   ;; sorted, because a small binding map is a `PersistentArrayMap` and
+                   ;; prints in **insertion** order — which is the trigger order.  One
+                   ;; rule reached through two antecedents binds the same variables to
+                   ;; the same terms and printed two different ways, so equal bindings
+                   ;; gave unequal keys and the reading depended on which fact fired it
+                   (some->> (:bindings j) (into (sorted-map)))
+                   (:sentence c) (str (:context c))]))))))
 
 ;; ---- the equality closure: reading and rewriting -------------------------
 ;; The closure itself is `vaelii.impl.taxonomy`'s; the *machinery* that runs when two

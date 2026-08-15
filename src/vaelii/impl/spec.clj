@@ -102,11 +102,15 @@
 
 ;; Every kind the special table marks, and `special-table-test` holds the two together:
 ;; a kind the engine records and this set omits is a legal `has-prop?` call that
-;; instrumentation refuses.  The last two are a *function*'s kind rather than a
-;; predicate's, which `::term` admits either way.
+;; instrumentation refuses.  `:reifiable` / `:unreifiable` are a *function*'s kind rather
+;; than a predicate's, which `::term` admits either way; the three `:declares-*` say that
+;; a predicate is the **subject** of an argument constraint rather than that it carries a
+;; property, which is what lets the descension ask whose declarations bind a tuple
+;; without an index probe per super-predicate (`taxonomy/arg-declaration-props`).
 (s/def ::prop-kind #{:transitive :symmetric :asymmetric :reflexive :functional
                      :decontextualized :forced-decontextualized
-                     :abducible :reifiable :unreifiable})
+                     :abducible :reifiable :unreifiable
+                     :declares-arg-isa :declares-arg-genl :declares-inter-arg-isa})
 
 ;; ---- the sentex-map return contract -------------------------------------
 ;; `query` / `sentex` / the extent readers return sentex records, which are maps.

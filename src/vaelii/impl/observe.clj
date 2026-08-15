@@ -257,9 +257,8 @@
                   (if (and hit (== now (long (:clock hit))))
                     (:value hit)
                     (let [v (build (:value hit))]
-                      (swap! cache (fn [c]
-                                     (assoc (if (>= (count c) resident-limit) {} c)
-                                            k {:value v :clock now})))
+                      (swap! cache caches/assoc-bounded resident-limit
+                             k {:value v :clock now})
                       v))))]
         (when pin (swap! pin assoc pk v))
         v))))
@@ -285,7 +284,7 @@
     true
     (if (= v (get @cache k ::absent))
       false
-      (do (swap! cache (fn [c] (assoc (if (>= (count c) resident-limit) {} c) k v)))
+      (do (swap! cache caches/assoc-bounded resident-limit k v)
           true))))
 
 (def ^:dynamic *reach-memo*

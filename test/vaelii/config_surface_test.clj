@@ -205,14 +205,37 @@
 
 (def ^:private unpinned
   "Switches `docs/operations.md` documents that this scan cannot reach, each with the
-  reason.  All four are shell-only and unprefixed, which is exactly what puts them out
+  reason.  Every one is shell-only and unprefixed, which is exactly what puts it out
   of range: `${VAELII_…}` is name-shaped enough for one regex, `${GATE_JOBS}` is not,
   and a regex for every `${CAPS}` collects each script's own locals.  A rename of one of
   these is caught by review rather than by this test."
   {"GATE_JOBS"         "scripts/gate.sh, the test stage's shard count"
    "PERF_TOLERANCE"    "scripts/gate.sh, passed through to `lein perf --tolerance`"
    "TEST_BACKENDS_OUT" "scripts/test-backends.sh, its log directory"
-   "TEST_SWEEPS_OUT"   "scripts/test-sweeps.sh, its log directory"})
+   "TEST_SWEEPS_OUT"   "scripts/test-sweeps.sh, its log directory"
+   "SUITE_PROGRESS"    "scripts/lib/suite-marks.sh, marks or one line per namespace"
+   "TEST_MATRIX_OUT"   "scripts/test-matrix.sh, its log directory"
+   "MATRIX_JOBS"       "scripts/test-matrix.sh, how many configurations run at once"
+   "MATRIX_JVM_OPTS"   "scripts/test-matrix.sh, extra JVM_OPTS for every configuration"
+   "MATRIX_HEARTBEAT"  "scripts/test-matrix.sh, seconds between its progress lines"})
+
+(deftest an-unpinned-switch-is-read-by-the-script-it-names
+  ;; The hatch is a hand-kept list that the ghost-row check reads as *real* — `real` is
+  ;; the scanned names plus these keys — so adding an entry is all it takes to document a
+  ;; switch nothing reads.  It doubled this release, from four to nine.  What keeps it
+  ;; honest is that each reason already names the file that reads the switch, which makes
+  ;; the claim checkable without a regex for every `${CAPS}` in every script.
+  (doseq [[nm why] (sort-by key unpinned)]
+    (let [path (second (re-find #"(scripts/[\w./-]+?)[,\s]" why))]
+      (is (some? path)
+          (str nm ": its reason names no file, so nothing here can check it"))
+      (when path
+        (let [f (io/file path)]
+          (is (.exists f) (str nm ": names " path ", which is not in the tree"))
+          (when (.exists f)
+            (is (str/includes? (slurp f) nm)
+                (str nm ": " path " does not read it — a switch nothing reads is a row"
+                     " in docs/operations.md describing nothing"))))))))
 
 (def ^:private undocumented-by-design
   "Switches the scan finds that the table deliberately has no row for.

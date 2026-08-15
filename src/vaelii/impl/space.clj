@@ -195,12 +195,6 @@
   [kb context]
   (qkb/network kb rcc8 context))
 
-(defn constraint
-  "The constraint set on `[i j]` in `net`: `#{:eq}` on the diagonal, the recorded set,
-  else all eight (unknown)."
-  [net i j]
-  (qkb/constraint rcc8 net i j))
-
 (defn possible-relations
   "The RCC-8 base relations still possible between regions `r1` and `r2` given everything
   believed in `context` — `#{}` when the network is inconsistent."

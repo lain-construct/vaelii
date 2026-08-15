@@ -463,8 +463,14 @@ an answer differently.
   **value**, and a census that rises licenses a firing that never existed — no placed
   conclusion, no context to read, nothing for the cone test to match. A count taken in
   `CxSub` before it inherited `CxUp` would simply stay taken. It is the same
-  asymmetry the settle loop re-joins a queued aggregate rule for, met the same way, and
-  costs one record fetch per excepted rule on a `genlCx` edge.
+  asymmetry the settle loop re-joins a queued aggregate rule for, met the same way.
+
+  The narrowing is what that exemption is measured against, and it is not free: one
+  record fetch per excepted rule to ask the exemption, and then one per **firing** for
+  the cone test. `some` short-circuits on a hit, so a rule the edge reaches costs the
+  firings up to the first one in the cone, and a rule it reaches through none costs every
+  firing that rule ever made. That is the price of narrowing on placement rather than
+  queueing wholesale, and a `genlCx` edge is the only thing that pays it.
 
 Both are gated on the `[:exception-index :rules]` roster being non-empty, so a KB using
 no `exceptWhen` pays one set read per edge and stops — which matters, because that guard

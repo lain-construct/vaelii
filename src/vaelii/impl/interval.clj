@@ -254,12 +254,6 @@
   is the same code RCC-8 and the cardinal directions run."
   (qkb/calculus :allen allen-algebra interval-denotation))
 
-(defn constraint
-  "The constraint set on `[i j]` in `net`: `#{:equal}` on the diagonal, the recorded set,
-  else all thirteen (unknown)."
-  [net i j]
-  (qkb/constraint allen net i j))
-
 (defn possible-allen-relations
   "The Allen base relations still possible between intervals `i1` and `i2` given
   everything believed in `context` — `#{}` when the network is inconsistent.
@@ -276,11 +270,6 @@
   relations remain possible."
   [kb context i1 i2]
   (qkb/definite allen kb context i1 i2))
-
-(defn inconsistent?
-  "Is the interval network visible from `context` unsatisfiable?"
-  [kb context]
-  (qkb/inconsistent? allen kb context))
 
 (defn allen-prover
   "The interval-algebra entailment prover, to register with `vaelii.core/add-prover`."

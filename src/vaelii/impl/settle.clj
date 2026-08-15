@@ -602,15 +602,12 @@
   [kb {:keys [nogood priority sentence kind]}]
   (let [tms   (:tms kb)
         recs  (:records kb)
-        sent  (fn [x] (some->> x (p/get-sentex recs) :sentence))
         ;; The list inside each side follows the same rule as the sides themselves:
         ;; `jtms/supports` is a set of allocation-ordered ids, so it is sorted by the
-        ;; justification's content — the key `core/supporting-justifications` reads
-        ;; through, so a side's derivations list identically however they arrived.
-        jkey  (fn [j]
-                (binding [*print-length* nil *print-level* nil]
-                  (pr-str [(str (:informant j)) (sent (:informant j))
-                           (mapv sent (:antecedents j)) (:bindings j)])))
+        ;; justification's content — literally the key `core/supporting-justifications`
+        ;; reads through, so a side's derivations list identically however they arrived
+        ;; and the two surfaces cannot drift apart into two orders
+        jkey  (kb/justification-content-key kb)
         ;; Ordered by **content**, the same rule `clash-nogoods` orders the pair inside
         ;; `:sentence` by, and for the same reason: a handle is allocated in assertion
         ;; order, so sorting the sides by one would make "which side is first?" an
@@ -1423,6 +1420,89 @@
   arbitrated, not in which way it goes."
   4096)
 
+;; ---- the two halves every bounded pass is made of ------------------------
+;;
+;; Four passes spend `*exposure-instance-budget*`, over six enumerations between them,
+;; and each is the same two steps: take what the budget still allows off an enumeration,
+;; then say so if there was more.  Both steps live here once.  The arithmetic is subtle
+;; enough to get wrong in a copy — one probe past the cap, and a debit that differs
+;; between a sweep that fit and one that did not — and the notice is worse than subtle:
+;; it fails **silently**, as a passing suite over a KB that looks clean.
+
+(defn- take-budgeted
+  "The prefix of `xs` the budget in `left` still allows, as `[taken cut?]`, debiting what
+  it realized.  A vector, so a caller that counts it pays nothing for the count.
+
+  **One past the budget is realized on purpose**, so `taken` says both how much was
+  wanted and whether there was more: `cut?` is then exactly *there was something here I
+  did not look at*, which at a budget of zero still costs one probe.  Deciding it on the
+  budget being spent instead would file every trigger whose reach is **empty** as cut
+  short — swept in full by looking at nothing — and `:triggers` is a number a reader
+  acts on: 183,397 reported against a true 41,500 on an OpenCyc load.
+
+  A cut leaves nothing for the enumerations after it, which is the arithmetic that makes
+  the budget the *pass's* rather than each trigger's; one that fit debits what it took.
+  So a caller holding one volatile across several enumerations spends them in order and
+  does no arithmetic of its own: the first takes what it can and the next reads what is
+  left, whether the two sit in one trigger's reach or in different triggers.
+
+  **The tail past the prefix is unread**, which is what the cap buys and what a caller
+  owes it: sorting an enumeration to choose that prefix would force the whole extent the
+  cap exists to refuse, and `instances-below` carries the measurement.  That is a claim
+  about the tail and about nothing else — **building** an enumeration is not free, and
+  `subtree-facts` is the one to read it against, since it walks a spec closure and reads
+  an index cardinality per member before it yields a first fact.  The cap bounds the
+  postings, not the vocabulary above them.
+
+  The budget bounds what is **enumerated** and never what survives a later test, so a
+  caller filters after the take: a `keep?` rejecting everything then costs the budget
+  rather than the extent."
+  [left xs]
+  (let [n     (long @left)
+        taken (into [] (take (inc n)) xs)
+        cut?  (> (count taken) n)]
+    (vreset! left (if cut? 0 (- n (count taken))))
+    [(if cut? (subvec taken 0 n) taken) cut?]))
+
+(defn- cut-notice
+  "The one ledger entry a bounded sweep owes when it did not finish — the kind, how many
+  of its own units went unlooked-at, three of them to recognize, and the bound — or nil
+  when nothing was cut, so a caller `cond->`s it on.
+
+  **Filed off the cut and never off the findings**, and that asymmetry is the whole of
+  it.  A sweep can spend the budget convicting nobody, and then there is no finding for a
+  flag to ride on while every unit after it is bounded to zero and examines nothing: the
+  content under those is neither refused, nor reported, nor counted, and the pass reads
+  as full coverage.  That is the one thing a bounded pass may not do, so the notice is a
+  function of the cut alone and of nothing the pass happened to find.
+
+  **One entry for the pass, not one per unit.**  The budget is the pass's, so past the
+  cut the units are dropped by arithmetic rather than by anything about themselves — on a
+  corpus load's closing settle that was 41,500 identical complaints, which both drowned
+  the `:warn` stream and evicted every real violation from a ledger that keeps the newest
+  1,000.  What a reader needs is that the pass was bounded and how much it did not see.
+
+  **The kinds stay apart, and so does the vocabulary each is read with**, because a
+  reader acts on them differently: `unit` is what the budget counts, `noun` what went
+  unswept, `consequence` what is lost by it — *unreported* is a different loss from
+  *undecided* — and `count-key` the detail key the count is read under, `:triggers` where
+  the budget is spent per trigger and whatever a sweep bounded over some other unit calls
+  its own.  Folding them into one kind would cost exactly the difference they carry.
+
+  A pass reporting **two** bounds in one entry builds its own instead, and both that do
+  say so where they build it: the shape here is one bound, one unit and one consequence,
+  and widening it to carry a second would reword a message a reader already reads."
+  [kind cut {:keys [sweep unit noun consequence count-key]}]
+  (when (seq cut)
+    {:violation kind
+     :detail    (array-map
+                 count-key (count cut)
+                 :sample   (vec (take 3 cut))
+                 :budget   *exposure-instance-budget*
+                 :message  (str sweep " sweep cut short at " *exposure-instance-budget*
+                                " " unit ": " (count cut) " " noun "(s) went unswept, so "
+                                consequence))}))
+
 (defn- instances-below
   "The terms holding a believed membership in any subtype of `types` — the
   candidates a separating declaration or a new genl edge can put in a clash.  Lazy,
@@ -1699,7 +1779,7 @@
 ;; about content already stored: `(disjoint dog cat)` arriving after both memberships
 ;; has to reach them, or the answer would depend on whether the separation was written
 ;; first.  Those sweeps draw on the same instance budget the exposure pass uses, and
-;; behind the same O(1) gate — a KB that separates nothing pays one set read.
+;; behind the same O(1) gate — the four set-emptiness reads `constraint-nogoods` names.
 
 (def ^:private clash-declaration-functors
   "Sentence functors whose arrival implicates content already stored.  A membership or
@@ -1734,21 +1814,125 @@
   [kb term]
   (filter #(= 2 (count (:sentence %))) (believed-at-arg1 kb term)))
 
-(defn- predicate-sentexes
-  "The believed facts of predicate `p` — the candidates a `functional` or `asymmetric`
-  declaration implicates when it arrives after them.
+(defn- clash-marked-below
+  "Every predicate a `functional` or `asymmetric` mark reaches — the marked ones and
+  everything beneath them, as one set.
 
-  The one implicating route with no vocabulary loop to order: a declaration names one
-  predicate, so its whole reach is a single posting list and a budget that cuts it cuts
-  in handle order.  That is the residual `*exposure-instance-budget*` describes, at its
-  widest — a predicate declared functional after more than the budget's worth of its
-  facts were written."
+  **A mark is read down the hierarchy and not off the exact functor**, for the reason the
+  checks read it that way: a `genl` edge says the sub's tuples *are* the super's, so
+  `(functional parentOf)` convicts two `fatherOf` mothers of one child, and
+  `checks/functional-clashes` and `checks/asymmetry-problems` both probe at the marked
+  predicate.  Every pass that answers those two kinds gates on this same question, and
+  gating one of them on the exact functor made it blind to the descension the checks
+  implement: a pair whose only mark sat on a super-predicate was dropped before any check
+  could see it, so a clash the assert door refuses was never weighed or reported.
+
+  **Asked from the marked end, because the askers are per trigger.**  `f` is convictable
+  iff some marked predicate sits at or above it; `specs` and `genls` are reflexive and
+  mutually inverse, so that is exactly `f ∈ ⋃ specs(marked)`.  Asked the other way it is
+  `genls(f)` per predicate asked about — and a batch of `genl` edges asks once per arriving
+  edge, a batch being a hierarchy, so those walks nest and sum to n²/2 over a union holding
+  n.  `tax/specs`' shape one relation over, and `closure-of`'s memo cannot span them, since
+  it is keyed on the node a walk began at.
+
+  Downward also survives what upward cannot.  A deferred batch leaves the relation
+  `:loose?`, and `reachable-in?` withholds its depth potential while it is, so the pruned
+  `genl?` that would answer *no mark above* in O(1) degenerates to a full walk in exactly
+  the case the cost appears.  A descendant walk uses no potential at all.
+
+  **Free on a KB that declares neither**, which is every bulk load: the rosters are read
+  first and an empty pair seeds an empty walk."
+  [tax]
+  (tax/specs-of-all tax (into (tax/props tax :functional)
+                              (tax/props tax :asymmetric))))
+
+(def ^:dynamic *clash-marked-below*
+  "A `delay` over `clash-marked-below` for the pass in flight, or nil.
+
+  Bound once per pass rather than computed per asker, and a `delay` rather than a value
+  because most passes never ask: a KB declaring no mark, or a region carrying no binary
+  fact, pays nothing.  The taxonomy does not move inside a pass — every asker reads — so
+  one answer serves all of them, and the next pass builds its own.
+
+  **Lazy rather than hybrid, deliberately.**  Building costs the marked roster's
+  descendants, which on a real KB is the roster: the shipped ontology declares ten
+  predicates between `CxCore` and `kb/upper/`, and not one of them has a sub-predicate.
+  Asking upward costs `genls(f)` per asker.  So the crossover sits near one asker, and
+  what this loses on is a pass carrying a single trigger under a mark near the root of a
+  wide hierarchy.
+  Sizing both and picking — the way the `genlCx` cone's two ends are sized — would win that
+  back and cost a threshold, and there is no measurement yet saying it is worth one."
+  nil)
+
+(defn- marks-above?
+  "Is any `functional` or `asymmetric` mark at or above predicate `f`?
+
+  The only thing any pass asks about a mark, and the reason the answer is a set membership
+  rather than the marks themselves: every gate here wanted the boolean.  Unbound, it
+  answers from a delay of its own, so correctness never rests on the binding."
+  [tax f]
+  (contains? @(or *clash-marked-below* (delay (clash-marked-below tax))) f))
+
+(defn- predicate-sentexes
+  "The believed facts of predicate `pred` — one posting list, belief-filtered.
+
+  **What loops above it is the caller's, and every caller loops over the same thing:** a
+  content-ordered spec subtree (`predicate-subtree`).  A constraint descends the predicate
+  hierarchy, so what a declaration reaches back over is the subtree beneath the predicate
+  it names and never this one list — a length declared of `parentOf` binds every
+  `fatherOf` tuple, and a `functional` mark on `parentOf` convicts two `fatherOf` fillers
+  of one slot.  A sweep reading the named predicate's own extent finds nothing at all
+  where `parentOf` holds no facts of its own, which is the ordinary shape of a
+  vocabulary's general spellings.
+
+  No caller sorts the list itself, so a budget that cuts one cuts in handle order.  That
+  is the residual `*exposure-instance-budget*` describes, at its widest — a predicate
+  declared functional after more than the budget's worth of its facts were written."
   [kb pred]
   (when (symbol? pred)
     (for [s     (keep #(p/get-sentex (:records kb) %)
                       (p/sentexes-with-functor (:index kb) pred))
           :when (and (jtms/in? (:tms kb) (:id s)) (= :true (:truth s)))]
       s)))
+
+(defn- predicate-subtree
+  "The predicates at or below `pred` that hold stored facts, in content order — the
+  vocabulary a declaration of `pred` binds, and what a retroactive sweep folds
+  `predicate-sentexes` over.  `tax/specs` includes the root, so a predicate with nothing
+  beneath it is the one-element subtree and the undescended reading is unchanged.
+
+  A subtree can be most of an ontology and `genl` is the commonest edge in one, so the
+  walk is filtered by index **cardinality** before it reads anything: a predicate with no
+  stored facts has none to convict, and asking costs a count rather than a posting list
+  and a record fetch each.  What is left to pay per trigger is one count per spec, against
+  the whole subtree's extent without it.
+
+  Content order, so which predicates a bounded sweep reaches is a function of the
+  vocabulary rather than of the handle order the region came back in — `content-order`'s
+  claim one level up, over a set of symbols rather than of sentexes.  Within a predicate
+  nothing is sorted, for the reason `instances-below` records: the posting is lazy and a
+  budgeted consumer takes a prefix of it.
+
+  `report-arity-reach!` reads the same rule over its own roots, and has to: a length and a
+  mark descend the same edge, so a pass reading either off the named predicate alone files
+  its finding over `(parentOf …)` and not over `(fatherOf …)`."
+  [kb pred]
+  (into (sorted-set)
+        (comp (filter symbol?)
+              (filter #(pos? (p/count-with-functor (:index kb) %))))
+        (when (symbol? pred) (tax/specs (:taxonomy kb) pred))))
+
+(defn- subtree-facts
+  "The believed facts of `pred` and of every predicate beneath it — the candidates a
+  `functional` or `asymmetric` mark reaching `pred` implicates, whichever sentence
+  carried it there.  Lazy, so the budgeted caller realizes only what it takes.
+
+  Two triggers land here and the mark is what both are about: the **declaration** naming
+  `pred`, and a `(genl pred super)` edge carrying a mark standing on `super` down to a
+  subtree that never held one.  Both are the retroactive half of what `marks-above?`
+  already gives the door, which reads every mark above a fact's own functor."
+  [kb pred]
+  (mapcat #(predicate-sentexes kb %) (predicate-subtree kb pred)))
 
 (defn- declaration-implicates
   "The stored sentexes a believed declaration in the moved region puts back in
@@ -1757,42 +1941,68 @@
   The type-separating declarations read `declaration-reach`, the same candidate rule
   the exposure pass runs — the two answer one question about one KB, so a pair one of
   them reaches and the other does not would be reported as *visible* by one mechanism
-  and *decided* by the other depending on which route ran.  `functional` and
-  `asymmetric` have no type reach: they implicate the extent of the predicate they
-  name, which is already exactly its candidates.
+  and *decided* by the other depending on which route ran.
 
-  `budget` bounds the **enumeration**, and `:enumerated` reports what it spent — never
-  the survivors.  Budgeting survivors instead would make a `keep?` that rejects
-  everything walk the whole extent looking for one, which is precisely the shape a
-  large ontology is mostly made of.
+  `functional` and `asymmetric` have no type reach and a **predicate** reach rather than
+  none: the mark descends (`marks-above?`, which is how the checks read it), so what the
+  declaration implicates is the facts of the whole spec subtree beneath the predicate it
+  names (`subtree-facts`).  Reading the named predicate's own extent instead is reading
+  the one thing a general spelling is usually empty of, and it descends nothing while the
+  door descends everything — `checks/functional-clashes` and `checks/asymmetry-problems`
+  convict a `fatherOf` pair under `(functional parentOf)` whichever spelling arrives last.
+  **And a pair this sweep does not reach is missed permanently rather than late**: the
+  sweep is the only route in, so nothing puts the pair in `:clashes`, and `:clashes` is
+  the whole of what makes a later settle re-examine one.
+
+  **`(genl sub super)` therefore reaches twice**, and the two halves are about different
+  content: `sub`'s instances gain `super`'s ancestors, which is the membership reading
+  above, *and* a mark standing on `super` descends to a subtree that never held one,
+  which is the same predicate reach the declaration has.  The second half is gated on a
+  mark actually being up there — `genl` is the commonest edge in an ontology, and one
+  under no marked predicate must cost the pass a `props-over` read and nothing else.
+
+  The budget in `left` bounds the **enumeration** and is debited by what this trigger
+  spends of it (`take-budgeted`) — never by the survivors.  Budgeting survivors instead
+  would make a `keep?` that rejects everything walk the whole extent looking for one,
+  which is precisely the shape a large ontology is mostly made of.  The `genl` arm's two
+  reaches share that one volatile, so the membership half spends first and the predicate
+  half reads what is left with no arithmetic between them.
 
   `:cut?` says the budget ran out **inside** this trigger's reach, which is what makes
   the difference between a trigger swept in full and one whose remaining instances were
   never looked at.  A caller that files bounded work as full coverage is the failure
-  `:exposure-truncated` exists to prevent on the reporting path, and this is the same
-  reading for the deciding one."
-  [kb sen budget]
+  `cut-notice` exists to prevent on the reporting path, and this is the same reading for
+  the deciding one."
+  [kb sen left]
   (let [[f a] sen
-        ;; one past the budget, so the take says both how much was wanted and whether
-        ;; there was more — the reading `exposure-candidates`' own sweep takes
-        bounded (fn [xs]
-                  (let [taken (into [] (take (inc budget)) xs)
-                        cut?  (> (count taken) budget)]
-                    [(if cut? (subvec taken 0 budget) taken) cut?]))
+        tax (:taxonomy kb)
         ;; both type-separating shapes end the same way: bound the enumeration, keep the
         ;; terms that could really be convicted, and take their memberships
         implicated (fn [{:keys [enumerate keep?]}]
-                     (let [[terms cut?] (bounded enumerate)]
-                       {:enumerated (count terms)
-                        :cut?       cut?
-                        :sentexes   (mapcat #(membership-sentexes kb %) (filter keep? terms))}))]
+                     (let [[terms cut?] (take-budgeted left enumerate)]
+                       {:cut?     cut?
+                        :sentexes (mapcat #(membership-sentexes kb %) (filter keep? terms))}))
+        ;; ...and the predicate reach a descending mark has, which is the subtree's facts
+        ;; rather than the named predicate's own posting list
+        marked (fn [pred]
+                 (let [[ss cut?] (take-budgeted left (subtree-facts kb pred))]
+                   {:cut? cut? :sentexes ss}))]
     (cond
-      (contains? '#{disjoint disjointMetatype genl genlCx} f)
+      (contains? '#{disjoint disjointMetatype genlCx} f)
       (implicated (declaration-reach kb sen))
 
       (contains? '#{functional asymmetric} f)
-      (let [[ss cut?] (bounded (predicate-sentexes kb a))]
-        {:enumerated (count ss) :cut? cut? :sentexes ss})
+      (marked a)
+
+      ;; the one trigger with both reaches, spending one budget between them: the
+      ;; membership half first, the predicate half out of what it left
+      (= 'genl f)
+      (let [types (implicated (declaration-reach kb sen))]
+        (if-not (marks-above? tax a)
+          types
+          (let [preds (marked a)]
+            {:cut?     (or (:cut? types) (:cut? preds))
+             :sentexes (concat (:sentexes types) (:sentexes preds))})))
 
       ;; `(M T)` — the shape the taxonomy names rather than the vocabulary, and a `cond`
       ;; rather than a `case` arm for exactly that reason: there is no functor to
@@ -1800,10 +2010,9 @@
       (metatype-member? kb sen)
       (implicated (metatype-member-reach kb f a))
 
-      ;; total on purpose: the caller decrements its budget by `:enumerated`, so a
-      ;; functor added to `clash-declaration-functors` without an arm here would
-      ;; otherwise subtract nil rather than sweep nothing
-      :else {:enumerated 0 :cut? false :sentexes nil})))
+      ;; total on purpose: a functor added to `clash-declaration-functors` without an arm
+      ;; here sweeps nothing and spends nothing, which is a reading the caller can act on
+      :else {:cut? false :sentexes nil})))
 
 (defn- content-order
   "Sentexes in **content** order — the sentence, then the context.
@@ -1837,8 +2046,8 @@
   The exposure pass files its `:exposure-truncated` entry from inside itself, because it
   runs once per settle and files once.  This sweep cannot: `constraint-nogoods` runs once
   per settle **pass**, so a sweep reporting where it was cut would file an entry per pass
-  rather than per settle — and the lesson `expose-clashes!` records about over-reporting
-  a shared budget was learned at 41,500 entries against a ledger that keeps 1,000.  So the
+  rather than per settle — and `cut-notice` carries what over-reporting a shared budget
+  costs, measured at 41,500 entries against a ledger that keeps 1,000.  So the
   readings accumulate here and `settle-finish` files one, beside the exposure pass's.
 
   A volatile rather than an atom, for the reason `integrate/*removed-sink*` gives: the
@@ -1921,19 +2130,12 @@
                                            (metatype-member? kb sen)))
                               ;; A trigger reached after the budget is spent went unswept
                               ;; as surely as one cut off mid-reach, so it is asked the
-                              ;; same question rather than filed on the arithmetic: at a
-                              ;; budget of zero the `(inc budget)` probe realizes one term
-                              ;; and `cut?` is then exactly "there was something here I did
-                              ;; not look at".  Filing on `(zero? @left)` instead would
-                              ;; count every *empty*-reach declaration in the rest of the
-                              ;; region — a separation naming a reified NAT, a `genl` with
-                              ;; no instances below it — and `:triggers` is the number a
-                              ;; reader acts on.  `exposure-candidates` pays the same one
-                              ;; probe for the same reason, and its comment carries the
-                              ;; measurement: 183,397 reported against a true 41,500.
-                              (let [{:keys [enumerated cut? sentexes]}
-                                    (declaration-implicates kb sen (long @left))]
-                                (vswap! left - enumerated)
+                              ;; same question rather than filed on the arithmetic — which
+                              ;; is what `take-budgeted`'s probe past the cap buys, and
+                              ;; why a declaration whose reach is empty is not counted
+                              ;; here as one this settle failed to finish.
+                              (let [{:keys [cut? sentexes]}
+                                    (declaration-implicates kb sen left)]
                                 (when cut? (note-arbitration-cut! sen))
                                 sentexes))))
                         moved))]
@@ -2081,9 +2283,7 @@
            (case (count as)
              1 (let [x (first as)]
                  (and (symbol? x) (> (p/count-with-arg (:index kb) 1 x) 1)))
-             2 (let [tax (:taxonomy kb) f (nm/functor sen)]
-                 (or (tax/has-prop? tax :functional f)
-                     (tax/has-prop? tax :asymmetric f)))
+             2 (marks-above? (:taxonomy kb) (nm/functor sen))
              false)))))
 
 (defn- partner-contexts
@@ -2125,12 +2325,31 @@
               ;; grows with the KB (`perf`'s `constraint-exposure-shared-arg`).  A
               ;; predicate carrying both properties reads both, which is the only case
               ;; that ever needed to.
+              ;; Both marks read down the hierarchy (`marks-above?`), so a mark on a
+              ;; super-predicate selects its posting exactly as one on the functor does.
+              fun   (tax/props-over tax :functional f)
+              asym  (tax/props-over tax :asymmetric f)
+              marks (into (set fun) asym)
               srcs (cond-> []
-                     (tax/has-prop? tax :functional f) (conj (first as))
-                     (tax/has-prop? tax :asymmetric f) (conj (second as)))]
+                     (seq fun)  (conj (first as))
+                     (seq asym) (conj (second as)))
+              ;; **The partner need not share this sentence's functor.**  Under
+              ;; `(functional parentOf)` a `motherOf` filler is a partner of a `fatherOf`
+              ;; one — that is the whole of what descending the mark means — so the
+              ;; exact-functor test dropped exactly the pairs the descension exists to
+              ;; catch.  What it does have to be is a tuple of a predicate one of *these*
+              ;; marks reaches, which is the narrowing the functor test was standing in
+              ;; for while a mark could only sit on the functor itself.  The same functor
+              ;; is the common case and still answers without a closure read.
+              partner? (fn [p]
+                         (let [g (nm/functor (:sentence p))]
+                           (or (= f g)
+                               (and (symbol? g)
+                                    (let [up (tax/genls tax g)]
+                                      (boolean (some #(contains? up %) marks)))))))]
           (into #{} (comp (mapcat #(believed-at-arg1 kb %))
                           (remove #(= own (:id %)))
-                          (filter #(= f (nm/functor (:sentence %))))
+                          (filter partner?)
                           (map :context))
                 srcs))
       #{})))
@@ -2357,8 +2576,10 @@
 
 (defn- constraint-nogoods
   "`clash-nogoods`, behind the O(1) gate that makes it free for a KB declaring none of
-  the three features — which is most of them, and every KB that declares none pays one
-  set-emptiness read per settle.
+  the three features — which is most of them.  Four set-emptiness reads and not one:
+  disjointness is spelled two ways (`disjoint-pairs` and `disjoint-metatypes`) and the
+  `functional` and `asymmetric` props are read separately, and a KB declaring none takes
+  all four, since the `or` short-circuits only on a hit.
 
   **Deliberately not gated on `*rebuilding?*`**, unlike the exposure pass beside it,
   and the difference is what the two produce.  Exposure files an *event* — \"this
@@ -2382,7 +2603,11 @@
       ;; separation would otherwise leave its pairs remembered with nothing ever able
       ;; to look at them again.
       (do (reset! (:clashes kb) {}) #{})
-      (clash-nogoods kb (jtms/touched (:tms kb))))))
+      ;; one `clash-marked-below` for the pass, past the gate that already proved a mark
+      ;; exists.  `could-clash?` asks per candidate and `declaration-implicates` asks per
+      ;; `genl` trigger, so the askers scale with the region while the answer does not.
+      (binding [*clash-marked-below* (delay (clash-marked-below tax))]
+        (clash-nogoods kb (jtms/touched (:tms kb)))))))
 
 (defn- merge-focus
   "Merge one ingredient's focus into a term's — `:all`, or a small set of type
@@ -2417,18 +2642,8 @@
         ;; going to convict.  The filter runs *after* the take, so a `keep?` that
         ;; rejects everything costs the budget and not the extent.
         sweep  (fn [m sen terms keep? roots]
-                 (let [n     (long @left)
-                       ;; one past the budget, so `taken` says both how much was
-                       ;; wanted and whether there was more.  Still realized when the
-                       ;; budget is gone: a trigger whose extent is *empty* was swept
-                       ;; in full by looking at nothing, and reporting it as cut short
-                       ;; would inflate the count with triggers that implicate no
-                       ;; instance at all (183,397 against a true 41,500 on OpenCyc).
-                       taken (into [] (take (inc n)) terms)
-                       cut?  (> (count taken) n)
-                       seen  (if cut? (take n taken) taken)]
-                   (vswap! trunc #(if cut? (conj % sen) %))
-                   (vreset! left (if cut? 0 (- n (count taken))))
+                 (let [[seen cut?] (take-budgeted left terms)]
+                   (when cut? (vswap! trunc conj sen))
                    (reduce #(merge-focus %1 %2 roots) m (filter keep? seen))))]
     {:candidates
      (reduce
@@ -2530,24 +2745,17 @@
                                                                     arbitrated)))
                                 (distinct))
                           candidates)
-            ;; **One entry for the pass, not one per trigger.**  The budget is the
-            ;; pass's, so the first few triggers spend it and every trigger after them
-            ;; is cut short by arithmetic rather than by anything about itself — on a
-            ;; corpus load's closing settle that was 41,500 identical complaints, which
-            ;; both drowned the :warn stream and evicted every real violation from a
-            ;; ledger that keeps the newest 1000.  What a reader needs is that the pass
-            ;; was bounded and how much it did not look at.
-            entries (cond-> entries
-                      (seq truncated)
-                      (conj {:violation :exposure-truncated
-                             :detail    {:triggers (count truncated)
-                                         :sample   (vec (take 3 truncated))
-                                         :budget   *exposure-instance-budget*
-                                         :message  (str "exposure sweep cut short at "
-                                                        *exposure-instance-budget*
-                                                        " instances: " (count truncated)
-                                                        " trigger(s) went unswept, so clashes"
-                                                        " they implicate are unreported")}}))]
+            ;; Off the cut and not off `entries`, which is `cut-notice`'s whole argument:
+            ;; the sweep above can spend the budget on terms that convict nobody, and a
+            ;; pass with nothing to report is exactly the one whose silence reads as
+            ;; coverage.
+            cut     (cut-notice :exposure-truncated truncated
+                                {:sweep       "exposure"
+                                 :unit        "instances"
+                                 :noun        "trigger"
+                                 :count-key   :triggers
+                                 :consequence "clashes they implicate are unreported"})
+            entries (cond-> entries cut (conj cut))]
         (when (seq entries)
           (violations/report kb entries))))))
 
@@ -2591,8 +2799,7 @@
                      (= 2 (count (nm/args sen)))
                      (let [f (nm/functor sen)]
                        (and (symbol? f)
-                            (or (tax/has-prop? tax :functional f)
-                                (tax/has-prop? tax :asymmetric f)))))]
+                            (marks-above? tax f))))]
       s)))
 
 (defn- constraint-exposure-candidates
@@ -2607,16 +2814,26 @@
   (`constraint-exposure-entries` groups and ranks on content), so ordering the region
   walk would be an `n log n` per settle that decides nothing.
 
-  **A `genlCx` edge in the region is the one trigger that reaches past it**, and it
-  has to: visibility itself moved, so a pair whose halves were already stored and already
-  believed becomes jointly visible without either half being relabelled — neither is in
-  the region, and reporting the same knowledge only when the edges happened to arrive
-  first is the arrival-order dependence this whole pass exists to remove. The disjointness
-  pass answers the same trigger the same way (`declaration-reach`'s `genlCx` arm over
-  `members-in-cone`); this reads `constraint-facts-in-cone`, the binary-fact parallel, and
-  spends the same `*exposure-instance-budget*` on it. Ordered here, unlike the region
-  walk, because a budgeted enumeration's *prefix* is what the cap decides and that may not
-  depend on the order a cone came back in.
+  **Two edges in the region reach past it**, and both have to, because each moves an
+  ingredient of the pair while leaving the two halves themselves untouched — neither is
+  relabelled, so neither is in the region, and reporting the same knowledge only when the
+  edge happened to arrive first is the arrival-order dependence this whole pass exists to
+  remove. `(genlCx w c)` moves **visibility**: a pair already stored and already believed
+  becomes jointly visible, and what it implicates is the binary facts in the cone
+  (`constraint-facts-in-cone`, the parallel of the `members-in-cone` the disjointness
+  pass reads through `declaration-reach`'s own `genlCx` arm). `(genl sub super)` moves the
+  **mark**: a standing `(functional super)` descends to a subtree that never carried one,
+  so a pair of `sub` facts either side of a visibility edge starts clashing without any
+  contexts moving at all, and what it implicates is the subtree's facts
+  (`subtree-facts`). The disjointness pass has the analogous arm for the analogous reason
+  — `declaration-reach`'s `genl` case, over the memberships an edge newly separates.
+
+  The predicate edge is gated on a mark actually being above it (`marks-above?`), since
+  `genl` is the commonest edge in an ontology and one under no marked predicate must cost
+  a `props-over` read and nothing more. Both spend the same `*exposure-instance-budget*`,
+  and the edges are ordered, unlike the region walk, because a budgeted enumeration's
+  *prefix* is what the cap decides and that may not depend on the order a region or a cone
+  came back in.
 
   **One arrival order is still not covered**, and it is an absence rather than an
   oversight: a `(functional P)` or `(asymmetric P)` **declaration** arriving after the
@@ -2629,7 +2846,7 @@
   where one left out is a pair nobody reports.
 
   Returns `{:candidates [sentex …] :unswept [sentence …]}` — the second naming the edges
-  whose cone the budget cut short, so a bounded sweep never reads as full coverage."
+  whose reach the budget cut short, so a bounded sweep never reads as full coverage."
   [kb touched]
   (let [tax   (:taxonomy kb)
         declared? (fn [s]
@@ -2638,34 +2855,41 @@
                            (= 2 (count (nm/args sen)))
                            (let [f (nm/functor sen)]
                              (and (symbol? f)
-                                  (or (tax/has-prop? tax :functional f)
-                                      (tax/has-prop? tax :asymmetric f)))))))
+                                  (marks-above? tax f))))))
         believed  (comp (keep #(p/get-sentex (:records kb) %))
                         (filter #(jtms/in? (:tms kb) (:id %)))
                         (filter #(= :true (:truth %))))
         region    (into [] believed touched)
         edges     (content-order
-                   (filterv #(and (sequential? (:sentence %))
-                                  (= 'genlCx (nm/functor (:sentence %))))
+                   (filterv (fn [s]
+                              (let [sen (:sentence s)]
+                                (and (sequential? sen)
+                                     (contains? '#{genl genlCx} (nm/functor sen))
+                                     (= 2 (count (nm/args sen)))
+                                     (every? symbol? (nm/args sen)))))
                             region))
         left      (volatile! (long *exposure-instance-budget*))
         unswept   (volatile! [])
         swept     (into []
                         (mapcat
                          (fn [e]
-                           (let [sub (second (nm/args (:sentence e)))
-                                 n   (long @left)
-                                 ;; one past the budget, so `taken` says both how much was
-                                 ;; wanted and whether there was more — the accounting
-                                 ;; `exposure-candidates` records, for its reason
-                                 taken (into [] (take (inc n))
-                                             (constraint-facts-in-cone kb sub))
-                                 cut?  (> (count taken) n)]
-                             (vswap! unswept #(if cut? (conj % (:sentence e)) %))
-                             (vreset! left (if cut? 0 (- n (count taken))))
-                             (if cut? (take n taken) taken))))
+                           (let [sen   (:sentence e)
+                                 [x y] (nm/args sen)
+                                 ;; each edge reads its own end: the cone the newly
+                                 ;; seeing context reaches, or the subtree the mark newly
+                                 ;; descends to.  A `genl` under nothing marked
+                                 ;; enumerates nothing and spends nothing.
+                                 ends  (if (= 'genlCx (nm/functor sen))
+                                         (constraint-facts-in-cone kb y)
+                                         (when (marks-above? tax x)
+                                           (subtree-facts kb x)))
+                                 [taken cut?] (take-budgeted left ends)]
+                             (when cut? (vswap! unswept conj sen))
+                             taken)))
                         edges)]
-    {:candidates (into (filterv declared? region) swept)
+    ;; the cone reader filters to a marked binary fact itself; the subtree reader hands
+    ;; back whatever the predicates hold, so both are put through the region's own test
+    {:candidates (into (filterv declared? region) (filter declared?) swept)
      :unswept    @unswept}))
 
 (defn- constraint-exposure-entries
@@ -2712,10 +2936,12 @@
                                 [(:sentence other) (:context other)]])
                       kind (:type v)
                       ;; The **declared** predicate, which the check knows and the halves
-                      ;; do not: argument preservation reaches an asymmetric converse from
-                      ;; a *sub*-predicate, so the opposing sentex can carry a functor the
-                      ;; declaration was never made on.  `functional-problems` names no
-                      ;; predicate because there both halves share one.
+                      ;; do not, and both arms name it.  Two routes separate it from a
+                      ;; half's own functor: argument preservation reaches an asymmetric
+                      ;; converse from a *sub*-predicate, and either mark is read up the
+                      ;; predicate hierarchy (`tax/props-over`), so a pair convicted under
+                      ;; `(functional parentOf)` can be two `fatherOf` facts.  The `or` is
+                      ;; the floor for a violation shape that names none.
                       pred (or (:pred v) (nm/functor sa))
                       ;; **Read off the pair, not off the walk.**  Which vantages a side
                       ;; is asked from is a property of that side's postings — a third
@@ -2756,20 +2982,47 @@
            (sort-by rank)
            vec))))
 
+(def ^:private max-constraint-findings
+  "How many cross-context `functional` / `asymmetric` pair entries one pass of the report
+  below may file.
+
+  The entries are bounded by neither the region nor the sweep: one slot filled from N
+  contexts a single vantage sees is N−1 pairs off one arriving fact, and a `genl` edge
+  carrying a mark down reaches every pair in the subtree beneath it.  The ledger keeps the
+  newest 1,000 entries and logs each at `:warn`, so a pass filing one per pair evicts every
+  other violation in it — the failure `cut-notice` records at 41,500 identical
+  complaints.  Bounding on `*exposure-instance-budget*` is no bound at all here: that
+  number is 4,096, four times the ledger, and it is a count of *enumerated instances*
+  rather than of entries, so a pass could reach it without having swept anything.
+
+  Small enough that a whole settle's findings are a rounding error against the ledger,
+  wide enough that a reader meets the pattern rather than one arbitrary member of it; past
+  it the count and a sample are what `:constraint-exposure-truncated` carries.  The same
+  number and the same reading as `max-arity-findings`, the other pass whose reach is a
+  subtree."
+  8)
+
 (defn- expose-constraint-clashes!
   "File the `functional` and `asymmetric` clashes the settle's moved region holds across
   a visibility edge.  `:refuse` only, and behind an O(1) gate on the declared vocabulary
   — a KB that declares neither property can form neither clash, and pays two `seq`s.
 
-  **Capped, and never silently.**  The candidate set is the region, but the *entries* are
-  not bounded by it: one slot filled from N contexts a single vantage sees is N−1 pairs
-  off one arriving fact, and the ledger keeps 1000.  So one pass files at most
-  `*exposure-instance-budget*` entries and says so in a `:constraint-exposure-truncated`
-  entry when it had more — the lesson `expose-clashes!` records at 41,500 identical
-  complaints, which is the shape this would take on a corpus with a wide functional slot.
-  A separate kind from the other two notices for the reason they are separate from each
-  other: a reader acts differently on *these pairs went unreported* than on either
-  sweep's *this trigger went unswept*.
+  **Capped, and never silently.**  One pass files at most `max-constraint-findings` pair
+  entries and stops its sweeps at `*exposure-instance-budget*` instances, and either bound
+  being met files one `:constraint-exposure-truncated` entry carrying both readings:
+  `:pairs` against `:filed` for what was found and not named, `:unswept` for the edges
+  whose reach was never walked.  One kind rather than two because a reader acts on them
+  the same way — pairs are visible and unreported, and nothing went *undecided* — which is
+  what separates it from `:arbitration-truncated` and from either sweep's own notice.
+
+  **Two bounds in one entry, which is why it is built here rather than by `cut-notice`.**
+  The cone sweep is bounded like every other and fires off its cut; the pair cap is a
+  bound on what one pass will *file* and fires with nothing swept short at all, carrying
+  a `:pairs` / `:filed` reading no sweep has.  Putting it through the shared builder
+  would mean rewording the message a reader already reads, for a shape that says one
+  bound where this says two.  `cut-notice`'s rule holds over the half that is a sweep all
+  the same: `:unswept` is read off the cut and never off the pairs, so a cone the budget
+  stopped is named whether or not the pass reported a single clash.
 
   Off while `*rebuilding?*`, where *newly* has no meaning, exactly as the disjointness
   pass is."
@@ -2780,32 +3033,38 @@
                (not (checks/arbitrating? kb))
                (or (seq (tax/props tax :functional))
                    (seq (tax/props tax :asymmetric))))
-      (let [{:keys [candidates unswept]} (constraint-exposure-candidates kb touched)
-            all     (constraint-exposure-entries kb candidates arbitrated)
-            budget  (long *exposure-instance-budget*)
-            over    (- (count all) budget)
-            entries (cond-> (vec (take budget all))
-                      (or (pos? over) (seq unswept))
-                      (conj {:violation :constraint-exposure-truncated
-                             :detail    {:pairs   (count all)
-                                         :filed   (min budget (count all))
-                                         :unswept (count unswept)
-                                         :sample  (vec (take 3 unswept))
-                                         :budget  budget
-                                         :message
-                                         (str "cross-context constraint report bounded at "
-                                              budget ": "
-                                              (when (pos? over)
-                                                (str over " further clashing pair(s) are"
-                                                     " visible and unreported"))
-                                              (when (and (pos? over) (seq unswept)) "; ")
-                                              (when (seq unswept)
-                                                (str (count unswept) " genlCx edge(s)"
-                                                     " went unswept, so pairs their"
-                                                     " visibility move exposes are"
-                                                     " unreported")))}}))]
-        (when (seq entries)
-          (violations/report kb entries))))))
+      ;; one `clash-marked-below` for the pass, past the gate that already proved a mark
+      ;; exists.  The `genl` trigger asks per arriving edge and the region filter asks per
+      ;; binary sentex, so the askers scale with the region while the answer does not.
+      (binding [*clash-marked-below* (delay (clash-marked-below tax))]
+        (let [{:keys [candidates unswept]} (constraint-exposure-candidates kb touched)
+              all     (constraint-exposure-entries kb candidates arbitrated)
+              over    (- (count all) max-constraint-findings)
+              entries (cond-> (vec (take max-constraint-findings all))
+                        (or (pos? over) (seq unswept))
+                        (conj {:violation :constraint-exposure-truncated
+                               :detail    {:pairs   (count all)
+                                           :filed   (min max-constraint-findings (count all))
+                                           :cap     max-constraint-findings
+                                           :unswept (count unswept)
+                                           :sample  (vec (take 3 unswept))
+                                           :budget  *exposure-instance-budget*
+                                           :message
+                                           (str "cross-context constraint report bounded: "
+                                                (when (pos? over)
+                                                  (str over " further clashing pair(s) are"
+                                                       " visible and unreported past the "
+                                                       max-constraint-findings
+                                                       "-entry cap"))
+                                                (when (and (pos? over) (seq unswept)) "; ")
+                                                (when (seq unswept)
+                                                  (str (count unswept) " edge(s) went"
+                                                       " unswept at "
+                                                       *exposure-instance-budget*
+                                                       " instances, so pairs their reach"
+                                                       " exposes are unreported")))}}))]
+          (when (seq entries)
+            (violations/report kb entries)))))))
 
 ;; ---- the arity declaration that arrives after the facts ------------------
 ;;
@@ -2817,17 +3076,108 @@
 ;; left is to say so: the facts a late declaration convicts are named in the ledger,
 ;; where a KB author can find them, instead of standing believed and unmentioned.
 
-(defn- arity-declared-of
-  "The predicate whose arity this sentence declares, or nil.  Both spellings, since
-  `checks/declared-arity` reads both: `(arity P n)`, and the predicate-type membership
-  `(binaryPredicate P)` that says the same thing."
-  [sen]
+(defn- arity-bound-by
+  "The predicate whose binding arity this sentence may newly supply, or nil — the root of
+  the subtree the report below has to sweep.
+
+  Three spellings, because `checks/declared-arity` reads three things.  Two **declare** a
+  length: `(arity P n)`, and the predicate-type membership `(binaryPredicate P)` that says
+  the same thing.  The third **inherits** one: `(genl sub super)` binds `sub` to whatever
+  length `super` was declared with (`checks/inherited-arity`), so an edge is the third
+  ingredient of a wrong-arity finding exactly as it is the third ingredient of an
+  argument-type mint (`special/entail-under-edge`).  Without the edge arm, the same three
+  sentences file a violation in two arrival orders out of three, which is the objection
+  the whole retroactive half exists to answer.
+
+  `super` is deliberately **not** a root: the edge changes what `sub` is held to and
+  leaves `super` held to what it always was.
+
+  **A fourth sentence supplies a binding and names no predicate**, which is why it is
+  answered next door rather than by another arm here: all three of these are read *from a
+  context*, so a `genlCx` edge rebinds by moving what a fact's own vantage can see, and
+  the predicates it reaches are a sweep's answer rather than anything its two arguments
+  spell.  This is one of the two functions that sweep for them
+  (`arity-bindings-above-context` reads it of the cone the edge opened)."
+  [kb sen context]
   (let [f (nm/functor sen)
         as (rest sen)]
     (when-let [pred (cond
-                      (= 'arity f)                                (when (= 2 (count as)) (first as))
-                      (contains? checks/predicate-type-arities f) (when (= 1 (count as)) (first as)))]
+                      (= 'arity f) (when (= 2 (count as)) (first as))
+                      (= 'genl f)  (when (= 2 (count as)) (first as))
+                      ;; through the closure, `checks/membership-arity`'s reason: a
+                      ;; membership spelled with a `genl` of `binaryPredicate` declares a
+                      ;; length the door reads, so a trigger matching the three literal
+                      ;; functors would leave the facts it convicts unreported
+                      (= 1 (count as)) (when (checks/membership-arity kb f context)
+                                         (first as)))]
       (when (symbol? pred) pred))))
+
+;; A `genlCx` edge is a binding whose sentence names no predicate, and what it implicates
+;; has two ends: the facts stored **below** `sub`, whose vantage moved, and the bindings
+;; stored **above** `super`, which is everything that vantage newly reaches.  Either end
+;; alone is complete — a fact newly convicted is under one and its binding is over the
+;; other — so the pass walks whichever is smaller, sized off `count-in-context` the way
+;; `two-sided-reach` sizes a separation off its roots.  Neither end is the cheap one in
+;; general: a fresh context joining the root is nothing below and the whole vocabulary
+;; above, and a root context gaining a parent is the reverse, and an ontology writes both.
+
+(defn- cone-extent
+  "How many sentexes are stored across `contexts` — one `count-in-context` apiece, which
+  is an O(1) read, so a cone can be sized without walking it.  Stored rather than
+  believed, and whatever the sentences are: this only picks which end to enumerate, so a
+  miscount costs a worse choice of end and never an answer."
+  [kb contexts]
+  (transduce (comp (filter symbol?) (map #(p/count-in-context (:index kb) %)))
+             + 0 contexts))
+
+(defn- predicates-below-context
+  "The functors of the believed facts stored in the contexts that see `sub` — the end of
+  a `(genlCx sub super)` edge's reach that the edge moved the vantage of.  Lazy, so the
+  budgeted caller realizes only what it takes.
+
+  An arity is read from the fact's own context (`checks/declared-arity`), so these facts
+  are exactly the content the edge puts back in question, whichever ingredient it revealed
+  to them — a declaration above `super`, or the `genl` edge that inherits one through.
+  The functors are roots and not candidates: the spec expansion and the per-fact check
+  beneath them decide.
+
+  Left in the cone's own order, for the reason `members-in-cone` records: a context cycle
+  makes the cone the whole graph, so nothing here may be sorted before its first element
+  comes out.  The functors are a set by the time they are roots and the sweep beneath them
+  is content-ordered, so what a cut prefix costs is coverage and never a different reading
+  of the same coverage."
+  [kb sub]
+  (let [tax (:taxonomy kb)]
+    (for [c     (filter symbol? (tax/context-down tax sub))
+          s     (keep #(p/get-sentex (:records kb) %)
+                      (p/sentexes-in-context (:index kb) c))
+          :let  [sen (:sentence s)
+                 f   (when (sequential? sen) (nm/functor sen))]
+          :when (and (symbol? f)
+                     (jtms/in? (:tms kb) (:id s))
+                     (= :true (:truth s)))]
+      f)))
+
+(defn- arity-bindings-above-context
+  "The predicates bound by a believed binding stored in the contexts `super` sees — the
+  other end of the same edge's reach, and `predicates-below-context`'s twin in everything
+  but which end it walks.  Lazy, and unsorted, for that one's reasons.
+
+  Every spelling `arity-bound-by` reads, because all three become visible together: the
+  cone the edge opened carries the declarations *and* the `genl` edges that inherit one,
+  and an edge revealing only the second binds a predicate no declaration in the cone
+  names."
+  [kb super]
+  (let [tax (:taxonomy kb)]
+    (for [c     (filter symbol? (tax/context-up tax super))
+          s     (keep #(p/get-sentex (:records kb) %)
+                      (p/sentexes-in-context (:index kb) c))
+          :let  [sen  (:sentence s)
+                 pred (when (sequential? sen) (arity-bound-by kb sen (:context s)))]
+          :when (and pred
+                     (jtms/in? (:tms kb) (:id s))
+                     (= :true (:truth s)))]
+      pred)))
 
 (defn- any-arity-declared?
   "Has the KB declared *any* predicate's arity, in either spelling — the O(1) gate that
@@ -2836,31 +3186,70 @@
   The taxonomy's arity table alone is not the answer: it holds the `(arity P n)` sentexes,
   and a KB loaded without CxCore's derivation rules has only the predicate-type
   membership, which `checks/declared-arity` reads and this table never sees.  So the three
-  memberships are asked too, as index cardinalities."
+  memberships are asked too, as index cardinalities.
+
+  **Each membership's sub-collections with it**, since `checks/membership-arity` reads the
+  spelling through the `genl` closure: a KB writing `(myBinPred fatherOf)` under `(genl
+  myBinPred binaryPredicate)` declares arities this gate would otherwise count none of, and
+  a gate that reads narrower than the trigger it guards turns the whole report off.  The
+  closure is cached and read off three fixed roots, so the gate stays a handful of
+  cardinalities rather than a walk."
   [kb]
-  (or (seq (tax/arity-declarations (:taxonomy kb)))
-      (boolean (some #(pos? (p/count-with-functor (:index kb) %))
-                     (keys checks/predicate-type-arities)))))
+  (let [tax (:taxonomy kb)]
+    (or (seq (tax/arity-declarations tax))
+        (boolean (some (fn [t]
+                         (some #(pos? (p/count-with-functor (:index kb) %))
+                               (tax/specs tax t)))
+                       (keys checks/predicate-type-arities))))))
+
+(def ^:private max-arity-findings
+  "How many per-predicate `:arity` entries one pass of the report below may file.
+
+  The cap exists because the sweep is over a **subtree**: one binding can convict a
+  thousand predicates, and the ledger keeps the newest 1,000 entries, so a pass filing one
+  each would evict every other violation in it — the failure `cut-notice` records at
+  41,500 identical complaints, and the one the entries below are summarized to avoid.
+  Small enough that a whole settle's findings are a rounding error against the ledger,
+  wide enough that a reader meets the pattern rather than one arbitrary member of it; past
+  it the count and a sample are what `:arity-report-truncated` carries."
+  8)
 
 (defn- report-arity-reach!
-  "File the wrong-arity facts an `arity` declaration entering the moved region convicts —
-  content stored before the declaration existed to refuse it, and therefore admitted by
-  an `assert` that could not have known.
+  "File the wrong-arity facts an arity **binding** entering the moved region convicts —
+  content stored before anything existed to refuse it, and therefore admitted by an
+  `assert` that could not have known.
+
+  **A binding, not a declaration**, and the difference is four arrival orders rather
+  than one.  `checks/declared-arity` answers off the predicate's own declaration *or* off
+  a super-predicate's, and it answers *from a context* — so the fact, the declaration, the
+  `genl` edge that inherits one and the `genlCx` edge that lets a vantage see either are
+  all ingredients, and any of the four can be last.  `arity-bound-by` supplies the roots
+  for the three that name a predicate or an edge between two, the smaller end of the
+  context edge's own reach supplies them for the one that names neither, the spec
+  expansion below covers the declaration landing on a super, and together they make the
+  finding a fact about the KB rather than about the order it was written in — which is
+  what the door already achieves by reading the same `declared-arity` whichever sentence
+  arrives.
 
   Reports and decides nothing.  The facts stay stored and believed, exactly as they were;
   what changes is that `(violations kb)` names the finding, with `:declared-after` carrying
   the declaration's own handle — the same convention the disjointness exposure uses to mark
   an entry as a *finding about stored content* rather than a dropped conclusion.
 
-  **One entry per declaration, not per convicted fact**, carrying the `:count` and a
-  `:sample`.  Per fact would put the ledger's size at the mercy of one predicate's extent:
-  a declaration over 4,096 wrong-arity facts would file 4,096 entries into a ledger that
-  keeps the newest 1,000, evicting every other violation in it — which is the failure
-  `expose-clashes!` already had and fixed for its truncation notices.  Nothing is lost by
-  summarizing, and that is what separates this from a disjointness exposure: an exposure
-  reports a *visibility* that took a change to create, while the wrong-arity facts of `P`
-  are re-derivable from the store at any time by anyone who wants the list.  The entry says
-  which declaration, how many, and enough of them to recognize.
+  **At most `max-arity-findings` entries for the pass**, one per convicted predicate and
+  never one per convicted fact, each carrying that predicate's `:count` and a `:sample`.
+  Both unbounded readings put the ledger's size at the mercy of what one binding descends
+  to: a declaration over 4,096 wrong-arity facts filed per fact, or a subtree of 1,001
+  predicates holding one apiece filed per predicate, is a pass that evicts every other
+  violation from a ledger keeping the newest 1,000 — the failure `cut-notice` records at
+  41,500 identical complaints on one corpus load, and a `:warn` line each on the way out.
+  Past the cap a single `:arity-report-truncated` entry carries how
+  many predicates convicted, how many facts in all, and a sample of the ones no entry
+  names.  Nothing is lost by summarizing, and that is what separates this from a
+  disjointness exposure: an exposure reports a *visibility* that took a change to create,
+  while the wrong-arity facts of `P` are re-derivable from the store at any time by anyone
+  who wants the list.  What the ledger owes a reader is which predicates were convicted
+  and how many facts each, and that is what it says.
 
   **Not gated on the constraint policy.**  `:refuse` versus `:arbitrate` is a question
   about whether a writer is told no and about whose belief moves; nothing here moves
@@ -2869,42 +3258,142 @@
   Off while `*rebuilding?*`, like the exposure pass beside it and for the same reason: the
   entry says a declaration *newly* convicted stored content, and on a rebuild everything
   arrives at once, so there is no newly.  Budgeted off the same instance budget — a
-  declaration over a predicate with a large extent implicates all of it — and an entry
-  whose sweep was cut short carries `:truncated`, so bounded work never reads as full
-  coverage.
+  declaration over a predicate with a large extent implicates all of it, now over a
+  *subtree* of them, and a context edge implicates the facts under it before a predicate
+  has been named at all.
 
-  Free for a KB that declares no arity at all (`any-arity-declared?`)."
+  **A cut sweep says so on its own entry, and the pass says so for what it never reached.**
+  Two readings, because the budget is the *pass's* while the sweep is over a subtree
+  rather than over one posting list.  A predicate swept short carries `:truncated` on the
+  finding it filed; but the budget can also run out inside a predicate that convicts
+  nothing, and then every predicate after it takes a budget of zero, examines nothing and
+  has nothing to hang the flag on — so a wrong-arity fact one of them holds would be
+  neither refused nor reported, and nothing would say a predicate went unlooked-at.  A
+  context edge whose cone the budget cut is the same reading one ingredient earlier:
+  predicates nobody looked *for*.  That is
+  the failure `cut-notice` exists to refuse, so both are collected and filed as a single
+  `:arity-truncated` entry off the cut, **whether or not anything was found**.
+
+  **Two bounds in one entry, which is why it is built here rather than by `cut-notice`**,
+  and `expose-constraint-clashes!` gives the same reason for the same shape.  The two
+  readings count different units — predicates whose facts went unswept, and `genlCx`
+  edges whose cone did, which is one ingredient earlier and so a `:edges` /
+  `:edge-sample` pair no single-unit entry carries — and the message names whichever of
+  them fired.  `cut-notice`'s rule is what both halves obey: read off the cut, never off
+  the findings.
+
+  Free for a KB that declares no arity at all (`any-arity-declared?`), which neither edge
+  arm changes: an edge binds nothing when nothing above it was ever declared.  Cheap for a
+  context edge with a small end, which is what a KB usually writes — a context placed
+  before its content has nothing below it, and a root context gaining a parent has a
+  vocabulary above it and not a KB."
   [kb touched]
   (when (and (not *rebuilding?*)
              (seq touched)
              (any-arity-declared? kb))
-    (let [left  (volatile! (long *exposure-instance-budget*))
+    (let [left    (volatile! (long *exposure-instance-budget*))
+          ;; the predicates the budget cut short — content-ordered by construction, since
+          ;; `preds` is and the sweep folds over it in that order
+          unswept (volatile! [])
+          ;; ...and the context edges whose cone it cut short, which is the same reading
+          ;; one ingredient earlier: predicates the pass never got as far as naming
+          unreached (volatile! [])
+          believed (into []
+                         (comp (keep #(p/get-sentex (:records kb) %))
+                               (filter #(jtms/in? (:tms kb) (:id %)))
+                               (filter #(= :true (:truth %))))
+                         touched)
+          named (into #{} (keep #(arity-bound-by kb (:sentence %) (:context %))) believed)
+          ;; the ingredient that names no predicate.  Content order over the edges,
+          ;; because a budget running out mid-region decides which cones were walked at
+          ;; all, and that may not depend on the handle order the region came back in
+          edges (content-order
+                 (filterv (fn [s]
+                            (let [sen (:sentence s)]
+                              (and (sequential? sen)
+                                   (= 'genlCx (nm/functor sen))
+                                   (= 2 (count (nm/args sen)))
+                                   (every? symbol? (nm/args sen)))))
+                          believed))
+          roots (reduce
+                 (fn [acc e]
+                   (let [tax         (:taxonomy kb)
+                         [sub super] (nm/args (:sentence e))
+                         ;; the smaller end, sized off `count-in-context` so choosing
+                         ;; costs no walk — and a function of stored content, so two
+                         ;; arrival orders reaching one KB choose alike
+                         ends        (if (<= (cone-extent kb (tax/context-down tax sub))
+                                             (cone-extent kb (tax/context-up tax super)))
+                                       (predicates-below-context kb sub)
+                                       (arity-bindings-above-context kb super))
+                         ;; the same volatile the sweep below spends, so a cone that took
+                         ;; the budget leaves the predicates it named nothing to sweep
+                         ;; with — one bound over both halves of the pass
+                         [taken cut?] (take-budgeted left ends)]
+                     (when cut? (vswap! unreached conj (:sentence e)))
+                     (into acc taken)))
+                 named
+                 edges)
+          ;; the whole **spec subtree** of each root, because the binding descends: a
+          ;; length declared of `parentOf` holds every `fatherOf` tuple too, so an extent
+          ;; read off the named predicate alone would file the finding over `(parentOf …)`
+          ;; and not over `(fatherOf …)` — the same trap `special/entail-existing` names
+          ;; for the mints it draws off the same three ingredients.  `tax/specs` includes
+          ;; the root, so the undescended case is the one-element subtree and unchanged.
+          ;;
+          ;; A subtree can be most of an ontology and `genl` is the commonest edge in
+          ;; one, so the walk is filtered by index **cardinality** before it reads
+          ;; anything: a predicate with no stored facts has none to convict, and asking
+          ;; costs a count rather than a posting list and a record fetch each.  What is
+          ;; left to pay per edge is one count per spec, against the whole subtree's
+          ;; extent without it.
+          ;;
+          ;; **The roots are expanded together, in one walk.**  Every `(genl sub super)`
+          ;; in the region is a root, and a batch of them is usually a *chain* — a load
+          ;; writes a hierarchy, not one edge — so the subtrees nest: n roots whose union
+          ;; holds n predicates cost Σ|specs(rᵢ)| = n²/2 expanded one at a time, and
+          ;; `specs`' memo cannot help, since it is keyed on the node a walk began at and
+          ;; every walk begins somewhere else.  That was the pass's whole cost on a
+          ;; deferred load — 1024 chained edges took 252 ms against 0.374 ms for the same
+          ;; batch declaring no arity — and none of it was budgeted, because
+          ;; `*exposure-instance-budget*` counts facts examined and this examined none.
+          ;; `tax/specs-of-all` seeds one traversal with every root instead, so the walk
+          ;; is the union and the counts are one per distinct predicate.
+          ;;
           ;; content order, so which predicates a bounded pass reaches is a function of
           ;; the vocabulary rather than of the handle order the region came back in
           preds (into (sorted-set)
-                      (comp (keep #(p/get-sentex (:records kb) %))
-                            (filter #(jtms/in? (:tms kb) (:id %)))
-                            (filter #(= :true (:truth %)))
-                            (keep #(arity-declared-of (:sentence %))))
-                      touched)
-          ;; one past the budget, so `taken` says both how much was wanted and whether
-          ;; there was more — the same accounting `exposure-candidates`' sweep uses
-          sweep (fn [entries pred]
-                  (let [n     (long @left)
-                        taken (into [] (take (inc n)) (predicate-sentexes kb pred))
-                        cut?  (> (count taken) n)
-                        ;; no candidate is ever the trigger: a declaration's functor is
-                        ;; `arity` (or a predicate type), never the predicate it names
+                      (filter #(pos? (p/count-with-functor (:index kb) %)))
+                      (tax/specs-of-all (:taxonomy kb) roots))
+          ;; one membership reader per context met, not one per fact.  A reader memoizes
+          ;; for the life of one caller, and a subtree's facts share few contexts between
+          ;; them, so building one per question paid the retrieval every question and
+          ;; threw the memo away unread.  On 2,000 edges and 2,000 facts under a declared
+          ;; root: 798 ms before the report descended at all, 874 ms with a reader per
+          ;; fact, 810 ms as it stands — so the descension costs ~1.5% and not the 9.5%
+          ;; the per-fact shape was about to charge for it.
+          reader (let [cache (volatile! {})]
+                   (fn [ctx]
+                     (or (get @cache ctx)
+                         (let [r (kb/membership-reader kb ctx)]
+                           (vswap! cache assoc ctx r)
+                           r))))
+          sweep (fn [findings pred]
+                  (let [[taken cut?] (take-budgeted left (predicate-sentexes kb pred))
+                        ;; a candidate is a fact *of* `pred`; a trigger is a sentence
+                        ;; *about* it, under a different functor, so the sweep does not
+                        ;; convict the declaration or the edge that set it off
                         found (into []
                                     (keep #(some->> (checks/arity-violation
-                                                     kb (:sentence %) (:context %))
+                                                     kb (:sentence %) (:context %)
+                                                     (reader (:context %)))
                                                     (vector %)))
-                                    (if cut? (take n taken) taken))]
-                    (vreset! left (if cut? 0 (- n (count taken))))
+                                    taken)]
+                    (when cut? (vswap! unswept conj pred))
                     (if-not (seq found)
-                      entries
+                      findings
                       (let [[s v] (first found)]
-                        (conj entries
+                        (conj findings
                               {:violation :arity
                                :sentence  (:sentence s)
                                :context   (:context s)
@@ -2917,17 +3406,74 @@
                                            :truncated      cut?
                                            :budget         (when cut?
                                                              *exposure-instance-budget*)
+                                           :via            (:via v)
                                            :message
+                                           ;; "declared with" is false of a predicate that
+                                           ;; declared nothing and took its length off a
+                                           ;; super, so the two cases are worded apart —
+                                           ;; by the clause `checks`' own doors word it
+                                           ;; with, this being its third reader
                                            (str "arity declared after the facts: " pred
-                                                " is declared with " (:expected v)
-                                                " argument" (when (not= 1 (:expected v)) "s")
+                                                " "
+                                                (checks/arity-binding-clause
+                                                 pred (:via v) (:expected v))
                                                 " and " (count found)
                                                 " stored fact(s) of it disagree"
                                                 (when cut?
                                                   (str " — the sweep was cut short at "
                                                        *exposure-instance-budget*
                                                        " facts, so there may be more")))}})))))]
-      (let [entries (reduce sweep [] preds)]
+      (let [findings (reduce sweep [] preds)
+            ;; the findings are bounded by the budget rather than by the vocabulary — a
+            ;; predicate convicts nothing without spending at least one fact of it — so
+            ;; holding them all to count and to cap costs the sweep's own ceiling and no
+            ;; more, where filing them all would cost the ledger everything else in it
+            over     (- (count findings) max-arity-findings)
+            entries  (vec (take max-arity-findings findings))
+            entries
+            (cond-> entries
+              ;; **What the cap left out, said once.**  A reader acting on this is asking
+              ;; how wide the binding reached, which is a different question from either
+              ;; sweep being cut short: everything counted here was swept, examined and
+              ;; convicted — only the entry naming it was not filed.
+              (pos? over)
+              (conj {:violation :arity-report-truncated
+                     :detail    {:predicates (count findings)
+                                 :filed      max-arity-findings
+                                 :facts      (transduce (map #(get-in % [:detail :count]))
+                                                        + 0 findings)
+                                 :sample     (mapv #(get-in % [:detail :predicate])
+                                                   (take 3 (drop max-arity-findings findings)))
+                                 :message
+                                 (str "arity report bounded at " max-arity-findings
+                                      " entries: " (count findings)
+                                      " predicate(s) hold facts a binding convicts and "
+                                      over " of them are named by no entry")}})
+
+              ;; **One entry for the pass, filed whether or not anything was found.**  The
+              ;; findings are per predicate and this is not: the budget is the pass's, so
+              ;; what sits past the cut is cut by arithmetic rather than by anything about
+              ;; itself, and a reader needs the one fact that the pass was bounded and how
+              ;; much of the reach it did not look at.
+              (or (seq @unswept) (seq @unreached))
+              (conj {:violation :arity-truncated
+                     :detail    {:predicates  (count @unswept)
+                                 :sample      (vec (take 3 @unswept))
+                                 :edges       (count @unreached)
+                                 :edge-sample (vec (take 3 @unreached))
+                                 :budget      *exposure-instance-budget*
+                                 :message
+                                 (str "arity sweep cut short at "
+                                      *exposure-instance-budget* " facts: "
+                                      (when (seq @unswept)
+                                        (str (count @unswept)
+                                             " predicate(s) went unswept, so wrong-arity"
+                                             " facts they hold are unreported"))
+                                      (when (and (seq @unswept) (seq @unreached)) "; ")
+                                      (when (seq @unreached)
+                                        (str (count @unreached)
+                                             " genlCx edge(s) went unswept, so predicates"
+                                             " their visibility move binds are unreported")))}}))]
         (when (seq entries)
           (violations/report kb entries))))))
 
@@ -2960,24 +3506,20 @@
   not promise the region is everything, so it is safe to hang a report on and not belief."
   [kb]
   (when-let [sink *arbitration-cut*]
-    (let [cut (vec (distinct @sink))]
-      (when (seq cut)
-        (violations/report
-         kb [{:violation :arbitration-truncated
-              :detail {:triggers (count cut)
-                       :sample   (vec (take 3 cut))
-                       :budget   *exposure-instance-budget*
-                       :message  (str "arbitration sweep cut short at "
-                                      *exposure-instance-budget*
-                                      " instances: " (count cut)
-                                      " declaration(s) went unswept, so content they"
-                                      " implicate is undecided this settle")}}])))))
+    (when-let [cut (cut-notice :arbitration-truncated (distinct @sink)
+                               {:sweep       "arbitration"
+                                :unit        "instances"
+                                :noun        "declaration"
+                                :count-key   :triggers
+                                :consequence (str "content they implicate is undecided"
+                                                  " this settle")})]
+      (violations/report kb [cut]))))
 
 (defn- settle-finish
   "Reconcile the derived caches with settled belief and record the readings.
 
   `belief-moved?` gates the `refresh-beliefs` reconcile of the genl / genlCx
-  closures and the four flat caches.  That reconcile exists to catch a *supporter's
+  closures and the five flat caches.  That reconcile exists to catch a *supporter's
   label flipping* while its sentex stays put, and the only things that flip a label in
   a settle are defeat, revival (`clear-defeats!` reviving a previously-defeated node),
   and `exceptWhen` block changes.  A brand-new or *retracted* declaration does not go
@@ -3082,7 +3624,7 @@
     ;; exposure pass beside it does not have: its sweep runs once per settle *pass*, so
     ;; this is the only place that sees a whole settle, and its budget is spent before
     ;; anything is decided rather than before anything is reported.  One entry for the
-    ;; settle, on the same grounds `expose-clashes!` files one for its pass.
+    ;; settle, on the grounds `cut-notice` records for one entry per pass.
     (report-arbitration-cut! kb)
     ;; ...and the other retroactive finding a declaration makes about stored content: an
     ;; arity declared after the facts.  Same region, same budget discipline, and reports

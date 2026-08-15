@@ -128,6 +128,20 @@ the engine defeating a rule ([nmtms.md](nmtms.md)), which is why this one is abo
 what a caller reads back rather than about what the KB believes. Narrowing any of
 the three is `retract!` and re-assert, never a second spelling.
 
+The **fact** door resolves its own `:strength` the same way and by the same argument,
+where belief does move: a re-asserted fact keeps the stronger mark, so a bare re-assert
+of known-true content cannot retire it ([nmtms.md](nmtms.md)).
+
+## What the shape checks cost
+
+The constructor asks a sentence several questions of the form *does any form in here look
+like X* — and for almost every sentence the answer is no. Seven such readings each
+descended the whole sentence with `tree-seq`, building a seq of every form to find out.
+`sentex/some-form` and `forms-where` are the two walks they share now, short-circuiting on
+the first hit, and `check-naf-closed` counts variable occurrences only once something
+consumes bindings. 8–26× on the individual readings, 13× on a plain one-antecedent rule
+assert and 25× on a six — same answers, same depth-first pre-order.
+
 ## Result
 
 So rules identical up to **variable names, antecedent order, symmetric argument

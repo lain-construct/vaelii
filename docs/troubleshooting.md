@@ -147,7 +147,7 @@ without storing anything, and answers with the identical problem.
 |---|---|
 | `:naming` | a symbol's spelling does not match its role — [naming.md](naming.md) |
 | `:not-ground` | a fact with a variable in it; write a universal as a rule |
-| `:shape` | not an s-expression at all — a string, `nil`, a map, a bare symbol |
+| `:shape` | not an s-expression at all — a string, `nil`, a map, a bare symbol — or a **vector**, which is a query's conjunction.  Refused at the read doors as well as the write ones, carrying `:goal` or `:conjunct` ([api.md](api.md)) |
 | `:not-well-formed` | a malformed connective frame, such as a bare `(implies)` |
 | `:not-range-restricted` | a rule variable in the consequent that no antecedent binds |
 | `:arg-type` / `:arg-genl` | an `argIsa` / `argGenl` constraint convicted it — [argtypes.md](argtypes.md) |

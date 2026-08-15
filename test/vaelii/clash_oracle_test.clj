@@ -478,3 +478,46 @@
     (is (= 3 (count fwd)) "three standing dilemmas")
     (is (= fwd rev rot) "every assertion order publishes one list")
     (is (= fwd (vec (sort-by pr-str fwd))) "and it is the content order, stated directly")))
+
+(deftest a-sides-derivations-are-ordered-by-content-not-arrival
+  ;; The same claim one level in.  A report orders its *sides* by content; the
+  ;; derivations listed inside a side come off `jtms/supports`, which is a set of
+  ;; allocation-ordered ids — so a side two rules concluded reads back in the order the
+  ;; two firings happened to land.  Which derivation leads is what an application ranking
+  ;; the argument shows first, and a caller comparing two reports is comparing the two
+  ;; KBs' typing order along with everything else.
+  ;;
+  ;; One dilemma, one side of it derived twice, two assertion orders.  Read by content
+  ;; throughout: the handles are what may legitimately differ between the two, so the
+  ;; informant and the antecedents are named by their sentences.
+  ;;
+  ;; **The two arms share one term set**, exactly as `the-report-is-the-same-in-either-
+  ;; arrival-order` in `exposure-test` does: the readings are compared as values, so an
+  ;; arm-local `with-terms` would make them differ for a reason that has nothing to do
+  ;; with order.  So the temporaries are minted once, outside `read!`.
+  (tu/with-terms [seenA seenB derivedQ Subject CxBase]
+    (let [ops   {:fA  #(v/assert % (list seenA Subject) CxBase)
+                 :fB  #(v/assert % (list seenB Subject) CxBase)
+                 :r1  #(v/assert-rule % [(list seenA '?x)] (list derivedQ '?x) CxBase)
+                 :r2  #(v/assert-rule % [(list seenB '?x)] (list derivedQ '?x) CxBase)
+                 :neg #(v/assert % (list 'not (list derivedQ Subject)) CxBase)}
+          sent  (fn [kb x] (if (integer? x) (:sentence (v/sentex kb x)) x))
+          read! (fn [order]
+                  (let [kb (tu/fresh)]
+                    (try
+                      (doseq [o order] ((ops o) kb))
+                      (mapv (fn [report]
+                              (mapv (fn [side]
+                                      [(:sentence side)
+                                       (mapv (fn [j] [(sent kb (:informant j))
+                                                      (mapv #(sent kb %) (:antecedents j))])
+                                             (:justifications side))])
+                                    (:sides report)))
+                            (v/contradictions kb))
+                      (finally (tu/clear-kb! kb)))))
+          fwd   (read! [:r1 :r2 :fA :fB :neg])
+          rev   (read! [:neg :fB :fA :r2 :r1])]
+      (is (= 1 (count fwd)) "one standing dilemma")
+      (is (some (fn [[_ js]] (= 2 (count js))) (first fwd))
+          "and one side of it is derived twice — else there is no list to order")
+      (is (= fwd rev) "every assertion order publishes one reading"))))

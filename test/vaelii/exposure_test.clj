@@ -12,12 +12,14 @@
   the shared lattice is two siblings under CxUniverse, with the joint viewer
   (when one exists) below both.  The membership-last route's acceptance test is
   `disjoint_test/a-general-context-may-be-given-what-a-specific-one-forbids`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.settle :as settle]
-            [vaelii.test-util :as tu]))
+            [vaelii.test-util :as tu]
+            [vaelii.violation-roster-test :as roster]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
@@ -289,6 +291,11 @@
   ;; both types, so the candidate rule rejects every term it is shown; budgeting what
   ;; survives instead would walk both extents to the end looking for a keeper and then
   ;; report full coverage, which is the one thing a bounded pass may not do.
+  ;;
+  ;; **The zero-findings cut**, which is this sweep's entry in `truncation-kind-tests`:
+  ;; the pass files nothing else, so an entry hung on a finding would have nowhere to
+  ;; ride and the eighteen instances past the bound would read as eighteen that were
+  ;; cleared.
   (binding [settle/*exposure-instance-budget* 2]
     (tu/with-terms [CxA CxC t1 t2]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
@@ -299,11 +306,19 @@
       (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Right")) CxA))
       (v/clear-violations! kb)
       (v/assert kb (list 'disjoint t1 t2) CxC)
-      (let [vs (v/violations kb)]
+      (let [vs  (v/violations kb)
+            cut (filter #(= :exposure-truncated (:violation %)) vs)]
         (is (empty? (filter #(= :disjoint (:violation %)) vs))
             "nobody holds both, so there is no clash to expose")
-        (is (seq (filter #(= :exposure-truncated (:violation %)) vs))
-            "and the pass says it stopped early rather than claiming it looked at all 20")))))
+        (is (= 1 (count cut))
+            "and the pass says it stopped early rather than claiming it looked at all 20")
+        (is (= 1 (get-in (first cut) [:detail :triggers]))
+            "counting triggers, which is what a trigger-bounded sweep leaves unswept")
+        (is (= [(list 'disjoint t1 t2)] (get-in (first cut) [:detail :sample]))
+            "and naming the one it did not finish")
+        (is (= 2 (get-in (first cut) [:detail :budget])))
+        (is (re-find #"unreported" (get-in (first cut) [:detail :message]))
+            "the reader is told what it costs: clashes nobody will hear about")))))
 
 (tu/deftest-kb a-metatype-declaration-arriving-last-exposes-the-clash
   ;; `(disjointMetatype M)` is a *unary* sentence whose argument is a symbol — the
@@ -555,6 +570,32 @@
         (is (re-find #"undecided" (get-in (first cut) [:detail :message]))
             "and it says what was left undone, not merely that a bound was hit")))))
 
+(tu/deftest-kb an-arbitration-sweep-that-decides-nothing-still-says-it-was-cut
+  ;; **The zero-findings cut**, this sweep's entry in `truncation-kind-tests`.  The
+  ;; separation implicates forty memberships and convicts none of them — nobody holds
+  ;; both types — so the settle decides nothing and `contradictions` stays empty.  A
+  ;; notice hung on what the sweep found would then have nothing to ride on, and the
+  ;; instances past the bound would read as instances this settle weighed and let stand.
+  (binding [checks/*arbitrate-constraints?* true
+            settle/*exposure-instance-budget* 2]
+    (tu/with-terms [t1 t2]
+      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Left")) 'CxUniverse))
+      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Right")) 'CxUniverse))
+      (v/clear-violations! kb)
+      (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
+      (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
+        (is (empty? (v/contradictions kb))
+            "the premise: the sweep convicts nobody, so nothing carries a flag")
+        (is (= 1 (count cut)) "and the cut is filed all the same")
+        (is (= 1 (get-in (first cut) [:detail :triggers])))
+        (is (= [(list 'disjoint t1 t2)] (get-in (first cut) [:detail :sample]))
+            "naming the declaration whose reach it did not finish")
+        (is (= 2 (get-in (first cut) [:detail :budget])))
+        (is (re-find #"undecided" (get-in (first cut) [:detail :message]))
+            "and saying what was left undone rather than merely unreported")))))
+
 (tu/deftest-kb a-settle-of-several-passes-files-one-trigger-per-declaration
   ;; What `report-arbitration-cut!`'s `distinct` is for, over a settle that can show it.
   ;;
@@ -779,27 +820,53 @@
         (is (= #{CxW CxV} (get-in (first vs) [:detail :visible-from]))
             "both joint viewers, not the one that was enumerated first")))))
 
-(tu/deftest-kb a-wide-slot-is-capped-and-says-so
-  ;; The entries are not bounded by the region: one slot filled from N contexts a single
-  ;; vantage sees is N-1 pairs off one arriving fact, and the ledger keeps 1000.
+(tu/deftest-kb a-wide-slot-cannot-file-its-way-through-the-ledger
+  ;; The entries are bounded by neither the region nor the sweep: one slot filled from N
+  ;; contexts a single vantage sees is N-1 pairs off one arriving fact.  The ledger keeps
+  ;; the newest 1000 and logs each at `:warn`, so the cap has to be *below* that — and
+  ;; `settle/*exposure-instance-budget*` is no bound at all here, being 4096 and a count
+  ;; of enumerated instances rather than of entries.
   (tu/with-terms [CxW birthYear Tom]
     (v/assert kb (list 'functional birthYear) 'CxUniverse)
-    (let [ctxs (vec (repeatedly 8 #(tu/tmp-ctx "Src")))]
+    (let [ctxs (vec (repeatedly 12 #(tu/tmp-ctx "Src")))]
       (doseq [c ctxs]
         (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse)
         (v/assert kb (list 'genlCx CxW c) 'CxUniverse))
       (doseq [[i c] (map-indexed vector (butlast ctxs))]
         (v/assert kb (list birthYear Tom (+ 1900 i)) c))
       (v/clear-violations! kb)
-      (binding [settle/*exposure-instance-budget* 3]
-        (v/assert kb (list birthYear Tom 1999) (last ctxs)))
+      (v/assert kb (list birthYear Tom 1999) (last ctxs))
       (let [vs   (v/violations kb)
             cut  (filter (comp #{:constraint-exposure-truncated} :violation) vs)
             pair (filter (comp #{:functional} :violation) vs)]
-        (is (= 3 (count pair)) "capped at the budget")
-        (is (= 1 (count cut)) "and the cut is never silent")
-        (is (< 3 (get-in (first cut) [:detail :pairs]))
-            "the notice says how many pairs there were")))))
+        (is (= 8 (count pair)) "capped at the entry cap, with the budget untouched")
+        (is (>= 10 (count vs)) "so one settle cannot evict a ledger of a thousand")
+        (is (= 1 (count cut)) "and the overflow is one entry, not one apiece")
+        (testing "which says how many pairs there were and how many it filed"
+          (is (= 11 (get-in (first cut) [:detail :pairs])))
+          (is (= 8 (get-in (first cut) [:detail :filed])))
+          (is (= 8 (get-in (first cut) [:detail :cap]))))
+        (is (zero? (get-in (first cut) [:detail :unswept]))
+            "the cap is not a cut — every pair was found and examined")))))
+
+(tu/deftest-kb the-pairs-under-the-cap-are-filed-whole
+  ;; The gate on the notice is the cap, not the finding, so an ordinary cross-context
+  ;; report must not start carrying one.
+  (tu/with-terms [CxW birthYear Tom]
+    (v/assert kb (list 'functional birthYear) 'CxUniverse)
+    (let [ctxs (vec (repeatedly 4 #(tu/tmp-ctx "Src")))]
+      (doseq [c ctxs]
+        (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxW c) 'CxUniverse))
+      (doseq [[i c] (map-indexed vector (butlast ctxs))]
+        (v/assert kb (list birthYear Tom (+ 1900 i)) c))
+      (v/clear-violations! kb)
+      (v/assert kb (list birthYear Tom 1999) (last ctxs))
+      (is (= 3 (count (filter (comp #{:functional} :violation) (v/violations kb))))
+          "one entry per pair, while there is room for them")
+      (is (empty? (filter (comp #{:constraint-exposure-truncated} :violation)
+                          (v/violations kb)))
+          "and nothing claims the report was bounded"))))
 
 (tu/deftest-kb under-arbitrate-the-pair-is-weighed-and-nothing-is-filed
   ;; The test that catches the gate applied in the wrong place.  Under `:arbitrate` the
@@ -935,6 +1002,10 @@
   ;; Distinct subjects, so the cone is full of candidates and *none* of them pairs — the
   ;; entry filed can then only be the sweep's, not the "more pairs than I will file" one
   ;; the same kind also carries.
+  ;;
+  ;; **The zero-findings cut**, this pass's entry in `truncation-kind-tests`: both of the
+  ;; entry's readings are empty of pairs, so nothing but the cut itself can say four of
+  ;; the six facts in the cone were never looked at.
   (tu/with-terms [CxSrc CxW birthYear]
     (v/assert kb (list 'functional birthYear) 'CxUniverse)
     (v/assert kb (list 'genlCx CxSrc 'CxUniverse) 'CxUniverse)
@@ -947,9 +1018,16 @@
           cut (filter (comp #{:constraint-exposure-truncated} :violation) vs)]
       (is (empty? (filter (comp #{:functional} :violation) vs))
           "no pair is reported — the subjects are distinct")
-      (is (seq cut) "and the cut is still never silent")
-      (is (pos? (get-in (first cut) [:detail :unswept]))
-          "it names how many edges went unswept"))))
+      (is (= 1 (count cut)) "and the cut is still never silent")
+      (is (= 1 (get-in (first cut) [:detail :unswept]))
+          "it names how many edges went unswept")
+      (is (= [(list 'genlCx CxW CxSrc)] (get-in (first cut) [:detail :sample]))
+          "and which edge that was")
+      (is (zero? (get-in (first cut) [:detail :pairs]))
+          "the other reading is empty: the entry is filed off the cut, not off a pair")
+      (is (= 2 (get-in (first cut) [:detail :budget])))
+      (is (re-find #"went unswept" (get-in (first cut) [:detail :message]))
+          "the message carries the reading that fired, not the one that did not"))))
 
 (tu/deftest-kb siblings-with-no-joint-viewer-report-nothing
   ;; The ∃-vantage reading, for these two kinds: the claims coexist and no single
@@ -961,3 +1039,235 @@
     (v/assert kb (list birthYear Tom 1970) CxA)
     (v/assert kb (list birthYear Tom 1980) CxB)
     (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))
+
+;; ---- and the edge that carries the mark rather than the view -------------
+;;
+;; A mark is read up the predicate hierarchy (`tax/props-over`), so a pair of `fatherOf`
+;; facts either side of a visibility edge is a `(functional parentOf)` clash — and the
+;; region walk finds it by itself, because `declared?` asks the same descending question.
+;; What the region cannot supply is the pair whose `(genl fatherOf parentOf)` edge arrives
+;; **last**: a predicate edge relabels neither half, so neither half is in the region, and
+;; the edge is a binary sentence whose own functor carries no mark, so it is a candidate
+;; for nothing.  Only naming it a trigger reaches them.  Same shape as the `genlCx` case
+;; above and the same answer — the disjointness pass has the analogous arm, over the
+;; memberships an edge newly separates.
+
+(tu/deftest-kb a-genl-edge-arriving-after-both-facts-carries-the-mark-down
+  (tu/with-terms [CxA CxB CxW birthYear measureOf Tom]
+    (let [one (list birthYear Tom 1970)
+          two (list birthYear Tom 1980)]
+      (v/assert kb (list 'functional measureOf) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
+      (v/assert kb one CxA)
+      (v/assert kb two CxB)
+      (is (empty? (filter (comp #{:functional} :violation) (v/violations kb)))
+          "nothing marked sits above birthYear yet, so the two are unrelated fillers")
+      (v/assert kb (list 'genl birthYear measureOf) 'CxUniverse)
+      (let [vs (filter (comp #{:functional} :violation) (v/violations kb))]
+        (is (= 1 (count vs)) "the edge that carries the mark down reports the pair")
+        (is (= measureOf (get-in (first vs) [:detail :pred]))
+            "against the predicate the mark is on, which no half's own functor names")
+        (is (= #{CxW} (get-in (first vs) [:detail :visible-from])))
+        (is (= #{[one CxA] [two CxB]}
+               (set (get-in (first vs) [:detail :clash])))))
+      (testing "and belief is untouched — this reports, it does not decide"
+        (is (seq (v/sentexes-matching kb one CxA)))
+        (is (seq (v/sentexes-matching kb two CxB)))
+        (is (empty? (v/contradictions kb)))))))
+
+(tu/deftest-kb an-asymmetric-mark-descends-to-a-claim-written-across-an-edge
+  (tu/with-terms [CxA CxB CxW muchLargerThan largerThan Rex Pip]
+    (let [one (list muchLargerThan Rex Pip)
+          two (list muchLargerThan Pip Rex)]
+      (v/assert kb (list 'asymmetric largerThan) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
+      (v/assert kb one CxA)
+      (v/assert kb two CxB)
+      (is (empty? (filter (comp #{:asymmetric} :violation) (v/violations kb))))
+      (v/assert kb (list 'genl muchLargerThan largerThan) 'CxUniverse)
+      (let [vs (filter (comp #{:asymmetric} :violation) (v/violations kb))]
+        (is (= 1 (count vs)))
+        (is (= largerThan (get-in (first vs) [:detail :pred])))
+        (is (= #{CxW} (get-in (first vs) [:detail :visible-from])))
+        (is (= #{[one CxA] [two CxB]}
+               (set (get-in (first vs) [:detail :clash]))))))))
+
+(deftest the-mark-may-descend-before-or-after-the-facts-and-the-report-is-the-same
+  ;; The control beside the case that was silent, and the reason it is worth pinning: with
+  ;; the edge already in place the region walk found the pair by itself, since `declared?`
+  ;; reads the mark up the hierarchy — so that arm passed throughout and the asymmetry
+  ;; between the two was invisible from either side alone.  Two cleared KBs over one term
+  ;; set, so the entries compare as values.
+  (tu/with-terms [CxA CxB CxW birthYear measureOf Tom]
+    (let [one    (list birthYear Tom 1970)
+          two    (list birthYear Tom 1980)
+          decl!  (fn [k]
+                   (v/assert k (list 'functional measureOf) 'CxUniverse)
+                   (v/assert k (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+                   (v/assert k (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+                   (v/assert k (list 'genlCx CxW CxA) 'CxUniverse)
+                   (v/assert k (list 'genlCx CxW CxB) 'CxUniverse))
+          edge!  (fn [k] (v/assert k (list 'genl birthYear measureOf) 'CxUniverse))
+          facts! (fn [k] (v/assert k one CxA) (v/assert k two CxB))
+          run    (fn [first! second!]
+                   (tu/with-cleared-kb [k tu/fresh]
+                     (decl! k) (first! k) (second! k)
+                     (mapv #(dissoc % :run)
+                           (filter (comp #{:functional} :violation) (v/violations k)))))
+          edge-last  (run facts! edge!)
+          edge-first (run edge! facts!)]
+      (is (= 1 (count edge-first)))
+      (is (= edge-first edge-last)
+          "the identical entry whichever of the mark's descent and the facts came last"))))
+
+(tu/deftest-kb a-genl-edge-under-no-marked-predicate-is-not-a-trigger
+  ;; `genl` is the commonest edge in an ontology, so an edge with no mark above it must
+  ;; cost the pass a `props-over` read and no sweep at all.  Read off the budget, which is
+  ;; the one observable: an edge that swept would spend it on the six facts below it and
+  ;; file a cut notice saying so.
+  (tu/with-terms [CxSrc birthYear plainOf otherOf]
+    (v/assert kb (list 'functional birthYear) 'CxUniverse)   ; so the pass runs at all
+    (v/assert kb (list 'genlCx CxSrc 'CxUniverse) 'CxUniverse)
+    (doseq [i (range 6)]
+      (v/assert kb (list plainOf (tu/tmp-ind "Subj") (+ 1900 i)) CxSrc))
+    (v/clear-violations! kb)
+    (binding [settle/*exposure-instance-budget* 2]
+      (v/assert kb (list 'genl plainOf otherOf) 'CxUniverse))
+    (is (empty? (v/violations kb))
+        "nothing marked above either end, so nothing was enumerated and nothing was cut")))
+
+(tu/deftest-kb an-edge-whose-subtree-is-cut-short-says-so
+  ;; The `genlCx` twin one screen up, for the other edge: the trigger reaches out of the
+  ;; region, so it is budgeted like every other sweep, and a bounded sweep that read as
+  ;; full coverage is the failure all of them guard against.
+  ;; Distinct subjects, so the subtree is full of candidates and *none* of them pairs —
+  ;; the entry filed can then only be the sweep's, not the cap's.
+  (tu/with-terms [CxSrc CxW birthYear measureOf]
+    (v/assert kb (list 'functional measureOf) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxSrc 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxW CxSrc) 'CxUniverse)
+    (doseq [i (range 6)]
+      (v/assert kb (list birthYear (tu/tmp-ind "Subj") (+ 1900 i)) CxSrc))
+    (v/clear-violations! kb)
+    (binding [settle/*exposure-instance-budget* 2]
+      (v/assert kb (list 'genl birthYear measureOf) 'CxUniverse))
+    (let [vs  (v/violations kb)
+          cut (filter (comp #{:constraint-exposure-truncated} :violation) vs)]
+      (is (empty? (filter (comp #{:functional} :violation) vs))
+          "no pair is reported — the subjects are distinct")
+      (is (seq cut) "and the cut is still never silent")
+      (is (pos? (get-in (first cut) [:detail :unswept]))
+          "it names how many edges went unswept"))))
+
+(defn- orderings
+  "Every arrival order of `xs`.  The case below runs over all of them rather than over a
+  hand-picked few: which sentence is last is exactly what decides whether this policy
+  reports, so a subset would be choosing the answer."
+  [xs]
+  (if (< (count xs) 2)
+    [(vec xs)]
+    (for [x xs, tail (orderings (remove #{x} xs))]
+      (into [x] tail))))
+
+(deftest the-declaration-arriving-last-is-the-one-order-this-policy-leaves-alone
+  ;; **An absence, stated as a test rather than only in a docstring.**  Under `:refuse`
+  ;; the deciding sweep does not run (`settle/clash-candidates` gates it on
+  ;; `checks/arbitrating?`), so a `(functional P)` declaration landing after the facts it
+  ;; convicts reaches nothing — exactly as the door refuses an identical fact written one
+  ;; line later and says nothing about the one written before it.  Every *other* order of
+  ;; the mark, the edge that carries it down and the two claims is reported.
+  (tu/with-terms [CxA CxB CxW birthYear measureOf Tom]
+    (doseq [order (orderings [:declaration :edge :facts])]
+      (tu/with-cleared-kb [k tu/fresh]
+        (v/assert k (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+        (v/assert k (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+        (v/assert k (list 'genlCx CxW CxA) 'CxUniverse)
+        (v/assert k (list 'genlCx CxW CxB) 'CxUniverse)
+        (let [step {:declaration #(v/assert k (list 'functional measureOf) 'CxUniverse)
+                    :edge        #(v/assert k (list 'genl birthYear measureOf) 'CxUniverse)
+                    :facts       #(do (v/assert k (list birthYear Tom 1970) CxA)
+                                      (v/assert k (list birthYear Tom 1980) CxB))}]
+          (doseq [s order] ((step s)))
+          (let [n (count (filter (comp #{:functional} :violation) (v/violations k)))]
+            (if (= :declaration (last order))
+              (is (zero? n) (str "the declared absence, under " (pr-str order)))
+              (is (= 1 n) (str "reported under " (pr-str order))))))))))
+
+;;; ── every bounded pass owes a test of what fires its notice ───────────
+;;
+;; A truncation notice is filed off the **bound** and never off what the pass found, and
+;; the failure when one is not is silent: a passing suite, an empty ledger, and a KB
+;; that reads as clean while a sweep looked at nothing.  So each bounded pass owes a
+;; test that arranges the bound firing with *nothing* found and demands the notice
+;; anyway — and this roster is what stops a further one arriving without it.
+
+(def ^:private truncation-kind-tests
+  "Every truncation kind `vaelii.impl.settle` files, against the test that pins what
+  fires it — the bound, and never what the pass happened to find.
+
+  Two classes of bound, and what a test can demand differs between them.  A **budget
+  cut** is independent of the findings — a sweep spends the budget convicting nobody,
+  and every unit after it is bounded to zero and examined — so its test arranges exactly
+  that and is the case a notice riding on a finding gets wrong.  A **ledger cap** counts
+  what was found, examined and left unnamed, so it cannot fire with nothing found at
+  all; its test is the one holding it apart from a cut, since confusing the two tells a
+  reader content went unlooked-at when it was looked at and summarized.
+  `:constraint-exposure-truncated` carries both readings in one entry and is rostered
+  against the cut, which is the half that can go silent.
+
+  The kinds are read out of the source rather than listed here: a roster with both
+  halves hand-written checks only that somebody typed the same thing twice.  A
+  whole-file keyword scan rather than the call sites, because which function files a
+  kind — and through which helper — is what a refactor moves, and a roster keyed on the
+  call shape would go quiet on the change most likely to drop a notice."
+  '{:exposure-truncated
+    vaelii.exposure-test/a-sweep-that-convicts-nobody-still-stops-at-the-bound
+    :constraint-exposure-truncated
+    vaelii.exposure-test/an-edge-whose-cone-is-cut-short-says-so
+    :arbitration-truncated
+    vaelii.exposure-test/an-arbitration-sweep-that-decides-nothing-still-says-it-was-cut
+    :arity-truncated
+    vaelii.constraint-descension-test/the-budget-running-out-on-an-innocent-predicate-is-still-said-out-loud
+    :arity-report-truncated
+    vaelii.constraint-descension-test/a-wide-subtree-cannot-file-its-way-through-the-ledger})
+
+(deftest every-truncation-kind-has-a-test-of-what-fires-it
+  ;; `code-only` and not a bare `slurp`: every one of the five kinds is *named in prose*
+  ;; in `settle.clj` — each has between one and three docstring mentions beside its one
+  ;; filing site — so a raw scan reads the documentation as a filing and the
+  ;; `kinds`-minus-tests direction below stays green with every real filing deleted.
+  ;; `violation_roster_test` ships the blanker for exactly this reason and says so.
+  (let [src   (roster/code-only (slurp "src/vaelii/impl/settle.clj"))
+        kinds (into #{}
+                    (map (comp keyword second))
+                    (re-seq #":([a-z][a-z-]*-truncated)\b" src))
+        ;; The other way in, and the one a further bounded sweep is most likely to take
+        ;; now that the helper exists: a kind spelled anything at all, handed to
+        ;; `cut-notice`.  The scan above would miss it; this one cannot, and neither
+        ;; needs a second hand-written list to stay true.
+        filed (into #{} (map (comp keyword second))
+                    (re-seq #"\(cut-notice\s+:([\w-]+)" src))]
+    (is (<= 5 (count kinds))
+        "the scan reads the kinds at all — an empty set would pass every check below")
+    (is (empty? (set/difference filed (set (keys truncation-kind-tests))))
+        (str "a kind filed through `cut-notice` with no test of what fires it: "
+             (set/difference filed (set (keys truncation-kind-tests)))))
+    (is (empty? (set/difference kinds (set (keys truncation-kind-tests))))
+        (str "a truncation kind with no test that its bound is what files it: "
+             (set/difference kinds (set (keys truncation-kind-tests)))))
+    (is (empty? (set/difference (set (keys truncation-kind-tests)) kinds))
+        (str "a rostered kind settle no longer files: "
+             (set/difference (set (keys truncation-kind-tests)) kinds)))
+    ;; The var, not its `:test` metadata: a selector **strips** `:test` from every test
+    ;; it does not select, so reading it would make this fail under `lein test :only`
+    ;; while saying the tests had been deleted.  A renamed or deleted one is what the
+    ;; roster is for, and resolving catches both.
+    (doseq [[kind sym] truncation-kind-tests]
+      (is (some? (requiring-resolve sym))
+          (str kind " names a test that does not exist: " sym)))))

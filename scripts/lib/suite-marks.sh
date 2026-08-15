@@ -22,6 +22,10 @@
 # file-level disable rather than one per assignment.
 # shellcheck disable=SC2034
 
+# The revision helpers, which `gate.sh` takes without taking any of this.
+# shellcheck source=scripts/lib/revision.sh
+. "$(dirname "${BASH_SOURCE[0]}")/revision.sh"
+
 # Colour only when someone is watching; a redirected run stays greppable.
 if [[ -t 1 ]]; then
   GREEN=$'\033[32m'; RED=$'\033[31m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; OFF=$'\033[0m'
@@ -33,28 +37,26 @@ CROSS="${RED}✘${OFF}"
 
 hms() { printf '%dm%02ds' $(($1 / 60)) $(($1 % 60)); }
 
-# The revision a run was taken at, and whether the tree was clean — the first line of
-# every suite log.
+# MARKS or LINES: the same progress, rendered for whoever is reading it.
 #
-# Without it a log records what was run and not *what it was run against*, and on a
-# shared checkout those are different questions.  A matrix takes ~35 minutes and another
-# agent landing a test halfway through moves the test and assertion counts under it; the
-# artifact then shows counts that differ per backend, which reads exactly like a run that
-# skipped something.  It cost one investigation to establish that it was not.
-#
-# `src/` and `test/` only: a dirty `docs/` or `CHANGELOG.md` cannot move a count, and
-# reporting it would make every log say DIRTY on a repo where somebody is always writing.
-revision_stamp() {
-  local rev dirty
-  rev=$(git rev-parse --short HEAD 2>/dev/null || echo "no-git")
-  dirty=$(git status --porcelain -- src test 2>/dev/null | wc -l | tr -d ' ')
-  if [ "${dirty:-0}" -gt 0 ]; then
-    printf '# suite run at %s — tree DIRTY: %s uncommitted file(s) under src/ or test/ — %s\n' \
-      "$rev" "$dirty" "$(date '+%Y-%m-%d %H:%M:%S')"
-  else
-    printf '# suite run at %s — src/ and test/ clean — %s\n' \
-      "$rev" "$(date '+%Y-%m-%d %H:%M:%S')"
-  fi
+# A terminal gets the mark rows below, because a row of ticks is readable while it
+# is being *watched* and three lines a backend beats 165.  Everything else — a
+# redirect, a pipe, a `nohup … | tail -f`, CI, an agent's shell — gets one line per
+# namespace, because a mark row written to a file is the worst of both: a partial
+# row is one unterminated line whose count arrives sixty namespaces later, and no
+# part of it says which namespace was slow or which one was running when the run
+# died.  `SUITE_PROGRESS=marks|lines` forces either.
+case "$(printf '%s' "${SUITE_PROGRESS:-auto}" | tr '[:upper:]' '[:lower:]')" in
+  marks)   PROGRESS=marks ;;
+  lines)   PROGRESS=lines ;;
+  auto|"") if [[ -t 1 ]]; then PROGRESS=marks; else PROGRESS=lines; fi ;;
+  *) echo "SUITE_PROGRESS must be marks, lines or auto (got $SUITE_PROGRESS)" >&2; exit 2 ;;
+esac
+
+# What a run pipes its output into.  The caller sets `RUN_START=$SECONDS` first, so
+# a line can carry the run's own clock rather than the script's.
+ns_progress() {
+  if [[ "$PROGRESS" == marks ]]; then ns_marks; else ns_lines; fi
 }
 
 # what `lein test` compiles before it can run the first namespace — the number the
@@ -143,6 +145,50 @@ ns_marks() {
   '
 }
 
+# The same progress, one line per namespace — what a log, a pipe or CI gets.
+#
+# Named, counted and timed twice: the namespace's own seconds and the run's, so a
+# tail of a 20-minute log answers "where is it, how far in, and what is slow" from
+# the last line rather than from a row of identical ticks.  The name is what makes
+# it worth the lines: a ✘ says which file to open the moment it happens, and a run
+# killed mid-namespace leaves the namespace it was in as the last thing it said.
+#
+# Bash rather than awk, for the clock: the awk macOS ships has no `systime`, and a
+# `date` per namespace is a fork per namespace to learn what `$SECONDS` already
+# knows.  The reading rules are `ns_marks`' above, including the one about a
+# failure report being attributed to the namespace it names.
+ns_lines() {
+  local line rest only ns="" bad_ns="" mark count=0 ns_t0=0 now
+  local t0="${RUN_START:-$SECONDS}" digits=${#RUN_NS_COUNT}
+
+  # Reached through dynamic scope, so it reads and clears the locals above; a
+  # namespace is emitted when the next one starts, which is when its verdict and
+  # its duration are both known.
+  _ns_line() {
+    [[ -z "$ns" ]] && return 0
+    now=$SECONDS
+    count=$((count + 1))
+    if [[ "$bad_ns" == "$ns" ]]; then mark="$CROSS"; else mark="$TICK"; fi
+    printf '  %s %*d/%d  %-44s %7s %8s\n' \
+      "$mark" "$digits" "$count" "$RUN_NS_COUNT" "$ns" \
+      "$(hms $((now - ns_t0)))" "$(hms $((now - t0)))"
+    ns=""
+  }
+
+  while IFS= read -r line; do
+    case "$line" in
+      "lein test :only "*)                         # a failure, inside the namespace it names
+        only="${line#lein test :only }"; bad_ns="${only%%/*}" ;;
+      "lein test "*)
+        rest="${line#lein test }"
+        [[ "$rest" =~ ^[A-Za-z0-9._-]+$ ]] || continue
+        _ns_line; ns="$rest"; ns_t0=$SECONDS ;;
+      "Ran "*" tests containing "*) _ns_line ;;
+    esac
+  done
+  _ns_line                                         # a run that died before `Ran`
+}
+
 # The two lines clojure.test prints last, tightened into one column, plus the
 # failing namespaces a red run should name under its summary.  Both read the log
 # rather than the exit code, so a run that died before printing them says "did
@@ -157,4 +203,15 @@ run_counts() {
 failing_namespaces() {
   grep -aoE '^lein test :only [a-zA-Z0-9._-]+/' "$1" \
     | sed -E 's|^lein test :only ||; s|/$||' | sort -u
+}
+
+# The same failures one level finer, `<namespace>/<test>` each — and the level the
+# question a red matrix asks second is answered at.  "Which namespace" cannot tell a
+# broken test from a backend that disagrees; "which test, under which configurations"
+# can: the same test failing under every run is the suite's answer at this revision,
+# and a test failing under only some of them is a difference between them, which is the
+# whole reason there is more than one run.
+failing_tests() {
+  grep -aoE '^lein test :only [a-zA-Z0-9._-]+/[a-zA-Z0-9._?!*<>=+-]+' "$1" \
+    | sed -E 's|^lein test :only ||' | sort -u
 }

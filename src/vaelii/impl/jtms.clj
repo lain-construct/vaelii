@@ -165,8 +165,9 @@
   `blocked`?
 
   Three independent conditions: every antecedent believed, no negation-as-failure
-  antecedent believed (the `:out` slot, reserved and empty today), and the
-  justification not blocked by its rule's exception."
+  antecedent believed (the `:out` slot, reserved and empty — nothing writes one, and
+  `io.import` refuses a dump frame that carries one), and the justification not blocked
+  by its rule's exception."
   [j in blocked]
   (and (every? #(contains? in %) (:antecedents j))
        (not-any? #(contains? in %) (:out j))

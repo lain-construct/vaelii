@@ -386,9 +386,31 @@ the one that lasts:
 - **No belief and no taxonomy.** With no truth-maintenance network every *believed*
   answer is empty; with no genl closures there is no type hierarchy, so `/` renders a
   fully stored KB as one holding no types and no contexts at all. That is the trap worth
-  a banner: it is reachable at `:ready` — a store opened without `:recover?`, a dump
-  imported with `:belief? false` — so nothing about the KB's status hints at it, and a
-  reader's obvious conclusion is that the import failed.
+  a banner: it is reachable with the job `:done` — a store opened without `:recover?`, a dump
+  imported with `:belief? false` or `:belief? :stored` — so nothing about the KB's status
+  hints at it, and a reader's obvious conclusion is that the import failed.
+
+  The bullet ends with the repair, and **which repair depends on the store rather than on
+  how it got here**. A KB holding justifications or premise marks needs a `recover` and
+  nothing else, which is one pass over what is already stored. One holding neither has to
+  be loaded again, because there is nothing for a recover to believe from — the state
+  `:belief? false` leaves a foreign dialect in. The banner reads `:recoverable?` off the
+  store and says the one that applies; telling the first case to reload would cost it the
+  whole load a second time.
+
+**And the second condition is read-only.** The banner explains an *answer*; a write into
+the same state is a different matter, because an answer can be re-asked and a record the
+store keeps cannot be taken back. Every definitional check the assert door runs — arity,
+argIsa, argGenl, interArgIsa, declaration consistency, disjointness, functionality,
+asymmetry — reads `jtms/in?`, so over an empty network all of them match nothing and pass
+vacuously, and nothing re-runs them afterwards: `recover` does not, and its closing settle
+binds `settle/*rebuilding?*`, which turns the exposure pass off. So a KB in this state
+**refuses writes by name** (`:unrecovered-kb`), naming the same repair the banner does —
+`recover`, or `reindex` when the index is derived and so opened empty, which is also the
+state in which every assert mints a second handle for a sentence already stored.
+`vaelii.core/*write-unrecovered?*` is the opt for a caller who wants them anyway and has
+read what it gives up. This is the browser's own rule one layer down: the caveat tells a
+reader what is provisional, and `writing` below refuses the write rather than caveating it.
 
 The entry cards on `/kbs` name what switching gets you rather than offering one button
 for two different answers: *Switch to* for a finished KB, **Browse as it loads** for one
@@ -399,14 +421,21 @@ the reason to have stopped it.
 be *written* while one does. A store mutation lands atomically, so a reader beside the
 job sees a consistent prefix — but two interleaved writers are not serializable at
 all ([storage.md](storage.md), the single-writer contract), and the job is already
-this process's writer. So every route that changes a KB's content goes through
-**`writing`**, which is the origin check and that question together: `/assert`,
+this process's writer. `write-refusal` asks a third question beside that one and the
+origin check, and it is the banner's second condition arriving here: a KB whose belief
+was never built is refused too, because the engine's doors throw `:unrecovered-kb` for
+one and a route that let the exception out would answer an error status — which is the
+silent no-op the whole page shape exists to avoid. So every route that changes a KB's
+content goes through **`writing`**: `/assert`,
 `/edit`, `/retract`, `/demo`, `/reasoning`, `/sandbox/reset`, `/propose/apply` — and
 `/propose/preview`, which reads by really asserting and rolling back, and is therefore a
 writer for the duration. `/chain` goes through **`writing-job`**, the same guard for a
 write that *is* a job (below). `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
 `/jobs/cancel` are **not** guarded: they write this process's registry rather than a KB,
-and cancelling a job has to stay reachable precisely *because* one is running.
+and cancelling a job has to stay reachable precisely *because* one is running. `/kbs/unload`
+still hands `catalog/unload!` the write monitor, because *releasing* an entry is the end of
+a KB's stores: a synchronous write already past the write doors has to drain before they go
+rather than interleave with the clear, exactly as the export route's does.
 
 The refusal renders as a **page**, not an error status, for the reason a catalog refusal
 does: an error status leaves htmx not swapping at all, so the write would look like it

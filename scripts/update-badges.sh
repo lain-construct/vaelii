@@ -306,7 +306,11 @@ defns=$(count g -rhE '^\(defn ' "$MAIN" "${clj[@]}")
 docd=$(grep -rhEA1 '^\(defn ' "$MAIN" "${clj[@]}" | { grep -cE '^\s+"' || true; } | tr -d ' ')
 snake=$(count g -rhE '^\(defn?-? [a-z]*_' "$MAIN" "${clj[@]}")
 
-commented=$(count g -rhE '^\s*;;+\s*\(' "$MAIN" "${clj[@]}")
+# A comment line holding a *form*, not a comment line that happens to wrap onto a
+# parenthetical. The three constraints are what separate them: the body opens on a
+# lowercase head symbol, closes its parens by end of line, and carries neither a
+# backtick (a code reference inside prose) nor an em-dash (prose punctuation).
+commented=$(count g -rhE '^[[:space:]]*;;+[[:space:]]*\([a-z*!?-][^`—]*\)[[:space:]]*$' "$MAIN" "${clj[@]}")
 
 # dev-metric badge values (measured from the tree each run)
 # `(tu/deftest-kb` as well as `(deftest`: the KB-fixture macro defines the majority of

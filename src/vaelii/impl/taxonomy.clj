@@ -16,8 +16,11 @@
   is Θ(V²) for a deep hierarchy — a 10k-node `genl` chain stores ~50M pairs — so
   building it incrementally makes a bulk load quadratic no matter how clever each
   insert is: the representation itself is the cost.  Storing only the O(V+E)
-  adjacency makes an insert O(1) amortized and a closure read O(reachable-subgraph),
-  which is what a deep or bulk load needs.  Reads are memoized per closure
+  adjacency makes a closure read O(reachable-subgraph) and an insert the adjacency
+  write plus a depth repair — O(1) for an edge arriving parent-before-child, and
+  proportional to the *descendants* of the node `raise-depth` lifts for one arriving
+  child-first, so that order is quadratic in the hierarchy and `*defer-depths?*` is
+  the trade written for it.  Reads are memoized per closure
   *generation* (bumped on every edge change), so a shallow hierarchy — where the
   reachable subgraph is tiny — still answers each repeat read in O(1).
 
@@ -69,8 +72,9 @@
   union-find can undo, so it rebuilds the affected class from its surviving edges.
   See the section below and docs/equality.md.
 
-  The same belief discipline reaches the four flat caches too — `disjoint`, the
-  disjoint metatypes and their members, the predicate properties, and `inverse`.
+  The same belief discipline reaches the five flat caches too — `disjoint`, the
+  disjoint metatypes and their members, the predicate properties, `inverse`, and the
+  declared arities.
   They carry no per-claim `:support` record of their own; their supporters are
   reference-counted in the shared `:cache-support` map, and `refresh-beliefs`
   reconciles each cache entry against belief exactly as `refresh-relation` does for
@@ -496,9 +500,9 @@
 ;; ---- supporter reference counting for the non-transitive caches ---------
 ;;
 ;; `genl` and `genlCx` carry their own `:support` map inside the relation (see
-;; the ns docstring).  The other four caches — `disjoint`, the disjoint metatypes,
-;; the predicate properties, and `inverse` — are flat sets and maps with no such
-;; record, so they need reference counting of their own.
+;; the ns docstring).  The other five caches — `disjoint`, the disjoint metatypes,
+;; the predicate properties, `inverse`, and the declared arities — are flat sets and
+;; maps with no such record, so they need reference counting of their own.
 ;;
 ;; Tearing one down unconditionally drifts, because none of those predicates is
 ;; *forced* universal: only `genlCx` is (core_context.clj), so only it is guaranteed
@@ -621,66 +625,39 @@
   [p q]
   [:inverse (hash-set p q)])
 
-(defn- inverse-pair
-  "The two predicates a `[:inverse #{p q}]` key names, as `[x y]`.  A self-inverse
-  `(inverse P P)` collapses to `#{p}`, so `y` falls back to `x` — both directions of the
-  index write then name the same pair, which is idempotent."
+(defn- declared-pair
+  "The two terms a `[:inverse #{p q}]` or `[:disjoint #{x y}]` key names, as `[x y]`.  A
+  self-pair — `(inverse P P)`, `(disjoint T T)` — collapses to `#{p}`, so `y` falls back
+  to `x`: both directions of the index write then name the same pair, which is
+  idempotent.  One extractor for both, because the key is a set in both."
   [s]
   (let [x (first s)] [x (or (second s) x)]))
 
-(defn- index-inverse
-  "Add or drop both directions of a declared inverse pair in `:inverse`,
-  `{predicate -> #{predicates declared inverse to it}}`.
+(defn- index-symmetric
+  "Add or drop both directions of a declared symmetric pair in the adjacency at `k`,
+  `{term -> #{terms declared to stand in the relation to it}}`.  `:inverse` (predicates)
+  and `:disjoint-index` (types) are the two, and this is the whole of what they share:
+  the relation is symmetric, so it is written both ways; the entry is a *set*; and an
+  emptied entry is dissoc'd rather than left behind, so `get` returning nil means what
+  it says — `:arity`'s discipline.
 
-  **A set per predicate, not one partner.**  Nothing refuses a second
-  `(inverse P R)` beside a standing `(inverse P Q)`, so a single-valued entry answers
-  whichever was installed last — which makes the read a function of assertion order, and
-  `inverses-of` decides which hops a transitive walk sees.  Order independence is not
-  negotiable (README, \"The model in one page\"), so the relation is stored as the
-  many-to-many it is and the readers pick from it by content.
-
-  It is also what makes the *drop* correct: retiring `(inverse P R)` while
-  `(inverse P Q)` still holds must leave `P → #{Q}` rather than clearing `P`.  An empty
-  entry is dissoc'd rather than left behind, so `get` returning nil means what it says —
-  `:arity`'s discipline, and `:disjoint-index`'s."
-  [t s add?]
-  (let [[x y] (inverse-pair s)
+  **A set per term, not one partner.**  Nothing refuses a second `(inverse P R)` beside
+  a standing `(inverse P Q)`, so a single-valued entry would answer whichever was
+  installed last — making the read a function of assertion order, and `inverses-of`
+  decides which hops a transitive walk sees.  Order independence is not negotiable
+  (README, \"The model in one page\"), so the relation is stored as the many-to-many it
+  is and the readers pick from it by content.  It is also what makes the *drop*
+  correct: retiring `(inverse P R)` while `(inverse P Q)` still holds must leave
+  `P → #{Q}` rather than clearing `P`."
+  [t k s add?]
+  (let [[x y] (declared-pair s)
         one   (fn [t a b]
                 (if add?
-                  (update-in t [:inverse a] (fnil conj #{}) b)
-                  (let [left (disj (get-in t [:inverse a] #{}) b)]
+                  (update-in t [k a] (fnil conj #{}) b)
+                  (let [left (disj (get-in t [k a] #{}) b)]
                     (if (empty? left)
-                      (update t :inverse dissoc a)
-                      (assoc-in t [:inverse a] left)))))]
-    (-> t (one x y) (one y x))))
-
-(defn- disjoint-pair
-  "The two types a `[:disjoint #{x y}]` key names, as `[x y]`.  A self-pair
-  `(disjoint T T)` collapses to `#{t}`, so `y` falls back to `x` — the same shape
-  `inverse-pair` handles, and the same reason: the key is a set."
-  [s]
-  (let [x (first s)] [x (or (second s) x)]))
-
-(defn- index-disjoint
-  "Add or drop both directions of a declared disjoint pair in `:disjoint-index`,
-  `{type -> #{types declared disjoint from it}}`.
-
-  This is the adjacency of the same relation `:disjoint` holds as a set of unordered
-  pairs, and `disjoint?` reads it instead: the pair set can only be consulted by
-  building a `#{x y}` per candidate, so a walk over two genl closures allocates a
-  two-element hash set |as|·|bs| times to ask a question that is one map lookup per
-  supertype here.  Most types are declared disjoint from nothing at all, so the outer
-  walk short-circuits on a `nil` and never touches the inner closure.  An empty entry
-  is dissoc'd rather than left behind, so `get` returning nil means what it says."
-  [t s add?]
-  (let [[x y] (disjoint-pair s)
-        one   (fn [t a b]
-                (if add?
-                  (update-in t [:disjoint-index a] (fnil conj #{}) b)
-                  (let [left (disj (get-in t [:disjoint-index a] #{}) b)]
-                    (if (empty? left)
-                      (update t :disjoint-index dissoc a)
-                      (assoc-in t [:disjoint-index a] left)))))]
+                      (update t k dissoc a)
+                      (assoc-in t [k a] left)))))]
     (-> t (one x y) (one y x))))
 
 (defn- cache-install
@@ -690,12 +667,18 @@
   `refresh-beliefs`.  Idempotent: installing an entry already present is a no-op."
   [t [kind a b]]
   (case kind
+    ;; `:disjoint` holds the relation as a set of unordered pairs and `:disjoint-index`
+    ;; the same relation as adjacency, because `disjoint?` reads the second: the pair set
+    ;; can only be consulted by building a `#{x y}` per candidate, so a walk over two genl
+    ;; closures allocates a two-element hash set |as|·|bs| times to ask what is one map
+    ;; lookup per supertype here.  Most types are declared disjoint from nothing at all,
+    ;; so the outer walk short-circuits on a nil and never touches the inner closure.
     :disjoint (-> t (update :disjoint conj a)                      ; a = #{x y}
-                  (index-disjoint a true))
+                  (index-symmetric :disjoint-index a true))
     :metatype (update t :disjoint-metatypes conj a)                ; a = m
     :member   (update-in t [:metatype-members a] (fnil conj #{}) b)  ; a = m, b = type
     :prop     (update-in t [:props a] (fnil conj #{}) b)             ; a = prop-kind, b = pred
-    :inverse  (index-inverse t a true)                             ; a = #{p q}
+    :inverse  (index-symmetric t :inverse a true)                  ; a = #{p q}
     :arity    (update-in t [:arity a] (fnil conj #{}) b)))                        ; a = pred, b = n
 
 (defn- cache-uninstall
@@ -708,19 +691,21 @@
   [t [kind a b]]
   (case kind
     :disjoint (-> t (update :disjoint disj a)
-                  (index-disjoint a false))
+                  (index-symmetric :disjoint-index a false))
     :metatype (update t :disjoint-metatypes disj a)
     :member   (update-in t [:metatype-members a] (fnil disj #{}) b)
     :prop     (update-in t [:props a] (fnil disj #{}) b)
-    :inverse  (index-inverse t a false)
+    :inverse  (index-symmetric t :inverse a false)
     :arity    (let [ns' (disj (get-in t [:arity a] #{}) b)]
                 (if (seq ns') (assoc-in t [:arity a] ns') (update t :arity dissoc a)))))
 
 ;; ---- incremental adjacency maintenance ----------------------------------
 ;; Only the O(V+E) direct adjacency is stored; the closure is answered on demand
-;; (`closure-of` above) and read-memoized per generation.  So an insert is O(1)
-;; amortized plus a bounded depth repair, and a delete is O(1) plus a node re-scan —
-;; neither pays to materialize the closure, which is what makes a deep or bulk load
+;; (`closure-of` above) and read-memoized per generation.  So an insert is O(1) plus a
+;; depth repair whose size is the lift `raise-depth` forces — nothing at all for the
+;; parent-before-child order, the node's descendants for the child-first one, which is
+;; what `*defer-depths?*` trades away — and a delete is O(1) plus a node re-scan.
+;; Neither pays to materialize the closure, which is what makes a deep or bulk load
 ;; sub-quadratic.  Every mutation bumps `:gen`, retiring the read memo.
 
 (defn- bump-gen [rel] (update rel :gen inc))
@@ -1271,7 +1256,11 @@
 (defn- refresh-relation
   "Active edges are those with at least one *believed* supporter, carrying the
   believed supporters' contexts.  Applies the difference edge by edge rather than
-  rebuilding: a settle that changed no belief does no work at all.
+  rebuilding, so a settle whose region names no edge returns the relation untouched.
+  Where it names edges the pass is not free of belief: the `want` seed evaluates
+  `believed-ctxs` over every named edge's supporters before any arm runs, so a settle
+  that changed no belief still pays one belief test per supporter of every edge in its
+  region and the three arms then find nothing to apply.
 
   Scoped to `moved-edges` — an edge no moved handle supports and no writer left dirty is
   provably unchanged, so belief is never evaluated for it and it cannot enter either
@@ -1347,10 +1336,15 @@
 ;; supporter set; `refresh-beliefs` recomputes it wholesale from the current support
 ;; keys, so it cannot accumulate handles whose sentex has since gone.
 ;;
-;; Insertion is a union and cheap.  **Deletion can split a class**, which union-find
+;; Insertion is a union, and it costs the **joined class** rather than a pointer:
+;; `install-class` re-keys every member and `class-rep` scans each member's incident
+;; edges for the preference claims on them, so merging a term into a class of n costs n
+;; and n asserts growing one class to n cost Θ(n²) between them.  That is the price of
+;; storing the representative rather than deriving it per read, and the bound is the
+;; class rather than the relation.  **Deletion can split a class**, which union-find
 ;; cannot undo, so it rebuilds the affected class from its surviving believed edges —
-;; bounded by the class, the same shape as the cone-local `genl` deletion, never the
-;; whole relation.
+;; the same bound, the same shape as the cone-local `genl` deletion, never the whole
+;; relation.
 
 (defn- pair
   "The canonical undirected edge key for `a` and `b`.  Equality is symmetric, so
@@ -1864,11 +1858,16 @@
   Cheap in the common case — `believed?` is an in-memory JTMS lookup, the closures are
   only rebuilt if the active edge set actually moved, an equality edge whose supporters
   did not change label is skipped outright, and the flat caches are single-op
-  idempotent reconciles.  A settle that defeats nothing therefore does no real work.
+  idempotent reconciles.  So a settle that defeats nothing applies no difference; what it
+  still pays is its **region**.  Only the equality partition and the rewrite rules decline
+  to look at all (the gate below), while the two transitive relations and the flat caches
+  evaluate `believed-ctxs` for every edge and entry the region names before finding that
+  none of them moved.  Zero work is a region naming nothing, not a belief that held still.
 
-  All six caches follow belief here — the two transitive relations, the equality
-  partition, and the four flat caches (`disjoint`, disjoint metatypes + members, the
-  predicate properties, `inverse`) — so a defeated declaration stops taking effect the
+  All seven caches follow belief here — the two transitive relations, the equality
+  partition, and the five flat caches (`disjoint`, disjoint metatypes + members, the
+  predicate properties, `inverse`, the declared arities) — so a defeated declaration
+  stops taking effect the
   moment `settle` relabels, and a revived one takes effect again.
 
   `moved` is the set of handles whose belief just flipped (`jtms/touched`, a superset),
@@ -1883,11 +1882,13 @@
   term-identity claims rather than its vocabulary, and the gate reads whichever of the two
   sides is smaller, so a settle that moves neither pays the size of its own region.
 
-  `nil` reconciles every cache unconditionally, for a caller holding no region.  Every
-  `settle` path names one; the supersession pass widens its region by hand rather than
-  dropping it, because a supersession flip is a belief change with no relabel to record
-  it, and `recover`'s closing settle needs no widening at all — a rebuild labels the JTMS
-  from nothing, so the region is the whole KB."
+  `nil` reconciles every cache unconditionally, for a caller holding no region.  `recover`
+  is that caller and passes it: a settle's reconcile is scoped *and* gated on belief
+  having moved, so a rebuild that replays a declaration nothing supports — OUT from the
+  moment its node is made, opposed by nothing — has no settle event to lean on
+  (`core/recover`).  Every `settle` path names a region instead; the supersession pass
+  widens its own by hand rather than dropping it, because a supersession flip is a belief
+  change with no relabel to record it."
   ([tax believed?] (refresh-beliefs tax believed? nil))
   ([tax believed? moved]
    (swap! tax (fn [t] (-> t
@@ -1907,16 +1908,16 @@
   because `recover` merges into whatever it clears, a merge can only ever *add*, so a
   disjoint pair, a predicate property, an inverse or a declared arity whose sentex is
   gone would survive the recovery that is supposed to re-derive it.  The equality partition is the same
-  story and worse — a stale merge makes two individuals one.  Clearing all seven is
+  story and worse — a stale merge makes two individuals one.  Clearing all eight is
   what makes `recover` a rebuild rather than a top-up.
 
   Clearing then replaying the *stored* declarations (defeated ones included) is
-  deliberate: `:support` and `:cache-support` must record every asserting sentex, and
-  the `refresh-beliefs` in the `settle` at the end of `recover` decides which entries
-  are active — so a defeated `(disjoint dog cat)` is rebuilt into the cache and then
-  dropped by belief, giving the same answer either side of a restart.  Belief-filtering
-  the replay instead would lose the disbelieved supporter, and clearing its defeat
-  could never revive the entry."
+  deliberate: `:support` and `:cache-support` must record every asserting sentex, and the
+  `refresh-beliefs` `recover` runs over the replay decides which entries are active — so
+  a defeated `(disjoint dog cat)` is rebuilt into the cache and then dropped by belief,
+  giving the same answer either side of a restart.  Belief-filtering the replay instead
+  would lose the disbelieved supporter, and clearing its defeat could never revive the
+  entry."
   [tax]
   (swap! tax assoc
          :genl (empty-relation) :genlCx (empty-relation)
@@ -2004,6 +2005,30 @@
    (if-some [vis (visible-ctxs tax :genl context)]
      (closure-of-vis tax :genl :rev t vis)
      (closure-of tax :genl :rev t))))
+
+(defn specs-of-all
+  "The union of `specs` over every node in `nodes`, walked **once**.
+
+  `specs` memoizes per node, which is the right shape for one question asked repeatedly
+  and the wrong one for many questions asked together: n nodes are n closures, and where
+  the nodes nest — a chain, which is what a batch of `genl` edges written by a load is —
+  those closures sum to n²/2 elements though their union holds n.  The memo cannot help,
+  since it is keyed on the node a walk started from and every walk starts somewhere else.
+
+  So this seeds one traversal with all of them and guards with one `seen`, making the cost
+  the union plus the edges under it rather than the sum of the parts.  Reflexive like
+  `specs`, and unscoped like its two-arity: a caller wanting the visibility filter wants
+  `specs` per node and the memo that comes with it.
+
+  Deliberately not memoized.  The key would be the seed set, which is a different set
+  almost every time and would hold every predicate it ever named."
+  [tax nodes]
+  (let [adj (:rev (get @tax :genl))]
+    (loop [seen (transient (set nodes)), stack (vec nodes)]
+      (if-let [n (peek stack)]
+        (let [fresh (remove #(get seen %) (get adj n))]
+          (recur (reduce conj! seen fresh) (into (pop stack) fresh)))
+        (persistent! seen)))))
 
 (defn genl?
   "Is sub a (transitive) subtype of super — through every active edge, or (with
@@ -2501,7 +2526,7 @@
         vis?    (if scoped? (fn [k] (ctxs-visible? (get cctxs k) up)) (fn [_] true))]
     (concat
      (for [s (:disjoint t)
-           :let  [[x y] (disjoint-pair s)]
+           :let  [[x y] (declared-pair s)]
            :when (and (not= x y) (vis? [:disjoint s]))
            pair  [[x y] [y x]]]
        pair)
@@ -2642,6 +2667,60 @@
               (ctxs-visible? (get-in t [:cache-ctxs [:prop kind pred]])
                              (closure-of tax :genlCx :fwd context)))))))
 (defn props "The set of predicates carrying property `kind`." [tax kind] (get-in @tax [:props kind] #{}))
+
+(defn props-over
+  "`p` and every **super-predicate** of it carrying property `kind` — anywhere, or (with
+  `context`) declared from a context the reader can see, walking only the `genl` edges
+  visible from it.  Empty when none does.
+
+  For the properties a violation is convicted **against**, and only those.  A `genl` edge
+  between predicates says the sub's tuples *are* the super's, so a clash among the sub's
+  tuples is a clash among the super's: `(fatherOf a b)` beside `(fatherOf b a)` breaks
+  `(asymmetric parentOf)`, and two `fatherOf` mothers for one child are two `parentOf`
+  values against `(functional parentOf)`.  Reading the mark off the exact functor made
+  those bypassable through a sub-predicate door while the *converse probe* fanned down
+  the same hierarchy, so which spelling arrived second decided whether the pair was
+  found.
+
+  **Not for the generative ones.**  `transitive`, `symmetric`, `reflexive` and
+  `argPreserving` license tuples rather than refusing them, and a licence read for a
+  predicate nobody declared it of manufactures knowledge — `inherit-test`'s
+  `the-licence-stays-with-the-predicate-it-names` and `provers-test`'s
+  `the-walk-reads-hops-through-the-subsumption-fan` pin that, and both call `has-prop?`
+  for the goal's own predicate.  The direction is what separates the two families, and it
+  is also why this walks **up** where `inverses-under` walks down: an inverse recorded on
+  a sub-predicate is a hop of the super, and a constraint declared of a super binds the
+  sub.
+
+  The `:props` roster is empty for the kind on nearly every KB, so the common case is one
+  map read and no closure walk — the gate `inverses-under` takes on the empty `:inverse`
+  map, and it is what keeps a descending read off the goal paths that ask `has-prop?` per
+  goal."
+  ([tax kind p] (props-over tax kind p nil))
+  ([tax kind p context]
+   (let [marked (get-in @tax [:props kind])]
+     (if (empty? marked)
+       #{}
+       (into #{}
+             (comp (filter marked) (filter #(has-prop? tax kind % context)))
+             (if (some? context) (genls tax p context) (genls tax p)))))))
+
+(def arg-declaration-props
+  "Per argument-constraint kind, the `:props` roster its **subject** is marked under —
+  `(argIsa parentOf 1 person)` marks `parentOf` as declaring `argIsa`.
+
+  A declaration constrains the tuples of every predicate beneath the one it names, so
+  reading it means asking, per super-predicate of the sentence's own functor, whether it
+  declares anything at all.  Asked of the index that is one argument-root probe per
+  super per assert — proportional to how deep in the type hierarchy the predicate sits,
+  on the path `assert` names its dominant per-fact cost.  Marked here it is a set
+  membership, which is the same trade `(arity P n)` takes one screen up and for the same
+  reason: a declaration is not something to re-derive per write.
+
+  The roster is the **global** one, so a filter built on it is a superset of what any
+  context can see; the scoped retrieval it gates is what decides which declarations
+  actually speak for a reader."
+  '{argIsa :declares-arg-isa, argGenl :declares-arg-genl, interArgIsa :declares-inter-arg-isa})
 
 ;; The supporters behind a flat-cache entry, read back.  A consumer that *justifies*
 ;; something on a declaration needs the declaring sentexes as antecedents, and reading

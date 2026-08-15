@@ -93,6 +93,31 @@
         (is (str/includes? t (str Zork " glides")))
         (is (not (str/includes? t (str "the " Zork))))))))
 
+(tu/deftest-kb a-term-commented-in-two-contexts-reads-the-same-either-order
+  ;; A term carries a believed `comment` in more than one context routinely — an
+  ;; imported vocabulary's beside ours, a theory's beside the upper ontology's — and the
+  ;; gloss composes from one of them.  Reading whichever the retrieval yielded first
+  ;; makes the prose a reader is shown a fact about the order the KB was loaded in, which
+  ;; nothing on the page could explain.
+  (doseq [flip [false true]]
+    (tu/with-terms [wobbles Zork CxFirst CxSecond]
+      (v/assert kb (list 'genlCx CxFirst 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxSecond 'CxUniverse) 'CxUniverse)
+      (let [comments [[(list 'comment wobbles
+                             (str "(" wobbles " ?thing) means that ?thing sways.")) CxFirst]
+                      [(list 'comment wobbles
+                             (str "(" wobbles " ?thing) means that ?thing tilts.")) CxSecond]]
+            ;; the pick is content-least over the sentence and its context, so the
+            ;; expected verb is read off the same key rather than assumed
+            least    (first (sort-by (fn [[s c]] (pr-str [s (str c)])) comments))
+            [word other] (if (= least (first comments)) ["sways" "tilts"] ["tilts" "sways"])
+            what     (str "the " (if flip "second" "first") " comment asserted first")]
+        (doseq [[s c] (if flip (reverse comments) comments)] (v/assert kb s c))
+        (let [{:keys [text source]} (gloss/text kb (list wobbles Zork))]
+          (is (= :composed source) what)
+          (is (str/includes? text word) (str what ": the content-least comment composed it"))
+          (is (not (str/includes? text other)) what))))))
+
 (tu/deftest-kb a-leading-term-keeps-its-own-spelling
   ;; upper-casing `siblingOf` into `SiblingOf` does not tidy a sentence, it renames a
   ;; predicate into something that reads as an individual

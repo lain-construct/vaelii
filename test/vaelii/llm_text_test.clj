@@ -270,6 +270,41 @@
                  ['(implies (lion ?x) (ist CxCriedWolf (dangerous ?x)))
                   'CxLionMouse]))))))
 
+(tu/deftest-kb a-bracketed-ist-is-refused-exactly-as-the-list-spelling-is
+  ;; The line is model-written EDN, read **before** canon — where a vector and a list are
+  ;; one sentence — so `[ist Cx S]` files itself in `Cx` exactly as `(ist Cx S)` does.  A
+  ;; check that reads only the list spelling therefore leaves a bracket as the escape
+  ;; hatch from the one guard that keeps the context the caller's, and the escape is the
+  ;; easier of the two for a model to write.
+  (let [listed    ['(ist CxCriedWolf (dog Sneaky1)) 'CxLionMouse]
+        bracketed ['[ist CxCriedWolf (dog Sneaky1)] 'CxLionMouse]]
+    (testing "the guard itself reads the two spellings alike"
+      (is (= :context-escape
+             (:type (session/placement-problem listed))
+             (:type (session/placement-problem bracketed))))
+      (is (= (:message (session/placement-problem listed))
+             (:message (session/placement-problem bracketed)))
+          "and says the same thing about both, naming the context it would land in"))
+    (testing "and so does every path the critic is reached through"
+      (is (= :context-escape (:type (session/check-entry kb bracketed))))
+      ;; The batch reports `:shape` beside it, and only for this spelling: the write
+      ;; door refuses a top-level vector sentence outright, so a bracketed `ist` is
+      ;; convicted twice over where the list spelling is convicted once.  What this
+      ;; test pins is the `:context-escape` half — that a bracket is not the escape
+      ;; hatch from the placement guard — and that half reads identically on both.
+      (is (= [:context-escape :shape]
+             (mapv :type (session/check-batch kb {:add [bracketed] :remove []}))))
+      (is (= [:context-escape]
+             (mapv :type (session/check-batch kb {:add [listed] :remove []})))))
+    (testing "end to end, the bracketed candidate is a repair and never reaches the batch"
+      (let [p (read-text kb lion-mouse 'CxLionMouse
+                         [{:candidates [['(lion Lion1) 0]
+                                        ['[ist CxCriedWolf (dog Sneaky1)] 0]]}])]
+        (is (= :ok (:status p)))
+        (is (= 1 (count (:repairs p))))
+        (is (= :context-escape (:type (:problem (first (:repairs p))))))
+        (is (= ['(lion Lion1)] (mapv first (:add (:batch p)))))))))
+
 (tu/deftest-kb a-claim-about-a-type-symbol-is-reported-with-the-shape-to-store-instead
   ;; Admissible, and still the wrong shape: `person` is a type, so a one-place claim
   ;; about the symbol is really a claim about its instances.  `correct` says so.

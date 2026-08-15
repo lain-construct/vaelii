@@ -11,9 +11,9 @@
       and can never collide with a real term.
     * the neutral fixtures — after each test the fixture retracts everything the
       test added (dependency-directed, so derived consequences fall away too) and
-      then asserts the live sentex/justification sets are back to their baseline.  The
-      assertion is a genuine invariant: it fails only when retraction leaves
-      residue, i.e. a real teardown gap.
+      then asserts the live sentex/justification/premise sets are back to their
+      baseline.  The assertion is a genuine invariant: it fails only when retraction
+      leaves residue, i.e. a real teardown gap.
 
   Fixture recipes:
 
@@ -31,6 +31,7 @@
             [clojure.test :refer [is]]
             [vaelii.core :as v]
             [vaelii.impl.config :as config]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]))
 
 ;; Run the *whole* suite through the incremental forward-chaining matcher
@@ -228,6 +229,13 @@
   [kb]
   (p/clear-records! (:records kb))
   (p/clear-index!   (:index kb))
+  ;; the same release `v/clear!` makes, and for its reason: a write hazard is a claim
+  ;; about the records that were here, and a wipe is the one moment that knows there are
+  ;; none.  `kb/write-hazards` reads emptiness without retiring anything — an importer
+  ;; declares its hazard while the store is still empty — so a fixture that wipes and
+  ;; hands the KB back has to say so, or the next test's own asserts are refused against
+  ;; a hazard declared for records it did not write.
+  (kb/note-hazards! kb {:no-belief false :no-index false})
   (some-> (:refused kb) (reset! {})))
 
 (defn fresh
@@ -320,6 +328,21 @@
 (defn justification-ids [kb] (set (p/justification-ids (:records kb))))
 (defn premise-ids   [kb] (set (p/premise-ids   (:records kb))))
 
+(defn baseline
+  "The three record sets teardown is judged against: what is stored, what justifies it,
+  and which of it is *asserted* rather than derived.
+
+  The third is the one a caller would not think to snapshot, and is the reason this is a
+  map rather than three reads at each call site.  A premise mark is not visible in either
+  of the other two — a test that asserts a sentence the baseline already holds as a
+  derived conclusion adds no sentex and no justification, and leaves the handle marked a
+  premise.  It then stands on its own for every test after it, believed with nothing
+  supporting it, which is exactly the poisoning the neutrality contract exists to refuse."
+  [kb]
+  {:sentexes       (sentex-ids kb)
+   :justifications (justification-ids kb)
+   :premises       (premise-ids kb)})
+
 (defn content-count [kb]
   {:sentexes   (count (p/sentex-ids    (:records kb)))
    :justifications (count (p/justification-ids (:records kb)))})
@@ -348,17 +371,24 @@
         (p/sentex-ids (:records kb))))
 
 (defn assert-neutral!
-  "Retract the test's additions and assert the KB is restored to its baseline
-  sentex/justification sets — **set equality, so both directions are checked**.
+  "Retract the test's additions and assert the KB is restored to the `baseline` it was
+  snapshotted at — **set equality on all three, so both directions are checked**.
 
   A leak is the obvious failure and the one retraction causes.  A *removal* is the one
   that hides: a test that retracts a sentex the baseline held leaves the shared `:once`
   KB short for every test after it in the namespace, and a difference computed only as
   `now - before` is empty in exactly that case.  So the message names which direction
-  broke, since the two are repaired at opposite ends."
-  [kb before-sx before-dd]
-  (retract-added! kb before-sx)
-  (let [now-sx  (sentex-ids kb)
+  broke, since the two are repaired at opposite ends.
+
+  The premise set is reported on its own line because it moves for its own reasons and
+  is repaired at its own end.  A premise mark on a *baseline* handle is put there by an
+  `assert` of a sentence the KB already derived and taken off by a `retract!` of one it
+  had asserted, and neither of those moves a record count — so this is the only check
+  that sees either."
+  [kb before]
+  (retract-added! kb (:sentexes before))
+  (let [{before-sx :sentexes before-dd :justifications before-pm :premises} before
+        now-sx  (sentex-ids kb)
         now-dd  (justification-ids kb)
         leak-sx (set/difference now-sx before-sx)
         leak-dd (set/difference now-dd before-dd)
@@ -370,7 +400,19 @@
              (pr-str (mapv #(:sentence (v/sentex kb %)) (take 8 leak-sx)))
              "; lost " (count lost-sx) " sentex(es), " (count lost-dd) " justification(s) "
              ;; a lost sentex has no record left to print, so the handles are the report
-             (pr-str (vec (take 8 lost-sx))))))
+             (pr-str (vec (take 8 lost-sx)))))
+    ;; Premise identity, over the handles that survived: a premise on a sentex the
+    ;; retraction already swept is the leak above and not a second one, and reporting it
+    ;; twice would send the reader after two bugs.
+    (let [now-pm  (premise-ids kb)
+          leak-pm (set/intersection (set/difference now-pm before-pm) now-sx)
+          lost-pm (set/intersection (set/difference before-pm now-pm) now-sx)]
+      (is (empty? (set/union leak-pm lost-pm))
+          (str "premise marks not restored after teardown — " (count leak-pm)
+               " baseline sentex(es) left asserted "
+               (pr-str (mapv #(:sentence (v/sentex kb %)) (take 8 leak-pm)))
+               ", " (count lost-pm) " left derived that were asserted "
+               (pr-str (mapv #(:sentence (v/sentex kb %)) (take 8 lost-pm)))))))
   ;; the index's term roster is an absolute invariant, not a delta: it must equal the
   ;; names the surviving records mention.  A term left behind by an incomplete unindex
   ;; shows up here even when the record sets balance.
@@ -453,10 +495,9 @@
   []
   (fn [f]
     (let [kb *kb*
-          before-sx (sentex-ids kb)
-          before-dd (justification-ids kb)]
+          before (baseline kb)]
       (try (f)
-           (finally (assert-neutral! kb before-sx before-dd))))))
+           (finally (assert-neutral! kb before))))))
 
 (defn neutral-fresh
   "An `:each` fixture that builds a KB with `build-fn` (e.g. `tu/fresh`, or
@@ -466,19 +507,17 @@
   (fn [f]
     (let [kb (build-fn)]
       (binding [*kb* kb]
-        (let [before-sx (sentex-ids kb)
-              before-dd (justification-ids kb)]
+        (let [before (baseline kb)]
           (try (f)
-               (finally (assert-neutral! kb before-sx before-dd))))))))
+               (finally (assert-neutral! kb before))))))))
 
 (defn neutral-kb*
   "Functional core of `with-neutral-kb`."
   [build-fn body]
-  (let [kb (build-fn)
-        before-sx (sentex-ids kb)
-        before-dd (justification-ids kb)]
+  (let [kb     (build-fn)
+        before (baseline kb)]
     (try (body kb)
-         (finally (assert-neutral! kb before-sx before-dd)))))
+         (finally (assert-neutral! kb before)))))
 
 (defmacro with-neutral-kb
   "For a deftest that builds its own KB inline (a namespace whose tests need

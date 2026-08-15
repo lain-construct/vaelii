@@ -189,8 +189,8 @@
 
 (defn- measure-frame-codec
   "The other half of the frozen-byte question the attribution raises: 56%% of a frame is
-  *scaffolding* — nippy writes the record's type tag and every field name into every one
-  of the 11M frames.  A **positional** frame (a plain vector, fields by position) pays
+  *scaffolding* — nippy writes the record's type tag and every field name into every
+  single frame.  A **positional** frame (a plain vector, fields by position) pays
   that once in the code instead of once per record, and needs no dictionary at all."
   [recs]
   (let [n     (count recs)

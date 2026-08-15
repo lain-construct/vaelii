@@ -503,8 +503,8 @@ one has a row below and that every citation resolves. Renaming or
 removing one is **Breaking** (CONTRIBUTING §3.8). Three rows are outside that net and say
 so where they sit.
 
-**A "Read at" cell is a floor, not an address.** `web.clj:5800+` reads *start at line
-5800 and read down*, and the number is rounded to a multiple of ten. An exact line was
+**A "Read at" cell is a floor, not an address.** `web.clj:NNN+` reads *start at line
+NNN and read down*, and the number is rounded to a multiple of ten. An exact line was
 checked exactly and drifted the moment anything above it was edited — a comment six
 screens up failed the surface test with a diff that had nothing to do with
 configuration, and the fix was always to retype a number nobody reads as a number.
@@ -600,9 +600,9 @@ here.
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
 | `OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:40+` | a base URL; a bind address (`0.0.0.0`, `::`, `*`) is ignored | unset | Ollama's own variable, read after `VAELII_OLLAMA_HOST`. A host binds `0.0.0.0`; nothing connects to it. |
-| `ANTHROPIC_API_KEY` | `src/vaelii/impl/llm/anthropic.clj:110+` | an API key | unset | The credential sent as `x-api-key`, tried first. |
-| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/impl/llm/anthropic.clj:110+` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
-| `ANTHROPIC_BASE_URL` | `src/vaelii/impl/llm/anthropic.clj:410+` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
+| `ANTHROPIC_API_KEY` | `src/vaelii/impl/llm/anthropic.clj:100+` | an API key | unset | The credential sent as `x-api-key`, tried first. |
+| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/impl/llm/anthropic.clj:100+` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
+| `ANTHROPIC_BASE_URL` | `src/vaelii/impl/llm/anthropic.clj:370+` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
 
 **The build stamp.**
 
@@ -621,6 +621,7 @@ CI sets these too; nothing in a deployment does.
 | `VAELII_TEST_TMS` | `test/vaelii/test_util.clj:150+` | `reference` `dense` | `reference` | Which truth-maintenance representation the suite runs on. |
 | `VAELII_TEST_SPACE` | `test/vaelii/test_util.clj:120+` | a whole number from 5 to 15 | `15` | The top of the two-space block the suite's KBs live on, so two runs can have distinct directories. |
 | `VAELII_TEST_LOG_LEVEL` | `project.clj:130+` | `error` `warn` `info` `debug` `trace` | `error` | The floor the `:test` profile installs the engine's logging at, through `set-log-level` itself. |
+| `VAELII_BENCH_LOG_LEVEL` | `project.clj:170+` | `error` `warn` `info` `debug` `trace` | `error` | The same floor for the `:bench` profile, so `lein perf` and the `bench-*` harnesses print readings rather than the logging their workloads provoke. |
 | `VAELII_LLM_LIVE` | `test/vaelii/test_util.clj:200+` | `1` `true` `yes` | unset | The consent to call a real model. The `^:llm` mark is the separate half, and both are needed. |
 | `VAELII_RETE` | `test/vaelii/test_util.clj:30+` | the boolean vocabulary | `false` | Runs the suite's forward chaining through the incremental matcher instead of the reference. |
 | `VAELII_HIER` | `test/vaelii/test_util.clj:100+` | the boolean vocabulary | `true` | The set-algebra context-scoped retrieval. `0` routes every match through the reference nested fan-out instead. |
@@ -634,11 +635,16 @@ CI sets these too; nothing in a deployment does.
 | `PERF_TOLERANCE` | `scripts/gate.sh:60+` | a multiplier (`1.5`) | unset | Passed through to `lein perf --tolerance`, for a loaded box. **Unpinned.** |
 | `TEST_BACKENDS_OUT` | `scripts/test-backends.sh:70+` | a directory | `target/test-backends/run-<pid>` | Where `lein test-backends` writes one log per run; the default is per-run, with `latest` pointing at the newest. **Unpinned.** |
 | `TEST_SWEEPS_OUT` | `scripts/test-sweeps.sh:50+` | a directory | `target/test-sweeps` | Where `lein test-sweeps` writes one log per run. **Unpinned.** |
+| `SUITE_PROGRESS` | `scripts/lib/suite-marks.sh:40+` | `marks` `lines` `auto` | `auto` | How `lein test-backends` and `lein test-sweeps` report a namespace as it finishes: `marks` is the ✔/✘ rows a terminal animates, `lines` is one named, counted and timed line each — what a log, a pipe or CI gets, since a row of ticks in a file names nothing. `auto` reads the terminal. **Unpinned.** |
+| `TEST_MATRIX_OUT` | `scripts/test-matrix.sh:50+` | a directory | `target/test-matrix/run-<pid>` | Where `lein test-matrix` writes one log per configuration, plus `summary.tsv`; per-run, with `latest` pointing at the newest. **Unpinned.** |
+| `MATRIX_JOBS` | `scripts/test-matrix.sh:50+` | a whole number | cores − 2 | How many of the thirteen configurations run at once. One run is about one core of test work, so more slots than cores buys nothing and costs a JVM each. **Unpinned.** |
+| `MATRIX_JVM_OPTS` | `scripts/test-matrix.sh:50+` | JVM flags | unset | Extra `JVM_OPTS` for every configuration. `-XX:ActiveProcessorCount=2` is the one worth measuring on a loaded box — each JVM otherwise sizes its GC and JIT pools from every core while doing one core of work. It lands in each configuration's log header (`# env … lein test …`, under the revision stamp), so a run stays reproducible by copying that line. **Unpinned.** |
+| `MATRIX_HEARTBEAT` | `scripts/test-matrix.sh:50+` | seconds; `0` disables | `60` | How often `lein test-matrix` prints how far each running configuration has got. Thirteen interleaved per-namespace streams are not readable, so this is what replaces them. **Unpinned.** |
 
-Those four are the names the contract test does not freeze, and the reason is what a
+Those nine are the names the contract test does not freeze, and the reason is what a
 regex can tell apart: `${VAELII_…}` in a shell script is name-shaped enough for one
 pattern, and `${GATE_JOBS}` is indistinguishable from every local variable the script
-has. Three names outside the net, named as such, is a better trade than a test that
+has. Nine names outside the net, named as such, is a better trade than a test that
 parses shell. The scripts also honour `NO_COLOR`, `CI` and `TERM` — conventions, read as
 inputs to the colour decision and not knobs of this project's.
 

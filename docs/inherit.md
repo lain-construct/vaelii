@@ -74,12 +74,18 @@ nothing about which *kinds of wing* they have, so position 2 preserves nothing. 
 position is a separate claim about the relation, and this is what that looks like when
 somebody has actually made both decisions.
 
-The size claims are also where the sharp edge shows. Preservation runs downward and
-`largerThan` is asymmetric, hence irreflexive — so a claim relating a kind to one of its
-own subkinds would license `(largerThan K K)` and contradict itself. `(largerThan mammal
-mouse)` is not a fact this ontology can hold, however true it sounds; every pair in
-`CxSize` is between kinds that are not `genl`-related, and that is a requirement
-rather than a coincidence.
+The size claims are also where the sharp edge shows. Preservation runs downward, so
+`(largerThan mammal mouse)` reaches every pair below it and lands on `(largerThan mouse
+mouse)` — a kind reported larger than itself, which is not what `largerThan` is for.
+`(largerThan mammal mouse)` is therefore not a fact this ontology can hold, however true
+it sounds; every pair in `CxSize` is between kinds that are not `genl`-related, and that
+is a requirement rather than a coincidence.
+
+The requirement is the modeller's, and the engine does not enforce it: `(asymmetric P)`
+convicts against a believed **opposing** claim, and a self tuple has none, so nothing is
+refused and `contradictions` stays empty. Asymmetry does not give you irreflexivity here
+([taxonomy.md](taxonomy.md)), which is exactly why the pairs have to be chosen rather
+than checked.
 
 ## The transitivity has to have been declared
 
@@ -219,7 +225,9 @@ belongs, rather than split across two predicates in the ontology.
 ## `(asymmetric P)`
 
 Predicate metadata beside `transitive` / `symmetric` / `reflexive` / `functional`:
-`(P a b)` and `(P b a)` cannot both hold, so `P` is irreflexive too. It does two things.
+`(P a b)` and `(P b a)` cannot both hold. It does two things — and refusing `(P a a)` is
+not among them, because the check needs a believed opposing claim and a self tuple has
+none ([taxonomy.md](taxonomy.md)).
 
 It gives the **converse the standing to deny a claim**, which is what makes the override
 above work at all — `(typicallyLargerThan maine_coon chihuahua)` counts as evidence
@@ -234,6 +242,15 @@ first was stated directly or reached by preservation: known-true, and it is refu
 merely believed, and the two are admitted as a represented dilemma. Either way the KB
 stops holding both directions in silence, which is the whole point of the
 declaration.
+
+The mark is read for the sentence's predicate **and every super-predicate of it**
+(`tax/props-over`), because `(fatherOf a b)` beside `(parentOf b a)` is two `parentOf`
+tuples one way round each, and `(asymmetric parentOf)` denies exactly that. The converse
+is then probed at the marked predicate — `(parentOf b a)`, whose match fans down over
+`parentOf`'s specs and so finds the claim under either spelling — where probing
+`(fatherOf b a)` would miss one written generally. This is the **constraint** direction
+and it is the opposite of the one below: a mark that convicts descends, a mark that
+licenses does not.
 
 ## Reading it back
 

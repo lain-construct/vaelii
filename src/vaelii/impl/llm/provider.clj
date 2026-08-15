@@ -28,7 +28,12 @@
 
 (def kinds
   "The backends `provider` knows how to build, in the order `first-available` tries
-  them: the local one before the remote one, since it costs nothing to ask."
+  them: the local one before the remote one, since a model already on the machine is
+  the one to prefer.  Not because asking is cheaper — `ollama/available?` is an HTTP
+  GET that waits up to its two-second timeout on an unreachable host, where
+  `anthropic/available?` is two `getenv` reads before it shells out at all.  The local
+  probe is the slow one and goes first anyway, because what it decides is which model
+  answers rather than how fast the decision is taken."
   [:stub :ollama :anthropic])
 
 (def ^:private backend-ns

@@ -464,9 +464,10 @@
   (testing "but as an argument it is ordinary, which is what lets a sense be stated"
     (is (empty? (nm/problems* '(sense lex/fools_gold fools_gold-mineral)
                               'CxUniverse))))
-  (testing "and what lets the improver's unsensified edge stand until it crafts the sense"
-    ;; `(genl <sense> <lexeme>)` is the improver's input, not an error: it sensifies the
-    ;; lexeme by replacing it with a sense, which is its core operation.
+  (testing "and what lets an unsensified edge stand until a sense is crafted for it"
+    ;; `(genl <sense> <lexeme>)` is a placeholder, not an error: a word read out of text
+    ;; is a surface form until something decides which of its meanings was meant, and the
+    ;; edge is how the hierarchy holds it in the meantime.
     (is (empty? (nm/problems* '(genl abrasive-grit lex/abrasive_tool)
                               'CxUniverse)))))
 

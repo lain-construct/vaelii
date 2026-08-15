@@ -55,11 +55,18 @@
             ;; run.  Process state rather than a KB read, so it is not a hole in the ledger
             ;; below: it reads no KB and writes none.
             [vaelii.impl.jobs :as jobs]
+            ;; one read, `write-hazards`: whether the KB on screen is one whose belief was
+            ;; never built, which the write guard below refuses on and `active-caveat`
+            ;; already reports the read half of
+            [vaelii.impl.kb :as kb]
             ;; the proposal panel on a term page.  `llm` is an application over the
             ;; engine exactly as this namespace is — a peer, not an internal — so
             ;; reaching it is not a hole in the ledger below; it never writes, and it
             ;; is reached from one route.
             [vaelii.impl.llm.provider :as llm-provider]
+            ;; and the editable line format the proposal panel and this editor share —
+            ;; one owner, because the two diff each other's lines by content
+            [vaelii.impl.llm.selection :as selection]
             [vaelii.impl.llm.session :as llm]
             [vaelii.impl.llm.verdict :as verdict]
             [vaelii.impl.sandbox :as sandbox]
@@ -401,7 +408,7 @@
   reader completeness, while *no belief* silently empties every believed answer and can
   outlive the load that explains it (a store opened without `:recover?`)."
   []
-  (let [{:keys [name status progress belief?]} (catalog/active-caveat)
+  (let [{:keys [name status progress belief? recoverable?]} (catalog/active-caveat)
         loading? (= :running status)]
     [:div#kb-caveat
      (cond-> {}
@@ -439,7 +446,14 @@
               "reads as though the KB held nothing. "
               (if loading?
                 "The load builds both at the end."
-                "Load this KB again with belief on to get them back.")])]]))]))
+                ;; Two different repairs, and the store knows which one applies: a KB
+                ;; holding justifications has everything `recover` reads and needs no
+                ;; second pass over the dump, while one holding none cannot be recovered
+                ;; into belief at all and has to be loaded again.  Prescribing the reload
+                ;; to both sends the first case back through hours of work for nothing.
+                (if recoverable?
+                  "Everything belief is built from is stored: run recover on this KB."
+                  "Load this KB again with belief on to get them back."))])]]))]))
 
 (defn- render
   "One page's answer: the whole document, or — when htmx asked for a fragment — the
@@ -1047,6 +1061,10 @@
    :bad-handle           "bad handle"
    :not-watchable        "no feed"
    :context-escape       "wrong ctx"
+   ;; the write side of the caveat banner's second condition: this KB's belief (or its
+   ;; derived index) was never built, so the door refused rather than storing unchecked
+   :unrecovered-kb       "not recovered"
+   :unrecovered-premise  "no sweep"
    :error                "error"})
 
 (defn- problem-chip-word [t]
@@ -1288,7 +1306,7 @@
      [:input {:type "hidden" :name "i" :value i}]
      (when storable?
        ;; print vars bound off — the value is read back as EDN, and an elided
-       ;; sentence is legal EDN naming something else (see `edit-line`)
+       ;; sentence is legal EDN naming something else (see `selection/edit-line`)
        [:input {:type "hidden" :name "line"
                 :value (binding [*print-length* nil *print-level* nil]
                          (pr-str [chosen context]))
@@ -1909,9 +1927,11 @@
   or a disclosure that fetches its own children the first time it is opened.  Bare
   `<li>`s, so the same call answers the page and the continuation that extends it."
   [{:keys [kb] :as view} pred node offset]
-  (let [;; O(1), and an upper bound on this level's width: `sortable?` is therefore
-        ;; decided without reading the level.  A node wide enough to be worth not sorting
-        ;; is a node whose children nobody is going to read alphabetically anyway
+  (let [;; an upper bound on this level's width: `sortable?` is therefore decided without
+        ;; reading the level.  A node wide enough to be worth not sorting is a node whose
+        ;; children nobody is going to read alphabetically anyway.  One count per
+        ;; predicate holding `node` at argument 2 and never the extent (the shape
+        ;; `core/count-with-arg` states), paid once per rendered child by `expandable?`
         width    (v/count-with-arg kb 2 node)
         sortable (<= width sortable-cap)
         kids     (cond->> (child-terms kb pred node) sortable (sort-by str))
@@ -2946,10 +2966,14 @@
         ;; one rather than ordering it.  Names are what this list is read in anyway, and
         ;; it is the ordering every other list on the page uses.
         partners (sort-by str (into #{} (concat declared induced)))
-        ;; every spec closure is a cached set, so its size is a free read: the sum is an
-        ;; upper bound on their union (it counts an overlap twice) and decides, before any
-        ;; of it is walked, whether building the union is affordable at all.  43 partners
-        ;; spanning 290,000 subtypes is one real term of one imported ontology
+        ;; the sum of the partners' closure sizes is an upper bound on their union (it
+        ;; counts an overlap twice), and it decides whether building the union is
+        ;; affordable.  Taking the bound is what *makes* the closures cached, not a read
+        ;; of ones already cached: `tax/specs` walks the subtree on the first read of a
+        ;; node per taxonomy generation, so the 43 partners spanning 290,000 subtypes —
+        ;; one real term of one imported ontology — are walked here whatever the cap then
+        ;; says.  What the cap saves is the `distinct` and the `sort-by str` over the
+        ;; union, which is why the branch below can be O(cap)
         bound    (reduce + 0 (map #(count (v/specs kb %)) partners))
         walk     (comp (mapcat #(v/specs kb %)) (filter types) (distinct))]
     (if (<= bound sortable-cap)
@@ -3327,6 +3351,19 @@
 
               ;; a conjunction is `prove`'s goal shape, not a literal — the levels
               ;; answer about one literal, so there is nothing for them to say here
+              ;; a vector whose members are not sentences is not a conjunction — it is
+              ;; the sentence spelling `query-plan` refuses, and asking for its plan
+              ;; would throw where the page has no exception middleware to render it.
+              ;; Refused here in the same voice as the guidance above, since a plan for
+              ;; a goal `prove` will not answer is a fiction either way.
+              (and (vector? goal) (not-every? seq? goal))
+              [:div
+               [:h2 "Not a goal @ " (term-link view ctx)]
+               [:p.muted "A vector goal is a conjunction, so each member has to be a "
+                "sentence — e.g. " [:code "[(bird ?x) (hasCapability ?x flying)]"] ". "
+                "One sentence is written as a list: " [:code "(animal ?x)"] ", not "
+                [:code "[animal ?x]"] "."]]
+
               (vector? goal)
               [:div
                [:h2 "Conjunctive goal @ " (term-link view ctx)]
@@ -4243,36 +4280,10 @@
   [s]
   (try (edn/read-string (str s)) (catch Throwable _ nil)))
 
-(defn- wrapped-sentence
-  "A sentex's editable sentence: the readable sentence (the author's variable names),
-  and for a rule its direction / defeasibility spelled back as `set/*Rule` wrappers so
-  a re-assert preserves them.  A rule's `exceptWhen` / `unknown` guard lives in a
-  separate meta-sentex and is **not** carried, so editing a guarded rule drops its
-  guard — the hint says so."
-  [s]
-  (let [base (readable s)]
-    (if (:antecedent s)
-      (let [d (case (:direction s)
-                :forward  (list 'set/forwardRule base)
-                :backward (list 'set/backwardRule base)
-                :inert    (list 'set/inertRule base)
-                base)]
-        (if (:defeasible s) (list 'set/defaultRule d) d))
-      base)))
-
-(defn- edit-line
-  "The one editable EDN line for a handle: `[sentence context]`, plus
-  `{:strength :monotonic}` when the sentex is known-true, so a re-assert keeps it."
-  [s]
-  ;; print vars bound off: the line is read back as EDN and diffed by content, and an
-  ;; ambient *print-length* would elide a long sentence into `(dog Muffet ...)` —
-  ;; legal EDN that no longer matches its own sentex, so saving an untouched panel
-  ;; would retract the real fact and store the mutilated one
-  (binding [*print-length* nil *print-level* nil *print-meta* false]
-    (let [sent (wrapped-sentence s) ctx (:context s)]
-      (if (= :monotonic (:strength s))
-        (pr-str [sent ctx {:strength :monotonic}])
-        (pr-str [sent ctx])))))
+;; The editable line format is `vaelii.impl.llm.selection`'s, not a second copy of it:
+;; the model's proposal lands back in this editor's textarea and is diffed against these
+;; lines by content, so a byte of drift between the two spellings turns every unchanged
+;; line into a retract plus an assert of the same fact.
 
 (defn- parse-handles [csv]
   (->> (str/split (str csv) #",") (map str/trim) (remove str/blank?) (keep ->long) distinct vec))
@@ -4283,7 +4294,8 @@
   and `text` are supplied when re-rendering after a save that would not have gone
   through — each problem naming the line it is about."
   [{:keys [kb]} handles & [{:keys [text problems]}]]
-  (let [entries (for [h handles :let [s (v/sentex kb h)] :when s] {:h h :line (edit-line s)})]
+  (let [entries (for [h handles :let [s (v/sentex kb h)] :when s]
+                  {:h h :line (selection/edit-line s)})]
     (if (empty? entries)
       [:span]
       [:div.editor
@@ -4390,7 +4402,7 @@
       (frag (edit-panel view handles {:text text :problems unread}))
       (let [orig      (vec (for [[i h] (map-indexed vector handles)
                                  :let  [s (v/sentex kb h)] :when s]
-                             {:h h :line i :key [(wrapped-sentence s) (:context s)]}))
+                             {:h h :line i :key [(selection/wrapped-sentence s) (:context s)]}))
             orig-keys (set (map :key orig))
             new-keys  (set (map :key parsed))
             removals  (vec (remove #(new-keys (:key %)) orig))
@@ -5273,13 +5285,21 @@
 
 (defn- write-refusal
   "Nil when this request may write `target`'s KB, and the **page** saying why not when it
-  may not: the origin check, and whether a job holds this process's writer.
+  may not: the origin check, whether a job holds this process's writer, and whether the
+  KB is one whose belief was never built.
 
   A KB can be read while a job fills it, which is what makes an arriving corpus browsable
   — but it cannot be *written* while one does.  A store mutation lands atomically so a
   reader beside the job sees a consistent prefix; two interleaved writers are not
   serializable at all (docs/storage.md, the single-writer contract), and the job is
   already this process's writer.  So the reads stay open and the writes are refused.
+
+  **The last arm is the same sentence about a different clock.**  A KB stored without its
+  derived state is readable — with the banner saying what is missing — and unwritable for
+  as long as it stays that way, which can be days: the definitional checks all read
+  `jtms/in?`, so over an empty network they match nothing and pass, and the store keeps
+  what they would have refused.  The engine's own doors throw `:unrecovered-kb` for it, so
+  this arm is not what makes the write fail; it is what makes it fail *on this page*.
 
   The refusal is a page, not an error status, for the reason `kbs-page` renders one: the
   reader is still somewhere sensible and is owed a sentence about why nothing happened.
@@ -5322,7 +5342,30 @@
              "records one by one with no snapshot — a write landing mid-walk would "
              "leave it a dump of no single state."]
             [:p.muted "Wait for it to finish or cancel it on the "
-             [:a {:href "/kbs"} "knowledge bases"] " page."])))
+             [:a {:href "/kbs"} "knowledge bases"] " page."])
+
+    ;; ...and the caveat banner's second condition, seen from this side.  The banner
+    ;; explains an *answer*; this is the same state refusing a *write*, which the engine
+    ;; door would throw for (`:unrecovered-kb`) — refused here so it renders as the page
+    ;; the two refusals above render rather than as an exception htmx cannot swap.
+    ;; Asked only of an in-process KB: an attached daemon has none of this to report,
+    ;; exactly as `catalog/active-caveat` has nothing to say about one.
+    :else
+    (when-let [hz (let [k (current target)]
+                    (when (:records k) (not-empty (kb/write-hazards k))))]
+      (render (view (current target) req) "not recovered"
+              [:h2 "Nothing was written"]
+              [:p [:b (active-kb-name)] " is stored but not built: "
+               (if (:no-index hz)
+                 "neither its belief network nor its index was rebuilt from the records"
+                 "its belief network was never rebuilt from the records")
+               " — so every definitional check would match nothing and pass, and this KB "
+               "would keep a fact it would otherwise refuse."]
+              [:p.muted "Reading it is fine, which is what the banner above is about. To "
+               "make it writable, run "
+               [:code (if (:no-index hz) "(reindex kb)" "(recover kb)")]
+               " against it, or load it again with belief on from the "
+               [:a {:href "/kbs"} "knowledge bases"] " page."]))))
 
 (defn- writing
   "The guard every synchronous write to a KB's *content* goes through: `write-refusal`,
@@ -5487,9 +5530,16 @@
                                      (kbs-post #(kbs-load (get-in req [:params "id"]) (:params req))
                                                #(view (current target) req))
                                      (cross-origin-refusal)))}]
+         ;; the monitor goes in for the reason the export route hands one: unloading is a
+         ;; registry write, but *releasing* is the end of a KB's stores, and a synchronous
+         ;; write already past the write doors has to drain before they go rather than
+         ;; interleave with the clear
          ["/kbs/unload"   {:post (fn [req]
                                    (if (same-origin? req)
-                                     (kbs-post #(some-> (get-in req [:params "key"]) catalog/unload!)
+                                     (kbs-post #(some-> (get-in req [:params "key"])
+                                                        (catalog/unload!
+                                                         {:run-in (fn [work]
+                                                                    (locking write-monitor (work)))}))
                                                #(view (current target) req))
                                      (cross-origin-refusal)))}]
          ["/kbs/activate" {:post (fn [req]

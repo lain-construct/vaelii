@@ -76,9 +76,9 @@ per-fact cost.
 * `kb/find-or-create-sentex` for the implied `(T arg)` in the asserting context;
 * `derived-sentex-added` when it is new, so it reaches the closures and posts its
   exception re-check trigger exactly as a rule conclusion does;
-* `jtms/->just` with antecedents **`[source-handle decl-handle]`** and the declaring
-  predicate as the informant, guarded by `has-justification?`;
-* depth one past the deeper of the two;
+* `jtms/->just` with antecedents **`[source-handle decl-handle & genl-edge-handles]`**
+  and the declaring predicate as the informant, guarded by `has-justification?`;
+* depth one past the deepest of them;
 * strength `:monotonic` conferred — the entailment adds no defeasibility of its own, so
   `conferred-class` caps it at the weaker of the fact and the declaration.
 
@@ -86,21 +86,44 @@ That is what makes it retractable. Drop the fact or drop the declaration and the
 goes, through machinery that already exists; defeat the fact and the type goes OUT with
 it, because it is an ordinary derived node.
 
-## Both directions, or belief depends on arrival order
+The edge handles are there because a constraint **descends the predicate hierarchy**
+([taxonomy.md](taxonomy.md)): `(argIsa parentOf 1 animal)` entails `(animal Ann)` from
+`(fatherOf Ann Mary)` under `(genl fatherOf parentOf)`, and that type is entailed only
+while the subsumption is. Naming the fact and the declaration alone would leave it
+standing after the edge was retracted — a derived record supported by content that no
+longer entails it, which is the whole failure justifying an entailment is meant to
+prevent. `checks/edge-support` names one supporter per edge on a shortest visible path,
+the same witness rule everything else depending on a reachability takes.
+
+## Three directions, or belief depends on arrival order
 
 A declaration has to reach back over content already stored, or belief depends on which
-of the two arrived first. `decontextualizedPredicate` lifts the facts already present
-when it arrives, so `argIsa` has to as well. Hence two entry points, mirroring
-`deduce-lifts` / `lift-existing`:
+of the ingredients arrived first. `decontextualizedPredicate` lifts the facts already
+present when it arrives, so `argIsa` has to as well — and with the descension the
+ingredients are three rather than two, so there are three entry points:
 
 * **fact meets declaration** — `deduce-arg-types`, on `assert` *and* on
   `place-conclusion`, because what a declaration says is a claim about the predicate and
   not about how a sentence arrived;
-* **declaration meets facts** — `entail-existing`, walking the predicate's functor root.
+* **declaration meets facts** — `entail-existing`, walking the functor roots of the
+  declared predicate's whole `genl` **spec** subtree, since the declaration binds every
+  predicate beneath the one it names;
+* **edge meets both** — `entail-under-edge`, walking the same subtree under the arriving
+  edge's sub-predicate. It is the taxonomy twin of `entail-existing`, and there for the
+  reason `subsumption-seeds` beside it is: the arriving datum is the *edge*, and nothing
+  else on the assert path re-examines the facts it just brought under a declaration.
 
-Assert-then-declare and declare-then-assert reach the identical KB. That is the gate, and
+Every order of {declaration, fact} reaches the identical KB, and so does every order of
+{declaration, fact, edge}. That is the gate:
 `every-arrival-order-reaches-the-same-belief` runs all six orders of {declaration, fact,
-a competing type}.
+a competing type}, and `every-arrival-order-of-the-three-ingredients-mints-the-same-type`
+runs all six of {declaration, fact, edge}.
+
+The *refusal* half has no such reach and is not meant to: it convicts on an absence, so
+there is no second sentex to weigh and no pair to arbitrate ([taxonomy.md](taxonomy.md),
+"What each constraint does in each arrival order"). A KB given the three ingredients in
+different orders can therefore hold different **facts** and must hold the same
+**entailments**.
 
 `entail-existing` puts each stored sentex back through `constraint-entailments` in its
 *own* context and narrows the answers to the arriving declaration, rather than

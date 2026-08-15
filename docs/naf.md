@@ -245,6 +245,16 @@ and finds it empty. This keeps NAF
 consistent with the codebase's existing closed-world mechanism (`exceptWhen`) and the
 store free of negative space.
 
+**The one door that could fill it refuses to.** A justification frame in a dump is the
+record's field map, so the export carries `:out` and the import reads it — which makes
+`vaelii.impl.io.import` the only way a filled slot could reach a store, and it refuses
+one (`:naf-justification`). Three relabel invariants read
+the slot as empty rather than reading it: `region-fixpoint`'s semi-naive warrant is that
+`valid?` is monotone in the IN set, which a justification an arriving datum *invalidates*
+is not; the retraction sweep tears down a live justification through a dead out-datum;
+and the exception fixpoint never consults it. So "finds it empty" is a fact about every
+KB rather than about every KB this engine built alone.
+
 `unknown` is also **belief-sensitive** for free: a stored-but-OUT `S` (a defeated
 default) is not believed, so a level-6 match skips it, so `(unknown S)` holds of a
 defeated `S` — closed-world negation reads current belief, not mere storage.

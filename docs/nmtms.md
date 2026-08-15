@@ -44,6 +44,18 @@ to be known-true — is [`exceptWhen`](exceptions.md)'s: a rule states its own e
 and does not fire, so nothing needs to out-rank anything. A class between the two buys
 one case and costs the total order everywhere else.
 
+**A re-assert takes the stronger of the two classes, and never the weaker.** The mark is
+resolved from *content*, like a re-asserted rule's slots
+([canonicalization.md](canonicalization.md)) and for the reason this page exists: a
+re-assert carrying no `:strength` states nothing about the class — the `:default` it
+falls back to is the door's fallback, not the caller's claim — so reading that silence as
+a downgrade would let arrival order decide belief. Assert `S` known-true, re-assert it
+bare, then assert the known-true `¬S`, and a last-writer-wins mark leaves `S`
+**defeated**; the same three sentences in the other order leave the pair an irreducible
+clash. `strength/max` is commutative and idempotent, so every order agrees and a third
+assertion changes nothing. Narrowing a class is `retract!` and re-assert — the
+retraction takes the mark with it, so nothing is inherited across one.
+
 ### Strength propagates from the antecedents
 
 A justification confers **`min(its own strength, the weakest of its antecedents'
@@ -60,6 +72,13 @@ known-true facts concludes `:monotonic`, which is correct — it *is* monotonica
 entailed. Without the cap, a rule launders a default into something a
 directly-asserted default cannot contradict: a conclusion carrying more authority than
 any of its grounds.
+
+**The taxonomy edges a firing names are grounds like the facts**, and cap it the same
+way: a `genl` edge a subsumed match climbed, and a `genlCx` edge the conclusion's
+context sees the rule or the facts over ([contexts.md](contexts.md)). Known-true facts
+under a bare rule, read across a merely-default context edge, therefore conclude a
+`:default` — the sighting is as defeasible as the edge that carries it, and a conclusion
+stronger than the wiring it was read over would be the same laundering.
 
 The **informant is excluded from the cap**. A rule is one of its own justification's
 antecedents — that is what makes retracting or defeating the rule withdraw everything
@@ -120,11 +139,22 @@ says is the same whenever it is asserted. The choice stays arbitrary — two
 equally-specific defaults give no principled winner — but arbitrary *and stable* is
 the contract; arbitrary and order-dependent is a bug.
 
+**The other leak is a dependency a justification does not record**, and it is the same
+bug wearing removal's clothes: retracting X leaves a conclusion that a KB built without X
+never derives, so belief reads differently depending on whether X arrived and left or
+never came. A justification therefore names every reachability its firing rests on — the
+`genl` edges a subsumed match climbed, and the `genlCx` edges the conclusion's context
+sees the rule and the facts over ([contexts.md](contexts.md)) — so both retract and
+defeat run through the ordinary dependency-directed path. Where a reachability outlives
+the one witness the firing named, the conclusion comes back as a re-derivation at a fresh
+handle, which is what keeps the two orders agreeing in that direction too.
+
 `test/vaelii/order_independence_test.clj` enumerates every permutation of each
 scenario and demands a single distinct outcome. Note that the weaker assertion —
 "exactly one side wins" — is true under every order *even when the winner flips*, so
 it passes against an order-dependent engine. Asserting the **same** side every time is
-what catches it.
+what catches it. `subsumption_support_test` and `placement_context_witness_test` are the
+retraction half, each asking whether losing an edge lands where never having had it does.
 
 ### 2. Locality
 
@@ -252,6 +282,56 @@ holds a second copy of one. `core/justification` and its two neighbours read the
 for the same reason — a justification *is* a record, and a record's home is the store.
 (The projection also normalizes, which is what makes the two representations store values
 equal to each other's however a caller spelled the justification.)
+
+**No stored antecedent vector is in arrival order**, because belief reads it as a set and
+every *report* reads it as a list. Three of the seven builders get there by **sorting on
+content** (`kb/antecedent-order`) — forward chaining's two placement sites and
+`special/derive-equality` — and those three are exactly the ones handed a vector whose
+order is an arrival. A firing is seeded by whichever antecedent triggered it, so
+`a(x,y) ⇐ b1, b2` would store `[h_b2 h_b1 rule]` one way round and `[h_b1 h_b2 rule]` the
+other, and a merge derived from two facts would
+name them in the order they were written — arrival order, in a durable record, read out
+again by `why`'s `:because`, `why-not`'s `:missing`, `preview`'s `:antecedents` and the
+browser's justification line. Ordering it once, where the vector is built, is what makes
+all of those a function of the knowledge. The order is the printed sentence then the
+context, and the **informant is ordered with the rest rather than pinned to a position**:
+the record names it in its own `:informant` slot, and the informants that are symbols
+(`rewriteOf`, `functional`, `decontextualizedPredicate`) are no part of the vector at
+all, so a position rule could not hold uniformly where one order over every antecedent
+does. Nothing reads a position — `valid?` and `has-justification?` read the set, and
+`why` lifts the rule out by identity.
+
+**The other four build the vector positionally instead, and the position is a role.**
+`special/deduce-lift` writes `[fact, declaration]`, `special/justify-twin!` writes
+`[original, equality edge]`, and `special/entail-arg-type` writes `[fact, declaration,
+genl edges…]` — each slot filled by what that supporter *is* to the derivation rather
+than by when it turned up, so there is no arrival to sort out. The tail of the third is
+`checks/edge-support`, a shortest **visible** path whose neighbours expand in name order,
+which makes it a function of the hierarchy for the same reason. The fourth is
+`io.import/import-justifications!`, which remaps a dumped vector handle for handle: it
+carries the exporting KB's order across rather than composing one, and that KB built it
+here. So the guarantee the reports rest on is that the vector never records arrival —
+sorting is how the three sites that could record it avoid doing so, rather than a shape
+every stored vector has.
+
+**A list of justifications is ordered by the same rule**, through one key
+(`kb/justification-content-key`): the informant's own sentence and context, the
+antecedents' sentences, the bindings, then what it concludes.
+`core/supporting-justifications`, `core/dependent-justifications` and a clash report's
+`:justifications` all sort by it, and all three start from an id **set** — `jtms/supports`
+and `jtms/dependents` — whose members are numbered in the order the derivations landed.
+The informant enters the key as its *sentence*, never as its handle: two justifications
+for one conclusion usually differ in their rule before they differ in anything else, so
+a handle there would decide the whole comparison on which rule was typed first. Where
+the key ties, the two justifications say the same thing and print the same way; only
+their ids separate them, and an id is exactly what the key exists to keep out.
+
+**The key is built once per entry, not once per comparison.** `sort-by` calls its key fn
+from inside the comparator, so a naive sort builds it ~2·n·log₂n times — and each build
+is a `get-sentex` per antecedent plus a `pr-str`. A rule handle is an antecedent of every
+firing it licenses, so `dependent-justifications` pays that multiple on the whole history:
+at 100k firings, ~3.3M key builds where 100k would do. All three sites decorate, sort and
+undecorate, which is the same `compare` over the same keys and stable either way.
 
 Two properties are worth stating because they are easy to assume and would be wrong:
 
@@ -635,23 +715,48 @@ throw**: chaining is a fixpoint and cannot abort halfway through one without mak
 the resulting belief set depend on which rule fired first, and the engine's stance is
 that contradictions are soft. A failing conclusion is *dropped* — no sentex, no
 justification, nothing believed — logged at `:warn`, and recorded in
-`(core/violations kb)` as
-`{:violation :arg-type|:disjoint|:functional :sentence :context :rule :detail}`.
-Two more kinds ride the same path: a completed firing with **no placement context**
-is recorded as `:no-placement`, and a *derived* `genl`/`genlCx` edge that would
-close a cycle through negation is dropped and recorded as `:not-stratified`.
+`(core/violations kb)` as `{:violation <kind> :sentence :context :rule :detail}`, the
+kind naming which check refused (`:arg-type`, `:disjoint`, `:functional` and the rest of
+the argument-constraint family). Two more kinds ride the same path: a completed firing
+with **no placement context** is recorded as `:no-placement`, and a *derived*
+`genl`/`genlCx` edge that would close a cycle through negation is dropped and recorded as
+`:not-stratified`. A rule a **generator** minted and the rule checks refuse is dropped
+the same way, under whichever refusal type the check threw.
 
-Four kinds in the ledger drop nothing, and report instead. `:arity` is a declaration
+Seven kinds on this path drop nothing, and report instead. `:arity` is an arity binding
 arriving after facts that do not conform to it, and `:non-confluent` two schematic
-equations disagreeing about a shared term. The other two say a **bounded sweep did not
-finish**, so bounded work never reads as full coverage: `:exposure-truncated` means
-clashes went *unreported*, and `:arbitration-truncated` means content a declaration
+equations disagreeing about a shared term. Three of the rest say a **bounded sweep did
+not finish**, so bounded work never reads as full coverage: `:exposure-truncated` means
+clashes went *unreported*, `:arbitration-truncated` means content a declaration
 implicates went *undecided*, so a pair that would have been defeated stands believed
-until a later settle surfaces it. They do not cover the same triggers —
-`functional` and `asymmetric` reach back over stored content on the deciding path and
-on no other — and both are one entry per settle rather than one per trigger. What
-bounds those sweeps is `settle/*exposure-instance-budget*`
-([taxonomy.md](taxonomy.md)).
+until a later settle surfaces it, and `:arity-truncated` means wrong-length facts went
+*unreported* — the `:arity` reach walks the whole spec subtree a binding descends to and
+the cone a `genlCx` edge opens, and past the budget the predicates it never reached, and
+the ones it never got as far as looking *for*, hold facts neither refused nor
+named. They do not cover the same triggers — a `functional` or `asymmetric`
+**declaration** reaches back over stored content on the deciding path and on no other,
+while a `genl` edge carrying one of those marks down reaches back on both — and each is
+one entry per settle rather than one per trigger. What bounds those sweeps is
+`settle/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md)).
+
+The other two bound the **report** rather than the sweep, and both mean *found, examined
+and not named*, which is a different thing to act on from a sweep that stopped early. A
+binding descending a wide subtree convicts more predicates than one settle may file
+without evicting everything else from a ledger of 1,000, so the pass files at most eight
+`:arity` entries and one `:arity-report-truncated` counting what the cap left out; and
+`:constraint-exposure-truncated` says one cross-context constraint pass found more
+clashing pairs than it will file, naming whichever bound it met — its cut walk or the
+entry cap.
+
+The kinds are not only this path's. An aggregate prover that cannot reduce an extent
+files `:aggregate`, and the qualitative and metric-temporal networks file
+`:qualitative-inconsistency`, `:metric-temporal-mixed-dimensions` and
+`:metric-temporal-inconsistency` when a context's constraints cannot be satisfied — all
+of them reports, none of them a dropped conclusion. The whole roster, kind by kind with
+the `:detail` keys each carries, is the set of tables in `core/violations`' docstring,
+and `violation_roster_test` fails on a kind the engine files with no row there, on a row
+naming a kind nothing files, and on a row whose `:detail` keys are not the ones the
+entry builds.
 
 `(core/violations kb)` is an **accumulating** ledger, not a per-run snapshot. Each
 entry carries the run id from `(core/chain-stats kb)`, the ledger is capped at the
@@ -957,9 +1062,10 @@ so a caller discriminates on that rather than guessing from which keys are prese
 `:not-assertible` `:arity` `:arg-type` `:arg-genl` `:arg-position` `:inter-arg-type`
 `:arg-constraint-kind` `:disjoint` `:functional` `:asymmetric` `:not-stratified`
 `:exception-not-closed`, plus the two about the *request* rather than the knowledge —
-`:shape` (the context is not a symbol, the sentence is not an s-expression) and
-`:unknown-option` (a non-map `opts`, an `opts` key `assert` does not read, or a
-`:strength` that is not an assertable class).
+`:shape` (the context is not a symbol, the sentence is not an s-expression, or it is a
+vector — which is how a query spells a conjunction, so one spelling would store a
+sentence and ask a join) and `:unknown-option` (a non-map `opts`, an `opts` key `assert`
+does not read, or a `:strength` that is not an assertable class).
 
 ## Where the layer stops
 

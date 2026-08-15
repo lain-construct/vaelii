@@ -122,8 +122,12 @@
 
   One branch of `est-matches` is not an O(1) index read: a **unary type literal** sums an
   estimate over the type's whole subtype closure, and `order` asks for it once per pick.
-  `memoizing` collects the repeats inside one plan — the first pick fans and the rest hit
-  its cache — and there it stops, so what is left is one fan per plan, per firing attempt.
+  `memoizing` collects the repeated *index reads* inside one plan, so a subtype counted on
+  the first pick is not counted again — but it wraps the reads and not `est-matches`, and
+  `greedy-block` re-costs every remaining literal on every pick.  So what is left is one
+  fan per pick, per plan, per firing attempt: the traversal and its per-subtype
+  allocation stay, and only the store traffic under them collapses.  That is the number
+  the section below is written against.
 
   It is made cheap **by construction** rather than cached: for the shape that costs, the
   argument a bare open variable, the general walk is provably `count-at [t']` per subtype
@@ -255,9 +259,10 @@
   **Fixed arities, and the cache is nested one level per argument.**  The reads it
   wraps take two arguments or three, all of them known here; a variadic wrapper would
   allocate a rest-seq per call *and* key the cache on it, and this is called O(n²)
-  times per plan for a hit that should cost a hash lookup and nothing else.  Nesting
-  keys on the arguments as they are, so a hit allocates nothing at all — a tuple key
-  would have moved the allocation rather than removed it."
+  times per plan for a hit that should cost a hash lookup and little else.  Nesting keys
+  on the arguments as they are, so a hit allocates one `MapEntry` (`find`, to tell a
+  cached nil from a miss) rather than a key tuple *and* an entry — the point of not going
+  variadic being that the key is free, not that the lookup is."
   [f]
   (let [cache (volatile! {})]
     (fn

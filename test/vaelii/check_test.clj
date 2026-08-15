@@ -141,6 +141,45 @@
       (is (= #{:unknown-option}
              (into #{} (map :type) (v/check kb (list dog Muffet) CxThe :nope)))))))
 
+(deftest a-vector-sentence-is-refused-because-the-read-doors-read-it-as-a-join
+  ;; The one spelling both doors accepted and read differently.  A vector is
+  ;; `sequential?`, so the write door took it and canon flattened it to the list it
+  ;; looks like — while a vector goal is what `query` and `prove` spell a *conjunction*
+  ;; with, so the same spelling handed back asked for a join over the sentence's own
+  ;; elements and answered nothing.  Neither door raised.
+  (tu/with-neutral-kb [kb kb-with-starter]
+    (tu/with-terms [likesOf Alice Bob dog CxVec]
+      (let [before   (v/sentex-count kb)
+            fact     [likesOf Alice Bob]
+            rule     ['implies (list dog '?x) (list 'animal '?x)]
+            nested   (list 'ist CxVec fact)]
+        (testing "assert refuses a vector fact, a vector rule and one inside an ist"
+          (doseq [form [fact rule nested]]
+            (let [e (is (thrown? clojure.lang.ExceptionInfo (v/assert kb form CxVec))
+                        (str (pr-str form) " is refused"))]
+              (is (= :shape (:type (ex-data e)))))))
+        (testing "check predicts each of them, as it must"
+          (doseq [form [fact rule nested]]
+            (is (= #{:shape} (types-of-check kb form CxVec)))))
+        (testing "and so do the two doors that share the guard"
+          (doseq [door [#(v/assert-inert kb fact CxVec)
+                        #(v/check-edit kb {:add [[fact CxVec]]})]]
+            (let [r (try (door) (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+              (is (= :shape (or (:type r) (:type (first r))))))))
+        (testing "the message names the conjunction reading and the spelling to write"
+          (let [m (:message (first (v/check kb fact CxVec)))]
+            (is (re-find #"conjunction" m))
+            (is (re-find #"join over 3" m))
+            (is (re-find (re-pattern (str "\\(" likesOf " " Alice " " Bob "\\)")) m))))
+        (testing "nothing was stored by any of them"
+          (is (= before (v/sentex-count kb))))
+        (testing "the list spelling is the one both doors agree on"
+          (let [h (v/assert kb (apply list fact) CxVec)]
+            (is (= h (v/handle-of kb (apply list fact) CxVec)))
+            (is (seq (v/prove kb (apply list fact) CxVec))
+                "the read door that answered nothing for the vector answers here")
+            (v/retract! kb h)))))))
+
 ;; ---- the opts roster: admissible knowledge, inadmissible request ---------
 ;; These two are the request rather than the sentence, and neither is visible after the
 ;; fact: both store the sentence at a defeat class the caller did not ask for, and a

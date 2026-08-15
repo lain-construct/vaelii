@@ -52,11 +52,11 @@
   Export from a KB nobody is writing: the walk fetches record by record, and the
   single-writer contract offers no snapshot to walk instead."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
             [vaelii.impl.io.fingerprint :as fp]
             [vaelii.impl.kv :as kv]
+            [vaelii.impl.opts :as opts]
             [vaelii.impl.protocols :as p])
   (:import (java.io BufferedOutputStream ByteArrayOutputStream DataOutputStream File
                     OutputStream)
@@ -271,18 +271,9 @@
   dump other than the one asked for — no index where one was ordered, the unbounded
   provenance stream where it was dropped — under a summary that looks exactly right."
   [opts]
-  (when (and (some? opts) (not (map? opts)))
-    (throw (ex-info (str "export! options must be a map, got " (pr-str opts))
-                    {:type :unknown-option :options (vec (sort export-opt-keys))})))
-  (when-let [unknown (seq (sort-by pr-str (remove export-opt-keys (keys opts))))]
-    (throw (ex-info (str "unknown export! option" (when (next unknown) "s") " "
-                         (str/join ", " (map pr-str unknown))
-                         " — export! reads "
-                         (str/join ", " (map pr-str (sort export-opt-keys)))
-                         ".  An option nothing reads takes the default in silence,"
-                         " which here writes a dump other than the one asked for.")
-                    {:type :unknown-option :unknown (vec unknown)
-                     :options (vec (sort export-opt-keys))}))))
+  (opts/check! opts export-opt-keys "export!"
+               (str "An option nothing reads takes the default in silence,"
+                    " which here writes a dump other than the one asked for.")))
 
 (defn- check-variant! [variant]
   (when-not (contains? variants variant)

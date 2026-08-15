@@ -44,7 +44,7 @@
   `prove-within`, the DFS goal stack), so resumption is **in-process only** — it
   does not survive a restart, and holding one pins its captured state in the heap
   (see the single-writer contract in docs/storage.md)."
-  (:require [clojure.string :as str]))
+  (:require [vaelii.impl.opts :as opts]))
 
 (def budget-keys
   "Every bound a budget may carry.  `collect` reads `:max-ms` / `:max-results`;
@@ -62,17 +62,8 @@
   (A `:max-cost` value outside the tiers is the *value* check, `:unknown-option` at
   `vaelii.impl.provers/ask-capped` — this is the key check one level up.)"
   [budget]
-  (when (and (some? budget) (not (map? budget)))
-    (throw (ex-info (str "a budget must be a map of bounds, got " (pr-str budget))
-                    {:type :unknown-option :options (vec (sort budget-keys))})))
-  (when-let [unknown (seq (sort-by pr-str (remove budget-keys (keys budget))))]
-    (throw (ex-info (str "unknown budget bound" (when (next unknown) "s") " "
-                         (str/join ", " (map pr-str unknown))
-                         " — a budget carries "
-                         (str/join ", " (map pr-str (sort budget-keys)))
-                         ".  A bound nothing reads is an unbounded run in silence.")
-                    {:type :unknown-option :unknown (vec unknown)
-                     :options (vec (sort budget-keys))}))))
+  (opts/check! budget budget-keys "budget"
+               "A bound nothing reads is an unbounded run in silence."))
 
 (defn deadline
   "Absolute `System/nanoTime` instant `:max-ms` from now, or nil when unbounded."

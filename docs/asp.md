@@ -4,7 +4,9 @@
   with clingo or clasp, deterministically.
 - **Not here:** the assumption-rule and constraint vocabulary that builds a `Program` in
   the first place → [solving.md](solving.md); committing one labeling of a dilemma into
-  base belief → [labeling.md](labeling.md).
+  base belief → [labeling.md](labeling.md); writing for this engine when answer set
+  programming is the language you already think in, which is the paradigm rather than
+  this machinery → [from-asp.md](from-asp.md).
 - **Assumes:** edge solver, nogood, brave/cautious → [glossary.md](glossary.md).
 
 The real answer-set solver behind the edge-solver seam. Two layers: a

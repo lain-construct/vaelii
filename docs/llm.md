@@ -25,6 +25,8 @@ provider.clj   which backend a turn runs against — lazily resolved, stub by de
 stub.clj       the default provider — deterministic, offline, scriptable
 anthropic.clj  the Messages API backend, raw HTTP over java.net.http + cheshire
 ollama.clj     a local Ollama backend — no credential, sized context, JSON-schema decoding
+http.clj       what both HTTP backends do that is not a wire format: the read deadline,
+               the not-JSON refusal, the bounded excerpt
 tools.clj      read tool schemas generated from vaelii.impl.serve/ops
 prompt.clj     the whole-KB system prompt, generated from the live KB
 selection.clj  the selection-scoped prompt: the reader's lines + only their vocabulary

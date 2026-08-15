@@ -431,10 +431,10 @@
   alone — read a prefix, skip `n`, repeat — without thawing anything.
 
   This is `scan-log`'s return value without decoding the log, and decoding is the whole
-  cost: finding one offset in an 11M-record log means thawing eleven million frames whose
+  cost: finding one offset in a large log means thawing every frame ahead of it, whose
   values are then discarded, and it makes the open path depend on whether this build can
   decode what is in the log.  That dependency is not hypothetical — a record class rename
-  turned one unreadable store into eleven million exceptions, thrown from a scan whose
+  turned one unreadable store into an exception per record, thrown from a scan whose
   only question was *how long is the log*.
 
   **Nothing is thawed, deliberately, and the length chain is enough.**  A frame is

@@ -208,12 +208,9 @@
             cache (atom {})
             decode
             (fn [^long m]
-              (if-let [hit (find @cache m)]
-                (val hit)
-                (let [s (into #{} (keep-indexed (fn [i r] (when (bit-test m i) r))) rels)]
-                  (swap! cache (fn [c]
-                                 (assoc (if (>= (count c) decode-cache-limit) {} c) m s)))
-                  s)))
+              (caches/read-through
+               cache decode-cache-limit m
+               #(into #{} (keep-indexed (fn [i r] (when (bit-test m i) r))) rels)))
             uni (mask universe)]
         {:universe uni
          :identity (mask identity)
@@ -238,12 +235,8 @@
 (defn- compiled
   "The bitmask form of `algebra`, built on first use."
   [algebra]
-  (if-let [hit (find @compiled-cache algebra)]
-    (val hit)
-    (let [c (compile-algebra algebra)]
-      (swap! compiled-cache
-             (fn [m] (assoc (if (>= (count m) compiled-cache-limit) {} m) algebra c)))
-      c)))
+  (caches/read-through compiled-cache compiled-cache-limit algebra
+                       #(compile-algebra algebra)))
 
 ;; ---- the pass over masks -------------------------------------------------
 ;; A run encodes the network into `long[n*n]` — node pairs by index, universe where

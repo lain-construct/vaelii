@@ -491,6 +491,76 @@
         (is (= [:disjoint] (mapv :kind (v/contradictions kb)))
             "the visibility edge is what makes them a pair")))))
 
+(tu/deftest-kb a-descended-functional-declaration-arriving-last-is-arbitrated
+  ;; the `subtree-facts` sweep, and the reason a mark needs one where a separation does
+  ;; not: the mark is read *up* the predicate hierarchy by the checks the door and this
+  ;; sweep share (`tax/props-over`), so the facts a declaration reaches back over are the
+  ;; whole subtree beneath the predicate it names.  Reading `measureOf`'s own posting list
+  ;; is reading the one thing a general spelling is usually empty of.
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb]
+      (tu/with-terms [birthYearOf measureOf Tom]
+        (v/assert kb (list birthYearOf Tom 1980) 'CxUniverse)
+        (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse)
+        (v/assert kb (list 'genl birthYearOf measureOf) 'CxUniverse)
+        (is (empty? (v/contradictions kb)) "nothing above birthYearOf is marked, yet")
+        (v/assert kb (list 'functional measureOf) 'CxUniverse)
+        (is (= [:functional] (mapv :kind (v/contradictions kb))))))))
+
+(tu/deftest-kb a-descended-asymmetric-declaration-arriving-last-is-arbitrated
+  ;; the same sweep for the other mark: the converse probe fans down the hierarchy and
+  ;; the mark is read up it, so both halves of the question descend or neither does
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb]
+      (tu/with-terms [muchLargerThan largerThan Rex Pip]
+        (v/assert kb (list muchLargerThan Rex Pip) 'CxUniverse)
+        (v/assert kb (list muchLargerThan Pip Rex) 'CxUniverse)
+        (v/assert kb (list 'genl muchLargerThan largerThan) 'CxUniverse)
+        (is (empty? (v/contradictions kb)))
+        (v/assert kb (list 'asymmetric largerThan) 'CxUniverse)
+        (is (= [:asymmetric] (mapv :kind (v/contradictions kb))))))))
+
+(tu/deftest-kb a-genl-edge-carrying-a-mark-down-is-arbitrated
+  ;; the second reach a `genl` edge has, beside the memberships its type reading
+  ;; implicates: a standing mark descends to a subtree that never carried one, so a pair
+  ;; nothing separated a moment ago is a pair now, with neither fact relabelled
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb]
+      (tu/with-terms [birthYearOf measureOf Tom]
+        (v/assert kb (list 'functional measureOf) 'CxUniverse)
+        (v/assert kb (list birthYearOf Tom 1980) 'CxUniverse)
+        (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse)
+        (is (empty? (v/contradictions kb)) "the mark is above nothing they are under")
+        (v/assert kb (list 'genl birthYearOf measureOf) 'CxUniverse)
+        (is (= [:functional] (mapv :kind (v/contradictions kb))))))))
+
+(tu/deftest-kb a-descended-pair-joins-the-candidate-set-and-is-re-derived
+  ;; **The sharp edge behind the miss, and why it was not merely a late report.**  A pair
+  ;; the sweep never reaches never enters `:clashes`, and `:clashes` is the whole of what
+  ;; makes discovery accumulate — so no later settle re-examines it, however many run.  A
+  ;; third filler arriving through the door minted its own two pairs and left the first
+  ;; one absent, which is a KB reporting two thirds of one slot's clashes.
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb]
+      (tu/with-terms [birthYearOf measureOf Tom Pip]
+        (v/assert kb (list birthYearOf Tom 1980) 'CxUniverse)
+        (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse)
+        (v/assert kb (list 'genl birthYearOf measureOf) 'CxUniverse)
+        (v/assert kb (list 'functional measureOf) 'CxUniverse)
+        (is (= 1 (count (v/contradictions kb))) "the sweep found it")
+        (testing "an unrelated settle re-derives it rather than losing it"
+          (v/assert kb (list birthYearOf Pip 2000) 'CxUniverse)
+          (is (= 1 (count (v/contradictions kb)))))
+        (testing "and a third filler adds its two pairs beside the first, not instead of it"
+          (v/assert kb (list birthYearOf Tom 2000) 'CxUniverse)
+          (is (= #{:functional} (set (mapv :kind (v/contradictions kb)))))
+          (is (= 3 (count (v/contradictions kb)))
+              "three values of one slot are three pairs")
+          (is (contains? (set (map :sentence (v/contradictions kb)))
+                         (list 'contradicts (list birthYearOf Tom 1980)
+                               (list birthYearOf Tom 1990)))
+              "the originally-missed pair among them"))))))
+
 ;;; ── the pair only one context can see ─────────────────────────────────
 
 ;; A separation, a functional slot and an asymmetric claim are all checked against what
@@ -743,6 +813,35 @@
       (testing "and the one outcome defeats the default rather than leaving it beside content that denies it"
         (is (= {:known-true true :default false :dilemmas 0 :conflicts 0} (first os))))
       (tu/clear-kb! (tu/test-kb)))))
+
+(deftest a-self-tuple-under-an-asymmetric-predicate-asserts-idempotently
+  ;; `(P a a)` is its own converse, so once stored it answers its own probe: a second
+  ;; assert of content the KB already believes convicted it against the copy the first
+  ;; one left, and `assert` stopped deduping to the handle it already had.  Only at
+  ;; `:monotonic`, since `refuses-assert?` reads the class — which is why the first
+  ;; assert and every re-assert after it disagreed about the same sentence.
+  ;;
+  ;; Admitting it is the reading all three shipped surfaces state: `CxCore.txt`'s comment
+  ;; on `asymmetric`, `docs/taxonomy.md` and `docs/inherit.md`.  Asymmetry does not hand
+  ;; you irreflexivity, and a conviction needs a *believed opposing* claim.
+  (let [kb (tu/fresh)]
+    (v/assert kb '(binaryPredicate zSelfLarger) 'CxUniverse)
+    (v/assert kb '(asymmetric zSelfLarger) 'CxUniverse)
+    (let [h1 (v/assert kb '(zSelfLarger zrock zrock) 'CxUniverse {:strength :monotonic})
+          h2 (v/assert kb '(zSelfLarger zrock zrock) 'CxUniverse {:strength :monotonic})]
+      (is (= h1 h2) "the re-assert dedups to the handle the first one minted")
+      (is (v/ask? kb '(zSelfLarger zrock zrock) 'CxUniverse)))
+    (testing "and the mirror pair it is not a case of still refuses"
+      (v/assert kb '(zSelfLarger zbig zsmall) 'CxUniverse {:strength :monotonic})
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"cannot hold both ways"
+           (v/assert kb '(zSelfLarger zsmall zbig) 'CxUniverse {:strength :monotonic}))))
+    (testing "and a self tuple under a sub-predicate the mark descends to is the same case"
+      (v/assert kb '(genl zSelfSmaller zSelfLarger) 'CxUniverse)
+      (let [h1 (v/assert kb '(zSelfSmaller zpebble zpebble) 'CxUniverse {:strength :monotonic})
+            h2 (v/assert kb '(zSelfSmaller zpebble zpebble) 'CxUniverse {:strength :monotonic})]
+        (is (= h1 h2) "the descended mark convicts a pair, not a sentence against itself")))
+    (tu/clear-kb! (tu/test-kb))))
 
 (deftest an-asymmetric-violating-set-settles-the-same-way-in-every-arrival-order
   ;; the same invariant for the check that was silent rather than throwing: the

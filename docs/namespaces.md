@@ -31,7 +31,7 @@ src/vaelii/impl/
   protocols.clj     RecordStore, IndexStore (trie + roots + rule index + term index)
   naming.clj        naming-invariant predicates + functor/args/arity
   sentex.clj        Atomic / Rule records (connectives → truth/antecedent/consequent), split so a fact drops the rule-only slots; canonical vars + varmap, literal order, symmetric args, comparison folding/chains; canon (+ symbol interning); α-renamed path; index-terms
-  rules.clj         rule-as-sentex helpers (implies form, predicates, range check, exception closure, conjunctive-consequent expand, the generator's hole split — [generators.md](generators.md))
+  rules.clj         rule-as-sentex helpers (implies form, predicates, range check, exception closure, conjunctive-consequent expand, the generator's hole split and its nesting — [generators.md](generators.md))
   taxonomy.clj      cached genl / genlCx closures; the equality partition (representative / equiv-class / deprecated?); maximal-common-descendant-contexts
   strength.clj      assumption strengths + defeat-class lattice (monotonic>default)
   kv.clj            KvBackend protocol + the one KvIndexStore over it: trie + context/functor/arg roots + rule predicate index + exception re-check index + term index; `index-layout-version`, the number that says which key shapes a build reads
@@ -65,11 +65,12 @@ src/vaelii/impl/
   plan.clj          conjunctive query planning: selectivity cost model + sideways information passing, with the cartesian factors (literals sharing no variable with the rest, and matching more than once, so they multiply it) held to the back on structure rather than on an estimate
   literal_cache.clj per-KB cache of matches-visible answers, keyed by the α-renamed (repetition-preserving) literal + context + retrieval strategy, stamped with the change clock; stores only what ran dry, so a bounded run leaves no prefix behind
   observe.clj       leaf seam (no require cycle): store add/remove hooks an incremental matcher installs into, and the coarse change clock a resident derived structure stamps itself with — plus the pin that holds one fixpoint step's reads still
+  opts.clj          a third leaf with no requires but `clojure.string`: the option-map door every public entry point that takes trailing options runs through — a key outside the roster and a non-map `opts` both refused as `:unknown-option`, with the per-door sentence saying what taking the default in silence would have cost *there*.  Ten doors, one shape, because an option nothing reads is not a missing option but a run at a setting nobody chose
   caches.clj        the other leaf with no requires at all: the register every cache-holding namespace declares itself in at load, and the one read over it — entries, bound, unit, hit rate, and separately what the entries are about and what the counters are.  A cache in a namespace this process never loaded has no row, which is the honest answer rather than a zero
   feed.clj          the same seam one altitude up, for **belief** rather than storage: the KB's listener registry, the region a settle accumulates for them, the reentrancy claim that keeps listeners from nesting, and the two dynamics a preview and a teardown suppress it with.  `core` installs the renderer; a KB nobody watches pays one deref (docs/feed.md)
   wiring.clj        the other leaf seam, and the whole inventory of it: the two calls that run *up* the layering — the assert path (for `nat` and `skolem`) and the prover registry (for `resolution`) — plus `import-dump`, a layering inversion rather than a recursion, and the `*defer-settle?*` flag both sides read.  Each entry, and why the set is collected here instead of left at the call sites, is "The layering" at the foot of this file
   violations.clj    the dropped-conclusion ledger, below its two writers: the chainer files a conclusion it refused, the prover registry an aggregate's numeric error, and the chainer is built *on* the registry — so the ledger reads neither and both reach down to it.  A report, not a throw: it is written from inside a fixpoint that must not abort
-  quality.clj       the four readings about the **knowledge** rather than the engine — unfired rules (off the JTMS adjacency that already exists for retraction, never a scan of the justifications), extent skew, SCC-condensed chain depth over the rule graph, taxonomy coverage — plus the Markdown emitter over the map it returns.  Nothing here is a gate ([quality.md](quality.md))
+  quality.clj       the five readings about the **knowledge** rather than the engine — unfired rules (off the JTMS adjacency that already exists for retraction, never a scan of the justifications), extent skew, SCC-condensed chain depth over the rule graph, taxonomy coverage, and the argument-constraint census — plus the Markdown emitter over the map it returns.  Nothing here is a gate ([quality.md](quality.md))
   profile.clj       the workload instrument, and the third leaf: four tallies behind one atom that is nil when off — the shape of every retrieval decision and the access path it took, every index read by family, every trie walk's node probes, and what one assert wrote each family.  Off, each seam is a deref and a `nil?` check ([profile.md](profile.md))
   skolem.clj        head existentials: the deterministic `(SkolemFn <rule-handle> <i> <frontier…>)` witness a rule head `(exists ?y C)` fires to, reified through `nat` so re-firing on one binding resolves to one constant.  Its own namespace because two layers call it — the assert path declares the reifiable function when such a rule is stored, the forward chainer mints at each firing ([skolem.md](skolem.md))
   rete.clj          opt-in TREAT alpha network: RAM alpha memories indexed by arg value; the `chain/*matcher*` swap
@@ -77,8 +78,9 @@ src/vaelii/impl/
   qcn.clj           generic qualitative-constraint-network path consistency: the relation algebra is a parameter, the network is a value (no KB, no belief); PC-2 arc queue + the naive sweep it is proven against, the warm start that closes a narrowing off the previous answer, support-carrying derivation, bitmask relation sets over a flat long array
   qcn_kb.clj        the other half of that seam, written once for every algebra: a calculus {:name :algebra :denotation}, the belief-filtered reader (positive AND negative facts), the resident network + the two passes held in front of their content keys, the four goal shapes, entailment and refutation, the CalculusProver, and the violations report for an unsatisfiable network
   space.clj         RCC-8 over it: the 8 base + 6 derived region predicates, the composition table, and the opt-in entailment prover
-  orientation.clj   cardinal direction over it: the 9 base + 4 derived direction predicates, composition COMPUTED from two independent axis projections, same opt-in prover shape
-  relative.clj      relative direction over it: 9 base + 4 derived, composition computed from a left-right and a front-back axis; ternary in the literature, binary here because a CONTEXT is the frame of reference
+  projection.clj    the algebra of nine relations that are two independent coordinates on two axes: the 1-D point tables, and the constructor that derives universe, identity, composition and converse from one projection table — refusing one that is not a bijection onto all nine pairs, since a gap composes to nil and a repeat is silently dropped by the inverse
+  orientation.clj   cardinal direction over it: the 9 base + 4 derived direction predicates, composition COMPUTED by `projection` from an east-west and a north-south axis, same opt-in prover shape
+  relative.clj      relative direction over it: 9 base + 4 derived, the same `projection` algebra over a left-right and a front-back axis; ternary in the literature, binary here because a CONTEXT is the frame of reference
   distance.clj      qualitative distance over it: 7 ordered classes tiling [0,∞), composition computed by the triangle inequality over the class bounds (exact, not merely sound); converse is identity, distance being symmetric
   interval.clj      Allen's interval algebra over it: the 13 base + 7 derived interval predicates, the transcribed 13×13 table (re-derived from endpoint inequalities by its test), same opt-in prover shape
   point.clj         the point algebra over it: 3 base + 3 derived relations between instants, prefixed (`instantBefore`) because before/after are Allen's
@@ -86,7 +88,7 @@ src/vaelii/impl/
   duration.clj      the quantitative half: totalDuration / overlapDuration computed over stored (length I M) facts, on [lo hi] bounds, rendered as a point or an interval measure
   stp.clj           metric time, and NOT a relation algebra: bounds lo ≤ t(j)−t(i) ≤ hi closed by all-pairs shortest paths, unsatisfiable on a negative cycle; startOf/endOf bridge the numbers onto Allen's intervals and sharpen an overlap into a figure
   solve.clj         Solver protocol + Program + deterministic local-solver stub (ASP seam)
-  asp/aspif.clj     pure ASPIF emitter (a program is a seq of plain maps)
+  asp/aspif.clj     pure ASPIF emitter (a program is a seq of plain maps) — the rule, minimize and output lines the engine's programs are built from, and no more: a statement type arrives with the caller that wants it, since an encoder nothing calls is text generation no test has ever run
   asp/atoms.clj     bidirectional atom-id table; labels are what a solver echoes back
   asp/clasp.clj     clasp subprocess backend: ASPIF on stdin, JSON out
   asp/clingo.clj    in-process libclingo through raw JNA — no JNI, no bindings
@@ -132,7 +134,7 @@ resources/
 
 ## Not glossed above
 
-The map covers 88 of the 121 namespaces under `src/`. The rest are listed here by
+The map covers 91 of the 127 namespaces under `src/`. The rest are listed here by
 name rather than left out — the engine's write path (`integrate`, `special`,
 `checks`, `chain`, `settle`), the store seam (`kb`, `access`, `reindex`), the term
 layer (`nat`, `rewrite`, `inherit`, `gloss`, `spec`), the roster saying which of the
@@ -149,8 +151,8 @@ impl/inherit.clj  impl/integrate.clj  impl/kb.clj  impl/logging.clj  impl/nat.cl
 impl/reindex.clj  impl/rewrite.clj
 impl/settle.clj  impl/spec.clj  impl/special.clj  impl/vocabulary.clj
 impl/asp/solve_context.clj
-impl/llm/{anthropic,correct,inventory,ollama,oracle,page,prompt,protocol,provider,
-          score,selection,session,stub,text,tools,verdict}.clj
+impl/llm/{anthropic,correct,http,inventory,ollama,oracle,page,prompt,protocol,
+          provider,score,selection,session,stub,text,tools,verdict}.clj
 ```
 
 ## The layering

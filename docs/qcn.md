@@ -33,6 +33,15 @@ algebra's 3×3 (`point/point-composition`). The other three are **computed**: th
 direction algebras from two independent axis projections, distance from the triangle
 inequality over its class bounds.
 
+The two direction algebras are computed by the same code, `vaelii.impl.projection`, from
+one table each — nine relations onto the nine `[x y]` pairs of two three-valued axes.
+That table has to be a **bijection** onto all nine, and the constructor refuses one that
+is not (`:bad-algebra`) rather than letting composition discover it: a missing pair
+composes to `nil` and gets stored as though it were a relation, and a repeated pair still
+covers all nine while the inverse map silently drops one of the two relations sharing it.
+So the count is checked as well as the coverage. Both shipped tables are bijections; the
+refusal is for a caller building a calculus of their own.
+
 A transcribed table can be mistyped into a wrong entailment reported with full
 confidence, so two of the three are re-derived from first principles by their tests and
 compared entry for entry: `interval_test` lays out three intervals every way six

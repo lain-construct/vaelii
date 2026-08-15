@@ -284,8 +284,9 @@
   ;; The portable projection of the *merged* view — what an export of a fork writes.  Set
   ;; values are merged (the contract says they arrive as Clojure sets, so this is the one
   ;; op at which merging a posting needs no knowledge of a backend's representation);
-  ;; scalars shadow.  The overlay's own entries are realized (it is the small half); the
-  ;; base's are walked lazily.
+  ;; scalars shadow.  Both halves are realized, and the comment on the `concat` below
+  ;; says why laziness is not available here — so this is the one read on the seam that
+  ;; costs a walk of the base, which is what a portable projection of a fork is worth.
   (kv-entries [_]
     (locking lock
       ;; `first`, not `key`: the contract says entries are pairs, and the tiered

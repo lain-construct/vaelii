@@ -34,6 +34,11 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 
+# what the shards are a verdict about — the header line, and the first line of every
+# shard log
+# shellcheck source=scripts/lib/revision.sh
+. scripts/lib/revision.sh
+
 # Logs and scratch are **per run**; the timings are **per checkout**, and the split is
 # the point.  `gate.sh` hands this a fresh `target/gate/run-<pid>` so two gates in one
 # working tree cannot read each other's shard logs — but the timings are feedback for
@@ -125,7 +130,7 @@ awk -v jobs="$jobs" -v timings="$TIMINGS" '
   }
 ' <(printf '%s\n' "${namespaces[@]}") > "$assign_out"
 
-echo "running $n namespaces at $selector across $jobs shard(s) — logs in $OUT"
+echo "running $n namespaces at $selector across $jobs shard(s) — $(revision_line) — logs in $OUT"
 
 # ---- run --------------------------------------------------------------------
 t0=$SECONDS
@@ -143,9 +148,10 @@ for ((b = 1; b <= jobs; b++)); do
   # the first keyword and hands everything after a selector to that selector as its
   # own arguments — so `lein test :default <ns>` calls the `:default` predicate with
   # the namespace as a second argument and dies on arity, rather than filtering by it.
+  revision_stamp "shard $b" > "$log"
   (
     { lein test "${shard_ns[@]}" "$selector"; echo "SHARD-EXIT:$?"; } 2>&1 \
-      | tee "$log" \
+      | tee -a "$log" \
       | while IFS= read -r line; do
           case "$line" in
             "lein test "*) printf '%s\t%s\n' "$SECONDS" "${line#lein test }" ;;

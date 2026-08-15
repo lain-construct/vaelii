@@ -356,6 +356,386 @@
               (finally (backend/close-dir! (.getPath store)) (rm-rf! store))))))
       (finally (rm-rf! dump)))))
 
+(deftest records-only-keeps-the-premises-a-later-recover-believes-from
+  ;; `recover` is what turns this corpus into a believing KB, and it believes from the
+  ;; premise roster and the strengths on the records.  Stored strength-less, the rebuild
+  ;; still builds a node per handle — so the KB comes back looking whole and believes
+  ;; **nothing**, every handle a derivation with no justification to ground it.  So the
+  ;; records-only path stores each record of ours the way the belief path stores it,
+  ;; minus the TMS it deliberately does not build.
+  (let [dump (temp-dir "records-only-premises")]
+    (rm-rf! dump)
+    (try
+      (let [t (terms)]
+        (tu/with-cleared-kb [source memory-kb]
+          (build! source t)
+          (export/export! source dump {:compression :none})
+          (let [store (temp-dir "records-only-premises-store")]
+            (try
+              (let [target (disk-kb store)]
+                (imp/import-dump target dump {:belief? false})
+                (testing "the corpus arrives with its premises and their strengths"
+                  (is (seq (tu/premise-ids target)))
+                  (is (every? #(some? (:strength (v/sentex target %))) (tu/premise-ids target))
+                      "a premise the roster names carries the strength the dump held"))
+                (testing "and nothing is believed yet — there is no TMS behind it"
+                  (is (empty? (v/sentexes-matching target (list (:bird t) (:Tweety t))
+                                                   (:ctx t)))))
+                (v/recover target)
+                (testing "so the recover has something to believe from, and does"
+                  (is (seq (v/sentexes-matching target (list (:bird t) (:Tweety t)) (:ctx t))))
+                  (is (seq (v/sentexes-matching target (list (:parentOf t) (:Ann t) (:Bob t))
+                                                (:ctx t))))
+                  (is (v/genl? target (:penguin t) (:bird t))
+                      "the taxonomy is rebuilt off believed edges, so it answers too")))
+              (finally (backend/close-dir! (.getPath store)) (rm-rf! store))))))
+      (finally (rm-rf! dump)))))
+
+(deftest stored-belief-is-the-belief-load-minus-the-settling
+  ;; The claim `{:belief? :stored}` makes, stated as the equality that defines it: a dump
+  ;; read `:stored` and then `recover`ed is the same KB as one read `{:belief? true}`.
+  ;; Everything before the recover is a write to the store, and the recover reads the
+  ;; store — so the only thing deferring it can change is *when*.
+  (let [dump (temp-dir "stored-belief")]
+    (rm-rf! dump)
+    (try
+      (let [t (terms)]
+        (tu/with-cleared-kb [source memory-kb]
+          (build! source t)
+          (export/export! source dump {:compression :none})
+          (let [a (temp-dir "stored-a") b (temp-dir "stored-b")]
+            (try
+              (let [deferred (disk-kb a)
+                    eager    (disk-kb b)
+                    s-def    (imp/import-dump deferred dump {:belief? :stored})
+                    _        (imp/import-dump eager dump {:belief? true})]
+                (testing "the summary says which load ran"
+                  (is (= :stored (:belief? s-def)))
+                  (is (pos? (:justifications s-def)) "belief is stored, not skipped")
+                  (is (pos? (:premises s-def))))
+                (testing "and nothing is believed yet — the network was never built"
+                  (is (empty? (v/sentexes-matching deferred (list (:bird t) (:Tweety t))
+                                                   (:ctx t))))
+                  (is (not (v/genl? deferred (:penguin t) (:bird t)))
+                      "the taxonomy is built by the same pass and is likewise absent"))
+                (testing "the store holds everything the eager load's store holds"
+                  (is (= (v/sentex-count eager) (v/sentex-count deferred)))
+                  (is (= (count (tu/premise-ids eager)) (count (tu/premise-ids deferred)))))
+                (v/recover deferred)
+                (testing "so recovering it later lands where loading it eagerly landed"
+                  (compare-kbs! eager deferred)))
+              (finally (backend/close-dir! (.getPath a)) (rm-rf! a)
+                       (backend/close-dir! (.getPath b)) (rm-rf! b))))))
+      (finally (rm-rf! dump)))))
+
+;;; ── a frame this build will not construct ─────────────────────────────
+;;; No live KB can hold one, because the structural checks run inside the constructor
+;;; — which is exactly why a *dump* can: an older build, or another engine, stored a
+;;; rule under a narrower check than this one runs.  So the fixture splices a frame
+;;; into a real export rather than asserting one.
+
+(def ^:private unclosed-rule
+  ;; `?l` occurs in one antecedent and nowhere else, so the deferred `lessThan` reaches
+  ;; the join with an input nothing bound.  `check-naf-closed` refuses it; the shape is a
+  ;; hand-written rule of the kind a foreign dump carries and this check rejects.
+  '(set/backwardRule
+    (implies (and (lessThan ?x ?l) (canBeStackedWith ?x ?y)) (movable ?x ?y))))
+
+(defn- splice-refused-frame!
+  "Append a frame carrying `sentence` to `dir`'s sentex stream and tell `meta.edn` about
+  it, so the dump states a count the stream can still meet.  The frame carries no
+  `:antecedent`, so the reader hands the sentence to the constructor as written — which
+  is the whole point: the refusal has to happen on the reading side."
+  [^File dir sentence context]
+  (let [meta*  (read-string (slurp (io/file dir "meta.edn")))
+        stream (io/file dir "sentexes.nippy.stream")
+        frames (vec (#'imp/read-chunked-seq stream (:compression meta* :none)))
+        added  {:id (inc (long (apply max 0 (keep :id frames))))
+                :sentence sentence
+                :context context}]
+    (#'export/write-frames! stream (conj frames added)
+                            {:compression (:compression meta* :none) :chunk-size 64})
+    (spit (io/file dir "meta.edn")
+          (pr-str (update meta* :sentex-count inc)))
+    added))
+
+(deftest a-frame-this-build-cannot-construct-is-counted-not-fatal
+  ;; The other door's policy, applied to the structural one.  A name `assert` would
+  ;; refuse is stored and counted; a *sentence* this build will not construct cannot be
+  ;; stored at all, so it is skipped and counted — and the load finishes either way.
+  ;; One refusal taking down a finished pass over millions of good frames is the
+  ;; behaviour this replaces.
+  (let [dump (temp-dir "refused-frame")]
+    (rm-rf! dump)
+    (try
+      (let [t (terms)]
+        (tu/with-cleared-kb [source memory-kb]
+          (build! source t)
+          (export/export! source dump {:compression :none})
+          (let [good (v/sentex-count source)]
+            (splice-refused-frame! dump unclosed-rule (:ctx t))
+            (testing "records-only"
+              (tu/with-cleared-kb [target memory-kb]
+                (let [s (imp/import-dump target dump {:belief? false})]
+                  (is (= 1 (get-in s [:refused :skipped])))
+                  (is (= {:naf-not-closed 1} (get-in s [:refused :by-type])))
+                  (is (= (inc good) (get-in s [:refused :checked]))
+                      ":checked is the frame count, so the ratio means something")
+                  (is (= good (:sentexes s)) "the refused frame is not stored")
+                  (is (= (inc good) (:frames s)) "but the stream did yield it")
+                  (is (= good (v/sentex-count target))))))
+            (testing "and the belief path, which is the one that had hours to lose"
+              (tu/with-cleared-kb [target memory-kb]
+                (let [s (imp/import-dump target dump {:belief? true})]
+                  (is (= 1 (get-in s [:refused :skipped])))
+                  (is (= good (:sentexes s)))
+                  (is (pos? (:justifications s))
+                      "and the rest of the dump landed, belief included")))))))
+      (finally (rm-rf! dump)))))
+
+(deftest a-torn-stream-is-still-torn
+  ;; The counterpart, and the reason the truncation check reads the frame count from the
+  ;; stream rather than from the store: a skipped frame shortens the store, and if that
+  ;; were what the check compared it would read every refusal as a torn file — turning a
+  ;; tolerated frame back into a fatal one under a different name.
+  (let [dump (temp-dir "torn")]
+    (rm-rf! dump)
+    (try
+      (tu/with-cleared-kb [source memory-kb]
+        (build! source (terms))
+        (export/export! source dump {:compression :none})
+        ;; state more sentexes than the stream holds — a torn tail, exactly
+        (let [meta* (read-string (slurp (io/file dump "meta.edn")))]
+          (spit (io/file dump "meta.edn")
+                (pr-str (update meta* :sentex-count + 5))))
+        (tu/with-cleared-kb [target memory-kb]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"torn or truncated"
+                                (imp/import-dump target dump {:belief? false})))))
+      (finally (rm-rf! dump)))))
+
+(deftest an-unknown-belief-value-is-refused-by-name
+  ;; The option has three values, so a mistyped one is the quiet failure the key check
+  ;; already guards against: anything truthy would otherwise mean `true` and run the
+  ;; recover the caller asked to defer.
+  (let [dump (temp-dir "belief-value")]
+    (rm-rf! dump)
+    (try
+      (tu/with-cleared-kb [source memory-kb]
+        (build! source (terms))
+        (export/export! source dump {:compression :none})
+        (tu/with-cleared-kb [target memory-kb]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown :belief\? value"
+                                (imp/import-dump target dump {:belief? :store})))
+          (testing "and the refusal lands before anything is written"
+            (is (zero? (v/sentex-count target))))))
+      (finally (rm-rf! dump)))))
+
+(deftest a-dump-that-fills-the-reserved-out-slot-is-refused
+  ;; A justification frame is the record's field map, so it carries `:out` — the
+  ;; negation-as-failure antecedent set, which the engine reserves and never writes
+  ;; (docs/naf.md).  The round trip therefore carries the slot, and this door is the only
+  ;; place a filled one could enter the store.  Three relabel invariants read it as empty
+  ;; rather than reading it, so an imported one would move belief silently and
+  ;; differently on every relabel; refused here, where the frame is still legible.
+  ;;
+  ;; And refused **before the import writes anything**, which is the other half of what
+  ;; a refusal means: the frames come off a file, so the check reads them in a pre-pass
+  ;; and a dump this build will not accept never reaches the store.  Run from inside the
+  ;; justification loop instead, it fires after the whole sentex phase has landed and
+  ;; after every earlier frame is stored — and an import is not a transaction, so the KB
+  ;; keeps every sentex the dump had, an arbitrary prefix of its justifications, no
+  ;; premise marks and no `recover`, and `assert-empty-destination!` refuses the retry
+  ;; until somebody clears the store by hand.
+  (let [dump (temp-dir "naf-out")]
+    (rm-rf! dump)
+    (try
+      (tu/with-cleared-kb [kb memory-kb]
+        (build! kb (terms))
+        (export/export! kb dump {:compression :none})
+        (let [f      (io/file dump "justifications.nippy.stream")
+              frames (vec (#'imp/read-chunked-seq f :none))
+              victim (first frames)
+              stored (fn [] [(count (p/sentex-ids (:records kb)))
+                             (count (p/justification-ids (:records kb)))])]
+          (is (seq frames) "the fixture derived something, so there is a frame to fill")
+          (is (= #{} (:out victim)) "and the writer wrote the slot empty, as it always does")
+          (#'export/write-frames! f
+                                  (cons (assoc victim :out #{(:consequence victim)})
+                                        (rest frames))
+                                  {:compression :none :chunk-size 10000})
+          (tu/clear-kb! kb)
+          (is (= [0 0] (stored)) "the destination starts empty, as the importer demands")
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (imp/import-dump kb dump)))]
+            (is (= :naf-justification (:type (ex-data e))))
+            (is (= [(:consequence victim)] (:out (ex-data e)))
+                "and it names the slot it refused, not just the frame"))
+          (testing "and the store is untouched — nothing landed on the way to the refusal"
+            (is (= [0 0] (stored))
+                "no sentex, no justification: the dump was read before it was written")
+            (is (empty? (tu/premise-ids kb)))
+            (is (empty? (v/terms kb)) "and no term was minted into the index either"))
+          (testing "so the retry needs no clear! — the empty-destination gate still passes"
+            (#'export/write-frames! f frames {:compression :none :chunk-size 10000})
+            (let [summary (imp/import-dump kb dump)]
+              (is (pos? (:sentexes summary)))
+              (is (pos? (:justifications summary))
+                  "the repaired dump imports into the same KB the refusal left behind")))))
+      (finally (rm-rf! dump)))))
+
+;;; ── a meta-sentex the import drops, and what rested on it ─────────────
+;;; A **remapped** import rewrites the `(sentexHandle H)` a meta-sentex stores inside its
+;;; own sentence, and drops the meta-sentex when H names no record — an exception on a
+;;; rule that is not here.  The drop is a deletion, and every other reference to that
+;;; record resolves through the same id map, so the map is where the record has to stop
+;;; existing too.  On a real dump the reference that survives a deletion is not rare — a
+;;; percent or so of the justifications named one — so this is a common case, not an edge.
+
+(defn- dangling-refs
+  "Every `[justification-id handle]` where a stored justification names a sentex handle
+  the store does not hold.  The whole-store form of the audit that found this: a
+  justification is a claim about records, and one that names a record nobody can read is
+  a claim about nothing."
+  [kb]
+  (let [rec  (:records kb)
+        live (set (p/sentex-ids rec))]
+    (vec (for [jid (p/justification-ids rec)
+               :let [j (v/justification kb jid)]
+               h   (concat (:antecedents j) [(:consequence j)] [(:informant j)])
+               :when (and (integer? h) (not (live h)))]
+           [jid h]))))
+
+(defn- splice-orphaning-dump!
+  "Edit `dir` into the shape that drops a meta-sentex with something resting on it, and
+  return `{:meta-id … :rests-on-it …}`.
+
+  Three edits, and each one stands for something a foreign dump has.  The
+  meta-sentex's embedded handle is pointed at a dump id no frame carries, so the rewrite
+  cannot resolve it and the record is dropped.  A justification frame is hung off the
+  meta-sentex — which our own writer never produces (an exception blocks a rule, it does
+  not support a conclusion) and another engine's deduction stream routinely does.  And
+  one sentex frame is duplicated under a fresh id so the import
+  **collapses** it and is therefore `:remapped`, which is the only mode that rewrites an
+  embedded handle at all."
+  [^File dir]
+  (let [meta*   (read-string (slurp (io/file dir "meta.edn")))
+        comp*   (:compression meta* :none)
+        sx-file (io/file dir "sentexes.nippy.stream")
+        j-file  (io/file dir "justifications.nippy.stream")
+        frames  (vec (#'imp/read-chunked-seq sx-file comp*))
+        jframes (vec (#'imp/read-chunked-seq j-file comp*))
+        embeds? (fn [s] (some sx/sentex-handle? (tree-seq sequential? seq s)))
+        meta-fr (first (filter #(embeds? (:sentence %)) frames))
+        plain   (first (remove #(embeds? (:sentence %)) frames))
+        ghost   (+ 1000 (long (apply max (keep :id frames))))
+        frames* (conj (mapv (fn [f]
+                              (cond-> f
+                                (= (:id f) (:id meta-fr))
+                                (update :sentence
+                                        #(walk/postwalk
+                                          (fn [x] (if (sx/handle-id x)
+                                                    (sx/sentex-handle ghost) x))
+                                          %))))
+                            frames)
+                      (assoc plain :id (inc ghost)))   ; a duplicate: collapses on import
+        next-j  (inc (long (apply max 0 (keep :id jframes))))
+        jframe  {:id next-j
+                 :informant   :import
+                 :antecedents [(:id meta-fr)]
+                 :consequence (:id plain)
+                 :bindings    {}
+                 :strength    :monotonic
+                 :out         #{}}
+        ;; the same, plus a sentex this dump never carried: dropped either way, so the
+        ;; deletion is not what cost it and the orphan count must not claim it
+        doomed  (assoc jframe :id (inc next-j)
+                       :antecedents [(:id meta-fr) (+ ghost 500)])]
+    (is (some? meta-fr) "the fixture exports a meta-sentex, or this proves nothing")
+    (#'export/write-frames! sx-file frames* {:compression comp* :chunk-size 64})
+    (#'export/write-frames! j-file (conj jframes jframe doomed)
+                            {:compression comp* :chunk-size 64})
+    (spit (io/file dir "meta.edn")
+          (pr-str (-> meta*
+                      (update :sentex-count inc)
+                      (cond-> (:justification-count meta*)
+                        (update :justification-count + 2)))))
+    {:meta-id (:id meta-fr) :rests-on-it (:id jframe) :doomed (:id doomed)}))
+
+(deftest a-dropped-meta-sentex-takes-the-justifications-that-name-it
+  ;; The import deletes the meta-sentex and reports it.  What this pins is the other half:
+  ;; the id map forgets the dump id along with the record, so every reference to it fails
+  ;; to resolve and is dropped through the path a dangling reference already has — and no
+  ;; justification is left naming a handle the store does not hold.
+  (let [dump (temp-dir "orphaned-meta")]
+    (rm-rf! dump)
+    (try
+      (tu/with-cleared-kb [source memory-kb]
+        (build! source (terms))
+        (export/export! source dump {:compression :none})
+        (splice-orphaning-dump! dump)
+        (tu/with-cleared-kb [target memory-kb]
+          (let [s (imp/import-dump target dump {:belief? :stored})]
+            (testing "the load is remapped, so the embedded handles are rewritten at all"
+              (is (= :remapped (:handle-policy s)))
+              (is (= 1 (:collapsed s))))
+            (testing "and it says what it dropped, and what that took with it"
+              (is (= 1 (:dropped-meta-sentexes s)))
+              (is (= 1 (:orphaned-ids s)) "one dump id now names no record")
+              (is (= 2 (:dropped-justifications s)))
+              (is (= 1 (:dropped-justifications-orphaned s))
+                  "one of the two: the other also names a sentex the dump never carried,
+                   and a justification the dump had already lost is not this load's doing"))
+            (testing "so nothing in the store rests on a record the store does not hold"
+              (is (empty? (dangling-refs target))))
+            (testing "and the recover the :stored mode defers reads a consistent store"
+              (v/recover target)
+              (is (empty? (dangling-refs target)))))))
+      (finally (rm-rf! dump)))))
+
+(deftest recover-leaves-out-a-justification-that-rests-on-nothing
+  ;; What `recover` does when a store holds one anyway.  It can: the records are a durable
+  ;; store and `delete-sentex!` is on its protocol, so a caller, another dialect's loader,
+  ;; or a repair script can leave a justification naming a handle nobody can read.
+  ;;
+  ;; `rebuild-tms` is the one path whose justifications come off a store rather than out of
+  ;; a firing, and so the only one that can reach `add-justification` with a datum that has
+  ;; no node.  That call does not refuse it — the reference representation mints a phantom
+  ;; and the dense one is not specified there (`vaelii.impl.dense-jtms` states the
+  ;; precondition) — and a justification *concluding* the phantom would make it IN, so the
+  ;; KB would come back believing a record it cannot show anyone and believing everything
+  ;; drawn from it.  Neither half of that is visible to a reader: the handle reads absent
+  ;; and its belief reads true.
+  ;;
+  ;; So the rebuild leaves such a justification out and counts it, which is the policy
+  ;; `io.import` takes at the other end of the same store.  Belief stays a claim about
+  ;; records the KB holds.
+  (let [t (terms)
+        {:keys [bird feathered flies Tweety ctx]} t]
+    (tu/with-cleared-kb [kb memory-kb]
+      (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list bird '?b)]
+                                                            (list feathered '?b))) ctx)
+      (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list feathered '?f)]
+                                                            (list flies '?f))) ctx)
+      (v/assert kb (list bird Tweety) ctx)
+      (let [mid  (v/handle-of kb (list feathered Tweety) ctx)
+            end  (v/handle-of kb (list flies Tweety) ctx)]
+        (is (some? mid) "the chain fired, or there is nothing to delete")
+        (is (some? end))
+        ;; the record goes, the justification that concluded it stays — exactly what a
+        ;; deletion inside a load leaves behind
+        (p/delete-sentex! (:records kb) mid)
+        (let [kb2 (v/open-kb tu/plain-memory-space)]   ; a restart: the TMS starts empty
+          (is (seq (dangling-refs kb2)) "the store dangles, which is the premise here")
+          (v/recover kb2)
+          (testing "the rebuild finishes rather than throwing on the missing record"
+            (is (nil? (v/sentex kb2 mid)) "and the record is still not there"))
+          (testing "and does not believe it, since no node was minted for it"
+            (is (not (v/in? kb2 mid)))
+            (is (not (v/in? kb2 end))
+                "nor the conclusion, which had nothing left to rest on"))
+          (testing "so belief and the record agree: the handle reads absent either way"
+            (is (nil? (:sentence (v/why kb2 mid))))
+            (is (false? (:stored? (v/why kb2 mid))))))))))
+
 (deftest the-catalog-offers-a-dump-we-wrote-and-says-whose-it-is
   ;; `classify` keys on `meta.edn`, and ours carries both the keys it looks for — but a
   ;; card that only said "a dump" would leave the operator guessing which dialect (and so

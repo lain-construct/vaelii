@@ -148,6 +148,13 @@ intersection of the facts' + rule's `context-down` closures. This can be several
 firing on specific facts lands its conclusion in the specific context — unless the
 consequent is an `(ist Ctx S)` form, which directs it into `Ctx` explicitly (below).
 
+The placement's own sightings are **antecedents of the firing**: the `genlCx` edges the
+conclusion's context sees the rule and the facts over join its justification, so
+retracting or defeating one withdraws what it licensed rather than leaving it stored in a
+context that can no longer see its reasons. The mechanism, its cost and its
+`(ist Ctx S)` exception are with the rest of the scoping rules in
+[The consumers](#the-consumers-and-what-each-of-them-may-reach) below.
+
 ### Enumerating the readers
 
 `taxonomy/meet-closure` is the same primitive asked the other way round: given the
@@ -528,6 +535,26 @@ just as well when the feature is broken outright.
   handle list — the join runs in cost order — so `chain/join-antecedent` records the
   pairing as it matches (`:matched`), and `subsumption-links` reads the links off that.
 
+  **The sightings that decided the placement are named too, and by the same rule.**
+  "Sees the rule and the facts" is a `genlCx` reachability, supported by ordinary
+  sentexes somebody asserted and can take back, so `chain/visibility-support` asks
+  `taxonomy/reach-support` of the *context* closure — one path from the placement up to
+  each ingredient context, one supporter per edge — and those handles join the
+  antecedent list beside the `genl` ones. Naming the contexts and not the edges reaching
+  them would leave a conclusion stored and believed where nothing it rests on can be
+  seen, and a KB built without the edge derives nothing at all, so belief would depend on
+  which of the two the caller did. Retracting or defeating such an edge withdraws what it
+  licensed, through the ordinary dependency-directed path and with no removal machinery
+  of its own. The ingredient contexts are the rule's and the facts' — and the
+  named `genl` supporters', since seeing an edge is a sighting like any other — while an
+  `(ist Ctx S)` placement names the supporters' alone: the target is not derived from the
+  rule or the facts, so it does not rest on seeing them. **The ordinary firing pays one
+  `=` per ingredient and reads nothing**: a rule and its facts in the placement's own
+  context reach it reflexively, and a reflexive reach rests on nothing. `genlCx` is a
+  `forcedDecontextualizedPredicate`, so an edge has exactly one supporter and the
+  per-edge choice between supporters that `genl` makes does not arise here.
+  `placement_context_witness_test` is the standing guard.
+
   The witness is **one path, one supporter per edge**, chosen by content — the walk
   expands neighbours in name order, and per edge it takes the *most general* supporter
   available (the one every other supporter's context sees), since a needlessly specific
@@ -578,9 +605,38 @@ just as well when the feature is broken outright.
   Wiring an *empty* context under a full one is the commonest edge there is and now
   seeds nothing, where the ungated version re-seeded the whole ontology above it and
   re-joined rules that had already fired on every fact of it. Measured on the starter
-  load: 1.80x ungated, 1.04x with both. The removal side needs no twin: dropping an edge
-  *narrows* what a rule sees, and the dependency-directed sweep already withdraws a firing
-  whose antecedent stopped being visible.
+  load: 1.80x ungated, 1.04x with both.
+
+  **Withdrawal needs no twin of it**: dropping an edge *narrows* what a rule sees, and a
+  firing names the edges its placement was seen over, so the dependency-directed sweep
+  already collects a conclusion whose antecedent stopped being visible. Revival is the
+  half that does, and it is the same function read the other way —
+  `special/resubsumption-seeds` puts a removed `genlCx` edge's two cones back on the
+  agenda beside a removed `genl` edge's spec subtree, because a sighting can outlive the
+  edge that witnessed it when the contexts are wired together a second way.
+
+  **That pass has one condition, and the rule gate above is not it.** It runs only where
+  the sweep collected more than the record asked for: a justification naming the departing
+  edge is deleted with it, so a conclusion that survived kept a second justification and
+  needs nothing, while one that did not is in the swept set. Retracting an edge that
+  licensed nothing — the common case — is therefore one functor read per removed record
+  and no chaining at all. Where it does run the re-join is **unconditional**, and
+  `visibility-seeds` is called in the **ungated** arity it keeps for this caller: the
+  rule-holding gate two paragraphs up is skipped on purpose, not inherited. That gate is
+  sound for an *arriving* edge because an arriving edge is the only new reachability there
+  is — nothing can newly match except through it, so a cone holding no rule newly matches
+  nothing. A departing edge says nothing of the kind. The firing being revived saw the
+  rule down whichever branch it liked and the facts down another, and neither branch need
+  be the one that went, so an edge whose own two cones hold no rule is precisely the case
+  that would lose a firing a surviving route still licenses. Whether the reachability
+  really survived is `place-conseq`'s question, answered from the taxonomy as it stands
+  after the removal, and a gate here guessing it from the departing edge alone would miss
+  a route running anywhere but between that edge's own endpoints.
+
+  So most of the re-join finds nothing to place, and that pass files no `:no-placement`
+  (`chain/*report-no-placement?*`): a firing the caller's own retraction just killed is
+  the retraction restated, and one ledger entry per killed firing would cost the ledger
+  its real ones, which cap at 1000.
 
 - **A rule is a sentex**, so a context backward-chains with the rules it inherits and
   no others (`res/rule-visible-from?`, shared by every caller of

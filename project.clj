@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.7.0"
+(defproject com.vaelii/vaelii "0.8.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -104,7 +104,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.7.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.8.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -162,12 +162,26 @@
              ;; They build a whole index in the heap, and jol sizes a KB structurally
              ;; (`bench-scale`) — the --add-opens and self-attach are what let it read
              ;; field layout rather than estimate it.
+             ;;
+             ;; Quiet under the harnesses for the reason `:test` is, and the reading is
+             ;; the verdict here in the way the assertion is there. A workload provokes
+             ;; the engine's own logging *by construction* — the clash rows drop
+             ;; conclusions, and every `fresh-kb` opens over the space the row before it
+             ;; filled — so `lein perf` printed 1,307 log lines around 39 verdicts, and
+             ;; the row that failed was somewhere in them. Same floor at `:error`, same
+             ;; escape hatch: `VAELII_BENCH_LOG_LEVEL=info lein perf` when a reading needs
+             ;; explaining, and a level outside the five fails the run rather than
+             ;; silencing it.
              :bench {:source-paths ["bench"]
                      :dependencies [[org.openjdk.jol/jol-core "0.17"]
                                     [org.roaringbitmap/RoaringBitmap "1.6.20"]
                                     [it.unimi.dsi/fastutil-core "8.5.19"]]
                      :jvm-opts ["-Xmx6g" "--add-opens=java.base/java.lang=ALL-UNNAMED"
-                                "-Djdk.attach.allowAttachSelf=true"]}
+                                "-Djdk.attach.allowAttachSelf=true"]
+                     :injections
+                     [(require 'vaelii.impl.logging)
+                      ((resolve 'vaelii.impl.logging/set-level)
+                       (keyword (or (System/getenv "VAELII_BENCH_LOG_LEVEL") "error")))]}
              ;; `lein browser`: the browser running inside a repl with a reload channel
              ;; into it. Both halves bind loopback — a write route with no auth beside
              ;; an nREPL is a remote shell (CONTRIBUTING.md §6).
@@ -237,15 +251,27 @@
             "lint-drift"      ["shell" "python3" "scripts/check-doc-drift.py"]
             "lint-kondo"      ["shell" "clj-kondo" "--lint" "src" "test" "bench"]
             "lint-cljfmt"     ["cljfmt" "check"]
-            "lint-shellcheck" ["shell" "shellcheck" "scripts/lint.sh" "scripts/lint-glossary.sh" "scripts/lint-versions.sh" "scripts/coverage.sh" "scripts/test-backends.sh" "scripts/test-sweeps.sh" "scripts/lib/suite-marks.sh" "scripts/gate.sh" "scripts/update-badges.sh" "scripts/link-checkouts.sh" "scripts/check-reflection.sh" "scripts/test-parallel.sh" "scripts/run-bench-caches.sh"]
+            ;; the script owns the roster, so this alias and scripts/lint.sh check
+            ;; the same list — restating it here is how one of them goes short
+            "lint-shellcheck" ["shell" "bash" "scripts/lint-shellcheck.sh"]
             ;; the two ratchets: a compile pass whose warnings fail, and a public var
             ;; nothing references.  Both are in scripts/lint.sh too, so `lein gate`
             ;; picks them up inside the suite's wall clock; these are the one-offs.
             "lint-reflect"    ["shell" "bash" "scripts/check-reflection.sh"]
             "lint-unused"     ["shell" "python3" "scripts/check-unused-publics.py"]
+            ;; the `authorship` CI gate's rules, against synthetic commits — the gate
+            ;; runs only on a pull request, so this is where they are exercised first
+            "lint-authorship" ["shell" "python3" "scripts/check-authorship.py" "--selftest"]
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
             "gate"            ["shell" "bash" "scripts/gate.sh"]
+            ;; rewrite the three goldens — the published API surface, the extension
+            ;; seams, the config surface — from the live tree.  `test` is already on a
+            ;; plain `run`'s classpath here, so no profile is needed.  Read
+            ;; `vaelii.regen-goldens` before reaching for it: regenerating is how a
+            ;; deliberate surface change is recorded, and never how a red golden is
+            ;; silenced
+            "regen-goldens"   ["run" "-m" "vaelii.regen-goldens"]
             ;; the suite across JVMs — what the gate's test stage runs.  Memory stores
             ;; only: a durable half is one lock and three usable space blocks, so the
             ;; script refuses one rather than sharding into it.
@@ -260,6 +286,15 @@
             ;; context retrieval (scripts/test-sweeps.sh).  The other axis, and
             ;; together with the line above it is what `deep.yml` runs
             "test-sweeps"     ["shell" "bash" "scripts/test-sweeps.sh"]
+            ;; ...and both at once, one JVM per configuration, as many at a time as
+            ;; the box has cores for: ~13 minutes against the ~55 the two scripts
+            ;; above take in sequence, and the one to run when a change owes the
+            ;; matrix (scripts/test-matrix.sh)
+            "test-matrix"     ["shell" "bash" "scripts/test-matrix.sh"]
+            ;; a release step, not a gate: who does this release's Breaking
+            ;; entries break?  Reads each entry's `*Breaks:*` tokens and greps
+            ;; the sibling checkouts for them (scripts/check-breaking-siblings.sh)
+            "check-siblings"  ["shell" "bash" "scripts/check-breaking-siblings.sh"]
             "fix"             ["cljfmt" "fix"]
             "bench-memory"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.memory"]
             "bench-memconjoin" ["with-profile" "+bench" "run" "-m" "vaelii.bench.memconjoin"]

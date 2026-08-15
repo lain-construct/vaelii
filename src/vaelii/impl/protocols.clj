@@ -50,13 +50,18 @@
   ;; (`vaelii.impl.plan`) — and it is asked once per literal per plan, so it must not
   ;; scale with the KB.  `(count (children …))` does: both implementations materialize
   ;; the child set to answer `children`, which turns planning a fixed conjunction into
-  ;; work proportional to how many distinct values sit at that position.  Every backend
-  ;; can answer the cardinality in O(1) — a set's count, or a node's edge-array span —
-  ;; so the count is its own read rather than a projection of the members.
-  (count-children [store prefix]   "How many child tokens sit under an interior prefix (O(1)).")
+  ;; work proportional to how many distinct values sit at that position.  Every *storage*
+  ;; backend answers the cardinality without building the members — a set's count, or a
+  ;; node's edge-array span — so the count is its own read rather than a projection of
+  ;; them.  The **fork decorator is the exception, and knowingly**: a key the fork has
+  ;; written under is no longer inherited, so its count is `(count merged-members)` and
+  ;; the base's set is materialized after all (docs/overlay.md).  A fork trades this op
+  ;; for the seam, on the nodes it writes.
+  (count-children [store prefix]   "How many child tokens sit under an interior prefix.")
   ;; secondary roots — the trie is ordered [pred args… ctx], so it can only narrow
-  ;; left-to-right.  These give constant-time extent *and* cardinality from the
-  ;; other directions: by context, by functor, and by argument position.
+  ;; left-to-right.  These give extent *and* cardinality from the other directions —
+  ;; by context, by functor, and by argument position — without a walk of the trie.
+  ;; Cardinality is one stored count on a base store and the merge above on a fork.
   (sentexes-in-context   [store context]  "Handles of sentexes asserted in `context`.")
   (count-in-context      [store context]  "How many sentexes are in `context`.")
   (sentexes-with-functor [store pred]     "Handles of fact sentexes whose functor is `pred` (any arity, either polarity).")
@@ -104,7 +109,7 @@
   ;; A name enters when the first sentex mentions it and leaves with the last, derived
   ;; from the postings themselves, so the roster cannot drift from what is indexed.
   (terms      [store] "Every symbol term the index is keyed by — the KB's vocabulary, unordered.")
-  (term-count [store] "How many distinct symbol terms the index is keyed by (one set-size read, O(1)).")
+  (term-count [store] "How many distinct symbol terms the index is keyed by (the roster's own count, no walk).")
   ;; the portable projection.  Every index — the flat-map one, the dense one, the
   ;; columnar one with a native int-token trie — answers this protocol, so the
   ;; `[structured-key value]` entry shape is what they have in *common* rather than what

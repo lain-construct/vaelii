@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.quality-test
-  "`kb-quality` — the four readings about the knowledge rather than about the engine.
+  "`kb-quality` — the five readings about the knowledge rather than about the engine.
 
   Every reading is a claim about a KB whose answer is known by construction, because that
   is the only way a distribution can be checked: a rule that fires twice, one that never
@@ -237,7 +237,7 @@
 (tu/deftest-kb the-phases-are-reported-in-order-and-a-throw-from-one-stops-the-report
   (let [seen (atom [])]
     (v/kb-quality kb {:on-progress #(swap! seen conj (:phase %))})
-    (is (= [:extents :rules :chains :taxonomy] (distinct @seen))))
+    (is (= [:extents :rules :chains :taxonomy :declarations] (distinct @seen))))
   (testing "the callback throwing is how a long report is cancelled — the reading is of
             current state, so a half-finished one is discarded rather than repaired"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"enough"
@@ -285,3 +285,164 @@
   (doseq [bad [{} nil {:rules {}} {:rules {:total 1}}]]
     (let [e (try (v/quality-report bad) (catch clojure.lang.ExceptionInfo e e))]
       (is (= :not-a-report (:type (ex-data e))) (str "refused: " (pr-str bad))))))
+
+;; ---- argument constraints that constrain nothing -------------------------
+;;
+;; `(argIsa parentOf 3 person)` is admitted while `parentOf` has no declared length, and
+;; goes inert when one arrives.  The door refuses the identical sentence a line later, so
+;; without this reading an author gets the silence `constraint-vocabulary-test` opens on:
+;; a declaration that is enforced and one that enforces nothing look the same.
+;;
+;; Deliberately *not* in `violations`.  A wrong-length fact is content an assert admitted
+;; because it could not have known and the settle reports it as new; a stranded
+;; declaration constrains nothing and reads the same an hour later.  See
+;; `docs/taxonomy.md`.
+
+(defn- stranded [kb] (:declarations (v/kb-quality kb)))
+
+(tu/deftest-kb a-constraint-past-the-arity-is-listed-and-one-within-it-is-not
+  (tu/with-terms [parentOf a_type]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa parentOf 3 a_type) 'CxUniverse)
+    (is (zero? (:stranded-count (stranded kb)))
+        "nothing binds parentOf yet, so the position is a lower bound and not a mistake")
+    (v/assert kb (list 'argIsa parentOf 1 a_type) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (let [d (stranded kb)]
+      (is (= 2 (:total d))
+          "the two argIsa declarations — the arity spelling is not an argument constraint")
+      (is (= 1 (:stranded-count d)) "only the one naming a position parentOf lacks")
+      (let [e (first (:stranded d))]
+        (is (= (list 'argIsa parentOf 3 a_type) (:sentence e)))
+        (is (= parentOf (:predicate e)))
+        (is (= 3 (:position e)))
+        (is (= 2 (:arity e)))
+        (is (= parentOf (:via e)) "declared of itself"))
+      (is (false? (:truncated? d))))))
+
+(tu/deftest-kb an-inherited-arity-strands-a-declaration-and-the-entry-names-the-super
+  ;; the descended half: `fatherOf` declares no length of its own, so the entry has to
+  ;; name the predicate the length was read off or an author goes looking for a
+  ;; declaration nobody wrote
+  (tu/with-terms [parentOf fatherOf a_type]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa fatherOf 3 a_type) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (is (zero? (:stranded-count (stranded kb))) "no edge yet, so fatherOf binds nothing")
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (let [e (first (:stranded (stranded kb)))]
+      (is (= fatherOf (:predicate e)))
+      (is (= parentOf (:via e)) "the length came through the super")
+      (is (= 2 (:arity e))))))
+
+(tu/deftest-kb a-variableArity-predicate-strands-none-of-its-declarations
+  ;; The census reads the door's own arm, so the release has to reach it here too.  A
+  ;; predicate whose three-argument facts the same KB stores *has* a third argument, and
+  ;; listing the declaration that types it puts a falsehood in the report: the rendered
+  ;; line carries the refusal's own wording, so it says chainOf is declared with two
+  ;; arguments about a predicate whose three-argument fact is admitted a line later.
+  (tu/with-terms [chainOf a_type A B C]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa chainOf 3 a_type) 'CxUniverse)
+    (v/assert kb (list 'interArgIsa chainOf 1 a_type 5 a_type) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (is (= 2 (:stranded-count (stranded kb)))
+        "binary and nothing else, so both declarations reach past the length")
+    (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
+    (let [d (stranded kb)]
+      (is (= 2 (:total d)) "both are still there to be read")
+      (is (zero? (:stranded-count d))
+          "and each of them constrains something: the tuples reaching those positions store")
+      (is (empty? (:stranded d))))
+    (v/assert kb (list a_type C) 'CxUniverse)
+    (is (v/assert kb (list chainOf A B C) 'CxUniverse)
+        "the fact the census would otherwise have called impossible")))
+
+(tu/deftest-kb a-variableArity-sub-is-not-stranded-by-the-length-above-it
+  ;; The inherited route into the same reading, and the mark is where the inheritance never
+  ;; looks: `inherited-arity` asks the release of the supers, so the sub carrying it still
+  ;; takes their length, and only the position arm's own reading of the predicate releases
+  ;; the entry.
+  (tu/with-terms [chainOf subChainOf a_type]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa subChainOf 3 a_type) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
+    (let [e (first (:stranded (stranded kb)))]
+      (is (= subChainOf (:predicate e)))
+      (is (= chainOf (:via e)) "two arguments, taken through the super"))
+    (v/assert kb (list 'variableArity subChainOf) 'CxUniverse)
+    (is (zero? (:stranded-count (stranded kb)))
+        "the mark on the sub releases what the super bound it to")))
+
+(tu/deftest-kb both-of-a-conditional-constraints-positions-are-asked
+  ;; `interArgIsa` names two, and the target position is the one a single-position check
+  ;; would miss
+  (tu/with-terms [eats a_type]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'interArgIsa eats 1 a_type 4 a_type) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate eats) 'CxUniverse)
+    (is (= 1 (:stranded-count (stranded kb))))
+    (is (= 4 (:position (first (:stranded (stranded kb))))))))
+
+(tu/deftest-kb a-disbelieved-declaration-is-not-listed
+  ;; a stored declaration that nobody believes constrains nothing for a reason that has
+  ;; nothing to do with its position, and naming it here would report the wrong defect
+  (tu/with-terms [parentOf a_type]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'argIsa parentOf 3 a_type) 'CxUniverse {:strength :default})
+    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (is (= 1 (:stranded-count (stranded kb))))
+    (v/assert kb (list 'not (list 'argIsa parentOf 3 a_type)) 'CxUniverse
+              {:strength :monotonic})
+    (is (zero? (:stranded-count (stranded kb))) "out of belief, out of the census")))
+
+(tu/deftest-kb the-limit-caps-the-stranded-list-and-not-its-count
+  (tu/with-terms [a_type]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (doseq [i (range 5)
+            :let [p (tu/tmp-pred (str "wide" i))]]
+      (v/assert kb (list 'argIsa p 3 a_type) 'CxUniverse)
+      (v/assert kb (list 'binaryPredicate p) 'CxUniverse))
+    (let [d (:declarations (v/kb-quality kb {:limit 2}))]
+      (is (= 5 (:stranded-count d)))
+      (is (= 2 (count (:stranded d))))
+      (is (true? (:truncated? d))))))
+
+(deftest the-report-writes-the-declarations-section-and-omits-it-when-absent
+  (let [base {:rules    {:total 1 :never [] :never-count 0 :all-defeated []
+                         :all-defeated-count 0 :fired 1 :firings 1 :truncated? false}
+              :extents  {:predicates 1 :with-extent 1 :stored 1 :gini 0.0
+                         :buckets {0 1} :heaviest [['p 1]]}
+              :chains   {:functors 1 :components 1 :cyclic 0 :largest 1 :rules 1
+                         :depths {0 1} :at-least {}}
+              :taxonomy {:names 1 :edged 1 :root 'root_type :rooted 1 :islands 0}}
+        md   (v/quality-report
+              (assoc base :declarations
+                     {:total 4 :stranded-count 1 :truncated? false
+                      :stranded [{:handle 9 :sentence '(argIsa fatherOf 3 person)
+                                  :context 'CxUniverse :predicate 'fatherOf
+                                  :position 3 :arity 2 :via 'parentOf
+                                  :message (str "argIsa constrains argument 3 of fatherOf,"
+                                                " which takes 2 arguments through"
+                                                " parentOf")}]}))]
+    (is (str/includes? md "4 argument declarations — **1 names a position its predicate"))
+    (is (str/includes? md "(argIsa fatherOf 3 person)"))
+    (is (str/includes? md
+                       (str "- `(argIsa fatherOf 3 person)` in `CxUniverse` — argIsa"
+                            " constrains argument 3 of fatherOf, which takes 2 arguments"
+                            " through parentOf"))
+        "the reason is the message the census carried, printed rather than re-derived —
+         and an inherited length reads as one taken through the super rather than as a
+         declaration nobody wrote")
+    (is (str/includes? md (str "the fix is to correct the position, to declare the arity"
+                               " the author meant,\nor to mark the predicate"
+                               " `variableArity` where its tuples really do reach that\n"
+                               "far."))
+        "all three ways out, the third being the one the door itself releases on")
+    (testing "a census answer from before this reading existed still renders"
+      ;; the shape test does not ask for the key, so an older stored report is readable
+      ;; rather than refused
+      (let [old (v/quality-report base)]
+        (is (str/starts-with? old "# KB quality"))
+        (is (not (str/includes? old "constrain nothing")))))))

@@ -140,11 +140,13 @@
   * `argIsa` type inference and the metadata provers answer goal shapes no computed
     prover claims, so they are never shadowed in the first place.
 
-  Cheap by construction on the two that could be hot: `inherit/positions` is behind a
+  Cheap by construction on two of the three: `inherit/positions` is behind a
   root-intersection gate on any declaration naming this predicate, and
-  `tax/inverses-under` is one map read on a KB declaring no inverses.  `concluding-rule-handles` is the one
-  that touches the index, and it is the spec closure probed against the consequent
-  index — bounded by the concluding-rule count, never the taxonomy."
+  `tax/inverses-under` is one map read on a KB declaring no inverses.
+  `concluding-rule-handles` is the one that is not — it probes the consequent index once
+  per member of `pred`'s spec closure, so this is O(specs) index reads per goal however
+  few rules conclude anything, and `cond->` evaluates every test rather than stopping at
+  the first channel found.  Its own docstring carries the number."
   [kb goal context]
   (when (sequential? goal)
     (let [pred (nm/functor goal)]
@@ -1317,6 +1319,12 @@
   other way — as an inference, not only a constraint (e.g. Muffet eats Bone1 and eat's
   2nd argument is food, so Bone1 is food).
 
+  **Whose declarations count is the reader `assert` uses** (`res/constraining-predicates`):
+  `P`'s own, and those of the super-predicates the asking context can see, since a
+  `(genl fatherOf parentOf)` edge makes every `fatherOf` tuple a `parentOf` tuple.  The
+  two readings of one declaration must agree about that or a claim `assert` refuses for
+  being ill-typed is one `ask` cannot type at all.
+
   **Lazy and deduped.**  `distinct` over a lazy `for` returns a lazy, duplicate-free
   seq, so a *ground* `(Type x)` test (ArgTypeProver.solve's `some`) stops at the first
   believed sentex that witnesses the type it seeks, realizing the believed-sentex scan
@@ -1327,9 +1335,14 @@
    (for [s (believed-sentexes-with kb x)
          :let [sen (:sentence s) pred (nm/functor sen) as (vec (nm/args sen))]
          :when (and (symbol? pred) (seq as))
+         ;; above `n`, since whose declarations bind a tuple is a fact about the
+         ;; predicate and not about which of its positions is being read — bound
+         ;; inside, the `genls` closure and its sort run once per argument position
+         :let [ps (res/constraining-predicates kb 'argIsa pred context)]
          n (range 1 (inc (count as)))
          :when (= x (nth as (dec n)))
-         [_ b] (res/matches-visible kb (list 'argIsa pred n '?t) context)
+         p ps
+         [_ b] (res/matches-visible kb (list 'argIsa p n '?t) context)
          :let [t' (get b '?t)]
          :when (symbol? t')
          super (tax/genls (:taxonomy kb) t' context)]

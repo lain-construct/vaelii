@@ -210,9 +210,8 @@
         (do (.incrementAndGet miss-count)
             (storing (fn [v]
                        (when (== (observe/change-clock) now)
-                         (swap! cache (fn [c]
-                                        (assoc (if (>= (count c) cache-limit) {} c)
-                                               k {:clock now :value v})))))
+                         (swap! cache caches/assoc-bounded cache-limit
+                                k {:clock now :value v})))
                      (compute)))))))
 
 (defn stats

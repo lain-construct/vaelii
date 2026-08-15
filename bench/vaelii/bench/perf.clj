@@ -106,7 +106,9 @@
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.settle :as settle]))
+            [vaelii.impl.settle :as settle]
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.wiring :as wiring]))
 
 ;; ---- measurement --------------------------------------------------------
 
@@ -441,6 +443,36 @@
        (do (v/assert kb (list 'pm_a_t x) 'CxPerf {:strength :monotonic})
            (nanos (v/assert kb (list 'pm_b_t x) 'CxPerf {:strength :monotonic})))))))
 
+(defn- membership-under-depth
+  "A type membership arriving under a predicate that sits `n` deep in a `genl` chain,
+  none of the chain declaring an arity.
+
+  The axis none of the other checks vary.  `membership-check` above holds the hierarchy
+  flat and grows how many memberships the KB already holds; `taxonomy-depth` grows the
+  chain but measures asserting the *edges* rather than a fact under them.  So the cost of
+  the arity descension's per-super membership read — the one thing on this path that
+  grows with the depth above the predicate being asserted — was invisible to all thirty
+  checks, and shipped once for that reason.
+
+  The claim is deliberately not `flat`.  `inherited-arity` asks the `variableArity`
+  release of every super-predicate; that question is a retrieval the arity table cannot
+  answer, and no roster can gate it while a `variableArity` reached through a `genl` edge
+  between collections releases exactly as a directly asserted one does.  So the bound is
+  a record of the shape today rather than a target, in the sense `assert-cost-test`'s
+  preamble means it: a change that makes the descension flat in the depth drops this to
+  about 1.0 and re-pins as an improvement, and a change that makes it worse fails."
+  [n]
+  (let [kb (fresh-kb)
+        t  (fn [i] (symbol (str "pmud_t" i)))]
+    (v/assert kb (list 'genl (t n) 'thing) 'CxPerf {:strength :monotonic})
+    (doseq [i (range n)]
+      (v/assert kb (list 'genl (t i) (t (inc i))) 'CxPerf {:strength :monotonic}))
+    ;; warm, so the reading is the steady-state assert rather than the first one's caches
+    (dotimes [i 50] (v/assert kb (list (t 0) (symbol (str "PMUDW" i))) 'CxPerf {}))
+    (doall
+     (for [i (range 200)]
+       (nanos (v/assert kb (list (t 0) (symbol (str "PMUD" i))) 'CxPerf {}))))))
+
 (defn- negation-arbitration
   "n **independent** P/¬P dilemmas — a fresh predicate and a fresh individual apiece, so
   no pair shares a body, a term or a context of concern with any other — and every assert
@@ -712,11 +744,14 @@
 (defn- arity-reach-trigger
   "n **conforming** facts of a predicate whose arity was declared before any of them.
 
-  `settle/report-arity-reach!` sweeps a predicate's whole extent, and the only thing that
-  keeps that affordable is *what triggers it*: a declaration entering the moved region,
-  never a fact.  So an ordinary fact arriving must cost the same at 2,000 as at 250, and
-  mis-gating the pass to run on every settle — the easy mistake, since every other pass in
-  `settle-finish` does — turns a linear load quadratic here and in no test.
+  `settle/report-arity-reach!` sweeps the **spec subtree** of every predicate a binding
+  names, and the only thing that keeps that affordable is *what triggers it*: a binding
+  entering the moved region, never a fact.  Four sentences are bindings — `(arity P n)`,
+  the predicate-type membership that spells the same thing, a `genl` edge that inherits one
+  through, and a `genlCx` edge that lets a vantage see either — and a fact of a declared
+  predicate is none of them.  So an ordinary fact arriving must cost the same at 2,000 as
+  at 250, and mis-gating the pass to run on every settle — the easy mistake, since every
+  other pass in `settle-finish` does — turns a linear load quadratic here and in no test.
 
   Conforming on purpose.  A load of *violating* facts would sweep once, at the
   declaration, and then measure the ordinary assert path anyway; what this has to separate
@@ -773,6 +808,89 @@
                   'CxPerf {})))
     (doall (for [_ (range 60)] (nanos (v/kb-quality kb))))))
 
+(def ^:private census-supers
+  "Predicates stacked above the one predicate `quality-declaration-census` declares
+  against — the hierarchy held **fixed** while the declaration count moves, so the census's
+  per-declaration arity read is a real walk at both sizes and the same walk at both."
+  8)
+
+(defn- quality-declaration-census
+  "`kb-quality` over n argument constraints on **one** predicate, under a fixed hierarchy.
+
+  The census takes five readings and `quality-report-scaling` above drives four of them:
+  its KB declares no `argIsa`, `argGenl` or `interArgIsa`, so `quality/stranded-declarations`
+  walks an empty list at 4,000 sentexes and at 32,000 alike.  This is the workload that
+  drives the fifth, and it is built the other way round from that one on purpose — the
+  vocabulary is one predicate, one type and `census-supers` supers at **both** sizes, so
+  every other reading the census takes is fixed and the whole of the growth here is the
+  declaration walk.
+
+  Each declaration is a distinct **position** on the same predicate, which is what holds
+  the vocabulary still while the count moves.  Nothing declares a length, and that is the
+  expensive case rather than a degenerate one: `checks/declared-arity` answers off a map
+  for a predicate carrying a length of its own and off a walk of its super-predicates for
+  one that does not, so a KB that has stated no arity is the KB where every declaration
+  pays the walk.  The cost is `O(declarations × super-predicates)` and this check pins the
+  first factor.
+
+  Ω(declarations) is the floor — the census reads each one, and reading them is the work —
+  so the claim is linear.  What the bound separates is one reading per declaration from one
+  reading per declaration *per declaration*: an arity re-derived off the index per question
+  rather than off the taxonomy's table walks the argument-1 posting these n declarations
+  are exactly what fills."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(genl qdc_t thing) 'CxPerf {:strength :monotonic})
+    (v/assert kb (list 'genl (symbol (str "qdcB" census-supers)) 'qdcTop)
+              'CxPerf {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (v/assert kb '(genl qdcPred qdcB0) 'CxPerf {:strength :monotonic})
+      (doseq [i (range census-supers)]
+        (v/assert kb (list 'genl (symbol (str "qdcB" i)) (symbol (str "qdcB" (inc i))))
+                  'CxPerf {:strength :monotonic}))
+      (doseq [i (range 1 (inc n))]
+        (v/assert kb (list 'argIsa 'qdcPred i 'qdc_t) 'CxPerf {:strength :monotonic})))
+    (doall (for [_ (range 60)] (nanos (v/kb-quality kb))))))
+
+(def ^:private depth-declarations
+  "Argument constraints standing while `quality-declaration-depth` moves the hierarchy —
+  its own knob rather than the size, because it is the factor that check holds fixed.  Big
+  enough that the declaration walk is the reading: at n=256 the same KB stripped of these
+  costs a tenth of what it costs with them, so nine parts in ten of what the ratio sees is
+  the walk and one is the vocabulary the chain adds."
+  256)
+
+(defn- quality-declaration-depth
+  "`kb-quality` over `depth-declarations` argument constraints whose predicate sits under a
+  chain of n super-predicates.
+
+  The second factor of the same bound, and the axis the check above holds still.  A
+  declaration's arity read is `checks/declared-arity`, which walks the supers of a
+  predicate that declares no length of its own and asks each for its own — so the census
+  costs `O(declarations × super-predicates)` and neither factor alone says the product is
+  right.  Nothing in the chain declares a length, so every declaration walks to the end of
+  it.
+
+  Ω(depth) is the floor, so the claim is linear here too, and it is a claim about the
+  *shape* rather than about the constant: the membership read behind the walk is memoized
+  for the life of one census, so a super met by the first declaration costs the other 255
+  a map hit.  A change that throws that memo away pays a retrieval per super per
+  declaration and this ratio cannot see it — that is `assert-cost-test`'s subject, on the
+  door's own copy of the same walk.  What the bound separates is a walk of the supers from
+  a walk of each super's own ancestry."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(genl qdd_t thing) 'CxPerf {:strength :monotonic})
+    (v/assert kb (list 'genl (symbol (str "qddB" n)) 'qddTop) 'CxPerf {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (v/assert kb '(genl qddPred qddB0) 'CxPerf {:strength :monotonic})
+      (doseq [i (range n)]
+        (v/assert kb (list 'genl (symbol (str "qddB" i)) (symbol (str "qddB" (inc i))))
+                  'CxPerf {:strength :monotonic}))
+      (doseq [i (range 1 (inc depth-declarations))]
+        (v/assert kb (list 'argIsa 'qddPred i 'qdd_t) 'CxPerf {:strength :monotonic})))
+    (doall (for [_ (range 20)] (nanos (v/kb-quality kb))))))
+
 (defn- pctx [prefix i] (symbol (str "Cx" prefix i)))
 
 (defn- retract-context-cycle-scaling
@@ -809,7 +927,6 @@
                                     'CxUniverse {}))
                         (range retract-victims))]
       (doall (for [h victims] (nanos (v/retract! kb h)))))))
-
 
 (defn- retract-merge-scaling
   "One `retract!` of a fact naming no merged term, on a KB carrying n standing `sameAs`
@@ -910,6 +1027,232 @@
          (nanos (v/assert kb (list 'genl (symbol (str "pev" i "_t"))
                                    (symbol (str "peu" i "_t")))
                           'CxPerf {:strength :monotonic})))))))
+
+(defn- arity-reach-under-subtree
+  "One `genl` edge putting a subtree of `n` predicates — each holding one stored fact —
+  under a predicate whose arity is declared, so the edge binds a length to every one of
+  them at once.
+
+  The retroactive arity report's own shape, and the axis no other check varies.  The
+  report descends the predicate hierarchy: a binding arriving at the top convicts the
+  facts of everything beneath it, so the sweep is over the arriving predicate's **spec
+  subtree** rather than over one posting list, and `genl` is the commonest edge there is.
+  `taxonomy-edge-arbitration` above writes an edge with nothing below it, which is
+  exactly the case this cost does not appear in.
+
+  Ω(subtree) is the floor: the facts a binding convicts are the subtree's facts, and
+  finding them is the work.  So the claim is linear rather than flat, and the bound is
+  what separates linear from the quadratic of a sweep whose reach is re-derived per
+  predicate instead of once for the pass.  The two cheap guards are what keep the common
+  case off this curve, and neither shows up in the ratio: a subtree of predicates holding
+  no facts costs one index **count** each, and the whole pass is skipped for a KB that
+  declares no arity at all.
+
+  **The subtree has a second reader on the assert path, and the ratio cannot tell the two
+  apart.**  `special/subsumption-seeds` walks the same spec closure for the same edge, one
+  posting per predicate, because an edge makes the facts under it matchable at a supertype
+  they did not have — and it is unconditional, where the arity sweep is behind
+  `any-arity-declared?`.  Measured on this workload the two are half the reading each:
+  n=256 costs 3.039 ms with an arity declared and 1.526 with none, so the sweep owns 50% of
+  it and the linear floor is jointly owned.  What follows is that a green run here says the
+  *pair* stayed linear, and that removing the sweep entirely would still leave this check
+  reading linear — the attribution the bound makes is between linear and quadratic, not
+  between the two passes.
+
+  Each timed edge needs its own subtree — an edge is written once, and re-asserting an
+  active one is a no-op that sweeps nothing — so the build dominates the run and none of
+  it is timed."
+  [n]
+  (let [kb (fresh-kb)]
+    (doall
+     (for [i (range edge-writes)
+           ;; camelCase throughout: these carry binary facts, and a snake_case functor
+           ;; names a type and is legal only as a unary predicate
+           :let [root (symbol (str "parsRoot" i))
+                 mid  (symbol (str "parsMid" i))]]
+       (do
+         (v/assert kb (list 'binaryPredicate root) 'CxPerf {:strength :monotonic})
+         ;; the subtree is what this measures against, not what it measures
+         (v/with-deferred-settle kb
+           (doseq [j (range n)
+                   :let [p (symbol (str "parsSub" i "x" j))]]
+             (v/assert kb (list 'genl p mid) 'CxPerf {:strength :monotonic})
+             (v/assert kb (list p 'PARSA 'PARSB) 'CxPerf {})))
+         (nanos (v/assert kb (list 'genl mid root) 'CxPerf {:strength :monotonic})))))))
+
+(def ^:private settles-per-batch-reading
+  "Deferred batches timed per run of `arity-reach-batch-roots`.  Fewer than `tail-samples`
+  and **the same count at both sizes**, so each answer is the mean of all of them over
+  windows of equal width: one batch at the large size is tens of milliseconds, and fifty of
+  them over five measurement passes is a minute of gate for one check.  Nothing accumulates
+  between batches — each writes its own chain, and the roots of a settle are that batch's
+  own edges — so an average over the whole run and an average over its tail are the same
+  answer here."
+  20)
+
+(defn- arity-reach-batch-roots
+  "One settle over a deferred batch of n `genl` edges forming a chain, on a KB declaring
+  one arity.
+
+  **The axis every other check holds at one.**  `arity-bound-by` makes the `sub` of every
+  `(genl sub super)` a root of the retroactive arity pass, and the pass expands each root
+  into its whole spec subtree.  The result is a set, so it dedups; the *walk* does not, and
+  the roots of one settle sit on top of one another when the batch is a hierarchy — which
+  is what a batch of taxonomy edges is.  Every check beside this one writes a single edge
+  per settle, where the two numbers are the same.
+
+  The **asserts are outside the reading**, which is what makes the reading the pass rather
+  than the load: the batch is written under `wiring/*defer-settle?*` with the depth repair
+  deferred beside it — `v/with-deferred-settle`'s own two bindings — and what is timed is
+  the settle that macro would run at the end.  Nothing in the chain holds a fact, so no
+  sweep examines one and `*exposure-instance-budget*` is never spent: the whole of what is
+  measured is the expansion of the roots, which is the part no budget bounds.
+
+  A chain rather than a fan, because depth is the multiplier: the subtrees of n edges under
+  one root sum to n across a fan of depth one and to n²/2 along a chain, and an ontology's
+  `genl` edges arrive as a hierarchy somewhere between the two.  So the reading is what a
+  batch costs at the worse end of that range — which is the end a load sits at.
+
+  It read 59x when it was written, and the check is why: the pass expanded each root on
+  its own, and `tax/specs`' memo cannot span roots, since it is keyed on the node a walk
+  began at.  `tax/specs-of-all` walks the union once instead and the reading is 7-11x.
+  What this guards now is that the union stays a union: expand per root again, by any
+  route, and a batch of taxonomy edges is quadratic again.
+
+  The bound is calibrated against **two** measured defects rather than one, and the second
+  is the reason it is not looser: the per-root expansion reads 63.6x, and a partial fix
+  that unions the subtrees before counting them while still expanding each one reads 47.0x.
+  That partial fix is worth 15% and looks from the code like the whole answer — the union
+  is right there in the source — so a bound set between the two would pass it."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(binaryPredicate parbTop) 'CxPerf {:strength :monotonic})
+    (doall
+     (for [b (range settles-per-batch-reading)]
+       (do
+         (binding [wiring/*defer-settle?* true
+                   tax/*defer-depths?*    true]
+           (v/assert kb (list 'genl (symbol (str "parb" b "x0")) 'parbTop)
+                     'CxPerf {:strength :monotonic})
+           (doseq [i (range 1 n)]
+             (v/assert kb (list 'genl
+                                (symbol (str "parb" b "x" i))
+                                (symbol (str "parb" b "x" (dec i))))
+                       'CxPerf {:strength :monotonic})))
+         (nanos (settle/settle kb)))))))
+
+(defn- arity-context-edge-side
+  "A `genlCx` edge whose **below** end holds n facts and whose **above** end holds none,
+  written on a KB declaring one arity.
+
+  A context edge supplies an arity binding while naming no predicate — what it moves is
+  what a stored fact's own vantage can see — so the pass has to find the predicates itself,
+  and the edge's reach has two ends that are each complete on their own: the facts below
+  `sub`, and the bindings above `super`.  It sizes both off `count-in-context` and
+  enumerates the smaller.
+
+  **The choice is load-bearing and picking wrong is silent**, which is what earns it a
+  check.  The shipped ontology writes `(genlCx CxUniverse CxMeasure)` and seven more like
+  it: everything sees `CxUniverse`, so the below end of that edge is the whole KB and the
+  above end is one file's vocabulary.  A pass that always took the end below would answer
+  the same thing and read the entire store to do it, once per such edge, and no test would
+  say a word.
+
+  Here the end below is a context carrying n facts and the end above is a fresh context
+  carrying none, so the reading is flat exactly while the smaller end is the one walked and
+  tracks n the moment it is not.  Distinct subjects under one predicate, so nothing the
+  walk reaches is a violation: this measures the reach, not the report."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(binaryPredicate pacFact) 'CxPerf {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'pacFact (symbol (str "PAC" i)) 'PACval) 'CxAcBig {})))
+    (doall
+     (for [i (range edge-writes)]
+       (nanos (v/assert kb (list 'genlCx 'CxAcBig (pctx "AcW" i))
+                        'CxPerf {:strength :monotonic}))))))
+
+(def ^:private capped-subtree-predicates
+  "Predicates under the binding in `arity-reach-budget-cap`, each holding the size's worth
+  of facts.  More than one, because what the pass spends past the cut is one element
+  realized per predicate the budget never reached, and a subtree one predicate wide would
+  have none of them."
+  8)
+
+(defn- arity-reach-budget-cap
+  "A binding edge flipped in and out of belief over a subtree holding n facts per predicate,
+  with `*exposure-instance-budget*` bound to 100.
+
+  `arity-reach-under-subtree` measures the sweep **below** the cap, where the cost is the
+  subtree and is meant to be.  This measures it above: past the cut, 8x the facts behind a
+  binding costs the same, which is the claim a budget exists to make and the only one it
+  can support.
+
+  **The cap bounds half of what the pass spends, and this pins the half it bounds.**  The
+  budget counts *facts examined*, and the predicates are counted before it is consulted at
+  all: the subtree is expanded and cardinality-read in full first, and past the cut every
+  remaining predicate still realizes one element of its posting — a read and a record fetch
+  apiece — to learn that it has been cut.  Both are a function of the subtree's **width**,
+  so that is held at `capped-subtree-predicates` while the facts behind it move.
+
+  The edge is defeated and revived rather than written once, for the reason
+  `taxonomy-belief-flip` flips one: a `genl` edge is a no-op on re-assert, and every
+  revival puts it back in the moved region to sweep again over a KB that has not grown.
+  The edge carries the strength difference — written at `:default` so the monotonic
+  negation defeats it, exactly as that check builds its own."
+  [n]
+  (binding [settle/*exposure-instance-budget* 100]
+    (let [kb (fresh-kb)]
+      (v/assert kb '(binaryPredicate pabcRoot) 'CxPerf {:strength :monotonic})
+      (v/with-deferred-settle kb
+        (v/assert kb '(genl pabcMid pabcRoot) 'CxPerf {})
+        (doseq [j (range capped-subtree-predicates)
+                :let [sub (symbol (str "pabcSub" j))]]
+          (v/assert kb (list 'genl sub 'pabcMid) 'CxPerf {})
+          (doseq [i (range n)]
+            (v/assert kb (list sub (symbol (str "PABC" i)) 'PABCval) 'CxPerf {}))))
+      (let [edge '(not (genl pabcMid pabcRoot))]
+        (doall
+         (for [_ (range edge-writes)]
+           (nanos (let [h (v/assert kb edge 'CxPerf {:strength :monotonic})]
+                    (v/retract! kb h)))))))))
+
+(defn- constraint-genl-edge
+  "A `genl` edge flipped in and out of belief above a predicate holding n facts, on a KB
+  declaring `functional` — either **on** the predicate above the edge or on one the edge
+  cannot reach.  `budget` is what `*exposure-instance-budget*` is bound to.
+
+  The cross-context constraint report reaches out of the moved region for two edges, and
+  this is the second of them: a `functional` or `asymmetric` mark standing on a
+  super-predicate descends a new `(genl sub super)` edge to a subtree that never carried
+  one, so a pair of `sub` facts either side of a visibility edge starts clashing without
+  any context moving.  What that implicates is the subtree's facts, and `genl` is the
+  commonest edge an ontology writes — so the arm is gated on a mark actually being at or
+  above `sub`, which costs a `props-over` read on an edge under nothing marked.
+
+  The flip is what isolates the settle's own reading.  A `genl` edge on the way *in* also
+  walks the same subtree at `special/subsumption-seeds`, unconditionally and whatever the
+  marks say, so an edge written once measures both passes and can separate neither; a
+  revival puts the edge back in the moved region without going through that path, and the
+  reading is the constraint pass alone.  The mark is declared either way, so the report's
+  vocabulary gate is open in both shapes and the only difference is the one being measured."
+  [marked? budget]
+  (fn [n]
+    (binding [settle/*exposure-instance-budget* budget]
+      (let [kb (fresh-kb)]
+        (v/assert kb (list 'functional (if marked? 'pcegTop 'pcegElse))
+                  'CxPerf {:strength :monotonic})
+        (v/with-deferred-settle kb
+          (v/assert kb '(genl pcegMid pcegTop) 'CxPerf {})
+          (v/assert kb '(genl pcegSub pcegMid) 'CxPerf {})
+          (doseq [i (range n)]
+            (v/assert kb (list 'pcegSub (symbol (str "PCEG" i)) 'PCEGval) 'CxPerf {})))
+        (let [edge '(not (genl pcegMid pcegTop))]
+          (doall
+           (for [_ (range edge-writes)]
+             (nanos (let [h (v/assert kb edge 'CxPerf {:strength :monotonic})]
+                      (v/retract! kb h))))))))))
 
 (defn- context-edge-arbitration
   "One `genlCx` edge — a fresh context under `CxUniverse`, with nothing below
@@ -1092,6 +1435,12 @@
     :max-ratio 2.0
     :run       membership-check}
 
+   {:name      :membership-under-depth
+    :claim     "32x the hierarchy above a predicate costs under 12x per membership assert — one retrieval per super, so it grows with the depth and must stay well under it"
+    :sizes     [8 256]
+    :max-ratio 12.0
+    :run       membership-under-depth}
+
    {:name      :disjoint-enumeration
     :claim     "an open disjointness goal is flat in the vocabulary it is not about"
     :sizes     [500 4000]
@@ -1194,11 +1543,50 @@
    ;; sentexes is 2.8x the terms, and the report is entitled to that much.  What it
    ;; separates is 2.8x from the 8x a record scan reads, and 4x sits between them with
    ;; room on both sides.
+   ;;
+   ;; **Four of the census's five readings**, and the claim says so.  This KB declares no
+   ;; `argIsa`, `argGenl` or `interArgIsa`, so the declarations reading walks an empty list
+   ;; at both sizes and nothing here is a claim about it — the two checks below are.
    {:name      :quality-report-scaling
-    :claim     "kb-quality grows with the vocabulary, not with what the KB stores"
+    :claim     "the rules, extents, chains and taxonomy readings of kb-quality grow with the vocabulary, not with what the KB stores"
     :sizes     [4000 32000]
     :max-ratio 4.0
     :run       quality-report-scaling}
+
+   ;; **The fifth reading, first factor.**  Ω(declarations) is the floor — the census reads
+   ;; each one — so 8x the declarations is at least 8x the walk, and the bound is a claim
+   ;; about what sits above the floor.  Healthy it reads **7.56x and 7.71x** on full runs and 7.14x
+   ;; alone, and the vocabulary is fixed at both sizes, so 97% of the reading is the walk
+   ;; itself: the same KB with the declarations left out costs 0.051 ms against 1.756 at
+   ;; n=250.  Below it, the shape the arity table exists to replace — `checks/tabled-arity`
+   ;; answered off the index rather than off the taxonomy, a walk of the argument-1 posting
+   ;; these very declarations fill, so a census of n costs n² — reads **59.62x**,
+   ;; implemented and measured on a full run rather than supposed.  15x is about twice the
+   ;; healthy reading and under a third of the defective one, which is the slack the
+   ;; arbitration bounds carry.
+   {:name      :quality-declaration-census
+    :claim     "the declarations census costs one arity reading per declaration, not one per declaration per declaration"
+    :sizes     [250 2000]
+    :max-ratio 15.0
+    :run       quality-declaration-census}
+
+   ;; **The fifth reading, second factor**, and the bound is read the same way.  The walk is
+   ;; per super-predicate, so Ω(depth) is the floor here and 32x the hierarchy is at least
+   ;; 32x — until the constant cost of the other four readings divides into it, which is
+   ;; what puts a healthy reading under the span rather than over it: **22.78x, 24.26x and 26.11x** on
+   ;; full runs and 20.29x alone, of which the declaration walk is nine parts in ten — the same KB with the
+   ;; declarations left out costs 4.964 ms against 41.856 at n=256.  Below it, a
+   ;; release asked of every super's own ancestry instead of every super — the square of the
+   ;; depth per declaration — reads **74.75x** on a full run.  45x sits between them, and it is
+   ;; placed differently from every other bound here: the honest floor is nearly the span, so
+   ;; the healthy reading starts high and twice it is 52x, which is close enough to the
+   ;; defect to be a bound that admits it on a bad run.  45x is the midpoint of the measured
+   ;; pair instead — 1.7x above the worst healthy reading and 1.7x under the defective one.
+   {:name      :quality-declaration-depth
+    :claim     "the declarations census costs one arity reading per super-predicate, not one per super's own ancestry"
+    :sizes     [8 256]
+    :max-ratio 45.0
+    :run       quality-declaration-depth}
 
    ;; The baseline is 64 for `clash-arbitration`'s reason: a retraction's own fixed cost
    ;; — the storage teardown, the settle, the feed event — has to still dominate at the
@@ -1209,7 +1597,6 @@
     :sizes     [64 2048]
     :max-ratio 2.0
     :run       retract-context-cycle-scaling}
-
 
    ;; The baseline is 32 for `retract-nat-scaling`'s reason, which is `clash-arbitration`'s:
    ;; a retraction has a fixed cost of its own — the storage teardown, the settle, the feed
@@ -1295,6 +1682,126 @@
     :sizes     [8 800]
     :max-ratio 32.0
     :run       context-edge-arbitration}
+
+   ;; **32x the subtree, and both ends of the bound are measured.**  Above: a linear sweep
+   ;; reads **16.49x and 19.90x** on full runs, the warm baseline the namespace docstring
+   ;; describes putting them above what the same pair reads alone.  Below: the sweep's reach re-derived per predicate
+   ;; instead of once for the pass — the subtree expanded and cardinality-read inside the
+   ;; per-fact check — reads **133.48x** on a full run, implemented against
+   ;; this workload rather than supposed for it.  45x is 2.3x the healthy reading and a
+   ;; third of the defective one, which is the slack the arbitration bounds carry.
+   ;;
+   ;; The span is 32x rather than 16x for the reason every other Ω(n) check here takes 32x:
+   ;; a quadratic separates from a linear by the span, so a narrow one is a narrow gap to
+   ;; put a bound in.  Not `flat`: the facts a binding convicts are the subtree's facts, and
+   ;; a bound that demanded flatness would demand the report miss them.
+   ;;
+   ;; Read with the docstring's last paragraph: `special/subsumption-seeds` walks the same
+   ;; subtree on the same edge and owns the larger half of the reading, so what this ratio
+   ;; separates is linear from quadratic and not one pass from the other.
+   {:name      :arity-reach-under-subtree
+    :claim     "a genl edge binding an arity over 32x the subtree costs under 45x per write — the sweep is linear in the facts it must examine, not in the square of them"
+    :sizes     [8 256]
+    :max-ratio 45.0
+    :run       arity-reach-under-subtree}
+
+   ;; **The one bound in this file that records a cost rather than gating one**, and it is
+   ;; worth reading before the number.  A settle expands every root it was handed into that
+   ;; root's spec subtree, and a deferred batch of taxonomy edges hands it one root per
+   ;; edge — so a batch whose edges form a chain pays the sum of the subtrees, which is the
+   ;; square of the batch.  Measured on the shipped tree, one settle over a chain: 0.336 ms
+   ;; at 32 edges, 4.056 at 128, 60.559 at 512, 252.139 at 1,024 — four times the cost for
+   ;; twice the edges, at every step.  The same batch on a KB declaring no arity costs
+   ;; 0.374 ms at 1,024, which is what the expansion is worth and what a fix would return.
+   ;;
+   ;; **That fix landed, and this is re-pinned at the floor it predicted.**  `tax/specs-of-all`
+   ;; seeds one traversal with every root, so the walk is the union rather than the sum of
+   ;; the parts: 512 chained edges went from 60.559 ms to **1.012**, and the reading from
+   ;; 59.49x to **7.50x and 11.34x** on full runs (3.78x alone).  The n=512 end is the
+   ;; steady one across all three — 1.012, 1.095, 0.999 — and the spread is the n=64
+   ;; baseline, which is small enough to be mostly JIT warmth.
+   ;;
+   ;; So the two ends are: **7.50x and 11.34x healthy**, against **63.58x** for the
+   ;; per-root expansion this replaced and **46.99x** for the half-fix that unioned the
+   ;; subtrees before counting them but still expanded each one — both measured, the
+   ;; second because it looked like the whole answer and was worth 15%.  25.0 sits above
+   ;; twice the worse healthy reading and under half the nearer defect.  The floor with
+   ;; the pass off is 2.13x, so what is left to regress is the constant, not the shape.
+   ;;
+   ;; The baseline is 64 for `clash-arbitration`'s reason: the settle has a fixed cost of
+   ;; its own, and the small size has to be one where that still dominates the term being
+   ;; measured.
+   {:name      :arity-reach-batch-roots
+    :claim     "one settle over 8x the deferred genl edges costs under 25x — the roots of a batch are expanded together, so a chain costs its union and not its sum"
+    :sizes     [64 512]
+    :max-ratio 25.0
+    :run       arity-reach-batch-roots}
+
+   ;; **Flat, and calibrated from both ends.**  Healthy it reads **0.99x and 1.00x** on full runs: the edge's two ends are sized off an O(1) count apiece and the empty one
+   ;; is walked, so the facts behind the other end are never touched.  The shape this exists
+   ;; to catch — the end below always taken, which is the natural way to write it and
+   ;; answers exactly the same thing — reads **6.42x** on a full run, measured by forcing the choice
+   ;; rather than by supposing a number for it.  The bound is the flat claim's own 2.0x, an
+   ;; order under the defect.
+   ;;
+   ;; The sizes are `constraint-exposure-context-edge`'s, and the defect has to be visible
+   ;; at both: 2,000 facts is under `*exposure-instance-budget*`, so a pass walking the
+   ;; wrong end here is measured walking it rather than being capped part way.
+   {:name      :arity-context-edge-side
+    :claim     "a genlCx edge's arity reach walks its smaller end — flat in what the larger end holds"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       arity-context-edge-side}
+
+   ;; **Flat past the cap, and the cap is bound to 100 to reach it** —
+   ;; `constraint-exposure-context-edge`'s reading of the same budget, on the other pass
+   ;; that spends it.  Healthy 0.76x and 0.96x on full runs, 0.69x alone; the budget never
+   ;; consulted reads **7.58x** on a full run (7.25x alone, 6.70 ms against 48.59) — the sweep
+   ;; tracking the subtree's extent instead of its own bound.
+   ;;
+   ;; Below the cap the sweep is proportional to what it examines and deliberately so —
+   ;; that is `arity-reach-under-subtree` two rows up, and this check is the claim that the
+   ;; cap is a cap.
+   {:name      :arity-reach-budget-cap
+    :claim     "past the instance cap, 8x the facts behind an arity binding costs the same"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       arity-reach-budget-cap}
+
+   ;; **The gate, and the sweep it gates, as two rows.**  A `functional` mark descends a
+   ;; `genl` edge to the subtree below it, so the edge implicates that subtree's facts;
+   ;; `genl` is the commonest edge an ontology writes, so the arm is gated on a mark being
+   ;; at or above the edge's own `sub`.
+   ;;
+   ;; Gated: the gate removed — opened on this workload's own predicate, implemented and
+   ;; measured rather than supposed — reads **4.33x** on a full run.  Healthy is flat, and
+   ;; **the bound is 2.5x rather than the flat claim's 2.0x because of the spread rather
+   ;; than the claim**: the readings here are a few tenths of a millisecond, which is where
+   ;; run-to-run warmth moves a ratio more than the cost does.  Three isolated runs land
+   ;; between 0.83x and 0.90x and two full runs read 1.09x apiece, and on a busier box the same tree
+   ;; has read 1.85x — the difference being a baseline the gate measures warm.  2.5x sits above that spread and
+   ;; at 1.6x under the defect; `--tolerance` is the answer to a red run on a busy box, and
+   ;; the runner's re-measure already gives a bounced baseline a second look.
+   {:name      :constraint-genl-edge-gate
+    :claim     "a genl edge under no functional or asymmetric mark is flat in the subtree it does not walk"
+    :sizes     [250 2000]
+    :max-ratio 2.5
+    :run       (constraint-genl-edge false 4096)}
+
+   ;; ...and the sweep the gate lets through, which is budgeted rather than free: healthy
+   ;; 0.98x and 1.03x on full runs, 0.76x alone, with the cap at 100, against **7.01x** at the shipped
+   ;; 4,096 where 2,000 facts
+   ;; sit under the cap and the reading is the subtree instead — the same reading
+   ;; `constraint-exposure-context-edge` records for its own budget, and the same argument.
+   ;; The two rows fail for opposite reasons: this one if the sweep stops being bounded,
+   ;; the one above it if the sweep stops being gated.  The bound is the flat claim's 2.0x,
+   ;; which this one can carry: the capped sweep is a constant few tenths of a millisecond
+   ;; on top of the flip, and a reading with more in it bounces less.
+   {:name      :constraint-genl-mark-descent
+    :claim     "past the instance cap, 8x the facts a descending mark reaches costs the same"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       (constraint-genl-edge true 100)}
 
    ;; **The bound is 175x, and here is what it was read off.**  Two healthy full-run
    ;; readings, 85.4x and 80.9x, against a floor near 66x — so the honest reading sits

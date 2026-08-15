@@ -148,6 +148,14 @@ composed. `assert` wants the sentence it refused spelled out, but anything *coun
 violations wants to group, and a message embeds the literal, so it is unique per record
 and counting messages counts records.
 
+**The throw is a reporting path, so it does not pay for a stack trace nobody prints.** A
+checked import counts what the front door refuses, which makes the refusal a hundred
+thousand calls in a load rather than an exceptional one — and three quarters of `ex-info`
+is materializing the trace so it can elide its own two frames: 6.3 µs against a bare
+constructor's 0.8 at the top of a stack, 23.7 against 4.4 forty frames down. `check!`
+builds the `ExceptionInfo` directly. Same class, same message, same `:type :naming`
+ex-data.
+
 ### Whose invariants: the two doors
 
 How hard these are enforced is the **KB's** to say, not the build's. `open-kb`'s
@@ -176,25 +184,50 @@ why the check is worth keeping on wherever the content is hand-written.
 
 A **bulk** path is not on that list because it does not consult it: an import builds
 records directly through `res/kb-sentex` and never asks, which is what makes a corpus
-of this size loadable at all. The two doors are reconciled by a **count** instead.
-Both import paths fold `nm/tally` as the frames go past — the one cheap moment, with each
-record already decoded — and a non-zero result is logged and returned in the summary as
-`{:checked n :refused n :by-class {…}}`:
-
-(The figures below are from an 11.3M-record corpus in another engine's dialect — not
-the 1.18M-sentex OpenCyc conversion the rest of the docs measure.)
+past what the door can check loadable at all. The two doors are reconciled by a **count**
+instead. Both import paths fold `nm/tally` as the frames go past — the one cheap moment,
+with each record already decoded — and a non-zero result is logged and returned in the
+summary as `{:checked n :refused n :by-class {…}}`, one line naming the fraction and the
+classes it splits into:
 
 ```
-this corpus and `assert` disagree: 11,314,049 of 11,314,049 records (100.0%) hold names
-`assert` would refuse: context-name 11,314,049, argument 10,059,528, functor 395,259,
-functor-arity 58, dot-marker 9 — they are stored, findable and countable, but
-re-asserting one throws under :naming :strict
+this corpus and `assert` disagree: <n> of <total> records (<pct>) hold names `assert`
+would refuse: context-name <n>, argument <n>, functor <n>, functor-arity <n>,
+dot-marker <n> — they are stored, findable and countable, but re-asserting one throws
+under :naming :strict
 ```
 
-The operator who chose the bulk path learns the fraction then, rather than from a
-re-assertion that throws a year later. `lein bench-survey naming` is the same question
-asked exhaustively — every record, grouped by class, by frame and by *distinct spelling*,
-with candidate widenings priced against the corpus.
+A foreign dialect can disagree at every record — a naming convention the whole corpus was
+written under is one the door refuses uniformly, not occasionally — so the fraction is as
+likely to be 100% as it is to be small. The operator who chose the bulk path learns it
+then, rather than from a re-assertion that throws a year later. `lein bench-survey naming`
+is the same question asked exhaustively: every record, grouped by class, by frame and by
+*distinct spelling*, with candidate widenings priced against the corpus.
+
+**The door one over answers the same way.** A name is checked *outside* the constructor,
+so a record with a refused name still gets built and stored. The **structural** checks —
+NAF closure, quantifier locality, the aggregate reduction slots — run *inside* it, so
+when one of those fires there is no record at all. An import counts those in `:refused`
+(`{:checked n :skipped n :by-type {…}}`), skips the frame, and carries on:
+
+```
+<n> of <total> frames (<pct>) hold sentences this build will not construct:
+naf-not-closed <n> — they are not stored, and anything resting on one is dropped with it
+```
+
+A dump is not a program being written. A rule an older build stored, or another engine's,
+can be one a since-widened check refuses, and there is nothing the reading side can do
+about it — so the choice is between skipping that frame and abandoning a finished
+multi-hour pass over every good frame beside it. Skipping is not repair — the
+justifications and meta-sentexes naming a skipped frame fail to resolve and drop with it,
+as they already do for any dangling reference — and the summary says what went with it;
+what the count buys is that the operator reads the number off a load that finished.
+
+Two edges of the count. Only an `ex-info` carrying a `:type` is counted; an unlabelled
+one is **rethrown**, since tolerating an exception nobody chose to raise is how a bug
+becomes a statistic. And `check-frame-count!` reads the records-only path's **`:frames`**
+— what the stream yielded — rather than its stored count, or a skipped frame would read
+as a torn dump.
 
 ### What this does not check
 

@@ -481,9 +481,9 @@ network's advantage on a rules-heavy corpus goes 1.61× → 3.26×.
 
 Two caveats the measurements carry, both easy to drop and both load-bearing:
 
-- **A uniform sample of a corpus breaks locality.** Sampling 202k records out of 11.3M
-  sees each term about once, so a dictionary measured against it is corpus-sized while
-  the store is sample-sized. That is why tokenized bodies read 2.02× on the log but only
+- **A uniform sample of a corpus breaks locality.** Sample thinly enough and each term is
+  seen about once, so a dictionary measured against the sample is corpus-sized while the
+  store is sample-sized. That is why tokenized bodies read 2.02× on the log but only
   1.13× all-in: the dictionary row does not carry over, the log row does.
 - **Retained heap (jol) is structural, so it is trusted under contention; wall-clock is
   not.** Every RAM figure here is jol; every timing was taken on an otherwise-quiet box

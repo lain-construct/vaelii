@@ -110,7 +110,8 @@
   ;; A derivation chain longer than the 256 default: rule + 300 `nextOf` links, so
   ;; `(reached NodeN)` rests on `(reached NodeN-1)` rests on … — no repeated handle,
   ;; so the cycle guard never fires and only the depth cap stands between the walk
-  ;; and the stack.
+  ;; and an unbounded proof tree.  The walk itself is iterative, so its depth is not
+  ;; the JVM stack's depth — pinned below on a deliberately small stack.
   (tu/with-terms [nextOf reached CxChain]
     (let [n     300
           nodes (vec (repeatedly (inc n) #(tu/tmp-ind "Node")))]
@@ -137,6 +138,21 @@
                 "the walk now bottoms out at the premise the chain started from"))
           (is (some :truncated? (why-nodes (v/why kb h {:max-depth 5})))
               "and a small one truncates sooner"))
+        (testing "the deep walk spends no JVM stack: it returns on a small one"
+          ;; The regression this closed: `why` was real stack recursion, and this very
+          ;; chain overflowed a Linux CI stack the macOS one absorbed.  Pinned platform-
+          ;; independently by running the 300-deep walk on a thread with a 256 KB stack —
+          ;; ample for the iterative walk, far short of what 300 recursive frames need.
+          (let [out (atom nil), err (atom nil)
+                t   (Thread. nil
+                             ^Runnable (fn []
+                                         (try (reset! out (v/why kb h {:max-depth 400}))
+                                              (catch Throwable e (reset! err e))))
+                             "why-small-stack" (* 256 1024))]
+            (.start t) (.join t)
+            (is (nil? @err) (str "why overflowed a 256 KB stack: " @err))
+            (is (= (v/why kb h {:max-depth 400}) @out)
+                "and builds the same tree the main-thread walk does")))
         (testing "nil, absent and empty opts are all the default"
           (is (= (v/why kb h) (v/why kb h nil) (v/why kb h {}) (v/why kb h {:max-depth nil}))))
         (testing "opts are guarded the way assert's are"

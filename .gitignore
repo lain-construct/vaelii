@@ -3,6 +3,8 @@
 /checkouts/
 # scripts/coverage.sh writes its instrumented run + raw cloverage output here.
 /testbench/
+# Probe and bench transcripts written by a run against a local rig.
+/logs/
 profiles.clj
 pom.xml
 pom.xml.asc
@@ -26,3 +28,6 @@ CLAUDE.local.md
 # macOS Finder metadata; this is a macOS-authored repo and one of these
 # committed once is committed forever.
 .DS_Store
+
+# the local downstream roster check-breaking-siblings.sh reads (never published)
+.sibling-repos

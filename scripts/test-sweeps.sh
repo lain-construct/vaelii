@@ -37,8 +37,12 @@
 # cut.  `lein gate` covers neither: it is one backend and every switch at its
 # default, which is what keeps it a check you run before every landing.
 #
-# Runs are SEQUENTIAL, for the reason `test-backends.sh` gives: `VAELII_TEST_SPACE`
-# admits six non-overlapping blocks and every run here takes the default one.
+# Runs here are SEQUENTIAL for the reason `test-backends.sh` gives — one run at a time
+# is one readable wall time, on a box somebody is still using — and not because
+# anything forbids sharing: these five write no durable store at all.
+# **`scripts/test-matrix.sh` is the concurrent one**, these five and the eight backends
+# at once in ~13 minutes rather than ~55, and it is what to run when a change owes the
+# matrix.  This script is for one sweep, or for a timing that means something.
 #
 # A leading-colon argument is a TEST SELECTOR passed straight to `lein test`.
 # `:default` — what a bare run takes — skips the `^:slow` tests; `:all` is the
@@ -55,6 +59,14 @@
 #
 # Env:
 #   TEST_SWEEPS_OUT   log directory (default target/test-sweeps)
+#   SUITE_PROGRESS    marks | lines | auto (default: marks on a terminal, lines into
+#                     anything else — `test-backends.sh` says why)
+#
+# Progress and the revision read exactly as they do there: a ✔/✘ per namespace as it
+# finishes, named rather than marked when the output is not a terminal, and the
+# revision on the header, on every summary row and at the top of every log — read per
+# run, so a commit landing mid-matrix is called out rather than left to look like a
+# run that skipped something.
 #
 # ^C stops the suite that is running and then the script.
 #
@@ -66,27 +78,13 @@ cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=scripts/lib/suite-marks.sh
 . scripts/lib/suite-marks.sh
 
-# name -> the env assignments that select it, space-separated.  Kept as parallel
-# arrays rather than an associative array: bash 3.2 is what macOS ships, and
-# `declare -A` is bash 4.  The order is cheapest-first, so a matrix that is going
-# to fail on the retrieval switch says so before spending twenty minutes on the
-# node engine.
-SWEEP_NAMES=(tms-dense rete hier-off query-engine tactician)
-SWEEP_ENVS=(
-  "VAELII_TEST_TMS=dense"
-  "VAELII_RETE=1"
-  "VAELII_HIER=0"
-  "VAELII_QUERY_ENGINE=inference"
-  "VAELII_QUERY_ENGINE=inference VAELII_QUERY_STRATEGY=breadth-first"
-)
-
-env_for() {                                        # name -> its assignments, or ""
-  local want="$1" i
-  for i in "${!SWEEP_NAMES[@]}"; do
-    [[ "${SWEEP_NAMES[$i]}" == "$want" ]] && { printf '%s' "${SWEEP_ENVS[$i]}"; return 0; }
-  done
-  return 1
-}
+# The roster, and the env assignments that select each: `scripts/lib/suite-configs.sh`,
+# shared with `test-backends.sh` and `test-matrix.sh`.  Cheapest first there, so a matrix
+# that is going to fail on the retrieval switch says so before spending twenty minutes on
+# the node engine.
+# shellcheck source=scripts/lib/suite-configs.sh
+. scripts/lib/suite-configs.sh
+SWEEP_NAMES=("${ALL_SWEEPS[@]}")
 
 FAIL_FAST=0
 SELECTOR=":default"
@@ -104,7 +102,7 @@ while [[ $# -gt 0 ]]; do
     # named here rather than at run time: an unknown sweep would otherwise run the
     # suite with no switch set at all and report a clean pass for a configuration
     # nothing ran, which is the exact failure the switches' own domains refuse
-    *) env_for "$1" >/dev/null \
+    *) config_env "$1" >/dev/null \
          || { echo "unknown sweep $1 (${SWEEP_NAMES[*]})" >&2; exit 2; }
        WANTED+=("$1"); shift ;;
   esac
@@ -133,6 +131,9 @@ current_sweep=""
 current_log=""
 FAILED=()
 DONE_RUNS=()
+rev=""
+prev_rev=""
+REVS=()
 
 # Two codes for one fact: shellcheck 0.10 split "this function is never called"
 # out of SC2317 into SC2329, so naming only the new one leaves the script red on
@@ -163,6 +164,7 @@ trap on_interrupt INT TERM
 
 echo "${BOLD}running the suite on ${#SWEEPS[@]} sweep(s)${OFF}" \
      "${DIM}$SELECTOR — $RUN_NS_COUNT of $NS_COUNT namespaces${OFF}"
+echo "${DIM}at $(revision_line)${OFF}"
 echo "${DIM}logs in $OUT_DIR/${OFF}"
 echo
 
@@ -180,13 +182,25 @@ for sweep in "${SWEEPS[@]}"; do
   # Word-splitting is exactly what is wanted here — the tactician row is two
   # assignments, and neither ever contains a space.
   # shellcheck disable=SC2207
-  envv=( $(env_for "$sweep") )
+  envv=( $(config_env "$sweep") )
+
+  # the revision THIS run is about to be taken at, read per run: five runs are
+  # long enough for a commit to land between two of them, and the symptom of that
+  # is a count that moved — which is also the symptom of a run that skipped
+  # something.  `test-backends.sh` carries the long form.
+  rev=$(revision_hash)
+  if [[ -n "$prev_rev" && "$rev" != "$prev_rev" ]]; then
+    echo "  ${RED}⚠${OFF} ${DIM}the tree moved: $prev_rev → $rev —" \
+         "counts below are not comparable with the ones above${OFF}"
+  fi
+  prev_rev="$rev"
+  REVS+=("$rev")
 
   # the command verbatim, so a run can be reproduced by copying the line, and the
   # log it is going to — printed BEFORE the run, so a suite still going is already
   # tailable
   echo "  ${DIM}env ${envv[*]} lein test $SELECTOR  # $log${OFF}"
-  echo "  ${DIM}loading a JVM and all $NS_COUNT test namespaces; the first mark waits on that${OFF}"
+  echo "  ${DIM}loading a JVM and all $NS_COUNT test namespaces; the first namespace waits on that${OFF}"
   start=$SECONDS
   # `< /dev/null` is what keeps it RUNNING: `set -m` puts the job outside the
   # terminal's foreground group and leiningen pumps its own stdin into the project
@@ -194,9 +208,11 @@ for sweep in "${SWEEPS[@]}"; do
   # — 0% CPU and an empty log, indistinguishable from a hang.
   # the stamp first, then append: a log has to say what it was run *against*, or a
   # count that moved because the tree moved is indistinguishable from one that moved
-  # because a run skipped something
-  revision_stamp > "$log"
-  env "${envv[@]}" lein test "$SELECTOR" < /dev/null 2>&1 | tee -a "$log" | ns_marks &
+  # because a run skipped something.  Labelled with the sweep, so a per-config log
+  # names its config on line 1 as well as the revision
+  revision_stamp "sweep $sweep" > "$log"
+  RUN_START=$start                                 # the clock a `lines` run times against
+  env "${envv[@]}" lein test "$SELECTOR" < /dev/null 2>&1 | tee -a "$log" | ns_progress &
   child_pid=$!
   child_pgid=$(ps -o pgid= -p "$child_pid" 2>/dev/null | tr -d ' ')
   child_pgid="${child_pgid:-$child_pid}"
@@ -211,8 +227,8 @@ for sweep in "${SWEEPS[@]}"; do
   counts=$(run_counts "$log")
 
   if [[ $code -eq 0 ]]; then mark="$TICK"; else mark="$CROSS"; FAILED+=("$sweep"); fi
-  printf '  %s %-16s %-52s %s\n' \
-    "$mark" "$sweep" "${summary:-did not finish}${counts:+, $counts}" "$(hms $elapsed)"
+  printf '  %s %-16s %-52s %8s  %s\n' \
+    "$mark" "$sweep" "${summary:-did not finish}${counts:+, $counts}" "$(hms $elapsed)" "$rev"
 
   if [[ $code -ne 0 ]]; then
     while read -r ns; do
@@ -227,11 +243,27 @@ for sweep in "${SWEEPS[@]}"; do
 done
 
 echo
+# one revision for the whole matrix, or the several it ran across — the sweeps'
+# failing-set-identical claim is a claim about one tree.  Guarded on the length
+# because this is bash 3.2, where `"${a[@]}"` on an empty array is an error under
+# `set -u` rather than an empty list.
+if [[ ${#REVS[@]} -eq 0 ]]; then
+  matrix_rev="at $(revision_hash)"
+else
+  uniq_revs=$(printf '%s\n' "${REVS[@]}" | sort -u | tr '\n' ' ')
+  if [[ $(printf '%s\n' "${REVS[@]}" | sort -u | wc -l) -gt 1 ]]; then
+    matrix_rev="across ${uniq_revs% }"
+  else
+    matrix_rev="at ${uniq_revs% }"
+  fi
+fi
+
 if [[ ${#FAILED[@]} -eq 0 ]]; then
-  echo "${GREEN}${BOLD}all ${#SWEEPS[@]} sweeps green${OFF}  ${DIM}($OUT_DIR/)${OFF}"
+  echo "${GREEN}${BOLD}all ${#SWEEPS[@]} sweeps green${OFF} ${matrix_rev}" \
+       "${DIM}($OUT_DIR/)${OFF}"
   exit 0
 fi
-echo "${RED}${BOLD}${#FAILED[@]} of ${#SWEEPS[@]} failed:${OFF} ${FAILED[*]}"
+echo "${RED}${BOLD}${#FAILED[@]} of ${#SWEEPS[@]} failed:${OFF} ${FAILED[*]} ${DIM}(${matrix_rev})${OFF}"
 for s in "${FAILED[@]}"; do
   if [[ "$SELECTOR" == ":default" ]]; then
     echo "  ${DIM}$OUT_DIR/$s.log${OFF}"

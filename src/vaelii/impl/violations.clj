@@ -33,11 +33,21 @@
 
 (defn- dropping-rule
   "The rule an entry blames, as the sentence its author wrote — variable names restored,
-  since a rule is stored canonically numbered.  Nil for an entry that names no rule (an
-  aggregate's numeric refusal, and either bounded sweep cut short — `:exposure-truncated`
-  or `:arbitration-truncated`, which are about a budget rather than about a firing) and
+  since a rule is stored canonically numbered.  Nil for an entry that names no rule and
   for a rule that has since been retracted, which is itself the answer to why the
-  conclusion stopped arriving."
+  conclusion stopped arriving.
+
+  A rule is named when a *derivation* was refused, which is what the chainer files.  Three
+  families name none: an aggregate's numeric refusal; the five notices that a pass stopped
+  short of what it might have said — `:exposure-truncated`, `:arbitration-truncated` and
+  `:arity-truncated`, where a budget ran out before the work was done, and
+  `:constraint-exposure-truncated` and `:arity-report-truncated`, where the work *was* done
+  and a cap on entries kept the rest of it unnamed — all of which are about a bound rather
+  than about a firing; and what the settle reports about content that was already stored,
+  the cross-context `:disjoint` / `:functional` / `:asymmetric` pairs and the `:arity`
+  reach over facts a later arity binding convicts.  Those last kinds also arrive *with* a
+  rule when the chainer drops a conclusion under one of them, so the discriminant is the
+  key rather than the kind — which is why this reads `(:rule entry)` and not a roster."
   [kb entry]
   (when-let [h (:rule entry)]
     (let [rsx (p/get-sentex (:records kb) h)]

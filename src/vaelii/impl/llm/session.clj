@@ -121,9 +121,12 @@
   a line the reviewer reads, so it is visible rather than hidden."
   [entry]
   (let [[sentence context] (when (sequential? entry) entry)]
-    ;; `sequential?`, not `seq?`: the line is model-written EDN read before canon, so
-    ;; a bracketed `[ist …]` is the same sentence — and a bracket must not be the
-    ;; escape hatch from the one check that keeps the context the caller's.
+    ;; `sequential?`, not `seq?`: the line is model-written EDN, and a bracketed
+    ;; `[ist …]` is refused by `assert`'s shape guard anyway — but it is refused *here*,
+    ;; with the message that names the placement rather than the brackets, since what
+    ;; the writer has to be told either way is to write the bare sentence and let the
+    ;; context be the caller's.  A bracket is not the escape hatch from the one check
+    ;; that keeps it so.
     (when (and (sequential? sentence) (seq sentence) (= sx/ist-functor (first sentence)))
       {:type :context-escape
        :message (str "the sentence is an `ist`, so it would be filed in "

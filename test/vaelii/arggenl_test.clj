@@ -283,6 +283,55 @@
     (testing "declaring it variable arity releases the check"
       (is (v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse)))))
 
+(tu/deftest-kb a-variableArity-predicate-takes-a-constraint-past-its-declared-length
+  ;; One release, so the door owes the same answer twice.  A predicate reading a chain of
+  ;; any length has the arguments past its declared number, and a constraint on one of them
+  ;; fires on exactly the tuples that reach it — so refusing the declaration while storing
+  ;; the three-argument fact leaves the third argument untypeable in a KB that admits it.
+  (tu/with-terms [chainOf a_type b_type A B C Odd]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl b_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (is (= :arg-position
+           (ex-type #(v/assert kb (list 'argIsa chainOf 3 a_type) 'CxUniverse)))
+        "binary and nothing else, so there is no third argument to constrain")
+    (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
+    (testing "the mark releases the declaration exactly as it releases the tuple"
+      (is (v/assert kb (list 'argIsa chainOf 3 a_type) 'CxUniverse))
+      (is (v/assert kb (list 'argGenl chainOf 4 'thing) 'CxUniverse)))
+    (testing "both of interArgIsa's positions are released, not only the first"
+      (is (v/assert kb (list 'interArgIsa chainOf 1 a_type 5 a_type) 'CxUniverse)))
+    (testing "and the constraint is live on the tuple that reaches the position"
+      (v/assert kb (list a_type C) 'CxUniverse)
+      (v/assert kb (list b_type Odd) 'CxUniverse)          ; placed, but not an a_type
+      (is (v/assert kb (list chainOf A B C) 'CxUniverse))
+      (is (= :arg-type (ex-type #(v/assert kb (list chainOf A B Odd) 'CxUniverse)))
+          "argument 3 is enforced where the tuple has one, which is what makes the
+           declaration worth admitting"))))
+
+(tu/deftest-kb a-variableArity-sub-takes-a-constraint-past-the-length-above-it
+  ;; The inherited route into the same arm, and the mark sits where the inheritance never
+  ;; looks: `inherited-arity` asks the release of the *supers*, so a sub carrying it still
+  ;; reads their length — and only the arm's own reading of the predicate's memberships
+  ;; releases the position.
+  (tu/with-terms [chainOf subChainOf a_type A B C]
+    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
+    (is (= :arg-position
+           (ex-type #(v/assert kb (list 'argIsa subChainOf 3 a_type) 'CxUniverse)))
+        "subChainOf declares no length, so it takes two arguments through chainOf")
+    (v/assert kb (list 'variableArity subChainOf) 'CxUniverse)
+    (testing "the mark on the sub releases what the super bound it to"
+      (is (v/assert kb (list 'argIsa subChainOf 3 a_type) 'CxUniverse))
+      (v/assert kb (list a_type C) 'CxUniverse)
+      (is (v/assert kb (list subChainOf A B C) 'CxUniverse)
+          "the same release the tuple already had"))
+    (testing "and the super it inherits from keeps its own length"
+      (is (= :arg-position
+             (ex-type #(v/assert kb (list 'argIsa chainOf 3 a_type) 'CxUniverse)))
+          "chainOf is binary, whatever mark its sub-predicates carry"))))
+
 ;; ---- the global/scoped split in the conviction ---------------------------
 ;; `genls-problem` runs three probes: a **global** individual floor (could the
 ;; argument ever be a type?), a **scoped** open-world floor (does the writer see

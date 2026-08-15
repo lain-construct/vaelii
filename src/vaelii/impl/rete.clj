@@ -150,9 +150,9 @@
               a)))))
 
 ;; ---- the observer hooks (installed by `engage!`) ------------------------
-;; `engage!` is here because `chain-all` / `chain` / `track!` below it all engage before
-;; they run.  Its undo is not: `disengage!` is a no-op while the global switch is on, so
-;; it reads `enabled?` and lives with the switch at the foot of the file.
+;; `engage!` is here because `track!` below it engages before it runs.  Its undo is not:
+;; `disengage!` is a no-op while the global switch is on, so it reads `enabled?` and lives
+;; with the switch at the foot of the file.
 
 (defn- observe-add [kb sentex h]
   (when-let [a (.get registry kb)]        ; only maintain alphas that already exist
@@ -164,8 +164,8 @@
 
 (defn engage!
   "Install the store observers so every alpha stays in step with the fact set.
-  Idempotent.  Called by `chain-all` / `chain` before they run, and directly by the
-  oracle test."
+  Idempotent.  Called by `track!` before it runs, by `enable!` when the switch goes on,
+  and directly by the oracle test."
   []
   (when-not (observe/installed?)
     (observe/install! observe-add observe-remove)))
@@ -256,25 +256,13 @@
   [kb pattern context]
   (match-pattern-via-alpha kb (:by-functor @(alpha-for kb)) pattern context))
 
-;; ---- the drop-in chain entry points -------------------------------------
-
-(defn chain-all
-  "Run `chain/chain-all` with the incremental matcher.  Engages the observers and
-  materializes this KB's alpha first, so a fact created *during* the run (a derived
-  conclusion) is in the memories before a later join reads it."
-  [kb seed opts]
-  (engage!)
-  (alpha-for kb)
-  (binding [chain/*matcher* rete-match-pattern]
-    (chain/chain-all kb seed opts)))
-
-(defn chain
-  "Run `chain/chain` (the settle-time re-chain seed) with the incremental matcher."
-  [kb seed opts]
-  (engage!)
-  (alpha-for kb)
-  (binding [chain/*matcher* rete-match-pattern]
-    (chain/chain kb seed opts)))
+;; ---- driving a KB through the network -----------------------------------
+;; Two ways in, and neither wraps `chain`: `enable!` root-binds the matcher for the
+;; process (the `VAELII_RETE=1` sweep), and `track!` plus the caller's own `binding`
+;; scopes it to one KB (`vaelii.bench.pyramid`).  The scoped form stays the caller's to
+;; write, because the caller is the one deciding what runs inside the binding — a
+;; convenience that engaged, tracked and chained in one call would fix that choice for
+;; them, and fix it to the one chain entry point it happened to name.
 
 (defn track!
   "Engage the observers and materialize `kb`'s alpha memories now, so every fact

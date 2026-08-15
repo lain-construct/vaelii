@@ -39,9 +39,16 @@ A source is a description, not a KB. Six kinds:
 The first three ship here and are always offered. The last three are **found**, never
 hardcoded: every directory on the search path is probed, and the marker its writer left
 decides what it is — a corpus `meta.edn` carries the context order it was written in, a
-dump's carries a `:format-version`, a vaelii `:disk` store is a `records/` + `index/`
-pair. Anything else is not a KB and is passed over, including a directory whose
-`meta.edn` does not read as EDN.
+dump's carries a `:format-version`, and a vaelii store is a `records/` directory the
+record writer has stamped with its own `format.edn`. Anything else is not a KB and is
+passed over, including a directory whose `meta.edn` does not read as EDN.
+
+**The records half is the whole marker.** Requiring an `index/` beside it hid exactly the
+stores worth finding: only `:disk` keeps a durable index on disk, while `:disk-columnar`,
+`:disk-dense` and `:disk-memory` derive theirs and write no `index/` at all — so a
+large store classified as nothing and could not be offered. Those are
+the backends a corpus past a few million records is loaded into, `:disk`'s index being a
+map held in RAM whatever else is on disk ([storage.md](storage.md)).
 
 What it takes to *have* each of these — which ship here, which needs a plugin, which you
 supply, and what each costs to get to a first load — is [kbs.md](kbs.md).
@@ -60,8 +67,8 @@ A KB **outside** the search path is named in a catalog file — `VAELII_KB_CATAL
 `:path` and whatever it wants to override about what is found there:
 
 ```clojure
-[{:id "alpha" :name "Vaelii alpha (full)"  :path "/kbs/alpha-export"}
- {:id "cyc"   :name "OpenCyc 4.0"          :path "/kbs/opencyc-4.0"}]
+[{:id "archive" :name "Last quarter's export" :path "/kbs/2026-Q1-export"}
+ {:id "cyc"     :name "OpenCyc 4.0"           :path "/kbs/opencyc-4.0"}]
 ```
 
 That file is the **only** place a machine's own paths live. Nothing about them is in the
@@ -93,6 +100,51 @@ and the plugin version — [kbs.md](kbs.md) reports 132,391 types for the `:onto
 profile it measures. The figure to read here is 0 versus six figures.) Off is still the right default for a corpus
 past what `recover` can do in reasonable time, which is why it is a switch rather than a
 decision the catalog makes.
+
+It is a **three-way choice** rather than a checkbox, and the catalog carries it as one
+(`{:type :choice :choices [:rebuild :stored :skip]}`):
+
+| | what lands | what it costs |
+|---|---|---|
+| `:rebuild` (`:belief? true`) | every justification, premise mark and provenance entry, then the `recover` | the recover, which is what a large corpus cannot afford |
+| `:stored` (`:belief? :stored`) | all of the above **except** the recover — the network is left empty for one somebody schedules later | nothing now; the KB refuses writes until `recover` runs ([storage.md](storage.md)) |
+| `:skip` (`:belief? false`) | records only — no justifications, no premise marks | the deductions, permanently: a later `recover` over that store believes nothing |
+
+`:stored` is the mode that exists because the option had two ends and a corpus that could
+not afford `recover` had to discard its justifications forever to say so. For a **foreign**
+dialect it is the only mode that keeps them at all. An unrecognised value is refused by
+name (`:unknown-option`), since anything truthy would otherwise mean `:rebuild` and run
+the recover the caller asked to defer.
+
+### A remapped load reports what its own deletions cost
+
+A remapped load rewrites the handles embedded in stored content and **drops** the
+meta-sentexes whose `(sentexHandle H)` will not resolve. The dump-id map is built before
+that pass, so a deleted record's id went on resolving afterwards and both deduction
+readers stored justifications, premise marks and provenance pointing at records that were
+no longer there. `forget-deleted` takes those ids out of the id map **and** out of the
+sentex metadata the premise marks are read off, so the reference comes back `nil` and the
+readers drop it through the path they already had.
+
+Two summary keys, and they are apart because they are different facts:
+
+| | |
+|---|---|
+| **`:orphaned-ids`** | dump ids the load's own deletion left naming nothing |
+| **`:dropped-justifications-orphaned`** | the deductions that went with them |
+
+A dump also hangs deductions off sentexes it never carried, which is what the dump is like
+rather than what the load did to it — so a frame is attributed to the load only when
+*every* id that failed to resolve is one the load orphaned, exactly the frame that would
+otherwise have resolved whole.
+
+Three things come back with it. The store holds no dangling justification; the premise
+count agrees with the roster, where before it over-counted by however many marks named a
+deleted handle (`mark-premise` silently declines a handle with no record); and no
+provenance entry is written against a missing handle. A store already carrying them is
+repairable in place — delete every justification naming a handle `sentex-ids` does not
+yield — and differs from a corrected load only in justification numbering, since a
+justification never written mints no handle.
 
 ## Loading
 
@@ -192,7 +244,31 @@ So the `!` in `unload!` is about the memory case, which does destroy something. 
 an attached daemon, or a KB registered by a caller that owns it, releases nothing at all.
 
 Unloading the active entry falls back to the most recent one still loaded, so the browser
-is never left pointing at nothing while a KB is sitting right there.
+is never left pointing at nothing while a KB is sitting right there. It falls to a `:done`
+entry and not merely to one holding a KB, which matters because of the third refusal below.
+
+**Three things stop an unload, and each is something else still holding the KB.** Releasing
+is the one operation here with no half state worth having, so it gives way rather than
+racing:
+
+| refusal | who is holding it |
+|---------|-------------------|
+| `:still-stopping` | its own loader — cancellation is cooperative, so the stores are the loader's until its thread returns |
+| `:still-exporting` | a dump walking it record by record, with no snapshot to walk instead ([`exporting-kb?`](#and-back-out-again)) |
+| `:unreleased` | nothing: the release itself threw |
+
+The first two are retried after the thing holding the KB lets go. The third is the
+truth-telling one. A release can fail — an index that will not fsync, a component that
+throws on close — and logging that and dropping the entry would tell the operator it had
+released a KB it had not. So the entry keeps its place with status `:unreleased` and the
+reason on it, stops being active (a KB whose stores half-closed is the one thing here
+nobody can vouch for, so the fallback above steps over it), and the throw is what stops
+the caller reporting a clean unload over a directory that did not close. Unloading again
+retries the release.
+
+`unload!` takes `:run-in` for the same reason `export-entry!` does: the browser hands its
+write monitor, so a synchronous write already past the write doors drains before the stores
+go rather than interleaving with the clear.
 
 ## And back out again
 
@@ -282,16 +358,25 @@ because they are independent:
 
 * the load is **still running** (or stopped part-way), so what is stored is a prefix of
   what was asked for;
-* **belief and the taxonomy are not built** — `recover` builds them together and
-  `:belief? false` skips them together. That empties more than queries: with no JTMS
-  every believed answer is empty, and with no genl/genlCx closures there is no type
-  hierarchy either, so a fully stored KB renders as one holding no types and no contexts
-  at all.
+* **belief and the taxonomy are not built** — `recover` builds them together, and both
+  `:belief? false` and `:belief? :stored` leave them for later. That empties more than
+  queries: with no JTMS every believed answer is empty, and with no genl/genlCx closures
+  there is no type hierarchy either, so a fully stored KB renders as one holding no types
+  and no contexts at all.
 
 The second is the one that matters most, because it **outlives** the first. A store
-opened without `:recover?` is `:ready` and stays that way, and so does a dump imported
-with `:belief? false` — the dangerous case is the one that looks finished. The browser
-puts both at the top of every page ([web.md](web.md)).
+opened without `:recover?` finishes its job `:done` and stays that way, and so does a
+dump imported without belief — the dangerous case is the one that looks finished. The browser puts both
+at the top of every page ([web.md](web.md)).
+
+**And it says which of two repairs applies**, because they are not the same size. A KB
+whose store holds justifications or premise marks has everything `recover` reads, and
+recovering it is one pass over what is already there — that is what `:belief? :stored`
+loads. A KB holding neither cannot be recovered into belief at all and has to be loaded
+again; for a **foreign** dialect `:belief? false` always leaves it in that state, since
+that path rosters no premise. `active-caveat` probes the store and reports
+`:recoverable?`, and prescribing the reload to the first case would send it back through
+hours of work for nothing.
 
 What activating a half-loaded KB costs is exactly one thing: **the right to change it.**
 `write-blocked?` says so — the loader is already this process's writer, and two

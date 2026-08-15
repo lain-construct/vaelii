@@ -9,7 +9,7 @@
   these behaviours fall out of the registry being a KB-held list rather than being
   designed in, which is exactly why they need pinning: nothing else would notice if a
   change to the prover engine took them away."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.interval :as iv]
@@ -642,6 +642,46 @@
         (is (set? moved) "a real delta, not the fallback")
         (is (contains? moved [D A]) "the pair the fact itself narrowed")
         (is (contains? moved [D B]) "and the pair its composition reached")))))
+
+(tu/deftest-kb a-join-baseline-outlives-the-resident-cache-clearing
+  ;; A baseline is bookkeeping rather than a memo, and that is the whole difference: a
+  ;; memo lost is recomputed at its own cost, where a baseline lost cannot be recomputed
+  ;; at all — what it records is the network as of the last re-join, a moment that has
+  ;; passed — so every later delta for that calculus and context silently falls back to a
+  ;; full join.  The resident network cache is cleared wholesale when it grows past its
+  ;; bound, so a baseline sharing that atom is dropped by traffic that is not about it.
+  (tu/with-terms [A B]
+    (v/assert kb (list 'nonTangentialProperPart A B) C)
+    (qkb/note-joined kb space/rcc8 C (:baseline (qkb/join-delta kb space/rcc8 C)))
+    (is (= #{} (:moved (qkb/join-delta kb space/rcc8 C)))
+        "nothing has moved since the network was joined over")
+    (let [pressure 400]
+      (dotimes [i pressure] (observe/cached (:qcn kb) [::pressure i] (fn [_] i)))
+      (is (< (count @(:qcn kb)) pressure)
+          "the resident cache clears wholesale rather than growing past its bound"))
+    (is (= #{} (:moved (qkb/join-delta kb space/rcc8 C)))
+        "and the baseline is where it was left, so the next re-join is still a delta")))
+
+(deftest a-wipe-stops-carrying-the-join-baselines
+  ;; The baselines are the one piece of resident state a *clock* tick does not reach —
+  ;; that is what they are for, a claim about a network rather than a memo of one — so
+  ;; the wholesale wipe is the only thing that can retire them, and it is where the
+  ;; other resident maps are retired.  Its own KB: `clear!` empties the store, which is
+  ;; the one thing the neutral fixture will not accept.
+  (let [kb (doto (v/open-kb tu/plain-memory-space)
+             (tu/clear-kb!)
+             (core-context/load-into)
+             (seed/load-context 'CxSpace "upper")
+             (v/add-prover (space/spatial-prover)))]
+    (v/assert kb (list 'nonTangentialProperPart 'TmpWipedA 'TmpWipedB) C)
+    (qkb/note-joined kb space/rcc8 C (:baseline (qkb/join-delta kb space/rcc8 C)))
+    (is (seq @(:qcn-joined kb)) "a baseline is standing")
+    (v/clear! kb)
+    (is (= {} @(:qcn-joined kb))
+        "the wipe took it with the rest of the resident state")
+    (is (= :all (:moved (qkb/join-delta kb space/rcc8 C)))
+        "so the next re-join runs over everything, as it does on a KB never joined")
+    (tu/clear-kb! kb)))
 
 (tu/deftest-kb a-lost-handle-makes-the-delta-all
   ;; a derived support is a union along whatever chain narrowed it, so a handle that goes

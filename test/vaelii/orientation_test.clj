@@ -15,6 +15,7 @@
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.orientation :as dir]
+            [vaelii.impl.projection :as proj]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
@@ -43,9 +44,26 @@
   (testing "and the projection is a bijection onto the whole 3×3 product"
     (is (= (set (for [x [:lt :eq :gt] y [:lt :eq :gt]] [x y]))
            (set (vals dir/direction->xy))))
-    (is (= 9 (count dir/xy->direction))
-        "so reading a composed pair back always names a direction — that is what makes
-         composition total, and why there is no 9×9 table here to get wrong")))
+    ;; the claim is *totality*, so it is composition that has to answer: reading a
+    ;; composed pair back always names a direction, which is why there is no 9×9 table
+    ;; here to get wrong.  `(some? (algebra …))` cannot fail — `algebra` either throws or
+    ;; returns a map, and both namespaces evaluate it at load — so it asserts nothing.
+    (let [{:keys [compose universe]} (proj/algebra dir/direction->xy)]
+      (is (= dir/all-directions universe))
+      (doseq [a universe, b universe]
+        (let [r (compose #{a} #{b})]
+          (is (seq r) (str "composing " a " with " b " names something"))
+          (is (every? universe r)
+              (str "and only directions — " a " ∘ " b " = " (pr-str r)))))))
+  (testing "and a projection that is not one is refused where it is built, not composed"
+    (testing "a repeated pair, which still covers all nine"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"all nine \[x y\] pairs"
+           (proj/algebra (assoc dir/direction->xy :nowhere [:gt :gt])))))
+    (testing "and a missing one, which covers eight"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"all nine \[x y\] pairs"
+           (proj/algebra (dissoc dir/direction->xy (first (sort (keys dir/direction->xy))))))))))
 
 (deftest composition-is-computed-from-the-two-axis-projections
   (testing "a direction composed with itself keeps both axes"

@@ -72,6 +72,24 @@ and those files describe the project around it.
       than one section discovering the page is the wrong one, and they are only
       worth reading if every page has them.  docs/README.md is the map and
       dependencies.md is generated, so neither carries them.
+  E13 A ```clojure or ```edn block that is not a whole s-expression.  A snippet
+      missing its last paren looks like a snippet, so the reader who pastes it
+      reads the error as theirs.  A real scan rather than a bracket count —
+      comments, strings and `\\(` char literals all carry brackets that close
+      nothing.  Reads `extra_md_files` too: a broken example in the changelog
+      misleads exactly as one under docs/ does.
+  E14 A `.clj` under src/, test/ or bench/ that does not open with the two
+      licence-header lines, in order: `SPDX-License-Identifier: SSPL-1.0` then
+      the copyright.  The identifier is PINNED, not merely required — the engine
+      is SSPL-1.0 and the adapter siblings are Apache-2.0, so a file carrying the
+      sibling's identifier is a licensing defect a presence check waves through.
+  E15 A **Breaking** changelog entry in the unreleased section with no `*Breaks:*`
+      line.  `scripts/check-breaking-siblings.sh` greps the siblings for that
+      line's tokens, so an entry without one is swept and reports nothing —
+      indistinguishable from a sibling that is fine.  The unreleased section only:
+      the convention is newer than the released sections, and rewriting those to
+      satisfy it is archaeology.
+
   W1  Line-number citations into .clj files (`foo.clj:123`) — warned, not
       failed: cite the var name instead, line numbers always rot.
   W2  Backticked `alias/name` for an UNKNOWN alias whose name is defined
@@ -136,10 +154,19 @@ ALIASES = {
     "wff": "vaelii.impl.wff",
 }
 
-# `deftest` (clojure.test) and `defroutes` (reitit/ring) define vars too, and
-# docs cite them by their test-ns / browser-ns alias; include so those refs
-# resolve instead of warning.
-DEF_RE = r"\(def(?:n|n-|macro|multi|method|protocol|record|type|once|test|routes)?\s+(?:\^\S+\s+|\^\{[^}]*\}\s+)*"
+# `deftest` (clojure.test), `deftest-kb` (vaelii.test-util) and `defroutes`
+# (reitit/ring) define vars too, and docs cite them by their test-ns / browser-ns
+# alias; include so those refs resolve instead of warning.
+#
+# The optional alias prefix is what admits the QUALIFIED spellings, and it is
+# `deftest-kb` that needs it: `tu/deftest-kb` is the repo's primary test form
+# (`.claude/rules/testing.md`) and outnumbers bare `deftest` in the suite, so a
+# pattern anchored at `(def` sees only the minority of the tests and every
+# citation of the rest reads as a missing definition.  `test-kb` precedes `test`
+# in the alternation so the longer name wins without backtracking.
+DEF_RE = (r"\((?:[a-z][\w.-]*/)?"
+          r"def(?:n|n-|macro|multi|method|protocol|record|type|once|test-kb|test|routes)?"
+          r"\s+(?:\^\S+\s+|\^\{[^}]*\}\s+)*")
 
 # Namespaced KB SYMBOLS (performatives, work-state markers, aggregate operators) —
 # not Clojure vars. Checked for existence against the source + resources corpus
@@ -174,15 +201,17 @@ def md_files():
 def extra_md_files():
     """The markdown outside README/docs that the repo's own rules still bind.
 
-    Two checks read these and no others do: the link check (E4) and archaeology
-    (E7/W7). Both are rules about prose, and prose here rots exactly as it does
-    under docs/ — a link into a directory that is not there reads like a live
-    one either way.
+    Three checks read these and no others do: the link check (E4), archaeology
+    (E7/W7) and the s-expression check (E13). The first two are rules about
+    prose, and prose here rots exactly as it does under docs/ — a link into a
+    directory that is not there reads like a live one either way. E13 joins them
+    on the same footing: whether an example parses is a fact about the example,
+    not about which file carries it.
 
     CHANGELOG.md and CONTRIBUTING.md ship. CLAUDE.md and .claude/rules/ do not:
     they are stow-linked from a dotfiles repo and gitignored here, so a clone has
     neither and each is scanned only if it is present. That is also why they get
-    two checks rather than all of them — the var, env and record checks verify
+    three checks rather than all of them — the var, env and record checks verify
     claims about the engine, and these files describe the project around it.
     """
     for rel in ("CHANGELOG.md", "CONTRIBUTING.md", "CLAUDE.md"):
@@ -201,6 +230,75 @@ def clj_files():
         for n in names:
             if n.endswith(".clj"):
                 yield os.path.join(dirpath, n)
+
+
+# The opening line of a fence, with its info string. Separate from FENCE (which
+# only asks "is this a fence line") because E13 needs the language and the line
+# number, and the flat fenced/prose split above throws both away.
+FENCE_OPEN = re.compile(r"^\s*(```|~~~)\s*([A-Za-z0-9_+-]*)")
+
+
+def fenced_blocks(path):
+    """Yield `(lang, start_line, body)` for each fenced block in `path`.
+
+    The closing fence must use the SAME marker that opened it, so a ``` inside a
+    ~~~ block is content rather than a terminator. The flat toggle used elsewhere
+    in this file cannot tell those apart; it does not need to, and this does.
+    """
+    marker = lang = start = None
+    buf = []
+    for i, line in enumerate(open(path, errors="replace").read().splitlines(), 1):
+        m = FENCE_OPEN.match(line)
+        if marker is None:
+            if m:
+                marker, lang, start, buf = m.group(1), m.group(2).lower(), i, []
+        elif m and m.group(1) == marker:
+            yield lang, start, "\n".join(buf)
+            marker = None
+        else:
+            buf.append(line)
+
+
+def sexp_imbalance(src):
+    """`None` if `src` is balanced, else a sentence saying how it is not.
+
+    A real scan and not a bracket count: `;` comments, `"strings"` with their
+    escapes, and `\\(` character literals all carry brackets that close nothing,
+    and every one of them appears in these docs. Counting naively reports each as
+    a broken example, which is how a check like this gets switched off.
+    """
+    close = {"(": ")", "[": "]", "{": "}"}
+    stack, i, n = [], 0, len(src)
+    while i < n:
+        c = src[i]
+        if c == "\\":                       # \( \; \" — one char literal
+            i += 2
+        elif c == ";":
+            while i < n and src[i] != "\n":
+                i += 1
+        elif c == '"':
+            i += 1
+            while i < n:
+                if src[i] == "\\":
+                    i += 2
+                    continue
+                if src[i] == '"':
+                    i += 1
+                    break
+                i += 1
+        else:
+            if c in close:
+                stack.append(close[c])
+            elif c in ")]}":
+                if not stack:
+                    return f"a stray `{c}` closes nothing"
+                want = stack.pop()
+                if want != c:
+                    return f"a `{c}` closes what a `{want}` should"
+            i += 1
+    if stack:
+        return f"{len(stack)} unclosed — the block needs `{''.join(reversed(stack))}`"
+    return None
 
 
 def ns_to_path(ns):
@@ -851,6 +949,112 @@ for doc in md_files():
              f" — every doc under docs/ carries Covers / Not here / Assumes under"
              f" its title, so a reader can route without reading the page")
 
+# ── E13: every s-expression example is a whole s-expression ────────────────
+# A truncated example is the one documentation error a reader cannot route
+# around. Prose that has drifted still says something, and a dead link announces
+# itself; a snippet missing its last paren looks exactly like a snippet, and the
+# reader who pastes it gets an error about their own REPL rather than about the
+# page. Nothing else here reads inside a fence for shape — E1 looks for a record
+# definition and finds nothing to say about the other hundred-odd blocks.
+#
+# `clojure` and `edn` only: both are s-expression languages, so balance is a real
+# property of them. A `sh` fence is not, and asking would be a category error.
+#
+# Deliberate fragments would be the one hard case, and there are none: every
+# block in the tree balances today, so the check needs no allowlist and a failure
+# means a genuinely broken example. Should a page ever want an open-ended
+# snippet, `…` inside a complete form says the same thing and stays pasteable.
+SEXP_FENCES = ("clojure", "edn")
+
+for doc in itertools.chain(md_files(), extra_md_files()):
+    rel = os.path.relpath(doc, ROOT)
+    for lang, start, body in fenced_blocks(doc):
+        if lang not in SEXP_FENCES or not body.strip():
+            continue
+        note = sexp_imbalance(body)
+        if note:
+            flag("E13", doc, f"{rel}:{start}",
+                 f"the {lang} block at {rel}:{start} does not parse — {note}."
+                 f" A reader pastes these; one that cannot be pasted is worse than"
+                 f" no example, because the error it raises is about them")
+
+# ── E14: every Clojure source opens with the licence header ────────────────
+# The engine is SSPL-1.0 and the adapter siblings are Apache-2.0, on purpose —
+# the split is between an engine and the things that plug into it. What makes a
+# split like that hold is that every file says which side it is on, in a form a
+# scanner reads: a file with no identifier inherits its licence from whatever the
+# reader assumes, and a file carrying the *sibling's* identifier says the engine
+# is Apache. Neither is visible by reading the code.
+#
+# Both lines and in this order, because that is what all 382 files do today and a
+# convention with one exception is one nobody can check. The identifier is pinned
+# rather than merely required: `SSPL-1.0` is the claim, and an Apache header here
+# would be a licensing defect that a presence check waves through.
+LICENCE_HEADER = ("SPDX-License-Identifier: SSPL-1.0",
+                  "Copyright © 2026 Vaelii LLC and the Vaelii contributors.")
+
+
+def licensed_clj_files():
+    for sub in ("src", "test", "bench"):
+        for dirpath, _, names in os.walk(os.path.join(ROOT, sub)):
+            for n in sorted(names):
+                if n.endswith(".clj"):
+                    yield os.path.join(dirpath, n)
+
+
+for path in licensed_clj_files():
+    rel = os.path.relpath(path, ROOT)
+    with open(path, errors="replace") as fh:
+        head = [next(fh, "").strip(), next(fh, "").strip()]
+    for want, got in zip(LICENCE_HEADER, head):
+        if got != ";; " + want:
+            flag("E14", path, rel,
+                 f"{rel} does not open with the licence header — line "
+                 f"{head.index(got) + 1} is {got!r}, expected ';; {want}'. Every"
+                 f" .clj under src/, test/ and bench/ carries both lines, in that"
+                 f" order; the engine is SSPL-1.0 and the sibling adapters are"
+                 f" Apache-2.0, so a file that does not say which it is takes"
+                 f" whichever the reader assumed")
+            break
+
+# ── E15: a Breaking entry says what it breaks ──────────────────────────────
+# `scripts/check-breaking-siblings.sh` greps the sibling checkouts for the
+# backticked tokens on an entry's `*Breaks:*` line. An entry without that line
+# contributes no tokens, so the sweep runs over it and reports nothing — which
+# reads exactly like a sweep that found nothing. The failure is on the record:
+# 0.5.0 renamed an `open-kb` option, broke vaelii-foreign's test scaffolding and
+# a downstream harness's benchmark cells, and both were found by hand afterwards.
+#
+# **The unreleased section only**, and that is the whole scoping decision. The
+# convention is new: 0.4.0 has thirteen Breaking entries carrying no `*Breaks:*`
+# line, 0.3.0 eight, 0.2.0 eight. Those shipped, and rewriting a released
+# changelog to satisfy a rule invented after it is archaeology. The first `## `
+# section is the one being written, so the check moves forward on its own at
+# each release cut with nothing to remember.
+#
+# Both spellings of the class count, because the changelog uses both on purpose
+# and check-breaking-siblings.sh reads both: a `**Breaking: …**` title and a
+# `*Class:* Breaking` line say the same thing.
+BREAKING_ENTRY = re.compile(r"\*\*Breaking:|\*Class:\*\s*\**Breaking")
+
+changelog = os.path.join(ROOT, "CHANGELOG.md")
+if os.path.exists(changelog):
+    sections = re.split(r"^## ", open(changelog, errors="replace").read(), flags=re.M)
+    if len(sections) > 1:
+        unreleased = sections[1]
+        version = unreleased.split("\n", 1)[0].strip()
+        for entry in re.split(r"\n(?=- \*\*)", unreleased)[1:]:
+            if not BREAKING_ENTRY.search(entry) or "*Breaks:*" in entry:
+                continue
+            title = re.sub(r"\s+", " ", entry.split("**")[1] if "**" in entry else entry)
+            flag("E15", changelog, f"CHANGELOG.md:{title[:40]}",
+                 f"CHANGELOG {version}: the Breaking entry \"{title[:60]}\" carries"
+                 f" no *Breaks:* line. scripts/check-breaking-siblings.sh greps the"
+                 f" siblings for the backticked tokens on that line, so an entry"
+                 f" without one is swept and reports nothing — indistinguishable"
+                 f" from a sibling that is fine. One line beside the class, holding"
+                 f" each name a caller would have written (CONTRIBUTING §3.8)")
+
 for e in errors:
     print(e)
 for w in warnings:
@@ -869,7 +1073,7 @@ if dead:
 
 # scripts/lint.sh greps the verdict for `N errors, M warnings across K docs`, so
 # that phrase stays whole and on one line; the extras get a line above it.
-print(f"\nThe link and archaeology checks also read "
+print(f"\nThe link, archaeology and s-expression checks also read "
       f"{sum(1 for _ in extra_md_files())} files beside docs/.")
 print(f"{len(errors)} errors, {len(warnings)} warnings "
       f"across {sum(1 for _ in md_files())} docs.")

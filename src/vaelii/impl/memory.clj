@@ -155,26 +155,18 @@
   stale during the load)."
   nil)
 
-(defn- mem-op
-  "Apply one `kv-batch` write op to map `m`, returning `[m' reply]`.  Only :increment/:decrement
-  carry a meaningful reply (the post-op counter value); the rest reply nil.  :remove-from-set
-  drops the key when the set empties, so an absent key and an empty set are
-  indistinguishable — a set with no members does not exist."
-  [m [op k a]]
-  (case op
-    :put  [(assoc m k a) nil]
-    :delete  [(dissoc m k) nil]
-    :increment (let [v (inc (long (get m k 0)))] [(assoc m k v) v])
-    :decrement (let [v (dec (long (get m k 0)))] [(assoc m k v) v])
-    :add-to-set [(update m k (fnil conj #{}) a) nil]
-    :remove-from-set (let [s (disj (get m k) a)]
-                       [(if (empty? s) (dissoc m k) (assoc m k s)) nil])))
-
 (defn- mem-op!
-  "The transient twin of `mem-op`: apply one write op to transient map `t`, returning
+  "The transient twin of `kv/apply-op`: apply one write op to transient map `t`, returning
   the new transient (a transient op's return must be captured).  No reply is computed —
-  the only bulk caller (`index-sentex`) ignores them.  The set *values* stay persistent
-  (small, cheap `conj`/`disj`); it is the millions-of-keys map that is transient."
+  the only bulk caller (`index-sentex`) ignores them.  The set *values* stay persistent;
+  it is the millions-of-keys map that is transient.
+
+  That trade is right for the trie's child and leaf sets, which are small.  It is not
+  free for the secondary roots the same op writes: `[:context-root …]`,
+  `[:functor-root …]` and the term index grow to the size of the KB, so each `conj` here
+  is a path copy in a HAMT of that size, per fact loaded.  Making those transient too
+  would mean a second representation for reads to know about, which is the cost this
+  declines rather than one it avoids."
   [t [op k a]]
   (case op
     :put  (assoc! t k a)
@@ -183,7 +175,8 @@
     :decrement (assoc! t k (dec (long (get t k 0))))
     :add-to-set (assoc! t k (conj (get t k #{}) a))
     :remove-from-set (let [s (disj (get t k #{}) a)]
-                       (if (empty? s) (dissoc! t k) (assoc! t k s)))))
+                       (if (empty? s) (dissoc! t k) (assoc! t k s)))
+    (kv/unknown-op! op)))
 
 ;; Writes consult `*bulk-txn*`: bound (a bulk load), they land on the transient; nil
 ;; (everything else), the persistent atom, byte-for-byte the unbatched path.  Reads are
@@ -235,7 +228,7 @@
         (swap! state
                (fn [m]
                  (let [[m' rs] (reduce (fn [[m rs] op]
-                                         (let [[m2 r] (mem-op m op)]
+                                         (let [[m2 r] (kv/apply-op m op)]
                                            [m2 (conj rs r)]))
                                        [m []] ops)]
                    (reset! replies rs)

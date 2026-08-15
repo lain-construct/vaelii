@@ -18,16 +18,6 @@
 # `--update` rewrites the entries and keeps this header and each line's reason, so an
 # interior divider would survive one refresh and be wrong after the next.
 
-vaelii.config-surface-test/regenerate-golden!  # REACHED REPL affordance, named in the golden's own header
-vaelii.impl.asp.aspif/assume  # UNCALLED the ASPIF encoder renders nine statement types nothing emits
-vaelii.impl.asp.aspif/choice-rule  # UNCALLED
-vaelii.impl.asp.aspif/choices  # UNCALLED
-vaelii.impl.asp.aspif/disjunction  # UNCALLED
-vaelii.impl.asp.aspif/edge  # UNCALLED
-vaelii.impl.asp.aspif/external  # UNCALLED
-vaelii.impl.asp.aspif/heuristic  # UNCALLED
-vaelii.impl.asp.aspif/project  # UNCALLED
-vaelii.impl.asp.aspif/weight-rule  # UNCALLED
 vaelii.impl.asp.clingo/available?  # REACHED requiring-resolve, impl/asp/solver.clj
 vaelii.impl.asp.clingo/classify-both  # REACHED requiring-resolve, impl/asp/solver.clj
 vaelii.impl.asp.clingo/solve  # REACHED requiring-resolve, impl/asp/solver.clj
@@ -35,19 +25,7 @@ vaelii.impl.asp.label/label-dilemmas  # REACHED quoted-symbol registry, impl/imp
 vaelii.impl.asp.label/program-of-dilemma  # UNCALLED the test defines its own private one
 vaelii.impl.asp.solve-context/classify  # REACHED quoted-symbol registry, impl/imperative.clj
 vaelii.impl.disk.durability/stop!  # UNCALLED
-vaelii.impl.distance/constraint  # UNCALLED the per-calculus QCN pair; callers reach impl/qcn_kb.clj
-vaelii.impl.interval/constraint  # UNCALLED
-vaelii.impl.interval/inconsistent?  # UNCALLED
-vaelii.impl.io.fingerprint/of-records  # UNCALLED named in a record_store docstring, called nowhere
-vaelii.impl.orientation/constraint  # UNCALLED
-vaelii.impl.orientation/inconsistent?  # UNCALLED
-vaelii.impl.point/constraint  # UNCALLED
-vaelii.impl.relative/constraint  # UNCALLED
-vaelii.impl.rete/chain  # UNCALLED docs/inference.md names it as the drive API
-vaelii.impl.rete/chain-all  # UNCALLED docs/inference.md names it as the drive API
-vaelii.impl.rules/rule-functor  # UNCALLED impl/sentex.clj defines and uses its own
 vaelii.impl.sentex/ist  # UNCALLED
-vaelii.impl.space/constraint  # UNCALLED
 vaelii.impl.web/dev-repl  # REACHED requiring-resolve in project.clj's :browser :init
 vaelii.test-util/with-fresh  # UNCALLED
 vaelii.world/starter+world  # UNCALLED

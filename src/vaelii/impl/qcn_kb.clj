@@ -383,17 +383,15 @@
   (let [result (resident-pass
                 kb [(:name calc) context ::pass] net
                 (fn [stale]
-                  (if-let [hit (find @pc-cache net)]
-                    (val hit)
-                    (let [warm   (when (and (map? (:result stale))
-                                            (qcn/narrowing-of? net (:net stale) algebra))
-                                   (:result stale))
-                          r      (if warm
-                                   (qcn/path-consistent-from net warm extra algebra)
-                                   (qcn/path-consistent net (into (nodes net) extra) algebra))]
-                      (swap! pc-cache (fn [c]
-                                        (assoc (if (>= (count c) pc-cache-limit) {} c) net r)))
-                      r))))]
+                  (caches/read-through
+                   pc-cache pc-cache-limit net
+                   (fn []
+                     (let [warm (when (and (map? (:result stale))
+                                           (qcn/narrowing-of? net (:net stale) algebra))
+                                  (:result stale))]
+                       (if warm
+                         (qcn/path-consistent-from net warm extra algebra)
+                         (qcn/path-consistent net (into (nodes net) extra) algebra)))))))]
     (when (and (= :inconsistent result)
                (observe/newly-seen? (:qcn kb) [(:name calc) context ::reported] net))
       (report-inconsistency! kb calc context net))
@@ -461,14 +459,9 @@
   (resident-pass
    kb [(:name calc) context ::support-pass] net
    (fn [_stale]
-     (let [k [net support]]
-       (if-let [hit (find @support-cache k)]
-         (val hit)
-         (let [result (qcn/path-consistent-with-support
-                       net support (into (nodes net) extra) algebra)]
-           (swap! support-cache (fn [c]
-                                  (assoc (if (>= (count c) pc-cache-limit) {} c) k result)))
-           result))))))
+     (caches/read-through
+      support-cache pc-cache-limit [net support]
+      #(qcn/path-consistent-with-support net support (into (nodes net) extra) algebra)))))
 
 (defn- resolved
   "The support-carrying pass over the network of `calc` visible from `context`, with
@@ -749,8 +742,13 @@
 
 (defn registered-calculi
   "The calculi whose prover is registered on `kb`.  Registration is the opt-in: with no
-  prover, a calculus's facts are ordinary facts, matched and chained as they always were,
-  and nothing here costs anything."
+  prover, a calculus's facts are ordinary facts, matched and chained like any other.
+
+  Rebuilt per call, and the empty answer is a scan rather than an absence — an
+  `instance?` test per prover in the registry plus a fresh vector.  `calculus-for` is
+  the only caller and the paths that ask it (`chain/qualitative-antecedent` per
+  antecedent literal, `special/recheck-on-qualitative` per asserted sentence) each say
+  what that costs them."
   [kb]
   (into []
         (comp (filter #(instance? CalculusProver %)) (map :calculus))

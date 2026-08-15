@@ -125,10 +125,13 @@
 
 (tu/deftest-kb recover-does-not-revive-a-defeated-edge
   ;; `rebuild-taxonomy` replays **stored** declarations, so it activates a defeated `genl`
-  ;; exactly as it activates a believed one, and the closing `settle` is what tells them
-  ;; apart.  That settle reconciles the region it relabelled, which makes this a claim
-  ;; about what the rebuild relabels: it installs the JTMS from nothing, so every datum is
-  ;; labelled and the region is the whole KB.  Nothing narrows the reconcile there, and
+  ;; exactly as it activates a believed one, and two things tell them apart: `recover`'s
+  ;; own unconditional reconcile, and the closing `settle`.  A defeated edge is reached by
+  ;; either, its opposition being an event the settle reacts to — the *unsupported* edge
+  ;; is reached only by the reconcile, which is why that one is unconditional.  The settle
+  ;; reconciles the region it relabelled, which makes this a claim about what the rebuild
+  ;; relabels: it installs the JTMS from nothing, so every datum is labelled and the
+  ;; region is the whole KB.  Nothing narrows the reconcile there, and
   ;; this is the test that says so — the failure if something ever did is silent in the
   ;; worst way, the running KB right and only a restart answering `isa?` through a type
   ;; nothing believes.

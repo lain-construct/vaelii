@@ -15,7 +15,7 @@
   m]`, `[:put k v]`, `[:delete k]`, `[:increment k]`, `[:decrement k]` — not the resulting value.  A
   set-add logs the one added member, O(1), so a bulk load of N members into one root
   writes O(N) WAL bytes; new-value logging re-serialized the size-i set on the i-th add
-  and cost O(N²).  On open the log replays by folding each frame through `apply-op`, the
+  and cost O(N²).  On open the log replays by folding each frame through `kv/apply-op`, the
   same function that applies a live op.  `compact!` rewrites the log as one `[:put k v]`
   op per live key, so every frame — ordinary or post-compaction — is a uniform op and
   the reader needs no snapshot-vs-delta discrimination; it also bounds replay length and
@@ -30,24 +30,6 @@
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.kv :as kv]))
-
-(defn- apply-op
-  "Apply one write op to map `m`, returning `[m' reply]`.  Only :increment/:decrement carry a
-  reply (the post-op counter value); the rest reply nil.  The op is also the WAL frame
-  (logical logging), and replay folds the log through this same function."
-  [m [op k a]]
-  (case op
-    :put  [(assoc m k a) nil]
-    :delete  [(dissoc m k) nil]
-    :increment (let [v (inc (long (get m k 0)))] [(assoc m k v) v])
-    :decrement (let [v (dec (long (get m k 0)))] [(assoc m k v) v])
-    :add-to-set [(update m k (fnil conj #{}) a) nil]
-    :remove-from-set (let [s (disj (get m k) a)]
-                       [(if (empty? s) (dissoc m k) (assoc m k s)) nil])
-    ;; a WAL frame this build does not read is a log from some other build — refused
-    ;; by name at replay, never an untyped IllegalArgumentException out of the open
-    (throw (ex-info (str "unknown index WAL op " (pr-str op))
-                    {:type :unknown-frame :op op}))))
 
 (defn- apply-ops!
   "Apply write ops: fold them into the RAM map, append one frame **per op** to the WAL,
@@ -71,7 +53,7 @@
   (locking lock
     (let [[m1 replies]
           (reduce (fn [[m rs] op]
-                    (let [[m' r] (apply-op m op)]
+                    (let [[m' r] (kv/apply-op m op)]
                       [m' (conj rs r)]))
                   [@data []] ops)]
       (doseq [op ops] (f/append-record! log op))
@@ -146,7 +128,7 @@
                      (and (integer? expected)
                           (not= (long expected) (f/log-length log))))]
       ;; The replay owns the handle until it hands it to the record it returns.  A frame
-      ;; `apply-op` does not recognize, or an `:increment` over a key holding a set,
+      ;; `kv/apply-op` does not recognize, or an `:increment` over a key holding a set,
       ;; throws out of `scan-log` — and the caller (`backend/store-for`) answers a failed
       ;; open by releasing the *directory lock*, so leaking this would give the lock back
       ;; while this JVM still held an open handle on `kv.log`, the one state `close-dir!`
@@ -157,7 +139,7 @@
               frames (volatile! 0)]
           (f/scan-log log (fn [_ op]
                             (vswap! frames inc)
-                            (vswap! m (fn [mm] (first (apply-op mm op))))))
+                            (vswap! m (fn [mm] (first (kv/apply-op mm op))))))
           (->DiskKvBackend root (atom @m) log log-path (Object.) frames (volatile! false)
                            damaged?))
         (catch Throwable t
@@ -182,7 +164,7 @@
 (defn compact!
   "Crash-safely rewrite the WAL as one `[:put k v]` op frame per live key — the
   snapshot that collapses every accumulated delta chain.  Every frame in the log,
-  post-compaction or ordinary, is thus a uniform op replayed by the same `apply-op`
+  post-compaction or ordinary, is thus a uniform op replayed by the same `kv/apply-op`
   fold, so the reader needs no snapshot-vs-delta discrimination.  Holds the lock, so
   writers wait; the RAM map is untouched, so reads never block.
 
@@ -232,7 +214,7 @@
   agrees.
 
   **Why compact here.** Opening this store is a replay: every frame is thawed and folded
-  through `apply-op`, so the open costs the *frame count*, not the live-key count. A
+  through `kv/apply-op`, so the open costs the *frame count*, not the live-key count. A
   bulk load leaves those far apart — 5.81M frames against 2.01M live keys on a 300k-fact
   KB, a 0.65 dead ratio — and a compaction collapses each key's delta chain to the one
   `[:put k v]` a replay actually needs. Closing is the moment to pay for it: the writer

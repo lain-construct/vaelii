@@ -14,6 +14,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.llm.anthropic :as anthropic]
+            [vaelii.impl.llm.http :as llm-http]
             [vaelii.impl.llm.ollama :as ollama]
             [vaelii.impl.llm.prompt :as prompt]
             [vaelii.impl.llm.protocol :as proto]
@@ -519,27 +520,32 @@
   ;; read carries its own deadline, and this is that deadline: the watchdog closes the
   ;; body, and the failure which follows is a typed timeout rather than whatever I/O
   ;; error a closed socket raises.
-  (doseq [[backend under] [["anthropic" #'anthropic/under-read-deadline]
-                           ["ollama" #'ollama/under-read-deadline]]]
-    (testing backend
-      (let [closed (promise)
-            e (try (under 20 #(deliver closed true)
-                          ;; stands in for a read blocked on a socket nobody is writing
-                          ;; to: it ends when the watchdog closes the body under it
-                          (fn []
-                            (deref closed 5000 :never)
-                            (throw (java.io.IOException. "stream closed"))))
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-        (is (realized? closed) "the watchdog fired and closed the body")
-        (is (= :llm-timeout (:type (ex-data e))))
-        (is (= 20 (:timeout-ms (ex-data e)))))
-      (testing "a failure with the deadline unspent belongs to the caller and is rethrown"
-        (is (thrown? java.io.IOException
-                     (under 60000 (fn [] nil)
-                            (fn [] (throw (java.io.IOException. "connection reset")))))))
-      (testing "and a read that finishes hands back what it read"
-        (is (= :read-it (under 60000 (fn [] nil) (fn [] :read-it))))))))
+  ;; One deadline, not one per provider: `llm-http/under-read-deadline` is what both the
+  ;; Anthropic and the Ollama stream paths call, so exercising it twice would exercise
+  ;; the same function twice.  The endpoint descriptor is the only thing each supplies,
+  ;; and it names the far end in the message rather than changing what happens.
+  (let [endpoint {:label "the test endpoint" :slug "test"}
+        under    (partial llm-http/under-read-deadline endpoint)]
+    (let [closed (promise)
+          e (try (under 20 #(deliver closed true)
+                        ;; stands in for a read blocked on a socket nobody is writing
+                        ;; to: it ends when the watchdog closes the body under it
+                        (fn []
+                          (deref closed 5000 :never)
+                          (throw (java.io.IOException. "stream closed"))))
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (realized? closed) "the watchdog fired and closed the body")
+      (is (= :llm-timeout (:type (ex-data e))))
+      (is (= 20 (:timeout-ms (ex-data e))))
+      (is (str/includes? (ex-message e) "the test endpoint")
+          "and the message names the far end that went quiet"))
+    (testing "a failure with the deadline unspent belongs to the caller and is rethrown"
+      (is (thrown? java.io.IOException
+                   (under 60000 (fn [] nil)
+                          (fn [] (throw (java.io.IOException. "connection reset")))))))
+    (testing "and a read that finishes hands back what it read"
+      (is (= :read-it (under 60000 (fn [] nil) (fn [] :read-it)))))))
 
 (deftest the-protocol-reads-stop-reason-before-content
   (is (proto/refused? {:stop-reason "refusal" :content []}))

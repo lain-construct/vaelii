@@ -127,10 +127,33 @@
 ;; 1.1M-sentex OpenCyc dump: off gives 0 types and 0 contexts, on gives 125,385 and
 ;; 13,196.  The flag has to say that, or an operator reads "not belief-queryable", leaves
 ;; it off, and concludes the KB imported wrong.
+;; Three values rather than a checkbox, because the middle one is the answer for a corpus
+;; that cannot afford the rebuild *today* and should not be made to throw its
+;; justifications away to say so — and for a foreign dump it is the only value that keeps
+;; them at all (see `import-records-only!`).
+(defn- belief-mode
+  "What the form's `:belief?` choice means to `import-dump`.
+
+  The form speaks in verbs (`:rebuild` / `:stored` / `:skip`) because a checkbox cannot
+  offer three answers and a tri-state named `true`/`:stored`/`false` reads as a typo in a
+  dropdown.  A caller that already speaks the importer's own vocabulary is passed through,
+  so this is a widening rather than a translation layer; anything else is the default,
+  which is the cheapest load and the one that cannot fail to finish."
+  [v]
+  (case v
+    (:rebuild true)  true
+    :stored          :stored
+    (:skip false nil) false
+    false))
+
 (def ^:private dump-options
-  [{:key :belief? :type :flag :label "Rebuild belief and the taxonomy (slow — a JTMS node per sentex)"
-    :default false
-    :help "off stores and indexes everything but leaves the TMS and the genl/genlCx closures empty: findable by term and countable, but no type hierarchy and no belief-filtered query"}
+  [{:key :belief? :type :choice
+    :label "Belief and the taxonomy"
+    :default :skip
+    :choices [[:rebuild "Rebuild now (slow — a JTMS node per sentex)"]
+              [:stored  "Store it, rebuild later"]
+              [:skip    "Skip it (records and index only)"]]
+    :help "\"rebuild now\" is the finished KB. \"store it\" reads and stores every justification and premise mark but leaves the TMS and the genl/genlCx closures empty, so the KB is findable and countable now and can be recovered later without re-reading the dump. \"skip it\" never reads the justification stream, and for a dump in a foreign dialect that is permanent — nothing a later recover could rebuild belief from is stored"}
    {:key :dir :type :path :label "Target directory" :default ""
     :help "empty loads into memory; a path makes it a durable :disk KB"}])
 
@@ -153,15 +176,22 @@
 (defn classify
   "The kind of KB in directory `d`, or nil.  Reads the marker each writer leaves: a
   corpus's `meta.edn` carries the context order it was written in, a dump's carries a
-  `:format-version`, and a vaelii `:disk` store is a `records/` + `index/` pair."
+  `:format-version`, and a vaelii store is a `records/` directory the record writer has
+  stamped with its own `format.edn`.
+
+  **The records half is the whole marker**, and requiring an `index/` beside it hid
+  exactly the stores worth finding.  Only `:disk` keeps a durable index on disk;
+  `:disk-columnar`, `:disk-dense` and `:disk-memory` derive theirs and write no `index/`
+  at all — so a large store classified as nothing and could not be
+  offered.  Those are the backends a corpus past a few million records is loaded into,
+  `:disk`'s index being a map held in RAM whatever else is on disk."
   [^File d]
   (when (.isDirectory d)
     (let [m (readable-edn (file-at d "meta.edn"))]
       (cond
         (and (map? m) (:context-order m))                                :corpus
         (and (map? m) (or (:format-version m) (:variant m)))             :dump
-        (and (.isDirectory (file-at d "records"))
-             (.isDirectory (file-at d "index")))                         :store))))
+        (some? (readable-edn (file-at (file-at d "records") "format.edn"))) :store))))
 
 (defn- corpus-scale
   "How big a found corpus says it is — from the report its writer left beside it, which
@@ -456,6 +486,29 @@
   []
   (boolean (some #(= :load (:kind %)) (jobs/running))))
 
+(defn exporting?
+  "Is an export running?  One at a time, as with loads."
+  []
+  (boolean (some #(= :export (:kind %)) (jobs/running))))
+
+(defn exporting-kb?
+  "Is `kb` the one a running export is still walking?  Asked by identity, like
+  `write-blocked?`, and it is that question's reciprocal: `export-entry!` refuses to
+  *start* while a loader writes the KB, and this is what lets the write doors refuse
+  while the walk runs — the walk fetches record by record with no snapshot to walk
+  instead, so a write landing mid-walk gives the dump no single state to be of.
+
+  `unload!` reads it for the same reason and one more: a release is not a write but the
+  end of the KB, and a walk whose records stop existing halfway through is worse off than
+  one that merely raced a write.  That is why both predicates sit here beside `loading?`
+  rather than down with `export-entry!` — three registry reads of the same shape, asked
+  by everything that has to know whether a KB is somebody's."
+  [kb]
+  (boolean (and kb
+                (some #(and (= :export (:kind %))
+                            (identical? kb (:kb (entry (:entry %)))))
+                      (jobs/running)))))
+
 (defn holder
   "A deref-able that always yields the KB to read — the active entry's, or `fallback`
   when nothing is loaded.  This is what the browser is built against: `app` holds one of
@@ -525,11 +578,13 @@
   `{:sentexes :index :records :tms :total :estimated? true}` (bytes), or nil for an entry
   with no in-process KB.
 
-  Cheap by construction, because this runs on every render of a page that polls: the
-  sentex count is the trie's own root count (O(1)) and the belief check is one `first`
-  over the network's datums.  Nothing is walked, and nothing is measured — see
-  `resident-bytes-per-sentex` for where the coefficients come from and how wrong they
-  can be.
+  Nothing is measured — see `resident-bytes-per-sentex` for where the coefficients come
+  from and how wrong they can be — and the sentex count is the trie's own root count,
+  O(1).  The belief check is not free, though this runs on every render of a page that
+  polls: `first` over `jtms/datums` is one `keys` on the reference TMS, but the dense one
+  answers `-datums` by draining its whole node bitmap into a vector of boxed Longs before
+  `first` can look at one.  So a `{:tms :dense}` KB pays an allocation per stored sentex
+  per render, to learn whether the network holds anything at all.
 
   Two adjustments make it a statement about *this* KB rather than about a generic one:
   a `:disk` KB pages its records, so the record term is dropped (what stays resident is
@@ -675,7 +730,9 @@
                      :bulk?       (boolean (:bulk? params))
                      :chain?      false
                      :on-progress progress!})))
-      :dump     (import/import-dump (open!) path {:belief?     (boolean (:belief? params))
+      ;; passed through rather than coerced: `:belief?` has three values and a `boolean`
+      ;; here would read `:stored` as `true` and run the recover the caller asked to defer
+      :dump     (import/import-dump (open!) path {:belief?     (belief-mode (:belief? params))
                                                   :on-progress progress!})
       ;; a store is already a KB — opening it *is* the load.  Opening is not quick at
       ;; scale (the record log is scanned and the index map rebuilt in RAM) and it
@@ -801,51 +858,101 @@
   [key]
   (boolean (some-> (:job (entry key)) jobs/cancel!)))
 
+(defn- fall-back-active!
+  "Nothing active but something loaded — fall to the most recent *finished* entry, so the
+  browser is never left pointing at nothing while a KB is sitting right there.  `:done` and
+  not merely \"has a KB\": an entry whose release failed is the one thing here nobody can
+  vouch for, and falling to it would put the browser straight back on it."
+  []
+  (when-not (active)
+    (swap! state assoc :active
+           (last (filter #(= :done (:status (entry %))) (:order @state))))))
+
 (defn unload!
-  "Take an entry down: cancel it if it is still loading, drop it from the registry, and
-  release what it held.
+  "Take an entry down: cancel it if it is still loading, release what it held, and drop it
+  from the registry.
 
   **A memory-backed KB is cleared** — its stores are keyed by space number and would
   otherwise hold the corpus for the life of the JVM.  **A disk-backed one is closed, not
   cleared**: the file lock is released and the directory is left exactly as it was, so
-  unloading an on-disk KB never destroys it.  The `!` is for the memory case, which does."
-  [key]
-  (when-let [e (entry key)]
-    ;; A running load owns the stores this is about to clear or close, so nothing is
-    ;; released until its thread has actually stopped.  Cancellation lands at the next
-    ;; progress report, and a phase that reports none (opening a large store scans its
-    ;; whole record log before it says anything) can outlast the wait — so say the entry
-    ;; is still stopping and leave it whole rather than pulling the stores out from under
-    ;; a live writer.  `:cancelling` is still that writer — a previous unload's cancel
-    ;; whose thread has not stopped yet — so it takes the same wait, or the retry the
-    ;; refusal below asks for would skip straight to the release.
-    (when (#{:running :cancelling} (:status e))
-      (cancel! key)
-      ;; A job the registry has already dropped — one still running six hours later is
-      ;; presumed wedged — answers no status at all, which is not a settled one either, so
-      ;; this refuses for the same reason: its thread is still going, and the stores are
-      ;; still its.
-      (when-not (#{:done :cancelled :failed} (:status (jobs/wait (:job e) 30000)))
-        (put-entry! key #(assoc % :error "still stopping — its loader has not reached a
+  unloading an on-disk KB never destroys it.  The `!` is for the memory case, which does.
+
+  Three ways it declines to do that, each about a KB something else is still holding:
+
+  - **its loader has not stopped.**  Cancellation is cooperative, so the stores are still
+    the loader's until its thread returns.  Refused as `:still-stopping`, and retryable.
+  - **an export is walking it.**  `export!` fetches record by record with no snapshot to
+    walk instead, so a release landing mid-walk leaves the dump a dump of a KB that
+    stopped existing halfway through.  Refused as `:still-exporting` — the walk finishes
+    against a live KB, and the retry is one the operator makes after it does.
+  - **the release itself failed.**  Reported rather than logged and forgotten: the entry
+    keeps its place with status `:unreleased` and the reason on it, is not active (a KB
+    whose stores half-closed is the one thing here nobody can vouch for), and the throw
+    is what stops the caller reporting a clean unload over a directory that did not
+    close.  Unloading again retries the release.
+
+  `opts` takes `:run-in`, a wrapper the release runs inside — `export-entry!`'s own
+  option, and here for the same reason: the browser hands its write monitor, so a
+  synchronous write already past the write doors drains before the stores go rather than
+  interleaving with the clear."
+  ([key] (unload! key nil))
+  ([key {:keys [run-in]}]
+   (when-let [e (entry key)]
+     ;; A running load owns the stores this is about to clear or close, so nothing is
+     ;; released until its thread has actually stopped.  Cancellation lands at the next
+     ;; progress report, and a phase that reports none (opening a large store scans its
+     ;; whole record log before it says anything) can outlast the wait — so say the entry
+     ;; is still stopping and leave it whole rather than pulling the stores out from under
+     ;; a live writer.  `:cancelling` is still that writer — a previous unload's cancel
+     ;; whose thread has not stopped yet — so it takes the same wait, or the retry the
+     ;; refusal below asks for would skip straight to the release.
+     (when (#{:running :cancelling} (:status e))
+       (cancel! key)
+       ;; A job the registry has already dropped — one still running six hours later is
+       ;; presumed wedged — answers no status at all, which is not a settled one either, so
+       ;; this refuses for the same reason: its thread is still going, and the stores are
+       ;; still its.
+       (when-not (#{:done :cancelled :failed} (:status (jobs/wait (:job e) 30000)))
+         (put-entry! key #(assoc % :error "still stopping — its loader has not reached a
                                           point at which it can be interrupted"))
-        (throw (ex-info (str (:name e) " is still stopping; unload it again in a moment")
-                        {:type :still-stopping :key key}))))
-    (let [{:keys [backend dir]} (:where (entry key))]
-      (try
-        (case backend
-          :memory (when-let [kb (:kb (entry key))] (v/clear! kb))
-          :disk   (disk/close-dir! dir)
-          nil)
-        (catch Exception ex
-          (trove/log! {:level :warn :id ::unload-problem
-                       :msg (str "releasing KB " key ": " (.getMessage ex))}))))
-    (drop-entry! key)
-    ;; nothing active but something loaded — fall to the most recent finished entry, so the
-    ;; browser is never left pointing at nothing while a KB is sitting right there
-    (when-not (active)
-      (swap! state assoc :active
-             (last (filter #(= :done (:status (entry %))) (:order @state)))))
-    true))
+         (throw (ex-info (str (:name e) " is still stopping; unload it again in a moment")
+                         {:type :still-stopping :key key}))))
+     ;; and an export is a reader of exactly this KB, mid-request.  Not cancelled for the
+     ;; operator: a dump takes minutes and is nobody's to throw away on the way past, so
+     ;; the unload is what gives way.
+     (when (exporting-kb? (:kb (entry key)))
+       (throw (ex-info (str (:name e) " is being exported — the dump walks its records one"
+                            " by one, so releasing them now would leave it a dump of a KB"
+                            " that stopped existing halfway through.  Wait for the export,"
+                            " or cancel it, then unload.")
+                       {:type :still-exporting :key key})))
+     (let [{:keys [backend dir]} (:where (entry key))
+           run-in (or run-in (fn [work] (work)))]
+       (try
+         (run-in (fn []
+                   (case backend
+                     :memory (when-let [kb (:kb (entry key))] (v/clear! kb))
+                     :disk   (disk/close-dir! dir)
+                     nil)))
+         (catch Exception ex
+           (let [why (or (.getMessage ex) (str (class ex)))]
+             (trove/log! {:level :warn :id ::unload-problem
+                          :msg (str "releasing KB " key ": " why)})
+             ;; the entry's own status, and the load job's dropped with it: that job
+             ;; finished `:done` and `with-job` prefers it while it is there, so leaving it
+             ;; on would report the settled load over the failed release
+             (put-entry! key #(-> (dissoc % :job)
+                                  (assoc :status :unreleased :finished (now)
+                                         :error (str "did not release cleanly — " why))))
+             (swap! state update :active #(when (not= % key) %))
+             (fall-back-active!)
+             (throw (ex-info (str (:name e) " did not release cleanly — " why
+                                  ".  It is still listed, and unloading it again retries"
+                                  " the release.")
+                             {:type :unreleased :key key :backend backend} ex))))))
+     (drop-entry! key)
+     (fall-back-active!)
+     true)))
 
 (defn activate
   "Make entry `key` the one the browser reads.  Anything **holding a KB** can be
@@ -928,10 +1035,19 @@
             belief?  (if (= ::unreadable n)
                        false
                        (or (zero? (long n)) (boolean (first (jtms/in-datums (:tms kb))))))
-            settled? (and (not= ::unreadable n) (= :done (:status e)))]
+            settled? (and (not= ::unreadable n) (= :done (:status e)))
+            ;; Which repair a beliefless KB needs, and the store is the only thing that
+            ;; knows.  `recover` reads the premise roster and the justifications out of
+            ;; the record store, so a store holding either has everything it needs and
+            ;; wants a `recover`; one holding neither cannot be recovered into belief at
+            ;; all and has to be loaded again.  Two different instructions, and telling
+            ;; the first case to reload sends it back through hours of work for nothing.
+            recoverable? (and (not= ::unreadable n)
+                              (boolean (or (first (p/premise-ids (:records kb)))
+                                           (first (p/justification-ids (:records kb))))))]
         (when-not (and settled? belief?)
           {:key key :name (:name e) :status (if (= ::unreadable n) :unreadable (:status e))
-           :progress (:progress e) :belief? belief?})))))
+           :progress (:progress e) :belief? belief? :recoverable? recoverable?})))))
 
 ;; ---- exporting -----------------------------------------------------------
 ;;
@@ -947,23 +1063,10 @@
 ;; it as one would put a second handle on a KB somebody could then unload out from under
 ;; the writer.  Nor does it claim the writer: a dump is written to the filesystem, so a
 ;; load filling some other KB may run beside it.
-
-(defn exporting?
-  "Is an export running?  One at a time, as with loads."
-  []
-  (boolean (some #(= :export (:kind %)) (jobs/running))))
-
-(defn exporting-kb?
-  "Is `kb` the one a running export is still walking?  Asked by identity, like
-  `write-blocked?`, and it is that question's reciprocal: `export-entry!` refuses to
-  *start* while a loader writes the KB, and this is what lets the write doors refuse
-  while the walk runs — the walk fetches record by record with no snapshot to walk
-  instead, so a write landing mid-walk gives the dump no single state to be of."
-  [kb]
-  (boolean (and kb
-                (some #(and (= :export (:kind %))
-                            (identical? kb (:kb (entry (:entry %)))))
-                      (jobs/running)))))
+;;
+;; The two predicates that say an export is running — `exporting?` and `exporting-kb?` —
+;; are registry reads and sit up with `loading?`, since `unload!` asks one of them before
+;; it releases anything.
 
 (defn export-entry!
   "Write the KB in entry `key` out as a dump in `dir`, on its own thread, and return the
@@ -1064,11 +1167,20 @@
 
   The export is stopped **first** and waited for, and the entries come second: `unload!`
   clears the stores an entry holds, and an export still walking one of them would be
-  reading a KB as it emptied."
+  reading a KB as it emptied.  `unload!` refuses that outright, so a walk not waited for
+  here would take the whole reset down with it rather than merely corrupting a dump.
+
+  One entry refusing to release does not stop the rest: this is what a process shutting
+  down calls, and stranding four KBs because the first would not close is the wrong
+  trade.  Each refusal is logged and the sweep goes on."
   []
   (when-let [id (:id (jobs/latest :export))]
     (jobs/cancel! id)
     (jobs/wait id 30000))
-  (doseq [k (:order @state)] (unload! k))
+  (doseq [k (:order @state)]
+    (try (unload! k)
+         (catch Exception ex
+           (trove/log! {:level :warn :id ::reset-problem
+                        :msg (str "resetting the registry, KB " k ": " (.getMessage ex))}))))
   (jobs/reset-registry!)
   (reset! state {:active nil :entries {} :order [] :next-space first-space}))

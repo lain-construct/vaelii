@@ -14,11 +14,17 @@
   of a declaration-carrying predicate).  It was found by hand, against a worktree at the
   parent commit.
 
-  This gate closes that gap from the other side.  It runs ten fixed workloads with
+  This gate closes that gap from the other side.  It runs twelve fixed workloads with
   `vaelii.impl.profile` collecting and pins the **exact** index-operation counts each one
   costs: every `IndexStore` read by family, every `index-sentex` batch op by family, and
-  every `unindex-sentex!` batch op by family.  Six of the ten assert and four retract, so
-  a constant added to either write path lands here.
+  every `unindex-sentex!` batch op by family.  Eight of the twelve assert and four retract,
+  so a constant added to either write path lands here.
+
+  **Six of the eight write a fact and two write the vocabulary**, which is the split to
+  read the assert half by.  A definitional check that grows costs a fact nothing and a
+  `genl` edge or an `(arity P n)` everything: the arity descension runs its walk when a
+  binding arrives, and the retroactive report is triggered by a binding and never by a
+  fact.  `:taxonomy-edge` and `:arity-declaration` are the two that price that path.
 
   ## Why a count and not a duration
 
@@ -79,7 +85,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.profile :as prof]
-            [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
@@ -110,10 +115,9 @@
       (assoc :tms :reference)))
 
 (defn- fresh []
-  (let [kb (v/open-kb cost-space)]
-    (p/clear-records! (:records kb))
-    (p/clear-index!   (:index kb))
-    kb))
+  ;; through `tu/clear-kb!` rather than the two protocol calls it wraps, so a wipe here
+  ;; is the wipe every other suite takes and cannot drift from it
+  (doto (v/open-kb cost-space) (tu/clear-kb!)))
 
 (defn- ind [prefix i] (symbol (str prefix i)))
 
@@ -143,6 +147,30 @@
     (v/assert kb '(genl acm_t thing) 'CxPerf {:strength :monotonic})
     (fn [] (dotimes [i n]
              (v/assert kb (list 'acm_t (ind "AcM" i)) 'CxPerf {})))))
+
+(defn- deep-membership
+  "The `membership` workload with eight predicates stacked above it instead of one, and
+  the only budget here that is a claim about a **shape** rather than a constant.
+
+  `inherited-arity` asks the `variableArity` release of every super-predicate, and that
+  question is a membership retrieval the arity table cannot answer.  So the cost of
+  asserting one type membership is proportional to how deep in the hierarchy its
+  predicate sits — which the `membership` workload one screen up cannot see, because at
+  depth 1 a per-super cost and a constant are the same number.  Two budgets at two depths
+  are what separate them: this one should exceed `membership` by seven supers' worth of
+  reads and by nothing else, and if some later change makes the descension flat in the
+  depth, this is the budget that moves and `membership` is the one that does not.
+
+  None of the eight declares an arity, which is the case the walk runs to the end on.  A
+  predicate declaring either spelling is answered by `own-arity` before the walk starts."
+  []
+  (let [kb (fresh)
+        t  (fn [i] (symbol (str "acdm_t" i)))]
+    (v/assert kb (list 'genl (t 8) 'thing) 'CxPerf {:strength :monotonic})
+    (dotimes [i 8]
+      (v/assert kb (list 'genl (t i) (t (inc i))) 'CxPerf {:strength :monotonic}))
+    (fn [] (dotimes [i n]
+             (v/assert kb (list (t 0) (ind "AcDM" i)) 'CxPerf {})))))
 
 (defn- declared
   "A fact of a predicate carrying an `argIsa` declaration at both positions, over
@@ -187,6 +215,66 @@
               'CxPerf {:strength :monotonic})
     (fn [] (dotimes [i n]
              (v/assert kb (list 'acSrc (ind "AcR" i) (ind "AcS" i)) 'CxPerf {})))))
+
+(defn- taxonomy-edge
+  "A `genl` edge under a predicate whose arity is declared — the vocabulary write, where
+  the six above are all content writes.
+
+  **The shape none of them reaches.**  Every other workload here builds its taxonomy during
+  the *build* and asserts facts under it in the thunk, so a cost added to the edge write
+  itself is priced nowhere: the retroactive arity report is triggered by a binding and a
+  `genl` edge is one, the argument-type entailment draws what the predicates above the edge
+  say about the facts below it, and the chaining path reads the subtree an edge newly makes
+  matchable.  All three run per edge and none of them runs on a fact.
+
+  Each edge is its own fresh sub-predicate under the one declared root, so the subtree
+  beneath an arriving edge is the edge's own end of it and the count is a per-edge constant
+  rather than a function of how many edges came first.  `lein perf`'s
+  `arity-reach-under-subtree` holds the other shape — the same write over a subtree that
+  grows — and the two are the usual complements: the shape there, the constant here."
+  []
+  (let [kb (fresh)]
+    (v/assert kb '(binaryPredicate acteRoot) 'CxPerf {:strength :monotonic})
+    (fn [] (dotimes [i n]
+             (v/assert kb (list 'genl (ind "acteSub" i) 'acteRoot)
+                       'CxPerf {:strength :monotonic})))))
+
+(def ^:private declaration-relatives
+  "Predicates stacked above the one each `arity-declaration` names, none of them declaring
+  a length.  Its own knob rather than `n`, because it is the quantity that workload's read
+  budget is proportional to while `n` counts declarations — separating them is what lets a
+  re-pin say which of the two moved.
+
+  Four rather than one because the cost is per relative: at one relative a per-relative read
+  and a constant are the same number, which is the trap `deep-membership` exists to keep
+  `membership` out of."
+  4)
+
+(defn- arity-declaration
+  "An `(arity P 2)` declaration over a predicate carrying `declaration-relatives`
+  super-predicates.
+
+  The door refuses a declaration that disagrees with what the predicates above or below it
+  are declared with, so an arity arriving iterates `genls(P) ∪ specs(P)` and asks each
+  relative for its own length.  The `(arity P n)` table answers that as a map read for a
+  relative it names and says nothing about one it does not — and the second spelling, the
+  predicate-type membership, is a retrieval.  So the cost is one retrieval per relative the
+  table is silent about, which is a constant on the assert path and exactly the kind a
+  ratio divides out.
+
+  None of the four declares a length, which is the case the walk pays for in full.  A KB
+  whose hierarchy is declared throughout pays the map read and stops, so this is the
+  expensive end rather than the ordinary one — and the expensive end is what a budget is
+  for."
+  []
+  (let [kb (fresh)
+        s  (fn [i] (symbol (str "acadB" i)))]
+    (dotimes [i (dec declaration-relatives)]
+      (v/assert kb (list 'genl (s i) (s (inc i))) 'CxPerf {:strength :monotonic}))
+    (dotimes [i n]
+      (v/assert kb (list 'genl (ind "acadPred" i) (s 0)) 'CxPerf {:strength :monotonic}))
+    (fn [] (dotimes [i n]
+             (v/assert kb (list 'arity (ind "acadPred" i) 2) 'CxPerf {:strength :monotonic})))))
 
 ;; ---- the retraction workloads --------------------------------------------
 ;;
@@ -335,11 +423,37 @@
               :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 202 :slots 200}}
 
+   ;; **One membership read per assert above `plain`, and it is the arity descension's.**
+   ;; `acm_t` declares no arity of its own and sits under `thing`, so `inherited-arity`
+   ;; asks what `thing` is declared with: the `(arity P n)` table answers that as a map
+   ;; read and costs nothing, and the predicate-type membership — the second spelling,
+   ;; which a KB loaded without CxCore's rules is the only one to have — costs the
+   ;; retrieval counted here. It is paid per **super the table says nothing about**, so
+   ;; it is proportional to hierarchy depth on a predicate that declares no arity, and
+   ;; free on one that declares either spelling: `own-arity` answers first and the walk
+   ;; never runs. Every type in the shipped starter carries `(unaryPredicate t)`, which is
+   ;; why this is the workload that shows it and the `declared` one is unmoved.
    {:name    :membership
     :build   membership
     :sentexes 100
-    :reads   {:argument-root 400 :argument-slot 200 :exception-index 100
+    :reads   {:argument-root 500 :argument-slot 300 :exception-index 100
               :functor-root 1000 :rule-index 200 :trie-counts 100 :trie-lookup 100}
+    :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
+
+   ;; **The same reading at depth 8, and the pair is the point.**  Whatever this costs
+   ;; above `:membership` is what seven more super-predicates cost, so the two budgets
+   ;; together say whether the descension is flat in the depth of the hierarchy or
+   ;; proportional to it.  Today it is proportional; a change that makes it flat drops
+   ;; this one to `:membership`'s numbers and is the improvement carried as data.
+   ;; Read against `:membership`: 500 -> 1300 and 300 -> 1100, for eight more supers over
+   ;; a hundred asserts.  That is **one `:argument-root` and one `:argument-slot` per
+   ;; super per assert**, exactly, and the writes do not move at all — the depth buys
+   ;; reads and stores nothing.
+   {:name    :deep-membership
+    :build   deep-membership
+    :sentexes 100
+    :reads   {:argument-root 1300 :argument-slot 1100 :exception-index 100
+              :functor-root 1000 :rule-index 1000 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
    {:name    :declared
@@ -369,7 +483,47 @@
     :sentexes 200
     :reads   {:argument-root 600 :argument-slot 200 :exception-index 300
               :functor-root 1500 :rule-index 200 :trie-counts 200 :trie-lookup 200}
-    :writes  {:levels 1000 :terms 800 :roots 800 :roster 200 :slots 400}}])
+    :writes  {:levels 1000 :terms 800 :roots 800 :roster 200 :slots 400}}
+
+   ;; **The vocabulary write, and the first budget here that is not about a fact.**  What it
+   ;; prices is everything a `genl` edge sets off that a fact does not: the arity report's
+   ;; trigger, the argument-type entailment's two gates, and the subtree read that puts the
+   ;; facts under the edge back on the chaining agenda.
+   ;;
+   ;; **Both ends' own declarations, where a clash needs only one of them to exist.**
+   ;; `edge-arity-problem` reads the super's length even when the sub declares none, because
+   ;; that is the gate deciding whether the sub is worth walking at all — an undeclared sub
+   ;; under a declared super is exactly the pair an endpoint-only reader misses.  One
+   ;; membership read per edge, so 100 edges is the +100 `:argument-root` and +100
+   ;; `:argument-slot`, and it is a constant: the closure walk behind the gate runs on the
+   ;; *other* end and only once a length is there to disagree with, which is why
+   ;; `lein perf`'s `taxonomy-depth` — edges down one chain, neither end declared — stays
+   ;; flat rather than going quadratic in the chain.
+   {:name    :taxonomy-edge
+    :build   taxonomy-edge
+    :sentexes 100
+    :reads   {:argument-root 500 :argument-slot 300 :exception-index 300
+              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+    :writes  {:levels 500 :terms 400 :roots 400 :roster 101 :slots 101}}
+
+   ;; **One retrieval per relative the arity table does not name**, which is what the door
+   ;; costs an arity declaration, and `declaration-relatives` is the number to read it
+   ;; against.  Measured at both: four relatives cost 800 `:argument-root` and 600
+   ;; `:argument-slot`, two cost 600 and 400, so the per-relative term is **one of each per
+   ;; relative per assert** and everything else here is the constant.  That is the same
+   ;; pair, in the same proportion, that `:membership` and `:deep-membership` read off the
+   ;; descension's other walk — the two questions are one membership retrieval apiece and
+   ;; neither has anywhere cheaper to go.
+   ;;
+   ;; A change that answers the second spelling off the taxonomy drops the per-declaration
+   ;; term to nothing and re-pins here; one that widens the walk raises it.  `lein perf`
+   ;; sees neither: a constant on a linear term is what this file is for.
+   {:name    :arity-declaration
+    :build   arity-declaration
+    :sentexes 100
+    :reads   {:argument-root 800 :argument-slot 600 :exception-index 100
+              :functor-root 800 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+    :writes  {:levels 500 :terms 300 :roots 300 :roster 1 :slots 100}}])
 
 ;; The retraction half.  `:unindexed` is the retraction budgets' `:sentexes` — how many
 ;; sentexes left the index — and it is checked first for the same reason: a budget

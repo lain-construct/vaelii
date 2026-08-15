@@ -17,6 +17,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
+            [vaelii.impl.projection :as proj]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
@@ -87,9 +88,24 @@
   (testing "and the projection is a bijection onto the whole 3×3 product"
     (is (= (set (for [l [:lt :eq :gt] f [:lt :eq :gt]] [l f]))
            (set (vals rel/relation->axes))))
-    (is (= 9 (count rel/axes->relation))
-        "so reading a composed pair back always names a relation — that is what makes
-         composition total, and why there is no 9×9 table here to get wrong")))
+    ;; totality is a claim about composition, so composition answers it — see the same
+    ;; testing block in `orientation_test` for why `(some? (algebra …))` cannot fail
+    (let [{:keys [compose universe]} (proj/algebra rel/relation->axes)]
+      (is (= rel/all-relations universe))
+      (doseq [a universe, b universe]
+        (let [r (compose #{a} #{b})]
+          (is (seq r) (str "composing " a " with " b " names something"))
+          (is (every? universe r)
+              (str "and only relations — " a " ∘ " b " = " (pr-str r)))))))
+  (testing "and a projection that is not one is refused where it is built, not composed"
+    (testing "a missing pair, which covers eight"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"all nine \[x y\] pairs"
+           (proj/algebra (dissoc rel/relation->axes :front)))))
+    (testing "and a repeated one, which still covers all nine"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"all nine \[x y\] pairs"
+           (proj/algebra (assoc rel/relation->axes :nowhere [:gt :gt])))))))
 
 (deftest the-nine-relations-are-jointly-exhaustive-and-pairwise-disjoint
   (testing "exactly one holds of any two places — that is what makes a network of them a

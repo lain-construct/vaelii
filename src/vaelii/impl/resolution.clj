@@ -351,9 +351,14 @@
   "Handles of rules whose consequent predicate is `pred` **or a spec of it** — a rule
   concluding a subtype answers a supertype goal, the backward dual of `fire-rules-for`
   fanning a new fact over its supertypes.  Computed as the intersection `specs(pred) ∩
-  rules-by-consequent`: iterate the (small) spec closure and probe the consequent
-  index, so cost scales with the number of concluding rules, never the taxonomy.  A
+  rules-by-consequent`: iterate the spec closure and probe the consequent index.  A
   variable or non-symbol `pred` cannot be a type, so it degrades to the plain lookup.
+
+  **The answer is bounded by the concluding rules; the cost is bounded by the taxonomy.**
+  One index probe per spec, so a goal on a type with 364 subtypes takes 364 probes to
+  discover that no rule concludes any of them — and `provers/shadowing-channels` asks
+  this once per goal, on the path `sole-prover` takes.  Cheap per probe and never a
+  record fetch, but it is the spec closure that sizes it, not the rule count.
 
   With a `context`, the spec fan walks only the genl edges visible from it — a rule
   concluding a subtype answers a supertype goal exactly where the subtype edge is
@@ -954,6 +959,53 @@
                      *hierarchical-retrieval* *arg-root-retrieval* *structural-index*]
                     #(compute canonical)))))))
 
+;; ---- whose declarations bind a tuple ------------------------------------
+
+(defn constraining-predicates
+  "The predicates whose argument declarations of kind `kind` bind a `pred` tuple —
+  `pred` itself first, then every super-predicate of it `context` can see that some
+  sentence declares `kind` of.
+
+  `(genl fatherOf parentOf)` says every `fatherOf` tuple **is** a `parentOf` tuple, and
+  a tuple set only narrows going down, so `(argIsa parentOf 1 person)` constrains every
+  `fatherOf` tuple exactly as it constrains every `parentOf` one.  Reading the
+  declarations off the exact functor makes the refusal *door-dependent*: the same
+  ill-typed claim is refused under the general spelling, admitted under the specialized
+  one, and then answers every general-spelling query through the matcher's own fan —
+  which is the one job the constraint exists for.  Both readers of a declaration come
+  here, the constraint (`checks/declaration-reader`) and the inference
+  (`provers/inferred-types`), so `assert` and `ask` cannot disagree about whose
+  declarations speak for a tuple.
+
+  **Scoped to the reader's own vantage.**  The closure is read from `context`, so a
+  `genl` edge asserted where the reader cannot see it imports no constraint — the same
+  judgement `checks/args-problem` already makes about the memberships it reads.  A cycle
+  in predicate `genl` cannot loop the walk, `genls` being a closure read.
+
+  **`pred` itself is never filtered and the proper supers always are.**  Reading
+  `pred`'s own declarations is the retrieval that was being made anyway; a super would
+  cost a retrieval that did not exist before, so each is filtered first against the
+  roster of predicates some declaration of that kind names
+  (`tax/arg-declaration-props`).  That is a set membership rather than an index probe,
+  which is what keeps the descension free: asked of the index it would be one
+  argument-root read per super per assert, so a membership of a type ten deep in the
+  hierarchy would pay ten of them, and nine of those types declare nothing.  The roster
+  is global and therefore a superset of what any context can see — a predicate no
+  sentence anywhere declares `kind` of cannot carry a declaration this reader would find
+  — and the scoped retrieval it gates is what decides which of them actually speak here.
+
+  Sorted, so which declaration a refusal names — and the order the entailments are drawn
+  in — is a function of the vocabulary rather than of the closure's hash order."
+  [kb kind pred context]
+  (let [tax    (:taxonomy kb)
+        supers (tax/genls tax pred context)]
+    (if (<= (count supers) 1)
+      [pred]
+      (let [declaring (tax/props tax (tax/arg-declaration-props kind))]
+        (if (empty? declaring)
+          [pred]
+          (into [pred] (comp (remove #(= pred %)) (filter declaring)) (sort supers)))))))
+
 ;; ---- backward chaining --------------------------------------------------
 ;; The pieces below — goal-key, planned-antecedents — are the
 ;; rule-expansion core every backward executor shares.  The goal-stack machine here
@@ -977,9 +1029,10 @@
 ;; apart is what gives each instance variables of its own.
 
 (defn form-variables
-  "Every variable anywhere in `form`, as a set."
+  "Every variable anywhere in `form`, as a set — `#{}` rather than `sx/symbols-where`'s
+  nil, since every caller here folds the answer into something."
   [form]
-  (into #{} (filter sx/variable?) (tree-seq sequential? seq form)))
+  (or (sx/symbols-where sx/variable? form) #{}))
 
 (defn- spoken-for
   "Every variable `bindings` already speaks for — the ones it binds, and the ones still

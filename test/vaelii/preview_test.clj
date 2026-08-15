@@ -253,6 +253,25 @@
         (is (= :monotonic (v/defeat-class kb h))))
       (is (= before (content kb))))))
 
+(tu/deftest-kb previewing-a-premise-at-a-stronger-class-restores-the-weaker-one
+  ;; The **other** direction, and the only one that says anything.  Weakening is undone by
+  ;; `strength/max` whatever the rollback writes — the recorded class is the stronger of
+  ;; the two — so a preview that lowers a class is put back by arithmetic rather than by
+  ;; the undo.  A preview that *raises* one has changed the KB as surely as one that stored
+  ;; a sentex, and only a **raw** write of the audited mark takes it back: resolving the
+  ;; restore by content keeps the class the batch itself just put there, and the preview
+  ;; leaves behind a monotonic claim nobody asserted.
+  (tu/with-terms [dog Rex CxStory]
+    (let [h      (v/assert kb (list dog Rex) CxStory {:strength :default})
+          before (content kb)]
+      (is (= :default (v/defeat-class kb h))
+          "the baseline the preview has to put the KB back to")
+      (v/preview kb {:add [[(list dog Rex) CxStory {:strength :monotonic}]]})
+      (testing "the class the preview raised is not one it may leave behind"
+        (is (true? (v/premise? kb h)))
+        (is (= :default (v/defeat-class kb h))))
+      (is (= before (content kb))))))
+
 ;; ---- 8. bounds ---------------------------------------------------------
 
 (tu/deftest-kb max-results-caps-each-half-of-the-diff-and-says-so

@@ -437,9 +437,14 @@
 
 (defn- decision
   "Why this open cannot map the snapshot, or nil when it can.  Every mismatch class is its
-  own reason, so the log says what changed rather than that something did.  Ordered
-  cheapest-first, so the record fingerprint is only computed for an image that has already
-  agreed about what it is."
+  own reason, so the log says what changed rather than that something did.
+
+  Ordered by what a reader needs told first, not by what is cheapest to ask: the record
+  fingerprint runs ahead of the three truncation tests, and it is the expensive one — a
+  sequential scan of the sentexes idx, where a truncation test is a `File.length`.  A
+  truncated image therefore pays that scan before being rejected.  It costs nothing that
+  matters, since every rejection falls through to a rebuild that reads the records
+  anyway, and the ordering buys a diagnosis that names the store rather than the file."
   [root m stamp-fn]
   (let [{:keys [nodes edges leaves]} (:trie m)
         {kn :keys hn :handles}       (:roots m)]
@@ -523,8 +528,12 @@
 
 (defn- load-dictionary!
   "Rebuild the in-RAM dictionary from the durable log, **in id order**, so an in-RAM id is
-  the durable id the mapped edges cite.  O(vocabulary) and the one per-entry cost a load
-  pays — which is the design's own claim about what a snapshot's open scales with.
+  the durable id the mapped edges cite.  O(dictionary), which this namespace's own header
+  is careful to say is **fact-scaled** rather than vocabulary-scaled: a token is often a
+  whole compound term, and the term index keys one per record.  Nor is it the only
+  per-entry cost of an open — `read-fallback` thaws the argument-root postings whole and
+  `load-trie!` copies the node and edge skeletons into heap, both named in the header for
+  what they are.
 
   The two dictionaries do not agree on equality, and this is where that would show.  The
   durable log keys a bare `HashMap` on the token, so two entries are one when

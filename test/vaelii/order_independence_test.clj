@@ -166,6 +166,39 @@
       (is (false? (:travels result))))
     (tu/clear-kb! (tu/test-kb))))
 
+(deftest a-re-assert-never-downgrades-a-premises-class
+  ;; The class a sentex is held at is resolved from **content**, so the door cannot let
+  ;; arrival order decide it.  A re-assert carrying no `:strength` states nothing about
+  ;; the class — the `:default` it falls back to is the door's fallback, not the
+  ;; caller's claim — so reading that silence as a downgrade retired the known-true
+  ;; mark: asserted monotonic, re-asserted bare, and then met by a known-true negation,
+  ;; the original was *defeated*, where the same three sentences without the bare
+  ;; re-assert left an irreducible pair.  Six orderings, one outcome.
+  (let [ops [#(v/assert % '(flies Tweety) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(flies Tweety) 'CxUniverse)
+             #(v/assert % '(not (flies Tweety)) 'CxUniverse {:strength :monotonic})]
+        observe (fn [kb]
+                  (let [pos (v/handle-of kb '(flies Tweety) 'CxUniverse)
+                        neg (v/handle-of kb '(not (flies Tweety)) 'CxUniverse)]
+                    {:flies       (v/in? kb pos)
+                     :not-flies   (v/in? kb neg)
+                     :flies-class (v/defeat-class kb pos)
+                     :conflicts   (count (v/conflicts kb))}))
+        result (one-outcome! "a bare re-assert of monotonic content" ops observe)]
+    (testing "the bare re-assert leaves the known-true mark where it found it"
+      (is (= :monotonic (:flies-class result))))
+    (testing "so the pair is the irreducible clash it is without the re-assert"
+      (is (true? (:flies result)))
+      (is (true? (:not-flies result)))
+      (is (= 1 (:conflicts result))))
+    (testing "and narrowing a class is still retract! and re-assert"
+      (let [kb (tu/fresh)
+            h  (v/assert kb '(flies Tweety) 'CxUniverse {:strength :monotonic})]
+        (v/retract! kb h)
+        (is (= :default (v/defeat-class kb (v/assert kb '(flies Tweety) 'CxUniverse)))
+            "a retraction takes the class with it, leaving none to inherit")))
+    (tu/clear-kb! (tu/test-kb))))
+
 ;; ---- the represented dilemma --------------------------------------------
 
 (deftest nixon-diamond-is-the-same-dilemma-every-time

@@ -20,9 +20,12 @@
   3. the reader's instruction.
 
   Every read is pinned by a term the selection actually contains (`comment-of`, an
-  `argIsa` query on a fixed predicate, a genl closure lookup), so the prompt is
-  **O(selection)** and flat in KB size.  Ten sentexes cost the same in a KB of ten as
-  in a KB of a hundred million.
+  `argIsa` query on a fixed predicate, a genl closure lookup), so the prompt's **size**
+  is O(selection): ten sentexes yield the same card in a KB of ten as in a KB of a
+  hundred million.  Its **cost** is not flat in KB size, and the difference is
+  `relatives` — the card shows the first `max-relatives` neighbours by name, which means
+  sorting the term's whole `genls` / `specs` closure to find them.  A selection naming a
+  type near the root of an imported ontology pays for that ontology.
 
   **The model rewrites lines; it does not write.**  Its answer is the edited line set,
   which `vaelii.impl.llm.session/propose-edit` diffs against the selection by content
@@ -37,15 +40,19 @@
             [vaelii.impl.core-context :as core-context]))
 
 ;; ---- the editor's line format -------------------------------------------
-;; Mirrors what the browser's editor seeds its textarea with, because the proposal
-;; lands back in that textarea: the same lines in, the same lines out, and the reader
-;; reviews a diff in the format they were already reading.
+;; **The format has one owner, and this is it.**  The browser's editor seeds its
+;; textarea with these lines (`web/edit-panel`) and the model's proposal lands back in
+;; that same textarea, so the two surfaces do not merely resemble each other — a line
+;; the model writes is diffed against a line the editor wrote, by content.  Written
+;; twice, the two could drift by a space and turn every unchanged line into a retract
+;; plus an assert of the same fact.
 
 (defn wrapped-sentence
   "A sentex's editable sentence: the readable sentence (the author's variable names),
   and for a rule its direction / defeasibility spelled back as `set/*Rule` wrappers so
   a re-assert preserves them.  A rule's `exceptWhen` / `unknown` guard lives in a
-  separate meta-sentex and is not carried."
+  separate meta-sentex and is **not** carried, so editing a guarded rule drops its
+  guard — the browser's editor hint says so."
   [s]
   (let [base (v/readable-sentence s)]
     (if (:antecedent s)
@@ -61,9 +68,10 @@
   "The one editable EDN line for a sentex: `[sentence context]`, plus
   `{:strength :monotonic}` when it is known-true, so a rewrite keeps it."
   [s]
-  ;; print vars bound off, as the browser's own `edit-line` binds them: the line is
-  ;; read back as EDN, and an elided sentence is legal EDN that no longer names its
-  ;; sentex
+  ;; print vars bound off: the line is read back as EDN and diffed by content, and an
+  ;; ambient *print-length* would elide a long sentence into `(dog Muffet ...)` — legal
+  ;; EDN that no longer matches its own sentex, so saving an untouched panel would
+  ;; retract the real fact and store the mutilated one
   (binding [*print-length* nil *print-level* nil *print-meta* false]
     (let [sent (wrapped-sentence s) ctx (:context s)]
       (if (= :monotonic (:strength s))
@@ -155,8 +163,13 @@
     (name k)))
 
 (defn- relatives
-  "`[genls specs]` for a term, minus the term itself and bounded.  Both are cached
-  closure lookups, so this costs nothing even on a deep hierarchy."
+  "`[genls specs]` for a term, minus the term itself and bounded.
+
+  **`n` bounds the card, not the work.**  The closure fetch is a memo hit, but the whole
+  closure is then put into a set and sorted before `take` sees anything — so a term high
+  in an imported hierarchy costs O(|closure| log |closure|) per card entry, and a card is
+  built per selected term.  That is the price of a content-ordered card: the first `n`
+  by name cannot be taken without ordering all of them."
   [kb t n]
   [(take n (sort (disj (set (v/genls kb t)) t)))
    (take n (sort (disj (set (v/specs kb t)) t)))])
@@ -265,7 +278,8 @@
   content* in a formalism it has only been told about: asked to record something new,
   `phi4:14b` answers in English prose while a coder-tuned peer answers in
   s-expressions.  Demonstrating the target formalism — including a line invented from
-  nothing — is the cheap fix, and it costs about sixty tokens."
+  nothing — is the cheap fix, and it costs about 120 tokens by this namespace's own
+  `estimate-tokens`."
   (str "### Example\n\n"
        "Selected lines:\n\n"
        "[(parentOf Tom Ann) CxWell]\n"
