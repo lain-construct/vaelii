@@ -129,6 +129,18 @@
 (argIsa evaluate 1 thing)
 (argIsa evaluate 2 thing)
 
+(comment equivalenceRelation
+         "(equivalenceRelation ?predicate) means that ?predicate is an equivalence relation: symmetric, transitive, and reflexive. This is a declaration shorthand built entirely on existing machinery — asserting (equivalenceRelation P) concludes all three constituent properties via forward rules, so the engine's symmetric, transitive, and reflexive provers each fire as expected. Declared of sameAs and coextensional, for instance.")
+(unaryPredicate equivalenceRelation)
+(decontextualizedPredicate equivalenceRelation)
+(set/forwardRule (implies (equivalenceRelation ?p) (symmetric ?p)))
+(set/forwardRule (implies (equivalenceRelation ?p) (transitive ?p)))
+(set/forwardRule (implies (equivalenceRelation ?p) (reflexive ?p)))
+;; The subset relationships (every equivalence relation is symmetric, transitive,
+;; and reflexive) are already expressed by the forward rules above.  Not restated
+;; as genl edges because property marks are individuals of unaryPredicate, not
+;; types in the taxonomy — a genl edge between them would create an island.
+
 (comment forcedDecontextualizedPredicate
          "(forcedDecontextualizedPredicate ?predicate) means that every (?predicate …) sentence is stored directly in CxUniverse by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlCx, so the context topology has one canonical home instead of a copy per context.")
 (unaryPredicate forcedDecontextualizedPredicate)
@@ -259,6 +271,15 @@
 (comment predicate           "The type of all predicates — the relations and types used in sentences. A predicate is a thing.")
 (genl predicate thing)
 
+(comment irreflexive
+         "(irreflexive ?predicate) means that ?predicate cannot relate a thing to itself: (?predicate a a) is contradictory. Declared of properPartOf and parentOf, for instance. Vocabulary only — the engine does not yet enforce irreflexive constraints on assert; enforcement is a follow-up.")
+(unaryPredicate irreflexive)
+(decontextualizedPredicate irreflexive)
+
+(comment irreflexivePredicate "A binary predicate P for which (P a a) is contradictory. Derived from (irreflexive P).")
+(genl irreflexivePredicate binaryPredicate)
+(implies (and (irreflexive ?p)) (irreflexivePredicate ?p))
+
 (comment reflexive
          "(reflexive ?predicate) means that ?predicate is reflexive, so (?predicate a a) holds for every a in its domain. Answered by a generic prover rather than materialized, the reflexive pairs of a large domain being a great many facts nobody wrote.")
 (unaryPredicate reflexive)
@@ -267,6 +288,8 @@
 (comment reflexivePredicate "A binary predicate P with (P a a) for every a. Derived from (reflexive P).")
 (genl reflexivePredicate binaryPredicate)
 (implies (and (reflexive ?p)) (reflexivePredicate ?p))
+
+(disjoint reflexive irreflexive)
 
 (comment relationKind
          "(relationKind ?predicate) means that ?predicate is one of the two relation kinds. The disjointMetatype grouping instanceRelationPredicate and typeRelationPredicate, so a binary predicate is at most one of the two: it either relates individuals or relates kinds, and letting the readings mix is how a claim about kinds quietly becomes a claim about their members. At most, not exactly — a few predicates are honestly neither, and are left unmarked rather than forced: implies is a connective and relates no things at all, rewriteOf takes either role so long as its two sides agree with each other, resultIsa and resultGenl relate a function to a type and so are mixed, and functionCorrespondingPredicate relates a function to a predicate. Marking one of those would make the metatype say something false, which costs more than the gap.")
@@ -293,6 +316,15 @@
 (unaryPredicate symmetric)
 (decontextualizedPredicate symmetric)
 
+(comment antiSymmetric
+         "(antiSymmetric ?predicate) means that if (?predicate a b) and (?predicate b a) both hold then a and b are the same thing. Weaker than asymmetric, which forbids the converse outright. The standard property for partial orders: partOf, genl itself, and any other reflexive ordering. Vocabulary only — the engine does not yet enforce anti-symmetric constraints on assert; enforcement is a follow-up.")
+(unaryPredicate antiSymmetric)
+(decontextualizedPredicate antiSymmetric)
+
+(comment antiSymmetricPredicate "A binary predicate P for which (P a b) and (P b a) imply a = b. Derived from (antiSymmetric P).")
+(genl antiSymmetricPredicate binaryPredicate)
+(implies (and (antiSymmetric ?p)) (antiSymmetricPredicate ?p))
+
 (comment asymmetric
          "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory, and a strict order such as largerThan is the usual case. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused.")
 (unaryPredicate asymmetric)
@@ -301,6 +333,17 @@
 (comment asymmetricPredicate "A binary predicate P for which (P a b) and (P b a) cannot both hold. Derived from (asymmetric P).")
 (genl asymmetricPredicate binaryPredicate)
 (implies (and (asymmetric ?p)) (asymmetricPredicate ?p))
+
+;; Every asymmetric predicate is irreflexive: if (P a b) implies not-(P b a),
+;; then (P a a) implies not-(P a a).  Stated as an inert rule so the
+;; mathematical relationship is documented without creating a taxonomy edge
+;; between property marks (which are individuals of unaryPredicate, not types).
+(set/inertRule (implies (asymmetric ?p) (irreflexive ?p)))
+;; Every asymmetric predicate is anti-symmetric: asymmetric forbids the converse;
+;; anti-symmetric allows it only when a = b, which asymmetric also forbids.
+(set/inertRule (implies (asymmetric ?p) (antiSymmetric ?p)))
+
+(disjoint symmetric asymmetric)
 
 (comment argPreserving
          "(argPreserving ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
@@ -326,6 +369,15 @@
 (comment thing
          "The root type: every type genls up to thing, so every typed individual is a thing.")
 
+(comment antiTransitive
+         "(antiTransitive ?predicate) means that if (?predicate a b) and (?predicate b c) both hold then (?predicate a c) is contradictory. The dual of transitive. Useful for immediate/direct relations: directPartOf, parentOf in a strict sense, immediateSubcategoryOf. Vocabulary only — the engine does not yet enforce anti-transitive constraints; enforcement is a follow-up.")
+(unaryPredicate antiTransitive)
+(decontextualizedPredicate antiTransitive)
+
+(comment antiTransitivePredicate "A binary predicate P for which (P a b) and (P b c) imply not-(P a c). Derived from (antiTransitive P).")
+(genl antiTransitivePredicate binaryPredicate)
+(implies (and (antiTransitive ?p)) (antiTransitivePredicate ?p))
+
 (comment transitive
          "(transitive ?predicate) means that ?predicate is transitive, so (?predicate a b) and (?predicate b c) imply (?predicate a c). Answered by a generic closure prover rather than materialized, since writing the closure out is quadratic in the extent and nobody asserted it. Declared of ancestorOf and partOf, for instance.")
 (unaryPredicate transitive)
@@ -334,6 +386,8 @@
 (comment transitivePredicate "A binary predicate P with (P a b) and (P b c) implying (P a c). Derived from (transitive P).")
 (genl transitivePredicate binaryPredicate)
 (implies (and (transitive ?p)) (transitivePredicate ?p))
+
+(disjoint transitive antiTransitive)
 ;; genl and genlCx ARE transitive predicates — the engine answers them from cached
 ;; closures rather than the generic closure prover, which is an implementation choice and
 ;; not a difference in what they mean.  Saying so is what lets them be named as the

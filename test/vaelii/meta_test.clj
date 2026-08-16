@@ -201,7 +201,7 @@
   ;; decontextualized marriage lifts (knows ?x ?y) through CxSocial's rule into a
   ;; context every data context sees, decontextualizing a predicate nothing declared.
   (testing "the roster is the algebraic marks, the inverse declaration, and genlCx"
-    (is (= '#{functional inverse reflexive symmetric asymmetric transitive}
+    (is (= '#{functional inverse reflexive irreflexive symmetric antiSymmetric asymmetric transitive antiTransitive equivalenceRelation}
            (v/props kb :decontextualized)))
     (is (= '#{genlCx} (v/props kb :forced-decontextualized))))
   (testing "so a social fact stays in the theory that states it"

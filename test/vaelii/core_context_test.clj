@@ -20,10 +20,13 @@
 (tu/deftest-kb extended-core-vocabulary-is-documented
   (testing "metadata, negation, and virtual rule wrappers each have a comment"
     (doseq [term '[not contradicts ist disjoint disjointMetatype and lessThan greaterThan
-                   transitive symmetric reflexive functional inverse arity
-                   decontextualizedPredicate
+                   transitive antiTransitive symmetric antiSymmetric asymmetric
+                   reflexive irreflexive functional inverse arity
+                   equivalenceRelation decontextualizedPredicate
                    predicate unaryPredicate binaryPredicate ternaryPredicate
                    symmetricPredicate transitivePredicate reflexivePredicate functionalPredicate
+                   asymmetricPredicate antiSymmetricPredicate antiTransitivePredicate
+                   irreflexivePredicate
                    set/forwardRule set/backwardRule set/inertRule set/defaultRule]]
       (is (= 1 (count (core-context/comment-of kb term))) (str "comment for " term))
       (is (string? (first (core-context/comment-of kb term)))))))
@@ -55,3 +58,24 @@
     (v/assert kb (list 'binaryPredicate rel) 'CxCore)
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/assert kb (list 'arity rel 7) 'CxCore)))))
+
+(tu/deftest-kb equivalence-relation-concludes-constituent-properties
+  ;; (equivalenceRelation P) should conclude (symmetric P), (transitive P),
+  ;; and (reflexive P) via the forward rules in CxCore.
+  (tu/with-terms [eqrel]
+    (v/assert kb (list 'binaryPredicate eqrel) 'CxCore)
+    (v/assert kb (list 'equivalenceRelation eqrel) 'CxCore)
+    (testing "the three constituent properties are concluded"
+      (is (v/ask? kb (list 'symmetric eqrel) 'CxCore))
+      (is (v/ask? kb (list 'transitive eqrel) 'CxCore))
+      (is (v/ask? kb (list 'reflexive eqrel) 'CxCore)))))
+
+(tu/deftest-kb relation-property-taxonomy
+  (testing "metatype hierarchy roots at binaryPredicate"
+    (is (v/ask? kb '(genl irreflexivePredicate binaryPredicate) 'CxCore))
+    (is (v/ask? kb '(genl antiSymmetricPredicate binaryPredicate) 'CxCore))
+    (is (v/ask? kb '(genl antiTransitivePredicate binaryPredicate) 'CxCore)))
+  (testing "disjointness between opposing properties"
+    (is (v/ask? kb '(disjoint symmetric asymmetric) 'CxCore))
+    (is (v/ask? kb '(disjoint reflexive irreflexive) 'CxCore))
+    (is (v/ask? kb '(disjoint transitive antiTransitive) 'CxCore))))

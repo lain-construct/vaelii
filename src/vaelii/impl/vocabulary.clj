@@ -136,7 +136,14 @@
     symmetricPredicate   {:inert "a derived predicate type — see functionalPredicate."}
     transitivePredicate  {:inert "a derived predicate type — see functionalPredicate. (transitivePredicate genl) is asserted so genl can be named as a preserved-along relation, which inherit reads through the taxonomy rather than through this type."}
     reflexivePredicate   {:inert "a derived predicate type — see functionalPredicate."}
-    asymmetricPredicate  {:inert "a derived predicate type — see functionalPredicate."}})
+    asymmetricPredicate  {:inert "a derived predicate type — see functionalPredicate."}
+    irreflexive          {:inert "vocabulary-only property mark — the engine does not yet enforce irreflexive constraints. Declared for ontological completeness; enforcement is a follow-up."}
+    irreflexivePredicate {:inert "a derived predicate type — see functionalPredicate."}
+    antiSymmetric        {:inert "vocabulary-only property mark — the engine does not yet enforce anti-symmetric constraints. Declared for ontological completeness; enforcement is a follow-up."}
+    antiSymmetricPredicate {:inert "a derived predicate type — see functionalPredicate."}
+    antiTransitive       {:inert "vocabulary-only property mark — the engine does not yet enforce anti-transitive constraints. Declared for ontological completeness; enforcement is a follow-up."}
+    antiTransitivePredicate {:inert "a derived predicate type — see functionalPredicate."}
+    equivalenceRelation  {:enforced "forward rules conclude symmetric, transitive, reflexive — the three marks the engine's existing provers read."}})
 
 (defn classify
   "What the engine does with vocabulary term `term`: `{:enforced \"where\"}`,
