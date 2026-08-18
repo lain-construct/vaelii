@@ -1,6 +1,6 @@
 # Argument-position preservation
 
-- **Covers:** how `argPreserving` / `argPreservingInverse` license carrying a stated claim
+- **Covers:** how `transitiveInArg` / `transitiveInArgInverse` license carrying a stated claim
   about one argument across a transitive relation, and how a specific claim undercuts
   rather than defeats a general one.
 - **Not here:** matching a unary type antecedent against a subtype's stored fact —
@@ -19,13 +19,13 @@ maine coon is bigger.
 So it is **declared**, per predicate, per argument position:
 
 ```clojure
-(argPreserving        P n R)   ; a stored (P … W …) licenses (P … A …) when (R A W)
-(argPreservingInverse P n R)   ; …licenses it when (R W A)
+(transitiveInArg        P n R)   ; a stored (P … W …) licenses (P … A …) when (R A W)
+(transitiveInArgInverse P n R)   ; …licenses it when (R W A)
 ```
 
 `R` is any **transitive** relation — `genl` and `genlCx` through their cached
 closures, or a predicate declared `(transitive R)` walked over the stored facts. With
-`R` = `genl`, `argPreserving` is downward inheritance and `argPreservingInverse` is
+`R` = `genl`, `transitiveInArg` is downward inheritance and `transitiveInArgInverse` is
 upward. With `R` = `genlCx` the preserved argument **names a context**, and the
 same two directions read the lattice: a claim about a wide context reaches every
 context below it — a decree stated of a whole world holds in each of its scenarios —
@@ -37,7 +37,7 @@ be preserved along `partOf` just as readily:
 ```clojure
 (transitive partOf)
 (partOf Engine Car)  (partOf Piston Engine)
-(argPreserving needsMaintenance 1 partOf)
+(transitiveInArg needsMaintenance 1 partOf)
 (needsMaintenance Car)
 ;; => (needsMaintenance Piston)   two hops, no types involved
 ```
@@ -62,8 +62,8 @@ licences do not travel down it.
 pair is worth comparing because they are declared **differently on purpose**:
 
 ```clojure
-(argPreserving largerThan 1 genl)   (argPreserving largerThan 2 genl)
-(argPreserving partType   1 genl)
+(transitiveInArg largerThan 1 genl)   (transitiveInArg largerThan 2 genl)
+(transitiveInArg partType   1 genl)
 ```
 
 `largerThan` preserves on both positions, so `(largerThan mammal insect)` in
@@ -94,14 +94,14 @@ manufacture transitivity for it — two hops of `begat` licensing a claim only o
 ever evidence for. `assert` refuses the declaration:
 
 ```clojure
-(argPreserving cursed 1 begat)
+(transitiveInArg cursed 1 begat)
 ;; => throws :not-well-formed
-;;    "begat is not transitive, and argPreserving walks the relation it names to a
+;;    "begat is not transitive, and transitiveInArg walks the relation it names to a
 ;;     fixpoint — declare (transitive begat) before the preservation, or name one of
 ;;     genl / genlCx"
 ```
 
-The refusal lives in `wff` rather than in `(argIsa argPreserving 3 transitivePredicate)`
+The refusal lives in `wff` rather than in `(argIsa transitiveInArg 3 transitive)`
 because `argIsa` is **open-world**: an argument with no type cannot violate it, so the
 constraint bites for a relation that happens to carry some other type and waves through
 the one that carries none — and naming the relation before typing it is the common
@@ -190,7 +190,7 @@ asserted, with no second declaration:
 
 ```clojure
 (asymmetric largerThan)
-(argPreserving largerThan 1 genl)  (argPreserving largerThan 2 genl)
+(transitiveInArg largerThan 1 genl)  (transitiveInArg largerThan 2 genl)
 
 (largerThan dog cat)                        {:strength :monotonic}
 (largerThan maine_coon chihuahua)           ; => throws :asymmetric
@@ -200,7 +200,7 @@ asserted, with no second declaration:
 
 ```clojure
 (asymmetric typicallyLargerThan)
-(argPreserving typicallyLargerThan 1 genl)  (argPreserving typicallyLargerThan 2 genl)
+(transitiveInArg typicallyLargerThan 1 genl)  (transitiveInArg typicallyLargerThan 2 genl)
 
 (typicallyLargerThan dog cat)               ; the default :default
 (typicallyLargerThan maine_coon chihuahua)  ; => accepted
@@ -254,7 +254,7 @@ licenses does not.
 
 ## Reading it back
 
-`ArgPreservingProver` answers a **ground** goal; an open argument is left to the fact
+`TransitiveInArgProver` answers a **ground** goal; an open argument is left to the fact
 and rule provers, in the shape `different` and the NAF operators already use.
 Enumerating one would mean walking the inverse reach of every stored witness, which is a
 much larger question than the one a closed goal asks. `cost :compute`, `completeness
@@ -265,17 +265,17 @@ directly.
 `vaelii.impl.inherit/verdict` is the whole semantics in one function: `:for`,
 `:against`, `:ambiguous`, or nil when the predicate declares no preserved position.
 
-Being answered at all is not the same as being *reached*. `ArgPreservingProver` sits in
+Being answered at all is not the same as being *reached*. `TransitiveInArgProver` sits in
 a registry where a prover claiming `completeness 100` runs alone, and a computed answer
 — a taxonomy closure, an arithmetic comparison, a constraint network — cannot contain a
 claim nobody stored. So `provers/sole-prover` asks `provers/shadowing-channels` before
 letting any claimant run alone, and a declared preserved position puts `:preserving` in
 that set, which sends the goal down the union path where this prover is consulted.
-Without it, declaring `(argPreserving partOfRegion 1 genl)` beside a registered `:rcc8`
+Without it, declaring `(transitiveInArg partOfRegion 1 genl)` beside a registered `:rcc8`
 reasoner leaves the declaration inert and `query-plan` listing a prover that never runs.
 
 That read is on the hot path, and it is gated twice over. `positions` is asked by
-`ArgPreservingProver.applicable?` *and* by `shadowing-channels`, so it runs for every
+`TransitiveInArgProver.applicable?` *and* by `shadowing-channels`, so it runs for every
 goal's functor in the KB, and each real read is two `matches-visible` calls. So
 `declared-about?` answers first: a cardinality read on the declaration functors' roots,
 false for nearly every KB there is, and only then an intersection with the argument
@@ -303,7 +303,7 @@ entails ([qcn.md](qcn.md)). An inherited claim has no handle, but it was **read 
 things that do:
 
 - the **claim that was stated** — `(largerThan dog cat)`;
-- the **declaration** licensing the move — `(argPreserving largerThan 1 genl)`, one per
+- the **declaration** licensing the move — `(transitiveInArg largerThan 1 genl)`, one per
   position that actually moved;
 - the **relation edges** the reach travelled — `(genl chihuahua dog)`, `(genl maine_coon
   cat)`, one shortest path per position;
@@ -317,7 +317,7 @@ goes, `why` names the actual reasons, and the conclusion is placed only where al
 them can be seen — the contract an ordinarily matched antecedent has.
 
 ```clojure
-(argPreserving largerThan 1 genl)  (argPreserving largerThan 2 genl)
+(transitiveInArg largerThan 1 genl)  (transitiveInArg largerThan 2 genl)
 (largerThan dog cat)
 (implies (largerThan ?x ?y) (outweighs ?x ?y))
 
@@ -471,7 +471,7 @@ no invalidation protocol. A KB that declares no preservation reaches none of thi
 O(1) gate on the declaration functors having any extent at all sits in front of
 `positions`.
 
-`ArgPreservingProver`'s `est-bindings` is **1**, and that is the answer count rather
+`TransitiveInArgProver`'s `est-bindings` is **1**, and that is the answer count rather
 than the cost — a closed goal has at most the one empty solution. `cost :compute` is
 where the work shows.
 
@@ -502,7 +502,7 @@ in assertion order — so `strongest-per-tuple` takes the maximum over the class
 and breaks the ties that leaves on the context **name**. Both are functions of content alone.
 
 **A `genl` edge between two types can flip an exception stated over a predicate neither
-type appears in.** `ArgPreservingProver` sits in the level-6 stack that `exceptWhen` and
+type appears in.** `TransitiveInArgProver` sits in the level-6 stack that `exceptWhen` and
 `unknown` evaluate through, and it answers by walking the *arguments'* reach — so
 `(genl chihuahua dog)` changes whether `(largerThan chihuahua maine_coon)` holds, and
 with it whether a rule excepted on `largerThan` fires. The re-check index is keyed on the
@@ -512,7 +512,7 @@ after it correctly drop, and which you get depends on when the edge arrived.
 
 `special/recheck-preserving-along` closes it. Whenever the extent of a relation `R` moves
 — a fact on it, or a `genl` / `genlCx` edge — every rule whose exception mentions a
-predicate declared `(argPreserving P n R)` is queued for re-evaluation at the next
+predicate declared `(transitiveInArg P n R)` is queued for re-evaluation at the next
 `settle`. Queued as `:all` rather than with the moved sentence as a narrowing trigger,
 because that sentence is about `R` and the exception is about `P`, so it could not narrow
 the right firings anyway. The declarations are read off the functor roots rather than
@@ -522,7 +522,7 @@ Over-queueing costs a level-6 query at the next settle; under-queueing is a wron
 
 **And the licence moves too, with no extent moving at all.** Three sentences decide
 whether this prover finds anything, and none of them is on `P` or on `R`:
-`(argPreserving P n R)` is the declaration itself, `(transitive R)` is what
+`(transitiveInArg P n R)` is the declaration itself, `(transitive R)` is what
 `usable-relation?` reads at *use*, and `(asymmetric P)` is what gives a converse the
 standing to deny a claim — without it the specific `(typicallyLargerThan maine_coon
 chihuahua)` is inert and undercuts nothing. Each is read by `special/recheck-declaration`,

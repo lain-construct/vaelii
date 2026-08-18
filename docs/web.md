@@ -48,12 +48,11 @@ help — those calls already go through vars, so reloading `vaelii.impl.svg` lan
 next request with nothing rebuilt. `-main` does **not** use it: a served process pays for
 a reload it will never do.
 
-**Both halves are loopback**, and the pairing is why it is not configurable from there.
-The browser has a write route and no authentication; an nREPL is arbitrary code execution
-by design. Either alone is a considered risk on a shared interface — together they are a
-remote shell, so the profile pins nREPL to `127.0.0.1` rather than relying on
-Leiningen's default, and the browser binds loopback with no way to say otherwise.
-Exposing the browser stays the deliberate `--listen` on `-main`, which starts no REPL.
+**Both halves are loopback**, and the pairing is why it is not configurable from there
+[why](defenses.md#loopback-only-for-the-browser-plus-nrepl-pairing) — the profile pins
+nREPL to `127.0.0.1` rather than relying on Leiningen's default, and the browser binds
+loopback with no way to say otherwise. Exposing the browser stays the deliberate
+`--listen` on `-main`, which starts no REPL.
 
 A port already in use is **reported, not thrown**: you asked for a REPL, and you get one
 whether or not the port was free. `(vaelii.impl.web/dev-stop)` takes the server down
@@ -81,7 +80,8 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/sentex/:id` | a **sentex** (atomic or rule): its **belief state** (IN, or the `why-not` reason — superseded / defeated / unsupported — with the restatement, contradictors, or missing antecedents that explain it), its supporting justifications (justifications concluding it), its dependents (justifications using it as an argument), and its terms |
 | `/why/:id` | the **proof tree**: `vaelii.core/why` rendered whole — every justification down to the premises it rests on, collapsible, cycle-guarded, with rule sentences in the author's variable names |
 | `/justification/:id` | a **justification**: its supports/arguments (antecedent sentexes) and its dependent sentex (the conclusion) |
-| `/levels?q=<goal>&ctx=<context>` | the **lookup-to-query stack**: what each of the eight levels answers for a goal, which level first does, and — above them — the **query plan**: the provers bearing on the goal with their estimates and which one runs. A **vector** goal is a conjunctive query and gets the join plan instead (below) |
+| `/levels?q=<goal>&ctx=<context>` | the **lookup-to-query stack**: what each of the eight levels answers for a goal, which level first does, and — above them — the **query plan**: the provers bearing on the goal with their estimates and which one runs. A **vector** goal is a conjunctive query and gets the join plan instead (below). Links across to `/inference` for the same goal |
+| `/inference?q=<goal>&ctx=<context>&d=<depth>` | the **inference debugger**: the run that plan predicted, one step past `/levels`. The **search tree** the node engine builds for a goal — every node the frontier reached (not only the path that answered), each with the itemized estimate that ordered it, the rewrite that produced it, and the answers that came off it — plus the same goal under several **tacticians side by side**, tabled by the work each did and the answers each found. The identity property (every complete tactician returns the same answer set) is **verified** on the page, not asserted: a differing row is marked. Reads through `search-tree` / `compare-tacticians`, both of which bound their own work (a node budget and a wall-clock), so the page holds no session and works under `--attach`. Needs a depth — the node engine's only termination |
 | `/network?ctx=<context>&calc=<calculus>` | the **constraint network** a qualitative calculus computes over a context: the tightened matrix (a cell is what still holds of row-to-column), whether the believed facts are satisfiable at all, and one scenario out of it. With no context, the six calculi and their vocabularies |
 | `/demo` (GET/POST) | the **non-monotonicity walkthrough**: three stepped writes to the reader's sandbox in which `(hasCapability Pingu flying)` is believed, stops being believed, and comes back — at a different handle. GET renders where the sandbox stands, POST runs one step. Every step writes, so every step is origin-checked (below) |
 | `/reasoning` (GET/POST) | the **worked examples**: every kind of inference the shipped ontology performs, each a question with a live answer, the level that answered it, and links to the stored sentexes it reasoned from. GET computes every read-only card on render; POST establishes one example's premises in the reader's sandbox (below) |
@@ -94,6 +94,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/propose/apply` (POST) | the accepted lines, checked whole and stored through `vaelii.core/edit!` in **one settle**. The panel's one write |
 | `/retract` (GET/POST) | the **retract confirmation**: GET previews the teardown (the selection and what the sweep would take with it) and writes nothing; POST performs it |
 | `/chain` (POST) | run **forward chaining** as a job, up to the derivation bound the form names, and answer with the `/stats` page it changed — or, when the run outlasts 250 ms, with `/jobs` (below). POST-only: it derives and places conclusions |
+| `/funnel` (GET/POST) | the **chaining funnel**: every forward rule and what chaining did with it — how many firings it **placed**, how many it **refused** and why (`exception` / `naf` / `post-join` / `hidden`), or whether it stayed **silent** (no antecedent set ever completed). Ranked by what is wrong: no-placement rules first, refusals descending, firing rules last; each rule links to its sentex and carries the `violations` it filed. The per-rule breakdown behind `/stats`' headline, read `O(rules)` off the standing refusal ledger and the justification graph — no per-run instrumentation. GET reads the current state; POST runs the same chaining job as `/chain` but lands back here so the funnel fills in front of the reader |
 | `/jobs` | the **jobs screen**: every long run this process has made recently — a load, an export, a chaining run — with where it has got to, what it left behind, and the one control that stops it (below) |
 | `/jobs/rows` | the job list, on the same self-terminating poll as the KB panels, carrying the header's running count as an out-of-band swap |
 | `/jobs/cancel` (POST) | **stop** a running job at its next progress report. A write to this process's registry rather than to a KB, so it is origin-checked but not behind `writing` — cancelling a job has to stay reachable *because* one is running |
@@ -123,13 +124,13 @@ Shape is what a picture gives for free and a list never gives at all, so a term 
 with one, above everything it says in prose.
 
 **It renders live.** Server-drawn into the page, no click, no route, no state saying
-whether it is shown. That is not the obvious choice, so: the reads are nearly all ones the
-page already made (the relation flank comes off the index groups it built, and the taxonomy
-is probed only in a direction the closures it already read say has something in it); a
-reveal button on a picture nobody has seen buys a saved read from the readers who do not
-want it and costs a round-trip to everyone who does; and no route means no `show=0`, no
-collapsed-versus-expanded fragment, and no second entry point rendering the same thing with
-different chrome. The whole feature is one function called from one place.
+whether it is shown
+[why not a reveal button](defenses.md#the-term-graph-renders-live-not-behind-a-reveal-button):
+the reads are nearly all ones the page already made (the relation flank comes off the
+index groups it built, and the taxonomy is probed only in a direction the closures it
+already read say has something in it), and no route means no `show=0`, no
+collapsed-versus-expanded fragment, and no second entry point rendering the same thing
+with different chrome. The whole feature is one function called from one place.
 
 Being live is also what obliges the budget. **A picture nobody asked for may never be the
 reason a term page is slow**, so the bound is part of the work and not a follow-up:
@@ -317,7 +318,7 @@ rather than leaving a gap where a proof link would be; a derived one links its p
 
 The split between the two kinds of card is about what the KB ships, not about
 presentation. The starter is schema, so everything asked **of kinds** — the taxonomy,
-`argPreserving`, disjointness, the predicate meta-ontology — is answerable with no write
+`transitiveInArg`, disjointness, the predicate meta-ontology — is answerable with no write
 at all, and those cards are computed on render. `looking-at-the-gallery-writes-nothing`
 holds that: rendering three times leaves the sentex count identical. The cards that need
 **individuals** bring their own and write them into the reader's sandbox on an explicit

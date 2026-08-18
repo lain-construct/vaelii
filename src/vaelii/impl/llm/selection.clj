@@ -150,10 +150,12 @@
 (defn- disjoint-with
   "The types declared disjoint from `t`, both spellings of the pair."
   [kb t]
-  (sort (distinct (concat (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint t '?b) '?ctx)]
-                            (nth sentence 2))
-                          (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint '?a t) '?ctx)]
-                            (nth sentence 1))))))
+  (sort-by str
+           (distinct
+            (concat (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint t '?b) '?ctx)]
+                      (nth sentence 2))
+                    (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint '?a t) '?ctx)]
+                      (nth sentence 1))))))
 
 (defn- props-of
   "The algebraic metadata a predicate carries, as keyword names."
@@ -171,8 +173,9 @@
   built per selected term.  That is the price of a content-ordered card: the first `n`
   by name cannot be taken without ordering all of them."
   [kb t n]
-  [(take n (sort (disj (set (v/genls kb t)) t)))
-   (take n (sort (disj (set (v/specs kb t)) t)))])
+  ;; str, never bare sort: a genl/spec node may be a NAT rather than a symbol
+  [(take n (sort-by str (disj (set (v/genls kb t)) t)))
+   (take n (sort-by str (disj (set (v/specs kb t)) t)))])
 
 (defn- functor-entry
   "The card line for a predicate or type: what it means, what its arguments must be,
@@ -198,7 +201,7 @@
 
 (defn- individual-entry
   [kb term {:keys [max-relatives] :or {max-relatives 12}}]
-  (let [ts (take max-relatives (sort (v/types-of kb term)))]
+  (let [ts (take max-relatives (sort-by str (v/types-of kb term)))]   ; NAT-safe type sort
     (str "- " (tick term) (when (seq ts) (str " — a " (ticks ts))))))
 
 (defn- context-entry

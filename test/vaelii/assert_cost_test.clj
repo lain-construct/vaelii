@@ -84,6 +84,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.profile :as prof]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
@@ -414,12 +415,25 @@
 ;; deref, and no index read.  A gate keyed on the `except` functor root instead would add
 ;; three reads per assert to every workload here and seven to `rule-fired`, on a KB that
 ;; excepts nothing; none of that is in these numbers.
+;;
+;; **`:argument-root` and `:argument-slot` carry the small-side lead (`res/*lead-side*
+;; :auto`), which is why they read near-equal.**  A scoped clash retrieval leads from the
+;; term's own postings — one predicate-agnostic `:argument-slot` read plus its count —
+;; rather than one predicate-scoped `:argument-root` bucket per sub-predicate, whenever the
+;; term is the smaller side.  That trades per-spec `:argument-root` reads for `:argument-
+;; slot` ones and keeps a deep hierarchy's closure walk at O(term); these workloads are
+;; deliberately shallow, so the closure is nothing to collapse and what lands here is the
+;; small constant the trade costs — carried as data, per the "a legitimate optimization
+;; fails this gate" rule above.  `matches_hierarchical_test` holds the set the three lead
+;; sides must agree on and `lead_side_cost_test` holds the shape (`:auto` flat in the
+;; hierarchy width, the scoped lead not) — the win this constant buys, so a re-pin here
+;; cannot hide its regression.
 
 (def ^:private budgets
   [{:name    :plain
     :build   plain
     :sentexes 100
-    :reads   {:argument-root 300 :argument-slot 100 :exception-index 100
+    :reads   {:argument-root 500 :argument-slot 500 :exception-index 100
               :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 202 :slots 200}}
 
@@ -436,7 +450,7 @@
    {:name    :membership
     :build   membership
     :sentexes 100
-    :reads   {:argument-root 500 :argument-slot 300 :exception-index 100
+    :reads   {:argument-root 700 :argument-slot 700 :exception-index 100
               :functor-root 1000 :rule-index 200 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
@@ -445,43 +459,55 @@
    ;; together say whether the descension is flat in the depth of the hierarchy or
    ;; proportional to it.  Today it is proportional; a change that makes it flat drops
    ;; this one to `:membership`'s numbers and is the improvement carried as data.
-   ;; Read against `:membership`: 500 -> 1300 and 300 -> 1100, for eight more supers over
-   ;; a hundred asserts.  That is **one `:argument-root` and one `:argument-slot` per
-   ;; super per assert**, exactly, and the writes do not move at all — the depth buys
-   ;; reads and stores nothing.
+   ;; Read against `:membership`: 700 -> 1500 in each of `:argument-root` and
+   ;; `:argument-slot`, for eight more supers over a hundred asserts.  That is **one
+   ;; `:argument-root` and one `:argument-slot` per super per assert**, exactly, and the
+   ;; writes do not move at all — the depth buys reads and stores nothing.
    {:name    :deep-membership
     :build   deep-membership
     :sentexes 100
-    :reads   {:argument-root 1300 :argument-slot 1100 :exception-index 100
+    :reads   {:argument-root 1500 :argument-slot 1500 :exception-index 100
               :functor-root 1000 :rule-index 1000 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
    {:name    :declared
     :build   declared
     :sentexes 100
-    :reads   {:argument-root 400 :argument-slot 200 :exception-index 100
+    :reads   {:argument-root 600 :argument-slot 400 :exception-index 100
               :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 300 :roots 400 :roster 0 :slots 200}}
 
    {:name    :negative
     :build   negative
     :sentexes 100
-    :reads   {:argument-root 300 :argument-slot 100 :exception-index 200
+    :reads   {:argument-root 500 :argument-slot 500 :exception-index 200
               :functor-root 1000 :rule-index 100 :trie-counts 200 :trie-lookup 100}
     :writes  {:levels 400 :terms 400 :roots 400 :roster 103 :slots 101}}
 
    {:name    :compound
     :build   compound
     :sentexes 100
-    :reads   {:argument-root 300 :argument-slot 100 :exception-index 100
+    :reads   {:argument-root 500 :argument-slot 500 :exception-index 100
               :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 800 :terms 600 :roots 400 :roster 104 :slots 200}}
 
    ;; 200 indexed sentexes for 100 asserts — the rule concludes one apiece
+   ;;
+   ;; **This workload pays nothing for the forward-chain authority probe, and that is the
+   ;; point of the frontier gate.**  `perf(chain)` skips the novelty trie-walk for a functor
+   ;; the store held nothing under when a run began, decided by one `count-with-functor`
+   ;; probe (`kb/functor-cache-authoritative?`).  The probe is worth taking only over a bulk
+   ;; fixpoint that concludes the functor many times; over a run of one conclusion it never
+   ;; amortizes.  So the memo is armed only when the seed frontier clears
+   ;; `kb/chain-authority-min-frontier`, and each assert here seeds its own one-fact run —
+   ;; below the floor.  The memo stays nil, `find-sentex-handle` walks the trie exactly as
+   ;; it did before the optimization, and these numbers are the pre-perf ones unchanged: a
+   ;; `forward-chain` over a wide seed is where the skip is priced, and `lein perf`'s join
+   ;; workloads hold that shape where this micro-workload cannot.
    {:name    :rule-fired
     :build   rule-fired
     :sentexes 200
-    :reads   {:argument-root 600 :argument-slot 200 :exception-index 300
+    :reads   {:argument-root 1000 :argument-slot 1000 :exception-index 300
               :functor-root 1500 :rule-index 200 :trie-counts 200 :trie-lookup 200}
     :writes  {:levels 1000 :terms 800 :roots 800 :roster 200 :slots 400}}
 
@@ -502,14 +528,14 @@
    {:name    :taxonomy-edge
     :build   taxonomy-edge
     :sentexes 100
-    :reads   {:argument-root 500 :argument-slot 300 :exception-index 300
+    :reads   {:argument-root 700 :argument-slot 700 :exception-index 300
               :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 101 :slots 101}}
 
    ;; **One retrieval per relative the arity table does not name**, which is what the door
    ;; costs an arity declaration, and `declaration-relatives` is the number to read it
-   ;; against.  Measured at both: four relatives cost 800 `:argument-root` and 600
-   ;; `:argument-slot`, two cost 600 and 400, so the per-relative term is **one of each per
+   ;; against.  Measured at both: four relatives cost 1000 `:argument-root` and 1000
+   ;; `:argument-slot`, two cost 800 and 800, so the per-relative term is **one of each per
    ;; relative per assert** and everything else here is the constant.  That is the same
    ;; pair, in the same proportion, that `:membership` and `:deep-membership` read off the
    ;; descension's other walk — the two questions are one membership retrieval apiece and
@@ -521,7 +547,7 @@
    {:name    :arity-declaration
     :build   arity-declaration
     :sentexes 100
-    :reads   {:argument-root 800 :argument-slot 600 :exception-index 100
+    :reads   {:argument-root 1000 :argument-slot 1000 :exception-index 100
               :functor-root 800 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 300 :roots 300 :roster 1 :slots 100}}])
 
@@ -720,6 +746,59 @@
 
 (deftest retraction-cost-is-what-it-was
   (doseq [wl retraction-budgets] (check-workload wl)))
+
+;; ---- the frontier gate: armed for a bulk run, silent for an incremental one ----
+;;
+;; The read budgets above pin what an *incremental* assert costs, and `rule-fired`'s
+;; `:functor-root`/`:trie-lookup` are the pre-optimization numbers precisely because a
+;; one-fact run does not arm the forward-chain authority memo
+;; (`kb/chain-authority-min-frontier`).  This is the other half of that claim, and it is a
+;; shape rather than a constant — the way `lein perf` holds a ratio the exact budgets
+;; cannot.  Over a **bulk** frontier the memo *is* armed, and its whole purpose — skipping
+;; `find-sentex-handle`'s novelty trie-walk for a functor the store never held — shows up
+;; as a `:trie-lookup` count that does **not** grow with the conclusions.  Both halves are
+;; a standing regression risk: a change that stops arming the memo silently loses the skip
+;; (and `:trie-lookup` goes back to O(conclusions) on every bulk load), and one that arms
+;; it for every run silently puts the probe back on the incremental assert path that
+;; `rule-fired` guards.
+
+(defn- bulk-chain-trie-walks
+  "Forward-chain a KB of `n` `vSrc` facts through one rule concluding a fresh `vDst` the
+  store never held, and return what it concluded and the run's novelty-walk count.  The
+  facts load with `:chain? false`, so the timed run is a single `forward-chain` whose seed
+  is the whole datum set — armed exactly when `n` (plus the rule) clears the frontier."
+  [n]
+  (with-shipped-retrieval
+    (let [kb (fresh)]
+      (v/assert kb (rules/rule-sentence ['(vSrc ?x ?y)] '(vDst ?x ?y))
+                'CxPerf {:strength :monotonic})
+      (dotimes [i n]
+        (v/assert kb (list 'vSrc (ind "Va" i) (ind "Vb" i)) 'CxPerf {:chain? false}))
+      (prof/start)
+      (v/forward-chain kb)
+      (let [snap (prof/stop)]
+        {:concluded   (count (v/sentexes-with-functor kb 'vDst))
+         :trie-lookup (get-in snap [:reads :trie-lookup] 0)}))))
+
+(deftest the-frontier-gate-arms-the-authority-skip-for-a-bulk-run
+  (let [floor       kb/chain-authority-min-frontier
+        below       (bulk-chain-trie-walks (quot floor 2))     ; seed under the floor: not armed
+        armed-small (bulk-chain-trie-walks (+ floor 20))       ; over the floor: armed
+        armed-large (bulk-chain-trie-walks (+ floor 120))]     ; and again, larger
+    (testing "each run concluded one vDst per vSrc — the workloads are real and equal-shaped"
+      (is (= (quot floor 2) (:concluded below)))
+      (is (= (+ floor 20)   (:concluded armed-small)))
+      (is (= (+ floor 120)  (:concluded armed-large))))
+    (testing "armed, the novelty walk is skipped: trie-lookups are flat in n and far below the conclusions"
+      (is (= (:trie-lookup armed-small) (:trie-lookup armed-large))
+          "the skip makes the walk count independent of n; if it grew, the memo stopped arming")
+      (is (< (:trie-lookup armed-large) (:concluded armed-large))
+          "one probe answers for the whole run, so a bulk fixpoint walks O(1), not O(conclusions)"))
+    (testing "below the floor the memo is not armed — every novel conclusion still walks"
+      (is (>= (:trie-lookup below) (:concluded below))
+          "an unarmed run walks at least once per conclusion, exactly as it did pre-optimization")
+      (is (> (:trie-lookup below) (:trie-lookup armed-large))
+          "so the smaller unarmed run out-walks the larger armed one — the skip is what closes the gap"))))
 
 (deftest instrument-is-silent-when-off
   ;; The budgets above are only meaningful if the seams cost nothing when nobody is

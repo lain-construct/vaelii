@@ -20,10 +20,9 @@
 (tu/deftest-kb extended-core-vocabulary-is-documented
   (testing "metadata, negation, and virtual rule wrappers each have a comment"
     (doseq [term '[not contradicts ist disjoint disjointMetatype and lessThan greaterThan
-                   transitive symmetric reflexive functional inverse arity
+                   transitive symmetric asymmetric reflexive functional inverse arity
                    decontextualizedPredicate
                    predicate unaryPredicate binaryPredicate ternaryPredicate
-                   symmetricPredicate transitivePredicate reflexivePredicate functionalPredicate
                    set/forwardRule set/backwardRule set/inertRule set/defaultRule]]
       (is (= 1 (count (core-context/comment-of kb term))) (str "comment for " term))
       (is (string? (first (core-context/comment-of kb term)))))))

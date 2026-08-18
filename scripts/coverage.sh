@@ -141,7 +141,7 @@ fi
 
 PLUGIN_INJECT=(update-in :plugins conj "[lein-cloverage \"$CLOVERAGE_VERSION\"]" --)
 
-echo "lein ${PLUGIN_INJECT[*]} with-profile $PROFILE cloverage ${CLOVERAGE_ARGS[*]}  #-> $LOG"
+echo "lein ${PLUGIN_INJECT[*]} with-profile $PROFILE cloverage ${CLOVERAGE_ARGS[*]}  # $LOG"
 echo "(instruments all of src/ + runs the suite — this takes a while)"
 echo
 

@@ -187,6 +187,20 @@
   reason to prefer the looser fallback."
   true)
 
+(defn- all-fact-handles
+  "Every stored **fact** handle, both polarities — the sound candidate superset for a
+  pattern with nothing indexable to lead with (a fully-open dotted `(?pred . ?args)`,
+  which matches its functor at every arity).  The functor roots span both polarities and
+  hold only facts — a rule contributes only its context — so a union over the top-level
+  functors is exactly the fact extent, never a rule, which an open positive trie walk
+  would not surface either.  `match-one`'s `unify` and truth check filter it to the
+  believed positive facts."
+  [ix]
+  (into #{}
+        (comp (filter symbol?)                 ; a functor, not the :false / :rule tag
+              (mapcat #(p/sentexes-with-functor ix %)))
+        (p/children ix [])))
+
 (defn- candidate-handles
   "The stored handles to unify `pat` against — always a superset of the positional
   trie hits (so `match-one`'s `unify` filters it to the identical set), chosen to
@@ -227,7 +241,7 @@
   Zero-regression by construction — the diverted case is the one the trie answers
   with a full fan-out.
 
-  **The decision is named before it is taken.**  The `cond` below yields one of six
+  **The decision is named before it is taken.**  The `cond` below yields one of eight
   keywords and the `case` under it does the read, so the access path a shape chose is a
   value: `vaelii.impl.profile` tallies it, and a reader has a word for each branch rather
   than a position in a `cond`."
@@ -243,6 +257,16 @@
             var-fn? (and (symbol? f) (sx/variable? f))
             var-idx (first (keep-indexed (fn [i a] (when-not (sx/ground-term? a) i)) args))
             ground  (keep-indexed (fn [i a] (when (sx/indexable-term? a) [(inc i) a])) args)
+            ;; a dotted-rest pattern (`(pred . ?args)` / `(?pred . ?args)`) binds a
+            ;; trailing rest-variable, so it matches its functor at *any* arity; its
+            ;; canonical path carries the `.` marker as a level no stored fact has, so
+            ;; the trie finds nothing and the arity-spanning roots source it instead.
+            ;; `dot-ground` are the indexable arguments *before* the marker — the only
+            ;; real positional args a dotted pattern has.
+            dotted?    (sx/dotted? body)
+            dot-ground (when dotted?
+                         (keep-indexed (fn [i a] (when (sx/indexable-term? a) [(inc i) a]))
+                                       (take-while #(not= sx/dot-marker %) args)))
             ;; something is still open and a ground root sits past it — the functor
             ;; being open (`(?type Muffet)`) puts *every* argument behind it, and with
             ;; nothing indexable to lead with there is no root to read, so the trie
@@ -273,6 +297,20 @@
               (and (= :false (:truth pat)) (not (sx/ground-term? body)))
               (if (or pred (seq ground)) :negative-roots :negative-fan)
 
+              ;; **A dotted-rest pattern** matches its functor at every arity, but its
+              ;; canonical path holds the `.` marker as a token no stored fact does, so
+              ;; `p/lookup` finds nothing and no branch below diverts it (the `.` is a
+              ;; non-indexable-*shaped* symbol that would otherwise read as a stuck
+              ;; ground argument).  The secondary roots span every arity: a concrete
+              ;; functor (with any leading ground argument) reads its functor-scoped
+              ;; roots, an open functor with a leading ground argument the
+              ;; predicate-agnostic slot roster — both a superset `unify` filters exact.
+              ;; A fully-open `(?pred . ?args)` pins nothing indexable, so it takes the
+              ;; whole positive-and-negative fact extent, filtered to the exact
+              ;; positive-fact set the same way.
+              (and (= :true (:truth pat)) dotted?)
+              (if (or pred (seq dot-ground)) :dotted-roots :dotted-fan)
+
               ;; A ground argument sitting **after** a variable, which the trie can reach
               ;; only by fanning out over the intervening variable.  This wins over the
               ;; structural walk below even when the stuck argument is a compound: the
@@ -296,6 +334,8 @@
                             (into #{} (mapcat #(p/lookup ix (assoc pth 1 %)))
                                   (p/children ix [:false])))
           :arg-roots      (p/sentexes-with-args ix pred ground)  ; intersect the scoped arg roots
+          :dotted-roots   (p/sentexes-with-args ix pred dot-ground)  ; functor / leading-arg roots, any arity
+          :dotted-fan     (all-fact-handles ix)                      ; open functor, nothing to lead with
           :structural     (p/lookup ix (sx/path pat))
           :functor-extent (p/sentexes-with-functor ix pred)
           :trie           (p/lookup ix (sx/path pat)))))))
@@ -310,18 +350,28 @@
   `(fatherOf Tom Bob)` once `(genl fatherOf parentOf)` holds — the same subsumption the
   type hierarchy gives, applied to the predicate hierarchy.  When the functors are
   equal (the common case) or the antecedent's functor has no sub-predicates, this is a
-  plain unify, so nothing changes for a KB without predicate-genl edges."
-  [kb antecedent fact]
-  (if (and (unary? antecedent) (unary? fact))
-    (let [[t a]  antecedent
-          [t' x] fact]
-      (when (contains? (tax/specs (:taxonomy kb) t) t') (unify a x)))
-    (let [af (when (sequential? antecedent) (first antecedent))
-          ff (when (sequential? fact) (first fact))]
-      (if (and (symbol? af) (not (sx/variable? af)) (symbol? ff) (not= af ff)
-               (contains? (tax/specs (:taxonomy kb) af) ff))
-        (unify (rest antecedent) (rest fact))        ; sub-predicate: unify the arguments
-        (unify antecedent fact)))))
+  plain unify, so nothing changes for a KB without predicate-genl edges.
+
+  **The subsumption is scoped when a `context` is given**: the predicate-genl closure is
+  walked only through the edges that context can see, so a match reached through a `genl`
+  edge stated in a context the reader cannot see is not a match for it — a watcher in one
+  context stops answering through another's edge (`core/watch-match`), agreeing with what
+  `ask` from that context would say.  The two-arity is unscoped, for the callers that fix
+  visibility elsewhere: the forward trigger match (`chain/fire-rules-for`) is a candidate
+  filter whose placement re-derives the genlCx supporters the firing then rests on, so a
+  subsumption invisible to the placement context drops out at placement, not here."
+  ([kb antecedent fact] (match1 kb antecedent fact nil))
+  ([kb antecedent fact context]
+   (if (and (unary? antecedent) (unary? fact))
+     (let [[t a]  antecedent
+           [t' x] fact]
+       (when (contains? (tax/specs (:taxonomy kb) t context) t') (unify a x)))
+     (let [af (when (sequential? antecedent) (first antecedent))
+           ff (when (sequential? fact) (first fact))]
+       (if (and (symbol? af) (not (sx/variable? af)) (symbol? ff) (not= af ff)
+                (contains? (tax/specs (:taxonomy kb) af context) ff))
+         (unify (rest antecedent) (rest fact))        ; sub-predicate: unify the arguments
+         (unify antecedent fact))))))
 
 (defn subsuming-unify
   "Unify a query `goal` against a rule's `consequent`, honoring **predicate
@@ -335,15 +385,24 @@
   sub-predicates all fall through to a plain `unify` over the whole sentences, so
   nothing changes for a KB without predicate-genl edges, and a rule concluding a
   *supertype* or an unrelated predicate is correctly rejected (the functors do not
-  unify)."
-  ([kb goal consequent] (subsuming-unify kb goal consequent no-bindings))
-  ([kb goal consequent bindings]
+  unify).
+
+  **Scoped in lockstep with `match1`** (its forward twin): with a `context`, the
+  predicate-genl closure is walked only through the edges that context can see.  The
+  backward callers already scope the *candidate rule set* upstream
+  (`concluding-rule-handles … context`, via `provers/candidate-rules`), which reads the
+  same scoped closure — so passing the context here changes no answer today, and keeps
+  a future caller that skips that filter from subsuming through an invisible edge.  The
+  arities without a context are unscoped, for a caller with no vantage in hand."
+  ([kb goal consequent] (subsuming-unify kb goal consequent no-bindings nil))
+  ([kb goal consequent bindings] (subsuming-unify kb goal consequent bindings nil))
+  ([kb goal consequent bindings context]
    (let [gf (when (sequential? goal) (first goal))
          cf (when (sequential? consequent) (first consequent))]
      (if (and (symbol? gf) (not (sx/variable? gf))
               (symbol? cf) (not (sx/variable? cf))
               (not= gf cf)
-              (contains? (tax/specs (:taxonomy kb) gf) cf))
+              (contains? (tax/specs (:taxonomy kb) gf context) cf))
        (unify (rest goal) (rest consequent) bindings)
        (unify goal consequent bindings)))))
 
@@ -353,6 +412,13 @@
   fanning a new fact over its supertypes.  Computed as the intersection `specs(pred) ∩
   rules-by-consequent`: iterate the spec closure and probe the consequent index.  A
   variable or non-symbol `pred` cannot be a type, so it degrades to the plain lookup.
+
+  **Plus the variable-consequent catch-all.**  A rule concluding `(?p ?y ?x)` files its
+  consequent under `p/var-consequent-key` rather than under any concrete predicate (see
+  `rules/consequent-index-pred`), and could conclude *any* predicate once `?p` binds — so
+  its bucket is unioned into every answer.  Without it a goal on `likes` never discovers
+  a rule concluding `(?p …)`, and backward chaining is blind to exactly the rules the
+  consequent-var-pred feature exists to make reachable.
 
   **The answer is bounded by the concluding rules; the cost is bounded by the taxonomy.**
   One index probe per spec, so a goal on a type with 364 subtypes takes 364 probes to
@@ -365,10 +431,12 @@
   visible, mirroring the matching fan-out."
   ([kb pred] (concluding-rule-handles kb pred nil))
   ([kb pred context]
-   (if (and (symbol? pred) (not (sx/variable? pred)))
-     (into #{} (mapcat #(p/rules-by-consequent (:index kb) %))
-           (tax/specs (:taxonomy kb) pred context))
-     (p/rules-by-consequent (:index kb) pred))))
+   (let [var-conseq (set (p/rules-by-consequent (:index kb) p/var-consequent-key))]
+     (if (and (symbol? pred) (not (sx/variable? pred)))
+       (into var-conseq
+             (mapcat #(p/rules-by-consequent (:index kb) %))
+             (tax/specs (:taxonomy kb) pred context))
+       (into var-conseq (p/rules-by-consequent (:index kb) pred))))))
 
 (defn rule-visible-from?
   "May a rule stored in `rule-ctx` answer a goal asked from `context`?
@@ -439,6 +507,18 @@
     (if (and visible? (tax/merged? tax term) (not (tax/class-fully-visible? tax term visible?)))
       (second (tax/scoped-class tax term visible?))
       (tax/representative tax term))))
+
+(defn same-class-in?
+  "Do `a` and `b` denote one thing as `context` sees the merges?  The context-scoped
+  twin of `tax/same-class?`: two terms are one class here only when the edges that merged
+  them are visible up `context`'s `genlCx` cone, so a merge behind a supporter the reader
+  cannot see does not put them in one class for it.  A nil or `?var` context is unscoped
+  and gives the global answer `tax/same-class?` gives — the reads share `representative-in`,
+  which is one map lookup until an *invisible* edge actually splits the class."
+  [kb a b context]
+  (let [visible? (visible-supporter-fn kb context)]
+    (= (representative-in kb visible? a)
+       (representative-in kb visible? b))))
 
 (defn representative-term
   "`term` with every non-variable symbol replaced by its class representative
@@ -623,6 +703,88 @@
 
 (defn- mirror-pos [pos] (if (= pos 1) 2 1))
 
+(def ^:dynamic *arg-intersect*
+  "How `lead-candidates` narrows a NON-symmetric literal with **≥2 indexable ground
+  arguments**: the multi-column argument-root probe.  Rather than lead with the single
+  tightest bound column and let `unify` reject every candidate the other bound columns
+  disagree with, intersect the columns at the index so only the conjunction reaches
+  `unify` — \"fewest unifications\".
+
+  Every choice is a **pure cost decision**, like `*hierarchical-retrieval*`: the result
+  is a subset of the single leading column and still a *superset* of the true matches
+  (each match holds every bound term at its position), so `unify` and the context filter
+  run exactly as before and the answer *set* is identical.  A symmetric literal is left
+  on the mirror-widened single-column path — intersecting its forward columns would drop
+  the mirror-stored matches — as is a literal with fewer than two ground columns (the
+  belief-settle diet), so those paths are byte-for-byte the pre-v3 lead.
+
+    :two   intersect the two lowest-`count-with-arg` ground columns (default)
+    :all   intersect every indexable ground column
+    :gated :two, but only when the leading column is a wasteful superset — its agnostic
+           count exceeds `*arg-intersect-floor*`; below that a single `unify` sweep is
+           cheaper than allocating an intersection set
+    :off   the pre-v3 single leading column, no intersection
+
+  Chosen by measurement (`lein bench-argindex join`); bind it to compare."
+  :two)
+
+(def ^:dynamic *arg-intersect-floor*
+  "The `:gated` strategy's floor: skip the intersection when the leading (tightest)
+  column already returns no more than this many handles, where feeding that short
+  superset straight to `unify` costs less than allocating an intersection set."
+  16)
+
+(defn- multi-cols
+  "The ≥2 ground columns `lead-candidates` intersects (each `[pos term]`), or **nil** to
+  lead with the single tightest column — chosen by `*arg-intersect*`.  `sorted` is
+  `[[count [pos term]] …]`, smallest agnostic count first, so its head is the column the
+  single-column lead would have picked."
+  [sorted]
+  (case *arg-intersect*
+    :off nil
+    :all (mapv second sorted)
+    :gated (when (> (long (ffirst sorted)) *arg-intersect-floor*)
+             (mapv second (take 2 sorted)))
+    ;; :two — the default; bounded at two reads and one intersection
+    (mapv second (take 2 sorted))))
+
+(def ^:dynamic *lead-side*
+  "For a **non-symmetric** literal with a spec closure in hand, which side of the two
+  equivalent argument reads `lead-candidates` leads from — and the last cost decision in
+  this namespace to lack a knob.
+
+  A scoped literal's candidates can be read two ways, and each is a *superset*
+  `matches-hierarchical`'s `pred-ok?`/`ctx-ok?`/`jtms/in?`/`unify` filters reduce to the
+  identical set (like `*arg-intersect*`, a pure cost decision that must never change the
+  answer):
+
+    :scoped   one predicate-scoped bucket per sub-predicate (`[:argument-root pd pos
+              term]`).  Exactly this literal's predicates, O(|specs|) index probes — the
+              pre-v4 lead, and the reference `matches_hierarchical_test` forces to compare.
+    :agnostic one predicate-agnostic bucket (`[:argument-slot pos term]`, every functor
+              holding `term` at `pos`), narrowed to `specs` in memory.  One index probe.
+    :auto     (default) `:agnostic` when the term holds no more postings at this position
+              than there are specs, else `:scoped` — read whichever side is smaller.  The
+              choice is content-derived (`count-with-arg` vs a realised `count`, both
+              O(1)), so it is order-independent and free; `≤` ties to the one-probe read.
+
+  `:auto` is the whole of the cold-rebuild clash win: the queried type sits high and its
+  subtree spans the KB, while the term holds a handful of memberships, so `:scoped`'s
+  O(|hierarchy|) probes collapse to one.  `checks/membership-handles` reads this too —
+  `:scoped` runs its `matches-visible` reference, any other value leads from the term."
+  :auto)
+
+(defn- lead-agnostic?
+  "Does `lead-candidates` read the predicate-agnostic bucket (small side) rather than one
+  scoped bucket per spec — the choice `*lead-side*` gates.  `:auto` reads the count only
+  here, where the branch is actually taken."
+  [ix pos term specs]
+  (case *lead-side*
+    :scoped   false
+    :agnostic true
+    ;; :auto — read whichever side is smaller
+    (<= (long (p/count-with-arg ix pos term)) (count specs))))
+
 (defn- lead-candidates
   "A **lazy** superset of the matching handles, led by the tightest bound argument.
   The argument roots are scoped by predicate (`[:argument-root pred pos term]`), so
@@ -647,7 +809,16 @@
       (let [cnt (fn [[pos term]]
                   (cond-> (p/count-with-arg ix pos term)
                     sym? (+ (p/count-with-arg ix (mirror-pos pos) term))))
-            [pos term] (apply min-key cnt ground)
+            ;; A lone ground column needs no count: the old `min-key` returned its single
+            ;; argument without ever calling `cnt`, so pricing it here would be a read the
+            ;; belief-settle diet (`≤1` ground column) never spent.  Count only with ≥2
+            ;; columns — one agnostic count read each, the reads the old `min-key` took —
+            ;; sorted smallest first so the head is the tightest column to lead and the pair
+            ;; below is the one to intersect; `sort-by` is stable, so a tie resolves to the
+            ;; column `min-key` would have.
+            sorted (when (next ground)
+                     (sort-by first (mapv (fn [g] [(long (cnt g)) g]) ground)))
+            [pos term] (if sorted (second (first sorted)) (first ground))
             ;; The argument roots are scoped by predicate, so read each sub-predicate's
             ;; own bucket. That is the whole of the saving: the candidates arriving at
             ;; the filter below are this literal's predicates only, where the
@@ -656,18 +827,49 @@
             ;; ever reads back.  `lazy-mapcat`, not `mapcat`: one scoped read per
             ;; sub-predicate as the caller consumes, so an existence check still touches
             ;; one bucket, not `|specs|` of them.
-            scoped (fn [pd pz] (p/sentexes-with-args ix pd {pz term}))]
-        (if (seq specs)
+            scoped (fn [pd pz] (p/sentexes-with-args ix pd {pz term}))
+            ;; Multi-column narrowing: with ≥2 indexable ground columns on a non-symmetric
+            ;; literal, intersect them at the probe (`sentexes-with-args` folds the scoped
+            ;; leaves) so `unify` sees only the conjunction, not one wide column it then
+            ;; rejects the others against.  `nil` keeps the single leading column — the
+            ;; belief-settle diet (`≤1` ground column) and every symmetric literal, whose
+            ;; mirror matches a forward intersection would drop.  The intersection is a
+            ;; subset of that leading column and a superset of the matches, so the answer
+            ;; set is unchanged (`*arg-intersect*`).
+            cols   (when (and (not sym?) sorted) (multi-cols sorted))]
+        (cond
+          (seq cols)
+          (let [pt (into {} cols)]                     ; {pos term} — positions are unique
+            (if (seq specs)
+              (lazy-mapcat (fn [pd] (p/sentexes-with-args ix pd pt)) specs)
+              ;; a variable functor has no scope: intersect the predicate-agnostic columns
+              (p/sentexes-with-args ix nil pt)))
+
+          (seq specs)
           (if sym?
             (lazy-mapcat (fn [pd] (concat (scoped pd pos) (scoped pd (mirror-pos pos)))) specs)
-            (lazy-mapcat (fn [pd] (scoped pd pos)) specs))
+            ;; One scoped bucket per sub-predicate is one index probe per spec, which a
+            ;; broad functor's spec closure makes O(|hierarchy|) — the dominant cost of a
+            ;; cold rebuild's clash retrieval, where the queried type sits high and its
+            ;; subtree is huge while the term holds a handful of memberships.  The single
+            ;; predicate-agnostic bucket is then the smaller side: read it once and let the
+            ;; caller narrow the functor in memory.  `matches-hierarchical` is the sole
+            ;; caller and already filters every candidate by `pred-ok?` (`contains? specs`),
+            ;; so the agnostic bucket is a superset it reduces to the identical answer set —
+            ;; the contract this fn already advertises ("a lazy superset of the matching
+            ;; handles").  Which side, and when, is `*lead-side*`.
+            (if (lead-agnostic? ix pos term specs)
+              (p/sentexes-with-arg ix pos term)
+              (lazy-mapcat (fn [pd] (scoped pd pos)) specs)))
+
           ;; A variable functor names no predicate, so there is no scope to read: the
           ;; predicate-agnostic root (a union over the slot roster) is the whole
           ;; candidate set, and `unify` binds the functor per candidate.
-          (if sym?
-            (concat (p/sentexes-with-arg ix pos term)
-                    (p/sentexes-with-arg ix (mirror-pos pos) term))
-            (p/sentexes-with-arg ix pos term))))
+          sym?
+          (concat (p/sentexes-with-arg ix pos term)
+                  (p/sentexes-with-arg ix (mirror-pos pos) term))
+          :else
+          (p/sentexes-with-arg ix pos term)))
       (mapcat #(p/sentexes-with-functor ix %) specs))))
 
 (defn matches-hierarchical
@@ -713,6 +915,14 @@
                      (boolean (some #(contains? specs %) (tax/props tax :symmetric))))
           sym-preds (when sym? (tax/props tax :symmetric))
           seen  (volatile! #{})
+          ;; the **unify-attempt** tally: candidates that clear the cheap
+          ;; liveness/predicate/context filters and reach `unify`.  `prof?` is captured
+          ;; once — the instrument does not toggle inside one call — so when off the
+          ;; per-candidate cost is a `false` test, not a deref (zero perturbation on the
+          ;; timing path); on, it is what multi-column narrowing moves and `record-sift`
+          ;; reports.
+          prof? (prof/profiling?)
+          unifs (volatile! 0)
           ;; The pattern sentex is a function of the candidate's functor and context
           ;; alone — the argument list is the caller's, fixed for the whole call — and
           ;; building one canonicalizes and interns a whole sentence.  Candidates
@@ -740,36 +950,47 @@
       ;; the second retrieval decision in this namespace, and the one `candidate-handles`
       ;; never sees: `lead-candidates` picks its source from the same three facts, so the
       ;; label is computed from them here rather than plumbed back out of it.
-      (when (prof/profiling?)
-        (prof/record-literal sentence
-                             (cond
-                               (not (some sx/indexable-term? args)) :hier-functor-extent
-                               (seq specs)                          :hier-scoped-roots
-                               :else                                :hier-agnostic-roots)))
-      (keep (fn [h]
-              (when (and (not (contains? @seen h)) (jtms/in? (:tms kb) h))
-                (when-let [stored (p/get-sentex (:records kb) h)]
-                  (let [f' (some-> (sx/body stored) first)]
-                    ;; predicate-hierarchy filter (the sub-predicate closure) and
-                    ;; context-hierarchy filter (the genlCx up-closure), in memory;
-                    ;; an exceptWhen meta-sentex is internal bookkeeping and skipped, as
-                    ;; in `match-one` (the one non-ground stored Atomic)
-                    (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
-                               (pred-ok? f') (ctx-ok? (:context stored)))
-                      (let [;; concrete view: bind no ?ctx (match at the fact's own
-                            ;; context, which is in the up-closure); variable view:
-                            ;; bind ?ctx, exactly as match-one does
-                            pctx  (if up? (:context stored) '?ctx)
-                            order (fn [rev?]
-                                    (let [pat (pat-for f' pctx rev?)]
-                                      (when (= (:truth pat) (:truth stored))
-                                        (unify (:context pat) (:context stored)
-                                               (unify (:sentence pat) (:sentence stored))))))
-                            b (or (order false)
-                                  (when (and sym? (contains? sym-preds f'))
-                                    (order true)))]
-                        (when b (vswap! seen conj h) [h b stored])))))))
-            (lead-candidates kb specs args sym?)))))
+      (let [path (cond
+                   (not (some sx/indexable-term? args)) :hier-functor-extent
+                   (seq specs)                          :hier-scoped-roots
+                   :else                                :hier-agnostic-roots)
+            _    (when (prof/profiling?) (prof/record-literal sentence path))
+            cands (lead-candidates kb specs args sym?)
+            out
+            (keep (fn [h]
+                    (when (and (not (contains? @seen h)) (jtms/in? (:tms kb) h))
+                      (when-let [stored (p/get-sentex (:records kb) h)]
+                        (let [f' (some-> (sx/body stored) first)]
+                          ;; predicate-hierarchy filter (the sub-predicate closure) and
+                          ;; context-hierarchy filter (the genlCx up-closure), in memory;
+                          ;; an exceptWhen meta-sentex is internal bookkeeping and skipped, as
+                          ;; in `match-one` (the one non-ground stored Atomic)
+                          (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
+                                     (pred-ok? f') (ctx-ok? (:context stored)))
+                            (let [;; concrete view: bind no ?ctx (match at the fact's own
+                                  ;; context, which is in the up-closure); variable view:
+                                  ;; bind ?ctx, exactly as match-one does
+                                  pctx  (if up? (:context stored) '?ctx)
+                                  _     (when prof? (vswap! unifs inc))
+                                  order (fn [rev?]
+                                          (let [pat (pat-for f' pctx rev?)]
+                                            (when (= (:truth pat) (:truth stored))
+                                              (unify (:context pat) (:context stored)
+                                                     (unify (:sentence pat) (:sentence stored))))))
+                                  b (or (order false)
+                                        (when (and sym? (contains? sym-preds f'))
+                                          (order true)))]
+                              (when b (vswap! seen conj h) [h b stored])))))))
+                  cands)]
+        ;; returned-vs-matched, opt-in.  Realizing `out` walks the whole candidate seq,
+        ;; so `(count cands)` then reads the returned count and `(count v)` the matched;
+        ;; both only while the instrument is on, leaving the lazy short-circuit intact for
+        ;; a timing run (`vaelii.impl.profile/record-sift`).
+        (if (prof/profiling?)
+          (let [v (vec out)]
+            (prof/record-sift sentence path (count cands) (count v) @unifs)
+            v)
+          out)))))
 
 (defn excepted-handles
   "The handles hidden from `view-context` by believed `(except (sentexHandle H))`
@@ -1351,7 +1572,7 @@
                                 (for [rule (rules-fn g)
                                       :let [{:keys [antecedents consequent guard]}
                                             (freshen-rule rule taken)
-                                            b (subsuming-unify kb g consequent bindings)]
+                                            b (subsuming-unify kb g consequent bindings context)]
                                       :when b]
                                   {:goals    (into (-> (planned-antecedents
                                                         kb antecedents consequent context b

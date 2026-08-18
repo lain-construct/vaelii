@@ -141,7 +141,9 @@ have one.
 
 A minted rule is **justified** by the firing — antecedent handles plus the generator's
 own handle — not marked a premise. Both chainers ask belief of a rule before using it
-(`res/rule-believed?`), so when what licensed a mint goes, the ordinary relabel
+(`res/rule-believed?`) — the forward chainer on **every** firing path, the trigger match
+and the qualitative and preservation re-joins alike, since all three reach a rule off the
+storage-posted antecedent index — so when what licensed a mint goes, the ordinary relabel
 un-believes the mint, and the mint stops firing. Nothing has to hunt it down:
 
 ```clojure

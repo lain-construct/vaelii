@@ -73,8 +73,12 @@
     arity       {:enforced "checks/arity-problem at the door, settle/report-arity-reach! over content stored before it"}
     disjoint    {:enforced "taxonomy/add-disjoint, read by checks/disjoint-problems and arbitrated by settle"}
     disjointMetatype {:enforced "taxonomy/mark-disjoint-metatype — the clique consulted, never stored"}
-    functional  {:enforced "checks/functional-problems, and special/derive-functional-equalities on two symbols"}
-    asymmetric  {:enforced "checks/asymmetry-problem — a nogood against the converse"}
+    functional  {:enforced "checks/functional-problems, and special/derive-functional-equalities on two symbols; also a binaryPredicate type"}
+    asymmetric  {:enforced "checks/asymmetry-problem — a nogood against the converse; also a binaryPredicate type"}
+    irreflexive {:enforced "checks/irreflexivity-problem — a self tuple (P a a) is refused at the door; also a binaryPredicate type"}
+    antiSymmetric {:enforced "checks/antisymmetry-problems, and special/derive-antisymmetric-equalities merging two symbols a believed converse forces equal; also a binaryPredicate type"}
+    antiTransitive {:enforced "the classification and its disjointness with transitive — no predicate is both; a binaryPredicate type. The (P a b)(P b c) chain conviction is a three-party nogood the settle machinery does not yet form, so it is DEFERRED (docs/nmtms.md)"}
+    equivalenceRelation {:enforced "generic forward chaining: the three CxCore rules derive (symmetric P), (transitive P) and (reflexive P), each enforced in turn; also a binaryPredicate type"}
     variableArity {:enforced "checks/arity-problem — the one exemption from the arity check"}
     relationKind  {:enforced "generic: a disjointMetatype, so its two members separate each other"}
     instanceRelationPredicate {:enforced "checks/declaration-problem — an argGenl on one is refused"}
@@ -84,12 +88,16 @@
     ternaryPredicate {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
 
     ;; ---- predicate metadata answered by a prover --------------------------
-    transitive  {:enforced "taxonomy prop :transitive — the generic closure prover"}
-    symmetric   {:enforced "taxonomy prop :symmetric — canonical argument order, so both spellings are one sentex"}
-    reflexive   {:enforced "taxonomy prop :reflexive — the reflexive prover"}
+    ;; Each is both a *mark* (it maintains its taxonomy prop) and a *type*: `(genl X
+    ;; binaryPredicate)` in CxCore, so `(symmetric friendOf)` classifies friendOf as a
+    ;; binaryPredicate and a KB can be queried for what the mark implies — no separate
+    ;; derived `…Predicate` twin between them.
+    transitive  {:enforced "taxonomy prop :transitive — the generic closure prover; also a binaryPredicate type. (transitive genl) is stored but inert (closure-relations), so genl stays queryable without routing to the generic prover"}
+    symmetric   {:enforced "taxonomy prop :symmetric — canonical argument order, so both spellings are one sentex; also a binaryPredicate type"}
+    reflexive   {:enforced "taxonomy prop :reflexive — the reflexive prover; also a binaryPredicate type"}
     inverse     {:enforced "taxonomy/add-inverse — the prover that hands the swapped goal back"}
-    argPreserving        {:enforced "inherit — the argument reach along a declared transitive relation"}
-    argPreservingInverse {:enforced "inherit — the same, read backwards"}
+    transitiveInArg        {:enforced "inherit — the argument reach along a declared transitive relation"}
+    transitiveInArgInverse {:enforced "inherit — the same, read backwards"}
     abduciblePredicate   {:enforced "taxonomy prop :abducible — the gate on what abduce may hypothesize"}
 
     ;; ---- placement and lifting --------------------------------------------
@@ -131,12 +139,7 @@
 
     ;; ---- declared and read by nothing, on purpose -------------------------
     contradicts {:inert "a report form the engine *writes*: conflicts and contradictions compose it per settle. Nothing reads it as input, and asserting one would put a stale claim under truth maintenance."}
-    typeToInstancePred {:inert "a link, not a rule. Moving a claim between the type and instance levels needs a quantifier reading nothing here fixes, so the pairing is recorded for a reader and inferred from by nobody."}
-    functionalPredicate  {:inert "a derived predicate type, so a KB can be queried for what the mark implies. The checks read (functional P); this is its consequence, not its cause."}
-    symmetricPredicate   {:inert "a derived predicate type — see functionalPredicate."}
-    transitivePredicate  {:inert "a derived predicate type — see functionalPredicate. (transitivePredicate genl) is asserted so genl can be named as a preserved-along relation, which inherit reads through the taxonomy rather than through this type."}
-    reflexivePredicate   {:inert "a derived predicate type — see functionalPredicate."}
-    asymmetricPredicate  {:inert "a derived predicate type — see functionalPredicate."}})
+    typeToInstancePred {:inert "a link, not a rule. Moving a claim between the type and instance levels needs a quantifier reading nothing here fixes, so the pairing is recorded for a reader and inferred from by nobody."}})
 
 (defn classify
   "What the engine does with vocabulary term `term`: `{:enforced \"where\"}`,

@@ -106,7 +106,7 @@
        ;; `or` rather than `merge` defaults: a reply carrying `:type nil` — the key
        ;; present, the value useless — must not defeat the fallback.
        (throw (ex-info (str "vaelii daemon: " (:error reply))
-                       (-> (merge reply {:op op :args (vec args)})
+                       (-> (assoc reply :op op :args (vec args))
                            (update :type #(or % :daemon-error)))))))))
 
 (defn health

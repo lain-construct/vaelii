@@ -37,6 +37,11 @@
       (is (re-find #"Nothing has run yet" body))
       (is (not (re-find #"hx-trigger=\"every" body)) "and nothing polls")))
   (POST "/chain" {})
+  ;; the fast path answers synchronously on an idle box, but under matrix load the chain can
+  ;; outlast the request and still be `tag-running` when the screen is read.  This test is
+  ;; about what a *finished* run shows, so wait for the one job to settle first; that the
+  ;; fast path finishes inside the request is its own test below.
+  (jobs/wait (:id (first (jobs/jobs))) 30000)
   (testing "a finished run is on the screen with its report and the page its result is on"
     (let [body (:body (GET "/jobs"))]
       (is (re-find #"Chain Base KB" body))

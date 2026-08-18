@@ -12,14 +12,11 @@
 done with rules — the direct adjacency of the type graph is stored and the transitive
 closure is answered on demand (read-memoized per edge generation), never materialized.
 
-**Where the rule went, for a reader who looks for it.** A KB that computes transitivity
-in code rather than from a rule is a KB whose most important rule is written nowhere,
-and the spelling for writing one down without running it is the **inert rule**
-(`set/inertRule`, [inference.md](inference.md)): stored, believed, indexed under its
-predicates and browsable like any other rule, and chaining in neither direction — so the
-claim is on the record and no second engine computes it beside the closure. Asserting
-the same rule bare would not be documentation but a forward rule materializing what the
-cache already answers, one derived sentex per pair.
+**Where the rule went, for a reader who looks for it.** The spelling for recording
+transitivity without running it is the **inert rule** (`set/inertRule`,
+[inference.md](inference.md)): stored, believed, indexed under its predicates and
+browsable like any other rule, and chaining in neither direction. [why an inert rule
+rather than a forward one](defenses.md#an-inert-rule-records-transitivity-not-a-forward-rule)
 
 What the shipped ontology states this way today is the global lifting rule in
 `CxCore.txt`, not `genl`'s transitivity: `genl` carries its account in the
@@ -118,7 +115,7 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 | `transitive` `symmetric` `asymmetric` `reflexive` `functional` `forcedDecontextualizedPredicate` `abduciblePredicate` `reifiableFunction` `unreifiableFunction` | the predicate-metadata marks | `:derived?` |
 | `rewriteOf` `sameAs` `equals` | the equality partition, and migration | by name — the arm's return value is the twins and the violations, which `:derived?` would discard ([equality.md](equality.md)) |
 | `argIsa` `argGenl` `interArgIsa` | the roster of predicates some declaration of that kind names (`:declares-arg-isa` / `:declares-arg-genl` / `:declares-inter-arg-isa`), and the declarations themselves read back through the index per query | `:derived?` — the roster is what lets the descension ask *whose* declarations bind a tuple without an index probe per super-predicate |
-| `argPreserving` `argPreservingInverse` `functionCorrespondingPredicate` | none — read back through the index per query | nothing to reach |
+| `transitiveInArg` `transitiveInArgInverse` `functionCorrespondingPredicate` | none — read back through the index per query | nothing to reach |
 | `different` `unknown` `thereExists`, the five aggregates | none — never stored | nothing to reach: `wff` refuses the conclusion on the derivation path exactly as it refuses the assertion |
 
 **Two conclusions reach their cache only once a restart replays them**, and both are
@@ -495,6 +492,43 @@ All three are **free where nothing is declared**, which is every bulk load: an e
 marked roster seeds an empty walk, and a KB with no argument constraint never reaches
 the second arm.
 
+### Strength of a subsumption path
+
+A `genl` edge can itself be defeasible — asserted `{:strength :default}` rather than
+`:monotonic` — so reachability has a strength, and a firing that climbs the closure spends
+it. When a fact reaches an antecedent of a *different* functor (`(fatherOf Tom Bob)`
+satisfying `(parentOf ?x ?y)`), the supporters of the edges the match climbed become
+antecedents of the conclusion's justification, and `strength` caps the conclusion at their
+weakest class. So *which* path the walk names decides how strongly the conclusion holds.
+
+**The rank of a path is its floor — the `min` defeat class along it — and the walk names
+the path whose floor is highest.** This is the same fold `strength` applies to a
+justification's antecedents (`min` over the conjuncts), so it composes rather than
+inventing a second lattice; and it adds **no third class** — the rank of an edge is just
+the defeat class of the strongest believed supporter crossing it (`:monotonic` >
+`:default`). A path with one default edge and a path with nine defaults are the same floor:
+`:default`. Bottleneck, not a count.
+
+So on a hierarchy with two routes from `ff` to `af` — a one-hop edge asserted `:default`
+and a two-hop chain asserted `:monotonic` — a conclusion reached across it holds
+`:monotonic`, on the strong route, not `:default` on the short one. `tax/reach-support`
+takes an optional `supporter-class` (a live JTMS `defeat-class` read) and, given it, walks
+the **widest bottleneck** instead of the shortest path: highest floor, tie-broken by depth
+then by the same name order every closure read uses, so the choice is a function of the
+hierarchy and never of a handle (`docs/nmtms.md`). With exactly two classes the widest
+floor is found by trying each class as a threshold, highest first, and taking the first
+shortest path made only of edges that clear it. Each edge on the chosen path names its
+**strongest** supporter (most general among those at the top class, so placement is
+unchanged wherever two supporters tie on strength). `kb/reach-strength` reports the floor
+directly, derived from that same path so the number and the witness never disagree.
+
+The **shortest-path** walk (no `supporter-class`) is still what the `genlCx` visibility
+placement takes, and what an unstrengthened caller gets: fewest supports, most general
+supporter per edge. Only the `genl` subsumption a firing rests on asks for the widest one,
+because only there does a supporter's *class* — not just its existence and visibility —
+change an answer the engine gives. Why the widest bottleneck and not the shortest route:
+[defenses.md](defenses.md#the-subsumption-path-is-the-widest-bottleneck-not-the-shortest-route).
+
 ## Disjointness
 
 Two mechanisms declare that types share no instance; both are closed under `genl`
@@ -508,11 +542,9 @@ Two mechanisms declare that types share no instance; both are closed under `genl
   code rather than of the store. Asserting the metatype after its members, or a
   member after the metatype, both work; neither writes a `(disjoint …)` sentex.
 
-  Asserting the clique instead would mean n(n-1)/2 stored premises for n members, and
-  premises rather than justifications is a teardown no retraction can reach.
-  Recording makes teardown exact: dropping the metatype releases every pair
-  at once, and dropping one `(M T)` releases exactly that member's pairs while the
-  remaining members stay separated. The cost is that membership is in-memory, so
+  Recording rather than asserting the clique is deliberate — [why recording beats
+  asserting the clique](defenses.md#recording-a-disjoint-clique-beats-asserting-it).
+  The cost is that membership is in-memory, so
   `recover` re-reads the `(M T)` sentexes after marking the metatypes. The browser's
   disjointness list computes the induced disjoint pairs rather than querying for them,
   for the same reason — there are no `(disjoint …)` sentexes to query.
@@ -562,10 +594,8 @@ which is what it exists for.
 ### Enumerating instead of testing
 
 A goal with an open argument — `(disjoint a ?t)` — asks the other question: not *is
-this candidate separated* but *which types are*. Answering it by testing every type
-in the KB makes the cost of an answer a function of the vocabulary, which on an
-imported ontology is six figures ([kbs.md](kbs.md)) where a term's own declarations
-are three or four.
+this candidate separated* but *which types are*. [why the answer is not found by
+testing every type](defenses.md#the-answer-is-not-found-by-testing-every-type)
 
 So it is read off the same frame, the other way round. `tax/separating-partners` is
 every `y` a visible declaration separates `a` from — the pairs `a`'s supertypes carry
@@ -799,7 +829,7 @@ maintained by `integrate-sentex`:
   [naf.md](naf.md) carries for negation as failure and `provers.clj` carries for
   aggregates. So a `set/backwardRule` concluding `(P b c)` answers that goal when it is
   *asked*, and leaves the chain through `b` broken. A calculus entailment
-  ([qcn.md](qcn.md)) and an `argPreserving` conclusion ([inherit.md](inherit.md)) are
+  ([qcn.md](qcn.md)) and an `transitiveInArg` conclusion ([inherit.md](inherit.md)) are
   outside the step relation for the same reason. Materialize the hop with a forward rule
   and the walk crosses it, because then it is a stored fact.
 
@@ -861,7 +891,7 @@ maintained by `integrate-sentex`:
   which asymmetry alone would not license. `inherit/claims` skips the converse probe
   there for the same reason, and says so.
   It is also what gives the converse standing to deny a preserved claim, so it decides
-  whether `ArgPreservingProver` finds anything *against* one
+  whether `TransitiveInArgProver` finds anything *against* one
   ([inherit.md](inherit.md)).
 
   **`:pred` on the violation names the marked predicate, not the sentence's own
@@ -902,11 +932,42 @@ maintained by `integrate-sentex`:
 - `(functional P)` — a *constraint*: `assert` rejects a second, different value
   for the same first argument (`checks/functional-problems`). With equality this would
   instead unify the two values.
+- `(irreflexive P)` — a *constraint*, and the strict counterpart of `reflexive`: a self
+  tuple `(P a a)` is contradictory and refused at the door (`ex-info` `:type`
+  `:irreflexive`). Stronger than `asymmetric`, which **admits** the self tuple — asymmetry
+  needs a believed opposing sentex to convict and a lone tuple names none, where
+  irreflexivity refuses it outright. For the same reason it is never an arbitrable nogood:
+  there is no pair. A declaration arriving after a self tuple was stored is the `arity`
+  case rather than the `asymmetric` one — the tuple stands and the late mark reports rather
+  than defeats. `(genl asymmetric irreflexive)` classifies every asymmetric predicate as an
+  irreflexive one for a *query*, but does not set the `:irreflexive` property on it, so an
+  asymmetric predicate still admits its self tuple.
+- `(antiSymmetric P)` — a *constraint* that resolves by **merging**: a believed converse
+  `(P b a)` beside `(P a b)` forces the two arguments to be one thing, so the KB derives
+  `(equals a b)` and merges (`special/derive-antisymmetric-equalities`), the antisymmetric
+  twin of what `functional` does with two symbol values and the same three arrival
+  directions (fact, declaration, `genl` edge). The merge is justified by both facts and the
+  declaration, so retracting any one un-merges. A converse no equality could reconcile —
+  two numbers, a compound — is the hard contradiction refused at the door instead (`:type`
+  `:anti-symmetric`), like a numeric functional clash. A self tuple's converse is itself
+  and `(equals a a)` is trivial, so it is admitted.
+- `(antiTransitive P)` — DECLARED, and the chain conviction **deferred** (see
+  [nmtms.md](nmtms.md)). What is enforced is its classification and the disjointness
+  `(disjoint transitive antiTransitive)`: no predicate is declared both. The
+  `(P a b) ∧ (P b c) ⇒ ¬(P a c)` clash is a three-party nogood the settle machinery forms
+  only pairwise, and a partial door-only check would decide the same three facts
+  differently in different arrival orders.
+- `(equivalenceRelation P)` — no engine code: three shipped CxCore forward rules derive
+  `(symmetric P)`, `(transitive P)` and `(reflexive P)`, each a real mark the engine
+  enforces in turn. A `(genl equivalenceRelation symmetric)` subsumption edge would answer
+  the *query* but would not set the `:symmetric` property the enforcement reads, since a
+  genl-inherited membership is not a stored `symmetric` sentex the mark ingestion sees — so
+  the rules, which materialize that sentex, are the minimal correct expression.
 
-**The three constraint marks are read up the predicate hierarchy; the generative marks
+**The constraint marks are read up the predicate hierarchy; the generative marks
 are not.** Which family a mark belongs to decides whether it descends, and the reader
-differs by mark. `tax/props-over` walks up for `asymmetric` and `functional`, the two of
-the three that are `::prop-kind` marks on the `:props` roster. `arity` is no prop at all:
+differs by mark. `tax/props-over` walks up for `asymmetric`, `functional`, `irreflexive`
+and `anti-symmetric`, the `::prop-kind` marks on the `:props` roster. `arity` is no prop at all:
 `checks/declared-arity` reads it off the arity table and the predicate-type memberships,
 falling back to `inherited-arity` where the predicate declares nothing of its own. And
 `inverse` has a reader of its own, `tax/inverses-under`, which walks the hierarchy the
@@ -917,7 +978,9 @@ other way.
 | `arity`, and the predicate-type memberships | yes — read where the sub-predicate declares none of its own, and where it declares one the two are held to **match** | a ternary `fatherOf` fact is a ternary `parentOf` tuple |
 | `asymmetric` | yes | `(fatherOf a b)` beside `(parentOf b a)` is two `parentOf` tuples one way round each |
 | `functional` | yes | two `fatherOf` mothers for one child are two `parentOf` values |
-| `transitive`, `symmetric`, `reflexive`, `argPreserving` | **no** | a licence generates tuples, and generating them under a predicate nobody declared preserving is manufacturing knowledge |
+| `irreflexive` | yes | a `fatherOf` self tuple is a `parentOf` self tuple |
+| `anti-symmetric` | yes | a `fatherOf` pair both ways is a `parentOf` pair both ways, merged under the super's mark |
+| `transitive`, `symmetric`, `reflexive`, `transitiveInArg` | **no** | a licence generates tuples, and generating them under a predicate nobody declared preserving is manufacturing knowledge |
 | `inverse` | the other direction — a partner on a **sub**-predicate answers the super's goal (`tax/inverses-under`) | a hop recorded either way round is a hop |
 
 Each of the three convicted on the exact functor while the machinery it convicts *with*
@@ -954,25 +1017,26 @@ Predicates are **reified** and classified in the genl hierarchy under `predicate
 
 - by arity — `unaryPredicate` (every type, plus one-place properties like `flies`),
   `binaryPredicate` (relations like `parentOf`), `ternaryPredicate` (`argIsa`);
-- by algebra — `symmetricPredicate` / `asymmetricPredicate` / `transitivePredicate` /
-  `reflexivePredicate` / `functionalPredicate`, all subtypes of `binaryPredicate`.
+- by algebra — `symmetric` / `asymmetric` / `transitive` / `reflexive` / `functional`,
+  each a subtype of `binaryPredicate`.
 
-The algebraic memberships are **derived from the metadata**: CxCore carries rules
-`(implies (and (symmetric ?p)) (symmetricPredicate ?p))` (and likewise for the others),
-so one declaration drives both the generic prover and the type membership. The rule
-names **no** context, and that is load-bearing rather than incidental — the conclusion
-places by the ordinary rule, in the context the declaration was made in, so a predicate
-declared symmetric privately gets its membership privately too
-([contexts.md](contexts.md), "Do not name CxCore in them"). Arity memberships are asserted directly
-(every genl type is looped into `unaryPredicate`). So `isa? siblingOf
-symmetricPredicate`, `isa? siblingOf binaryPredicate`, and `isa? siblingOf
-predicate` all hold, and `isa? dog unaryPredicate` / `isa? argIsa ternaryPredicate`.
+The algebraic marks are **the classification itself** — no derived `…Predicate` twin.
+Each mark is one predicate doing two jobs: `(symmetric siblingOf)` maintains the
+`:symmetric` taxonomy property (canonicalization, the generic prover) **and**, through
+`(genl symmetric binaryPredicate)` in CxCore, *is* a membership in a `binaryPredicate`
+subtype. The mark is a `decontextualizedPredicate`, so `(symmetric P)` is stated once and
+seen KB-wide (the definitional reads and the structural ones agree), while a bare KB keeps
+it in its declaring context. Arity memberships are likewise direct (every genl type is
+looped into `unaryPredicate`). So `isa? siblingOf symmetric`, `isa? siblingOf
+binaryPredicate`, and `isa? siblingOf predicate` all hold, and `isa? dog unaryPredicate` /
+`isa? argIsa ternaryPredicate`.
 
-The same algebraic memberships are *also* answerable straight from the metadata by
-the `PredicateTypeProver` (via `taxonomy/props`), so `ask (symmetricPredicate ?p)`
-returns the declared predicates without touching the materialized facts. Belt and
-suspenders: `isa?` reads the facts, `ask` reads the metadata (see
-[inference.md](inference.md)).
+Because the mark is a stored fact, `ask (symmetric ?p)` enumerates the declared predicates
+by ordinary retrieval — the same answer `isa?` reads, from the same store, with no separate
+prover (see [inference.md](inference.md)). `genl` / `genlCx` are the `closure-relations`
+exception: `(transitive genl)` is stored and enumerable but held out of the `:transitive`
+property machinery, so the engine keeps answering their transitivity from its own cached
+closures rather than the generic prover.
 
 ## Well-formedness (`vaelii.impl.wff`)
 
@@ -1011,7 +1075,7 @@ seen from the writing context. A `genl` edge the writer cannot see imports no
 constraint, for the reason its memberships are read the same way.
 
 The line, because the other direction is the mistake: **a generative property does not
-descend.** `argPreserving`, `transitive`, `symmetric` and `reflexive` are claims *about
+descend.** `transitiveInArg`, `transitive`, `symmetric` and `reflexive` are claims *about
 a relation* and stay with the predicate that carries them —
 [inherit.md](inherit.md), "A declaration is read for the goal's own predicate". Dogs
 being larger than cats does not make every subkind *much* larger. Refusal-side

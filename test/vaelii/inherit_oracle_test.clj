@@ -59,8 +59,8 @@
       (doseq [chain [chain-a chain-b]
               [sub sup] (partition 2 1 chain)]
         (v/assert kb (list 'genl sub sup) ctx))
-      (v/assert kb (list 'argPreserving pred 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving pred 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg pred 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg pred 2 'genl) ctx))
     (v/with-deferred-settle kb
       (dotimes [_ n]
         (let [a (nth chain-a (.nextInt rng (count chain-a)))
@@ -92,8 +92,8 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl cat_t feline_t) ctx)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) ctx))
     (v/assert kb (list 'not (list largerThan animal_t feline_t)) ctx)
     (let [cs (both-paths-agree kb (list largerThan dog_t cat_t))]
       (is (= [:against] (mapv :polarity cs)))
@@ -105,8 +105,8 @@
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl cat_t feline_t) ctx)
       (v/assert kb (list 'asymmetric largerThan) ctx)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) ctx))
     ;; the converse of the goal's direction: it denies (largerThan animal feline)
     (v/assert kb (list largerThan feline_t animal_t) ctx)
     (let [cs (both-paths-agree kb (list largerThan dog_t cat_t))]
@@ -120,8 +120,8 @@
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl cat_t feline_t) ctx)
       (v/assert kb (list 'genl muchLargerThan largerThan) ctx)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) ctx))
     (v/assert kb (list muchLargerThan animal_t feline_t) ctx)
     (let [cs (both-paths-agree kb (list largerThan dog_t cat_t))]
       (is (= 1 (count cs)))
@@ -134,8 +134,8 @@
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl cat_t feline_t) ctx)
       (v/assert kb (list 'symmetric nearTo) ctx)
-      (v/assert kb (list 'argPreserving nearTo 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving nearTo 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg nearTo 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg nearTo 2 'genl) ctx))
     ;; stated in the other order: only the mirror reaches the goal's tuple
     (v/assert kb (list nearTo feline_t animal_t) ctx)
     (let [cs (both-paths-agree kb (list nearTo dog_t cat_t))]
@@ -147,8 +147,8 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl cat_t feline_t) ctx)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) ctx))
     ;; the same sentence twice, at two strengths, in two contexts CxSide sees
     (v/assert kb (list largerThan animal_t feline_t) ctx {:strength :default})
     (v/assert kb (list largerThan animal_t feline_t) CxSide {:strength :monotonic})
@@ -162,8 +162,8 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl cat_t feline_t) ctx)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) ctx))
     (v/assert kb (list largerThan animal_t feline_t) ctx)
     (is (empty? (both-paths-agree kb (list largerThan bird_t cat_t)))
         "bird is not below animal, so nothing reaches this tuple")))
@@ -172,7 +172,7 @@
   (tu/with-terms [dog_t animal_t cat_t largerThan]
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl dog_t animal_t) ctx)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx))
     (v/assert kb (list largerThan animal_t cat_t) ctx)
     (testing "the pinned argument must match exactly"
       (is (seq (both-paths-agree kb (list largerThan dog_t cat_t))))
@@ -183,8 +183,8 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl cat_t feline_t) ctx)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) ctx))
     (let [h (v/assert kb (list largerThan animal_t feline_t) ctx)]
       (is (seq (both-paths-agree kb (list largerThan dog_t cat_t))))
       (v/retract! kb h)

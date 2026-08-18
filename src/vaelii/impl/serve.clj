@@ -130,6 +130,9 @@
    :find-terms   (op v/find-terms)
    :forward-chain (op v/forward-chain)
    :chain-stats  (op v/chain-stats)
+   ;; the per-rule breakdown behind chain-stats — what each forward rule placed, refused
+   ;; (and why), or never did — read O(rules) off the ledger and the justification graph
+   :chain-report (op v/chain-report)
    :conflicts    (op v/conflicts)
    :contradictions (op v/contradictions)
    :violations   (op v/violations)
@@ -141,6 +144,11 @@
    ;; how a goal would be answered: the provers bearing on it with their estimates, or
    ;; for a conjunction the join order and the counts behind it
    :query-plan   (op v/query-plan)
+   ;; and the run that plan predicts: the search tree as data, and the same goal under
+   ;; several tacticians side by side.  Both bound their own work (a node budget + a
+   ;; wall-clock), so a remote reader cannot turn one call into an unbounded search
+   :search-tree       (op v/search-tree)
+   :compare-tacticians (op v/compare-tacticians)
    ;; introspection reads — the surface a read client (the browser) needs to render
    ;; a KB it does not own; safe to serve, and shared with vaelii.impl.access
    :premise?     (op v/premise?)

@@ -54,15 +54,15 @@
                       (throw (ex-info "(do/labeling Ctx [Base]) wants context names"
                                       {:type :not-assertible :sentence sentence})))
                     (f kb ctx (or base context)))
-      do/label    (let [[base into mode] args]
-                    (when-not (and (ctx-arg? base) (ctx-arg? into)
+      do/label    (let [[base into-cx mode] args]
+                    (when-not (and (ctx-arg? base) (ctx-arg? into-cx)
                                    (or (= 2 (count args))
                                        (and (= 3 (count args)) (#{:one :sat :all} mode))))
                       (throw (ex-info "(do/label Base Into [:one|:sat|:all]) wants two context names and an optional mode"
                                       {:type :not-assertible :sentence sentence})))
-                    (f kb base into (or mode :all)))
-      do/classify (let [[into] args]
-                    (when-not (and (ctx-arg? into) (= 1 (count args)))
+                    (f kb base into-cx (or mode :all)))
+      do/classify (let [[into-cx] args]
+                    (when-not (and (ctx-arg? into-cx) (= 1 (count args)))
                       (throw (ex-info "(do/classify Into) wants one context name"
                                       {:type :not-assertible :sentence sentence})))
-                    (f kb into)))))
+                    (f kb into-cx)))))

@@ -149,7 +149,7 @@
   "Every `:type` on the refusal surface, by hand.  Going stale is the feature: a new
   or renamed keyword fails the comparison below until it is added here deliberately —
   with a changelog entry, since callers discriminate on it (CONTRIBUTING.md §3.8)."
-  #{:already-loaded :arg-constraint-kind :arg-genl :arg-position
+  #{:already-loaded :anti-symmetric :arg-constraint-kind :arg-genl :arg-position
     :arg-type :arity :asymmetric :bad-algebra :bad-arg
     :bad-args :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
     :bad-level :bad-registrant :bad-reply
@@ -157,7 +157,7 @@
     :context-escape :cross-origin :daemon-error :damaged-dictionary
     :disjoint :disk-locked :duplicate-handle :error
     :exception-not-closed :export-busy :frozen-base :functional
-    :incomplete-racer :inter-arg-type :internal-error :job-busy :labeling-inconsistent
+    :incomplete-racer :inter-arg-type :internal-error :irreflexive :job-busy :labeling-inconsistent
     :llm-api-error :llm-bad-credential :llm-bad-response :llm-encode
     :llm-no-credential :llm-not-applicable :llm-timeout
     :malformed-entry :malformed-record :missing-resource :naf-justification

@@ -116,7 +116,7 @@
 (deftest an-unknown-selection-names-the-axis-it-belongs-to
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown KB backend"
                         (v/open-kb {:backend :nonesuch})))
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown record backend .* :memory or :disk"
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown record backend .* :memory, :disk or :sqlite"
                         (v/open-kb {:records :nonesuch :index :memory})))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"unknown index backend .* :memory, :dense, :columnar, or :disk"

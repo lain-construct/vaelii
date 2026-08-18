@@ -107,7 +107,7 @@
   derived from a workload nobody stored, so nothing it holds is knowledge and re-running
   the workload recomputes it."
   []
-  (reset! tally {:t0 (System/nanoTime) :goals {} :reads {} :fan {} :writes {} :retracts {}})
+  (reset! tally {:t0 (System/nanoTime) :goals {} :reads {} :fan {} :sift {} :writes {} :retracts {}})
   nil)
 
 (defn- read-out [t]
@@ -122,6 +122,7 @@
        :goals   {[functor truth adornment path] count}
        :reads   {family count}
        :fan     {first-token {:calls :visits :widest :handles :decades {n count}}}
+       :sift    {[functor truth adornment path] {:calls :returned :unified :matched}}
        :writes  {functor {:asserts :levels :terms :roots :roster :slots}}
        :retracts {functor {:retracts :levels :terms :roots :roster :slots :dead}}}"
   []
@@ -182,6 +183,40 @@
   [family]
   (when @tally
     (swap! tally update-in [:reads family] (fnil inc 0))))
+
+;; ---- the sift tally -----------------------------------------------------
+
+(defn- bump-sift [row ^long returned ^long matched ^long unified]
+  (-> row
+      (update :calls    (fnil inc 0))
+      (update :returned (fnil + 0) returned)
+      (update :matched  (fnil + 0) matched)
+      (update :unified  (fnil + 0) unified)))
+
+(defn record-sift
+  "Tally one hierarchical retrieval's three widths: how many candidate handles the
+  argument-root probe (`lead-candidates`) handed the matcher (`returned`), how many of
+  those reached `unify` after the cheap liveness/predicate/context filters (`unified` —
+  the **unify-attempt** count), and how many survived to become actual matches
+  (`matched`).  Keyed by the literal's shape and the retrieval path, like `:goals`.
+
+  `returned` is the read-efficiency number an index-layout change is judged on: a probe
+  that returns a wide superset the filter then discards is doing work a tighter key would
+  not.  `unified` is what **multi-column narrowing** moves directly — intersecting the
+  ground columns at the probe hands `unify` a smaller set, so a wide column the second
+  bound argument would have rejected never reaches it.
+
+  A deref and a `nil?` check when the instrument is off — and the call site realizes the
+  full candidate seq only while collecting, so a timing run (instrument off) keeps the
+  lazy short-circuit an existence check relies on.
+
+  Unhinted args: a fn taking primitive `long`s is capped at four, and this takes five —
+  the counts box, which costs nothing off the timing path (this is only reached while
+  collecting)."
+  [sentence path returned matched unified]
+  (when @tally
+    (swap! tally update-in [:sift (shape-of sentence :true path)]
+           bump-sift (long returned) (long matched) (long unified))))
 
 ;; ---- the fan tally ------------------------------------------------------
 

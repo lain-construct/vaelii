@@ -112,6 +112,105 @@
 (defn args    [sentence] (when (sequential? sentence) (rest sentence)))
 (defn arity   [sentence] (if (sequential? sentence) (dec (count sentence)) 0))
 
+;; ---- a structural order on sentence / context content --------------------
+;; Clash reports and `(contradicts …)` sentences are read in a stable, arrival-free
+;; order, and the tempting way to buy one is a `pr-str` key: cheap, and a string's
+;; lexicographic order is total.  It has two costs the engine was already bitten by
+;; (`kb/antecedent-order`, `solve/content-key`, `settle/content-order`).  It allocates
+;; a String per element per comparison — the keyfn runs inside the comparator, so a
+;; sort builds it ~2·n·log₂n times.  And an ambient `*print-length*` / `*print-level*`
+;; — a REPL's, typically — elides two long sentences to one prefix, collapsing the key
+;; and dropping the tie back onto arrival order, the very dependence a content order
+;; exists to remove.  Those sites bind the print vars off; `compare-form` never prints.
+
+(defn- form-rank
+  "A total order on the *kinds* of thing a sentence is built from, so `compare-form`
+  never throws on a mixed pair — which `clojure.core/compare` does across types — and
+  orders them deterministically instead.  A sentence is EDN: symbols (predicates,
+  terms, contexts, `?vars`), numbers, strings, keywords, booleans, and the one nested
+  kind a literal or a term is — a sequential."
+  [x]
+  (cond
+    (nil? x)        0
+    (boolean? x)    1
+    (number? x)     2
+    (char? x)       3
+    (string? x)     4
+    (keyword? x)    5
+    (symbol? x)     6
+    (sequential? x) 7
+    :else           8))
+
+(defn compare-form
+  "A structural total order on sentence / context content — what a clash report's sides
+  and a `(contradicts …)` sentence are ordered by — computed by walking the two forms
+  in place rather than printing them.  A drop-in `Comparator` for `sort` / `sort-by`.
+
+  Total and deterministic, and read from **content alone**: no handle enters it, so a
+  tie it breaks is broken the same way in every arrival order.  Different kinds order by
+  `form-rank`; same-kind scalars by the natural `compare` (symbols by ns then name,
+  numbers numerically, and so on); two sequentials element by element, then shorter
+  first — so `(a)` precedes `(a b)`.  The last-resort `:else` is unreachable for
+  well-formed sentence content and totalizes the order for an exotic value alone.
+
+  The order is arbitrary but stable, which is the contract a content order owes
+  (docs/nmtms.md).  It is deliberately **not** the lexicographic order `pr-str` gave —
+  `(a)` before `(a b)` where the printed forms compared the other way — so a caller that
+  had pinned that exact reading re-pins this one."
+  [a b]
+  (let [ra (form-rank a) rb (form-rank b)]
+    (cond
+      (not= ra rb) (compare ra rb)
+      (= 7 ra)     (loop [xs (seq a) ys (seq b)]
+                     (cond
+                       (and (nil? xs) (nil? ys)) 0
+                       (nil? xs)                 -1
+                       (nil? ys)                  1
+                       :else (let [c (compare-form (first xs) (first ys))]
+                               (if (zero? c) (recur (next xs) (next ys)) c))))
+      (= 0 ra)     0
+      (= 8 ra)     (compare (str a) (str b))
+      :else        (compare a b))))
+
+(defn sort-by-content-key
+  "`coll` ordered by `(keyfn element)` under `cmp` — the decorate-sort-undecorate the
+  engine's content orders share, in one place.  It closes at once the three costs the
+  scattered `sort-by <expensive-key>` sites each paid:
+
+  * **The key is built once per element, not once per comparison.**  `sort-by` calls its
+    key fn from inside the comparator, so a plain `(sort-by keyfn coll)` rebuilds the key
+    ~2·n·log₂n times; here one `mapv` decorates each element with its key, the pairs sort
+    on the key alone, and the key is stripped.  When the key is a `get-sentex` per
+    antecedent, a `pr-str`, or a taxonomy-closure read, that is the difference between n
+    builds and n·log n.
+  * **Below two there is nothing to order** — a collection of zero or one is already in
+    its own order and the key is what orders, so no key is built at all.  This is the
+    shape `supporting-justifications` on a one-justification fact meets on every proof hop.
+  * **`cmp` defaults to `compare-form`** — structural, so no String is printed to compare
+    two forms.  Pass `compare` when the key is a pre-built `Comparable` tuple (a
+    `[rank …]` priority vector, or a `pr-str` whose lexicographic order is the contract).
+
+  Stable: `sort-by` keeps equal-keyed elements in `coll`'s order, so a tie falls to
+  arrival only after the content key has had its say — never onto a handle."
+  ([keyfn coll] (sort-by-content-key keyfn compare-form coll))
+  ([keyfn cmp coll]
+   (let [v (vec coll)]
+     (if (< (count v) 2)
+       v
+       (->> v (mapv (fn [x] [(keyfn x) x])) (sort-by first cmp) (mapv second))))))
+
+(defn min-by-content-key
+  "The `sort-by-content-key`-least element of `coll` — `(first (sort-by-content-key keyfn cmp coll))`
+  in a single pass, building the key once per element where the sort would build it once
+  and then discard all but the first.  Ties keep the earliest arrival, exactly as the
+  stable sort's `first` would.  nil for an empty `coll`.  `cmp` defaults to `compare-form`."
+  ([keyfn coll] (min-by-content-key keyfn compare-form coll))
+  ([keyfn cmp coll]
+   (when-let [s (seq coll)]
+     (second
+      (reduce (fn [a b] (if (neg? (long (cmp (first b) (first a)))) b a))
+              (map (fn [x] [(keyfn x) x]) s))))))
+
 ;; ---- the literals of a sentence ------------------------------------------
 ;; A naming invariant is about a **literal** — a predicate applied to arguments.
 ;; Everything else a sentence is built from is a *frame*: a structural connective

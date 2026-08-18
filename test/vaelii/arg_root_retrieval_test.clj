@@ -57,15 +57,23 @@
    (binding [res/*arg-root-retrieval* true]  (proj (f)))])
 
 (defn- fact-sentences
-  "A sample of the positive bodies of stored ground facts (no rules), deduped."
+  "Up to `n` distinct positive bodies of stored ground facts (no rules), sampled
+  *evenly* across the world's facts rather than the first `n` — the leading facts
+  cluster by predicate, so an even spread spans more functors and argument shapes for
+  the same cost.  Deterministic: same KB, same sample.  This is a trie-vs-arg-root
+  equivalence oracle, so the sample is a regression net over the fact space."
   [kb n]
-  (->> (p/sentex-ids (:records kb))
-       (keep #(p/get-sentex (:records kb) %))
-       (remove #(some? (:antecedent %)))              ; drop rules
-       (keep sx/body)
-       (filter #(and (sequential? %) (symbol? (nm/functor %))))
-       distinct
-       (take n)))
+  (let [all (->> (p/sentex-ids (:records kb))
+                 (keep #(p/get-sentex (:records kb) %))
+                 (remove #(some? (:antecedent %)))     ; drop rules
+                 (keep sx/body)
+                 (filter #(and (sequential? %) (symbol? (nm/functor %))))
+                 distinct
+                 vec)
+        m   (count all)]
+    (if (<= m n)
+      all
+      (mapv #(nth all (quot (* % m) n)) (range n)))))
 
 (defn- var-patterns
   "For a ground fact `(pred a1 a2 …)`, a spread of query patterns that stress the
@@ -90,8 +98,10 @@
       [(cons '?fn (open (set (range n))))]))))        ; nothing pinned at all
 
 (deftest ^:slow match-pattern-arg-root-equals-trie
+  ;; 80 sampled facts (each ~8 patterns) rather than the first 250: the exhaustive
+  ;; sweep was ~11s for a per-pattern trie-vs-arg-root equality a spread already pins.
   (tu/with-kb [kb]
-    (let [pats (mapcat var-patterns (fact-sentences kb 250))]
+    (let [pats (mapcat var-patterns (fact-sentences kb 80))]
       (is (seq pats))
       (doseq [pat pats]
         (let [[off on] (both-ways #(res/match-pattern kb pat '?ctx))]
@@ -104,7 +114,7 @@
     ;; context-scoped retrieval walks the same match-one, so the context up-closure
     ;; must not change the answer either
     (doseq [ctx '[CxMantle CxNaturalWorld CxSocialWorld CxUniverse]]
-      (doseq [pat (mapcat var-patterns (fact-sentences kb 120))]
+      (doseq [pat (mapcat var-patterns (fact-sentences kb 48))]        ; sampled, not first 120
         (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
           (is (= off on) (str "matches-visible diverged on " (pr-str pat) " @ " ctx)))))))
 

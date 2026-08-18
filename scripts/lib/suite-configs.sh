@@ -32,9 +32,9 @@ ALL_BACKENDS=(memory memory-dense memory-columnar
 # Cheapest first, so a matrix that is going to fail on the retrieval switch says so
 # before spending twenty minutes on the node engine.  Kept as parallel arrays rather
 # than one associative array: bash 3.2 is what macOS ships, and `declare -A` is bash 4.
-ALL_SWEEPS=(tms-dense rete hier-off query-engine tactician)
+ALL_SWEEPS=(tms-reference rete hier-off query-engine tactician)
 SWEEP_ENVS=(
-  "VAELII_TEST_TMS=dense"
+  "VAELII_TEST_TMS=reference"
   "VAELII_RETE=1"
   "VAELII_HIER=0"
   "VAELII_QUERY_ENGINE=inference"

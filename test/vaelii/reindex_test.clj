@@ -38,3 +38,29 @@
         (v/recover kb)
         (testing "every read answers as before the index was destroyed"
           (is (= before (snap))))))))
+
+(deftest reindex-rebuilds-a-variable-consequent-rule
+  ;; A rule concluding `(?p ?x ?y)` (reasoning/27's consequent half) files its consequent
+  ;; under the `p/var-consequent-key` catch-all rather than a canonical `?var0`.  `reindex`
+  ;; must rebuild that posting from the record so a backward goal still reaches the rule.
+  ;; A `set/backwardRule` isolates the backward path: it never fires forward, so the
+  ;; conclusion is reachable only by expanding the rule from `concluding-rule-handles`.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (tu/with-terms [holds loves Tom Ann]
+      (v/assert kb (list 'set/backwardRule
+                         (list 'implies (list holds '?p '?x '?y) (list '?p '?x '?y)))
+                'CxUniverse)
+      (v/assert kb (list holds loves Tom Ann) 'CxUniverse)
+      (let [var0?  (fn [t] (re-find #"var0" (str t)))
+            snap   (fn [] {:backward? (v/provable? kb (list loves Tom Ann) 'CxUniverse)
+                           :roster-clean? (not-any? var0? (p/terms (:index kb)))})
+            before (snap)]
+        (testing "the backward goal reaches the var-consequent rule, and ?var0 never rostered"
+          (is (:backward? before))
+          (is (:roster-clean? before)))
+        (p/clear-index! (:index kb))
+        (let [{:keys [rules]} (reindex/reindex kb)]
+          (is (= 1 rules) "the var-consequent rule was re-registered"))
+        (v/recover kb)
+        (testing "and both survive a rebuild from the records alone"
+          (is (= before (snap))))))))

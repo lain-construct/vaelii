@@ -210,8 +210,8 @@ position. Nesting is not capped. → [generators.md](generators.md)
   `variableArity`, and `asymmetric` is not a substitute for the first: it convicts
   against a believed converse, and a self-tuple has none.
 
-`transitiveViaArg` is **not** on this list, though the name has no counterpart:
-`(argPreserving P n R)` and `(argPreservingInverse P n R)` carry a claim about argument
+`transitiveViaArg` is **not** on this list — it is spelled `transitiveInArg` here:
+`(transitiveInArg P n R)` and `(transitiveInArgInverse P n R)` carry a claim about argument
 `n` across any declared-transitive `R`, with the direction and the argument position
 declared separately → [inherit.md](inherit.md).
 

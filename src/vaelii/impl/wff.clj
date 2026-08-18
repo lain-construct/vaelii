@@ -133,7 +133,7 @@
     (nm/individual? utype) (conj (str utype " is an individual; " f " expects a type"))))
 
 (defn arg-preserving-problems
-  "`argPreserving` / `argPreservingInverse` — a predicate, a positive-integer
+  "`transitiveInArg` / `transitiveInArgInverse` — a predicate, a positive-integer
   position, and the relation the argument is preserved along.  Structurally the arg
   constraints' shape, plus the one restriction that is the whole point of the
   declaration: **the relation must be transitive.**

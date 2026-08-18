@@ -3,7 +3,7 @@
 (ns vaelii.bench.inherit
   "What one **argument-position preservation** question costs.
 
-  `(argPreserving P n R)` says a stored `(P … w …)` licenses the same claim about
+  `(transitiveInArg P n R)` says a stored `(P … w …)` licenses the same claim about
   anything `R`-related to `w`, so answering a ground `(P a b)` means asking which
   claims *reach* this tuple.  The number that matters is how that cost scales with the
   two things it could scale with: the **reach** of each preserved argument (how deep
@@ -56,7 +56,7 @@
     (doseq [k [1 2 3]]
       (let [p (pred-name k)]
         (doseq [n (range 1 (inc k))]
-          (v/assert kb (list 'argPreserving p n 'genl) ctx {:chain? false}))
+          (v/assert kb (list 'transitiveInArg p n 'genl) ctx {:chain? false}))
         ;; the claims sit at the general end (index 0 is nearest `thing`)
         (doseq [c (range claims)]
           (v/assert kb (cons p (repeat k (type-name (min c (dec depth))))) ctx
@@ -105,7 +105,7 @@
     (println "\nthe control — a predicate with no preserved position")
     (run-arm "ask? (no decl)" #(v/ask? kb (list 'bqUnrelatedOf (type-name 0)) ctx) samples)
     (println (format "\nest-bindings reports %s for the 3-position goal"
-                     (provers/est-bindings (provers/->ArgPreservingProver) kb (gs 3) ctx)))
+                     (provers/est-bindings (provers/->TransitiveInArgProver) kb (gs 3) ctx)))
     (println)))
 
 (defn- parse-args [args]

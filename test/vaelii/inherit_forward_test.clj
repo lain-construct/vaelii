@@ -3,10 +3,10 @@
 (ns vaelii.inherit-forward-test
   "Forward chaining on a claim nobody stored.
 
-  `(argPreserving largerThan 1 genl)` beside `(largerThan dog cat)` licenses
+  `(transitiveInArg largerThan 1 genl)` beside `(largerThan dog cat)` licenses
   `(largerThan chihuahua maine_coon)`, and a rule over `largerThan` has to fire on it —
   or `sentexes-matching` reads one answer out of the fixpoint while `ask` re-derives
-  another through `ArgPreservingProver`, which is the same knowledge giving two answers
+  another through `TransitiveInArgProver`, which is the same knowledge giving two answers
   depending on which door the reader came in.
 
   What makes that possible is that an inherited claim, while it is not stored, was
@@ -43,8 +43,8 @@
   [kb pred]
   (v/with-deferred-settle kb
     (v/assert kb (list 'asymmetric pred) ctx)
-    (v/assert kb (list 'argPreserving pred 1 'genl) ctx)
-    (v/assert kb (list 'argPreserving pred 2 'genl) ctx)))
+    (v/assert kb (list 'transitiveInArg pred 1 'genl) ctx)
+    (v/assert kb (list 'transitiveInArg pred 2 'genl) ctx)))
 
 ;; ---- the disagreement itself ---------------------------------------------
 
@@ -84,8 +84,8 @@
         (is (contains? reasons (list 'genl chihuahua_t dog_t)))
         (is (contains? reasons (list 'genl maine_coon_t cat_t))))
       (testing "and the declarations, which license the move and are as retractable"
-        (is (contains? reasons (list 'argPreserving largerThan 1 'genl)))
-        (is (contains? reasons (list 'argPreserving largerThan 2 'genl))))
+        (is (contains? reasons (list 'transitiveInArg largerThan 1 'genl)))
+        (is (contains? reasons (list 'transitiveInArg largerThan 2 'genl))))
       (testing "nothing else — a witness, not a transcript"
         (is (= 5 (count reasons)) (pr-str reasons))))))
 
@@ -120,7 +120,7 @@
       (doseq [reason [(list 'genl chihuahua_t dog_t)
                       (list 'genl maine_coon_t cat_t)
                       (list largerThan dog_t cat_t)
-                      (list 'argPreserving largerThan 1 'genl)]]
+                      (list 'transitiveInArg largerThan 1 'genl)]]
         (testing (str "retracting " (pr-str reason))
           (let [h (v/handle-of kb reason ctx)]
             (v/retract! kb h)
@@ -190,7 +190,7 @@
   (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston]
     (v/with-deferred-settle kb
       (v/assert kb (list 'transitive partOf) ctx)
-      (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) ctx)
+      (v/assert kb (list 'transitiveInArg needsMaintenance 1 partOf) ctx)
       (v/assert kb (list partOf Engine Car) ctx)
       (v/assert kb (list partOf Piston Engine) ctx))
     (v/assert kb (list needsMaintenance Car) ctx)
@@ -215,7 +215,7 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl animal_t thing_t) ctx)
-      (v/assert kb (list 'argPreservingInverse hasA 1 'genl) ctx))
+      (v/assert kb (list 'transitiveInArgInverse hasA 1 'genl) ctx))
     (v/assert kb (list hasA dog_t) ctx)
     (v/assert kb (list 'implies (list hasA '?x) (list aboutIt '?x)) ctx)
     (is (holds? kb (list aboutIt animal_t)) "one edge up")
@@ -230,7 +230,7 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genlCx CxWide ctx) ctx)
       (v/assert kb (list 'genlCx CxNarrow CxWide) ctx)
-      (v/assert kb (list 'argPreserving appliesIn 2 'genlCx) ctx))
+      (v/assert kb (list 'transitiveInArg appliesIn 2 'genlCx) ctx))
     (v/assert kb (list appliesIn TheDecree CxWide) ctx)
     (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c)) ctx)
     (testing "the subcontext, by inheritance — and both doors agree on it"
@@ -264,7 +264,7 @@
       (v/assert kb (list 'genl mid_t dog_t) 'CxUniverse)
       (v/assert kb (list 'genl chi_t mid_t) 'CxUniverse)
       (v/assert kb (list 'genl chi_t dog_t) CxA)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
       (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list noted '?x '?y))
               'CxUniverse)
@@ -295,7 +295,7 @@
       (tu/with-terms [dog_t cat_t chihuahua_t nearTo seen]
         (v/with-deferred-settle kb
           (v/assert kb (list 'genl chihuahua_t dog_t) ctx)
-          (v/assert kb (list 'argPreserving nearTo 1 'genl) ctx))
+          (v/assert kb (list 'transitiveInArg nearTo 1 'genl) ctx))
         (doseq [s (if sym-first?
                     [(list 'symmetric nearTo)
                      (list 'implies (list nearTo '?x '?y) (list seen '?x '?y))
@@ -332,8 +332,8 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl chihuahua_t dog_t) ctx)
       (v/assert kb (list 'genl maine_coon_t cat_t) ctx)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) ctx)
       (v/assert kb (list largerThan dog_t cat_t) ctx))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y)) ctx)
     (let [goal (list outweighs chihuahua_t maine_coon_t)]
@@ -355,7 +355,7 @@
   (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston]
     (v/with-deferred-settle kb
       (v/assert kb (list 'transitive partOf) ctx)
-      (v/assert kb (list 'argPreserving needsMaintenance 1 partOf) ctx))
+      (v/assert kb (list 'transitiveInArg needsMaintenance 1 partOf) ctx))
     (v/assert kb (list needsMaintenance Car) ctx)
     (v/assert kb (list 'implies (list needsMaintenance '?x) (list schedule '?x)) ctx)
     (is (not (holds? kb (list schedule Piston))) "nothing connects the part yet")
@@ -379,14 +379,14 @@
       (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston
                       appliesIn noticed TheDecree CxWide CxNarrow]
         (let [content [(list 'transitive partOf)
-                       (list 'argPreserving needsMaintenance 1 partOf)
+                       (list 'transitiveInArg needsMaintenance 1 partOf)
                        (list partOf Engine Car)
                        (list partOf Piston Engine)
                        (list needsMaintenance Car)
                        (list 'implies (list needsMaintenance '?x) (list schedule '?x))
                        (list 'genlCx CxWide ctx)
                        (list 'genlCx CxNarrow CxWide)
-                       (list 'argPreserving appliesIn 2 'genlCx)
+                       (list 'transitiveInArg appliesIn 2 'genlCx)
                        (list appliesIn TheDecree CxWide)
                        (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c))]]
           (if batch?
@@ -410,7 +410,7 @@
       (v/assert kb (list 'genlCx CxDown CxRight) ctx)
       (v/assert kb (list 'genlCx CxWide ctx) ctx)
       (v/assert kb (list 'genlCx CxNarrow CxWide) ctx)
-      (v/assert kb (list 'argPreserving appliesIn 2 'genlCx) ctx))
+      (v/assert kb (list 'transitiveInArg appliesIn 2 'genlCx) ctx))
     (v/assert kb (list appliesIn TheDecree CxWide) CxLeft)
     (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c))
               CxRight)
@@ -468,8 +468,8 @@
       (v/assert kb (list 'genlCx CxLower CxUpper) ctx))
     (v/with-deferred-settle kb
       (v/assert kb (list 'asymmetric largerThan) CxUpper)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) CxUpper)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) CxUpper)
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) CxUpper)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) CxUpper)
       (v/assert kb (list largerThan dog_t cat_t) CxUpper))
     ;; the edges are stated only in the lower context, so only it can see the reach
     (v/with-deferred-settle kb
@@ -493,8 +493,8 @@
       (v/assert kb (list 'genlCx CxLeft CxBase) ctx)
       (v/assert kb (list 'genlCx CxRight CxBase) ctx))
     (v/with-deferred-settle kb
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) CxBase)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) CxBase)
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) CxBase)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) CxBase)
       (v/assert kb (list largerThan dog_t cat_t) CxBase))
     ;; incomparable contexts hold one edge each: no context sees both
     (v/assert kb (list 'genl chihuahua_t dog_t) CxLeft)
@@ -556,8 +556,8 @@
                    (list 'genl golden_retriever_t dog_t)
                    (list 'genl maine_coon_t cat_t)
                    (list 'genl siamese_t cat_t)
-                   (list 'argPreserving largerThan 1 'genl)
-                   (list 'argPreserving largerThan 2 'genl)
+                   (list 'transitiveInArg largerThan 1 'genl)
+                   (list 'transitiveInArg largerThan 2 'genl)
                    (list largerThan dog_t cat_t)
                    (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))]
           go   (fn [order]

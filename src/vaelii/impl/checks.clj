@@ -144,9 +144,13 @@
   Sorting on content keys the choice on what the KB says rather than on enumeration —
   the rule `handle-naming` states for the handle a clash is reported as.  Existence is
   untouched: every declaration is still read, and a sentence no declaration convicts
-  still has no violation."
+  still has no violation.
+
+  The `pr-str` key is built once per match and compared as a string (`nm/sort-by-content-key`
+  with `compare`) — the same lexicographic order, off the per-comparison rebuild — and a
+  run of one, the common case for a `(first (for …))` consumer, sorts nothing."
   [ds]
-  (sort-by #(pr-str (:sentence (nth % 2))) ds))
+  (nm/sort-by-content-key #(pr-str (:sentence (nth % 2))) compare ds))
 
 (defn- args-problem
   "First (argIsa pred n type) violation for a sentence, or nil.  Uses genl
@@ -1017,6 +1021,40 @@
       (:disjoint :functional) (or (not (arbitrating? kb)) (against-known-true? v))
       true)))
 
+(defn- membership-handles-led
+  "`membership-handles`' small side: lead from `x`'s own argument-1 postings (a handful)
+  and test each up via `genls` (t ∈ genls(t'') ⟺ t'' ∈ specs(t), see `kb/memberships`),
+  rather than `matches-visible` walking `specs(t)` *down* — unbounded for a broad t (with
+  t = `thing`, every type in the KB), and the closure walk that dominates a cold rebuild's
+  clash pass.  The candidate set, the filters (believed, context-visible, `except`-hidden,
+  retired) and `handle-namings` are exactly what `matches-visible` would feed here — it is
+  `matches-hierarchical` over `(t x)` then `without-excepted`/`without-retired`, and the
+  pred-hierarchy filter `t'' ∈ specs(t)` is the same set as `t ∈ genls(t'')` — so the
+  answer set is identical, retrieved from the small side.  Split out so `res/*lead-side*`
+  can force the `matches-visible` reference the two oracles compare it against."
+  [kb t x context]
+  (let [recs   (:records kb)
+        tms    (:tms kb)
+        tax    (:taxonomy kb)
+        target (list t x)
+        up     (when-not (sx/variable? context) (tax/context-up tax context))
+        vis?   (if up #(contains? up %) (constantly true))
+        matches (->> (p/sentexes-with-arg (:index kb) 1 x)
+                     (keep (fn [h]
+                             (when-let [s (p/get-sentex recs h)]
+                               (when (and (jtms/in? tms (:id s)) (vis? (:context s)))
+                                 (let [sen (:sentence s)]
+                                   (when (and (= 1 (nm/arity sen))
+                                              (= x (first (nm/args sen)))
+                                              (not (sx/exceptWhen-meta? sen)))
+                                     (let [t'' (nm/functor sen)]
+                                       (when (or (= t'' t)
+                                                 (contains? (tax/genls tax t'' context) t))
+                                         [(:id s) nil s]))))))))
+                     (res/without-excepted kb context)
+                     (res/without-retired kb context))]
+    (handle-namings matches target)))
+
 (defn- membership-handles
   "The handles of the believed `(t x)` sentexes visible from `context` — the sentexes a
   disjointness clash is *with*.  Asked only once a clash has been found, so an
@@ -1039,10 +1077,15 @@
   entailing ones when none is — a purely inherited membership has no direct sentex to
   name.  `handle-namings` is that rule, and says the rest, including why the exact arm
   is plural: one sentence stated in two contexts a reader sees is two sentexes, and each
-  forms its own pair."
+  forms its own pair.
+
+  Two ways to reach the same set, gated by `res/*lead-side*`: `:scoped` runs the
+  `matches-visible` reference (specs(t) walked down), anything else leads from the term's
+  own postings (`membership-handles-led`)."
   [kb t x context]
-  (let [target (list t x)]
-    (handle-namings (res/matches-visible kb target context) target)))
+  (if (= :scoped res/*lead-side*)
+    (handle-namings (res/matches-visible kb (list t x) context) (list t x))
+    (membership-handles-led kb t x context)))
 
 (defn- disjoint-problems
   "A type membership (T X) where X already holds a type the taxonomy proves
@@ -1174,9 +1217,19 @@
   [kb sentence context]
   (let [b (second (nm/args sentence))]
     (for [[h v via] (functional-clashes kb sentence context)
-          ;; violation iff no merge could reconcile them AND no merge already has
-          :when (and (not (mergeable-values? v b))
-                     (not (tax/same-class? (:taxonomy kb) v b)))]
+          ;; violation iff no merge could reconcile them: a clash between two symbols is
+          ;; not a violation but a co-reference the KB *derives* an equality from (see
+          ;; `special/derive-functional-equalities`), everything else is the hard
+          ;; contradiction it always was.  A "no merge already has" guard was here as
+          ;; `(not (tax/same-class? tax v b))`, but the partition is over symbols, so
+          ;; `same-class?` can only hold of two symbols — and `mergeable-values?` has
+          ;; already excluded that whole case, so the conjunct only ever ran where it was
+          ;; false and could not change the answer.  Deleted rather than left as an
+          ;; unscoped read to be widened into: the derivation twin keeps the guard, where
+          ;; it is live and scoped (`special/derive-functional-equalities`), and if this
+          ;; door ever admits a symbol clash it wants that same context-scoped read, not
+          ;; the global one this was.
+          :when (not (mergeable-values? v b))]
       {:type :functional :sentence sentence :existing v :new b :opposing-handle h
        :pred via
        :message (str "functional violation: " via " of "
@@ -1298,10 +1351,13 @@
                                            (= context (:context o))))]
                        (assoc o ::mark q ::converse converse))
             opposing (->> claims
-                          (sort-by (juxt #(- (strength/rank-of (:class %)))
-                                         #(str (:context %))
-                                         #(pr-str (:sentence %))
-                                         #(str (::mark %))))
+                          ;; one `pr-str` + two `str` in the key — built once per claim,
+                          ;; not per comparison; the `[rank …]` tuple orders under `compare`
+                          (nm/sort-by-content-key (juxt #(- (strength/rank-of (:class %)))
+                                                        #(str (:context %))
+                                                        #(pr-str (:sentence %))
+                                                        #(str (::mark %)))
+                                                  compare)
                           (reduce (fn [acc o]
                                     (if (some #(= (:handle %) (:handle o)) acc)
                                       acc
@@ -1322,6 +1378,100 @@
   "The strongest `(asymmetric P)` violation, for the refusal paths."
   [kb sentence context]
   (first (asymmetry-problems kb sentence context)))
+
+(defn- irreflexivity-problems
+  "Every `(irreflexive P)` violation a self tuple `(P a a)` commits in `context`.
+
+  `(irreflexive largerThan)` says `(P a a)` cannot hold, so a self tuple is contradictory
+  the moment it is written — unlike `asymmetric`, which admits it (`asymmetry-problems`
+  spells out why).  A lone tuple names no second sentex to weigh against, so this is a
+  **refusal** at the door and never an arbitrable nogood: `refuses-assert?` reads no
+  class here, and the derivation path drops a self tuple a rule concluded.
+
+  The mark is read up the predicate hierarchy (`tax/props-over`), like the two clashes
+  above it: `(irreflexive parentOf)` refuses `(fatherOf a a)` too, the sub's tuples being
+  the super's.  Ground binary self tuples only — `a` must equal `b`, or there is no self
+  tuple to refuse, and a predicate whose two arguments differ has an ordinary tuple that
+  irreflexivity says nothing about.
+
+  No `:opposing-handle`: there is no pair.  A declaration arriving after a self tuple was
+  stored is the `arity` case rather than the `asymmetric` one — the tuple stands and the
+  late mark reports rather than defeats, since promoting a lone-tuple conviction to a
+  nogood would make belief depend on how many settles had run (docs/nmtms.md)."
+  [kb sentence context]
+  (let [pred (nm/functor sentence)
+        args (vec (nm/args sentence))]
+    (when (and (symbol? pred) (= 2 (count args))
+               (= (first args) (second args))
+               (every? sx/ground-term? args))
+      (for [q (sort (tax/props-over (:taxonomy kb) :irreflexive pred context))]
+        {:type :irreflexive :sentence sentence :pred q
+         :message (str "irreflexive: " q " cannot hold of a thing and itself, but "
+                       (pr-str sentence) " does")}))))
+
+(defn- irreflexivity-problem
+  "The first `(irreflexive P)` violation, for the refusal paths."
+  [kb sentence context]
+  (first (irreflexivity-problems kb sentence context)))
+
+(defn antisymmetric-converses
+  "The believed `[handle via]` pairs whose sentence is the converse of `(P a b)` under an
+  `(antiSymmetric P)` mark — the facts `(P b a)` that, with the sentence, force
+  `(equals a b)`.  Deduped on the converse's handle; `via` is the marked predicate the
+  conviction reads through (the sentence's own where it carries the mark, a
+  super-predicate where the mark descends), which the equality derivation names in its
+  justification.
+
+  The converse is probed **at the marked predicate** and its mark read **up** the
+  hierarchy, exactly as `asymmetry-problems` and `functional-clashes` do and for the same
+  reason: `(antiSymmetric parentOf)` with `(genl fatherOf parentOf)` must convict a
+  `fatherOf` pair whichever spelling arrives last, so reading the mark off the exact
+  functor would leave the pair found or missed by arrival order.
+
+  `matches-visible` over the ground converse is the whole probe: it fans **down** to the
+  sub-predicate spellings (so `(atOrAbove Alice Bob)` finds a stored `(atOrAboveStrict
+  Alice Bob)`) and folds a comparison predicate's converse internally, so no exact-sentence
+  filter is wanted here — one would drop exactly the descended pair the up-read exists to
+  catch.  Ground binary sentences only."
+  [kb sentence context]
+  (let [pred (nm/functor sentence)
+        args (vec (nm/args sentence))]
+    (when (and (symbol? pred) (= 2 (count args))
+               (every? sx/ground-term? args))
+      (let [[a b]   args
+            triples (for [q (sort (tax/props-over (:taxonomy kb) :anti-symmetric pred context))
+                          m (res/matches-visible kb (list q b a) context)]
+                      [(first m) nil q])]
+        (map (fn [[h _ via]] [h via]) (first-per-slot triples))))))
+
+(defn- antisymmetry-problems
+  "The `(antiSymmetric P)` violations a sentence commits in `context` that cannot be
+  **merged** away — a believed converse whose two arguments no equality could reconcile
+  (two numbers, a compound, a self tuple's trivial case aside).
+
+  The mergeable case is not here: two symbols denoting one thing is a co-reference the KB
+  *derives* `(equals a b)` from and merges (`special/derive-antisymmetric-equalities`),
+  exactly as `functional-problems` leaves a symbol clash to `derive-functional-equalities`.
+  What is left is the hard contradiction — `(P 1 2)` beside `(P 2 1)` under an
+  antisymmetric `P` forces `1 = 2`, which no merge can make true — and, like a numeric
+  functional clash, it **refuses** at the door: this carries no arbitrable class, so
+  `refuses-assert?` reads its default and says no.  A self tuple's arguments are equal, so
+  it is admitted rather than refused."
+  [kb sentence context]
+  (let [args (vec (nm/args sentence))]
+    (when (= 2 (count args))
+      (let [[a b] args]
+        (when (and (not= a b) (not (mergeable-values? a b)))
+          (for [[_ via] (antisymmetric-converses kb sentence context)]
+            {:type :anti-symmetric :sentence sentence :pred via
+             :message (str "antisymmetric: " via " with " (pr-str sentence)
+                           " and its converse forces " (pr-str (list 'equals a b))
+                           ", which no merge can make hold")}))))))
+
+(defn- antisymmetry-problem
+  "The first non-mergeable `(antiSymmetric P)` violation, for the refusal paths."
+  [kb sentence context]
+  (first (antisymmetry-problems kb sentence context)))
 
 (defn- checked-sentence
   "The body the definitional checks see: the double-negation-eliminated positive body,
@@ -1358,7 +1508,9 @@
         (declaration-problem kb chk context types)
         (disjoint-problem kb chk context types)
         (asymmetry-problem kb chk context)
-        (functional-problem kb chk context))))
+        (functional-problem kb chk context)
+        (irreflexivity-problem kb chk context)
+        (antisymmetry-problem kb chk context))))
 
 ;; ---- what the argument constraints *entail* ------------------------------
 ;; `args-problem` and `genls-problem` read `argIsa` / `argGenl` as constraints to test,
@@ -1621,7 +1773,8 @@
 (defn constraint-violation
   "The definitional checks as a value alone: nil when `sentence` is admissible in
   `context`, else `{:violation :arity|:arg-type|:arg-genl|:arg-position
-  |:arg-constraint-kind|:disjoint|:asymmetric|:functional :detail {...}}`.
+  |:arg-constraint-kind|:disjoint|:asymmetric|:functional|:irreflexive|:anti-symmetric
+  :detail {...}}`.
 
   **Every** violation, arbitrable ones included — which is what separates this from
   `constraint-admission`.  The callers are the paths that *mint* content nobody asked
@@ -1849,15 +2002,20 @@
   checked against.  The two-arity adds `pending`, the rule (or exception) being added,
   under its own consequent by hand: it is not reflected in the graph yet, and without
   it a rule whose exception mentions what it concludes — a one-rule cycle — would look
-  stratified."
+  stratified.  A pending rule whose consequent functor is a **variable** could conclude
+  *any* predicate, so it is added under every `pred` the walk asks about — the same
+  reason `direct-concluders` folds the catch-all into the stored side."
   ([kb]
    (fn [pred]
-     (keep #(stored-rule-node kb %) (p/rules-by-consequent (:index kb) pred))))
+     ;; `direct-concluders` folds in the variable-consequent catch-all: a rule concluding
+     ;; `(?p …)` could conclude `pred`, so a negation cycle through it must not be missed.
+     (keep #(stored-rule-node kb %) (rules/direct-concluders (:index kb) pred))))
   ([kb pending]
-   (let [stored (stratification-concluders kb)]
+   (let [stored      (stratification-concluders kb)
+         var-conseq? (sx/variable? (:consequent-pred pending))]
      (fn [pred]
        (cond-> (remove #(= (:id %) (:id pending)) (stored pred))
-         (= pred (:consequent-pred pending)) (conj pending))))))
+         (or var-conseq? (= pred (:consequent-pred pending))) (conj pending))))))
 
 (defn check-stratified
   "Throw unless adding this rule leaves the rule set stratified — see

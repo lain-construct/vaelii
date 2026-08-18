@@ -205,13 +205,16 @@
   computed sites is checked against these keys, so a sixth one is a failing test, and its
   kinds have to be named here before the roster means anything again."
   {"checks/constraint-admission"
-   {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind}
+   {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
+             :irreflexive :anti-symmetric}
     :why   (str "relabels `(:type p)` off `constraint-problem`, minus the arbitrable "
-                "kinds — a firing places one of those and lets `settle` weigh the pair")}
+                "kinds — a firing places one of those and lets `settle` weigh the pair. "
+                "`:irreflexive` and `:anti-symmetric` are non-arbitrable refusals (a lone "
+                "self tuple, or a converse no merge reconciles), so a firing drops them")}
 
    "checks/constraint-violation"
    {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
-             :disjoint :functional :asymmetric}
+             :disjoint :functional :asymmetric :irreflexive :anti-symmetric}
     :why   (str "the same relabel over every `constraint-problem` kind, arbitrable ones "
                 "included — the decontextualization lift, the equality twin and abduction "
                 "refuse where a firing arbitrates")}

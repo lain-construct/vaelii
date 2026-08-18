@@ -160,7 +160,7 @@ one.
 
 What stops that claim from over-reaching is not the prover but the **engine**.
 `provers/sole-prover` asks `provers/shadowing-channels` whether this KB could reach the
-goal by a route no computed prover reads — an `(argPreserving P n R)` declaration
+goal by a route no computed prover reads — an `(transitiveInArg P n R)` declaration
 (`:preserving`), a rule concluding the goal's predicate or a spec of it (`:rules`), or a
 declared `(inverse P Q)` (`:inverse`) — and if any of the three bears, nobody runs alone
 and the union runs instead, whatever was claimed. So above level 4 a result never

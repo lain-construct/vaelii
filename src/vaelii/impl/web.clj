@@ -1055,6 +1055,8 @@
    :disjoint             "disjoint"
    :asymmetric           "both ways"
    :functional           "functional"
+   :irreflexive          "self tuple"
+   :anti-symmetric       "forces equal"
    :shape                "shape"
    :unknown-option       "opts"
    :unknown-handle       "no handle"
@@ -2380,6 +2382,7 @@
               (when (:truncated? (:last chain)) " and was truncated at the depth bound")
               ". " (count viols) " conclusion" (when (not= 1 (count viols)) "s")
               " dropped for a definitional breach (below)."]
+             [:p [:a {:href "/funnel"} "Which rules fired, which refused, and which never did →"]]
              ;; a run over a corpus is minutes long, so it is a job: the cap is what bounds
              ;; it (a fixpoint's agenda grows as it derives, so nothing else does), and a
              ;; run that outlasts the fast path answers with the jobs screen instead
@@ -3369,6 +3372,9 @@
                [:h2 "Conjunctive goal @ " (term-link view ctx)]
                [:ul (for [g goal] [:li (render-form view g)])]
                (plan-section view goal ctx)
+               [:p [:a {:href (str "/inference?q=" (url-enc (pr-str goal))
+                                   (when (not= '?ctx ctx) (str "&ctx=" (url-enc (pr-str ctx)))))}
+                    "Step through the search for this goal →"]]
                [:p.legend "The eight levels answer about a single literal, so they are "
                 "not shown for a conjunction. Ask one conjunct on its own to see them."]]
 
@@ -3382,8 +3388,258 @@
                    [:p.muted "No level answers this goal."])
                  [:p.legend "Escalation starts at level 2 — levels 0 and 1 answer about "
                   "storage rather than truth, so either can claim a goal it cannot verify."]
+                 [:p [:a {:href (str "/inference?q=" (url-enc (pr-str goal))
+                                     (when (not= '?ctx ctx) (str "&ctx=" (url-enc (pr-str ctx)))))}
+                      "Step through the search for this goal →"]]
                  (plan-section view goal ctx)
                  (map #(level-section view goal ctx %) table)])))))
+
+;; ---- the inference debugger ----------------------------------------------
+;;
+;; `/levels` shows the *plan*; this shows the *run* that plan predicted — the search tree
+;; the node engine actually built for a goal (every node the frontier reached, not only
+;; the path that answered), and the same goal under several tacticians side by side.  Both
+;; read through `search-tree` / `compare-tacticians`, which bound their own work (a node
+;; budget and a wall-clock), so the page holds no session between requests and works under
+;; `--attach` exactly like every other read here.
+
+(def ^:private debug-depth-default 3)
+(def ^:private debug-max-ms 4000)
+(def ^:private tree-render-cap
+  "How many nodes the tree draws before it stops and says so.  The *search* is bounded by
+  its own node budget; this bounds the *render*, a different promise — a bounded search can
+  still build more nodes than a page should draw at once.  Nodes are numbered in expansion
+  order and a child's id always exceeds its parent's, so the first `tree-render-cap` by id
+  are prefix-closed under parent and nest into a valid subtree."
+  150)
+
+(defn- estimate-line
+  "The four terms `estimate` summed, on one line — the same numbers `/levels` reports for
+  the same conjunction, so a node's cost is legible against the plan."
+  [{:keys [base size-penalty depth-term tree-term total sum-allowance]}]
+  [:p.est-line
+   "estimate " [:b total] " = base " (commas base) " + size " (commas size-penalty)
+   " + depth " (commas depth-term) " + tree " (commas tree-term)
+   [:span.muted " · Σ rewriting allowance " sum-allowance]])
+
+(defn- node-literals
+  "The node's conjunction as it will be solved, in join order, each literal with the index
+  estimate it is costed at — `plan/explain`'s numbers, the same the join runs on."
+  [view literals]
+  [:table.stats-table
+   [:thead [:tr [:th "literal (join order)"] [:th.num "est. matches"] [:th.num "block"] [:th "pin"]]]
+   [:tbody
+    (for [{:keys [sentence cost block isolated? deferred? recursive?]} literals]
+      [:tr
+       [:td (render-form view sentence)]
+       [:td.num (commas cost)]
+       [:td.num (if block (inc (long block)) [:span.muted "—"])]
+       [:td (cond
+              deferred?  [:span.tag {:title "consumes bindings rather than producing them"} "evaluable"]
+              recursive? [:span.tag {:title "kept last so right-recursion survives"} "recursive"]
+              isolated?  [:span.tag {:title "shares no variable with the rest and multiplies it"} "cartesian"]
+              :else      [:span.muted "—"])]])]])
+
+(defn- node-summary
+  "The one-line handle on a node: its id, tree depth, the rewrite that produced it (the
+  literal it replaced and the rule that did it), its total cost, and — if it produced any
+  — an answer count."
+  [view {:keys [id tree-depth rewrite results estimate]}]
+  (let [n (count results)]
+    [:summary {:id (str "node-" id)}
+     [:span.node-tag "#" id]
+     [:span.muted "depth " tree-depth " · "]
+     (if rewrite
+       (list (render-form view (:goal rewrite))
+             [:span.muted " via "]
+             (if-let [rh (:rule rewrite)]
+               [:a {:href (str "/sentex/" rh)} "rule #" rh]
+               [:span.muted "a rule"]))
+       [:b "the query"])
+     [:span.muted " · cost " (commas (:total estimate))]
+     (when (pos? n)
+       [:span.tag.tag-in n (if (= 1 n) " answer" " answers")])]))
+
+(defn- render-node
+  "One node as a collapsible `<details>`: its summary, the itemized estimate that ordered
+  it, the rewrite that produced it, the answers that came off it, and its children rendered
+  the same way.  Self-recursive over the parent→children map, which is finite and drawn
+  from a bounded search."
+  [view children-of {:keys [id tree-depth estimate rewrite results guards] :as node}]
+  [:details.node (cond-> {:id (str "detail-" id)} (< (long tree-depth) 1) (assoc :open true))
+   (node-summary view node)
+   [:div.node-body
+    (estimate-line estimate)
+    (node-literals view (:literals estimate))
+    (when rewrite
+      [:p.muted "Rewrote " (render-form view (:goal rewrite)) " through "
+       (if-let [rh (:rule rewrite)] (handle-ref view rh) [:span "a rule"])])
+    (when (pos? (long guards))
+      [:p.muted guards " guard" (when (> (long guards) 1) "s") " carried here (an "
+       [:code "exceptWhen"] ", asked when the conjunction completes)."])
+    (when (seq results)
+      [:div
+       [:p.muted "Answers off this node:"]
+       [:ul (for [b results]
+              [:li (if (seq b) (bindings-str view b) [:span.muted "(ground — the conjunction holds)"])])]])
+    (for [k (get children-of id)] (render-node view children-of k))]])
+
+(defn- status-tag
+  [status]
+  (let [cls (case status :complete "tag-in" :bounded "tag" :timeout "tag-defeated" "tag")]
+    [:span {:class (str "tag " cls)} (name status)]))
+
+(defn- tactician-table
+  "The same goal under several tacticians, tabled by the work each did and the answers each
+  found, with the identity property **verified** below rather than asserted: every
+  tactician is complete, so the answer sets must match, and a row that differs is a bug the
+  completeness sweep exists to catch."
+  [_view rows]
+  (let [complete (filter #(= :complete (:status %)) rows)
+        baseline (:answers (first complete))
+        agree?   (or (< (count complete) 2) (apply = (map :answers complete)))]
+    (list
+     [:table.stats-table
+      [:thead [:tr [:th "tactician"] [:th.num "nodes"] [:th.num "expanded"] [:th.num "dropped"]
+               [:th.num "solutions"] [:th.num "ms"] [:th.num "answers"] [:th "status"]]]
+      [:tbody
+       (for [{:keys [tactician nodes expanded dropped solutions ms answers status]} rows]
+         (let [odd? (and (= :complete status) baseline (not= answers baseline))]
+           [:tr
+            [:td (if (= :ground-first tactician)
+                   [:span [:b (name tactician)] [:span.muted " · default"]]
+                   (name tactician))]
+            [:td.num (commas nodes)] [:td.num (commas expanded)] [:td.num (commas dropped)]
+            [:td.num (commas solutions)] [:td.num (commas ms)] [:td.num (commas (count answers))]
+            [:td (status-tag status)
+             (when odd? [:span.tag.tag-defeated {:title "differs from the other tacticians"} "differs"])]]))]]
+     (if agree?
+       [:div.verdict.verdict-agree
+        [:p [:b "The same answer set across every complete tactician."]
+         (when (seq complete)
+           (list " " (commas (count complete)) " orderings, " (commas (count baseline))
+                 " answer" (when (not= 1 (count baseline)) "s") " each — verified here, not "
+                 "assumed. Ordering is a cost decision and never a semantic one; what differs "
+                 "between the rows is the work and the wall-clock, not the answers."))]]
+       [:div.verdict.verdict-disagree
+        [:p [:b "The tacticians disagree on the answer set."] " Every tactician here is "
+         "complete — each only reorders the frontier — so this cannot happen unless one "
+         "dropped a node, which is a real bug the completeness sweep is meant to catch. The "
+         "differing rows are marked."]]))))
+
+(defn- search-answers
+  "The answers the search found, each tagged with the node it came off — so the answer is
+  reachable to the subtree that produced it."
+  [view {:keys [answers]}]
+  (let [n (count answers)]
+    [:div
+     [:h3 (commas n) " answer" (when (not= 1 n) "s")]
+     (if (seq answers)
+       (list
+        [:ul (for [a (take 50 answers)]
+               [:li (if (seq (:bindings a))
+                      (bindings-str view (:bindings a))
+                      [:span.muted "(ground — the goal holds)"])
+                [:span.muted " · from "] [:a {:href (str "#node-" (:node a))} "node #" (:node a)]])]
+        (when (> n 50) [:p.muted "… " (commas (- n 50)) " more."]))
+       [:p.muted "No answer within the depth bound. A derivation deeper than the bound is "
+        "not found — the depth a query needs is a property of the data, so raise it and re-run."])]))
+
+(defn- search-tree-summary
+  "One line of what the run cost, and — this is the honest part — whether the tree shown is
+  the whole search or a prefix a bound cut off."
+  [{:keys [status stats strategy]}]
+  (let [{:keys [nodes expanded dropped solutions max-depth]} stats]
+    [:p.muted
+     "Ordered by " [:b (name strategy)] ". Built " [:b (commas nodes)] " nodes, expanded "
+     (commas expanded) ", dropped " (commas dropped) " duplicate arrivals, completed "
+     (commas solutions) " solutions, deepest rewrite " max-depth ". "
+     (case status
+       :complete "The frontier emptied, so this is the whole search."
+       :bounded  [:b "Stopped at the node budget — the tree below is a prefix of the search."]
+       :timeout  [:b "Stopped at the time bound — the tree below is a prefix of the search."]
+       nil)]))
+
+(defn inference-page
+  "The search stepped through — a goal, a context and a depth in; the tree the node engine
+  builds out, plus the same goal raced across tacticians.  Sits beside `/levels`: a goal
+  typed at either is answerable at both.
+
+  A depth is required (the node engine's termination is the bound and nothing else), so the
+  form always carries one.  A malformed goal, or one the search cannot run, is rendered
+  rather than thrown — the page has no exception middleware."
+  [{:keys [kb] :as view} goal ctx depth]
+  (render view (if goal (str "search " (pr-str goal)) "search")
+          [:h2 "The search, stepped through"]
+          [:p.muted "The " [:a {:href "/levels"} "levels page"] " shows the plan; this shows "
+           "the run it predicted — the tree the node engine builds for a goal, every node the "
+           "frontier reached and what each cost, and the same goal under several tacticians "
+           "side by side. Expanding rules needs a depth bound."]
+          [:form.q {:method "get" :action "/inference"}
+           [:input {:type "text" :name "q" :size 40 :placeholder "(anc ?x ?z)"
+                    :value (when goal (pr-str goal))}]
+           [:input {:type "text" :name "ctx" :size 14 :placeholder "?ctx"
+                    :value (when (and ctx (not= '?ctx ctx)) (pr-str ctx))}]
+           [:input {:type "number" :name "d" :min 1 :max 12 :value depth :title "depth bound"}]
+           [:button {:type "submit"} "search"]]
+          (cond
+            (nil? goal)
+            [:div
+             [:p.muted "A goal is a sentence, e.g. " [:code "(anc ?x ?z)"] " — or a vector of "
+              "them, e.g. " [:code "[(edgeOf ?x ?y) (anc ?y ?z)]"] ", a conjunctive query. The "
+              "search runs the same one " [:code "query"] " runs: the registry is the leaf, so an "
+              "antecedent is answerable by any prover, and this is only the rule expansion on top."]]
+
+            (and (vector? goal) (not-every? seq? goal))
+            [:div
+             [:h2 "Not a goal @ " (term-link view ctx)]
+             [:p.muted "A vector goal is a conjunction, so each member has to be a sentence — "
+              "e.g. " [:code "[(edgeOf ?x ?y) (anc ?y ?z)]"] ". One sentence is a list: "
+              [:code "(anc ?x ?z)"] ", not " [:code "[anc ?x ?z]"] "."]]
+
+            (not (or (seq? goal) (vector? goal)))
+            [:div
+             [:h2 "Not a goal @ " (term-link view ctx)]
+             [:p.muted "A goal is a sentence like " [:code "(anc ?x ?z)"] ", or a vector of them."]]
+
+            :else
+            (try
+              (let [opts        {:max-depth depth :max-ms debug-max-ms}
+                    tree        (v/search-tree kb goal ctx opts)
+                    rows        (v/compare-tacticians kb goal ctx opts)
+                    nodes       (:nodes tree)
+                    capped      (into [] (take tree-render-cap) nodes)
+                    children-of (group-by :parent-id capped)
+                    root        (first (filter #(nil? (:parent-id %)) capped))
+                    ctx-q       (when (and ctx (not= '?ctx ctx)) (str "&ctx=" (url-enc (pr-str ctx))))]
+                (prime-belief! view (keep #(get-in % [:rewrite :rule]) capped))
+                [:div
+                 [:p [:a {:href (str "/levels?q=" (url-enc (pr-str goal)) ctx-q)}
+                      "See the plan and the eight levels for this goal →"]]
+
+                 [:h3 "Tacticians, side by side"]
+                 [:p.muted "Each ordering run to completion over the same goal, timed on its "
+                  "own. A latency measurement over a fixed answer set — the fast column is fast "
+                  "because it reached the answers sooner, not because it found fewer."]
+                 (tactician-table view rows)
+
+                 (search-answers view tree)
+
+                 [:h3 "The search tree"]
+                 (search-tree-summary tree)
+                 [:p.legend "Each node's literals are written in the search's own "
+                  [:span.t-var "?var0"] " / " [:span.t-var "?var1"] " namespace — two nodes "
+                  "that ask the same question up to variable names are one node — while a rule "
+                  "and an answer read in the names they were written and asked under."]
+                 [:div.search-tree (when root (render-node view children-of root))]
+                 (when (> (count nodes) tree-render-cap)
+                   [:p.legend "Showing the first " tree-render-cap " of " (commas (count nodes))
+                    " nodes by allocation order; the search itself is bounded by the node "
+                    "engine's own budget."])])
+              (catch clojure.lang.ExceptionInfo e
+                [:div
+                 [:h3 "The search could not run"]
+                 [:p.muted (.getMessage e)]])))))
 
 ;; ---- the constraint network ---------------------------------------------
 ;; The one subsystem whose object is not a sentex.  A qualitative calculus computes a
@@ -4235,29 +4491,149 @@
   same of the export's), so a remote target gets the bound and no callback.  The job is
   still a job — it runs off the request, it is on the screen, and it settles with the
   daemon's own answer — it just cannot be watched arriving."
-  [kb label cap in-monitor]
-  (let [note   (fn [pending] (if pending
-                               (format "%,d on the agenda" (long pending))
-                               "forward chaining to a fixpoint"))
-        local? (some? (v/local-kb kb))]
-    (jobs/submit
-     {:label      (str "Chain " label)
-      :kind       :chain
-      :writes     kb
-      :result-url "/stats"
-      :progress   {:phase :chaining :done 0
-                   :note (if local? (note nil) "on the daemon, which reports no progress")}}
-     (fn [progress!]
-       (in-monitor
-        (fn []
-          (v/forward-chain
-           kb (cond-> {}
-                cap    (assoc :max-derivations cap)
-                local? (assoc :on-progress
-                              (fn [{:keys [derived pending]}]
-                                (progress! {:phase :chaining :total nil
-                                            :done (or derived 0)
-                                            :note (note pending)})))))))))))
+  ([kb label cap in-monitor] (chain-job kb label cap in-monitor "/stats"))
+  ([kb label cap in-monitor result-url]
+   (let [note   (fn [pending] (if pending
+                                (format "%,d on the agenda" (long pending))
+                                "forward chaining to a fixpoint"))
+         local? (some? (v/local-kb kb))]
+     (jobs/submit
+      {:label      (str "Chain " label)
+       :kind       :chain
+       :writes     kb
+       :result-url result-url
+       :progress   {:phase :chaining :done 0
+                    :note (if local? (note nil) "on the daemon, which reports no progress")}}
+      (fn [progress!]
+        (in-monitor
+         (fn []
+           (v/forward-chain
+            kb (cond-> {}
+                 cap    (assoc :max-derivations cap)
+                 local? (assoc :on-progress
+                               (fn [{:keys [derived pending]}]
+                                 (progress! {:phase :chaining :total nil
+                                             :done (or derived 0)
+                                             :note (note pending)}))))))))))))
+
+;; ---- the chaining funnel -------------------------------------------------
+;;
+;; `/stats` says how many conclusions a run derived; this says *which rules* did the
+;; deriving, which refused, and which never fired — the per-rule breakdown behind the
+;; headline, and the ontological engineer's "which of my rules earn their place".  It reads
+;; `chain-report` (placed / refused / silent, off the ledger and the justification graph)
+;; and folds in the `violations` that carry each rule's handle.  No engine change and no
+;; per-run counters: the stored ledger answers the funnel (docs/exceptions.md).
+
+(def ^:private funnel-render-cap 200)
+
+(defn- funnel-status-tag
+  [status]
+  (let [cls (case status :fires "tag-in" :blocked "tag-superseded" :silent "tag-out" "tag-out")]
+    [:span {:class (str "tag " cls)} (name status)]))
+
+(defn- funnel-run-form
+  "Run forward chaining to a fixpoint and land back here, so the funnel fills in front of
+  the reader.  The same job `/chain` runs — bounded by `max-derivations`, watchable and
+  cancellable on `/jobs` — only its result page is this one rather than `/stats`."
+  [_view]
+  [:form.chain-form {:method "post" :action "/funnel"
+                     :hx-post "/funnel" :hx-target "#main" :hx-select "#main" :hx-swap "outerHTML"}
+   [:span "Run forward chaining "]
+   [:input {:type "number" :name "max-derivations" :min 1 :placeholder "to a fixpoint"
+            :title "an optional derivation bound"}]
+   [:button {:type "submit"} "run"]])
+
+(defn- funnel-why
+  "Why a rule placed nothing — the reasons its refusals cluster on, which is what separates
+  'never completed an antecedent set' from 'completes them and every one is blocked'.  A
+  rule an exception blocks names the exception query too, not only the category."
+  [view {:keys [status refused refusals excepts]}]
+  (case status
+    :fires  [:span.tag.tag-in "fires"]
+    :silent [:span.muted "no antecedent set completed"]
+    :blocked (let [blocked (filter #(= :blocked (:state %)) refusals)
+                   freed   (- (count refusals) (count blocked))
+                   by      (frequencies (keep #(or (:reason %) :blocked) blocked))]
+               [:span
+                (interpose ", "
+                           (for [[reason n] (sort-by (comp - val) by)]
+                             [:span (commas n) " " [:span.tag (name reason)]]))
+                (when (seq excepts)
+                  [:span.muted " by "
+                   (interpose ", " (for [e excepts] (render-form view e)))])
+                (when (= :overflow refused) [:span.tag.tag-superseded " overflow"])
+                (when (pos? freed) [:span.muted (str " (" freed " since freed)")])
+                (when (and (empty? by) (not= :overflow refused) (zero? freed))
+                  [:span.muted "blocked"])])
+    [:span.muted "—"]))
+
+(defn- funnel-violation
+  [view {:keys [violation sentence context]}]
+  [:div [:span.tag.tag-defeated (name violation)]
+   (when sentence [:span " " (render-form view sentence)])
+   (when context [:span.muted " @ " (term-link view context)])])
+
+(defn- funnel-refused-rank
+  [{:keys [refused]}]
+  (if (= :overflow refused) Long/MAX_VALUE (long (or refused 0))))
+
+(defn- funnel-row
+  [view {:keys [rule placed refused] :as row} viols]
+  [:tr
+   [:td (handle-ref view rule) " " (funnel-status-tag (:status row))]
+   [:td.num (if (pos? (long placed)) (commas placed) [:span.muted "—"])]
+   [:td.num (cond (= :overflow refused)      [:span.tag.tag-superseded "overflow"]
+                  (pos? (long (or refused 0))) (commas refused)
+                  :else                       [:span.muted "—"])]
+   [:td (funnel-why view row)]
+   [:td (if (seq viols)
+          (for [v viols] (funnel-violation view v))
+          [:span.muted "—"])]])
+
+(defn funnel-page
+  "Every forward rule and what chaining did with it — placed, refused (and why), or silent
+  — ranked by what is wrong: no-placement rules first, by refusals descending, firing rules
+  last.  A run form on `32`'s job registry populates it live."
+  [{:keys [kb] :as view}]
+  (let [rows   (v/chain-report kb)
+        viols  (group-by :rule (v/violations kb))
+        ranked (sort-by (juxt #(if (pos? (long (:placed %))) 1 0)
+                              #(- (funnel-refused-rank %))
+                              :rule)
+                        rows)
+        shown  (into [] (take funnel-render-cap) ranked)
+        freq   (frequencies (map :status rows))]
+    (prime-belief! view (map :rule shown))
+    (render view "funnel"
+            [:h2 "The chaining funnel"]
+            [:p.muted "Every forward rule in the KB and what it does when chaining runs — "
+             "what it placed, what it refused and why, or whether it never fired at all. "
+             "The question " [:a {:href "/stats"} "the headline counts"] " cannot answer: "
+             [:i "which"] " of the rules earn their place."]
+            (funnel-run-form view)
+            [:div.stats-grid
+             [:div.stat [:span.stat-n (commas (count rows))] [:span.stat-l "forward rules"]]
+             [:div.stat [:span.stat-n (commas (:fires freq 0))] [:span.stat-l "fire"]]
+             [:div.stat [:span.stat-n (commas (:blocked freq 0))] [:span.stat-l "blocked"]]
+             [:div.stat [:span.stat-n (commas (:silent freq 0))] [:span.stat-l "silent"]]]
+            (if (empty? rows)
+              [:p.muted "No forward rules in this KB. Forward chaining has nothing to run."]
+              (list
+               [:table.stats-table
+                [:thead [:tr [:th "rule"] [:th.num "placed"] [:th.num "refused"]
+                         [:th "why not"] [:th "violations"]]]
+                [:tbody (for [row shown] (funnel-row view row (get viols (:rule row))))]]
+               (when (> (count ranked) funnel-render-cap)
+                 [:p.legend "Showing " funnel-render-cap " of " (commas (count ranked))
+                  " rules held, no-placement first."])))
+            [:p.legend "A " [:b "silent"] " rule never completed an antecedent set — nothing "
+             "it needs is believed. A " [:b "blocked"] " one completes firings and cannot "
+             "place them: an " [:span.tag "exception"] " holds, a " [:span.tag "naf"] " literal "
+             "is contradicted, a " [:span.tag "post-join"] " literal had no answer, or an "
+             "antecedent is " [:span.tag "hidden"] " in the placement context. The refusal "
+             "ledger is re-decided against current belief, so a reason shown is one that "
+             "still holds — retract what blocks it and the rule is owed its conclusion."])))
 
 ;; ---- multi-sentex editing (drag-select → textarea → one settle) ---------
 ;; Selection is client-side (select.js, the one bit of JS); the server renders the
@@ -5482,6 +5858,22 @@
                                                    in-monitor)
                                        #(stats-page (view (current target) req)
                                                     (chain-note (:summary %))))))))}]
+         ;; the per-rule breakdown behind the chain headline: which forward rules placed,
+         ;; which refused (and why), which never fired.  GET reads the standing ledger;
+         ;; POST runs the same chaining job as /chain but lands back here, so the funnel
+         ;; fills in front of the reader
+         ["/funnel"     {:get  (fn [req] (funnel-page (view (current target) req)))
+                         :post (fn [req]
+                                 (writing-job
+                                  target req
+                                  (fn [in-monitor]
+                                    (let [kb (current target)]
+                                      (job-answer
+                                       (view kb req)
+                                       #(chain-job kb (active-kb-name)
+                                                   (->long (get-in req [:params "max-derivations"]))
+                                                   in-monitor "/funnel")
+                                       (fn [_] (funnel-page (view (current target) req))))))))}]
          ;; what this process is holding beside the store: the caches, the heap strip
          ;; `/kbs` already draws, and the profiler.  The clear is origin-checked like
          ;; every other POST and is deliberately **not** behind `writing`: it changes no
@@ -5640,6 +6032,14 @@
                                      (levels-rows-page (view (current target) req) q (or ctx '?ctx) lvl
                                                        (->offset (get-in req [:query-params "offset"])))
                                      (frag ""))))}]
+         ["/inference"  {:get (fn [req]
+                                (let [q   (get-in req [:query-params "q"])
+                                      ctx (get-in req [:query-params "ctx"])
+                                      d   (->long (get-in req [:query-params "d"]))]
+                                  (inference-page (view (current target) req)
+                                                  (when (seq q) (->form q))
+                                                  (or (when (seq ctx) (->form ctx)) '?ctx)
+                                                  (or (when (and d (pos? (long d))) d) debug-depth-default))))}]
          ["/sentex/:id" {:get (fn [req] (sentex-page (view (current target) req)
                                                      (->long (get-in req [:path-params :id]))))}]
          ["/why/:id"    {:get (fn [req] (why-page (view (current target) req)

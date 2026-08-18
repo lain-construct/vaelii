@@ -108,7 +108,7 @@
   Three channels, each found by differencing: run the complete prover alone, run every
   other applicable prover, and see what only the second answers.
 
-  * **`:preserving`** — an `(argPreserving P n R)` declaration licenses a claim about a
+  * **`:preserving`** — an `(transitiveInArg P n R)` declaration licenses a claim about a
     tuple that appears in no stored fact, in no rule conclusion and in no constraint
     network, so nothing computed from those three can contain it.
   * **`:rules`** — a rule concluding the goal's predicate, or a spec of it.  A *forward*
@@ -214,7 +214,10 @@
 
 ;; ---- transitivity (genl / genlCx via the cached closures) ---------------
 
-(def transitive-predicates '#{genl genlCx})
+(def transitive-predicates
+  "The relations the cached-closure `TransitivityProver` answers — genl / genlCx, held
+  out of the generic per-predicate transitive machinery.  Defined once in the taxonomy."
+  tax/closure-relations)
 
 (defn- trans-fns [kb pred context]
   (let [tx (:taxonomy kb)]
@@ -625,7 +628,9 @@
         ;; `ClassCastException` on a KB whose cycle relates two of them.  Printed form is
         ;; the content key the rest of this file already ranks terms by.
         (= a b) (map (fn [x] {a x})
-                     (sort-by pr-str (on-a-cycle (walk-sources kb pred context) fwd)))
+                     ;; `pr-str` keeps a list-valued binding sortable; built once per term
+                     (nm/sort-by-content-key pr-str compare
+                                             (on-a-cycle (walk-sources kb pred context) fwd)))
         ;; Both open: **nothing from here**, so the extent answers — the stored `pred`
         ;; facts and those of its `genl` sub-predicates, through the ordinary match path
         ;; like any other predicate.  `completeness` 70 is what makes that work: this is
@@ -647,7 +652,7 @@
         ;; question, or one bound end per source term.
         :else []))))
 
-(defrecord ArgPreservingProver []       ; (argPreserving P n R) / (argPreservingInverse P n R)
+(defrecord TransitiveInArgProver []       ; (transitiveInArg P n R) / (transitiveInArgInverse P n R)
   Prover
   (applicable? [_ kb goal context]
     (and (inherit/ground-goal? goal)
@@ -1277,34 +1282,6 @@
         (and (number? n) (number? result)) (if (== n result) [{}] [])
         :else                              (if (= n result) [{}] [])))))
 
-;; ---- predicate-type provers (from taxonomy metadata) --------------------
-;; Answer (symmetricPredicate ?p) etc. directly from the cached metadata, so the
-;; algebraic predicate types are queryable without materializing them as facts.
-
-(def ^:private predicate-type-props
-  '{symmetricPredicate  :symmetric
-    transitivePredicate :transitive
-    reflexivePredicate  :reflexive
-    functionalPredicate :functional})
-
-(defn- ptype-count [kb goal]
-  (count (tax/props (:taxonomy kb) (predicate-type-props (first goal)))))
-
-(defrecord PredicateTypeProver []
-  Prover
-  (applicable? [_ _ goal _]
-    (and (sequential? goal) (= 2 (count goal))
-         (contains? predicate-type-props (first goal))))
-  (est-bindings [_ kb goal _] (max 1 (ptype-count kb goal)))
-  (cost         [_ _ _ _] :lookup)
-  (completeness [_ _ _ _] 50)                   ; augments facts — a directly-asserted membership still counts
-  (solve [_ kb goal _]
-    (let [[ptype p] goal
-          preds (tax/props (:taxonomy kb) (predicate-type-props ptype))]
-      (if (pvar? p)
-        (map (fn [x] {p x}) preds)
-        (if (contains? preds p) [{}] [])))))
-
 ;; ---- type inference from argIsa-constrained usage -----------------------
 
 (defn- believed-sentexes-with [kb term]
@@ -1364,6 +1341,66 @@
         ;; first sentex that witnesses `t`, so a ground membership never types x in full
         (if (some #(= t %) types) [{}] [])))))
 
+;; ---- the argument-type meta-predicates, answered up genl ----------------
+;;
+;; `(argIsa petMammal 1 animal)` succeeds off a stored `(argIsa petMammal 1 mammal)`
+;; when `(genl mammal animal)` — the same generalization `check` walks internally, so
+;; `assert` and `ask` agree (issue #20).  Answered HERE, a bounded closure walk, rather
+;; than by declaring the meta-predicates `transitiveInArg`: that routes every one of the
+;; KB's very many `argIsa`/`argGenl` lookups through the general preservation prover and
+;; its chaining sweeps — a per-query tax the whole subsystem is gated to avoid, since
+;; almost no predicate is preserved.  A stored `(transitiveInArg argIsa …)` breaks that
+;; gate for the most-queried predicates there are.
+;;
+;; The predicate position reaches DOWN (a constraint on a super binds its
+;; specializations — `constraining-predicates` is the super-predicate up-walk `check`
+;; uses), each type position reaches UP (a stored subtype constraint answers its
+;; supertypes — `genl?`).  On-demand and non-materializing, so it follows belief with no
+;; cache and `sentexes-matching` still shows only what was stored.  `arity` is NOT here:
+;; a sub-predicate may carry a signature of its own, and the answer would need the
+;; forward `arity`⇒type cycle a backward prover cannot fire; `check`'s `inherited-arity`
+;; still holds a silent sub-predicate to its supers.
+(def ^:private meta-constraint-shape
+  "By functor: the goal-list index of the predicate, the position-number indices that
+  must match a stored declaration exactly, and the type indices that reach up `genl`."
+  '{argIsa      {:pred 1 :fixed [2] :types [3]}
+    argGenl     {:pred 1 :fixed [2] :types [3]}
+    interArgIsa {:pred 1 :fixed [2 4] :types [3 5]}})
+
+(defn- meta-generalizes?
+  "Does a stored declaration on `goal`'s predicate or a super-predicate answer `goal`
+  once its type positions are read up the `genl` closure?"
+  [kb goal context]
+  (when-let [{:keys [pred fixed types]} (meta-constraint-shape (nm/functor goal))]
+    (let [tax  (:taxonomy kb)
+          k    (nm/functor goal)
+          gvec (vec goal)
+          qp   (nth gvec pred)]
+      (boolean
+       (some
+        (fn [p']
+          (let [probe (cons k (map (fn [i] (if (= i pred) p' (symbol (str "?g" i))))
+                                   (range 1 (count gvec))))]
+            (some
+             (fn [[_h b]]
+               (let [sval (fn [i] (if (= i pred) p' (get b (symbol (str "?g" i)))))]
+                 (and (every? #(= (sval %) (nth gvec %)) fixed)
+                      (every? #(tax/genl? tax (sval %) (nth gvec %) context) types))))
+             (res/matches-visible kb probe context))))
+        (res/constraining-predicates kb k qp context))))))
+
+(defrecord MetaConstraintProver []   ; (argIsa/argGenl/interArgIsa P n T …) up the genl closure
+  Prover
+  (applicable? [_ _ goal _]
+    (and (sequential? goal)
+         (contains? meta-constraint-shape (nm/functor goal))
+         (empty? (sx/free-vars goal))))
+  (est-bindings [_ _ _ _] 1)
+  (cost         [_ _ _ _] :compute)   ; a closure walk, not a lookup — like TransitiveInArgProver
+  (completeness [_ _ _ _] 50)         ; augments FactProver's stored match, never shadows it
+  (solve [_ kb goal context]
+    (if (meta-generalizes? kb goal context) [{}] [])))
+
 ;; ---- rules (backward chaining through the engine) -----------------------
 
 (defn candidate-rules
@@ -1395,16 +1432,17 @@
 
 (def default-provers
   [(->TransitivityProver) (->DisjointnessProver)
-   (->TransitivePredicateProver) (->ArgPreservingProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
+   (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
    (->EvaluableProver) (->DifferentProver) (->EvaluateProver) (->QuantityProver)
    (->UnknownProver) (->ThereExistsProver) (->AggregateProver)
-   (->PredicateTypeProver)
    ;; FactProver before ArgTypeProver: both are :lookup / completeness 50, so vector
    ;; order breaks the stable-sort tie in the union path (`solve-goal-with`).  A stored
    ;; fact is the cheaper witness for a ground `(Type Individual)`, and the union is
    ;; lazy + `distinct` — so a consumer taking one answer gets FactProver's stored
    ;; match before ArgTypeProver.solve's inferred-type scan is ever forced.
-   (->FactProver) (->ArgTypeProver)])
+   ;; MetaConstraintProver sits with them: it too augments FactProver (the stored
+   ;; declaration is the cheaper witness) and answers the genl-generalizations on top.
+   (->FactProver) (->MetaConstraintProver) (->ArgTypeProver)])
 
 (defn registry [kb] (if-let [pv (:provers kb)] @pv default-provers))
 
@@ -1454,7 +1492,9 @@
     (if complete
       (solve complete kb goal context)
       (->> applicable
-           (sort-by #(goal-cost-rank % kb goal context))
+           ;; `goal-cost-rank` calls each prover's `cost` — an index/taxonomy count for
+           ;; some — so rank once per prover, not once per comparison of the dispatch sort
+           (nm/sort-by-content-key #(goal-cost-rank % kb goal context) compare)
            (res/lazy-mapcat #(solve % kb goal context))
            distinct))))
 

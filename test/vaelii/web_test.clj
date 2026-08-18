@@ -24,7 +24,31 @@
       (-> kb starter/load-into world/load-into)
       (binding [tu/*kb* kb, *app* (web/app kb)] (f))
       (tu/clear-kb! kb))))
-(use-fixtures :each (tu/neutral))
+
+(defn- drained
+  "An `:each` fixture that leaves no job running against the shared `:once` KB.  A chaining
+  run is a job that holds this process's one writer, and `/chain`'s only bounded promise is
+  the fast path plus whatever the test itself waits — so a run that outlasts that wait under
+  load stays running into the next test, where `write-blocked?` reads it as the writer and
+  refuses every write with \"Nothing was written\", one leaked job cascading down the rest of
+  the namespace.  Cancel is cooperative (`forward-chain` reports about four times a second,
+  and a report is where it lands), so each running job is cancelled and then waited for
+  before the registry is cleared and the next test reuses the KB — the writer released, not
+  merely forgotten, since two writers on one store are the thing the single-writer contract
+  forbids.
+
+  Inner to `neutral` below, so this `finally` runs first: the run must be settled before
+  `assert-neutral!`'s retraction touches the KB, or the drain and the neutrality sweep are
+  themselves two writers."
+  [f]
+  (try (f)
+       (finally
+         (let [live (jobs/running)]
+           (doseq [j live] (jobs/cancel! (:id j)))
+           (doseq [j live] (jobs/wait (:id j) 60000)))
+         (jobs/reset-registry!))))
+
+(use-fixtures :each (tu/neutral) drained)
 
 (defn- GET [uri & [qs headers]]
   (*app* (cond-> {:request-method :get :uri uri}

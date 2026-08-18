@@ -172,8 +172,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   servers ([web.md](web.md)).
 - **A read is realized under the write monitor.** Projecting the answer for the wire is
   what realizes a lazy result, so it runs *inside* the lock the daemon serializes ops
-  with; run after it, a `:query` could straddle a concurrent `:assert` and report a
-  KB that never existed.
+  with. [why inside the lock](defenses.md#a-read-that-crosses-the-wire-is-realized-inside-the-write-monitor)
 - **The change feed crosses the wire as a subscription with a cursor** (`:watch`,
   `:poll`, `:unwatch`, `:watchers` — [feed.md](feed.md), "Across the wire"). These are
   the one thing on the wire that is *not* a `vaelii.core` fn with the KB supplied, which
@@ -210,10 +209,9 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   ones and are 400 on purpose: the request is well formed and the daemon is at capacity,
   but the caller is who can act on it — by dropping a subscription, or by not asking to
   wait — and a status of its own would break the promise that a client discriminates on
-  `:type`. The first two are refusals
-  where an empty answer was the tempting alternative, and that is exactly what makes
-  them refusals: a feed that has stopped and says `{:events []}` is one its reader
-  believes.
+  `:type`. The first two exist because an empty answer
+  was the tempting alternative for each: [why they refuse
+  instead](defenses.md#unknown-subscription-and-bad-cursor-refuse-rather-than-answer-an-empty-feed)
 - **Sentex records are projected to plain maps** before they hit the wire (the
   `sentex`-map contract, docs/api.md), so a client needs no `impl` record class.
 - **The vocabulary is served** (`:terms`, `:term-count`, `:find-terms`): a remote client
@@ -244,8 +242,9 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   the only place it can be, since the daemon owns the KB and there is no stream to hand a
   client back. Two consequences worth stating: it reports **no progress** (`:on-progress`
   is a function, and functions do not cross an EDN wire), and it runs under the write
-  monitor, because the walk fetches record by record and a dump of a KB something is
-  asserting into is a dump of no single state. There is no `:import` op — `import!` is
+  monitor — the walk fetches record by record, which needs the same protection a query's
+  projection does ([why](defenses.md#a-read-that-crosses-the-wire-is-realized-inside-the-write-monitor)).
+  There is no `:import` op — `import!` is
   a local operation, run in the process that owns the (empty) KB the dump lands in.
 - `serve/app` is a pure `request -> response` handler (reitit-ring), so it is tested
   without a socket; `serve/start` runs it on jetty and returns the `Server`.
@@ -374,10 +373,11 @@ rather than `java -jar`, because the jar's Main-Class is `vaelii.core`.
   is measured rather than skipped. `lein perf`, two alternating passes at a fixed 6 GiB
   heap, 2026-08-06: the JDK default took **40.7-41.2 s at 1493-1510 MB** peak resident,
   generational ZGC **55.5-55.9 s at 6224-6258 MB** — 36% slower holding 4.2x the resident
-  set, and ZGC alone tripped the `:negation-arbitration` growth bound on both passes. A
-  concurrent collector earns its throughput cost on a live set of tens of gigabytes, and
-  this engine's peak is 1.5 GB; in a container the resident set is also what the memory
-  limit is set against. `lein with-profile +zgc` selects it for a JVM that has a reason.
+  set, and ZGC alone tripped the `:negation-arbitration` growth bound on both passes. In a container the resident set is also
+  what the memory limit is set against, which is what makes the choice operationally
+  relevant rather than academic. [why the JDK default over a concurrent
+  collector](defenses.md#the-default-collector-is-chosen-against-this-engines-measured-footprint)
+  `lein with-profile +zgc` selects it for a JVM that has a reason.
 - **`HEALTHCHECK` polls `/health`**, the one route that answers without the token, since
   a daemon only its token-holder can probe is one no orchestrator can watch. An empty
   volume answers in about three seconds; the start period is far longer than that because
@@ -560,6 +560,7 @@ image that only macOS and Linux can swap.
 | `vaelii.disk.cache` | `src/vaelii/impl/config.clj:180+` | a whole number ≥ 0; `0` disables the cache | `65536` | Hot records held in memory per kind. |
 | `vaelii.disk.lock` | `src/vaelii/impl/config.clj:210+` | the boolean vocabulary | `true` | Whether the single-writer `FileLock` is taken when a directory opens. Off removes the enforcement and not the contract. |
 | `vaelii.index.snapshot` | `src/vaelii/impl/config.clj:220+` | the boolean vocabulary | `false` | Whether the mapped index image is written and read. Publishing one is refused on Windows whatever this says. |
+| `vaelii.belief.snapshot` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether a belief certificate is written on a full recover and read on the next cold open, letting a clean disk KB skip the closing settle's definitional-clash scan. Off is byte-identical to never having the file. |
 
 **Finding a KB.**
 
@@ -608,8 +609,8 @@ here.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `vaelii.build` | `src/vaelii/impl/io/export.clj:240+` | any label | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
-| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:240+` | any label | as above | The same label, read after the property. |
+| `vaelii.build` | `src/vaelii/impl/io/export.clj:190+` | any label | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
+| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:190+` | any label | as above | The same label, read after the property. |
 
 ### Developer — the suite and the scripts
 
@@ -655,6 +656,8 @@ inputs to the colour decision and not knobs of this project's.
 | `VAELII_BENCH_STORE` | `bench/vaelii/bench/survey.clj:360+` | a directory holding a record log | `~/.vaelii/kbs/store` | The corpus the real-corpus benchmarks sample when the command line names none. |
 | `VAELII_SURVEY_STORE` | `bench/vaelii/bench/survey.clj:20+` | a directory holding a record log | as above | A second name for the same directory, read when the row above is unset. |
 | `VAELII_PYRAMID_CORPUS` | `bench/vaelii/bench/pyramid.clj:20+` | a directory holding `vaelii.txt` | none — a run without it is refused, naming itself | The join.1k corpus the pyramid benchmark reads. It is a field-harness artifact and is not in this repo, so a default could only name whoever wrote one. |
+| `VAELII_RECOVER_CORPUS` | `bench/vaelii/bench/recoverphase.clj:740+` | a directory holding a `:disk` store of sentexes | none — a store-reading run without it is refused, naming itself | The corpus the recover benchmark's store-reading modes read when the command line names no path. A dev-box `:disk` store, not in this repo, so a default could only name whoever wrote one. |
+| `vaelii.memo.budget` | `bench/vaelii/bench/recoverphase.clj:90+` | a whole number of distinct visibility sets | `8192` | The `*scoped-memo-budget*` the recover benchmark binds while it recovers, so the scoped-closure cache the phase runs under is a knob rather than the code's steady-state constant. |
 
 ## Not here
 

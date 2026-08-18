@@ -47,14 +47,36 @@
   [(binding [res/*hierarchical-retrieval* false] (proj (f)))
    (binding [res/*hierarchical-retrieval* true]  (proj (f)))])
 
-(defn- fact-sentences [kb n]
-  (->> (p/sentex-ids (:records kb))
-       (keep #(p/get-sentex (:records kb) %))
-       (remove #(some? (:antecedent %)))
-       (keep sx/body)
-       (filter #(and (sequential? %) (symbol? (nm/functor %))))
-       distinct
-       (take n)))
+(defn- lead-sides
+  "`f` projected under each `res/*lead-side*` — `:scoped` (one predicate-scoped bucket per
+  spec, the pre-v4 lead), `:auto` (the count-driven default) and `:agnostic` (the small
+  side, always) — plus the `matches-visible` fan-out as ground truth (`:ref`).  The side
+  `lead-candidates` reads from is a pure cost decision, so all four must be the identical
+  set."
+  [f]
+  {:ref      (binding [res/*hierarchical-retrieval* false]                        (proj (f)))
+   :scoped   (binding [res/*hierarchical-retrieval* true, res/*lead-side* :scoped]   (proj (f)))
+   :auto     (binding [res/*hierarchical-retrieval* true, res/*lead-side* :auto]     (proj (f)))
+   :agnostic (binding [res/*hierarchical-retrieval* true, res/*lead-side* :agnostic] (proj (f)))})
+
+(defn- fact-sentences
+  "Up to `n` distinct positive ground-fact bodies (no rules), sampled *evenly* across
+  the world's stored facts rather than taking the first `n` — the leading facts
+  cluster by predicate, so an even spread spans more functors for the same cost.
+  Deterministic: same KB, same sample.  This is an equivalence oracle, so the sample
+  is a regression net over the fact space, not an exhaustive sweep of it."
+  [kb n]
+  (let [all (->> (p/sentex-ids (:records kb))
+                 (keep #(p/get-sentex (:records kb) %))
+                 (remove #(some? (:antecedent %)))
+                 (keep sx/body)
+                 (filter #(and (sequential? %) (symbol? (nm/functor %))))
+                 distinct
+                 vec)
+        m   (count all)]
+    (if (<= m n)
+      all
+      (mapv #(nth all (quot (* % m) n)) (range n)))))
 
 (defn- var-patterns [fact]
   (let [[pred & args] fact
@@ -77,8 +99,11 @@
                       CxUniverse CxStories])
 
 (deftest ^:slow hierarchical-equals-nested-fanout
+  ;; A sample of the world's facts (each expanded to ~8 patterns) × every context,
+  ;; comparing the two retrieval paths.  64 sampled facts rather than the first 200:
+  ;; the exhaustive sweep was ~38s for a per-fact equivalence a spread already pins.
   (tu/with-kb [kb]
-    (let [pats (mapcat var-patterns (fact-sentences kb 200))]
+    (let [pats (mapcat var-patterns (fact-sentences kb 64))]
       (is (seq pats))
       (doseq [pat pats, ctx ctxs]
         (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
@@ -150,6 +175,46 @@
       (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
         (is (= off on) (str "subsumption+hierarchical diverged on " (pr-str pat) " @ " ctx
                             "\n  off: " (pr-str off) "\n  on:  " (pr-str on)))))))
+
+(tu/deftest-kb small-side-lead-agrees-with-scoped-and-reference
+  ;; The one cost decision in `lead-candidates` a flag now reaches (`res/*lead-side*`): a
+  ;; concrete predicate with a spec closure, a ground argument, and a term holding fewer
+  ;; postings than there are specs — so `:auto` leads from the predicate-AGNOSTIC bucket
+  ;; (`[:argument-slot pos term]`, every functor holding the term), the cold-rebuild small
+  ;; side `f59d6b70` added and the shallow test-world never forces on its own.  Build the
+  ;; deep hierarchy here and pin that :scoped, :auto, :agnostic and the matches-visible
+  ;; fan-out return the identical set — through the predicate filter (an unrelated
+  ;; predicate holds the same term at the same position, so the agnostic bucket returns it
+  ;; and `pred-ok?` must drop it) and the context cone (a sibling-context fact the global
+  ;; roster sees but a scoped read must not).  This is the shape a wrong small side would
+  ;; leak on, where the shallow oracle above would stay green.
+  (tu/with-terms [broadRel otherRel A B1 B2 Bother CxSib Bsib]
+    (let [subs (vec (repeatedly 8 tu/tmp-pred))]
+      (doseq [s subs] (v/assert kb (list 'genl s broadRel) 'CxUniverse {:strength :monotonic}))
+      (v/assert kb (list (subs 2) A B1)      'CxSocialWorld {:strength :monotonic})
+      (v/assert kb (list (subs 5) A B2)      'CxSocialWorld {:strength :monotonic})
+      (v/assert kb (list otherRel A Bother)  'CxSocialWorld {:strength :monotonic})  ; predicate decoy
+      (v/assert kb (list (subs 3) A Bsib)    CxSib          {:strength :monotonic})  ; sibling-context decoy
+      ;; the branch is genuinely the small side: more specs than A has postings, so `:auto`
+      ;; reads the agnostic bucket — assert it rather than trust the construction
+      (is (> (count (#'res/sub-predicates kb broadRel 'CxSocialWorld))
+             (long (p/count-with-arg (:index kb) 1 A)))
+          "the constructed KB does not force the small-side branch — retune it")
+      (doseq [pat (list (list broadRel A '?y) (list broadRel A B1))
+              ctx  '[CxSocialWorld CxUniverse ?ctx]]
+        (let [{:keys [ref scoped auto agnostic]} (lead-sides #(res/matches-visible kb pat ctx))]
+          (is (= ref scoped auto agnostic)
+              (str "lead-side diverged on " (pr-str pat) " @ " ctx
+                   "\n  ref:      " (pr-str ref)
+                   "\n  scoped:   " (pr-str scoped)
+                   "\n  auto:     " (pr-str auto)
+                   "\n  agnostic: " (pr-str agnostic)))))
+      ;; and the answer set is exactly the two believed sub-facts, the unrelated predicate
+      ;; and the invisible sibling context both correctly excluded from the agnostic lead
+      (let [ys (into #{} (map #(get (second %) '?y))
+                     (binding [res/*lead-side* :agnostic]
+                       (res/matches-visible kb (list broadRel A '?y) 'CxSocialWorld)))]
+        (is (= #{B1 B2} ys) (str "the agnostic lead's answer set is wrong: " (pr-str ys)))))))
 
 (tu/deftest-kb end-to-end-ask-and-backward-unchanged
   ;; the consumers of matches-visible must be invariant under the flag

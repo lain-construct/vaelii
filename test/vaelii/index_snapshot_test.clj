@@ -255,7 +255,7 @@
       m)
     :unreadable]])
 
-(deftest each-mismatch-class-names-itself-and-falls-back
+(deftest ^:slow each-mismatch-class-names-itself-and-falls-back
   (doseq [[label mutate expected] mismatches]
     (testing label
       (with-snapshot-dir

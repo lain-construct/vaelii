@@ -58,7 +58,9 @@
   "A constraint's relations, ordered by how they are named — the order the search tries
   them in, and the reason two runs agree on *which* scenario they return."
   [rels]
-  (sort-by str rels))
+  ;; relations are unqualified keywords, so a bare sort orders them by name identically
+  ;; to `sort-by str` — without a `str` allocation per comparison on this per-branch call
+  (sort rels))
 
 (defn- next-pair
   "The still-undecided pair with the fewest possibilities, or nil when every pair is down to

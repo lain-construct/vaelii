@@ -93,12 +93,12 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
            (str "\n- … and " (- (count cs) max-contexts) " more (`kb_contexts`)")))))
 
 (defn- type-section [kb {:keys [max-types] :or {max-types 80}}]
-  (let [ts (sort (v/types kb))]
+  (let [ts (sort-by str (v/types kb))]     ; str, never bare sort: a type node may be a NAT, not a symbol
     (str "## Types (" (count ts) ")\n\n"
          "Each is a unary predicate; `genls` are its supertypes.\n\n"
          (str/join "\n"
                    (for [t (take max-types ts)]
-                     (let [up (sort (disj (set (v/genls kb t)) t))]
+                     (let [up (sort-by str (disj (set (v/genls kb t)) t))]   ; NAT-safe (a type may be a NAT)
                        (bullet "`" t "`"
                                (when (seq up)
                                  (str " ⊂ " (str/join ", " (map #(str "`" % "`") up))))))))
@@ -154,7 +154,7 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
 
 (defn- disjoint-section [kb]
   (let [pairs (sort (set (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint '?a '?b) '?ctx)]
-                           (vec (sort [(nth sentence 1) (nth sentence 2)])))))
+                           (vec (sort-by str [(nth sentence 1) (nth sentence 2)])))))   ; disjoint args may be NATs
         metas (sort (v/disjoint-metatypes kb))]
     (when (or (seq pairs) (seq metas))
       (str "## Disjointness\n\n"
@@ -166,7 +166,7 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
                       (for [m metas]
                         (bullet "metatype `" m "` — pairwise disjoint members: "
                                 (str/join ", " (map #(str "`" % "`")
-                                                    (sort (v/metatype-members kb m))))))))))))
+                                                    (sort-by str (v/metatype-members kb m))))))))))))
 
 (defn- scale-section [kb]
   (str "## This knowledge base\n\n"

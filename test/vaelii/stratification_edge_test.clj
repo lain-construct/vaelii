@@ -234,3 +234,52 @@
     (is (seq (v/sentexes-matching kb (list 'genl penguin unrelated) '?ctx)))
     (is (tax/genl? (:taxonomy kb) penguin unrelated)
         "a derived edge reaches the taxonomy through integrate-transitive")))
+
+;; ---- the consequent-var-pred rule and negation ---------------------------
+;;
+;; A rule concluding `(?p ?x)` (reasoning/27's consequent half) could conclude *any*
+;; predicate once `?p` binds, so the stratification check treats it as a concluder of the
+;; predicate its NAF antecedent depends on — `rules/direct-concluders` folds in the
+;; `p/var-consequent-key` catch-all.  Without that a one-rule negation cycle slips the door.
+
+(tu/deftest-kb a-variable-consequent-rule-that-could-conclude-its-own-naf-is-refused
+  (tu/with-terms [bar foo]
+    (let [rule (vr/rule-sentence [(list bar '?p '?x) (list 'unknown (list foo '?x))]
+                                 '(?p ?x))
+          data (refusal kb rule 'CxNaturalWorld)]
+      (is (= :not-stratified (:type data))
+          "it could conclude foo while depending on foo's absence — an unstratified rule"))))
+
+(tu/deftest-kb a-variable-consequent-rule-with-no-naf-is-accepted
+  ;; the control: the refusal above is the cycle, not the mere presence of a variable
+  ;; consequent — a var-consequent rule with a monotonic antecedent asserts cleanly.
+  (tu/with-terms [holds]
+    (let [h (v/assert kb (vr/rule-sentence [(list holds '?p '?x '?y)] '(?p ?x ?y))
+                      'CxNaturalWorld)]
+      (is (some? h))
+      (v/retract! kb h))))
+
+;; The other two negative-antecedent forms fold into the same cycle: `check-stratified`
+;; treats the exception's predicates and the aggregate bodies' predicates as negative
+;; edges exactly as it does `unknown`, and a variable consequent concludes any of them.
+
+(tu/deftest-kb a-variable-consequent-rule-excepted-on-its-own-conclusion-is-refused
+  ;; the `exceptWhen` branch: the rule's exception reads `foo`, and its variable consequent
+  ;; `(?p ?x)` could conclude `foo` — a one-rule negation cycle through the exception.
+  (tu/with-terms [bar foo]
+    (let [rule (list 'exceptWhen (list foo '?x)
+                     (vr/rule-sentence [(list bar '?p '?x)] '(?p ?x)))
+          data (refusal kb rule 'CxNaturalWorld)]
+      (is (= :not-stratified (:type data))
+          "it could conclude foo while excepted when foo holds — an unstratified rule"))))
+
+(tu/deftest-kb a-variable-consequent-rule-aggregating-its-own-conclusion-is-refused
+  ;; the aggregate branch: the rule counts over `foo`, and its variable consequent `(?p ?x)`
+  ;; could conclude `foo` — the count has no settled answer, so the rule is refused.
+  (tu/with-terms [bar foo]
+    (let [rule (vr/rule-sentence [(list bar '?p '?x)
+                                  (list 'agg/count '?n '?v (list foo '?v))]
+                                 '(?p ?x))
+          data (refusal kb rule 'CxNaturalWorld)]
+      (is (= :not-stratified (:type data))
+          "it could conclude foo while counting foo's extent — an unstratified rule"))))

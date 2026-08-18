@@ -249,7 +249,7 @@
                                       (list 'thereExists '?y (list 'parentOf '?x '?y)))
                        (list 'aParent '?x))
               'CxWell)
-    (v/assert kb (list 'person Dad) 'CxWell)
+    (v/assert kb (list 'human Dad) 'CxWell)
     (v/assert kb (list 'person Childless) 'CxWell)
     (v/assert kb (list 'parentOf Dad Kid) 'CxWell)
     (testing "fires for a witnessed existential, not for an unwitnessed one"

@@ -36,25 +36,16 @@ There are exactly **two** classes, and derivation adds none. They form a total o
 **monotonic > default**. A node's **defeat-class** is the strongest support it
 currently has: its premise strength, or the class any valid justification *confers*
 on it. `relabel` computes it alongside the label; `core/defeat-class` (via
-`jtms/defeat-class`) reads a believed handle's class back.
-
-**Do not add a third.** The one problem that tempts an intermediate class — letting
-`penguin ⇒ ¬flies` outrank the default `bird ⇒ flies` without the penguin fact having
-to be known-true — is [`exceptWhen`](exceptions.md)'s: a rule states its own exception
-and does not fire, so nothing needs to out-rank anything. A class between the two buys
-one case and costs the total order everywhere else.
+`jtms/defeat-class`) reads a believed handle's class back. Two classes and no third:
+[why](defenses.md#two-strength-classes-not-three).
 
 **A re-assert takes the stronger of the two classes, and never the weaker.** The mark is
 resolved from *content*, like a re-asserted rule's slots
-([canonicalization.md](canonicalization.md)) and for the reason this page exists: a
-re-assert carrying no `:strength` states nothing about the class — the `:default` it
-falls back to is the door's fallback, not the caller's claim — so reading that silence as
-a downgrade would let arrival order decide belief. Assert `S` known-true, re-assert it
-bare, then assert the known-true `¬S`, and a last-writer-wins mark leaves `S`
-**defeated**; the same three sentences in the other order leave the pair an irreducible
-clash. `strength/max` is commutative and idempotent, so every order agrees and a third
-assertion changes nothing. Narrowing a class is `retract!` and re-assert — the
-retraction takes the mark with it, so nothing is inherited across one.
+([canonicalization.md](canonicalization.md)). `strength/max` is commutative and
+idempotent, so every order agrees and a third assertion changes nothing. Narrowing a class
+is `retract!` and re-assert — the retraction takes the mark with it, so nothing is
+inherited across one. Why a bare re-assert's silence is not a downgrade:
+[why](defenses.md#a-bare-re-assert-never-downgrades-the-class).
 
 ### Strength propagates from the antecedents
 
@@ -66,36 +57,18 @@ classes)`**, where a rule's own strength is read off its defeasibility:
 - a **`set/defaultRule`** confers `:default` — it introduces defeasibility, so its
   conclusions are always `:default`.
 
-A conclusion can therefore be no stronger than the weakest thing it rests on: a bare
-rule over a merely-default premise concludes a *default*. The same bare rule over
-known-true facts concludes `:monotonic`, which is correct — it *is* monotonically
-entailed. Without the cap, a rule launders a default into something a
-directly-asserted default cannot contradict: a conclusion carrying more authority than
-any of its grounds.
+A conclusion is therefore no stronger than the weakest thing it rests on: a bare rule
+over a merely-default premise concludes a *default*, the same bare rule over known-true
+facts concludes `:monotonic`. **The taxonomy edges a firing names are grounds like the
+facts** — a `genl` edge a subsumed match climbed, a `genlCx` edge the conclusion's context
+reads the rule or the facts over ([contexts.md](contexts.md)) — and cap it the same way.
+The **informant is excluded** from the cap.
 
-**The taxonomy edges a firing names are grounds like the facts**, and cap it the same
-way: a `genl` edge a subsumed match climbed, and a `genlCx` edge the conclusion's
-context sees the rule or the facts over ([contexts.md](contexts.md)). Known-true facts
-under a bare rule, read across a merely-default context edge, therefore conclude a
-`:default` — the sighting is as defeasible as the edge that carries it, and a conclusion
-stronger than the wiring it was read over would be the same laundering.
-
-The **informant is excluded from the cap**. A rule is one of its own justification's
-antecedents — that is what makes retracting or defeating the rule withdraw everything
-it licensed — but that is a *validity* role, not a ground. A rule takes `:default`
-unless its own assertion says otherwise, exactly as a fact does, so capping on it too
-would put every datum an ordinary rule licensed at `:default`.
-
-**A rule's own class and a rule's defeasibility are two slots answering two questions,
-and only one of them moves belief.** `:strength` is the class the *rule* is held at —
-`opts :strength` at the door, what `defeat-class` answers for its handle, what a
-solver would be shown. `:defeasible` is what its firings confer, per the two bullets
-above. Nothing in the engine defeats a rule, so the first slot takes part in no
-contest: a negated rule is refused at the door as not well-formed, and the two things
-that make a dilemma — a stored P/¬P coincidence and an arbitrable argument violation
-([solving.md](solving.md)) — are both about facts. So asserting a rule `:monotonic`
-records the class the caller stated and reads back; what makes a rule's *conclusions*
-indefeasible is writing it bare rather than as a `set/defaultRule`.
+A rule's own class (`:strength` — `opts :strength` at the door, what `defeat-class` answers
+for its handle, what a solver is shown) and a rule's defeasibility (bare versus
+`set/defaultRule`, what its firings confer) are two slots, and only the second moves belief;
+nothing in the engine defeats a rule. Why the cap, why the taxonomy edges count, and why the
+informant does not: [why](defenses.md#a-firing-is-capped-by-its-weakest-ground).
 
 This makes the class equation **recursive**: a node's class depends on its
 antecedents' classes. `jtms/region-classes` solves it as a **least fixpoint inside
@@ -109,13 +82,9 @@ the region relabel**, so locality is untouched:
   only when one of its antecedents' classes moves (reached through `:consequences`), so
   the cost is O(region edges) rather than O(region depth × region).
 
-The operator is monotone in the class lattice and the iteration starts at bottom, so
-it converges to the *least* fixpoint — which is unique, and therefore independent of
-visit order (and of the worklist's own visit order) and of the order the knowledge
-arrived in. A single pass would be wrong
-in a way that looks fine: visited one way it reads a not-yet-computed antecedent as
-bottom and under-rates the conclusion, visited the other it reads a stale value and
-over-rates it.
+The least fixpoint is unique, so it is independent of visit order and of the order the
+knowledge arrived in: [why a single pass would be
+wrong](defenses.md#the-class-fixpoint-is-a-least-fixpoint-not-a-single-pass).
 
 ## Two invariants
 
@@ -129,25 +98,17 @@ KB learns generalities and specifics in whatever order the world supplies them �
 "birds fly" before or after "Tweety is a penguin" — and an engine whose answers
 depend on that order is answering a question nobody asked.
 
-Belief is therefore *computed from current state*, never accumulated as events
-arrive. The subtle leak is **tie-breaks**: when two beliefs are equally strong,
-something has to choose, and choosing by handle id smuggles arrival order back in,
-because handles are allocated in assertion order. The Nixon diamond is where that
-shows: keyed on a handle it elects the pacifist or the non-pacifist according to
-which was typed first. Tie-breaks key on **content** instead (`solve/content-key`): what a sentex
-says is the same whenever it is asserted. The choice stays arbitrary — two
-equally-specific defaults give no principled winner — but arbitrary *and stable* is
-the contract; arbitrary and order-dependent is a bug.
-
-**The other leak is a dependency a justification does not record**, and it is the same
-bug wearing removal's clothes: retracting X leaves a conclusion that a KB built without X
-never derives, so belief reads differently depending on whether X arrived and left or
-never came. A justification therefore names every reachability its firing rests on — the
-`genl` edges a subsumed match climbed, and the `genlCx` edges the conclusion's context
-sees the rule and the facts over ([contexts.md](contexts.md)) — so both retract and
-defeat run through the ordinary dependency-directed path. Where a reachability outlives
-the one witness the firing named, the conclusion comes back as a re-derivation at a fresh
-handle, which is what keeps the two orders agreeing in that direction too.
+Belief is therefore *computed from current state*, never accumulated as events arrive.
+Two leaks would let arrival order back in. The first is **tie-breaks**: when two beliefs
+are equally strong something has to choose, and every such choice keys on **content**
+(`solve/content-key`) rather than on the handle — [why content and not the
+handle](defenses.md#tie-breaks-and-orderings-key-on-content-not-the-handle). The second is
+**a dependency a justification does not record**: retracting X must leave what a KB built
+without X would hold, so a justification names every reachability its firing rests on — the
+`genl` edges a subsumed match climbed, and the `genlCx` edges the conclusion's context sees
+the rule and the facts over ([contexts.md](contexts.md)) — and both retract and defeat run
+the ordinary dependency-directed path. Where a reachability outlives the one witness the
+firing named, the conclusion comes back as a re-derivation at a fresh handle.
 
 `test/vaelii/order_independence_test.clj` enumerates every permutation of each
 scenario and demands a single distinct outcome. Note that the weaker assertion —
@@ -177,13 +138,9 @@ consequence preview, a consequence report, and a change feed
 ([preview.md](preview.md), [feed.md](feed.md)) — and each of them would otherwise diff
 the believed set, which is O(KB) per write and flat in nothing. `settle-finish` decides
 once what the settle moved (the relabelled regions plus the flips no relabel records)
-and hands that one answer to all three.
-
-The question those readers ask is a shade larger than "whose belief flipped": it is
-*what I published about this datum may be out of date*. So `touched` also collects the
-handles a **redundant justification** landed on — the one entry whose belief provably did
-not move (see "The reports are rebuilt only where the region moved"). Every consumer
-reads it as a superset, so an extra handle costs a re-derivation and never an answer.
+and hands that one answer to all three. What that region collects is a **superset** of the
+handles whose belief flipped, on purpose:
+[why](defenses.md#the-touched-window-is-a-superset-not-the-flip-set).
 
 Measured, on an in-memory graph of N premise→conclusion pairs (no store in the way).
 Each cell is a whole-graph relabel against the region-scoped one, so the pair reads as
@@ -207,18 +164,9 @@ The whole-graph column grows linearly with the graph; the region-scoped one is f
 That is the whole point — the gap widens without bound, so locality is an asymptotic
 property rather than a constant factor. At present KB sizes it is invisible end-to-end:
 a single `assert` is dominated by fixed per-assert overhead, not this join. It is a
-claim about what happens at a million facts, not at a thousand.
-
-**The invariant is a claim about every representation, and the table above only tests
-one.** These numbers are the reference network, whose persistent maps are region-local
-by construction. The dense one holds belief in `RoaringBitmap`s, where any operation
-that rebuilds a bitmap costs one pass over all of its 65,536-value containers — so it
-satisfied locality up to 65,536 nodes, where there is exactly one container, and
-silently violated it above. At 16,000 nodes, the largest graph measured here, nothing
-could have shown it; it took a rebuild over nine million premises. See
-[density.md](density.md), Phase 3. Whatever else a second representation must be proven
-to match, **cost shape is part of it** — the dense oracle compares answers, and answers
-were never wrong.
+claim about what happens at a million facts, not at a thousand — and a claim about every
+representation of the network, not only the one this table measures:
+[why cost shape is part of matching the reference](defenses.md#locality-is-a-claim-about-every-representation).
 
 ## The TMS (`vaelii.impl.jtms`)
 
@@ -255,22 +203,22 @@ Belief is a least fixpoint, recomputed region-locally rather than accumulated:
 
 ### Two representations of the same network
 
-The network is always resident, which makes it a scale wall of its own (measured ~467
-B/node — see [density.md](density.md#phase-3--the-dense-truth-maintenance-network-tms-dense)),
-so it sits behind a `Tms` protocol with two implementations, chosen by `open-kb`'s
-`:tms`:
+The network is always resident, which makes it a scale wall of its own (the reference map
+measured ~467 B/node — see
+[density.md](density.md#phase-3--the-dense-truth-maintenance-network-tms-dense)), so it
+sits behind a `Tms` protocol with two implementations, chosen by `open-kb`'s `:tms`:
 
 | `:tms` | the graph is | |
 |---|---|---|
-| `:reference` (default) | one atom over one persistent map | readers get a consistent snapshot from a single deref |
-| `:dense` | bitmaps + primitive-keyed maps, and no justification object at all | 5.5× denser on a fact corpus, 3.3× on a rules-heavy one |
+| `:dense` (default) | bitmaps + primitive-keyed maps, and no justification object at all | 5.5× denser on a fact corpus, 3.3× on a rules-heavy one, ~3.8× at corpus scale |
+| `:reference` | one atom over one persistent map | readers get a consistent snapshot from a single deref |
 
 **The seam is the representation, not the algorithm.** Both run the same least fixpoint
 over the same affected region, because that is the semantics of belief here and not an
 implementation detail; what differs is where a node's premise flag, depth and adjacency
 live. `jtms_dense_oracle_test` compares the two in full after every step of randomized
-operation streams, and `VAELII_TEST_TMS=dense lein test` runs the whole engine through
-the dense one.
+operation streams; plain `lein test` runs the whole engine through the default dense one,
+and `VAELII_TEST_TMS=reference lein test` through the persistent-map baseline.
 
 **The network keeps the graph; the record store keeps the record.** A justification is
 stored durably, and belief reads only part of it — the antecedents, the `:out` list, the
@@ -286,45 +234,29 @@ equal to each other's however a caller spelled the justification.)
 **No stored antecedent vector is in arrival order**, because belief reads it as a set and
 every *report* reads it as a list. Three of the seven builders get there by **sorting on
 content** (`kb/antecedent-order`) — forward chaining's two placement sites and
-`special/derive-equality` — and those three are exactly the ones handed a vector whose
-order is an arrival. A firing is seeded by whichever antecedent triggered it, so
-`a(x,y) ⇐ b1, b2` would store `[h_b2 h_b1 rule]` one way round and `[h_b1 h_b2 rule]` the
-other, and a merge derived from two facts would
-name them in the order they were written — arrival order, in a durable record, read out
-again by `why`'s `:because`, `why-not`'s `:missing`, `preview`'s `:antecedents` and the
-browser's justification line. Ordering it once, where the vector is built, is what makes
-all of those a function of the knowledge. The order is the printed sentence then the
-context, and the **informant is ordered with the rest rather than pinned to a position**:
-the record names it in its own `:informant` slot, and the informants that are symbols
-(`rewriteOf`, `functional`, `decontextualizedPredicate`) are no part of the vector at
-all, so a position rule could not hold uniformly where one order over every antecedent
-does. Nothing reads a position — `valid?` and `has-justification?` read the set, and
-`why` lifts the rule out by identity.
+`special/derive-equality`, the three handed a vector whose order is an arrival. The order
+is the printed sentence then the context, and the informant is ordered with the rest
+rather than pinned to a position (the record names it in its own `:informant` slot, and
+symbol informants like `rewriteOf` are no part of the vector at all). Nothing reads a
+position — `valid?` and `has-justification?` read the set, and `why` lifts the rule out by
+identity.
 
 **The other four build the vector positionally instead, and the position is a role.**
 `special/deduce-lift` writes `[fact, declaration]`, `special/justify-twin!` writes
 `[original, equality edge]`, and `special/entail-arg-type` writes `[fact, declaration,
-genl edges…]` — each slot filled by what that supporter *is* to the derivation rather
-than by when it turned up, so there is no arrival to sort out. The tail of the third is
-`checks/edge-support`, a shortest **visible** path whose neighbours expand in name order,
-which makes it a function of the hierarchy for the same reason. The fourth is
-`io.import/import-justifications!`, which remaps a dumped vector handle for handle: it
-carries the exporting KB's order across rather than composing one, and that KB built it
-here. So the guarantee the reports rest on is that the vector never records arrival —
-sorting is how the three sites that could record it avoid doing so, rather than a shape
-every stored vector has.
+genl edges…]` — each slot filled by what that supporter *is* to the derivation, so there is
+no arrival to sort out; the tail of the third is `checks/edge-support`, a shortest
+**visible** path expanding in name order. The fourth, `io.import/import-justifications!`,
+remaps a dumped vector handle for handle, carrying the exporting KB's order across.
 
 **A list of justifications is ordered by the same rule**, through one key
 (`kb/justification-content-key`): the informant's own sentence and context, the
 antecedents' sentences, the bindings, then what it concludes.
 `core/supporting-justifications`, `core/dependent-justifications` and a clash report's
 `:justifications` all sort by it, and all three start from an id **set** — `jtms/supports`
-and `jtms/dependents` — whose members are numbered in the order the derivations landed.
-The informant enters the key as its *sentence*, never as its handle: two justifications
-for one conclusion usually differ in their rule before they differ in anything else, so
-a handle there would decide the whole comparison on which rule was typed first. Where
-the key ties, the two justifications say the same thing and print the same way; only
-their ids separate them, and an id is exactly what the key exists to keep out.
+and `jtms/dependents`. That both the stored vectors and these lists order on content and
+never on the handle is one rule with one home:
+[why](defenses.md#tie-breaks-and-orderings-key-on-content-not-the-handle).
 
 **The key is built once per entry, not once per comparison.** `sort-by` calls its key fn
 from inside the comparator, so a naive sort builds it ~2·n·log₂n times — and each build
@@ -333,21 +265,11 @@ firing it licenses, so `dependent-justifications` pays that multiple on the whol
 at 100k firings, ~3.3M key builds where 100k would do. All three sites decorate, sort and
 undecorate, which is the same `compare` over the same keys and stable either way.
 
-Two properties are worth stating because they are easy to assume and would be wrong:
-
-- **A dense network cannot simply replace the reference.** `RoaringBitmap` is mutable,
-  and `jtms_atomicity_test` pins that a mutation applies all-or-nothing — a mutable
-  bitmap inside that value would break `swap!`'s retry and let a reader observe a
-  half-applied relabel. Hence two implementations rather than one, and hence the dense
-  one serializes writers on a monitor and leaves readers unlocked, which is the latitude
-  the one-writer contract already grants (docs/storage.md).
-- **Order independence rests on the backward dependency and the forward propagation
-  being the same edge set.** The class fixpoint re-examines a node when something it
-  derives from moves, reached through `:consequences`. If a justification id were ever
-  rebound to a different justification, a node's `:supports` would name a justification
-  that now concludes elsewhere, and its class would depend on a value the propagation
-  can never carry to it — at which point the answer depends on visit order, in *either*
-  implementation. `p/next-id` is monotonic, so the engine cannot construct that state.
+Two properties are easy to assume and would be wrong — a dense network cannot simply
+replace the reference (`RoaringBitmap` is mutable, and `jtms_atomicity_test` pins that a
+relabel applies all-or-nothing), and order independence rests on a node's backward
+`:supports` and forward `:consequences` naming the **same** edge set:
+[why both, and why they mean two implementations rather than one](defenses.md#two-tms-implementations-not-one).
 
 ### Blocked justifications (`exceptWhen`)
 
@@ -415,53 +337,29 @@ assert / retract / `forward-chain` / `recover`:
    - every believed `(not X)` paired with a believed `X` **when some context sees
      both** (`negation-nogoods`), asked each round;
 
-     Two narrowings, and they answer different halves. **Which bodies could pair at
-     all** is the `:opposed` coincidence set — the bodies stored in *both* polarities,
-     maintained O(1) at the store and removal choke points — so a KB with no
-     contradiction does one emptiness read and a negation-heavy load never scans its own
-     negations. **What each of those bodies pairs** is memoized per body: a settle
-     re-derives only the bodies it could have moved and carries the rest, since
-     otherwise every standing contradiction pays two belief-filtered queries and a cross
-     product on every round, which is quadratic in the contradictions a load creates for
-     exactly the reason the definitional pairs below are (measured at 56ms an assert
-     against 7.5ms, at 1600 standing dilemmas).
-
-     Three things move a body's pairing and no one of them sees the other two: a
-     relabel (`jtms/touched` — a revival with no store behind it), a store or a removal
-     (`kb/note-opposed!` — and a removal is the case only this covers, since the record
-     is gone before a settle could ask the handle what body it was about), and a
-     `genlCx` edge, which can make standing pairs jointly visible without going near
-     either side. The third is answered by the **verdict** rather than by the relation's
-     generation: joint visibility is `common-descendant?` of one context from each
-     polarity, so each memo entry records that verdict for the contexts it crosses, and a
-     settle whose context edge leaves every recorded verdict standing re-derives nothing.
-     What that costs is the recorded context pairs — one, on a KB whose contradictions
-     share a context — where a generation costs every standing pair.
+     Two narrowings. **Which bodies could pair at all** is the `:opposed` coincidence
+     set — the bodies stored in *both* polarities, maintained O(1) at the store and
+     removal choke points — so a KB with no contradiction does one emptiness read.
+     **What each of those bodies pairs** is memoized per body, re-derived only for the
+     bodies a settle could have moved. Three things move a body's pairing and no one of
+     them sees the other two: a relabel (`jtms/touched`), a store or a removal
+     (`kb/note-opposed!` — the removal case only this covers), and a `genlCx` edge, which
+     can make standing pairs jointly visible without going near either side; the last is
+     answered by recording each entry's visibility **verdict** (`common-descendant?` of
+     one context from each polarity), so a context edge that leaves every recorded verdict
+     standing re-derives nothing. Why the memo rather than a query per pair per settle:
+     [why](defenses.md#the-settle-memoizes-standing-clashes).
    - the **definitional clashes** — disjointness, functionality, asymmetry — each of
      which convicts by naming a second believed sentex, which is a nogood in exactly
      the same sense (`constraint-nogoods`). Discovered by re-running the checks over
      the settle's moved region, so a pair is a function of current belief rather than
      an accumulation, and priority sits **above** every rebuttal: these rank 3–4 where
-     a rebuttal ranks 1–2.
-
-     A pair whose members did not move, under a vocabulary of separations and predicate
-     properties that did not move either, has its answer **carried forward** — a memo on
-     the recomputation, since the carried value is exactly what re-deriving would give.
-     That is not an optimization to taste: a settle runs after every mutation, so one
-     check per standing pair per settle is quadratic in the clashes a load creates
-     (measured at 36ms an assert against 8ms, at 300 standing clashes).
-
-     The separations, the properties and the disjoint metatypes' **membership** are
-     compared as **values**, so an unchanged one abandons nothing. Membership is in there
-     because a metatype separates by being consulted rather than by writing a `disjoint`
-     sentence: a member leaving stops separating what it was separating while the mark
-     itself still stands. The `genl` closure cannot be a value — it is the part of what
-     decides a clash that is too big to compare — so it is weighed **per pair** instead:
-     a pair of unary memberships is decided by `disjoint?` of the two types its sentexes
-     name, so what the memo stamps is those two supertype closures, and an edge that
-     leaves both standing is an edge the pair was not about. A `genlCx` edge still
-     retires the whole carry, since which contexts can convict a pair is a question about
-     the context relation rather than about either half's own reading of it.
+     a rebuttal ranks 1–2. A pair whose members and vocabulary did not move has its
+     answer **carried forward** — the separations, predicate properties and disjoint
+     metatypes' membership compared as **values**, and the `genl` closure (too big to
+     compare) weighed per pair by stamping the two supertype closures a `disjoint?`
+     reads, while a `genlCx` edge retires the whole carry. Why the memo, and how the
+     carry stays sound: [why](defenses.md#the-settle-memoizes-standing-clashes).
 
    The argument constraints (`argIsa` / `argGenl` / `interArgIsa`) are deliberately
    *not* here. One is convicted by the **absence** of a path from the argument's types to
@@ -602,15 +500,9 @@ re-seeds them and settles again**, the way `core/retract!` already settles twice
 its own re-derivation. Rounds are bounded by `max-unmerge-rounds`; two is the shape of
 every real case, and a third would be a bug reported rather than a hang.
 
-Two other designs lose to that one on what they cost elsewhere. **Moving the reconcile
-into the loop** keeps a single fixpoint, which is the better property in the abstract —
-but `settle-finish` decides what the settle moved by diffing the supersession map it
-brackets, so a reconcile that ran earlier would have to thread its own flips forward or a
-merge would stop being reported as `:believed-removed` at all: a change to what every
-preview and feed event says, to fix a re-derivation. A **re-enter signal** from
-`settle-finish` is this same loop with the bound further from what it bounds. What the
-shipped shape costs is that a KB whose settle un-merges something settles twice; one that
-does not pays a deref of an unbound var.
+Two other designs — moving the reconcile into the settle loop, and a re-enter signal from
+`settle-finish` — lose to this one on what they cost elsewhere:
+[why](defenses.md#an-un-merge-re-seeds-through-a-second-channel).
 
 ### Which door the content came through
 
@@ -624,6 +516,21 @@ content came in on:
 | a **rule firing** (`place-conclusion`) | placed, then defeated — the loser has a `why-not` | placed; a represented dilemma |
 | an **`assert`**, asymmetry | refused | admitted; a represented dilemma |
 | an **`assert`**, disjointness / functionality | refused | refused, unless the KB arbitrates |
+| an **`assert`**, irreflexivity / non-mergeable antisymmetry | refused | refused — there is no opposing sentex, so no pair to arbitrate |
+
+A self tuple `(P a a)` of an `irreflexive` `P`, and a converse no equality could
+reconcile under an `antiSymmetric` `P`, are the last row: neither names a second believed
+sentex to weigh, so neither is arbitrable and both refuse under every policy. A late
+`(irreflexive P)` over a stored self tuple is therefore the `arity` case rather than the
+`asymmetric` one — the tuple stands and the mark reports, since a lone-tuple conviction
+promoted to a nogood would make belief depend on how many settles had run. **The
+`antiTransitive` chain conviction is deferred for the neighbouring reason**: `(P a b) ∧
+(P b c) ⇒ ¬(P a c)` is a *three*-party clash, and every nogood here is a pair
+(`settle/decide-nogood` reads exactly two members), so forming it needs machinery the
+engine does not yet have; a partial door-only check would decide the same three facts
+differently in different arrival orders, which the order-independence invariant forbids.
+What `antiTransitive` does enforce is its classification and the disjointness `(disjoint
+transitive antiTransitive)` — no predicate is declared both ([taxonomy.md](taxonomy.md)).
 
 A firing has no caller to refuse, so there the choice is between dropping the
 conclusion — no sentex, no justification, and `why-not` reduced to `:not-stored` — and
@@ -653,7 +560,10 @@ argument does not convict either of them — it *merges* them, which is an infer
 than a refusal, so `special/equate-existing` runs it under both policies exactly as
 `derive-functional-equalities` runs the same inference on the arriving fact
 ([equality.md](equality.md)). What `:refuse` and `:arbitrate` decide is whether a writer
-is told no, and nobody is being told no here.
+is told no, and nobody is being told no here. `antiSymmetric` is the same shape: a
+believed converse `(P b a)` beside `(P a b)` forces `(equals a b)` and merges rather than
+refuses, `special/derive-antisymmetric-equalities` and `antisym-equate-existing` reaching
+it from the fact side and the declaration side under either policy.
 
 Three paths that *mint* content keep refusing either way, because each has somewhere
 else to be and nothing to stand behind: the decontextualization lift's copy, the
@@ -686,22 +596,12 @@ both halves can be seen.
 
 ### There is no second axis
 
-Defeat-class alone cannot separate "birds fly" from "penguins do not" — both are
-defaults, and since strength propagates the exception cannot buy rank from its rule
-either. The tempting second axis is a **specificity heuristic**: score a type by the
-size of its reflexive-transitive genl up-closure, a rule by the greatest such score
-among its antecedent predicates, a datum by the greatest of those among its valid
-justifications, and on a tie in class let the more specific member win.
-
-Do not build it. `exceptWhen` makes the relation such a heuristic can only reconstruct
-explicit: the exception is stated *on* the rule it excepts, so the general rule does not
-fire and there is no tie to break. Deriving an ordering from the genl hierarchy is
-inference *about* the knowledge rather than *from* it — it works when the exception
-happens to be keyed on a narrower type and silently ties when it is not, so whether it
-applies depends on how the ontology was written rather than on what it says.
-
 There is a single axis, defeat-class, and a default/default clash it cannot separate is
-reported as a dilemma rather than decided.
+reported as a dilemma rather than decided. The tempting second axis is a **specificity
+heuristic** — score by the size of a type's `genl` up-closure and let the more specific
+member win a tie — and the engine does not build it:
+[why a genl-derived ordering is inference about the knowledge rather than from
+it](defenses.md#there-is-no-second-axis).
 
 ### Definitional constraints on the derivation path
 
@@ -870,21 +770,11 @@ and 46.5x with the carry-forward removed as well — 2.0µs of bookkeeping per s
 pair against 29µs to re-derive one.
 
 That carry is only sound because the region covers every input to a report, and one of
-them is not belief. A **redundant justification** — a second derivation of an
-already-believed conclusion, conferring no stronger a defeat class — is the write the
-JTMS deliberately declines to relabel for: that fast path is what collapses a recursive
-forward load from O(derived²) to O(derived), since an already-IN node feeds its
-consequences identically on one witness or two. Belief does not move, so no label does;
-what moves is the *reason*, and in a dilemma the engine declines to decide the reasons
-are the whole answer a caller is given. So `add-just*` notes the consequence as touched
-even on the fast path — O(1) at the write, where asking every standing pair for its
-support count at report time is O(standing) per settle: `negation-arbitration`'s growth
-ratio was 19% worse for the polling route and unmoved by this one, at 800 standing
-dilemmas. `touched-in` takes it too, or the window would read as "newly
-believed" to `preview` and the change feed. The general shape: **the window means "what
-I published about this datum may be out of date", which is a slightly larger question
-than "did its belief flip"** — and every consumer reads a superset, so an extra handle
-costs a re-derivation and never an answer.
+them is not belief: a **redundant justification** moves a conclusion's *reason* without
+moving its label, and `add-just*` notes the consequence as touched even on that fast path
+(as does `touched-in`) so the report is rebuilt where only the reason changed —
+[why the window is a superset rather than the flip
+set](defenses.md#the-touched-window-is-a-superset-not-the-flip-set).
 
 Ω(standing) per settle is inherent, though, and no memo removes it: the readings *are*
 the whole standing set, so publishing them costs what they are. What the memo buys is
@@ -983,7 +873,7 @@ square of the hierarchy below the claim where the root read does not grow at all
 two shapes look alike and cost nothing alike, and this one is the limit the engine stops
 at rather than a question nobody asked.
 
-`clash_oracle_test` excludes this shape and says so — no `argPreserving` declaration is
+`clash_oracle_test` excludes this shape and says so — no `transitiveInArg` declaration is
 made there — and covers the visibility one.
 
 ## The solver seam (`vaelii.impl.solve`)
@@ -1025,8 +915,8 @@ guards both ends:
   third-party solver withdraw known-true content the program never handed it. An
   overreaching defeat is dropped with a warning rather than obeyed.
 
-The cost of a regression here is not a wrong answer; it is the engine quietly giving
-away something it knows to be true. `asp_label_test` covers both directions.
+`asp_label_test` covers both directions —
+[why the guard matters more than a wrong answer would](defenses.md#the-solver-split-is-guarded-in-both-directions).
 
 Two solvers ship. The default is `local-solver`, a deterministic stub that satisfies
 contradictions highest-priority-first by defeating the greatest-`content-key`

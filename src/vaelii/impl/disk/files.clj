@@ -10,7 +10,8 @@
     Slot layout:
       bytes  0..7  offset (i64, -1 = empty, -2 = tombstone)
       bytes  8..15 length (i64)
-      bytes 16..19 flags  (u32; bit 0 = the premise bit is meaningful, bit 1 = premise)
+      bytes 16..19 flags  (u32; bit 0 = the premise bit is meaningful, bit 1 = premise,
+                           bits 2..3 = a premise's strength rank, 0 when unrecorded)
       bytes 20..23 gen    (u32, reserved — written as 0)
     Reads rely on the OS page cache; writes overwrite the slot in place.
     A slot is read in **one positional channel read**, not a seek plus four primitive
@@ -249,14 +250,37 @@
 ;; A store therefore needs no version bump and no declaration anyone could set wrongly
 ;; — a slot written by an older build is answered from its record, and any write
 ;; upgrades it.
+;;
+;; Bits 2..3 carry a premise's **strength rank** — the same column trick, one field up.
+;; `premise-strength` is read once per premise on every `recover`, and off disk that
+;; meant paging the whole record for one keyword.  The rank rides the slot the open walk
+;; already reads, so the reader answers off 24 bytes instead of a frame + thaw.  0 means
+;; "unrecorded" — a non-premise, or a premise slot older than these bits — and sends the
+;; caller to the record, so an older build's slots (and an older build reading a newer
+;; one, which ignores bits it does not know) stay correct with no format bump.  1 is
+;; `:default` and 2 is `:monotonic`, matching `strength/rank-of`.  Like the premise bit,
+;; the rank is a cache over the durable record and shares its residual: the flags word is
+;; not crash-atomic (a 24-byte slot straddles a page ~0.6% of the time), so a torn flags
+;; page can leave a stale bit or rank across a crash.  `reconcile-slot-flags!` closes it —
+;; a **dirty** open walks the records and rewrites every slot whose flags disagree — and
+;; until that open the record stays the truth, with a re-mark or a compaction repairing it
+;; the same way.
 
 (def ^:private flag-premise-known 0x1)
 (def ^:private flag-premise       0x2)
+(def ^:private strength-shift 2)
+(def ^:private strength-mask  (bit-shift-left 0x3 strength-shift))  ; bits 2..3
 
 (defn premise-flags
-  "The `flags` word for a slot whose record is, or is not, a premise."
-  ^long [premise?]
-  (if premise? (bit-or flag-premise-known flag-premise) flag-premise-known))
+  "The `flags` word for a slot whose record is, or is not, a premise, carrying the
+  premise's strength `rank` (0 when not a premise, or when the rank is unrecorded) in
+  bits 2..3."
+  (^long [premise?] (premise-flags premise? 0))
+  (^long [premise? ^long rank]
+   (if premise?
+     (bit-or flag-premise-known flag-premise
+             (bit-and strength-mask (bit-shift-left rank strength-shift)))
+     flag-premise-known)))
 
 (defn slot-premise
   "What `flags` says about its record: `true`, `false`, or **nil** for a slot that does
@@ -264,6 +288,13 @@
   [^long flags]
   (when (pos? (bit-and flags flag-premise-known))
     (pos? (bit-and flags flag-premise))))
+
+(defn slot-strength
+  "The strength rank a premise slot carries in bits 2..3, or 0 when it carries none — a
+  non-premise, or a slot older than the strength bits — which sends the caller to the
+  record for the answer."
+  ^long [^long flags]
+  (bit-and 0x3 (unsigned-bit-shift-right flags strength-shift)))
 
 (defn write-slot!
   "Write a slot for `id`, growing the idx file if needed (the gap is zero-filled and
@@ -276,6 +307,34 @@
     (.writeLong idx-raf (long length))
     (.writeInt  idx-raf (unchecked-int flags))
     (.writeInt  idx-raf (unchecked-int gen))))
+
+(defn- slot-flags-consistent?
+  "Would this `flags` word answer the same as the record — directly, or by falling back?
+  A slot is consistent when its premise bit is silent or matches `premise?`, **and** its
+  rank is unrecorded (0, which sends the reader to the record) or matches `rec-rank` on a
+  premise.  Anything else — a bit or a non-zero rank that disagrees — is a torn flags page
+  a later clean open would trust, so it is not consistent."
+  [^long flags premise? ^long rec-rank]
+  (let [sp (slot-premise flags)
+        sr (slot-strength flags)]
+    (and (or (nil? sp) (= sp (boolean premise?)))
+         (or (zero? sr) (and premise? (= sr rec-rank))))))
+
+(defn reconcile-slot-flags!
+  "Rewrite `id`'s slot flags to match its record's premise-ness and strength `rank` when
+  the two would answer differently — a torn flags page across a crash can leave a slot
+  speaking a stale bit or rank.  Returns true if the slot was rewritten.  A slot that is
+  silent, or already agrees (an unrecorded rank included, since that falls back to the
+  record), is left untouched.  Only the flags word moves — offset/length/gen are written
+  back unchanged — and the record is the durable truth, so this is a repair toward it,
+  never a new fact: idempotent, and safe to interrupt, since the next dirty open repeats
+  it."
+  [^RandomAccessFile idx-raf ^long id premise? ^long rank]
+  (when-let [slot (read-slot idx-raf id)]
+    (when-not (slot-flags-consistent? (long (:flags slot)) premise? rank)
+      (write-slot! idx-raf id (:offset slot) (:length slot)
+                   (premise-flags (boolean premise?) rank) (:gen slot))
+      true)))
 
 (defn tombstone-slot!
   "Mark slot `id` as a tombstone (offset=-2, other fields zeroed)."

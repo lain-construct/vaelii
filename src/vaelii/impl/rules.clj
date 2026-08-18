@@ -20,6 +20,7 @@
   query rather than a conclusion but must be ground for the same reason (checked at the
   assert layer via `sentex/check-exception-closed`)."
   (:require [vaelii.impl.naming :as nm]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]))
 
 ;; The rule *form* — its functor, its parts, its builder — has one owner:
@@ -645,42 +646,45 @@
     (vec (mapcat level-problems (range) (nesting sentence)))))
 
 (defn check-indexable-functors
-  "Throw `:type :not-indexable` when a literal of the rule `sentence` puts a variable in
-  functor position.
+  "Throw `:type :not-indexable` when an **antecedent** literal of the rule `sentence`
+  puts a variable in functor position.  A variable functor in the **consequent** is
+  allowed and indexed (see `consequent-index-pred`), so this refuses only the half the
+  engine cannot key.
 
-  **The rule index is keyed by predicate**, and a variable names none.  Canonicalization
-  numbers the functor to `?var0` before the rule is indexed, so the postings land under a
-  key no arriving fact and no goal can ever spell: `chain/fire-rules-for` reads the
-  arriving fact's functor and its `genls`, `resolution/concluding-rule-handles` reads the
-  goal's predicate and its specs, and neither can produce a canonical variable.  The rule
-  answers no backward goal at all, and fires forward only when a *concrete*-predicate
-  antecedent beside it arrives — so `(transitive foo)` before the facts derives nothing,
-  and after them joins over whatever happens to be stored at that instant.  Two arrival
-  orders, two answers, from a rule the engine reported as accepted.
+  **The split, and why it falls where it does.**  The rule index is keyed by predicate,
+  and a variable names none.  For a *consequent* that costs nothing the range check does
+  not already buy: every consequent variable is antecedent-bound
+  (`check-range-restricted`), so a rule concluding `(?p ?y ?x)` fires forward through its
+  *concrete* antecedent with `?p` already ground, and the `var-consequent-key` catch-all
+  cell makes it reachable by a backward goal.  For an *antecedent* it is the widest
+  trigger the engine can have: `(?p ?x ?y)` names no predicate to key on, so
+  `chain/fire-rules-for` cannot find the rule from an arriving fact, and it would fire
+  only when a concrete-predicate antecedent beside it arrives — `(transitive foo)` before
+  the facts derives nothing, and after them joins over whatever happens to be stored at
+  that instant.  Two arrival orders, two answers, from a rule the engine reported as
+  accepted.  That half stays refused.
 
   The workaround the message names is the instantiated rule: one rule per predicate the
   metarule was meant to range over, each with a functor the index can read — written by
-  hand, or by the **generator** that stamps them, which is what a variable functor
-  usually wants to be (docs/generators.md).  So the message names the level to move it
-  to when the rule is one a generator stamps: a functor a level *further out* binds is
-  ground before its rule is stored, and only the ones nothing binds are left.
+  hand, or by the **generator** that stamps them, which is what a variable antecedent
+  functor usually wants to be (docs/generators.md).  So the message names the level to
+  move it to when the rule is one a generator stamps: a functor a level *further out*
+  binds is ground before its rule is stored, and only the ones nothing binds are left.
 
   An `:inert` rule is exempt at the caller (`checks/check-rule!`): it runs in neither
   engine by construction, so it claims nothing the index has to honour."
   [sentence]
-  (when-let [bad (seq (variable-functor-literals sentence))]
+  (when-let [bad (seq (filter (comp #{:antecedent :generated-antecedent} first)
+                              (variable-functor-literals sentence)))]
     (let [[role lit] (first bad)
-          stamped?   (contains? #{:generated-antecedent :generated-consequent} role)]
-      (throw (ex-info (str "a rule's predicate cannot be a variable: " (pr-str lit)
-                           " in the "
-                           (case role
-                             :consequent           "consequent"
-                             :generated-consequent "generated rule's consequent"
-                             :generated-antecedent "generated rule's antecedent"
-                             "antecedent")
+          stamped?   (= :generated-antecedent role)]
+      (throw (ex-info (str "a rule's antecedent predicate cannot be a variable: "
+                           (pr-str lit)
+                           (when stamped? " in the generated rule's antecedent")
                            " — the rule index is keyed by predicate, so a variable"
-                           " functor is stored under a key no fact and no goal ever"
-                           " reads, and the rule answers no query.  "
+                           " functor there names none for an arriving fact to trigger,"
+                           " and the rule would fire over whatever is stored when a"
+                           " concrete antecedent beside it arrives.  "
                            (if stamped?
                              (str "Nothing an enclosing generator binds fills it: move"
                                   " the literal that binds it out one level, so the"
@@ -690,3 +694,36 @@
                                   " antecedent binds the predicate.")))
                       {:type :not-indexable :role role :literal lit
                        :literals (mapv second bad) :sentence sentence})))))
+
+(defn consequent-index-pred
+  "The key the consequent slot of `p/index-rule` files `rule-sentex` under: its
+  `consequent-predicate`, or `p/var-consequent-key` when that predicate is a variable —
+  a rule with concrete antecedents concluding `(?p …)`, which `check-indexable-functors`
+  allows.  Such a rule is filed under the one shared catch-all bucket rather than the
+  canonical `?var0` no goal can spell, and `resolution/concluding-rule-handles` unions
+  that bucket into every concrete-goal answer so a backward goal can reach it.
+
+  **An `:inert` rule is the exception**: it chains in neither engine (`CxCore`'s
+  decontextualized-predicate lift is one, `(implies (?pred . ?args) (ist CxUniverse
+  (?pred . ?args)))`), so it concludes nothing and must not surface as a concluder for
+  every goal.  It keeps the canonical variable — a dead key nothing reads — exactly as
+  before the catch-all existed; only a rule that can actually conclude reaches `:var-pred`.
+
+  One spelling for all three writers — `special/index-rule-sentex`, its unindex twin, and
+  `reindex/index-rule-entry` — so a rebuilt index files the key a live one does."
+  [rule-sentex]
+  (let [c (consequent-predicate (:sentence rule-sentex))]
+    (if (and (sx/variable? c) (not= :inert (:direction rule-sentex)))
+      p/var-consequent-key
+      c)))
+
+(defn direct-concluders
+  "Rule handles whose consequent predicate is exactly `pred`, unioned with the
+  variable-consequent catch-all (`p/var-consequent-key`): a rule concluding `(?p …)` could
+  conclude `pred` once `?p` binds, so any reader answering \"which stored rules conclude
+  `pred`\" must include it or it disagrees with the backward chainer.  This is the
+  **stored-graph** read — no spec fan, unlike `resolution/concluding-rule-handles` — shared
+  by the stratification-cycle check and the blocked-firing explanation."
+  [index pred]
+  (into (set (p/rules-by-consequent index p/var-consequent-key))
+        (p/rules-by-consequent index pred)))

@@ -84,8 +84,8 @@
         gap     (into (sorted-set)
                       (comp (filter (comp opts? val)) (map key) (remove specced))
                       (ns-publics 'vaelii.core))]
-    (is (= '#{abduce assert-many bulk-assert-facts! check clear-caches
-              edit-with-consequences! export! fork import! kb-quality preview}
+    (is (= '#{abduce assert-many bulk-assert-facts! check clear-caches compare-tacticians
+              edit-with-consequences! export! fork import! kb-quality preview search-tree}
            gap)
         "the opts-taking publics `public-syms` does not reach — named in its docstring")))
 

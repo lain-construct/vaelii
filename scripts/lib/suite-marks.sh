@@ -26,8 +26,20 @@
 # shellcheck source=scripts/lib/revision.sh
 . "$(dirname "${BASH_SOURCE[0]}")/revision.sh"
 
+# Whether the run's OUTPUT reaches a terminal — the one switch behind both the
+# colour below and the marks-vs-lines default further down.  `-t 1` answers it when
+# this script's own stdout IS that terminal, which it is for a direct
+# `./scripts/test-shuffle.sh`.  A caller wedged behind a pipe it cannot see past —
+# `lein test-shuffle` reaches the script through lein-shell, which always pipes the
+# child's stdout — cannot ask `-t 1`, so it sets SUITE_TTY to the answer only it
+# holds (the alias reads the leiningen JVM's own `System/console`).  Unset, the
+# common case, is just `-t 1` as before.
+if [[ -n "${SUITE_TTY:-}" ]]; then
+  if [[ "$SUITE_TTY" == 0 ]]; then IS_TTY=0; else IS_TTY=1; fi
+elif [[ -t 1 ]]; then IS_TTY=1; else IS_TTY=0; fi
+
 # Colour only when someone is watching; a redirected run stays greppable.
-if [[ -t 1 ]]; then
+if (( IS_TTY )); then
   GREEN=$'\033[32m'; RED=$'\033[31m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; OFF=$'\033[0m'
 else
   GREEN=""; RED=""; DIM=""; BOLD=""; OFF=""
@@ -49,7 +61,7 @@ hms() { printf '%dm%02ds' $(($1 / 60)) $(($1 % 60)); }
 case "$(printf '%s' "${SUITE_PROGRESS:-auto}" | tr '[:upper:]' '[:lower:]')" in
   marks)   PROGRESS=marks ;;
   lines)   PROGRESS=lines ;;
-  auto|"") if [[ -t 1 ]]; then PROGRESS=marks; else PROGRESS=lines; fi ;;
+  auto|"") if (( IS_TTY )); then PROGRESS=marks; else PROGRESS=lines; fi ;;
   *) echo "SUITE_PROGRESS must be marks, lines or auto (got $SUITE_PROGRESS)" >&2; exit 2 ;;
 esac
 

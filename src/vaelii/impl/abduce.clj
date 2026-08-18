@@ -230,7 +230,8 @@
   [kb actx opts minted dead-ends]
   (let [{yes true no false}
         (group-by (fn [[g depth]] (some? (maybe-abduce kb g actx opts depth))) dead-ends)
-        clean (fn [pairs] (->> pairs (map first) (remove minted) distinct (sort-by pr-str) vec))]
+        clean (fn [pairs] (->> pairs (map first) (remove minted) distinct
+                               (nm/sort-by-content-key pr-str compare)))]
     {:candidates (clean yes) :refused (clean no)}))
 
 (defn- mint!
@@ -275,7 +276,7 @@
   [minted actx keep?]
   (mapv (fn [sentence] {:sentence sentence :context actx
                         :handle   (when keep? (get minted sentence))})
-        (sort-by pr-str (keys minted))))
+        (nm/sort-by-content-key pr-str compare (keys minted))))
 
 (defn run
   "Prove `goals` in `context`, hypothesizing what the proof needs and cannot find.

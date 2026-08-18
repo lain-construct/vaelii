@@ -269,7 +269,7 @@
       "isa"         (apply v/isa? kb args)
       "types-of"    (apply v/types-of kb args)
       "handle-of"   (v/handle-of kb (nth args 0) (nth args 1))
-      "types"       (sort (v/types kb))
+      "types"       (sort-by str (v/types kb))   ; str, never bare sort: a type node may be a NAT
       "contexts"    (sort (v/contexts kb))
       "conflicts"   (v/conflicts kb)
       "contradictions" (v/contradictions kb)

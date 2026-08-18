@@ -502,3 +502,32 @@
                              (jtms/supports t d) (jtms/dependents t d)
                              (jtms/justification t d) (jtms/premise? t d)
                              (jtms/superseded? t d)])))))))))
+
+;; ---- the int ceiling (dense-only; the reference is Long-keyed) -----------
+
+(deftest dense-handle-ceiling-is-actionable
+  (let [over (inc (long Integer/MAX_VALUE))]              ; 2^31, the first handle over
+    (testing "the last handle that fits is fine"
+      (let [t (dense/create-dense-tms)]
+        (jtms/add-premise t Integer/MAX_VALUE :default)
+        (is (jtms/in? t Integer/MAX_VALUE))))
+    (testing "a node handle past 2^31-1 throws an actionable error, not a truncation"
+      (let [t  (dense/create-dense-tms)
+            ex (try (jtms/add-premise t over :default) nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) "must throw rather than silently truncate")
+        (is (= {:tms :reference} (:remedy (ex-data ex))) "carries the pin as the remedy")
+        (is (= over (:value (ex-data ex))))
+        (is (re-find #"reference" (.getMessage ^Throwable ex)))))
+    (testing "a justification id past the ceiling throws the same way"
+      (let [t (dense/create-dense-tms)]
+        (jtms/add-premise t 1 :default)
+        (jtms/ensure-node t 2 1)
+        (let [ex (try (jtms/add-justification
+                       t (jtms/->Justification over :rule [1] 2 nil :default #{}))
+                      nil (catch clojure.lang.ExceptionInfo e e))]
+          (is (= "justification id" (:kind (ex-data ex)))))))
+    (testing "the reference network has no such ceiling"
+      (let [t (jtms/create-tms)]
+        (jtms/add-premise t over :default)
+        (is (jtms/in? t over) "the Long-keyed reference holds a handle past 2^31")))))

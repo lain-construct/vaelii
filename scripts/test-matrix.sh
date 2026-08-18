@@ -26,9 +26,12 @@
 # WHAT IT COSTS.  A run's wall time here is a function of what else was running, so it
 # is not a measurement — read `lein perf` for those, and never while this is going.  The
 # per-namespace progress the single-axis scripts print is dropped too: thirteen
-# interleaved streams are not readable.  What you get instead is a line per
-# configuration as it starts and as it finishes, and a heartbeat naming how far each
-# running config has got.
+# interleaved streams are not readable.  On a terminal you get instead a LIVE DASHBOARD
+# — one row per configuration, each a bar that fills as its suite reaches namespaces,
+# repainted in place; the bars are green until something fails and red after.  Off a
+# terminal (a pipe, a redirect, CI, `SUITE_PROGRESS=lines`) that would be cursor-motion
+# noise in a log, so those get the scrolling form: a line per configuration as it starts
+# and finishes, and a heartbeat naming how far each running config has got.
 #
 # LONGEST FIRST.  Whoever starts last sets the finish, so the last thing to start has to
 # be the shortest thing there is: the durable four take ~10-12 minutes under a full box
@@ -75,14 +78,17 @@
 #
 # Env:
 #   TEST_MATRIX_OUT   log directory (default target/test-matrix/run-<pid>)
-#   MATRIX_JOBS       how many at a time (default: cores - 2)
+#   MATRIX_JOBS       how many at a time (default: scripts/lib/slots.sh)
 #   MATRIX_JVM_OPTS   extra JVM_OPTS for every run.  Empty by default.  On a loaded box
 #                     `-XX:ActiveProcessorCount=2` is the one worth trying — each JVM
 #                     otherwise sizes its GC and JIT pools from all ten cores while
 #                     doing one core of work — but measure it rather than believing it.
 #                     It lands in each log's own `# env … lein test …` line either way,
 #                     so a run stays reproducible by copying that line.
-#   MATRIX_HEARTBEAT  seconds between progress lines (default 60; 0 turns them off)
+#   MATRIX_HEARTBEAT  seconds between scrolling progress lines when NOT on a terminal
+#                     (default 60; 0 turns them off).  The live dashboard ignores it —
+#                     it repaints every second — and `SUITE_PROGRESS=lines` is what
+#                     turns the dashboard off in favour of the heartbeat on a terminal.
 #
 # ^C stops every running suite and then the script.
 #
@@ -93,11 +99,32 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
+# leiningen's own terminal state, handed down first by the alias: lein-shell pipes
+# this script's stdout, so `-t 1` (in suite-marks.sh, sourced below) would say "not a
+# terminal" and the live dashboard would fall back to the scrolling heartbeat even
+# with someone watching.  Absent when run directly, where `-t 1` stands.
+case "${1:-}" in
+  --tty)    SUITE_TTY=1; shift ;;
+  --no-tty) SUITE_TTY=0; shift ;;
+esac
+
 # colours, `hms`, the log readers, and — through it — the revision helpers
 # shellcheck source=scripts/lib/suite-marks.sh
 . scripts/lib/suite-marks.sh
 # shellcheck source=scripts/lib/suite-configs.sh
 . scripts/lib/suite-configs.sh
+# the default slot count, shared with test-parallel.sh so the rule cannot drift
+# shellcheck source=scripts/lib/slots.sh
+. scripts/lib/slots.sh
+
+# The live dashboard — one repainted row per configuration, each a bar that fills as
+# its suite reaches namespaces — runs on a terminal.  A pipe, a redirect or CI gets
+# the scrolling heartbeat lines instead: a log wants those, and cursor motion painted
+# into one is noise.  `SUITE_PROGRESS=lines` forces the heartbeat on a terminal too.
+if (( IS_TTY )) && [[ "$PROGRESS" == marks ]]; then LIVE=1; else LIVE=0; fi
+# the bar's cell count, from the terminal width suite-marks measured (80 when it could
+# not), clamped so it neither crowds the counts beside it nor runs off a wide screen
+BARW=$(( COLS - 46 )); (( BARW < 12 )) && BARW=12; (( BARW > 32 )) && BARW=32
 
 SELECTOR=":default"
 JOBS="${MATRIX_JOBS:-}"
@@ -160,14 +187,12 @@ ORDERED=()
 while IFS= read -r c; do ORDERED+=("$c"); done < <(order_longest_first)
 CONFIGS=("${ORDERED[@]}")
 
-# Slots default to `cores - 2`, `test-parallel.sh`'s rule and for its reason: each run is
+# Slots default from `scripts/lib/slots.sh` — the same rule `test-parallel.sh` shards by:
+# half the performance cores, less the vaelii JVMs already running on the box.  Each run is
 # about one core of test work, so a slot count near the core count keeps every core busy
-# while leaving the box usable.  More slots than cores does not go faster — the work is
-# the same and each run only gets slower — and it costs another JVM's memory each.
-if [[ -z "$JOBS" ]]; then
-  cores=$( (sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) )
-  JOBS=$((cores - 2)); [[ $JOBS -lt 1 ]] && JOBS=1
-fi
+# while leaving the box usable; more slots than cores does not go faster and costs another
+# JVM's memory each.  slots.sh says why it is P/2 (not `cores - 2`) and load-aware.
+[[ -z "$JOBS" ]] && JOBS=$(default_slots)
 [[ $JOBS -gt ${#CONFIGS[@]} ]] && JOBS=${#CONFIGS[@]}
 
 # A run owns its directory — `gate.sh` and `test-backends.sh`, same reason: two matrices
@@ -179,6 +204,9 @@ else
   OUT_DIR="$MATRIX_ROOT/run-$$"; mkdir -p "$OUT_DIR"
   ln -sfn "$(basename "$OUT_DIR")" "$MATRIX_ROOT/latest" 2>/dev/null || true
 fi
+# absolute, so the reproducer header's `# <dir>` pastes from any directory rather than
+# only from the checkout root.  The dir exists by now (mkdir above), so the `cd` holds.
+ABS_OUT_DIR=$(cd "$OUT_DIR" 2>/dev/null && pwd) || ABS_OUT_DIR="$OUT_DIR"
 
 RUN_NS_COUNT=$(selected_ns_count "$SELECTOR")
 
@@ -189,8 +217,8 @@ RUN_NS_COUNT=$(selected_ns_count "$SELECTOR")
 set -m
 FAILED=()
 n=${#CONFIGS[@]}
-state=(); pid=(); pgid=(); rev=(); logf=(); startt=(); secs=(); diskd=()
-for ((i = 0; i < n; i++)); do state[i]=queued; pid[i]=0; pgid[i]=0; secs[i]=0; diskd[i]=""; done
+state=(); pid=(); pgid=(); rev=(); logf=(); startt=(); secs=(); diskd=(); fin=()
+for ((i = 0; i < n; i++)); do state[i]=queued; pid[i]=0; pgid[i]=0; secs[i]=0; diskd[i]=""; fin[i]=""; done
 
 # shellcheck disable=SC2317,SC2329  # invoked from the INT/TERM trap below
 stop_all() {
@@ -278,7 +306,9 @@ launch() {                                         # launch <index>
   pgid[i]=$(ps -o pgid= -p "${pid[i]}" 2>/dev/null | tr -d ' ')
   pgid[i]="${pgid[i]:-${pid[i]}}"
   state[i]=running
-  printf '  %s▸%s %-16s %s%s  # %s%s\n' \
+  # the live dashboard carries a launching config as a bar that starts filling; only
+  # the scrolling view announces it as a line
+  (( LIVE )) || printf '  %s▸%s %-16s %s%s  # %s%s\n' \
     "$DIM" "$OFF" "$cfg" "$DIM" "${rev[i]}" "$log" "$OFF"
 }
 
@@ -293,23 +323,109 @@ reap() {                                           # reap <index> -> prints its 
   counts=$(run_counts "$log")
   if [[ "$code" -eq 0 ]]; then mark="$TICK"; state[i]=passed
   else mark="$CROSS"; state[i]=failed; FAILED+=("$cfg"); fi
-  printf '  %s %-16s %-52s %8s  %s\n' \
-    "$mark" "$cfg" "${summary:-did not finish}${counts:+, $counts}" "$(hms $elapsed)" "${rev[i]}"
-  # the failing TESTS, not just their namespaces: "which namespace" cannot tell a broken
-  # test from a configuration that disagrees, and the rollup at the end needs the names
-  if [[ "$code" -ne 0 ]]; then
-    local shown=0 total
-    total=$(failing_tests "$log" | wc -l | tr -d ' ')
-    while read -r t; do
-      [[ -z "$t" ]] && continue
-      (( shown >= 8 )) && break
-      printf '      %s %s\n' "$CROSS" "$t"
-      shown=$((shown + 1))
-    done < <(failing_tests "$log")
-    (( total > shown )) && printf '      %s… and %d more in %s%s\n' \
-      "$DIM" "$((total - shown))" "$log" "$OFF"
+  fin[i]="${summary:-did not finish}${counts:+, $counts}"
+  # On the dashboard the finished row and its ✔/✘ are already in the block, and the
+  # failing tests are the end-of-run rollup's to name; only the scrolling view prints
+  # the row and its failures inline as they land.
+  if (( ! LIVE )); then
+    printf '  %s %-16s %-52s %8s  %s\n' \
+      "$mark" "$cfg" "${fin[i]}" "$(hms $elapsed)" "${rev[i]}"
+    # the failing TESTS, not just their namespaces: "which namespace" cannot tell a
+    # broken test from a configuration that disagrees, and the rollup needs the names
+    if [[ "$code" -ne 0 ]]; then
+      local shown=0 total
+      total=$(failing_tests "$log" | wc -l | tr -d ' ')
+      while read -r t; do
+        [[ -z "$t" ]] && continue
+        (( shown >= 8 )) && break
+        printf '      %s %s\n' "$CROSS" "$t"
+        shown=$((shown + 1))
+      done < <(failing_tests "$log")
+      (( total > shown )) && printf '      %s… and %d more in %s%s\n' \
+        "$DIM" "$((total - shown))" "$log" "$OFF"
+    fi
   fi
   [[ $KEEP -eq 1 || -z "${diskd[i]}" ]] || rm -rf "${diskd[i]}"
+}
+
+# ---- the live dashboard (a terminal only) -----------------------------------
+# `redraw` repaints one row per configuration in place — queued, a filling bar while
+# running, ✔/✘ when done — from the same `ns_reached` poll the heartbeat reads.  It is
+# gated on `LIVE`, so a pipe or CI never sees a cursor-motion byte; the scrolling
+# heartbeat is what those get.
+
+# a proportional bar `━━━╾────────` `w` cells wide: heavy for the reached fraction, a
+# half-heavy head at the frontier, light for the rest.  No padding follows it, so its
+# multi-byte cells never have to line up with a byte-counted `printf` width — the colour
+# escapes it emits are zero-width bytes, so they do not disturb that either.  The reached
+# run and its head carry the verdict colour `col`; the unreached remainder is dim grey,
+# so the bar reads as a filling gauge rather than a solid green (or red) block.
+bar() {                                            # bar <reached> <total> <width> <col>
+  local reached="$1" total="$2" w="$3" col="$4" fill i s=""
+  (( total < 1 )) && total=1
+  fill=$(( reached * w / total )); (( fill > w )) && fill=w
+  # `${s}` braced, not `$s`: in a non-UTF-8 locale bash's bare-`$s` name scanner
+  # swallows the high bytes of the glyph that follows, and under `set -u` the bogus
+  # name reads as unbound and the bar comes back empty.  The braces end the name.
+  s="${col}"
+  for ((i = 0; i < w; i++)); do
+    if   (( i <  fill )); then s="${s}━"
+    elif (( i == fill )); then s="${s}╾${DIM}"     # head, then dim for the unreached rest
+    else                       s="${s}─"
+    fi
+  done
+  printf '%s%s' "$s" "$OFF"
+}
+
+BLOCK=0                                            # rows painted last time; 0 = not yet
+redraw() {
+  (( LIVE )) || return 0
+  # up over the block painted last time, so this paint lands on top of it rather than
+  # below it
+  (( BLOCK > 0 )) && printf '\033[%dA' "$BLOCK"
+  # green until something fails, then red — the bars carry the matrix's verdict-so-far,
+  # not just each run's progress
+  local barcol="$GREEN"; (( ${#FAILED[@]} > 0 )) && barcol="$RED"
+  local i cfg run=0 donec=0 q=0 reached=0
+  local -a rv=()
+  # One poll per config, read by both the aggregate bar and its own row, so a running
+  # config's log is grepped once a paint rather than twice.  A finished config counts as
+  # its whole namespace budget reached; a queued one as none.
+  for ((i = 0; i < n; i++)); do
+    case "${state[i]}" in
+      running)       rv[i]=$(ns_reached "${logf[i]}"); run=$((run + 1)) ;;
+      passed|failed) rv[i]=$RUN_NS_COUNT;              donec=$((donec + 1)) ;;
+      *)             rv[i]=0;                          q=$((q + 1)) ;;
+    esac
+    reached=$((reached + rv[i]))
+  done
+  # the whole matrix as one filling bar — the header's `lein test` line, animated: every
+  # namespace of every configuration is a cell, so it advances even while a row is mid-run
+  printf '\033[K  %s%-19s%s %s  %s# %s%s\n' \
+    "$DIM" "lein test $SELECTOR" "$OFF" \
+    "$(bar "$reached" "$((n * RUN_NS_COUNT))" "$BARW" "$barcol")" \
+    "$DIM" "$ABS_OUT_DIR" "$OFF"
+  for ((i = 0; i < n; i++)); do
+    cfg="${CONFIGS[i]}"
+    printf '\033[K'                                # clear the line's old content first
+    case "${state[i]}" in
+      running)
+        printf '  %s⋯%s %-16s %s %s/%s  %s%s %s%s\n' \
+          "$DIM" "$OFF" "$cfg" "$(bar "${rv[i]}" "$RUN_NS_COUNT" "$BARW" "$barcol")" \
+          "${rv[i]}" "$RUN_NS_COUNT" "$DIM" "$(hms $((SECONDS - startt[i])))" "${rev[i]}" "$OFF" ;;
+      passed)
+        printf '  %s %-16s %-44.44s %s%s %s%s\n' \
+          "$TICK" "$cfg" "${fin[i]}" "$DIM" "$(hms "${secs[i]}")" "${rev[i]}" "$OFF" ;;
+      failed)
+        printf '  %s %-16s %-44.44s %s%s %s%s\n' \
+          "$CROSS" "$cfg" "${fin[i]}" "$DIM" "$(hms "${secs[i]}")" "${rev[i]}" "$OFF" ;;
+      *)
+        printf '  %s·%s %-16s %squeued%s\n' "$DIM" "$OFF" "$cfg" "$DIM" "$OFF" ;;
+    esac
+  done
+  printf '\033[K  %s%d running · %d done · %d queued        %s elapsed%s\n' \
+    "$DIM" "$run" "$donec" "$q" "$(hms $((SECONDS - T0)))" "$OFF"
+  BLOCK=$(( n + 2 ))
 }
 
 START_REV=$(revision_hash)
@@ -319,7 +435,12 @@ T0=$SECONDS
 echo "${BOLD}running ${n} configuration(s), $JOBS at a time${OFF}" \
      "${DIM}$SELECTOR — $RUN_NS_COUNT of $NS_COUNT namespaces${OFF}"
 echo "${DIM}at $(revision_line)${OFF}"
-echo "${DIM}logs in $OUT_DIR/${OFF}"
+# The two commands this stands in for, as pasteable reproducers: the `lint` you still owe
+# by hand (the matrix does not run it), and the `test` run itself — its `#` carries the
+# run's log directory, absolute so it pastes from anywhere.  Under a live terminal the
+# test line is repainted as a filling bar by `redraw`; without one it is this static line.
+printf '  %s%-19s # static analysis (run it by hand)%s\n' "$DIM" "lein lint" "$OFF"
+(( LIVE )) || printf '  %s%-19s # %s%s\n' "$DIM" "lein test $SELECTOR" "$ABS_OUT_DIR" "$OFF"
 if [[ "${START_DIRTY:-0}" -gt 0 ]]; then
   echo "  ${RED}⚠${OFF} ${DIM}src/ or test/ is dirty: every run below compiles that"
   echo "     uncommitted work, so this matrix answers for no commit${OFF}"
@@ -331,6 +452,10 @@ if pgrep -f 'lein test|vaelii\.bench' >/dev/null 2>&1; then
        "expect both to be slower${OFF}"
 fi
 echo
+
+# hide the cursor while the block is being repainted, and put it back however the
+# script ends — a clean finish, a failure, or the INT/TERM trap's `exit 130`
+if (( LIVE )); then printf '\033[?25l'; trap 'printf "\033[?25h"' EXIT; fi
 
 done_n=0; running=0; next=0; last_beat=$SECONDS
 while (( done_n < n )); do
@@ -353,7 +478,9 @@ while (( done_n < n )); do
     last_beat=$SECONDS                             # a row just landed; no beat is due
   done
 
-  if (( HEARTBEAT > 0 && running > 0 && SECONDS - last_beat >= HEARTBEAT )); then
+  if (( LIVE )); then
+    redraw
+  elif (( HEARTBEAT > 0 && running > 0 && SECONDS - last_beat >= HEARTBEAT )); then
     line=""; shown=0
     for ((i = 0; i < next; i++)); do
       [[ "${state[i]}" == running ]] || continue
@@ -368,8 +495,24 @@ while (( done_n < n )); do
     last_beat=$SECONDS
   fi
 
-  (( done_n < n )) && sleep 2
+  # The poll delay, but interruptibly.  A bare `sleep 2` is an EXTERNAL foreground
+  # command, and `set -m` gives it its own process group and hands it the terminal
+  # — so a ^C goes to the sleep's group, not to this shell, and the INT/TERM trap
+  # never runs.  Nearly all of this loop's wall time is that sleep, so nearly every
+  # ^C lands in it and the whole interrupt is lost: the runs keep going, orphaned.
+  # Background the sleep and `wait` on it instead — `wait` is a builtin, so this
+  # shell stays in the foreground group and a trapped signal returns from it at
+  # once, running `on_interrupt`.  Same reason `test-backends.sh` waits on its
+  # backgrounded suite.  `2>/dev/null` swallows the job-done notice `set -m` prints.
+  if (( done_n < n )); then
+    if (( LIVE )); then sleep 1 & else sleep 2 & fi   # a beat a second under the
+    wait "$!" 2>/dev/null                             # dashboard, so the bars visibly move
+  fi
 done
+
+# the final frame, then the cursor below it and back on, so the failures rollup prints
+# under a dashboard that already shows every configuration's verdict
+if (( LIVE )); then redraw; printf '\033[?25h'; fi
 
 END_REV=$(revision_hash)
 END_DIRTY=$(revision_dirty)

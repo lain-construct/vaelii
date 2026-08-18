@@ -73,6 +73,9 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; alike, so (first (contradictions kb)) is stable
 (settle-stats kb) / (reset-settle-stats! kb)     ; the exceptWhen fixpoint's iteration instrumentation
 (chain-stats kb)                               ; {:runs n :last {:derived n :truncated? bool}} — a capped run is visible
+(chain-report kb)                              ; the per-rule breakdown behind chain-stats: per forward rule
+                                               ; {:rule :sentence :placed :refused :refusals :status} — :fires /
+                                               ; :blocked (with the reason) / :silent.  O(rules), off the ledger
 (violations kb) / (clear-violations! kb)         ; accumulating ledger of dropped derived conclusions (run-stamped, capped)
 (kb-quality kb opts)                            ; the five readings about the *knowledge* —
                                                 ; {:rules :extents :chains :taxonomy :declarations},
@@ -125,6 +128,15 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; conjuncts in the order they run, each with :est-matches
                                                ; (the sound bound) :est-rows :est-prefix :block and why
                                                ; it sits there (docs/inference.md)
+(search-tree kb goal context {:max-depth n})    ; the run that plan predicts: the search TREE as data
+                                               ; -> {:answers :nodes :stats :status :bounded?}, every node
+                                               ; the frontier reached with its itemized estimate and the
+                                               ; rewrite that produced it.  Needs a depth; bounded by a
+                                               ; node budget + :max-ms (docs/inference.md, docs/web.md)
+(compare-tacticians kb goal context {:max-depth n}) ; the same goal under each tactician -> one row per
+                                               ; ordering: its tree-stats, wall-clock :ms, and :answers
+                                               ; SET.  Every complete tactician returns the same set —
+                                               ; the rows let you verify it, not trust it
 (add-prover kb prover)                         ; register a custom prover
 (add-reasoner kb :allen :rcc8)                 ; register shipped ones by name -> kb
 (reasoners)                                    ; the roster: the six algebras + :duration :metric-time
@@ -458,7 +470,8 @@ reading that collides is the top-level one.  Write the list.
 *single goal* has the same two readings of one bracket, so `[likes Tom Ann]` handed to
 `ask` asked about a three-goal join written where one sentence was meant, and answered
 nothing rather than saying so.  `ask`, `ask?`, `ask-within`, `sentexes-matching`,
-`handle-of`, `prove`, `provable?`, `prove-within`, `query`, `query?`, `query-plan` and
+`handle-of`, `prove`, `provable?`, `prove-within`, `query`, `query?`, `query-plan`,
+`search-tree`, `compare-tacticians` and
 `abduce` refuse a top-level vector by name (`:shape`), carrying `:goal` — or `:conjunct`
 where the vector sits *inside* a conjunction, naming which element of the join it was.
 The doors that take a conjunction on purpose still take one; what is refused is a vector

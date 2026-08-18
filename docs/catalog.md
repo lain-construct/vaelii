@@ -322,7 +322,9 @@ alternative is to unload it and diff the heap, which is not something a page may
 KB somebody is reading. It multiplies the stored sentex count — one O(1) trie read, so
 this is cheap enough to run on a page that polls — by what a sentex measured per resident
 component (`resident-bytes-per-sentex`, from the `lein bench-scale` sizing runs):
-~1,549 B of index, ~279 B of records, ~467 B of truth-maintenance network. Two adjustments make it about *this* KB: a `:disk` KB
+~1,549 B of index, ~279 B of records, ~101 B of truth-maintenance network (the dense
+default — 18 B/node + 166 B/justification; the reference map is ~467 B/sentex, ~3.8×
+more — see [density.md](density.md)). Two adjustments make it about *this* KB: a `:disk` KB
 pages its records, so that term drops (what stays resident is the bounded hot-record LRU,
 which does not grow with the corpus), and a KB loaded without belief — an import with
 `:belief? false`, a store opened without `:recover?` — has no network, so that term drops

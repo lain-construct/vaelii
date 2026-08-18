@@ -78,12 +78,13 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.walk :as walk]
-            [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.foreign :as foreign]
             [vaelii.impl.io.fingerprint :as fp]
+            [vaelii.impl.io.frames :as frames]
+            [vaelii.impl.io.snapshot :as snapshot]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.kv :as kv]
@@ -94,11 +95,7 @@
             [vaelii.impl.reindex :as reindex]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
-            [vaelii.impl.sentex :as sx])
-  (:import (java.io BufferedInputStream ByteArrayInputStream DataInputStream
-                    EOFException InputStream)
-           (java.lang.reflect Constructor)
-           (java.util.zip GZIPInputStream)))
+            [vaelii.impl.sentex :as sx]))
 
 (def export-format
   "The marker `vaelii.impl.io.export` writes.  Version numbers alone cannot tell a dump
@@ -124,54 +121,10 @@
 (def ^:private index-entry-file    "entries.nippy.stream")
 (def ^:private index-meta-file     "index.edn")
 
-;;; ── compression un-wrap ───────────────────────────────────────────────
-
-(defn- reflective-input
-  "Wrap `in` in the input stream named by `class-name` via its `(InputStream)`
-  constructor.  A codec here is one a dump may *arrive* in rather than one this engine writes,
-  so it is resolved reflectively: the dump imports iff the library is on the classpath,
-  and a clear error names the missing dep otherwise.  `:gzip` and `:none` — the export
-  default and the opt-out — need no dep and never reach here; `:xz` is written too
-  (`vaelii.impl.io.export`) and its library is a declared dependency, so only `:zstd`
-  actually depends on what a build happens to carry."
-  ^InputStream [^String class-name ^InputStream in]
-  (try
-    (let [k    (Class/forName class-name)
-          ctor (.getConstructor k (into-array Class [InputStream]))
-          ^Constructor ctor ctor]
-      (cast InputStream (.newInstance ctor (object-array [in]))))
-    (catch ClassNotFoundException _
-      (throw (ex-info (str "compression codec not on the classpath: " class-name
-                           " — add the dependency, or re-export the dump with :gzip / :none")
-                      {:type :unsupported-compression :codec class-name})))))
-
-(defn- wrap-input
-  "The un-compression wrapper for a stream, matching the export's `:compression`."
-  ^InputStream [^InputStream in compression]
-  (case compression
-    :gzip       (GZIPInputStream. in)
-    (:none nil) in
-    :xz         (reflective-input "org.tukaani.xz.XZInputStream" in)
-    :zstd       (reflective-input "io.airlift.compress.zstd.ZstdInputStream" in)
-    (throw (ex-info (str "unknown compression " compression)
-                    {:type :unsupported-compression :compression compression}))))
-
 ;;; ── stream readers ────────────────────────────────────────────────────
-
-(defn- thaw-until-eof
-  "Realize every back-to-back nippy frame from `in` into a vector, stopping at EOF."
-  [^DataInputStream in]
-  (loop [acc (transient [])]
-    (let [item (try (nippy/thaw-from-in! in) (catch EOFException _ ::eof))]
-      (if (identical? ::eof item) (persistent! acc) (recur (conj! acc item))))))
-
-(defn- thaw-chunk
-  "Decompress + thaw one v6 chunk payload (`bs`) into a vector of frames."
-  [^bytes bs compression]
-  (with-open [in (DataInputStream.
-                  (BufferedInputStream.
-                   (wrap-input (ByteArrayInputStream. bs) compression)))]
-    (thaw-until-eof in)))
+;;; The chunked/window nippy framing itself lives in `vaelii.impl.io.frames`, shared
+;;; with the export writer and the snapshot sink; what stays here is the dump-specific
+;;; policy of choosing a reader from a dump's own `meta.edn` (`stream-reader-for`).
 
 (defn- check-frame-count!
   "Refuse a stream that ended early.  A torn chunk reads as a clean EOF — the
@@ -239,42 +192,6 @@
                             (str (name c) " " (format "%,d" (long n)))))
            " — they are not stored, and anything resting on one is dropped with it"))))
 
-(defn- read-chunked-seq
-  "Lazy seq of frames from a v6+ chunked stream file: a run of `[int32 length]
-  [compressed chunk]`.  Chunks are read serially and thawed on demand, so the whole
-  file never sits in heap.  The stream closes when fully consumed."
-  [file compression]
-  (let [^DataInputStream in (DataInputStream.
-                             (BufferedInputStream. (io/input-stream (io/file file))))
-        read-frame! (fn []
-                      (try
-                        (let [len (.readInt in)
-                              bs  (byte-array len)]
-                          (.readFully in bs)
-                          bs)
-                        (catch EOFException _ nil)))
-        step (fn step []
-               (lazy-seq
-                (if-let [bs (read-frame!)]
-                  (concat (thaw-chunk bs compression) (step))
-                  (do (.close in) nil))))]
-    (step)))
-
-(defn- read-window-seq
-  "Lazy seq of frames from a legacy v4/v5 stream file — one compression window over
-  back-to-back frames, read serially.  The stream closes when fully consumed."
-  [file compression]
-  (let [^DataInputStream in (DataInputStream.
-                             (BufferedInputStream.
-                              (wrap-input (io/input-stream (io/file file)) compression)))
-        step (fn step []
-               (lazy-seq
-                (let [item (try (nippy/thaw-from-in! in) (catch EOFException _ ::eof))]
-                  (if (identical? ::eof item)
-                    (do (.close in) nil)
-                    (cons item (step))))))]
-    (step)))
-
 (defn- stream-reader-for
   "The reader for a dump's stream files.  One of ours **states** its framing, because a
   version number already means something else here; a foreign dump's is inferred from
@@ -282,12 +199,16 @@
   dump that states *nothing*: a `:framing` this build does not know is a declared
   field of the frozen format holding a value from some other build, and guessing a
   reader for it fails later as a decompression error with no `:type` — so it is
-  refused up front, the way an unknown `:compression` is."
+  refused up front, the way an unknown `:compression` is.
+
+  The framing itself is `vaelii.impl.io.frames`'; this only chooses which of its two
+  readers a dump's own `meta.edn` calls for."
   [meta]
   (case (:framing meta)
-    :chunked read-chunked-seq
-    :window  read-window-seq
-    nil      (if (>= (long (:format-version meta 0)) 6) read-chunked-seq read-window-seq)
+    :chunked frames/read-chunked-seq
+    :window  frames/read-window-seq
+    nil      (if (>= (long (:format-version meta 0)) 6)
+               frames/read-chunked-seq frames/read-window-seq)
     (throw (ex-info (str "unknown dump :framing " (pr-str (:framing meta))
                          " — this build reads :chunked and :window")
                     {:type :unknown-framing :framing (:framing meta)}))))
@@ -787,14 +708,19 @@
   than the records now in the store: a **layout** this build does not key its index in
   (which would read as *empty* rather than as wrong), **records** that are not the ones
   the entries were derived from, and **handles** that moved on the way in (a posting is a
-  set of handles, so a remap makes every one of them name a ghost)."
+  set of handles, so a remap makes every one of them name a ghost).
+
+  The layout and records checks are `snapshot/index-mismatch` — the *same* validity core a
+  standalone snapshot image runs, so a dump's index and an image are one check rather than
+  two that could drift.  The handle check is the dump's own, ordered ahead of the records
+  one because a remapped import fails both — its stored-under fingerprint no longer matches
+  the dump's — and `:handles-remapped` is the diagnosis that names the cause."
   [index-meta fingerprint handles-preserved?]
   (cond
-    (nil? index-meta)                                     [:rebuild :absent]
-    (not= kv/index-layout-version (:index-layout index-meta)) [:rebuild :layout-changed]
-    (not handles-preserved?)                              [:rebuild :handles-remapped]
-    (not= (:records index-meta) fingerprint)              [:rebuild :records-differ]
-    :else                                                 [:replay]))
+    (nil? index-meta)        [:rebuild :absent]
+    (not handles-preserved?) [:rebuild :handles-remapped]
+    :else (if-let [r (snapshot/index-mismatch index-meta fingerprint)]
+            [:rebuild r] [:replay])))
 
 (defn- replay-index!
   "Install the dumped entries into `kb`'s index, or report why not.  Returns nil on

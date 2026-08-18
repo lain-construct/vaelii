@@ -67,6 +67,7 @@
   bulk-assert-facts! "[[kb facts context] [kb facts context opts]]",
   caches "[[kb]]",
   calculi "[[]]",
+  chain-report "[[kb]]",
   chain-stats "[[kb]]",
   check
   "[[kb sentence] [kb sentence context] [kb sentence context opts]]",
@@ -75,6 +76,8 @@
   clear-caches "[[kb] [kb opts]]",
   clear-violations! "[[kb]]",
   close! "[[kb]]",
+  compare-tacticians
+  "[[kb goal] [kb goal context] [kb goal context opts]]",
   conflicts "[[kb]]",
   context-down "[[kb c]]",
   context-up "[[kb c]]",
@@ -148,6 +151,7 @@
   resume "[[partial budget]]",
   retract! "[[kb handle]]",
   same-class? "[[kb a b] [kb a b context]]",
+  search-tree "[[kb goal] [kb goal context] [kb goal context opts]]",
   sees? "[[kb k y]]",
   sentex "[[kb handle]]",
   sentex-count "[[kb]]",

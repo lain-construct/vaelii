@@ -19,6 +19,7 @@
             [vaelii.impl.catalog :as catalog]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.io.export :as export]
+            [vaelii.impl.io.frames :as fr]
             [vaelii.impl.io.import :as imp]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as vr]
@@ -50,10 +51,10 @@
 
 (defn- frames
   "The frames of one dump stream, or nil when the dump has no such file.  Read with
-  `import/read-chunked-seq` — the reader the format is written for."
+  `vaelii.impl.io.frames/read-chunked-seq` — the reader the format is written for."
   [^File dir file compression]
   (let [f (io/file dir file)]
-    (when (.exists f) (vec (#'imp/read-chunked-seq f compression)))))
+    (when (.exists f) (vec (fr/read-chunked-seq f compression)))))
 
 (defn- dump
   "A whole dump read back: `{:meta :sentexes :justifications :provenance}`."

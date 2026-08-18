@@ -149,11 +149,13 @@
             handles))))
 
 (defn- visibility-key
-  "The order-free key for the joint-visibility question about two contexts.  Sorted on
-  the printed name, since `common-descendant?` is symmetric and a key that was not would
-  store the same verdict twice and compare the wrong one half the time."
+  "The order-free key for the joint-visibility question about two contexts.  Ordered
+  structurally by `nm/compare-form` — never a printed `(compare (str a) (str b))` —
+  since `common-descendant?` is symmetric and a key that was not would store the same
+  verdict twice and compare the wrong one half the time.  Both contexts are symbols, so
+  the order is the one the printed names gave, without the two Strings per call."
   [a b]
-  (if (neg? (compare (str a) (str b))) [a b] [b a]))
+  (if (neg? (nm/compare-form a b)) [a b] [b a]))
 
 (defn- visibility-pairs
   "The context pairs one memo entry's pairing is decided by: one context from each
@@ -622,9 +624,12 @@
                              :defeat-class (jtms/defeat-class tms h)
                              :justifications (->> (jtms/supports tms h)
                                                   (keep #(p/get-justification recs %))
-                                                  (sort-by jkey)
-                                                  vec)})))
-                   (sort-by (juxt (comp pr-str :sentence) (comp pr-str :context) :handle))
+                                                  ;; `jkey` is a `get-sentex` per antecedent
+                                                  ;; — built once per justification, not per
+                                                  ;; comparison; a rule side lists the rule's
+                                                  ;; whole firing history
+                                                  (nm/sort-by-content-key jkey nm/compare-form))})))
+                   (sort-by (juxt :sentence :context :handle) nm/compare-form)
                    vec)]
     {:nogood nogood :priority priority :sentence sentence
      :handles (mapv :handle sides)
@@ -633,10 +638,11 @@
 
 (defn- report-order
   "One clash report's place in a reading, as content: each side's sentence then its
-  context, in the side order `clash-report` already fixed.  Handles are nowhere in it,
-  which is the whole point — they are allocated in assertion order."
+  context, in the side order `clash-report` already fixed.  A structural key, compared
+  by `nm/compare-form` — never a printed one.  Handles are nowhere in it, which is the
+  whole point: they are allocated in assertion order."
   [r]
-  (mapv (juxt (comp pr-str :sentence) (comp pr-str :context)) (:sides r)))
+  (mapv (juxt :sentence :context) (:sides r)))
 
 (defn ranked
   "`reports` in content order — what `core/conflicts` and `core/contradictions` answer.
@@ -648,10 +654,11 @@
   inside each report are already sorted to remove.
 
   The key is read off metadata `record-clashes!` attached when the report was built, so
-  this compares prepared keys rather than re-`pr-str`ing every side.  A report that
-  arrives without one is keyed on the spot rather than trusted to be orderable."
+  this compares prepared keys rather than rebuilding every side's.  A report that
+  arrives without one is keyed on the spot rather than trusted to be orderable.  The
+  keys are structural forms, so they are compared by `nm/compare-form`."
   [reports]
-  (vec (sort-by #(or (::order (meta %)) (report-order %)) reports)))
+  (vec (sort-by #(or (::order (meta %)) (report-order %)) nm/compare-form reports)))
 
 (defn- record-clashes!
   "Publish the settle's two readings, rebuilding only the reports that could have moved.
@@ -812,7 +819,7 @@
   them at all, but cheaper to wave through than to reason about.
 
   Argument-position preservation is the one that has to be read per KB rather than
-  listed: `(argPreserving P n R)` makes a stored `(P … W …)` answer `(P … A …)` for
+  listed: `(transitiveInArg P n R)` makes a stored `(P … W …)` answer `(P … A …)` for
   every `A` in `W`'s reach, so a trigger about `dog` flips an exception written about
   `poodle` and the two literals agree on **no argument at all**.  Which predicates
   those are is a property of the content (`special/recheck-preserving-along` reads the
@@ -1385,7 +1392,8 @@
                    :visible-from mx
                    :message      (str "disjointness clash exposed: " x " holds " t1
                                       " (in " c1 ") and " t2 " (in " c2
-                                      "), jointly visible from " (pr-str (vec (sort-by str mx))))}})))
+                                      "), jointly visible from "
+                                      (pr-str (vec (sort nm/compare-form mx))))}})))
 
 (def ^:dynamic *exposure-instance-budget*
   "How many candidate instances one settle's exposure pass will enumerate for the
@@ -2025,19 +2033,13 @@
   KB believes, would differ with it.  Order independence is a property, not a tendency
   (docs/nmtms.md).
 
-  **The keyfn runs per comparison and that was measured and left alone.**
-  `believed-memberships` one screen up avoids exactly this shape, so the same fix here —
-  decorate once, sort on the precomputed strings — looks obvious. It is not: the regions
-  this sorts are small, `clash-arbitration` at 800 standing dilemmas reads 2.47 and 2.34
-  ms/op against an unchanged 2.36 and 2.20, and decorating allocates a tuple per element
-  where a two-element region only ever pays one comparison. The sweep below it is what
-  costs; this sort is not."
+  Ordered by `nm/compare-form`, structurally: no printed key, so no String is allocated
+  per comparison and no ambient `*print-length*` can elide two long sentences to one
+  prefix and drop the sweep back onto the region's iteration order.  Through
+  `nm/sort-by-content-key`, so the `[sentence context]` key is built once per sentex and a
+  region of one is left as it came."
   [sentexes]
-  ;; print vars bound off: an ambient *print-length* would elide two long sentences
-  ;; into one prefix, and the stable sort would fall back to the region's iteration
-  ;; order — spending the budgeted sweep on different members per arrival order
-  (binding [*print-length* nil *print-level* nil *print-meta* false]
-    (sort-by (juxt #(pr-str (:sentence %)) #(str (:context %))) sentexes)))
+  (nm/sort-by-content-key (juxt :sentence :context) sentexes))
 
 (def ^:dynamic *arbitration-cut*
   "A volatile collecting the declarations whose retroactive **arbitration** sweep the
@@ -2403,7 +2405,9 @@
   — so this is where the arbitration stops paying, not where the KB does."
   [kb s]
   (cons (:context s)
-        (when (checks/arbitrating? kb) (sort-by str (clash-vantages kb s)))))
+        ;; vantages are contexts (symbols), so `compare-form` reduces to `compare` — a
+        ;; bare sort gives the same order with no per-comparison form-rank dispatch
+        (when (checks/arbitrating? kb) (sort (clash-vantages kb s)))))
 
 (defn- clash-nogoods
   "The definitional clashes the settle's moved region holds, as nogoods.
@@ -2488,9 +2492,23 @@
                   (into {} (filter (fn [[pr _]] (and (contains? live pr)
                                                      (not (contains? revisit pr)))))
                         (:nogoods prev)))
-        cands   (if *incremental-clashes*
-                  (clash-candidates kb touched (into #{} (mapcat identity) revisit))
-                  (all-believed kb))
+        cands   (let [raw (if *incremental-clashes*
+                            (clash-candidates kb touched (into #{} (mapcat identity) revisit))
+                            (all-believed kb))]
+                  ;; Examine a term's memberships consecutively: `disjoint-problems` reads
+                  ;; every membership of the term (`types`) and its arg-1 postings
+                  ;; (`membership-handles`) off disk for *each* membership it is asked of,
+                  ;; so a term holding m types has its record set fetched ~m times.  Left
+                  ;; in arrival order those m calls are scattered across the pass and the
+                  ;; record LRU evicts between them, making the fetch O(m²); clustered by
+                  ;; the arg-1 term they run back-to-back and every re-read after the first
+                  ;; is a cache hit — O(m).  Order does not change the result: entries are
+                  ;; keyed on the handle pair and content-ordered (below), which
+                  ;; `constraint_nogood_test`'s permutation cases lock down.  Keyed on the
+                  ;; term's hash — an int clusters equal terms with no per-record string.
+                  (sort-by (fn [s] (let [sen (:sentence s)]
+                                     (if (sequential? sen) (hash (first (nm/args sen))) 0)))
+                           raw))
         entries
         (mapcat (fn [s]
                   (when (or (not *incremental-clashes*) (could-clash? kb s))
@@ -2500,7 +2518,7 @@
                                (let [opp (:opposing-handle v)]
                                  (when (and (not= opp (:id s)) (jtms/in? tms opp))
                                    (let [other (:sentence (p/get-sentex (:records kb) opp))
-                                         [a b] (sort-by pr-str [(:sentence s) other])]
+                                         [a b] (sort nm/compare-form [(:sentence s) other])]
                                      {:nogood   #{(:id s) opp}
                                       :kind     (:type v)
                                       :priority (+ 2 (max (strength/rank-of
@@ -2513,8 +2531,12 @@
                 cands)]
     ;; one entry per handle pair, chosen by content — two sides can convict on
     ;; different `:kind`s in principle, and which of them wins may not depend on
-    ;; traversal
-    (let [derived (into {} (map (fn [[pr es]] [pr (first (sort-by pr-str es))]))
+    ;; traversal.  The entries for one pair share `:sentence` (its halves are already
+    ;; content-ordered above) and `:priority`, so `:kind` then `:sentence` decides,
+    ;; compared structurally rather than by a `pr-str` of the whole map.
+    (let [derived (into {} (map (fn [[pr es]]
+                                  [pr (first (sort-by (juxt :kind :sentence)
+                                                      nm/compare-form es))]))
                         (group-by :nogood entries))
           answer  (merge carried derived)
           ngs     (into #{} (vals answer))
@@ -2574,6 +2596,18 @@
                                     views fresh))}))
       ngs)))
 
+(def ^:dynamic *skip-constraint-nogoods*
+  "When true, `constraint-nogoods` takes the same branch a KB declaring no
+  disjointness/functional/asymmetric feature takes — it derives no definitional-clash
+  nogoods and resets `(:clashes kb)` to empty.  Sound to skip **only when the clash
+  scan is belief-neutral**, i.e. every standing clash is a `:dilemma`/`:hard` tie that
+  disbelieves neither side (`decide-nogood`): then the scan produces no defeat and
+  omitting it changes no belief, only the recorded dilemmas a later `contradictions`
+  read or solve would report.  A KB with a strength-differentiated clash-loser must
+  NOT set this — the loser would be wrongly believed.  For the `meta.edn`-gated warm
+  reload, whose stamp certifies `clash-losers = 0` for the fingerprinted records."
+  false)
+
 (defn- constraint-nogoods
   "`clash-nogoods`, behind the O(1) gate that makes it free for a KB declaring none of
   the three features — which is most of them.  Four set-emptiness reads and not one:
@@ -2592,10 +2626,11 @@
   could possibly pair."
   [kb]
   (let [tax (:taxonomy kb)]
-    (if-not (or (seq (tax/disjoint-pairs tax))
-                (seq (tax/disjoint-metatypes tax))
-                (seq (tax/props tax :functional))
-                (seq (tax/props tax :asymmetric)))
+    (if (or *skip-constraint-nogoods*
+            (not (or (seq (tax/disjoint-pairs tax))
+                     (seq (tax/disjoint-metatypes tax))
+                     (seq (tax/props tax :functional))
+                     (seq (tax/props tax :asymmetric)))))
       ;; Nothing separates anything and no predicate is declared functional or
       ;; asymmetric, so no pair can clash — which makes this the one place the whole
       ;; candidate set can be dropped rather than re-examined.  It has to be dropped
@@ -2606,7 +2641,14 @@
       ;; one `clash-marked-below` for the pass, past the gate that already proved a mark
       ;; exists.  `could-clash?` asks per candidate and `declaration-implicates` asks per
       ;; `genl` trigger, so the askers scale with the region while the answer does not.
-      (binding [*clash-marked-below* (delay (clash-marked-below tax))]
+      ;; Clash detection reads `genls`/`specs` for every candidate but writes no edge — the
+      ;; taxonomy is still for its span — so it holds each closure it walks in one pass cache
+      ;; and never re-walks it, where the gen-stamped memo is retired under it by the belief
+      ;; the wider settle moves.  A fresh atom per call, dropped when the pass returns.
+      (binding [*clash-marked-below*             (delay (clash-marked-below tax))
+                tax/*closure-pass-cache*         (atom {})
+                tax/*visible-neighbours-cache*   (atom {})
+                tax/*separation-frame-cache*     (atom {})]
         (clash-nogoods kb (jtms/touched (:tms kb)))))))
 
 (defn- merge-focus
@@ -2719,7 +2761,7 @@
       []                                             ; nothing separates anything
       (into [] (comp (mapcat #(exposed-clashes-for-term kb % :all probes #{}))
                      (distinct))
-            (sort-by str terms)))))                  ; content order, so the answer is stable
+            (sort terms)))))                         ; terms are symbols — bare sort is the same content order
 
 (defn- expose-clashes!
   "File the disjointness clashes the settle's moved region newly makes jointly
@@ -2913,15 +2955,15 @@
   [kb candidates arbitrated]
   (let [tms (:tms kb)
         tax (:taxonomy kb)
-        ;; **Content order, and the context is half of it.**  `content-order` keys on the
-        ;; sentence *then* the context for a reason that bites here: the converse of
-        ;; `(P a a)` is itself, so an asymmetric self-tuple stated in two contexts is two
-        ;; halves whose sentences print identically, and a key stopping at the sentence
-        ;; leaves them in the order the walk supplied.
-        half-key (juxt #(pr-str (first %)) #(str (second %)))
+        ;; **Content order, and the context is half of it.**  `nm/compare-form` compares
+        ;; the `[sentence context]` half element by element, so it reads the sentence
+        ;; *then* the context for a reason that bites here: the converse of `(P a a)` is
+        ;; itself, so an asymmetric self-tuple stated in two contexts is two halves whose
+        ;; sentences are equal, and a key stopping at the sentence would leave them in the
+        ;; order the walk supplied.
         found
         (for [s      candidates
-              asker  (sort-by str (clash-vantages kb s))
+              asker  (sort (clash-vantages kb s))    ; contexts are symbols — bare sort is the same order
               v      (checks/arbitrable-violations kb (:sentence s) asker)
               :let   [opp (:opposing-handle v)]
               :when  (and (contains? #{:functional :asymmetric} (:type v))
@@ -2931,9 +2973,9 @@
               :let   [other (p/get-sentex (:records kb) opp)]
               :when  other
               :let   [[[sa ca] [sb cb] :as halves]
-                      (sort-by half-key
-                               [[(:sentence s) (:context s)]
-                                [(:sentence other) (:context other)]])
+                      (sort nm/compare-form
+                            [[(:sentence s) (:context s)]
+                             [(:sentence other) (:context other)]])
                       kind (:type v)
                       ;; The **declared** predicate, which the check knows and the halves
                       ;; do not, and both arms name it.  Two routes separate it from a
@@ -2968,19 +3010,21 @@
                                     (pr-str sa) " (in " ca ") sits with "
                                     (pr-str sb) " (in " cb ")"))
                              ", jointly visible from "
-                             (pr-str (vec (sort-by str seen))))}}])]
+                             (pr-str (vec (sort nm/compare-form seen))))}}])]
     ;; One entry per pair, and both the choice within a pair and the order between them
     ;; keyed on content — two vantages can both see a pair, and which was enumerated
     ;; first is not something the report may depend on.  The key is spelled out rather
     ;; than taken off `pr-str` of the whole entry: a map's printed order is a property of
     ;; how it was built, so ordering on one would be reading the walk back out.
-    (let [rank (fn [e] [(str (:violation e))
-                        (pr-str (get-in e [:detail :clash]))
-                        (pr-str (sort-by str (get-in e [:detail :visible-from])))])]
+    (let [rank (fn [e] [(:violation e)
+                        (get-in e [:detail :clash])
+                        (vec (sort nm/compare-form (get-in e [:detail :visible-from])))])]
       (->> (vals (group-by first found))
-           (map (fn [es] (first (sort-by rank (map second es)))))
-           (sort-by rank)
-           vec))))
+           (map (fn [es] (first (sort-by rank nm/compare-form (map second es)))))
+           ;; `rank` carries a nested `(sort … visible-from)` — built once per entry here,
+           ;; not per comparison; the per-group `first` above stays a plain sort, free at
+           ;; the n=1 a single-member group almost always is
+           (nm/sort-by-content-key rank nm/compare-form)))))
 
 (def ^:private max-constraint-findings
   "How many cross-context `functional` / `asymmetric` pair entries one pass of the report

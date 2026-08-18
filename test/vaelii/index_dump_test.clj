@@ -24,6 +24,7 @@
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.io.export :as export]
+            [vaelii.impl.io.frames :as frames]
             [vaelii.impl.io.import :as imp]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.protocols :as p]
@@ -363,9 +364,9 @@
   (exported "remapped"
             (fn [dir _t]
               (let [f       (io/file dir "sentexes.nippy.stream")
-                    frames  (vec (#'imp/read-chunked-seq f :none))
+                    frames  (vec (frames/read-chunked-seq f :none))
                     stripped (cons (dissoc (first frames) :id) (rest frames))]
-                (#'export/write-frames! f stripped {:compression :none :chunk-size 10000})
+                (frames/write-frames! f stripped {:compression :none :chunk-size 10000})
                 (let [r (rebuild-reason dir)]
                   (is (= :rebuilt (:index r)))
                   (is (= :handles-remapped (:reason r))))
@@ -381,9 +382,9 @@
   (exported "truncated"
             (fn [dir _t]
               (let [f      (io/file dir "sentexes.nippy.stream")
-                    frames (vec (#'imp/read-chunked-seq f :none))]
-                (#'export/write-frames! f (butlast frames)
-                                        {:compression :none :chunk-size 10000})
+                    frames (vec (frames/read-chunked-seq f :none))]
+                (frames/write-frames! f (butlast frames)
+                                      {:compression :none :chunk-size 10000})
                 (with-kb* (first index-backends) "trunc"
                   (fn [kb]
                     (let [e (is (thrown? clojure.lang.ExceptionInfo

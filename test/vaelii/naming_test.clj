@@ -538,3 +538,38 @@
       (is (= :naming (:type (ex-data e))))
       (is (re-find #"is a lexeme" (ex-message e)))
       (is (zero? (v/sentex-count kb)) "and nothing was stored"))))
+
+(deftest compare-form-is-a-total-content-order
+  ;; The comparator the clash reports and `solve`'s nogood ordering key on, replacing a
+  ;; `pr-str` key on two counts: no String per comparison, and no ambient `*print-length*`
+  ;; can collapse the order.  `content-key`/`content-order` bound the print vars off to
+  ;; get the second; this gets it by never printing.
+  (testing "different kinds order deterministically instead of throwing (compare does)"
+    (is (neg? (nm/compare-form 1 "a")))                 ; number before string
+    (is (neg? (nm/compare-form :a 'a)))                 ; keyword before symbol
+    (is (neg? (nm/compare-form 'a '(a))))               ; scalar before a sequential
+    (is (zero? (nm/compare-form nil nil))))
+  (testing "same-kind scalars follow the natural compare"
+    (is (neg? (nm/compare-form 'a 'b)))
+    (is (neg? (nm/compare-form 'ns/a 'ns/b)))
+    (is (neg? (nm/compare-form 1 2))))
+  (testing "sequentials compare element by element, then shorter first"
+    (is (neg? (nm/compare-form '(a) '(a b))))           ; a prefix precedes the longer
+    (is (neg? (nm/compare-form '(a b) '(a c))))
+    (is (neg? (nm/compare-form '(rel A B) '(rel A C))))
+    (is (zero? (nm/compare-form '(not (p X)) '(not (p X))))))
+  (testing "the order is insensitive to an ambient *print-length* / *print-level* —"
+    ;; two sentences that share their first n elements, exactly the pair a `pr-str` key
+    ;; under `*print-length* n` elides to one prefix and then orders by arrival.
+    (let [a '(likes Ann Bo Cy Dee)
+          b '(likes Ann Bo Cy Eve)
+          under (fn [pl lv] (binding [*print-length* pl *print-level* lv]
+                              (nm/compare-form a b)))]
+      (is (neg? (under nil nil)))
+      (is (= (under nil nil) (under 2 1) (under 1 1) (under 0 0))
+          "the verdict is the same however the printer is configured")))
+  (testing "a mixed vector of forms sorts stably and reproducibly"
+    (let [forms ['(dog Rex) '(cat Rex) '(not (dog Rex)) 'CxUniverse 3 "s" :k]]
+      (is (= (sort nm/compare-form forms)
+             (sort nm/compare-form (reverse forms))
+             (sort nm/compare-form (shuffle forms)))))))

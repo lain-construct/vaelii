@@ -3,7 +3,7 @@
 - **Covers:** how, with the opt-in toggle on, an `argIsa` / `argGenl` / `interArgIsa`
   declaration also mints the type it constrains as a derived, justified, retractable sentex.
 - **Not here:** `argIsa` / `argGenl` read as a constraint that rejects a wrongly-typed
-  argument (the default, toggle-off reading) → [taxonomy.md](taxonomy.md); `argPreserving`,
+  argument (the default, toggle-off reading) → [taxonomy.md](taxonomy.md); `transitiveInArg`,
   which carries a stated claim rather than a declared type across an argument →
   [inherit.md](inherit.md).
 - **Assumes:** sentex, justification, context, `genl` → [glossary.md](glossary.md).

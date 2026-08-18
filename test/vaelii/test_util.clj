@@ -152,14 +152,15 @@
     {:backend (keyword b)}
     {:backend :memory}))
 
-;; The truth-maintenance representation the whole suite runs on — `:reference`
-;; (default) or `VAELII_TEST_TMS=dense` for `vaelii.impl.dense-jtms`.  Same gate as the
-;; storage backend: `jtms_dense_oracle_test` proves the two agree op-by-op, and running
-;; the suite through the dense one proves the *engine* agrees.
+;; The truth-maintenance representation the whole suite runs on — `:dense` (default, the
+;; engine default since the corpus-scale memory win) or `VAELII_TEST_TMS=reference` for
+;; the persistent-map baseline.  Same gate as the storage backend:
+;; `jtms_dense_oracle_test` proves the two agree op-by-op, and running the suite through
+;; the reference one proves the *engine* agrees on the baseline the default replaced.
 (def ^:private tms-kind
   (if-let [t (System/getenv "VAELII_TEST_TMS")]
     (keyword (str/lower-case (str/trim t)))
-    :reference))
+    :dense))
 
 ;; :recover? false — a test KB is built over databases the *previous* test run may
 ;; have left populated, and `fresh` clears right after construction, so the

@@ -87,7 +87,18 @@
     (which IS pinned) and never this."
    'vaelii.impl.jtms/Tms
    "the sparse/dense JTMS swap (docs/density.md). Both implementations ship here and
-    `VAELII_TEST_TMS` picks between them; it is an internal axis, not an invitation."})
+    `VAELII_TEST_TMS` picks between them; it is an internal axis, not an invitation."
+   'vaelii.impl.kv/ArgColumns
+   "the argument-root family's read shape — the counted pos→term trie behind
+    `sentexes-with-arg`/`count-with-arg`. MemoryKvBackend implements it and DenseRoots
+    delegates to that one; both are in this repo and nothing outside supplies it."
+   'vaelii.impl.io.snapshot/SnapshotSink
+   "where a derived-state snapshot's bytes go. Its two targets — the file sink and the
+    in-memory medium — both ship here, and nothing out of tree supplies one; a durable
+    out-of-tree image store is what would make it a pinned seam."
+   'vaelii.impl.io.snapshot/SnapshotSource
+   "the read side of the same sink; the same two in-tree targets implement it and nothing
+    outside the repo does."})
 
 ;; ---- the pin ------------------------------------------------------------
 

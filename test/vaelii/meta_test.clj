@@ -6,8 +6,8 @@
 
     * the context *spindle* — CxCore ⊏ upper ⊏ CxUniverse ⊏ middle ⊏ CxWell;
     * the predicate meta-ontology — predicates classified by arity and by the
-      algebraic properties their metadata declares (derived into CxCore by rules
-      whose consequent is an ist form);
+      algebraic properties their metadata declares (each mark is itself a
+      binaryPredicate type, so the property is the classification);
     * decontextualizedPredicate — a fact stated in one context deduced into
       CxUniverse and thereby visible everywhere."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -36,7 +36,7 @@
   (testing "the upper ontology rides in the upper contexts, not the collector"
     (is (seq   (v/sentexes-matching kb '(genl dog mammal) 'CxOrganism)))
     (is (empty? (v/sentexes-matching kb '(genl dog mammal) 'CxUniverse)))
-    (is (seq   (v/sentexes-matching kb '(person Tom) 'CxNaturalWorld)))))
+    (is (seq   (v/sentexes-matching kb '(human Tom) 'CxNaturalWorld)))))
 
 (tu/deftest-kb predicates-classified-by-arity
   (testing "unary — every type, and one-place properties"
@@ -107,42 +107,44 @@
           (v/retract! kb h)
           (is (empty? (v/sentexes-matching kb (list 'arity qPred 1) 'CxCore))))))))
 
-(tu/deftest-kb algebraic-predicate-types-derived-from-metadata
-  ;; (symmetric siblingOf) etc. drive both the provers AND, via CxCore rules whose
-  ;; consequent is (ist CxCore (..Predicate ?p)), the predicate-type membership.
-  (testing "the property memberships are derived"
-    (is (v/isa? kb 'siblingOf 'symmetricPredicate))
-    (is (v/isa? kb 'marriedTo 'symmetricPredicate))
-    (is (v/isa? kb 'ancestorOf 'transitivePredicate))
-    (is (v/isa? kb 'partOf 'transitivePredicate))
-    (is (v/isa? kb 'birthYearOf 'functionalPredicate)))
+(tu/deftest-kb algebraic-predicate-types-classify-a-predicate
+  ;; (symmetric siblingOf) etc. are the marks the provers read AND, since each mark is a
+  ;; type — (genl symmetric binaryPredicate) in CxCore — the classification itself: the
+  ;; property IS the membership, with no derived (…Predicate) twin between them.
+  (testing "the mark is a membership in the property type"
+    (is (v/isa? kb 'siblingOf 'symmetric))
+    (is (v/isa? kb 'marriedTo 'symmetric))
+    (is (v/isa? kb 'ancestorOf 'transitive))
+    (is (v/isa? kb 'partOf 'transitive))
+    (is (v/isa? kb 'birthYearOf 'functional)))
   (testing "and inherit binaryPredicate / predicate through genl"
     (is (v/isa? kb 'siblingOf 'binaryPredicate))
     (is (v/isa? kb 'ancestorOf 'predicate)))
-  (testing "the derived membership lands where the metadata was declared, not in the
-            vocabulary head — so a context's own (symmetric P) stays its own"
-    (is (seq (v/sentexes-matching kb '(symmetricPredicate siblingOf) 'CxLife)))
-    (is (empty? (v/sentexes-matching kb '(symmetricPredicate siblingOf) 'CxCore)))
-    (is (empty? (v/sentexes-matching kb '(symmetricPredicate siblingOf) 'CxSocialWorld)))))
+  (testing "the mark is decontextualized, so it is visible wherever CxUniverse is — every
+            data context — while staying out of CxCore's own sight above the universe"
+    (is (seq (v/sentexes-matching kb '(symmetric siblingOf) 'CxLife)))
+    (is (v/ask? kb '(symmetric siblingOf) 'CxSocialWorld))
+    (is (empty? (v/sentexes-matching kb '(symmetric siblingOf) 'CxCore)))))
 
-(tu/deftest-kb predicate-type-provers-answer-from-metadata
-  (testing "membership is answered directly from the cached metadata"
-    (is (v/ask? kb '(symmetricPredicate siblingOf)))
-    (is (v/ask? kb '(transitivePredicate ancestorOf)))
-    (is (v/ask? kb '(functionalPredicate birthYearOf)))
-    (is (not (v/ask? kb '(symmetricPredicate parentOf)))))
+(tu/deftest-kb algebraic-predicate-types-answer-and-enumerate
+  (testing "membership is answered directly from the stored mark"
+    (is (v/ask? kb '(symmetric siblingOf)))
+    (is (v/ask? kb '(transitive ancestorOf)))
+    (is (v/ask? kb '(functional birthYearOf)))
+    (is (not (v/ask? kb '(symmetric parentOf)))))
   (testing "and enumerated"
     (is (= '#{siblingOf marriedTo friendOf}
-           (set (map #(get % '?p) (v/ask kb '(symmetricPredicate ?p) '?ctx)))))
-    ;; `genl` and `genlCx` are in the enumeration because CxCore says so
-    ;; outright.  They *are* transitive predicates; answering them from cached closures
-    ;; instead of the generic prover is an implementation choice, not a difference in
-    ;; what they mean — and saying so is what lets them be named as the relation an
-    ;; argument position is preserved along (docs/inherit.md).  The `transitive` *mark*
-    ;; is still deliberately not asserted of them, which is why they do not appear in
-    ;; `(props kb :transitive)`.
+           (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))))
+    ;; `genl` and `genlCx` are in the enumeration because CxCore asserts (transitive genl)
+    ;; / (transitive genlCx) outright.  They *are* transitive; answering them from cached
+    ;; closures instead of the generic prover is an implementation choice, not a difference
+    ;; in what they mean — and saying so is what lets them be named as the relation an
+    ;; argument position is preserved along (docs/inherit.md).  The declaration is held out
+    ;; of the :transitive prop machinery (the closure-relations skip-set), so it stays a
+    ;; queryable classification without routing them to the generic prover — which is why
+    ;; they do not appear in `(props kb :transitive)`.
     (is (= '#{ancestorOf partOf locatedIn largerThan causes beforeEvent genl genlCx}
-           (set (map #(get % '?p) (v/ask kb '(transitivePredicate ?p) '?ctx)))))
+           (set (map #(get % '?p) (v/ask kb '(transitive ?p) '?ctx)))))
     (is (not (v/has-prop? kb :transitive 'genl)))))
 
 (tu/deftest-kb genlcx-is-a-forced-decontextualized-predicate
@@ -201,7 +203,8 @@
   ;; decontextualized marriage lifts (knows ?x ?y) through CxSocial's rule into a
   ;; context every data context sees, decontextualizing a predicate nothing declared.
   (testing "the roster is the algebraic marks, the inverse declaration, and genlCx"
-    (is (= '#{functional inverse reflexive symmetric asymmetric transitive}
+    (is (= '#{functional inverse reflexive symmetric asymmetric transitive
+              irreflexive antiSymmetric antiTransitive equivalenceRelation}
            (v/props kb :decontextualized)))
     (is (= '#{genlCx} (v/props kb :forced-decontextualized))))
   (testing "so a social fact stays in the theory that states it"

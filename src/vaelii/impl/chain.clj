@@ -553,9 +553,9 @@
     (qkb/calculus-for kb (first ante))))
 
 ;; ---- inherited antecedents: joining on a claim nobody stored -------------
-;; `(argPreserving P n R)` makes a stored `(P … W …)` license `(P … A …)` for every A
+;; `(transitiveInArg P n R)` makes a stored `(P … W …)` license `(P … A …)` for every A
 ;; in W's reach (docs/inherit.md).  Backward chaining discharges such an antecedent
-;; through `ArgPreservingProver`; forward chaining could not, and the reason was the
+;; through `TransitiveInArgProver`; forward chaining could not, and the reason was the
 ;; qualitative one — an inherited claim is not stored, so it has no handle for a
 ;; justification to rest on, and `sentexes-matching` and `ask` came back with different
 ;; answers about the same knowledge.
@@ -995,12 +995,18 @@
               ;; brings stored sub-predicate facts under a `functional` mark above them,
               ;; as an asserted one does
               fed  (when new? (special/equate-under-edge kb conseq))
+              ;; ...and the antisymmetric merge, in the same three arrival orders a rule
+              ;; can reach it by — a derived converse, a derived declaration, a derived edge
+              asym (when new? (special/derive-antisymmetric-equalities kb conseq pctx h))
+              axe  (when new? (special/antisym-equate-existing kb conseq))
+              axd  (when new? (special/antisym-equate-under-edge kb conseq))
               ;; nil when nothing merged, which is every conclusion on a KB that states
               ;; no equality and every re-derivation on one that does — and a fixpoint
               ;; re-derives the same conclusion on every round of every defaults pass, so
               ;; this is the arm that must cost nothing rather than a little
-              mig  (when (or eq fnl fex fed)
-                     (merge-with into {:new [] :superseded [] :violations []} eq fnl fex fed))
+              mig  (when (or eq fnl fex fed asym axe axd)
+                     (merge-with into {:new [] :superseded [] :violations []}
+                                 eq fnl fex fed asym axe axd))
               ;; The spellings those merges retired, applied here rather than left to the
               ;; settle that follows.  A supersession *starts* when migration says so and
               ;; reaches the reconcile only as its `extra` (`special/supersession-map`),
@@ -1119,12 +1125,17 @@
   facts *exist* is not the placement's question, and narrowing the join would drop
   firings placement accepts."
   [kb links vantage]
-  (reduce (fn [acc [ff af]]
-            (if-let [hs (tax/reach-support (:taxonomy kb) :genl ff af vantage)]
-              (into acc hs)
-              (reduced nil)))
-          []
-          links))
+  ;; the widest-bottleneck route (reasoning/26): a firing that climbed the genl closure
+  ;; rests on the *strongest* path relating the two functors, not the shortest, so its
+  ;; conclusion is capped at that path's floor.  `supporter-class` is the live JTMS
+  ;; defeat-class of each edge supporter, read here where the tms is in hand.
+  (let [supporter-class #(jtms/defeat-class (:tms kb) %)]
+    (reduce (fn [acc [ff af]]
+              (if-let [hs (tax/reach-support (:taxonomy kb) :genl ff af vantage supporter-class)]
+                (into acc hs)
+                (reduced nil)))
+            []
+            links)))
 
 (defn- visibility-support
   "A witness for each context `pctx` had to see to hold the firing: the `genlCx` edge
@@ -1291,10 +1302,17 @@
 
   `:handles` are the antecedent *facts* alone, so the re-derivation recomputes the
   conclusion's depth exactly as a fresh firing would; `:antes` is the full justification
-  antecedent list, rule handle and taxonomy supporters — `genl` and `genlCx` — included."
-  [kb rule conseq pctx antes handles bindings]
+  antecedent list, rule handle and taxonomy supporters — `genl` and `genlCx` — included.
+
+  `:max-depth` is the depth bound the **run that refused it** was configured with, kept
+  so a later `release-refusal!` honours that bound rather than the default — the release
+  runs in a settle with no run config in scope, so the bound has to travel with the
+  entry.  It joins the entry's identity, so a firing refused under two different bounds is
+  two entries; both release idempotently, and in practice a KB's runs share one bound."
+  [kb rule conseq pctx antes handles bindings max-depth]
   (let [rh    (:rule-handle rule)
-        entry {:conseq conseq :pctx pctx :antes antes :handles handles :bindings bindings}]
+        entry {:conseq conseq :pctx pctx :antes antes :handles handles :bindings bindings
+               :max-depth max-depth}]
     (swap! (:refused kb)
            (fn [m]
              (let [cur (get m rh)]
@@ -1346,7 +1364,7 @@
   a filter on it, and they join the antecedent list.  So do the `genlCx` supporters
   the placement sees its ingredients over: a placement is a claim about the cone, and
   the conclusion may not outlive the edges that claim rests on."
-  [kb rule raw-c handles all-antes facts links depth bindings]
+  [kb rule raw-c handles all-antes facts links depth max-depth bindings]
   (let [ist?        (and (sequential? raw-c) (= sx/ist-functor (first raw-c)))
         conseq      (if ist? (nth raw-c 2) raw-c)         ; (ist Ctx S) concludes S ...
         fact-ctxs   (map :context facts)
@@ -1460,7 +1478,7 @@
                             ;; `:antes` straight to `place-conclusion` — so it is
                             ;; ordered here, exactly as a stored justification is
                             (record-refusal! kb rule c pctx (kb/antecedent-order kb antes)
-                                             handles bindings)
+                                             handles bindings max-depth)
                             nil)
                           (place-conclusion kb rule c pctx antes depth bindings
                                             (:strength rule))))))
@@ -1514,7 +1532,7 @@
             facts     (mapv #(p/get-sentex (:records kb) %) handles)
             links     (subsumption-links kb matched (zipmap handles facts))
             new       (vec (mapcat #(place-conseq kb rule % handles all-antes facts links
-                                                  depth bindings)
+                                                  depth max-depth bindings)
                                    conjuncts))]
         ;; a firing is the finest unit of work the fixpoint has, so it is where a long
         ;; datum reports from — including a firing that placed nothing, since a join
@@ -1604,6 +1622,75 @@
           :blocked
           :free)))))
 
+(defn rule-firing-report
+  "Per forward rule in the KB, what it did with itself: how many firings it **placed**,
+  how many it **refused** and why, or whether it did nothing at all.  The read behind the
+  chaining funnel (docs/web.md) — the ontological engineer's *which of my rules actually
+  do anything*.
+
+  Rules are enumerated off the antecedent roster (`:rule-antecedents`) unioned through the
+  rule index, so this costs `O(rules)`, never a scan of the fact extent.  Everything else
+  is read from what a run already leaves standing — `jtms/dependents` on a rule handle is
+  every firing it licensed, and the refusal ledger (`refusals` / `refusal-state`, each
+  entry re-decided against *current* belief) is what it completed but did not place — so
+  the funnel needs no per-run instrumentation: the stored ledger and the justification
+  graph answer it, and a counter beside them would only restate what they already hold.
+
+  Each row is `{:rule :sentence :believed? :placed :refused :refusals :status}`.
+  `:placed` is the firing count. `:refused` is `:overflow` when the ledger capped the rule,
+  else the entry count. `:refusals` is one map per recorded refusal — its live `:state`
+  (`:blocked` / `:dead` / `:free`, re-decided now) and, for one that still blocks, the
+  `:reason` (`:post-join` / `:exception` / `:naf` / `:hidden`), plus the `:conseq` it could
+  not place and the `:context`. `:status` is `:fires` (placed at least one), `:blocked`
+  (placed none, refused at least one), or `:silent` (no antecedent set ever completed —
+  nothing placed and nothing refused)."
+  [kb]
+  (let [rec (:records kb)
+        tms (:tms kb)
+        idx (:index kb)
+        rule-hs (into (sorted-set)
+                      (mapcat #(p/rules-by-antecedent idx %))
+                      (keys @(:rule-antecedents kb)))]
+    (into []
+          (keep (fn [rh]
+                  (when-let [rsx (p/get-sentex rec rh)]
+                    (when (rules/forward-sentex? rsx)
+                      (let [placed  (count (jtms/dependents tms rh))
+                            ref     (refusals kb rh)
+                            over?   (= :overflow ref)
+                            rview   (delay (rule-view-of kb rh rsx))
+                            entries (when (set? ref)
+                                      (mapv (fn [e]
+                                              (let [st (refusal-state kb rh e)]
+                                                {:state   st
+                                                 :reason  (when (= :blocked st)
+                                                            (refusal-reason
+                                                             kb @rview (:antes e)
+                                                             (when (:bindings e)
+                                                               (settled-bindings kb (:bindings e) (:pctx e)))
+                                                             (:pctx e)))
+                                                 :conseq  (:conseq e)
+                                                 :context (:pctx e)}))
+                                            ref))
+                            exc?    (some #(= :exception (:reason %)) entries)]
+                        {:rule      rh
+                         :sentence  (if-let [vm (:varmap rsx)]
+                                      (sx/originalize (:sentence rsx) vm)
+                                      (:sentence rsx))
+                         :believed? (boolean (jtms/in? tms rh))
+                         :placed    placed
+                         :refused   (if over? :overflow (count entries))
+                         :refusals  entries
+                         ;; the exceptWhen queries that block it, so a blocked-by-exception
+                         ;; row can name the exception rather than only its category — forced
+                         ;; only when a refusal actually rested on one (`@rview` is already
+                         ;; realized by then)
+                         :excepts   (when exc? (vec (:excepts @rview)))
+                         :status    (cond (pos? placed)              :fires
+                                          (or over? (seq entries))   :blocked
+                                          :else                      :silent)}))))
+                rule-hs))))
+
 (defn release-refusal!
   "Re-derive the refused firing `entry` of rule `rh` and retire the entry, or retire it
   without deriving anything when its support has left.  Returns the handles the
@@ -1624,9 +1711,13 @@
     :blocked []
     :dead    (do (drop-refusal! kb rh entry) [])
     :free    (let [rule  (rule-view kb rh)
-                   depth (inc (reduce max 0 (map #(jtms/depth (:tms kb) %) (:handles entry))))]
+                   depth (inc (reduce max 0 (map #(jtms/depth (:tms kb) %) (:handles entry))))
+                   ;; the bound the refusing run was configured with, kept on the entry;
+                   ;; the default is the fallback for an entry a rebuild re-recorded
+                   ;; before this field existed, never the silent ceiling it was
+                   bound (:max-depth entry (:max-depth default-chain-opts))]
                (drop-refusal! kb rh entry)
-               (if (> depth (:max-depth default-chain-opts))
+               (if (> depth bound)
                  []
                  (vec (place-conclusion kb rule (:conseq entry) (:pctx entry) (:antes entry)
                                         depth (:bindings entry) (:strength rule)))))))
@@ -1683,7 +1774,16 @@
         moved  (update-vals deltas :moved)
         fired  (reduce (fn [nh rh]
                          (let [rsx (p/get-sentex (:records kb) rh)]
-                           (if (and rsx (rules/forward-sentex? rsx))
+                           ;; forward-capable *and believed*: the antecedent index posts
+                           ;; on storage, so a defeated or un-believed rule (a defeated
+                           ;; mint, a rule concluded by a retracted rule) is still a
+                           ;; candidate here, and firing it lands the firing's
+                           ;; unconditional side effects — a `:no-placement`/`:disjoint`
+                           ;; report against a rule the KB does not believe, `:monotonic`
+                           ;; skolem bookkeeping — for a conclusion that only labels OUT.
+                           ;; The trigger path refuses it on the record (`fire-rules-for`'s
+                           ;; `forward?`); the qualitative re-join must too.
+                           (if (and rsx (rules/forward-sentex? rsx) (res/rule-believed? kb rh))
                              (into nh (delta-fire-rule kb rh rsx moved max-depth truncated))
                              nh)))
                        []
@@ -1708,7 +1808,11 @@
   [kb rules max-depth truncated]
   (reduce (fn [nh rh]
             (let [rsx (p/get-sentex (:records kb) rh)]
-              (if (and rsx (rules/forward-sentex? rsx))
+              ;; forward-capable *and believed*, for the reason `rejoin-qualitative` and
+              ;; `fire-rules-for`'s `forward?` state: the index posts on storage, so an
+              ;; un-believed rule reaches here and its firing's side effects land though
+              ;; the conclusion only labels OUT.
+              (if (and rsx (rules/forward-sentex? rsx) (res/rule-believed? kb rh))
                 (into nh (fire-rule kb rh max-depth truncated))
                 nh)))
           []
@@ -1897,6 +2001,19 @@
         (binding [*tick* (fn [n]
                            (vswap! placed + n)
                            (when (and on-progress (due?)) (report!)))
+                  ;; the fourth thing on this scope, and the sibling of the handle cache
+                  ;; above it: a per-functor verdict on whether that cache is authoritative
+                  ;; (the store held nothing under the functor when the run began), so a
+                  ;; novel conclusion of a chain-only predicate skips the trie walk that
+                  ;; would only reconfirm the cache's own miss (`kb/find-sentex-handle`).
+                  ;; A fresh map per run, like `arrivals`: it is a claim about *this*
+                  ;; run's store, and a nested run gets its own.  Armed only for a bulk
+                  ;; frontier (`kb/chain-authority-min-frontier`) — an incremental assert's
+                  ;; one-fact seed concludes too little to repay the probe, so it stays nil
+                  ;; and `find-sentex-handle` walks the trie exactly as it did pre-optimization.
+                  kb/*chain-authoritative-functors* (when (>= (count seed)
+                                                              kb/chain-authority-min-frontier)
+                                                      (java.util.HashMap.))
                   *agenda-arrivals* arrivals]
           (arrive! seed)
           (loop [agenda (into clojure.lang.PersistentQueue/EMPTY seed)]
@@ -1925,7 +2042,15 @@
 
   Run **after** the settle that establishes belief, since a refusal is a claim about what
   the KB believes, and `relabel` deliberately lands unblocked.  `!` because it discards
-  the record it replaces."
+  the record it replaces.
+
+  Re-fires at the **default** depth bound — `(chain kb live nil)` carries no run config —
+  so the rebuilt entries record that default rather than whatever bound each original run
+  set.  A run's `:max-depth` is transient live-session config no store holds, exactly as
+  `recover` resets derivation depths to 0 (a bound only governs *future* chaining), so a
+  KB chained under a non-default bound rebuilds its refusals, and releases them, at the
+  default.  The recovered KB is internally consistent at that default; docs/exceptions.md
+  states the one narrow case it can differ from the live session in."
   [kb]
   (when-let [roster (seq (p/exception-rules (:index kb)))]
     (reset! (:refused kb) {})

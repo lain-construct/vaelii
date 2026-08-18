@@ -356,8 +356,8 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl chihuahua_t dog_t) 'CxUniverse)
       (v/assert kb (list 'genl maine_coon_t cat_t) 'CxUniverse)
-      (v/assert kb (list 'argPreserving largerThan 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'argPreserving largerThan 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) 'CxUniverse)
       (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
               'CxUniverse)
@@ -372,7 +372,7 @@
                             (:support (v/why kb2 h)))]
           (is (contains? reasons (list largerThan dog_t cat_t)))
           (is (contains? reasons (list 'genl chihuahua_t dog_t)))
-          (is (contains? reasons (list 'argPreserving largerThan 1 'genl))))
+          (is (contains? reasons (list 'transitiveInArg largerThan 1 'genl))))
         (testing "a post-recover retraction of a reason still withdraws it"
           (v/retract! kb2 (v/handle-of kb2 (list 'genl chihuahua_t dog_t) 'CxUniverse))
           (is (not (v/in? kb2 h))))))))

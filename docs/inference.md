@@ -94,24 +94,13 @@ antecedent — or `:default` when the rule is defeasible. `rule-view-of` reads t
 `:defeasible` field, the same authority `:direction` is read from — a rule needs no
 index entry to know how it fires.
 
-**There is no separate defaults phase, and adding one is the trap here.** Defaults
-look like they need their own rounds — derive the strict consequences, then the
-defeasible ones, then re-run the strict chainer over what that produced — and a phase
-built that way cannot use the agenda, because the datums it must revisit are the ones
-already believed. It degenerates into re-solving *every* default rule as a full
-unindexed join over all facts, per round: a single defeasible rule then makes every
-assert a full KB scan, and loading N facts costs O(N²).
-
-Nothing is bought for it. One agenda is **semantically neutral** against two phases,
-and the reason is narrow enough to state exactly: a default conclusion is placed
-*unconditionally*, and whether it survives is decided later by `settle` from
-recomputed belief. Phase ordering therefore cannot affect *what* is derived, only how
-expensively it is found — either scheme computes the least fixpoint of the same
-monotone immediate-consequence operator. The one thing separate phases are reaching
-for is that a **strict consequence of a default conclusion** still gets derived, and a
-unified agenda gets that for free: the default conclusion lands on the agenda and
-triggers strict rules like any other new datum. A default rule's truncation reaches
-the run's `:truncated?` flag on the same path as any other rule's.
+**One agenda serves both strict and defeasible rules; there is no separate defaults
+phase.** [why](defenses.md#there-is-no-separate-defaults-phase) A default conclusion
+is placed *unconditionally*, and whether it survives is decided later by `settle` from
+recomputed belief: the default conclusion lands on the agenda and triggers strict
+rules like any other new datum, so a **strict consequence of a default conclusion**
+still gets derived. A default rule's truncation reaches the run's `:truncated?` flag on
+the same path as any other rule's.
 
 **Connected conjunctive antecedents.** Antecedents that share a variable **join** —
 a binding from one match is carried into the next. The starter leans on this:
@@ -370,20 +359,13 @@ The `seen` set guards a goal against re-expanding **itself, below itself**. That
 claim about a path, and a frame is not one: `prove-from` expands a goal by pushing a
 single frame holding both the rule's antecedents and the conjuncts still queued behind
 the goal, and those queued conjuncts are **siblings** of the expansion, not descendants
-of it. Growing the guard for the whole frame would therefore charge a later conjunct for
-a goal key an earlier one claimed, and a conjunctive query would answer less than its
-own conjuncts do — `[(anc Tom ?y) (anc Tom ?z)]` empty where `(anc Tom ?y)` answers
-twice, with `provable?` saying false and `prove-within` reporting `:status :complete`.
+of it. [why not scope the guard to the frame](defenses.md#the-loop-guards-scope-is-the-subtree-not-the-frame)
 
 So the scope an expansion started from is **restored at the point that subtree ends**,
 by a marker pushed behind the antecedents: one stack entry per firing, the same
 mechanism and the same cost as the `exceptWhen` guard. The guard stays a statement about
-descent, which is the only thing it is sound to be.
-
-This is also why the planner cannot be allowed to change an answer. Reordering conjuncts
-moves which one claims a key first, so a guard scoped to the frame would make
-`plan/*enabled*` semantic rather than a cost decision, and adding facts could make a
-query stop answering. Scoped to the subtree, the order conjuncts are tried in is free.
+descent, which is the only thing it is sound to be, and the order conjuncts are tried in
+is free — reordering them cannot change which one claims a key first.
 
 `ask` is **not** a third. It is the prover registry, and no member of the registry
 expands a rule — which is what makes it the thing a closed-world reader can run from
@@ -428,17 +410,8 @@ will *not* rewrite gets answered. nil is `matches-visible`, the stored facts, wh
 what `prove` means by a leaf. `core/query` passes `provers/solve-goal` instead, so an
 antecedent is answerable by transitivity, an evaluable, a calculus or an inferred
 argument type. One engine, two leaf semantics; there is no third chainer that exists
-only to reach the registry.
-
-That division is load-bearing. A leaf that itself backchained would run the engine's
-rewriting *plus* a nested search per binding under it. Measured on a converging DAG
-(every node with two parents), against `ask`'s 6.7 / 3.9 / 4.0 ms:
-
-| leaf solver | | |
-|---|---|---|
-| stored facts (`matches-visible`) | 6.5 / 4.5 / 5.4 ms | level with `ask` |
-| the registry, which expands no rule | 5.2 / 6.4 / 9.6 ms | level with `ask` |
-| a leaf that backchains too | 150 / 411 / 700 ms | 24–73× worse |
+only to reach the registry, and neither shipped leaf itself expands a rule.
+[why](defenses.md#the-leaf-must-never-itself-backchain)
 
 **Conjunct order is not a thing either of them can observe.** A rule's antecedents are
 put into canonical order at *storage* (`sentex/canonicalize-rule`), so the same rule
@@ -728,6 +701,31 @@ here writes nothing; a search that wrote would have to stay out under the single
 contract (see [storage.md](storage.md)). A race is also not an *anytime* mode: it is
 driven to completion before it can be unioned, so it has no partial answer to hand back,
 and `prove-within` drives the ordinary stream instead.
+
+### Reading the search back (`search-tree` / `compare-tacticians`)
+
+The tree outlives the search — a node registry keyed by allocation order, each node
+recording the one rewrite that produced it — so `why did this cost so much` and `what else
+was on the frontier` are reads of that state, not a second structure beside it
+(`proof-tree` is the same idea for the path that answered). Two public reads expose it.
+
+`core/search-tree` runs a **bounded** backward search for a goal and returns the tree as
+data: every node the frontier reached, each with its itemized estimate
+(`tactics/estimate-breakdown` — the same `plan/explain` numbers `query-plan` prints), the
+rewrite that produced it, and the answers off it, each tagged with the node it came off. It
+runs the search `query` runs — the registry as the leaf — so the tree and the answers
+match `query`'s. It bounds its own work three ways: the depth bound the engine already
+requires, a node-expansion budget (`inference/default-node-budget`), and an optional
+wall-clock that reports `:timeout` rather than hanging — the engine's termination is the
+depth bound and nothing else, so a wide frontier under a generous depth still stops.
+
+`core/compare-tacticians` runs the same goal under several tacticians, each to completion,
+and returns one row per ordering — its `tree-stats`, its wall-clock, and its answer *set*.
+Because every tactician is complete, the sets must be identical; the rows let a caller
+**verify** it rather than trust it, and read the latency each ordering pays for the same
+answers. This is what the browser's `/inference` page tables (see [web.md](web.md)); both
+reads return serializable data and hold no session, so the page works against a remote
+daemon (`--attach`) exactly like every other read.
 
 ### What an ordering is worth (`lein bench-tactics`)
 
@@ -1067,14 +1065,9 @@ Two placements sit outside the law, and both are claims the estimate cannot make
 
 ### Why a sort and not a search
 
-Do not replace this with a search for the cheapest whole order — costing plans by the
-sum of their intermediate rows, minimized over subsets — over `est-matches`. That is
-refuted, and measurably: on randomized joins such a plan ran a mean 2.31× the best
-permutation's actual rows against cheapest-first's 1.19×, losing 3 trials of 9 and
-winning none. The reason is not that a search is the wrong shape but that it was
-minimizing a sum of incomparable quantities, an upper bound for some literals and an
-average for others. `est-rows` exists to fix that, and once the numbers compose the
-ordering does not need a search: the transposition law sorts.
+The plan is chosen by sorting blocks under the transposition law above, not by
+searching over candidate whole orders.
+[why](defenses.md#why-a-sort-and-not-a-search)
 
 ### What it is worth, and how that is known
 
@@ -1421,18 +1414,25 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   answer is this **prover's**, not the registry's, which is what keeps it clear of the
   tier and scope dependence that stops `solve-goal` answers being cached at all
   (`vaelii.impl.literal-cache`): drop the prover and the entry is never consulted.
-- **ArgPreservingProver** — `(argPreserving P n R)` / `argPreservingInverse` goals,
+- **TransitiveInArgProver** — `(transitiveInArg P n R)` / `transitiveInArgInverse` goals,
   answered by walking the `R`-reachability from a ground argument. `:compute`, **60**.
   Its declaration is also the `:preserving` shadowing channel, since it licenses a claim
   about a tuple that appears in no stored fact, no rule conclusion and no constraint
   network. See [inherit.md](inherit.md).
-- **PredicateTypeProver** — answers `(symmetricPredicate ?p)` / `transitivePredicate` /
-  `reflexivePredicate` / `functionalPredicate` directly from the cached taxonomy
-  metadata (`taxonomy/props`), so the algebraic predicate types are queryable without
-  materializing them as facts. Partial (50) — it augments facts rather than replacing
-  them, since a directly-asserted membership still counts. (The CxCore forward rules
-  that also materialize these facts are kept — belt and suspenders: `isa?` reads the
-  facts, `ask` reads the metadata.)
+- **The algebraic predicate types are not a prover.** Each mark — `symmetric`,
+  `transitive`, `asymmetric`, `reflexive`, `functional` — is a single predicate that does
+  both jobs: it maintains its taxonomy property (canonicalization, the generic provers)
+  **and**, through `(genl symmetric binaryPredicate)` in CxCore, is a queryable
+  `binaryPredicate` type. There is no derived `…Predicate` twin. So `(symmetric ?p)` is
+  answered by ordinary retrieval of the stored mark (the `MatchProver`), scoped to the
+  asking vantage like every read; `isa? siblingOf symmetric` and `isa? siblingOf
+  binaryPredicate` follow the genl closure from that same stored membership. The shipped
+  marks are `decontextualizedPredicate`s lifted into CxUniverse, so on a real KB every
+  context sees them; on a bare KB the mark stays in its declaring context and the read is
+  scoped there. `genl` / `genlCx` are the exception the taxonomy names `closure-relations`:
+  `(transitive genl)` is stored and queryable but held out of the `:transitive` property
+  machinery, so it never routes them to the generic closure prover
+  ([taxonomy.md](taxonomy.md)).
 - **EvaluateProver** — `(evaluate ?result <expr>)` binds `?result` to the value of a
   symbolic arithmetic expression, computed by a safe whitelist evaluator
   (`+ - * / mod quot rem inc dec min max abs expt`), **not** `eval`. Nested
@@ -1563,10 +1563,9 @@ reasoning. Raw introspection still sees everything.
   default: it forward-chains from the **same agenda** as every other rule, triggered
   by the facts that arrive, and confers `:default` justification strength instead of a
   bare rule's `:monotonic`. A default conclusion is placed *unconditionally*; whether
-  it survives is decided afterwards by the non-monotonic layer. **Do not split this into
-  two phases** — bare rules to a fixpoint, then a rescan-everything defaults loop is an
-  O(N²) scaling wall, and one agenda derives the same set; see
-  [Forward chaining](#forward-chaining).
+  it survives is decided afterwards by the non-monotonic layer. One agenda derives the
+  same set a two-phase scheme would; see [Forward chaining](#forward-chaining) and
+  [why there is no separate defaults phase](defenses.md#there-is-no-separate-defaults-phase).
 - **Non-monotonic settle.** After chaining (and after every assert / retract /
   `recover`), `settle` relabels belief and resolves contradictions on one axis,
   defeat-class: the strictly weaker member is defeated, an irreducible known-true

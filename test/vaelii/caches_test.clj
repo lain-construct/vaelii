@@ -321,6 +321,9 @@
    "wrap-body-limit"     "guard.clj — the HTTP request-body ceiling"
    "graph-side-budget"   "web.clj — how many expansions a term page's picture may spend"
    "matrix-node-limit"   "web.clj — how many nodes the network page will draw"
+   "default-node-budget" (str "inference.clj — how many nodes the debugger's bounded "
+                              "search-tree walk expands before it stops; a per-read "
+                              "search bound, not a retained cache")
    "*exposure-instance-budget*" (str "settle.clj — how many members of a type a "
                                      "disjointness exposure check instantiates")})
 

@@ -38,7 +38,7 @@
   That is what makes writing it safe — an index that does not match its records is worse
   than no index, because every lookup then answers confidently and short.
 
-  **Framing** is the chunked layout `vaelii.impl.io.import/read-chunked-seq` reads: a
+  **Framing** is the chunked layout `vaelii.impl.io.frames` writes and reads: a
   run of `[int32 length][compressed chunk]`, each chunk an independent compression
   window over back-to-back nippy frames.  Constant memory on both sides — the writer
   holds one chunk, never the corpus.  `meta.edn` *states* the framing rather than
@@ -52,17 +52,15 @@
   Export from a KB nobody is writing: the walk fetches record by record, and the
   single-writer contract offers no snapshot to walk instead."
   (:require [clojure.java.io :as io]
-            [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
             [vaelii.impl.io.fingerprint :as fp]
+            [vaelii.impl.io.frames :as frames]
+            [vaelii.impl.io.snapshot :as snapshot]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.opts :as opts]
             [vaelii.impl.protocols :as p])
-  (:import (java.io BufferedOutputStream ByteArrayOutputStream DataOutputStream File
-                    OutputStream)
-           (java.time Instant)
-           (java.util.zip GZIPOutputStream)
-           (org.tukaani.xz LZMA2Options XZOutputStream)))
+  (:import (java.io File)
+           (java.time Instant)))
 
 (def format-marker
   "The dump's own marker.  The engine's dumps carry no `:format` and number their
@@ -113,17 +111,6 @@
                     {:type :unsupported-compression :compression compression
                      :supported compressions}))))
 
-(defn- wrap-output
-  "The compressing wrapper for one chunk, matching the dump's `:compression`.  Each
-  chunk is its own container — closing the wrapper writes the codec's trailer before
-  the chunk's length is known, which is what lets a reader decompress any one chunk
-  without the rest."
-  ^OutputStream [^OutputStream out compression]
-  (case compression
-    :gzip (GZIPOutputStream. out)
-    :xz   (XZOutputStream. out (LZMA2Options.))
-    out))
-
 ;;; ── the destination ───────────────────────────────────────────────────
 
 (defn- ensure-empty-dir!
@@ -151,29 +138,6 @@
 
 ;;; ── the frame streams ─────────────────────────────────────────────────
 
-(defn- write-frames!
-  "Write `frames` into `file` in the chunked layout, `chunk-size` frames per chunk.
-  Returns how many frames were written.
-
-  Lazy by construction and by contract: one chunk is realized, frozen, compressed and
-  flushed before the next is asked for, so the writer's footprint is a chunk rather
-  than a corpus.  `:on-chunk` is called with the running frame count at each chunk
-  boundary — the progress hook, and the point a caller's callback can throw to cancel."
-  [file frames {:keys [compression chunk-size on-chunk]}]
-  (let [written (volatile! 0)]
-    (with-open [out (io/output-stream (io/file file))
-                raw (DataOutputStream. (BufferedOutputStream. out))]
-      (doseq [chunk (partition-all chunk-size frames)]
-        (let [baos (ByteArrayOutputStream.)]
-          (with-open [cout (DataOutputStream. (wrap-output baos compression))]
-            (doseq [frame chunk] (nippy/freeze-to-out! cout frame)))
-          (let [^bytes bs (.toByteArray baos)]
-            (.writeInt raw (alength bs))
-            (.write raw bs 0 (alength bs))))
-        (let [n (vswap! written + (count chunk))]
-          (when on-chunk (on-chunk n)))))
-    @written))
-
 (defn- record-frames
   "The frame stream for `ids`: each record fetched by handle and written as its
   **field map**.  `(into {} record)` is a shape conversion, not a translation — a
@@ -193,20 +157,6 @@
              (when tap (tap id rec))
              (into {} rec)))
          ids)))
-
-(defn- index-entry-frames
-  "The index's entries as `[key value]` frames.  `p/index-entries` is the protocol's own
-  projection, so this streams what the backend holds rather than deriving anything: a
-  writer that called `index-sentex` would be `reindex` with extra steps, and would be
-  writing an index it had just computed instead of the one the KB was answering from.
-
-  Each pair is normalized to a **vector** on the way out: the backends emit a mix of
-  `MapEntry`s and plain vectors (the map-backed stores yield entries, the tiered one
-  yields vectors, the columnar one yields both), and nippy gives `MapEntry` its own
-  type id — so without this, two byte-identical logical indexes froze to
-  byte-different dumps according to which backend held them."
-  [index]
-  (map (fn [[k v]] [k v]) (p/index-entries index)))
 
 (defn- provenance-frames
   "The `[handle provenance-map]` frames for the handles that have one.  Provenance is
@@ -292,8 +242,8 @@
   [^File d index fingerprint frame-opts]
   (let [idx-d (io/file d index-dir)]
     (.mkdirs idx-d)
-    (let [n (write-frames! (io/file idx-d index-entry-file) (index-entry-frames index)
-                           frame-opts)]
+    (let [n (frames/write-frames! (io/file idx-d index-entry-file) (snapshot/index-frames index)
+                                  frame-opts)]
       (spit (io/file idx-d index-meta-file)
             (with-out-str
               (binding [*print-length* nil *print-level* nil]
@@ -371,12 +321,12 @@
          ;; the writer already fetches every record, and on `:disk` that is a page read
          ;; apiece
          fprint   (when index? (fp/accumulator))
-         sx-n (write-frames! (io/file d sentex-file)
-                             (record-frames records p/get-sentex sx-ids fprint)
-                             (assoc frame-opts :on-chunk (chunk :sentexes (count sx-set))))
-         j-n  (write-frames! (io/file d justification-file)
-                             (record-frames records p/get-justification j-ids)
-                             (assoc frame-opts :on-chunk (chunk :justifications (count j-set))))
+         sx-n (frames/write-frames! (io/file d sentex-file)
+                                    (record-frames records p/get-sentex sx-ids fprint)
+                                    (assoc frame-opts :on-chunk (chunk :sentexes (count sx-set))))
+         j-n  (frames/write-frames! (io/file d justification-file)
+                                    (record-frames records p/get-justification j-ids)
+                                    (assoc frame-opts :on-chunk (chunk :justifications (count j-set))))
          ;; `seq` realizes only as far as the first handle carrying provenance, so a KB
          ;; with none writes no file rather than an empty one.  The total is unknown
          ;; until the walk ends — a filter over the record handles, not a stream with a
@@ -384,8 +334,8 @@
          prov (when provenance?
                 (seq (provenance-frames records (concat sx-ids j-ids))))
          p-n  (if prov
-                (write-frames! (io/file d provenance-file) prov
-                               (assoc frame-opts :on-chunk (chunk :provenance nil)))
+                (frames/write-frames! (io/file d provenance-file) prov
+                                      (assoc frame-opts :on-chunk (chunk :provenance nil)))
                 0)
          i-n  (if index?
                 (write-index! d (:index kb) (fprint)

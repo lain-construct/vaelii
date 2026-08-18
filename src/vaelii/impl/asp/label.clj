@@ -56,6 +56,7 @@
    [vaelii.impl.asp.edge :as edge]
    [vaelii.impl.asp.solver :as solver]
    [vaelii.impl.jtms :as jtms]
+   [vaelii.impl.naming :as nm]
    [vaelii.impl.protocols :as p]
    [vaelii.impl.solve :as solve]))
 
@@ -251,8 +252,9 @@
                                    (v/handle-of kb (:sentence s) ctx))))
                       ;; sorted by content, never by handle: handles are allocated in
                       ;; assertion order, so iterating them would make *which* copy is
-                      ;; created first depend on the order the knowledge arrived
-                      (sort-by #(solve/content-key program %) keep-set))})
+                      ;; created first depend on the order the knowledge arrived — the
+                      ;; content-key built once per member, not per comparison
+                      (nm/sort-by-content-key #(solve/content-key program %) compare keep-set))})
     ;; nothing contested: no program, no context, nothing to record.  Minting an empty
     ;; labeling context would assert that a choice was made where none was.
     {:context ctx :program nil :handles []
@@ -287,8 +289,8 @@
         ;; content order, as `label-dilemmas` orders the same set: `:assumptions` is
         ;; a handle set, and hash iteration would mint the copies — and return the
         ;; `:handles` a caller retracts — in an order that tracks assertion order
-        believed (sort-by #(solve/content-key program %)
-                          (filter #(jtms/in? tms %) (:assumptions program)))]
+        believed (nm/sort-by-content-key #(solve/content-key program %) compare
+                                         (filter #(jtms/in? tms %) (:assumptions program)))]
     (v/assert kb (list 'genlCx ctx base) base {:strength :monotonic})
     {:context ctx
      :handles (into [] (keep (fn [h]

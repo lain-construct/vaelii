@@ -1951,7 +1951,21 @@
       (System/exit 2))
     (println (format "\nvaelii performance gate — %d check(s), tolerance %.2fx%s\n"
                      (count selected) (double tolerance) (if quick? ", quick" "")))
-    (let [results (doall (for [c selected] [c (run-check c tolerance quick?)]))]
+    (let [total   (count selected)
+          ;; Every verdict is reported together at the end (below), so the run itself
+          ;; emits nothing per check — a `perf-progress k/total name` marker on *err*
+          ;; as each finishes gives `lein gate` something to poll into a live bar
+          ;; (scripts/gate.sh) without touching the clean stdout verdict stream.
+          results (doall
+                   (map-indexed
+                    (fn [i c]
+                      (let [r (run-check c tolerance quick?)]
+                        (binding [*out* *err*]
+                          (println (format "perf-progress %d/%d %s"
+                                           (inc i) total (name (:name c))))
+                          (flush))
+                        [c r]))
+                    selected))]
       (doseq [[c r] results] (report c r))
       (let [failed (filter (fn [[_ r]] (= :fail (:status r))) results)]
         (if (seq failed)

@@ -114,6 +114,65 @@
                (map #(f/slot-premise (:flags (f/read-slot idx %))) [1 2 3])))
         (f/close! idx)))))
 
+(deftest slot-strength-rides-the-premise-flags
+  (testing "the rank rides bits 2..3 without disturbing what the premise bit says"
+    (doseq [rank [0 1 2]]
+      (is (= true (f/slot-premise (f/premise-flags true rank)))
+          "a premise carrying any rank still reads as a premise")
+      (is (= rank (f/slot-strength (f/premise-flags true rank)))
+          "and the rank reads back exactly"))
+    (is (= 0 (f/slot-strength (f/premise-flags false 2)))
+        "a non-premise carries no rank whatever it is handed")
+    (is (= 0 (f/slot-strength 0))
+        "a slot older than the strength bits reads rank 0 — which sends the caller to the record")
+    (is (= 0 (f/slot-strength (f/premise-flags true)))
+        "and so does a premise slot written with the 1-arg form"))
+  (with-tmp
+    (fn [dir]
+      (let [idx (f/open-idx (str dir "/t.idx"))]
+        (f/write-slot! idx 1 10 5 (f/premise-flags true 1) 0)   ; :default
+        (f/write-slot! idx 2 20 5 (f/premise-flags true 2) 0)   ; :monotonic
+        (f/write-slot! idx 3 30 5 (f/premise-flags false) 0)    ; not a premise
+        (is (= [1 2 0] (map #(f/slot-strength (:flags (f/read-slot idx %))) [1 2 3]))
+            "the ranks survive a slot write/read round-trip; the non-premise reads 0")
+        (is (= [true true false] (map #(f/slot-premise (:flags (f/read-slot idx %))) [1 2 3]))
+            "and the premise bit is unchanged by the ranks beside it")
+        (f/close! idx)))))
+
+(deftest reconcile-slot-flags-repairs-only-what-disagrees
+  ;; The dirty-open repair: rewrite a slot whose flags would answer differently from its
+  ;; record (a torn flags page), and leave alone one that agrees or falls back.
+  (with-tmp
+    (fn [dir]
+      (let [idx (f/open-idx (str dir "/t.idx"))]
+        (try
+          (testing "a stale rank is rewritten to the record's, frame fields untouched"
+            (f/write-slot! idx 1 100 20 (f/premise-flags true 1) 7)   ; slot says rank 1…
+            (is (true? (f/reconcile-slot-flags! idx 1 true 2)))       ; …record is rank 2
+            (let [s (f/read-slot idx 1)]
+              (is (= 2 (f/slot-strength (:flags s))))
+              (is (= [100 20 7] [(:offset s) (:length s) (:gen s)])
+                  "only the flags word moved")))
+          (testing "a stale premise bit is rewritten to match the record"
+            (f/write-slot! idx 2 200 30 (f/premise-flags true 2) 0)   ; phantom premise…
+            (is (true? (f/reconcile-slot-flags! idx 2 false 0)))      ; …record is not one
+            (let [s (f/read-slot idx 2)]
+              (is (false? (f/slot-premise (:flags s))))
+              (is (zero?  (f/slot-strength (:flags s))) "phantom rank cleared too")))
+          (testing "a slot that already agrees is left untouched"
+            (f/write-slot! idx 3 300 10 (f/premise-flags true 2) 0)
+            (is (nil? (f/reconcile-slot-flags! idx 3 true 2))))
+          (testing "a silent (legacy) slot falls back to the record — consistent, not rewritten"
+            (f/write-slot! idx 4 400 10 0 0)
+            (is (nil? (f/reconcile-slot-flags! idx 4 true 2)))
+            (is (zero? (f/slot-strength (:flags (f/read-slot idx 4)))) "left silent"))
+          (testing "a premise slot with an unrecorded rank (0) also falls back — not rewritten"
+            (f/write-slot! idx 5 500 10 (f/premise-flags true 0) 0)
+            (is (nil? (f/reconcile-slot-flags! idx 5 true 2))))
+          (testing "no slot, nothing to reconcile"
+            (is (nil? (f/reconcile-slot-flags! idx 99 true 2))))
+          (finally (f/close! idx)))))))
+
 ;; ---- log recovery -------------------------------------------------------
 
 (deftest scan-log-finds-the-torn-tail

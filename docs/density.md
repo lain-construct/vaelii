@@ -50,9 +50,10 @@ test`. `backend_parity_test` runs a scripted KB session across all eight configu
 test`, so a divergence fails without anyone remembering to.
 
 `:backend` names the *storage*. The third resident structure, the truth-maintenance
-network, is orthogonal to it and is selected separately by `:tms` — `:reference`
-(default) or `:dense` (Phase 3 below), either of which works with any backend.
-`VAELII_TEST_TMS=dense lein test` runs the suite through the dense one.
+network, is orthogonal to it and is selected separately by `:tms` — `:dense`
+(default, Phase 3 below) or `:reference`, either of which works with any backend.
+Plain `lein test` runs the suite through the default dense one;
+`VAELII_TEST_TMS=reference lein test` runs the baseline.
 
 ## The measurement that shaped it
 
@@ -384,10 +385,11 @@ in [storage.md](storage.md#the-on-disk-backend-disk):
 ## Phase 3 — the dense truth-maintenance network (`{:tms :dense}`)
 
 The index and the records are only two of the three resident structures. The **JTMS is
-always in RAM in every backend**, and `lein bench-jtms` measures it at ~467 B/node —
-~43 GB at 100M, on par with the whole record store. `vaelii.impl.dense-jtms` is the dense
-representation, selected by `open-kb`'s `:tms` rather than `:backend` (it is orthogonal
-to storage — any backend may use either network):
+always in RAM in every backend**, and the reference network — an atom over one persistent
+map — costs ~467 B/node (`lein bench-jtms`), ~43 GB at 100M, on par with the whole record
+store. That is why `vaelii.impl.dense-jtms`, the bitmap/primitive-map representation, is
+**the default** as of 0.9.0 (`open-kb`'s `:tms`, orthogonal to storage — any backend may
+use either network); `:reference` is the baseline a caller pins:
 
 ```
   109,055 nodes, a fact corpus         total    graph    justs
@@ -448,11 +450,21 @@ representation chosen for how it *holds* data has to be re-checked against how t
 This one is a **parallel implementation** rather than a swap, and the reason is
 atomicity, not caution: `RoaringBitmap` is mutable while the reference is an atom over a
 persistent map whose all-or-nothing mutation `jtms_atomicity_test` pins. So both sit
-behind a `vaelii.impl.jtms/Tms` protocol, and the dense one serializes writers on a
-monitor while leaving readers unlocked — the same latitude the mutable index backends
-take under the one-writer contract. `VAELII_TEST_TMS=dense lein test` runs the whole
-suite through it; `jtms_dense_oracle_test` compares the two networks in full after every
-step of randomized operation streams.
+behind a `vaelii.impl.jtms/Tms` protocol, and the dense one coordinates through a
+`StampedLock`: writers take the exclusive stamp — serializing exactly as the reference's
+`swap!` retry does — while point reads (`in?`, one per candidate on the match path) run
+**optimistically**, lock-free in the steady state and validated after the fact, and the
+O(nodes) iterating reads take a shared stamp. That gives the incidental reader — the web
+browser beside a REPL's writer, the shape the single-writer contract calls supported
+(docs/storage.md) — the consistent view the reference's persistent map gives for free: a
+reader never observes a partially-applied relabel. The lock is not the trade the earlier
+unlocked design feared, either, because a bitmap probe under an optimistic stamp still
+beats a boxed-`Long` hash-set lookup by an order of magnitude — measured ≈19 ns against
+the reference's ≈180 ns per `in?`. Plain `lein test` runs the whole suite through the
+dense network (it is the default), `VAELII_TEST_TMS=reference lein test` the persistent-map
+baseline; `jtms_dense_oracle_test` compares the two in full after every step of randomized
+operation streams, and `jtms_concurrency_test` holds the consistent-view guarantee under a
+reader-beside-writer stress on both.
 
 **A justification is not an object either.** A fact corpus derives about a tenth of a
 justification per node and cannot say what one costs, so the decomposition was taken on a
@@ -476,6 +488,47 @@ hold the KB, and the record store has the record durably. `jtms/graph-just` is t
 projection, applied by both representations, so neither keeps a second copy of a
 justification and the two still store equal values. **277 → 85 B each**, and the dense
 network's advantage on a rules-heavy corpus goes 1.61× → 3.26×.
+
+### At corpus scale, and why it is the default (item 09)
+
+The tables above top out at 109k nodes. `lein bench-scale [n] [rn] [reference|dense]`
+takes the per-node resident cost out to 1M under the real `assert` path, both networks,
+and it is **flat**: reference holds at ~210–260 B/node and dense at ~18–22 B/node on pure
+premises across a 50× range (20k → 1M), so the linear interpolation the whole estimate
+rests on is confirmed, not assumed. Because it is linear, the cost **decomposes** —
+`jtms_bytes = node_cost·N + just_cost·J` — and the two anchors (premises-only and one
+rule firing per fact) solve it:
+
+```
+              per node   per justification
+  reference    263 B          460 B
+  dense         18 B          166 B
+```
+
+Applied to a real corpus — 11.5M stored sentexes, 13.0M justifications (j/n ≈ 1.1), the
+shape a common-sense KB actually takes — that is **~9.1 GB reference against ~2.35 GB
+dense, 3.8×**: the JTMS falls from ~30% of a whole-KB footprint to under 10%, a ~21%
+whole-KB RAM cut, on the largest stores the engine is built for. The single 467 B/node
+coefficient is a j/n ≈ 0.5 reading and undercounts a justification-heavy corpus (~730
+B/node at j/n ≈ 1); the node+just pair above is the honest model.
+
+**The win is memory, not wall.** Across every cell dense loaded and recovered as fast as
+the reference or slightly faster, and at 10.19M the two walled identically because the
+open-time bottleneck is the `content-order` sort, above the network entirely — so dense
+makes a large KB *fit*, never *open faster*. Given an engine whose target is one large
+node holding 100M, the default is the network that scales, and this is it. `:reference`
+remains a one-keyword pin for the simpler baseline.
+
+**One ceiling the reference does not share.** The dense bitmaps and fastutil maps are
+`int`-keyed, so a handle or justification id must fit a 32-bit int — 2^31-1 ≈ 2.1B.
+Handles allocate in assertion order and never reuse, so that bounds a KB's *cumulative*
+allocations, not its live nodes: 21× the 100M target, but a long-lived writer churning
+assert/retract can climb to it. Crossing it throws an actionable error naming the ceiling
+and the `{:tms :reference}` remedy — checked where a new id first enters, so an operator
+sees that rather than the cast's bare "integer overflow" — and never a silent truncation
+that would collide two handles and corrupt belief. A KB that expects to churn past 2^31
+pins `{:tms :reference}`, whose `Long`-keyed maps have no ceiling. The reference costs the
+RAM this page measures; that is the trade.
 
 ## Reading these numbers honestly
 

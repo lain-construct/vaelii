@@ -153,13 +153,45 @@
     (is (seq (v/prove kb (list ancestorOf7 Tom Bob) CxB)))
     (is (seq (v/prove kb (list ancestorOf7 Tom Bob) CxB)))))
 
-;; ---- argPreserving: a claim travels the edges the asker can see ---------
+;; ---- the change feed: a watch matches through the edges its context sees -
+;;
+;; A standing query is a read that fires on a moved region, and it subsumes the region's
+;; facts through the predicate-genl closure exactly as a rule antecedent does
+;; (`res/match1`).  Walked globally, it fires on a match its own context cannot see —
+;; while `ask` from that context answers nothing, so the feed and the query disagree
+;; about one context.  The pair: the invisible edge and the visible one.
+
+(tu/deftest-kb a-watch-does-not-fire-through-a-predicate-edge-it-cannot-see
+  (tu/with-terms [fdog9 fanimal9 Muffet9 CxA CxE]
+    (siblings! kb CxA CxE)
+    (v/assert kb (list 'genl fdog9 fanimal9) CxE)         ; the edge lives where CxA cannot see it
+    (let [seen (atom [])]
+      (v/watch kb (list fanimal9 '?x) CxA (fn [e] (swap! seen conj e)))
+      (v/assert kb (list fdog9 Muffet9) CxA)
+      (is (not (v/ask? kb (list fanimal9 Muffet9) CxA))
+          "the fact is a dog CxA can see, but the edge that makes it an animal is not")
+      (is (empty? @seen)
+          "so the watch on (fanimal ?x) does not fire, agreeing with ask"))))
+
+(tu/deftest-kb a-watch-fires-through-a-predicate-edge-it-can-see
+  (tu/with-terms [gdog9 ganimal9 Rex9 CxA CxE]
+    (siblings! kb CxA CxE)
+    (v/assert kb (list 'genl gdog9 ganimal9) CxA)         ; the edge is visible to the watcher
+    (let [seen (atom [])]
+      (v/watch kb (list ganimal9 '?x) CxA (fn [e] (swap! seen conj e)))
+      (v/assert kb (list gdog9 Rex9) CxA)
+      (is (v/ask? kb (list ganimal9 Rex9) CxA) "CxA sees the edge, so Rex is an animal")
+      (is (= 1 (count @seen)) "and the watch fires on the subsumed match")
+      (is (= Rex9 (get-in (first @seen) [:believed-added 0 :bindings '?x]))
+          "binding the argument the subsumption unified"))))
+
+;; ---- transitiveInArg: a claim travels the edges the asker can see ---------
 
 (tu/deftest-kb an-inherited-claim-stops-at-an-invisible-edge
   (tu/with-terms [biggerThan8 retriever_t dog8_t cat8_t CxA CxB]
     (siblings! kb CxA CxB)
     (v/assert kb (list 'binaryPredicate biggerThan8) 'CxUniverse)
-    (v/assert kb (list 'argPreserving biggerThan8 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArg biggerThan8 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl retriever_t dog8_t) CxA)
     (v/assert kb (list biggerThan8 dog8_t cat8_t) CxB)
     (is (empty? (v/ask kb (list biggerThan8 retriever_t cat8_t) CxB))
@@ -169,7 +201,7 @@
   (tu/with-terms [biggerThan9 retriever_t dog9_t cat9_t CxA CxB]
     (siblings! kb CxA CxB)
     (v/assert kb (list 'binaryPredicate biggerThan9) 'CxUniverse)
-    (v/assert kb (list 'argPreserving biggerThan9 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArg biggerThan9 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl retriever_t dog9_t) 'CxUniverse)
     (v/assert kb (list biggerThan9 dog9_t cat9_t) CxB)
     (is (seq (v/ask kb (list biggerThan9 retriever_t cat9_t) CxB)))))
@@ -192,7 +224,7 @@
     (v/assert kb (list 'transitive begat8) CxA)
     (is (seq (v/sentexes-matching kb (list 'transitive begat8) 'CxUniverse))
         "the lift put it where every context can see it")
-    (v/assert kb (list 'argPreserving cursed8 1 begat8) CxB)
+    (v/assert kb (list 'transitiveInArg cursed8 1 begat8) CxB)
     (v/assert kb (list begat8 A8 B8) CxB)
     (v/assert kb (list cursed8 B8) CxB)
     (is (seq (v/ask kb (list cursed8 A8) CxB))
@@ -242,6 +274,24 @@
         "B has been told nothing, so the two names still denote two things there")
     (is (empty? (v/ask kb (list 'different Clark12 Superman12) CxA))
         "A has been told")))
+
+(tu/deftest-kb a-functional-equality-is-derived-though-an-invisible-merge-exists
+  ;; The functional-clash derivation skips a pair its idempotence guard finds already
+  ;; merged.  Read globally, a merge in a sibling context suppressed a derivation the
+  ;; reader is owed — so a context could hold two functional fillers for one argument
+  ;; and merge neither, because some *other* context happened to merge them.
+  (tu/with-terms [fp13 X13 V1 V2 CxA CxB]
+    (siblings! kb CxA CxB)
+    (v/assert kb (list 'functional fp13) 'CxUniverse)
+    (v/assert kb (list 'sameAs V1 V2) CxB)                 ; a merge CxA cannot see
+    (is (not (v/same-class? kb V1 V2 CxA)) "CxA cannot see the sibling's merge")
+    (v/assert kb (list fp13 X13 V1) CxA)
+    (v/assert kb (list fp13 X13 V2) CxA)                   ; the functional clash
+    (testing "CxA derives the equality its own two fillers license"
+      (is (v/same-class? kb V1 V2 CxA)
+          "the reader merges the fillers it stated, not skipping on an invisible merge"))
+    (testing "and the sibling keeps its own merge"
+      (is (v/same-class? kb V1 V2 CxB)))))
 
 ;; ---- equality down a chain: the reader is not the fact's own context ----
 ;;
@@ -307,6 +357,28 @@
       (is (v/ask? kb (list likes16 Tom16 Bravo16) CxLeaf))
       (is (v/ask? kb (list likes16 Tom16 Charlie16) CxLeaf)))))
 
+(tu/deftest-kb why-not-names-the-supersession-the-fact-s-own-context-elected
+  ;; `why-not`'s `:superseded-by` is a read on behalf of the superseded fact's context —
+  ;; the only context that supersedes it.  Mid elects Bravo over Charlie and stores the
+  ;; twin; Leaf then elects Alpha over Bravo, which Mid cannot see.  The report must name
+  ;; Bravo (what Mid elected and stored), not the global Alpha — a spelling Mid never
+  ;; elected and never stored, whose handle would miss while the `:rewrites` map beside it
+  ;; stays correct, so the report would contradict itself.
+  (tu/with-terms [likes18 Tom18 Alpha18 Bravo18 Charlie18 CxMid CxLeaf]
+    (nested! kb CxMid CxLeaf)
+    (let [h (v/assert kb (list likes18 Tom18 Charlie18) CxMid)]
+      (v/assert kb (list 'rewriteOf Bravo18 Charlie18) CxMid)
+      (v/assert kb (list 'rewriteOf Alpha18 Bravo18) CxLeaf)
+      (is (not= (v/representative kb Charlie18 CxMid) (v/representative kb Charlie18))
+          "global and Mid-scoped election of the head diverge, so the read must choose")
+      (let [wn (v/why-not kb h)
+            sb (:superseded-by wn)]
+        (is (= :superseded (:reason wn)) "the fact was restated under Mid's election")
+        (is (= (list likes18 Tom18 (v/representative kb Charlie18 CxMid)) (:sentence sb))
+            "the report names the spelling the fact's own context elected")
+        (is (some? (:handle sb))
+            "which is a spelling stored in that context, so the handle resolves")))))
+
 (tu/deftest-kb deprecated-scopes-like-the-three-class-reads-beside-it
   ;; `representative` / `same-class?` / `equiv-class` each take a context; without one
   ;; `deprecated?` reports a retirement no reader outside the merge's cone can see, and
@@ -331,14 +403,16 @@
     (siblings! kb CxA CxB)
     (v/assert kb (list 'binaryPredicate palOf13) CxA)
     (v/assert kb (list 'symmetric palOf13) CxA)
-    (testing "the derived predicate-type membership is the declaring context's"
-      (is (seq (v/sentexes-matching kb (list 'symmetricPredicate palOf13) CxA)))
-      (is (empty? (v/sentexes-matching kb (list 'symmetricPredicate palOf13) 'CxCore))))
-    (testing "the two ways of asking give one answer, from either vantage"
+    (testing "the mark's own sentex is the declaring context's — its decontextualized
+              copy lands in CxUniverse, below CxCore's sight"
+      (is (seq (v/sentexes-matching kb (list 'symmetric palOf13) CxA)))
+      (is (empty? (v/sentexes-matching kb (list 'symmetric palOf13) 'CxCore))))
+    (testing "the two ways of asking give one answer, from either vantage — the mark is
+              both the property and the (binaryPredicate) type membership"
       (is (= (v/has-prop? kb :symmetric palOf13 CxA)
-             (v/isa? kb palOf13 'symmetricPredicate CxA)))
+             (v/isa? kb palOf13 'symmetric CxA)))
       (is (= (v/has-prop? kb :symmetric palOf13 CxB)
-             (v/isa? kb palOf13 'symmetricPredicate CxB))))))
+             (v/isa? kb palOf13 'symmetric CxB))))))
 
 (tu/deftest-kb a-derived-declaration-installs-live-not-only-on-recover
   ;; `recover` replays every stored sentex of the functor, so a declaration that

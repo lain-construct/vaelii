@@ -40,7 +40,9 @@ SCRIPTS=(
   scripts/test-sweeps.sh
   scripts/test-matrix.sh
   scripts/test-parallel.sh
+  scripts/test-shuffle.sh
   scripts/lib/revision.sh
+  scripts/lib/slots.sh
   scripts/lib/suite-configs.sh
   scripts/lib/suite-marks.sh
   scripts/update-badges.sh

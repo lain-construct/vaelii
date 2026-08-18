@@ -110,9 +110,14 @@ candidate.
 It does **not** re-run the goal, and that is the point: a listener that re-queried would
 make every mutation cost a query per listener, which is the cost polling already had.
 
-Context-scoped like every other read — the sentex must sit in a context the watch's own
-can see, up the `genlCx` cone. A **variable** context (`'?ctx`) watches every context
-and binds to the one that answered, the convention `ask` already takes.
+Context-scoped like every other read, on **both** halves of the match — the sentex must
+sit in a context the watch's own can see up the `genlCx` cone, *and* the subsumption that
+connects the goal's predicate to the stored one is walked only through the `genl` edges
+that context can see. So a watch does not fire through a predicate-genl edge stated where
+it cannot see it — the edge `ask` from that context would not walk either, so the feed and
+the query never disagree about one context. A **variable** context (`'?ctx`) watches every
+context and binds to the one that answered, the convention `ask` already takes; it is
+unscoped on both halves alike.
 
 `f` is not called at all when nothing the goal answers moved, so an unrelated write is
 silence rather than an empty event. And the expensive half of an event — a supporting

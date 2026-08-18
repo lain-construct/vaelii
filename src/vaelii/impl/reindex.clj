@@ -42,7 +42,7 @@
   (let [s (:sentence rule-sentex)]
     (p/index-rule index handle
                   (rules/antecedent-predicates s)
-                  (rules/consequent-predicate s))
+                  (rules/consequent-index-pred rule-sentex))
     (when (rules/rechecked? rule-sentex)
       (p/index-exception index handle (rules/recheck-predicates rule-sentex)))))
 

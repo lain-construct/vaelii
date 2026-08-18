@@ -351,7 +351,7 @@
           :let  [{:keys [antecedents consequent guard handle]} rule
                  [shifted shift-back] (sx/canonical-conjunction
                                        (into [consequent] antecedents) nvars)
-                 b (res/subsuming-unify kb sentence (first shifted))]
+                 b (res/subsuming-unify kb sentence (first shifted) res/no-bindings context)]
           :when b
           :let  [carry (fn [l] (update l :sentence #(res/substitute % b)))
                  resid (mapv (fn [a] {:sentence (res/substitute a b)
@@ -675,3 +675,158 @@
             :claimed   (count @claimed)
             :frontier  (count @queue)
             :max-depth (reduce max 0 (map :tree-depth ns))})))
+
+;; ---- the search as data, for a debugger ----------------------------------
+
+(def default-node-budget
+  "How many node expansions `search-tree` drives before it stops and reports the tree
+  **bounded**.  This bounds the *work*, and it is separate from any cap the caller later
+  puts on the *render*: a depth bound alone does not stop a wide frontier — a converging
+  rule graph builds one well inside its depth — so an enormous KB could otherwise turn one
+  debug read into an unbounded search.  A run that hits this has not lost answers the way
+  a depth bound does; it has only stopped drawing the tree past the budget."
+  2000)
+
+(defn- answer-bindings
+  "A `step!` solution's bindings, whether it came bare or wrapped beside a proof."
+  [s]
+  (if (and (map? s) (contains? s :bindings)) (:bindings s) s))
+
+(defn- node-data
+  "One finished node as serializable data: its id and parent, how deep in the tree it sits,
+  the itemized estimate that ordered it (`tactics/estimate-breakdown`), the one rewrite
+  that produced it (nil for the root — the literal it replaced, the rule handle, and the
+  rule as written), the answers that came off it, and how many guards it carries.  Read
+  out of the node the search already built — no second structure beside it."
+  [kb strat results node]
+  (let [{:keys [id parent-id tree-depth rewrite guards]} node]
+    (cond-> {:id         id
+             :parent-id  parent-id
+             :tree-depth tree-depth
+             :estimate   (tactics/estimate-breakdown kb strat node)
+             :results    (mapv answer-bindings (get results id))
+             :guards     (count guards)}
+      rewrite (assoc :rewrite {:goal     (:goal rewrite)
+                               :rule     (:rule rewrite)
+                               :sentence (rule-display kb (:rule rewrite))}))))
+
+(defn- finish-tree
+  [kb sess strat goals answers results status]
+  {:goals    (vec goals)
+   :context  (:context sess)
+   :strategy (:tactician strat)
+   :status   status
+   :bounded? (not= :complete status)
+   :answers  answers
+   :nodes    (mapv #(node-data kb strat results %) (sort-by :id (vals @(:nodes sess))))
+   :stats    (tree-stats sess)})
+
+(defn search-tree
+  "Run a bounded backward search for `goals` in `context` and return the tree the run
+  actually built — every node the frontier reached, not only the path that answered — as
+  plain data a client can render without holding the session between requests.  The read
+  behind the inference debugger.
+
+  It bounds the **work** two ways: the depth bound the node engine already requires
+  (`:max-depth`, or it refuses to start), and a node-expansion budget (`:node-budget`,
+  `default-node-budget`) so a wide frontier under a generous depth still terminates.  A
+  wall-clock `:max-ms` stops a run neither bound reaches in time and reports it `:timeout`
+  rather than hanging the caller — the node engine's termination is the depth bound and
+  nothing else.  The caller should pass the same `:leaf-solver`/`:est-override` `query`
+  does, or this searches a different leaf than `query` would.
+
+  Returns `{:goals :context :strategy :status :bounded? :answers :nodes :stats}`.
+  `:status` is `:complete` (the frontier emptied), `:bounded` (the node budget), or
+  `:timeout` (the clock).  `:answers` are `query`'s answers under `:proof? true`, each
+  tagged with `:node` — the id of the node it came off, so an answer is reachable to the
+  subtree that produced it.  `:nodes` is every node as `node-data`, in allocation order.
+
+  Read-only by construction: a query in this engine writes nothing (`portfolio-solutions`)."
+  ([kb goals context] (search-tree kb goals context {}))
+  ([kb goals context {:keys [node-budget max-ms] :as opts}]
+   (let [sess     (session kb (vec goals) context (assoc opts :proof? true))
+         strat    (:strategy sess)
+         queue    (:queue sess)
+         budget   (long (or node-budget default-node-budget))
+         deadline (when max-ms (+ (System/currentTimeMillis) (long max-ms)))]
+     (loop [answers [], results {}, expanded 0]
+       (let [entry (first @queue)]
+         (cond
+           (nil? entry)
+           (finish-tree kb sess strat goals answers results :complete)
+
+           (>= expanded budget)
+           (finish-tree kb sess strat goals answers results :bounded)
+
+           (and deadline (>= (System/currentTimeMillis) (long deadline)))
+           (finish-tree kb sess strat goals answers results :timeout)
+
+           :else
+           (let [nid  (long (nth entry 1))
+                 sols (step! sess)]
+             (if (nil? sols)
+               (finish-tree kb sess strat goals answers results :complete)
+               (recur (into answers (map #(assoc % :node nid)) sols)
+                      (cond-> results (seq sols) (assoc nid sols))
+                      (inc expanded))))))))))
+
+(def default-compare-tacticians
+  "The tacticians `compare-tacticians` runs when the caller names no subset: the shipped
+  default and three orderings that disagree with it and each other.  Enough spread to show
+  the answer set is the *same* across genuinely different searches — the property the page
+  asserts rather than assumes."
+  [:ground-first :cost :depth-first :breadth-first])
+
+(defn- compare-row
+  [t sess answers status ms]
+  (merge (tree-stats sess)
+         {:tactician t
+          :status    status
+          :ms        ms
+          :answers   (into #{} (map answer-bindings) answers)}))
+
+(defn compare-tacticians
+  "Run `goals` in `context` under each of several tacticians, each to completion (bounded),
+  and return one row per tactician: its search (`tree-stats`), its wall-clock `:ms`, its
+  `:status`, and its `:answers` set.  What the debugger tables side by side.
+
+  Every tactician here is complete — each only reorders the frontier — so the answer sets
+  must be identical, and a caller can **verify** that against these rows rather than trust
+  it: a row whose `:answers` differ from its neighbours' is a bug the completeness sweep
+  says cannot happen.  `:first-result?` is the one mode that returns fewer answers, and it
+  is a strategy flag rather than a tactician, so no row here carries it.
+
+  Bounded exactly as `search-tree` — a `:node-budget` per run and an optional `:max-ms`,
+  reported per row as `:status`.  Each run is timed on its own with
+  `System/currentTimeMillis`, so `:ms` measures latency over a fixed answer set — the
+  comparison the page exists to make.  Pass the same `:leaf-solver`/`:est-override`
+  `query` does."
+  ([kb goals context] (compare-tacticians kb goals context {}))
+  ([kb goals context {:keys [tacticians node-budget max-ms] :as opts}]
+   (let [ts     (or (seq tacticians) default-compare-tacticians)
+         budget (long (or node-budget default-node-budget))]
+     (mapv
+      (fn [t]
+        (let [sess     (session kb (vec goals) context (assoc opts :strategy t :proof? false))
+              queue    (:queue sess)
+              deadline (when max-ms (+ (System/currentTimeMillis) (long max-ms)))
+              t0       (System/currentTimeMillis)
+              elapsed  (fn [] (- (System/currentTimeMillis) t0))]
+          (loop [answers [], expanded 0]
+            (let [entry (first @queue)]
+              (cond
+                (nil? entry)
+                (compare-row t sess answers :complete (elapsed))
+
+                (>= expanded budget)
+                (compare-row t sess answers :bounded (elapsed))
+
+                (and deadline (>= (System/currentTimeMillis) (long deadline)))
+                (compare-row t sess answers :timeout (elapsed))
+
+                :else
+                (let [sols (step! sess)]
+                  (if (nil? sols)
+                    (compare-row t sess answers :complete (elapsed))
+                    (recur (into answers sols) (inc expanded)))))))))
+      ts))))

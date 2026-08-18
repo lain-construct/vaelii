@@ -14,8 +14,10 @@
   new here: `reindex` is the index rebuild (linear in records), `recover` is the TMS +
   taxonomy rebuild every durable KB already pays.
 
-  Run: `lein bench-reindex [facts] [rules] [index-backend]`
-       (default 100000 facts, 0 rules, :memory — `columnar` for the other mixed mode)."
+  Run: `lein bench-reindex [facts] [rules] [index-backend] [tms]`
+       (default 100000 facts, 0 rules, :memory — `columnar` for the other mixed mode;
+        `tms` is `reference` (default) or `dense`, so the TMS half can be priced in the
+        representation `recover` will actually run over at scale)."
   (:require [vaelii.core :as v]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.io.generate :as gen]
@@ -33,10 +35,10 @@
   `(let [t0# (System/nanoTime) r# (do ~@body)]
      [r# (/ (- (System/nanoTime) t0#) 1e6)]))
 
-(defn- run [facts rules index-kind]
+(defn- run [facts rules index-kind tms-kind]
   (let [dir (tmpdir)]
     (try
-      (let [kb (v/open-kb {:records :disk :index index-kind :dir dir :recover? false})
+      (let [kb (v/open-kb {:records :disk :index index-kind :tms tms-kind :dir dir :recover? false})
             _  (v/clear! kb)
             [summary load-ms]
             (timed (gen/load-into kb {:facts facts :rules rules :individuals (max 100 (quot facts 5))
@@ -48,7 +50,7 @@
         (let [[res ix-ms]  (timed (reindex/reindex kb))
               [_   rec-ms] (timed (v/recover kb))
               total        (+ ix-ms rec-ms)]
-          (println (format "\nindex backend %s, %,d records" index-kind n))
+          (println (format "\nindex backend %s, tms %s, %,d records" index-kind tms-kind n))
           (println (format "  reindex  %8.0f ms   (%,d sentexes, %,d rules)  %,.0f records/s"
                            ix-ms (long (:sentexes res)) (long (:rules res))
                            (/ n (/ ix-ms 1000.0))))
@@ -61,7 +63,8 @@
 (defn -main [& args]
   (let [facts (Long/parseLong (or (first args) "100000"))
         rules (Long/parseLong (or (second args) "0"))
-        kind  (keyword (or (nth args 2 nil) "memory"))]
-    (run facts rules kind)
+        kind  (keyword (or (nth args 2 nil) "memory"))
+        tms   (keyword (or (nth args 3 nil) "reference"))]
+    (run facts rules kind tms)
     (shutdown-agents)
     (System/exit 0)))

@@ -26,7 +26,7 @@
 # round-robin, which is a worse split and still correct.
 #
 # Usage:
-#   scripts/test-parallel.sh                 # :default, jobs = cores - 2
+#   scripts/test-parallel.sh                 # :default, jobs from scripts/lib/slots.sh
 #   scripts/test-parallel.sh :all            # the ^:slow tests too
 #   scripts/test-parallel.sh --jobs 4        # a fixed shard count
 #   scripts/test-parallel.sh :all --jobs 6
@@ -38,6 +38,9 @@ cd "$(dirname "$0")/.." || exit 1
 # shard log
 # shellcheck source=scripts/lib/revision.sh
 . scripts/lib/revision.sh
+# the default shard count, shared with test-matrix.sh so the rule cannot drift
+# shellcheck source=scripts/lib/slots.sh
+. scripts/lib/slots.sh
 
 # Logs and scratch are **per run**; the timings are **per checkout**, and the split is
 # the point.  `gate.sh` hands this a fresh `target/gate/run-<pid>` so two gates in one
@@ -70,10 +73,7 @@ case "${VAELII_TEST_BACKEND:-memory}" in
     exit 2 ;;
 esac
 
-if [[ -z "$jobs" ]]; then
-  cores=$( (sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) )
-  jobs=$((cores - 2)); [[ $jobs -lt 1 ]] && jobs=1
-fi
+[[ -z "$jobs" ]] && jobs=$(default_slots)   # P-2 minus running vaelii JVMs; see scripts/lib/slots.sh
 
 mkdir -p "$OUT" || exit 1
 # the timings sit above `$OUT` when the gate hands us a per-run directory, so their own

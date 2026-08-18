@@ -35,6 +35,16 @@
   (premise-strength [store id]        "The recorded assumption strength of a premise handle.")
   (clear-records!   [store]           "Remove every stored record (wipe the whole store)."))
 
+(def var-consequent-key
+  "The `index-rule` consequent slot's catch-all for a rule whose consequent functor is a
+  **variable** — a rule with concrete antecedents concluding `(?p …)`, which
+  `rules/check-indexable-functors` allows (the antecedent binds `?p`, so a forward firing
+  is ground, and the range check guarantees it).  Filed under this one bucket rather than
+  the canonical `?var0` no goal can spell, and unioned into every concrete-goal answer by
+  `resolution/concluding-rule-handles`.  Written via `rules/consequent-index-pred`; a
+  keyword can never collide with a predicate, which is always a symbol."
+  :var-pred)
+
 (defprotocol IndexStore
   "The index store — the count-aware trie, the secondary root indexes, the
   rule predicate index, the exception re-check index, and the inverted term index.
@@ -75,9 +85,12 @@
   (sentexes-with-args    [store pred pos-terms] "Handles with functor `pred` AND each `[pos term]` — one set intersection.")
   ;; rule index: rules are sentexes indexed additionally by their predicates.  Both
   ;; predicate sets are *complete* — every rule, whatever its direction — so "what
-  ;; could conclude P?" is answerable for a forward-only rule.  Direction and
-  ;; defeasibility are NOT mirrored here: they live on the sentex record (the
-  ;; `set/*Rule` wrapper canonicalizes into it), and chaining reads them from there.
+  ;; could conclude P?" is answerable for a forward-only rule.  A rule whose consequent
+  ;; functor is a variable files its consequent under `var-consequent-key` (above), not
+  ;; under a canonical `?var0`, so "what could conclude P?" for a *concrete* P is the P
+  ;; bucket unioned with that catch-all — see `resolution/concluding-rule-handles`.
+  ;; Direction and defeasibility are NOT mirrored here: they live on the sentex record
+  ;; (the `set/*Rule` wrapper canonicalizes into it), and chaining reads them from there.
   (index-rule   [store handle ante-preds conseq-pred] "Register a rule handle by its predicates.")
   (unindex-rule! [store handle ante-preds conseq-pred] "Deregister a rule handle.")
   (rules-by-antecedent [store pred] "Handles of rules with an antecedent on pred.")

@@ -290,7 +290,7 @@
   forbids a cycle."
   [subst term]
   (cond
-    (sx/variable? term)  (if (contains? subst term) (resolve-fully subst (get subst term)) term)
+    (sx/variable? term)  (if (contains? subst term) (recur subst (get subst term)) term)
     (sequential? term)   (apply list (map #(resolve-fully subst %) term))
     :else                term))
 

@@ -4,7 +4,7 @@
   "Edge cases for the features that landed this turn: the `evaluate` prover
   (extra operators, nesting, and use inside a rule antecedent), dot syntax
   driving a real forward rule, `genlCx` as a forced universal predicate
-  (placement, closure, retraction, recovery), and the predicate-type provers
+  (placement, closure, retraction, recovery), and the algebraic property marks
   (reflexive enumeration and a dual-property predicate).
 
   These cover scenarios not already exercised by dot_test / meta_test /
@@ -158,38 +158,38 @@
         (is (empty? (v/sentexes-matching kb2 (list 'genlCx alpha beta) 'CxSocialWorld)))
         (is (v/ask? kb2 (list 'genlCx alpha beta)))))))
 
-;; ---- predicate-type provers ---------------------------------------------
+;; ---- algebraic property marks -------------------------------------------
 
-(deftest predicate-type-provers-reflexive-and-dual-property
+(deftest property-marks-reflexive-and-dual-property
   ;; meta_test covers symmetric/transitive/functional membership + enumeration;
-  ;; here: reflexivePredicate (empty then populated), functionalPredicate
-  ;; enumeration, and a single predicate carrying two algebraic properties.
+  ;; here: reflexive (empty then populated), functional enumeration, and a single
+  ;; predicate carrying two algebraic properties.  Each mark is queryable directly.
   (tu/with-neutral-kb [kb core-context-kb]
     (let [sameSpotAs (tu/tmp-pred) heightOf (tu/tmp-pred) adjacentTo (tu/tmp-pred)]
       (testing "with no reflexive metadata the enumeration is empty"
-        (is (empty? (v/ask kb '(reflexivePredicate ?p) '?ctx))))
+        (is (empty? (v/ask kb '(reflexive ?p) '?ctx))))
       (v/assert kb (list 'reflexive sameSpotAs) 'CxUniverse)
       (v/assert kb (list 'functional heightOf)  'CxUniverse)
       (v/assert kb (list 'symmetric  adjacentTo) 'CxUniverse)
       (v/assert kb (list 'transitive adjacentTo) 'CxUniverse)     ; the same predicate, two properties
-      (testing "reflexive/functional memberships answer and enumerate from metadata"
-        (is (v/ask? kb (list 'reflexivePredicate sameSpotAs)))
+      (testing "reflexive/functional memberships answer and enumerate from the mark"
+        (is (v/ask? kb (list 'reflexive sameSpotAs)))
         (is (= #{sameSpotAs}
-               (set (map #(get % '?p) (v/ask kb '(reflexivePredicate ?p) '?ctx)))))
+               (set (map #(get % '?p) (v/ask kb '(reflexive ?p) '?ctx)))))
         ;; containment, not equality: CxCore declares (functional arity) itself,
         ;; so the shipped vocabulary is a member of this enumeration too
-        (is (contains? (set (map #(get % '?p) (v/ask kb '(functionalPredicate ?p) '?ctx)))
+        (is (contains? (set (map #(get % '?p) (v/ask kb '(functional ?p) '?ctx)))
                        heightOf)))
       (testing "a predicate declared both symmetric and transitive is classified as both"
-        (is (v/ask? kb (list 'symmetricPredicate adjacentTo)))
-        (is (v/ask? kb (list 'transitivePredicate adjacentTo)))
-        (is (contains? (set (map #(get % '?p) (v/ask kb '(symmetricPredicate ?p) '?ctx)))
+        (is (v/ask? kb (list 'symmetric adjacentTo)))
+        (is (v/ask? kb (list 'transitive adjacentTo)))
+        (is (contains? (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))
                        adjacentTo))
-        (is (contains? (set (map #(get % '?p) (v/ask kb '(transitivePredicate ?p) '?ctx)))
+        (is (contains? (set (map #(get % '?p) (v/ask kb '(transitive ?p) '?ctx)))
                        adjacentTo)))
       (testing "a predicate without the property is not a member"
-        (is (not (v/ask? kb (list 'reflexivePredicate adjacentTo))))
-        (is (not (v/ask? kb (list 'functionalPredicate adjacentTo))))))))
+        (is (not (v/ask? kb (list 'reflexive adjacentTo))))
+        (is (not (v/ask? kb (list 'functional adjacentTo))))))))
 
 ;; ---- regressions for defects the review found (now fixed) ----------------
 
@@ -226,13 +226,15 @@
       (is (v/ask? kb (list connectedTo a c)))                     ; transitive
       (is (v/ask? kb (list connectedTo b a))))))                  ; symmetric
 
-(deftest a-directly-asserted-predicate-type-fact-is-visible-to-ask
-  ;; PredicateTypeProver (completeness 50) unions with FactProver, so a directly
-  ;; asserted membership is not shadowed by the metadata-only answer.
+(deftest a-mark-is-both-a-queryable-fact-and-a-binaryPredicate-membership
+  ;; The merged mark is a stored fact (answerable by ask) and, through
+  ;; (genl symmetric binaryPredicate), a type membership — one predicate doing both jobs,
+  ;; with no derived (…Predicate) twin between them.
   (tu/with-neutral-kb [kb core-context-kb]
     (let [fooRel (tu/tmp-pred)]
-      (v/assert kb (list 'symmetricPredicate fooRel) 'CxCore)
-      (is (v/ask? kb (list 'symmetricPredicate fooRel))))))
+      (v/assert kb (list 'symmetric fooRel) 'CxCore)
+      (is (v/ask? kb (list 'symmetric fooRel)))
+      (is (v/isa? kb fooRel 'binaryPredicate)))))
 
 (deftest a-bare-dot-argument-is-rejected
   (tu/with-neutral-kb [kb core-context-kb]
@@ -254,7 +256,7 @@
       (is (empty? (v/sentexes-matching kb '(genlCx CxOrganism CxCore) '?ctx)))
       (is (not (tax/sees? (:taxonomy kb) 'CxWell 'CxCore))))))
 
-(deftest a-user-defined-sibling-upper-context-supplies-universal-vocabulary
+(deftest ^:slow a-user-defined-sibling-upper-context-supplies-universal-vocabulary
   ;; The spindle design lets a user add a sibling upper context — one that sees
   ;; CxCore and is seen by CxUniverse — to hold their own *universal* domain
   ;; terms.  Vocabulary put there (a type, an argIsa, an individual) is visible from

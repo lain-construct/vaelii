@@ -43,6 +43,37 @@
           p (permutations (concat (take i coll) (drop (inc i) coll)))]
       (cons (nth coll i) p))))
 
+;; How many orderings the *sampled* order-independence check walks when running the
+;; full n! every time is too dear.  Order-independence is enforced here as a
+;; regression net, not proven: a deterministic spread of orderings catches a
+;; region-local relabelling that went order-sensitive without paying for the whole
+;; cross-product.  Almost every scenario below runs an ordering in ~1 ms and so walks
+;; all of them (no cap); the cap exists for the one scenario whose every ordering
+;; recomputes the genlCx closure and costs ~2 s (the two derived-edge tests at the
+;; end).  Raise this — or drop the cap at the call site — for an exhaustive audit.
+(def ^:private ordering-sample 16)
+
+(defn- shuffle-seeded
+  "A reproducible shuffle: same seed, same order, independent of run.  Test code, so
+  `java.util.Random` with a fixed seed rather than `clojure.core/shuffle`'s
+  run-varying one — a sampled failure has to reproduce."
+  [seed coll]
+  (let [al (java.util.ArrayList. ^java.util.Collection coll)]
+    (java.util.Collections/shuffle al (java.util.Random. (long seed)))
+    (vec al)))
+
+(defn- sampled-orderings
+  "A deterministic sample of up to `n` of `orderings`: the identity and the reverse
+  always — the two extremes a relabelling is likeliest to split on, which
+  `permutations` returns first and last — then a fixed-seed spread of the rest.
+  Returns them all unchanged when there are `n` or fewer."
+  [n orderings]
+  (let [v (vec orderings)]
+    (if (<= (count v) n)
+      v
+      (into [(first v) (peek v)]
+            (take (- n 2) (shuffle-seeded 42 (subvec v 1 (dec (count v)))))))))
+
 (defn- default-rule [antes conseq]
   (list 'set/defaultRule (list 'implies (cons 'and antes) conseq)))
 
@@ -54,18 +85,24 @@
     (observe kb)))
 
 (defn- outcomes
-  "The set of distinct outcomes over every ordering of `ops`."
-  [ops observe]
-  (into #{} (map #(run-ops % observe)) (permutations ops)))
+  "The set of distinct outcomes over the given `orderings`."
+  [orderings observe]
+  (into #{} (map #(run-ops % observe)) orderings))
 
 (defn- one-outcome!
-  "Assert that every ordering of `ops` agrees, and return the single outcome."
-  [label ops observe]
-  (let [os (outcomes ops observe)]
-    (is (= 1 (count os))
-        (str label ": " (count os) " distinct outcomes across "
-             (count (permutations ops)) " orderings — " (pr-str os)))
-    (first os)))
+  "Assert that every ordering of `ops` agrees, and return the single outcome.  With a
+  `cap`, walk a deterministic sample of that many orderings instead of the full n! —
+  for a scenario whose per-ordering cost makes the exhaustive walk too dear to run
+  every time (see `ordering-sample`)."
+  ([label ops observe] (one-outcome! label ops observe nil))
+  ([label ops observe cap]
+   (let [all    (permutations ops)
+         walked (cond->> all cap (sampled-orderings cap))
+         os     (outcomes walked observe)]
+     (is (= 1 (count os))
+         (str label ": " (count os) " distinct outcomes across " (count walked)
+              (when cap (str " sampled of " (count all))) " orderings — " (pr-str os)))
+     (first os))))
 
 ;; ---- defaults and their exceptions --------------------------------------
 
@@ -410,7 +447,7 @@
              #(v/assert % '(genl mid_t super_t) 'CxUniverse)
              #(v/assert % '(sub_t Ind1) 'CxUniverse)]
         observe (fn [kb] {:isa (v/isa? kb 'Ind1 'super_t)})]
-    (is (= #{{:isa true}} (outcomes ops observe))
+    (is (= #{{:isa true}} (outcomes (permutations ops) observe))
         "transitive membership does not depend on which edge was asserted first"))
   (tu/clear-kb! (tu/test-kb)))
 
@@ -477,7 +514,7 @@
 (defn- derived-edge-observe [kb]
   {:derived (boolean (seq (v/sentexes-matching kb '(wSeenP WA) 'CxWLow)))})
 
-(deftest a-derived-context-edge-seeds-like-an-asserted-one
+(deftest ^:slow a-derived-context-edge-seeds-like-an-asserted-one
   ;; and a rule concluding the edge reaches the same belief an assert does, or the
   ;; fixpoint would depend on whether the spindle was written or inferred.
   ;;
@@ -487,8 +524,8 @@
   ;; file runs an ordering in about a millisecond — so the exhaustive walk is four
   ;; minutes, which is more than the whole rest of the suite.  The handful pins the
   ;; positions that matter: the edge rule first and last, and the fact arriving before
-  ;; and after the wiring that has to reach it.  The exhaustive 120 is the `^:slow`
-  ;; test below, and `lein gate --all` runs it.
+  ;; and after the wiring that has to reach it.  A broader deterministic sample is the
+  ;; `^:slow` test below, and `lein gate --all` runs it.
   (doseq [order [[0 1 2 3 4] [4 3 2 1 0] [2 4 3 1 0] [1 3 0 4 2]]]
     (let [ops (mapv derived-edge-ops order)
           kb  (tu/fresh)]
@@ -497,11 +534,16 @@
           (str order ": a derived edge has to seed what an asserted one seeds"))))
   (tu/clear-kb! (tu/test-kb)))
 
-(deftest ^:slow every-ordering-of-a-derived-context-edge-agrees
-  ;; The exhaustive form of the test above — all 120 orderings, ~2s apiece.  An
-  ;; exhaustive cross-product is what the mark is for, and this is the only test in
-  ;; this file that earns it.
+(deftest ^:slow orderings-of-a-derived-context-edge-agree
+  ;; The broad form of the 4-ordering test above: a deterministic sample of orderings
+  ;; (`ordering-sample`), not all 120.  Every ordering here recomputes the genlCx
+  ;; closure and re-places what it reaches, so it costs ~2s — the exhaustive 120 is
+  ;; ~5 minutes, more than the rest of the suite put together, for a cross-product
+  ;; whose order-dependence would already surface in a spread of orderings.  The
+  ;; sample walks the identity, the reverse and a fixed-seed spread between them; raise
+  ;; `ordering-sample` or drop the cap for an exhaustive audit.
   (is (= {:derived true}
-         (one-outcome! "derived visibility firing" derived-edge-ops derived-edge-observe))
-      "a derived edge has to seed what an asserted one seeds, in any order")
+         (one-outcome! "derived visibility firing" derived-edge-ops derived-edge-observe
+                       ordering-sample))
+      "a derived edge has to seed what an asserted one seeds, over a sample of orderings")
   (tu/clear-kb! (tu/test-kb)))

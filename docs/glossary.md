@@ -72,12 +72,6 @@ a type whose genl closure reaches `type`. Open-world and context-scoped. See
 a `T` — and it reads open-world in *both* directions at once: an unestablished trigger
 leaves it dormant, an unreachable target convicts. See [argtypes.md](argtypes.md).
 
-**`argPreserving`** ![kb](../.github/badges/cat-kb.svg): `(argPreserving P n R)`
-licenses carrying a claim about `P`'s *n*-th argument across an `R`-related pair
-— what makes "the part of a wooden table is wooden" derivable without a rule per
-predicate. `argPreservingInverse` reads it the other way. See
-[inherit.md](inherit.md).
-
 **`ask`** ![inference](../.github/badges/cat-inference.svg): The pluggable
 prover-engine query. It runs the cheapest complete prover alone, else unions the
 applicable provers cheapest-first by cost tier. See [inference.md](inference.md).
@@ -657,6 +651,12 @@ positive one desugars to `S` with `?x` a local matched variable. See
 
 **`thing`** ![kb](../.github/badges/cat-kb.svg): The root of the `genl` type
 hierarchy — every type reaches `thing` upward. See [taxonomy.md](taxonomy.md).
+
+**`transitiveInArg`** ![kb](../.github/badges/cat-kb.svg): `(transitiveInArg P n R)`
+licenses carrying a claim about `P`'s *n*-th argument across an `R`-related pair
+— what makes "the part of a wooden table is wooden" derivable without a rule per
+predicate. `transitiveInArgInverse` reads it the other way. See
+[inherit.md](inherit.md).
 
 **Transitivity** ![kb](../.github/badges/cat-kb.svg): The lifeblood of common
 sense, done by cached closures rather than rules for `genl` / `genlCx`, and

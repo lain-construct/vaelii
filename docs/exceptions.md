@@ -20,17 +20,8 @@ concluding opposite literals:
 (set/defaultRule (implies (penguin ?x) (not (flies ?x))))
 ```
 
-Nothing connects them. Both conclusions are derived, and the connection has to be
-*rediscovered* syntactically at settle time by matching `S` against `(not S)` — which
-puts every hard question in the rediscovery rather than in the knowledge: which
-contexts make the pair a real clash, what breaks a tie between two defaults, and how
-to recover an ordering the ontology already implies without reading it back off the
-genl hierarchy ([nmtms.md](nmtms.md), *There is no second axis*).
-
-The deeper cost is that no argument survives. `why (flies Opus)` and
-`why (not (flies Opus))` are two disjoint trees, and nothing records which won or
-why — so an application cannot argue for or against a proposition, which is the
-whole point of keeping justifications.
+Nothing connects them, and nothing records which one wins.
+[why](defenses.md#the-exception-belongs-on-the-rule-it-excepts)
 
 An exception belongs on the rule it excepts:
 
@@ -121,19 +112,8 @@ the query's context instead, the backward analogue of the same rule.
 The exception is stored **once**, as a belief-following meta-sentex
 `(exceptWhen <query> (sentexHandle H))` naming the rule `H` it qualifies
 (`sentex/exceptWhen-meta`), its query aligned to the rule's canonical variables. It is
-*not* materialized per instance, and the obvious per-instance implementation —
-materialize the ground exception as an unbelieved node and put its handle in the
-justification's `out` set — is wrong twice over.
-
-**It would store the negative space.** `(exceptWhen (flightlessBird ?b) ...)` over ten
-thousand birds would materialize a probe for every bird that *is not* flightless, which
-is nearly all of them. The store would grow with the exceptions that do not apply. The
-one meta-sentex says the same thing without the extent.
-
-**An arbitrary query has no handle.** `out` is a set of handles and can only say
-"these specific propositions are not believed". An exception answered through
-transitivity or arithmetic has no single node whose OUT-ness stands for it. The
-`out` slot is the wrong shape for this, independently of materialization.
+*not* materialized per instance.
+[why](defenses.md#the-exception-is-not-materialized-per-instance)
 
 So the exception's *query* is not materialized: the one meta-sentex holds it, the
 engine reads a rule's exceptions with `provers/rule-exceptions` (the term index on the
@@ -236,12 +216,12 @@ re-check costs one query; a missed one is a conclusion that should have been swe
 wasn't.
 
 Preservation is the one of those that cannot be listed in the code, and the one where
-argument agreement is at its most misleading: `(argPreserving bigger n genl)` makes a
+argument agreement is at its most misleading: `(transitiveInArg bigger n genl)` makes a
 stored `(bigger dog cat)` answer `(bigger poodle siamese)`, so the trigger and the
 conjunct agree on **no argument at all** while naming the same predicate — which reads
 to the filter exactly like an unrelated fact. Which predicates those are is a property
 of the content, so the question asked is `inherit/declared-about?`, the same O(1) gate
-`ArgPreservingProver` takes before its own read, and it is asked once per pass rather
+`TransitiveInArgProver` takes before its own read, and it is asked once per pass rather
 than once per firing: substituting a firing's bindings never moves a functor, and one
 arm of the answer is an index read that the filter's whole claim — that deciding it
 touches nothing but memory — does not allow inside the per-firing loop.
@@ -296,8 +276,10 @@ facts, which is the invariant [nmtms.md](nmtms.md) opens with.
 
 So the refusal is recorded, one level earlier and in the same shape. Where the blocked
 set holds justification ids, `(:refused kb)` holds `{rule-handle -> #{refusal}}`, and a
-refusal is the firing's conclusion, its placement context, its antecedent handles and
-the bindings the condition was asked under — enough to re-ask the same level-6 question,
+refusal is the firing's conclusion, its placement context, its antecedent handles, the
+bindings the condition was asked under, and the **depth bound the refusing run was
+configured with** (so a release honours that bound, not the default, in a settle with no
+run config in scope) — enough to re-ask the same level-6 question,
 and enough to place the conclusion from when the answer moves. A release is then found
 by **re-evaluating the record**: one query per recorded refusal, in place of a join over
 the fact extent.
@@ -340,11 +322,31 @@ behind its bindings is no longer stored and believed. The bindings are a snapsho
 that last one is what stops a refusal resurrecting a firing whose support left; it is
 checked whenever the record is walked, which is also when dead entries are dropped.
 
+The record is also what the **chaining funnel** reads. `core/chain-report` walks every
+forward rule (enumerated `O(rules)` off the antecedent roster, never the fact extent) and
+for each reports what it placed — `jtms/dependents` on the rule handle is its firings —
+against what this record says it refused and why, re-deciding each entry through
+`refusal-state` so a reason shown is one that still holds. A rule that placed nothing and
+refused nothing never completed an antecedent set. That is the per-rule breakdown the
+browser draws at `/funnel` ([web.md](web.md)), and it needs no per-run counter: the ledger
+and the justification graph already hold the answer.
+
 The record is **derived state**, and no store holds it — a refused firing left no
 justification for `recover` to replay. So `recover` rebuilds it the way it rebuilds
 blocking, by re-deciding rather than by reading: `chain/rerecord-refusals!` re-fires
 every rule that can refuse, after the settle that establishes belief, and the refusals
 re-record. A firing that is placeable is placed and deduped by `has-justification?`.
+
+That re-fire runs at the **default** depth bound, not whatever bound each original run
+set. A run's `:max-depth` is transient live-session config that no store holds — exactly
+as `recover`'s derivation depths reset to 0, since a bound only ever governs *future*
+chaining. So a KB chained under a non-default bound and then recovered rebuilds its
+refusals, and releases them, at the default; that matches the live session everywhere the
+default was used, and can differ from it only in the narrow case where a refusal's
+re-derivation depth had risen above a smaller live bound. The bound on an entry is a
+live-session refinement of *that* session's releases; the recovered KB is internally
+consistent at the default it rebuilt over, which is the same default its reset depths now
+bound future chaining against.
 
 **The record is capped at `chain/max-refusals-per-rule` = 4096 entries per rule**, and
 the cap is real rather than defensive. Blocking is bounded by what a rule *derived*;
@@ -486,11 +488,11 @@ at all for the genls walk to follow. All four queue `:all`, for the same reason 
 taxonomy path does: what moved is about one predicate and the exception is about
 another, so the sentence could not narrow the right firings anyway.
 
-- **Argument preservation, from the relation's side.** `ArgPreservingProver` answers by
+- **Argument preservation, from the relation's side.** `TransitiveInArgProver` answers by
   walking the *arguments'* reach, so `(genl chihuahua dog)` flips an exception on
   `largerThan` with neither endpoint anywhere near it.
   `special/recheck-preserving-along` queues every rule whose exception mentions a
-  predicate declared `(argPreserving P n R)` whenever `R`'s extent moves.
+  predicate declared `(transitiveInArg P n R)` whenever `R`'s extent moves.
   [inherit.md](inherit.md) has the whole argument. (From `P`'s *own* side the index is
   already right — the fact is on the exception's predicate — and what has to give way
   there is the argument-agreement filter above.)
@@ -505,7 +507,7 @@ another, so the sentence could not narrow the right firings anyway.
   exactly what it was, and what changed is what may be concluded from it:
   `(symmetric sibOf)` makes a stored `(sibOf Ann Bob)` answer `(sibOf Bob Ann)`,
   `(transitive partOf)` closes a chain, `(inverse childOf parentOf)` answers a goal from
-  the partner predicate's facts, `(argPreserving P n R)` opens the inheritance over
+  the partner predicate's facts, `(transitiveInArg P n R)` opens the inheritance over
   claims already stored, and `(asymmetric P)` is what gives a converse the standing to
   close one again. The sentence's functor is the declaration's, never the exception's,
   so the genls walk misses every one. `special/recheck-declaration` reads the subject
@@ -621,14 +623,11 @@ something it deliberately declines to do.
 
 ## Stratification
 
-If one rule's exception depends on what another rule concludes and vice versa, the
-program has a cycle through negation, which admits zero or several stable models.
-"Which one" would depend on arrival order, breaking the order-independence
-invariant that [nmtms.md](nmtms.md) makes non-negotiable.
-
-Level 6 helps but does not eliminate this — an exception cannot recurse through
-rules *at query time*, but it can read a forward-derived stored fact, so a cycle
-across two rules remains constructible.
+A rule whose exception depends on what another rule concludes, and vice versa, is a
+cycle through negation. Level 6 cannot recurse through rules *at query time*, but an
+exception can read a forward-derived stored fact, so a cycle across two rules remains
+constructible even though the exception evaluator itself never expands a rule.
+[why](defenses.md#a-cycle-through-negation-is-rejected-not-resolved)
 
 So a rule set with a cycle through negation is **rejected at assert time**, as a
 well-formedness check over the rule dependency graph alongside the `genl` cycle
@@ -926,19 +925,14 @@ benchmark's path. `except_recheck_test` pins both, by count rather than by clock
 
 ## Two mechanisms this makes unnecessary, and why neither belongs here
 
-`exceptWhen` makes `penguin ⇒ ¬flies` beat `bird ⇒ flies` **structurally**. Two other
-mechanisms would do the same job, and neither belongs in the engine — **do not add
-either**:
-
-- **A specificity heuristic**, ranking colliding defaults by the genl up-closure size
-  of their rules' antecedent predicates. It guesses at what a block states outright,
-  and its answer moves with how densely the taxonomy above each predicate happens to
-  be populated.
-- **A third defeat class**, letting a non-defeasible rule outrank a defeasible
-  generality. The lattice is `:monotonic > :default` and holds exactly two: a bare rule
-  confers `:monotonic`, capped at its weakest antecedent, and a `set/defaultRule`
-  confers `:default`. A third class is a second ordering that has to be kept consistent
-  with the first.
+`exceptWhen` makes `penguin ⇒ ¬flies` beat `bird ⇒ flies` **structurally**, without
+either of two mechanisms that would do the same job: a specificity heuristic ranking
+colliding defaults by genl up-closure size
+([why](defenses.md#there-is-no-second-axis)), or a third defeat class ranking a
+non-defeasible rule above a defeasible generality
+([why](defenses.md#two-strength-classes-not-three)). The lattice stays
+`:monotonic > :default`, exactly two classes: a bare rule confers `:monotonic`,
+capped at its weakest antecedent, and a `set/defaultRule` confers `:default`.
 
 `why-not` recomputes the excepted argument with `excepted-argument` rather than reading
 the one the backward chainer built.

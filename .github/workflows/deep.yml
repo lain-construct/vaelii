@@ -189,8 +189,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: tms-dense
-            env: VAELII_TEST_TMS=dense
+          - name: tms-reference
+            env: VAELII_TEST_TMS=reference
           - name: rete
             env: VAELII_RETE=1
           - name: query-engine

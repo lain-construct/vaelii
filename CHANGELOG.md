@@ -1,8 +1,214 @@
 # Changelog
 
-## 0.8.0 — 2026-08-14
+## 0.9.0 — 2026-08-17 — "the truth-maintenance network defaults to dense"
 
-What a `genl` edge is worth. `arity`, `functional`, `asymmetric` and the three argument
+- **The dense truth-maintenance network is the default.** `open-kb`'s `:tms` now defaults
+  to `:dense` (bitmaps + primitive-keyed maps) rather than `:reference` (the persistent-map
+  network). `jtms_dense_oracle_test` proves the two belief-identical op by op, so no answer,
+  match or ordering changes; what changes is resident RAM — measured flat per node from 20k
+  to 1M, the JTMS holds in ~3.8× less memory at corpus scale (~9.1 → ~2.35 GB on an 11.5M-
+  sentex corpus, a ~21% whole-KB cut), which an engine built for one large node holding 100M
+  should take by default. Wall is unchanged: dense loads and recovers as fast as the
+  reference, and at 10.19M both wall identically because the open-time cost is above the
+  network. *Class:* **Breaking** — a documented default changes: a KB opened without `:tms`
+  now runs the dense network, and `catalog/footprint`'s `:tms` estimate drops 467 → ~101
+  B/sentex to match. No answer, match or ordering moves — only the representation and the
+  footprint number. *Breaks:* the `:tms` default. *Migration:*
+  pin `:tms :reference` to keep the persistent-map network and the old footprint figure. [docs/density.md](docs/density.md),
+  [docs/nmtms.md](docs/nmtms.md)
+
+- **The dense network gives a concurrent reader a consistent view.** A reader thread beside
+  the writer — the web browser over a REPL's KB, the shape the single-writer contract calls
+  supported — now sees belief either fully before or fully after a relabel, never a
+  partially-applied one, matching the reference. The dense network coordinates through a
+  `StampedLock`: writers take the exclusive stamp, the hot point reads (`in?`) run
+  optimistically and validate, iterating reads take a shared stamp. Lock-free in the steady
+  state, and the dense probe stays ~9× faster than the reference's hash-set lookup even so
+  (≈19 ns against ≈180 ns per `in?`). *Class:* Additive — no answer, match or API changes;
+  a race that could tear or fault a read on the new default now cannot. `jtms_concurrency_test`.
+  [docs/density.md](docs/density.md), [docs/storage.md](docs/storage.md)
+
+- **Four relation properties, enforced.** `irreflexive` refuses a self tuple `(P a a)` at
+  the door (`:type` `:irreflexive`), the strict counterpart of `reflexive` and stronger
+  than `asymmetric`, which admits the self tuple. `antiSymmetric` resolves by *merging*: a
+  believed converse `(P b a)` beside `(P a b)` derives `(equals a b)` and unifies the two
+  arguments, the antisymmetric twin of what `functional` does with two symbol values, over
+  the same three arrival directions; a converse no equality could reconcile (two numbers)
+  refuses instead (`:type` `:anti-symmetric`). `equivalenceRelation` needs no engine code —
+  three shipped forward rules derive `symmetric`, `transitive` and `reflexive`, each
+  enforced in turn (a subsumption `genl` edge would classify but not set the property the
+  enforcement reads, so the rules are the minimal correct expression). `antiTransitive` is
+  **declared and its chain conviction deferred**: `(P a b) ∧ (P b c) ⇒ ¬(P a c)` is a
+  three-party nogood the settle machinery forms only pairwise, so what is enforced is its
+  classification and `(disjoint transitive antiTransitive)` — no predicate is both. Each new
+  property is one predicate on the collapsed model — `(genl X binaryPredicate)`, no derived
+  twin — and the lattice sits on the bare marks: `(genl asymmetric irreflexive)`, `(genl
+  asymmetric antiSymmetric)`, `(disjoint symmetric asymmetric)`, `(disjoint reflexive
+  irreflexive)`, `(disjoint transitive antiTransitive)`. `(disjoint symmetric antiSymmetric)`
+  is skipped — `equals` is both. *Class:* **Additive** — two new refusal `:type` keywords a
+  caller may now meet, and vocabulary that was inert before is now read; no existing
+  declaration changes behaviour. [docs/taxonomy.md](docs/taxonomy.md),
+  [docs/nmtms.md](docs/nmtms.md)
+
+- **A subsumption rests on its strongest route, not its shortest.** When a fact reaches a
+  rule antecedent of a different functor across the `genl` closure, the conclusion is
+  capped at the defeat class of the path the match climbed. That path was chosen breadth-
+  first — the *fewest* edges — so a conclusion read `:default` whenever the shortest route
+  ran through a defeasible edge, even when a longer all-`:monotonic` route existed. The walk
+  now takes the **widest bottleneck**: the route whose floor (the `min` defeat class along
+  it) is highest, tie-broken by depth then content. So a conclusion over a `:monotonic`
+  route holds `:monotonic`, and `kb/reach-strength` reads that floor directly. *Class:*
+  **Breaking** — `defeat-class` of a conclusion reached across a taxonomy that offers two
+  routes at different strengths can rise from `:default` to `:monotonic`; a caller that
+  keyed on the old class must re-read it. No answer *set* changes — only the strength a
+  conclusion is reported at. *Breaks:* `defeat-class`. *Migration:* re-read `defeat-class`
+  on conclusions reached across such a taxonomy; if you want the old shortest-path witness
+  for placement, it is unchanged — only the `genl` subsumption path a firing rests on moved.
+  [docs/taxonomy.md](docs/taxonomy.md)
+
+- **An algebraic property is one predicate, not a mark and a twin.** The derived predicate
+  types `symmetricPredicate` / `asymmetricPredicate` / `transitivePredicate` /
+  `reflexivePredicate` / `functionalPredicate` are removed, along with the `PredicateTypeProver`
+  and the CxCore rules that materialized them. Each **mark** — `symmetric`, `asymmetric`,
+  `transitive`, `reflexive`, `functional` — now carries the classification itself: through
+  `(genl symmetric binaryPredicate)` in CxCore it *is* a `binaryPredicate` subtype, so
+  `(symmetric siblingOf)` makes `isa? siblingOf symmetric` and `isa? siblingOf binaryPredicate`
+  hold and `ask (symmetric ?p)` enumerates by ordinary retrieval. `genl` / `genlCx` are the
+  taxonomy's `closure-relations`: `(transitive genl)` is stored and queryable but held out of
+  the `:transitive` property machinery, so it never routes them to the generic prover. *Class:*
+  **Breaking** — a query, rule or `isa?` naming a `…Predicate` type now answers nothing; and
+  because the surviving mark is a `decontextualizedPredicate`, its membership is read KB-wide
+  rather than only in the context that once derived the twin. *Breaks:* `symmetricPredicate`,
+  `asymmetricPredicate`, `transitivePredicate`, `reflexivePredicate`, `functionalPredicate`.
+  *Migration:* replace `(…Predicate P)` with the bare mark `(… P)`; the mark answers the same
+  membership and now classifies `P` as a `binaryPredicate` directly.
+  [docs/taxonomy.md](docs/taxonomy.md)
+
+- **A rule may conclude a variable predicate.** `(implies (holds ?p ?x ?y) (?p ?x ?y))`
+  now asserts, fires, and answers backward, where it was refused `:not-indexable`. The
+  split is by position: a variable functor in the **consequent** is bound by a concrete
+  antecedent (range restriction guarantees it), so the rule fires forward with the
+  predicate ground and its consequent is filed under one catch-all bucket that "what could
+  conclude P?" unions in; a variable functor in an **antecedent** stays refused, because it
+  names no predicate for an arriving fact to trigger and would join over whatever is stored
+  when a concrete antecedent beside it arrives. The refusal message now says which side it
+  is, and a var-consequent rule carrying an `unknown` / `exceptWhen` / aggregate antecedent
+  is refused `:not-stratified` — it could conclude the very predicate whose absence it rests
+  on. *Class:* **Additive**; no rule that asserted before is refused, and one class of rule
+  refused before now runs. [docs/indexing.md](docs/indexing.md)
+
+- **The search a query would run, as data — and a debugger over it.** Two new public
+  reads open the node engine's search. `search-tree` returns the tree a bounded backward
+  search actually builds for a goal — every node the frontier reached, not only the path
+  that answered, each with the itemized estimate that ordered it, the rewrite that
+  produced it, and the answers off it. `compare-tacticians` runs the same goal under each
+  tactician and returns their work and answer *sets*, so a caller can verify that every
+  complete ordering finds the same answers rather than trust it. Both bound their own work
+  (a node budget and a wall-clock) and return serializable data, so the browser's new
+  `/inference` page — the run beside `/levels`' plan — holds no session and works under
+  `--attach`. *Class:* **Additive** — two public reads and one route; nothing existing
+  changes. [docs/web.md](docs/web.md), [docs/inference.md](docs/inference.md)
+
+- **Which of my rules actually do anything — the chaining funnel.** A new public read
+  `chain-report` gives the per-rule breakdown behind `chain-stats`: for every forward rule,
+  how many firings it **placed**, how many it **refused** and why (`exception` / `naf` /
+  `post-join` / `hidden`), or whether it stayed **silent** because no antecedent set ever
+  completed. It reads `O(rules)` off the standing refusal ledger (re-decided against current
+  belief) and the justification graph, so it reflects the KB as it is now and needs no
+  per-run instrumentation — the counters a live funnel might have kept would only restate
+  what the ledger already holds. The browser's new `/funnel` page ranks the rules by what
+  is wrong (no-placement first, refusals descending), folds in the `violations` each filed,
+  and runs forward chaining as a job that lands back on itself. *Class:* **Additive** — one
+  public read and one route; nothing existing changes.
+  [docs/web.md](docs/web.md), [docs/exceptions.md](docs/exceptions.md)
+
+- **A rule is asked before it fires, and a definitional read is taken from where it is
+  asked.** One blind spot ran through several paths: a stored-but-OUT rule still fired, or
+  a read answered from a vantage that could not see the declaration it rested on. The two
+  re-join paths (`rejoin-qualitative`, `rejoin-preserving`) now ask `rule-believed?` as the
+  trigger path always did, so a defeated rule reached off the storage-posted antecedent
+  index no longer fires — and no longer files a `violations` entry against a rule the KB
+  does not hold. A `watch` subsumes through the `genl`
+  edges its own context sees rather than every edge; a functional-merge clash and ASP's
+  auto-clash detectors read functionality, disjointness and same-class from the solving
+  vantage; and `why-not` names the supersession the fact's own context elected rather than
+  one a global rewrite returned. A refusal also keeps the depth bound its run set, so a
+  release honours that bound over the default — live-session only, since a recovered KB
+  rebuilds refusals at the default exactly as it resets derivation depths. No working caller
+  relied on a rule firing unasked, or on a read that disagreed with itself across a context
+  it could not see. [docs/inference.md](docs/inference.md),
+  [docs/contexts.md](docs/contexts.md), [docs/exceptions.md](docs/exceptions.md)
+
+- **A dotted-rest pattern retrieves the facts it matches.** A query or match whose
+  sentence ends in a rest-splice — `(parentOf . ?args)`, `(?pred . ?args)` — returned
+  `#{}`: its canonical trie path carries the `.` marker as a token no stored fact has, and
+  no candidate branch diverted it. `res/candidate-handles` now routes a dotted pattern to
+  the arity-spanning roots — a concrete functor (with any leading ground argument) reads
+  its functor-scoped roots, an open functor with a leading argument the predicate-agnostic
+  slot roster, and a fully-open `(?pred . ?args)` the whole fact extent — each a superset
+  the existing `unify` filters to the exact set. *Class:* **Additive** — a pattern shape
+  that silently matched nothing now matches; no other shape changes.
+  [docs/indexing.md](docs/indexing.md)
+
+- **A clean cold open can skip the contradiction scan.** With `vaelii.belief.snapshot` set
+  (a system property, off by default), a full `recover` of a writable `:disk` KB leaves a small
+  belief certificate beside the records (`<dir>/belief/`) recording whether the close found the
+  store clean, and the next cold open reads it, checks that the record store's slot fingerprint
+  still matches, and — if the certificate says the store closed clean — skips the closing
+  settle's definitional-clash scan, whose cost is the count of standing clashes and runs to
+  minutes at corpus scale, rederiving byte-identical belief. The certificate never *supplies*
+  belief: it records only whether a clean close found no clash, so a moved record, a torn stamp
+  or an unclean close makes the open ignore it and run the full scan it always did. With the
+  property unset, `recover` computes nothing extra and is the recover it always was. *Class:* **Additive** — one opt-in switch; nothing existing changes.
+  [docs/storage.md](docs/storage.md), [docs/operations.md](docs/operations.md)
+
+- **A third durable records backend, `:sqlite`.** `open-kb` accepts `{:records :sqlite}` (the
+  sugar `:sqlite`), a single-file `<dir>/records.sqlite` store the Apache-2.0
+  `com.vaelii/sqlite` adapter provides — resolved lazily, so the engine carries no JDBC
+  dependency and a KB that never asks for it loads none. Off the classpath, the backend
+  refuses by name with the coordinate to add — the adapter is released separately, after
+  this core version. `:memory` and `:disk` are unchanged, and a
+  durable `:disk` index over `:sqlite` records is refused exactly as it is over `:memory`.
+  *Class:* **Additive** — a new backend keyword; no existing pairing changes.
+  [docs/storage.md](docs/storage.md)
+
+- **`person` is a social agent, and `human` is the biological type.** The shipped ontology
+  splits the two: `human` is `(genl human mammal)` and `(genl human person)`, while `person`
+  is `(genl person physical_object)` — an entity with social agency that need not be alive. So
+  `(isa X person)` no longer entails `mammal` or `animal`: a non-biological agent can be a
+  `person`, which is what lets the social predicates (`friendOf`, `knows`, `marriedTo`)
+  constrain their arguments to `person` and still admit it, while the biological predicates
+  (`parentOf`, `birthYearOf`, `fatherOf`, `motherOf`) constrain to `animal` and refuse a
+  `person` who is not one. *Class:* **Breaking** — a shipped taxonomy edge changed: `(genl
+  person mammal)` and `(genl person animal)` no longer hold, so a query, rule or `isa?` that
+  read a `person` as a `mammal`/`animal` answers differently. *Breaks:* the `person`
+  membership entailment; the biological predicates now refuse a non-`animal` `person`.
+  *Migration:* type biological individuals `(isa X human)` where you relied on `(isa X person)`
+  implying `mammal` or `animal`; leave non-biological agents as `person`.
+  [docs/commonsense.md](docs/commonsense.md)
+
+- **`argPreserving` is renamed `transitiveInArg`.** The meta-predicate that declares an
+  argument position preserved down a `genl` edge, and its inverse, are renamed across the
+  shipped ontology, engine and docs: `argPreserving → transitiveInArg`, `argPreservingInverse
+  → transitiveInArgInverse`. The semantics are identical; the spelling names what the property
+  is — a predicate transitive in one argument — rather than a side effect of it. *Class:*
+  **Breaking** — a shipped KB predicate name changed. *Breaks:* `argPreserving`,
+  `argPreservingInverse`. *Migration:* rename both in your KB text; nothing else changes.
+  [docs/inherit.md](docs/inherit.md)
+
+- **`argIsa` / `argGenl` / `interArgIsa` answer up the `genl` cone.** `(ask (argIsa petMammal 1
+  animal))` now answers when `(argIsa petMammal 1 mammal)` is stored and `(genl mammal animal)`
+  holds: the predicate position descends and each type position ascends — a stored declaration
+  on a super-predicate answers a sub-predicate query, and one on a sub-type a super-type query,
+  matching what `check` already enforces. A bounded prover walks it on demand and materializes nothing, so
+  `sentexes-matching` still shows only the stored declarations. `arity` is deliberately
+  excluded — a sub-predicate may carry its own signature. Closes #20. *Class:* **Additive** —
+  a query that answered nothing now answers; nothing stored or existing changes.
+  [docs/argtypes.md](docs/argtypes.md), [docs/inherit.md](docs/inherit.md)
+
+## 0.8.0 — 2026-08-14 — "predicates inherit down the hierarchy"
+
+`arity`, `functional`, `asymmetric` and the three argument
 constraints descend the predicate hierarchy now — at the door and on every retroactive
 pass — so a claim spelled with a sub-predicate is held to what its supers declare, and
 the six arrival orders of {declaration, fact, edge} reach one set of beliefs. Beside it
@@ -562,7 +768,7 @@ the answers computed are identical, and all three are free where nothing is decl
   mark rows for a terminal, one line per namespace for a pipe or CI, forced either way with
   `SUITE_PROGRESS`. *Class:* neither label. [docs/operations.md](docs/operations.md)
 
-## 0.7.0 — 2026-08-12
+## 0.7.0 — 2026-08-12 — "contexts get one spelling"
 
 - **Breaking: a context name is `Cx`-prefixed, not `Context`-suffixed.** `CoreContext`
   is `CxCore`, `UniverseContext` is `CxUniverse`, and the `assert` front door refuses a
@@ -577,9 +783,9 @@ the answers computed are identical, and all three are free where nothing is decl
   `genlContext` edge is a fact under a predicate nothing reads, so re-assert it rather
   than expecting the taxonomy to find it. `docs/taxonomy.md`.
 
-## 0.6.0 — 2026-08-12
+## 0.6.0 — 2026-08-12 — "stored rules become first-class"
 
-What a stored rule is worth. A rule can conclude a rule, a NAF guard written as a
+A rule can conclude a rule, a NAF guard written as a
 conjunction guards instead of firing unconditionally, and every door that reaches a rule
 reads **belief** rather than storage. Beside them, the arrival-order dependences left in
 the belief loop are closed — a revived datum, an un-merged spelling, and every report,
@@ -881,9 +1087,9 @@ written.
   and what it does not. *Class:* neither label; each answers what it answered.
 
 
-## 0.5.1 — 2026-08-11
+## 0.5.1 — 2026-08-11 — "faster writes, more to watch"
 
-What a write pays, and what an instrument can see. A run of costs that grew with what the
+A run of costs that grew with what the
 KB *holds* rather than with what the write *touched* — the taxonomy reconcile, the five
 flat caches, the reified-NAT orphan sweep, a retraction's teardown, the standing-clash
 ordering, a context-cycle repair, a repeated closure ask and a query plan's child count —
@@ -1124,7 +1330,7 @@ anyway, because a caller can observe them and should be told what to expect.
   that position dependence is a property of the harness rather than of the engine.
 
 
-## 0.5.0 — 2026-08-07
+## 0.5.0 — 2026-08-07 — "operating the engine as a service"
 
 Operating the engine, in the two senses a running process needs: what it will let a caller
 do, and what it will tell an operator it is doing. The daemon authenticates and refuses to
@@ -1278,7 +1484,7 @@ deployed.
   reads the other key each throw's ex-data carries to say which of the five it is.
 
 
-## 0.4.0 — 2026-08-05
+## 0.4.0 — 2026-08-05 — "correctness fixes against the invariants"
 
 Correctness fixes found by reading the engine against its own stated invariants, in the
 places 0.2.0 and 0.3.0 did not reach: a backward-chaining loop guard that made a
@@ -1482,7 +1688,7 @@ question in silence.
   rules, one per predicate the metarule ranged over.
 
 
-## 0.3.0 — 2026-08-04
+## 0.3.0 — 2026-08-04 — "a type on every refusal"
 
 Correctness fixes across the durable index, the snapshot, the JTMS, the export dump
 and the bounded prover, a sweep that gives every refusal a `:type`, the one wire
@@ -1629,7 +1835,7 @@ observable contract, which is why this is 0.3.0 and not 0.2.1; the rest are comp
   content-first of the two was weighed and the other left believed beside content that
   contradicts it.
 
-## 0.2.0 — 2026-08-03
+## 0.2.0 — 2026-08-03 — "the public API boundary, drawn"
 
 **Not a drop-in upgrade from 0.1.0.** Several of the changes below refuse input
 0.1.0 accepted or change an observable contract — each such entry is marked
@@ -1701,12 +1907,12 @@ the 0.1.0 header are in it, newest first.
 - **`+with-foreign` names a coordinate that exists**
   (`com.vaelii/vaelii-foreign`); the bare id it carried resolved nothing.
 
-## 0.1.0 — 2026-07-31
+## 0.1.0 — 2026-07-31 — "the first release"
 
 The first release. What follows is the development log that produced it, newest
 first; every entry below is in 0.1.0.
 
-## 2026-07-30
+## 2026-07-30 — "declarations re-check what they change"
 
 - A declaration re-checks the exceptions it moves: `(symmetric P)`,
   `(transitive P)`, `(inverse P Q)` and the `argPreserving` forms change what
@@ -1723,7 +1929,7 @@ first; every entry below is in 0.1.0.
 - Three readers of one question agree over a cyclic hierarchy, and settle
   repairs the context ranking after reconciling belief as well as before it.
 
-## 2026-07-29
+## 2026-07-29 — "one entry point for backward chaining"
 
 - One front door for backward chaining: the four paths measured, then
   consolidated to two chainers behind one entry point with one dial. A proof
@@ -1736,7 +1942,7 @@ first; every entry below is in 0.1.0.
 - A constraint declaration may name a second sentex it must not weigh, and a
   depth bound has no default because there is no defensible one.
 
-## 2026-07-28
+## 2026-07-28 — "the gate: lint, suite, and scaling"
 
 - `lein gate`: lint, the suite, and the scaling claims, measured and failed on
   rather than asserted; five checks added for costs that grow with what they
@@ -1749,7 +1955,7 @@ first; every entry below is in 0.1.0.
 - The naming invariants belong to the knowledge base, and the bulk door counts
   what it skips.
 
-## 2026-07-27
+## 2026-07-27 — "aggregation over query results"
 
 - Aggregation: a count is a query operator, and a firing that rests on one is
   maintained like any other — gated by a permutation test. A census counts
@@ -1762,7 +1968,7 @@ first; every entry below is in 0.1.0.
 - The browser draws term shapes, composes English at three densities, and
   gained `lein browser`; OpenCyc loading went from 378s to 277s.
 
-## 2026-07-26
+## 2026-07-26 — "reads scoped to the asking context"
 
 - Contexts got a vantage: every taxonomy supporter records the context it
   asserts from, so disjointness, matching fan-out and settle all read only
@@ -1774,7 +1980,7 @@ first; every entry below is in 0.1.0.
 - A knowledge base is readable before it finishes loading, and the suite runs
   on every backend from one script.
 
-## 2026-07-25
+## 2026-07-25 — "OpenCyc in the engine's own format"
 
 - OpenCyc, read and re-expressed: every constant given back its role, 1.1M
   sentexes in the engine's own format, on the machine that reads it. Nothing
@@ -1789,7 +1995,7 @@ first; every entry below is in 0.1.0.
   `inherit` declared rather than assumed; definitional checks reach every
   term; `argGenl` constrains one level up.
 
-## 2026-07-24
+## 2026-07-24 — "denser storage, measured first"
 
 - The scale program opened with measurement first: the truth-maintenance
   wall, a posting-encoding bake-off on a real corpus, and a rule audit.
@@ -1805,7 +2011,7 @@ first; every entry below is in 0.1.0.
   loopback, refuse cross-origin writes — and a pluggable LLM proposes edits
   and never applies them.
 
-## 2026-07-23
+## 2026-07-23 — "performance fixes, and an operational surface"
 
 - A performance review, its findings fixed: the disk log records operations
   rather than grown values (killing an O(N²) write amplification), settle
@@ -1821,7 +2027,7 @@ first; every entry below is in 0.1.0.
   closures answered on demand; the record split into atomic and rule shapes
   with interned symbols; a bulk-load fast path.
 
-## 2026-07-22
+## 2026-07-22 — "sound negation as failure"
 
 - Negation as failure, at top level and in antecedents, with block, sweep and
   revive, and stratification to keep it sound.
@@ -1834,7 +2040,7 @@ first; every entry below is in 0.1.0.
   store, index store.
 - The index benchmark harness, and a per-handle provenance side map.
 
-## 2026-07-21
+## 2026-07-21 — "equality lands, and a sudoku solved"
 
 - `exceptWhen` canonicalized into the record, blocking excepted conclusions
   with only reachable firings re-checked; its query reified the way a fact
@@ -1849,7 +2055,7 @@ first; every entry below is in 0.1.0.
   subsumption, set-algebra retrieval, an opt-in incremental matcher.
 - Truth-maintenance mutations are atomic; lint arrived.
 
-## 2026-07-20
+## 2026-07-20 — "order independence, made an invariant"
 
 - Canonical rule form — canonical variables with a varmap, literal order,
   comparison direction — so rules alike up to renaming share one handle.
@@ -1864,7 +2070,7 @@ first; every entry below is in 0.1.0.
   irreversible operations; tests became net-neutral, and a second concurrent
   run fails fast rather than corrupting the first.
 
-## 2026-07-19
+## 2026-07-19 — "the whole stack, day one"
 
 The first day: a contextualized common-sense knowledge base with a trie
 index, inference and truth maintenance.

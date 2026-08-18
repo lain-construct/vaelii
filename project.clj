@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.8.0"
+(defproject com.vaelii/vaelii "0.9.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -62,8 +62,12 @@
   ;; `^:slow` defers a test costing about a second or more, `^:llm` one that can reach
   ;; a model provider. What each mark selects, and the separate consent gate beside the
   ;; llm one: CONTRIBUTING.md §5.
-  :test-selectors {:default #(not (or (:slow %) (:llm %)))
-                   :slow    #(and (:slow %) (not (:llm %)))
+  ;; `[m & _]`, not `#(… %)`: `lein test :slow some.ns` hands the selector the trailing
+  ;; `some.ns` as an argument — leiningen splits namespaces (symbols) from selectors and
+  ;; passes the var metadata first, then any tokens after the selector — so a one-arg
+  ;; selector throws ArityException there. Swallow the rest; filter on the metadata alone.
+  :test-selectors {:default (fn [m & _] (not (or (:slow m) (:llm m))))
+                   :slow    (fn [m & _] (and (:slow m) (not (:llm m))))
                    :llm     :llm
                    :all     (complement :llm)}
   :profiles {;; `:aot :all` plus a no-op SLF4J binding: silences Jetty's "no providers"
@@ -104,7 +108,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.8.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.9.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -279,18 +283,34 @@
             ;; feeds the README deps badge, via scripts/update-badges.sh --deps
             "antq"            ["with-profile" "+antq" "run" "-m" "antq.core" "--skip=pom"]
             ;; the whole suite once per backend — seven record×index pairs plus the
-            ;; overlay decorator (scripts/test-backends.sh)
-            "test-backends"   ["shell" "bash" "scripts/test-backends.sh"]
+            ;; overlay decorator (scripts/test-backends.sh).  The trailing `~(…)` hands
+            ;; the script leiningen's terminal state, because lein-shell pipes its
+            ;; stdout and the script cannot otherwise tell whether the real output is a
+            ;; terminal — the compact marks under one, greppable lines into a pipe
+            ;; (scripts/lib/suite-marks.sh).  test-sweeps and test-shuffle carry it too.
+            "test-backends"   ["shell" "bash" "scripts/test-backends.sh"
+                               ~(if (System/console) "--tty" "--no-tty")]
             ;; and once per alternative implementation — the dense TMS, the sweep
             ;; chainer, the node engine, one of its tacticians, the reference
             ;; context retrieval (scripts/test-sweeps.sh).  The other axis, and
             ;; together with the line above it is what `deep.yml` runs
-            "test-sweeps"     ["shell" "bash" "scripts/test-sweeps.sh"]
+            "test-sweeps"     ["shell" "bash" "scripts/test-sweeps.sh"
+                               ~(if (System/console) "--tty" "--no-tty")]
             ;; ...and both at once, one JVM per configuration, as many at a time as
             ;; the box has cores for: ~13 minutes against the ~55 the two scripts
             ;; above take in sequence, and the one to run when a change owes the
             ;; matrix (scripts/test-matrix.sh)
-            "test-matrix"     ["shell" "bash" "scripts/test-matrix.sh"]
+            "test-matrix"     ["shell" "bash" "scripts/test-matrix.sh"
+                               ~(if (System/console) "--tty" "--no-tty")]
+            ;; the whole matrix in a random order, memory first, stopping at the
+            ;; first configuration that fails — the smoke test the full matrix is
+            ;; not.  `lein test-shuffle -n` prints the shuffled plan; the seed it
+            ;; reports replays the order (scripts/test-shuffle.sh).  The trailing
+            ;; `~(…)` hands the script leiningen's terminal state so the graph is the
+            ;; compact marks under a terminal and the greppable lines into a pipe,
+            ;; the same as the two matrix scripts above (scripts/lib/suite-marks.sh).
+            "test-shuffle"    ["shell" "bash" "scripts/test-shuffle.sh"
+                               ~(if (System/console) "--tty" "--no-tty")]
             ;; a release step, not a gate: who does this release's Breaking
             ;; entries break?  Reads each entry's `*Breaks:*` tokens and greps
             ;; the sibling checkouts for them (scripts/check-breaking-siblings.sh)
@@ -328,6 +348,10 @@
             "bench-residency" ["with-profile" "+bench" "run" "-m" "vaelii.bench.residency"]
             "bench-cyclic"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.cyclic"]
             "bench-checks"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.checks"]
+            ;; the argument-root index's cost on the belief-settle (recover) hot path —
+            ;; a micro probe (returned-vs-matched) and an end-to-end reindex+recover, the
+            ;; shared judge for the index-layout experiment (docs: bench/…/argindex.clj)
+            "bench-argindex"  ["with-profile" "+bench" "run" "-m" "vaelii.bench.argindex"]
             "bench-inherit"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.inherit"]
             "bench-tactics"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.tactics"]
             ;; the two per-firing reads `perf` cannot gate: a cost that is constant per
@@ -337,6 +361,10 @@
             ;; where a bulk load's wall clock goes, phase by phase — a cumulative peel,
             ;; so the deltas sum to the baseline (docs/storage.md, "What a bulk load costs")
             "bench-loadphase" ["with-profile" "+bench" "run" "-m" "vaelii.bench.loadphase"]
+            ;; where `recover`'s per-open wall clock goes, step by step — a faithful replay
+            ;; of its body timed apart (persistence-prompts/01-recover-decomposition.md).
+            ;; Large sizes want heap: `lein update-in :jvm-opts conj '"-Xmx24g"' -- …`
+            "bench-recoverphase" ["with-profile" "+bench" "run" "-m" "vaelii.bench.recoverphase"]
             ;; the rebuildable caches' resident bytes and the KB-quality readings, in one
             ;; JVM because both sit behind the same expensive corpus load.  `+with-foreign`
             ;; too: a corpus run resolves the `:cyc-corpus` reader through the plugin.

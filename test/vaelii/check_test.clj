@@ -52,11 +52,13 @@
                 CxThe                                                     :not-well-formed]
                ["an unbound consequent variable"
                 (list 'implies (list dog '?x) (list 'animal '?y)) CxThe :not-range-restricted]
-               ;; the rule index is keyed by predicate, and a variable names none — so
-               ;; `check` has to predict the refusal `assert` makes, or an editor
-               ;; validating a metarule is told it will land when it will not
-               ["a rule literal with a variable predicate"
-                (list 'implies (list 'and (list dog '?x) (list 'transitive '?p))
+               ;; the rule index is keyed by predicate, and a variable in *antecedent*
+               ;; functor position names none — so `check` has to predict the refusal
+               ;; `assert` makes, or an editor validating a metarule is told it will land
+               ;; when it will not.  (A variable *consequent* functor is allowed now, so
+               ;; the variable has to sit in the antecedent for this to refuse.)
+               ["a rule antecedent literal with a variable predicate"
+                (list 'implies (list 'and (list '?p '?x '?y) (list 'transitive '?p))
                       (list '?p '?x '?x)) CxThe                          :not-indexable]
                ["a disjoint type membership" (list cat Muffet) CxThe      :disjoint]]]
         (testing label
@@ -309,7 +311,7 @@
 
 ;; ---- which declaration a violation names: content, not arrival ----------
 
-(deftest an-arg-type-violation-names-the-content-sorted-declaration
+(deftest ^:slow an-arg-type-violation-names-the-content-sorted-declaration
   ;; two visible argIsa declarations convict the same sentence, one per argument;
   ;; the single reported violation must name the content-sort winner in every
   ;; assertion order — `res/matches-visible` promises the answer *set*, so

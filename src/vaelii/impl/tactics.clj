@@ -97,7 +97,7 @@
                 (not (contains? seen k)))
        (let [seen' (conj seen k)
              cost  (fn [{:keys [antecedents consequent]}]
-                     (when-let [b (res/subsuming-unify kb goal consequent)]
+                     (when-let [b (res/subsuming-unify kb goal consequent res/no-bindings context)]
                        (reduce (fn [acc a]
                                  (let [g (res/substitute a b)]
                                    (+ acc (or (backchain-estimate
@@ -230,6 +230,43 @@
              (* (long depth-sign)
                 (Math/round (* (double depth-weight) (double breadth-bias) (double sumd))))
              (* (long tree-sign) (long tree-weight) (long (:tree-depth node)))))))
+
+(defn estimate-breakdown
+  "The terms `estimate` sums, itemized — so a reader can see *where* a node's cost came
+  from rather than only its total.  The four terms and the total are `estimate`'s own,
+  recomputed the same way; the per-literal costs are `plan/explain`'s, in the order the
+  join will run them, so they are the numbers `core/query-plan` prints for the same
+  conjunction.  One model, two readers — a per-literal cost here that disagreed with the
+  plan would be the cost model arguing with itself.
+
+  The per-literal `:cost` is the clamped index estimate (`:est-matches`, ≤ `literal-ceiling`).
+  With `:estimate-backchain?` set, `:base` costs an allowance-carrying literal through its
+  concluding rules instead, so the summed per-literal costs and `:base` may then differ —
+  `:base` is the authoritative total either way."
+  [kb strat node]
+  (let [{:keys [size-penalty depth-weight tree-weight breadth-bias depth-sign tree-sign]} strat
+        ctx   (:context node)
+        pairs (solved-form node)
+        sumd  (reduce (fn [acc [_ d]] (+ acc (long d))) 0 pairs)
+        base  (long (base-estimate kb node ctx strat))
+        size  (* (long size-penalty) (count pairs))
+        dep   (* (long depth-sign)
+                 (Math/round (* (double depth-weight) (double breadth-bias) (double sumd))))
+        tree  (* (long tree-sign) (long tree-weight) (long (:tree-depth node)))]
+    {:literals      (mapv (fn [{:keys [goal est-matches block isolated? deferred? recursive?]}]
+                            {:sentence   goal
+                             :cost       (min literal-ceiling (long est-matches))
+                             :block      block
+                             :isolated?  (boolean isolated?)
+                             :deferred?  (boolean deferred?)
+                             :recursive? (boolean recursive?)})
+                          (plan/explain kb (mapv first pairs) ctx))
+     :sum-allowance sumd
+     :base          base
+     :size-penalty  size
+     :depth-term    dep
+     :tree-term     tree
+     :total         (+ base size dep tree)}))
 
 (defn child-bias
   "The additive bias this node's children carry into the frontier — zero unless the

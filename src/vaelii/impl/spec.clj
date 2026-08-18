@@ -26,11 +26,12 @@
   (`genls`, `context-up`, …) are specced too, since a wrong-arity call to one of
   them is exactly the kind of mistake instrumentation should surface early.
 
-  **Eleven publics that take an option map are outside it**, and instrumenting says
+  **Thirteen publics that take an option map are outside it**, and instrumenting says
   nothing about their arguments: the batch writes (`assert-many`,
   `bulk-assert-facts!`), the fork and the two consequence readers over it (`fork`,
   `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`),
-  and `check`, `abduce`, `kb-quality`, `clear-caches`.  A roster test in
+  the two search-back reads (`search-tree`, `compare-tacticians`), and `check`,
+  `abduce`, `kb-quality`, `clear-caches`.  A roster test in
   `vaelii.spec-test` holds that list against `vaelii.core`'s own arglists, so the
   gap is a set somebody has to edit rather than a claim that goes stale in silence:
   a public that grows an option map, or arrives with one, fails that test until it
@@ -108,6 +109,7 @@
 ;; property, which is what lets the descension ask whose declarations bind a tuple
 ;; without an index probe per super-predicate (`taxonomy/arg-declaration-props`).
 (s/def ::prop-kind #{:transitive :symmetric :asymmetric :reflexive :functional
+                     :irreflexive :anti-symmetric
                      :decontextualized :forced-decontextualized
                      :abducible :reifiable :unreifiable
                      :declares-arg-isa :declares-arg-genl :declares-inter-arg-isa})
@@ -352,7 +354,7 @@
   `clojure.spec.test.alpha/instrument` / `unstrument`.  This is the single-item
   shape-carrying surface: everything that takes a handle, context, level, strength
   or direction, the option and budget maps those carry, plus the taxonomy and
-  equality reads.  The eleven opts-taking publics it does **not** reach are named in
+  equality reads.  The thirteen opts-taking publics it does **not** reach are named in
   this namespace's docstring and pinned by `vaelii.spec-test`."
   '[vaelii.core/open-kb
     vaelii.core/assert

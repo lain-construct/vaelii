@@ -25,10 +25,14 @@
   between components (interned symbols above all), so a deduped combined total is
   reported alongside — the gap is the shared structure.
 
-  Run: `lein bench-scale [premise-facts] [rule-facts]`  (defaults 200000 50000).
-  Uses spaces 20 and 22 (clear of the test block 14-15 and the other
-  bench harnesses' 9/10)."
-  (:require [vaelii.bench.util :as u :refer [zipf-sample]]
+  Run: `lein bench-scale [premise-facts] [rule-facts] [reference|dense]`
+  (defaults 200000 50000 reference).  The TMS rep is the third arg, so
+  prompt 09 takes both representations by invoking twice — heap isolation
+  per rep is why it is two JVMs, not two runs in one.  Spaces auto-size to
+  the fact count (≥20 / ≥22, clear of the test block 14-15 and the other
+  bench harnesses' 9/10), so 1M does not load at load-factor 1."
+  (:require [clojure.string :as str]
+            [vaelii.bench.util :as u :refer [zipf-sample]]
             [vaelii.core :as v]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p])
@@ -158,18 +162,30 @@
      :ind-cum  (u/zipf-cumulative M 1.0)
      :compound-frac 0.1}))
 
+(defn- space-for
+  "The smallest hash-space `:space` that holds `n` facts with ≈2× headroom, floored
+  at `floor` so the small defaults are unchanged.  `:space` is log2 of the bucket
+  count, so a load at load-factor 1 (space = ⌈log2 n⌉) is what this avoids."
+  [n floor]
+  (max floor (+ 1 (- 64 (Long/numberOfLeadingZeros (dec (long (max 1 n))))))))
+
 (defn -main [& args]
   (let [nums   (keep #(try (Long/parseLong %) (catch Exception _ nil)) args)
+        tms    (some #{:reference :dense} (map #(keyword (str/lower-case %)) args))
+        tms    (or tms :reference)
         n      (or (first nums) 200000)
         rn     (or (second nums) 50000)
+        spaceA (space-for n 20)
+        spaceB (space-for (* 2 rn) 22)          ; Run B's rule derives a twin per fact
         xmx    (/ (.maxMemory (Runtime/getRuntime)) GiB)]
-    (println (format "vaelii scale harness (Phase 0) — %,d premise facts, %,d rule facts — -Xmx≈%.1f GB"
-                     n rn xmx))
+    (println (format "vaelii scale harness (Phase 0) — %,d premise facts, %,d rule facts — TMS :%s — -Xmx≈%.1f GB"
+                     n rn (name tms) xmx))
+    (println (format "spaces: Run A :space %d, Run B :space %d" spaceA spaceB))
     (println "RAM-by-component is jol retained size: structural, contention-immune → TRUSTED.")
     (println "Wall-clock (load/s, reindex, recover) is UNTRUSTED while another load runs on this box.")
 
     ;; ---- Run A: premises only (the clean per-premise-node JTMS cost) ----
-    (let [kb  (v/open-kb {:backend :memory :space 20 :recover? false})
+    (let [kb  (v/open-kb {:backend :memory :space spaceA :tms tms :recover? false})
           _   (do (p/clear-records! (:records kb)) (p/clear-index! (:index kb)))
           rng (java.util.Random. 42)
           {lms :ms} (load-premises! kb rng (config n))]
@@ -183,7 +199,7 @@
         (let [t0 (System/nanoTime)] (v/recover kb)   (println (format "  recover tms+tax: %.1f s" (/ (ms t0) 1000.0))))))
 
     ;; ---- Run B: rules fire (the per-justification / justification cost) ----
-    (let [kb  (v/open-kb {:backend :memory :space 22 :recover? false})
+    (let [kb  (v/open-kb {:backend :memory :space spaceB :tms tms :recover? false})
           _   (do (p/clear-records! (:records kb)) (p/clear-index! (:index kb)))
           rng (java.util.Random. 7)
           {lms :ms} (load-with-rule! kb rng (config rn))]

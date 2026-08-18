@@ -23,7 +23,8 @@
   A `Program` is a self-contained description a real backend renders to ASP.  This
   namespace ships only a deterministic local *stub* solver; a real backend is a
   future plug-in registered with `core/set-solver`."
-  (:require [clojure.set :as set]))
+  (:require [clojure.set :as set]
+            [vaelii.impl.naming :as nm]))
 
 (defprotocol Solver
   (solve [solver program]
@@ -96,11 +97,21 @@
              violated []
              ;; sort by priority, then by content — a stable order over the whole
              ;; contradiction list, not just within one nogood, since an earlier
-             ;; choice constrains later ones
-             ngs (sort-by (juxt (comp - :priority)
-                                #(pr-str (sort (map (partial content-key program)
-                                                    (concat (:nogood %) (:neg %))))))
-                          contradictions)]
+             ;; choice constrains later ones.  The content half is the members'
+             ;; content-keys, sorted and then compared **structurally** rather than
+             ;; re-`pr-str`ed: each key is already a `*print-length*`-guarded string,
+             ;; but a `pr-str` of the *list* of them would elide under an ambient
+             ;; `*print-length*` and drop the tie back onto arrival order.
+             ;; keyed once per nogood, not once per comparison: the key maps
+             ;; `content-key` over every member and sorts them, so a plain `sort-by`
+             ;; would re-run that per comparison — `nm/sort-by-content-key` decorates it once.
+             ngs (nm/sort-by-content-key
+                  (fn [ng]
+                    [(- (:priority ng))
+                     (vec (sort (map #(content-key program %)
+                                     (concat (:nogood ng) (:neg ng)))))])
+                  nm/compare-form
+                  contradictions)]
         (if (empty? ngs)
           {:defeat defeated :violated violated}
           (let [{:keys [nogood neg] :as ng} (first ngs)

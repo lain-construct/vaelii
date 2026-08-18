@@ -23,6 +23,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.kb :as kb]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
@@ -136,7 +137,7 @@
                     (fn [kb concl] [(proof (v/why kb concl))
                                     (mapv #(mapv (fn [h] (said kb h)) (:antecedents %))
                                           (v/supporting-justifications kb concl))]))]
-      (is (= (vec (sort-by pr-str [f1 f2]))
+      (is (= (vec (sort nm/compare-form [f1 f2]))
              (mapv :sentence (:because (first (:support (first (first readings)))))))
           "the join's two facts, in the order they say rather than the order they came")
       (is (apply = readings)
@@ -149,7 +150,7 @@
 
 (deftest a-listing-builds-its-content-key-once-per-justification
   ;; The order every test above demands is bought with `kb/justification-content-key`,
-  ;; and one build is a `get-sentex` per antecedent plus a `pr-str` of the result.
+  ;; and one build is a `get-sentex` per antecedent plus the structural key it assembles.
   ;; `sort-by` calls its key fn from *inside* the comparator, so the price was about
   ;; 2·n·log₂n builds where n would do — and a rule handle is an antecedent of every
   ;; justification it licenses, so `dependent-justifications` on one lists that rule's
@@ -179,11 +180,18 @@
           (testing "the key it built is still the one the order is in"
             (let [k  (kb/justification-content-key kb)
                   ks (mapv k (v/dependent-justifications kb rule))]
-              (is (= ks (vec (sort ks))) "non-decreasing in the content key")))
-          (testing "the same holds of the supports listing, which shares the sort"
+              (is (= ks (vec (sort nm/compare-form ks)))
+                  "non-decreasing in the content key")))
+          (testing "the supports listing shares the sort, and skips it below two"
+            ;; A derived fact usually rests on **one** justification, and there is no
+            ;; order to impose on a singleton — so `in-content-order` short-circuits
+            ;; below two and builds no key at all.  This is the hop a proof walk (`why`,
+            ;; w10 retrieval) makes on every step, and the content key — a `get-sentex`
+            ;; per antecedent — was pure overhead there.
             (let [[js calls] (count-keys #(v/supporting-justifications kb concl))]
               (is (= 1 (count js)))
-              (is (= (count js) calls)))))))))
+              (is (zero? calls)
+                  "a singleton listing builds no key — nothing to order"))))))))
 
 (deftest a-functional-merge-names-its-two-facts-in-the-same-order-either-way
   ;; The other side of the same defect, off the derivation path: a `functional` merge is

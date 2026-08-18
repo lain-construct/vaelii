@@ -7,7 +7,8 @@
 # default.  Five switches `test_util.clj` reads each re-run the whole suite through
 # a component the engine otherwise picks for itself:
 #
-#   tms-dense      VAELII_TEST_TMS=dense        the dense JTMS instead of the map one
+#   tms-reference  VAELII_TEST_TMS=reference    the persistent-map JTMS instead of the
+#                                               default dense one
 #   rete           VAELII_RETE=1                the RETE-ish sweep instead of the
 #                                               re-derivation fixpoint
 #   query-engine   VAELII_QUERY_ENGINE=…        the node engine instead of the goal-stack DFS
@@ -54,7 +55,7 @@
 #   ./scripts/test-sweeps.sh                     # all five, :default
 #   ./scripts/test-sweeps.sh :all                # all five, slow tests included
 #   ./scripts/test-sweeps.sh query-engine        # only this one
-#   ./scripts/test-sweeps.sh :all rete tms-dense
+#   ./scripts/test-sweeps.sh :all rete tms-reference
 #   ./scripts/test-sweeps.sh --fail-fast
 #
 # Env:
@@ -74,6 +75,15 @@
 
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+
+# leiningen's own terminal state, handed down first by the alias: lein-shell pipes
+# this script's stdout, so `-t 1` here would say "not a terminal" and the graph
+# would fall to one line per namespace even with someone watching (suite-marks.sh
+# reads SUITE_TTY at source time below).  Absent when run directly, where `-t 1` stands.
+case "${1:-}" in
+  --tty)    SUITE_TTY=1; shift ;;
+  --no-tty) SUITE_TTY=0; shift ;;
+esac
 
 # shellcheck source=scripts/lib/suite-marks.sh
 . scripts/lib/suite-marks.sh

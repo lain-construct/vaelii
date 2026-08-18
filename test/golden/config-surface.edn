@@ -13,6 +13,7 @@
   "VAELII_ARBITRATE_CONSTRAINTS"
   "VAELII_ASP_SOLVER"
   "VAELII_ASSERTIVE_ARG_TYPES"
+  "VAELII_BENCH_LOG_LEVEL"
   "VAELII_BENCH_STORE"
   "VAELII_BUILD"
   "VAELII_CLINGO_LIB"
@@ -22,7 +23,6 @@
   "VAELII_GATE_OUT"
   "VAELII_GATE_TIMINGS"
   "VAELII_HIER"
-  "VAELII_BENCH_LOG_LEVEL"
   "VAELII_KB_CATALOG"
   "VAELII_KB_PATH"
   "VAELII_LLM_LIVE"
@@ -39,6 +39,7 @@
   "VAELII_PYRAMID_CORPUS"
   "VAELII_QUERY_ENGINE"
   "VAELII_QUERY_STRATEGY"
+  "VAELII_RECOVER_CORPUS"
   "VAELII_RETE"
   "VAELII_SURVEY_STORE"
   "VAELII_TEST_BACKEND"
@@ -48,6 +49,7 @@
   "VAELII_WEB_PORT"],
  :properties
  ["vaelii.asp.solver"
+  "vaelii.belief.snapshot"
   "vaelii.build"
   "vaelii.clingo.lib"
   "vaelii.disk.auto-compact"
@@ -64,4 +66,5 @@
   "vaelii.kb.catalog"
   "vaelii.kb.path"
   "vaelii.llm.provider"
+  "vaelii.memo.budget"
   "vaelii.web.port"]}

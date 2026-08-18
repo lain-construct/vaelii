@@ -94,9 +94,16 @@
   ;; `reified-term?` below, so a KB with no reified terms never sends it
   term-expression
   violations chain-stats terms term-count sentex-count find-terms
+  ;; the per-rule funnel behind chain-stats — placed / refused / silent, for the page that
+  ;; answers "which of my rules actually do anything"
+  chain-report
   ;; how a goal would be answered — which provers bear on it and what each would cost,
   ;; or for a conjunction the join order and the counts that decided it
   query-plan
+  ;; the run that plan predicts: the search tree as data, and the same goal under several
+  ;; tacticians side by side — the reads behind the inference debugger.  Both bound their
+  ;; own work, so a remote reader cannot turn one call into an unbounded search
+  search-tree compare-tacticians
   ;; the *standing* disjointness question, as against the arising one `settle` files
   ;; into `violations`.  Computed on demand, so a caller asks for it rather than
   ;; receiving it, and a remote one pays a round trip for the pass

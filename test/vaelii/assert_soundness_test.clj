@@ -15,6 +15,7 @@
   going through `assert` at all."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.resolution :as rz]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
@@ -180,15 +181,17 @@
 ;; ---- seam 4: a rule the rule index cannot key on ------------------------
 ;;
 ;; The rule index has two cells and both are keyed on a **predicate**
-;; (`kv/rule-ante-key` / `rule-conseq-key`).  A literal with a variable in functor
-;; position names none, and `canonicalize-rule` numbers it to `?var0` before
-;; `special/index-rule-sentex` reads the sentence — so the posting lands under a key no
-;; arriving fact and no goal can spell.  Stored, indexed, and unreachable: the rule
-;; answers no backward goal, and fires forward only when a concrete-predicate antecedent
-;; beside it arrives, which makes its conclusions depend on arrival order.  So it is
-;; refused at the door, with the one exception that claims nothing — an `:inert` rule.
+;; (`kv/rule-ante-key` / `rule-conseq-key`).  A variable in functor position names none,
+;; and `canonicalize-rule` numbers it to `?var0` before `special/index-rule-sentex` reads
+;; the sentence.  The split (reasoning/27): a variable functor in an **antecedent** is the
+;; widest trigger the engine can have — no arriving fact can key it, so it fires only when
+;; a concrete antecedent beside it arrives, which makes its conclusions depend on arrival
+;; order.  That is refused at the door, with the one exception that claims nothing — an
+;; `:inert` rule.  A variable functor in the **consequent** is bound by a concrete
+;; antecedent (range restriction guarantees it), so it fires forward with the predicate
+;; ground and is filed under the `p/var-consequent-key` catch-all for backward reach.
 
-(tu/deftest-kb a-rule-with-a-variable-predicate-is-refused
+(tu/deftest-kb a-variable-predicate-antecedent-is-refused
   (tu/with-terms [likesOf]
     (let [before-sx (tu/sentex-ids kb)
           metarule  (vr/rule-sentence ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x))]
@@ -196,35 +199,56 @@
         (let [e (is (thrown? clojure.lang.ExceptionInfo
                              (v/assert kb metarule 'CxNaturalWorld)))]
           (is (= :not-indexable (:type (ex-data e))))
+          (is (= :antecedent (:role (ex-data e))) "and it names the refused side")
           (is (re-find #"instantiated" (ex-message e))
               "and the message names what to write instead")))
-      (testing "a consequent literal with one, even when every antecedent is concrete"
-        (is (= :not-indexable
-               (try (v/assert kb (vr/rule-sentence [(list likesOf '?x '?y) '(transitive ?p)]
-                                                   '(?p ?y ?x))
-                              'CxNaturalWorld)
-                    nil
-                    (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
       (testing "the same refusal through assert-rule, which wraps and calls assert"
         (is (= :not-indexable
                (try (v/assert-rule kb ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)
                                    'CxNaturalWorld)
                     nil
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
-      (testing "and nothing was stored on the way to any of those"
+      (testing "and nothing was stored on the way to either"
         (is (= before-sx (tu/sentex-ids kb)))))))
+
+(tu/deftest-kb a-variable-predicate-consequent-is-indexed-and-fires
+  ;; The consequent half of the split.  A rule concluding `(?p ?x ?y)` off a concrete
+  ;; antecedent that binds `?p`: forward it fires with the predicate ground, backward it
+  ;; is reachable through the `p/var-consequent-key` catch-all.
+  (tu/with-terms [holds loves Tom Ann]
+    (let [rule (vr/rule-sentence [(list holds '?p '?x '?y)] '(?p ?x ?y))
+          h    (v/assert kb rule 'CxNaturalWorld)]
+      (is (some? h) "the rule with a concrete antecedent and a variable consequent asserts")
+      (testing "forward: a matching fact fires it with the predicate ground"
+        (v/assert kb (list holds loves Tom Ann) 'CxNaturalWorld)
+        (is (v/ask? kb (list loves Tom Ann) 'CxNaturalWorld)))
+      (testing "backward: a concrete goal reaches the rule through the catch-all"
+        (is (contains? (rz/concluding-rule-handles kb loves) h)
+            "the var-consequent bucket is unioned into the concrete-goal answer")))))
+
+(tu/deftest-kb an-unbound-consequent-predicate-is-still-range-refused
+  ;; The consequent split does not loosen range restriction: a consequent functor no
+  ;; antecedent binds is a typo, not a metarule, and stays refused.
+  (tu/with-terms [dog]
+    (is (= :not-range-restricted
+           (try (v/assert kb (vr/rule-sentence [(list dog '?x)] '(?p ?x)) 'CxNaturalWorld)
+                nil
+                (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))))
 
 (tu/deftest-kb an-inert-rule-may-carry-a-variable-predicate
   ;; `:inert` runs in neither engine — it is documentation with a handle — so an index
   ;; key it never reads is nothing it promised.  `CxCore` ships one: the
   ;; decontextualized-predicate lift, stated as `(implies (?pred . ?args) (ist
   ;; CxUniverse (?pred . ?args)))` for a reader and implemented in code.
-  (let [h (v/assert kb (list 'set/inertRule
-                             (vr/rule-sentence ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)))
-                    'CxNaturalWorld)]
-    (is (some? h) "the inert spelling still asserts")
-    (is (= :inert (:direction (v/sentex kb h))))
-    (v/retract! kb h)))
+  (tu/with-terms [likes]
+    (let [h (v/assert kb (list 'set/inertRule
+                               (vr/rule-sentence ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)))
+                      'CxNaturalWorld)]
+      (is (some? h) "the inert spelling still asserts")
+      (is (= :inert (:direction (v/sentex kb h))))
+      (is (not (contains? (rz/concluding-rule-handles kb likes) h))
+          "an inert var-consequent rule keeps the dead ?var0 key — never a concluder for every goal")
+      (v/retract! kb h))))
 
 (tu/deftest-kb a-concrete-rule-of-the-same-shape-still-asserts
   ;; The complement, so the refusal above cannot be "refuse a rule with two antecedents":

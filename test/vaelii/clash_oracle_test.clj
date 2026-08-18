@@ -47,7 +47,7 @@
   * **through argument preservation** — `(outranks animal cat)` denies the more specific
     `(outranks cat reptile)`, and preservation reads a goal's arguments upwards, so the
     specific claim asks about the general one and never the reverse.  So no
-    `argPreserving` declaration is made here.
+    `transitiveInArg` declaration is made here.
 
   That is an open question about *which* sentexes a settle owes a re-check, not about
   whether the narrowings are sound, and the exhaustive reference does not share it — a
@@ -247,7 +247,25 @@
            (binding [res/*hierarchical-retrieval* false] (stream-reading seed 24)))
         (str "seed " seed ": the retrieval strategy changed the clash reading"))))
 
-(deftest randomized-streams-discover-the-same-clashes
+(deftest the-lead-side-does-not-change-what-clashes
+  ;; The clash reading also flows through `checks/membership-handles`, whose lead
+  ;; (`res/*lead-side*`) is a pure cost decision exactly as `*hierarchical-retrieval*` is:
+  ;; `:scoped` reads the `matches-visible` reference (specs walked down), `:auto`/`:agnostic`
+  ;; lead from the term's own postings.  A clash is reported *with* a handle that function
+  ;; names and arbitration turns belief on it, so a lead that changed the answer set — or
+  ;; its content-order choice among entailing memberships — would change what the KB
+  ;; believes.  The three readings must be identical, on the same default-suite reasoning
+  ;; the sibling test above gives.
+  (doseq [seed (range 4)]
+    (let [scoped   (binding [res/*lead-side* :scoped]   (stream-reading seed 24))
+          auto     (binding [res/*lead-side* :auto]     (stream-reading seed 24))
+          agnostic (binding [res/*lead-side* :agnostic] (stream-reading seed 24))]
+      (is (= scoped auto agnostic)
+          (str "seed " seed ": the lead side changed the clash reading"
+               "\n  scoped vs auto:     " (pr-str (diff scoped auto))
+               "\n  scoped vs agnostic: " (pr-str (diff scoped agnostic)))))))
+
+(deftest ^:slow randomized-streams-discover-the-same-clashes
   (doseq [seed (range 12)]
     (let [[step op si se] (run-trial seed 45)]
       (is (nil? step)

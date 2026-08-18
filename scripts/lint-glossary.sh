@@ -33,7 +33,7 @@ while IFS= read -r msg; do
 done < <(awk -v catlist="${CATS[*]}" '
   BEGIN { split(catlist, arr, " ")
           for (i in arr) cats[arr[i]] = 1 }
-  /^## / { section = substr($0, 4); prev = ""
+  /^## / { section = substr($0, 4); prev = ""; prevterm = ""; prevprev = ""
            if (lastsec != "" && !(section > lastsec))
              print "section " section " out of order (after " lastsec ")"
            lastsec = section; next }
@@ -55,9 +55,16 @@ done < <(awk -v catlist="${CATS[*]}" '
     if (n != 1)
       print "entry \"" term "\" has " n " category badges on its term line (want exactly 1)"
     key = tolower(term); gsub(/`/, "", key)
-    if (prev != "" && !(key > prev))
-      print "entry \"" term "\" out of alphabetical order in section " section
-    prev = key
+    if (prev != "" && !(key > prev)) {
+      # Two adjacent entries are out of order; blame the one that moved. If the
+      # current entry sorts fine against the one before prev, then prev is the
+      # spike that jumped ahead — name it rather than the entry it displaced.
+      if (prevprev != "" && key > prevprev)
+        print "entry \"" prevterm "\" out of alphabetical order in section " section
+      else
+        print "entry \"" term "\" out of alphabetical order in section " section
+    }
+    prevprev = prev; prev = key; prevterm = term
   }
 ' "$GLOSS")
 

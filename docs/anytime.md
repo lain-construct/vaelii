@@ -117,12 +117,10 @@ search state serialized, which it is not.
 
 ## `:max-cost` — the qualitative bound
 
-Wall-clock is a real measurement, but a per-prover millisecond estimate is not: an
-implementation has no way to compute one, so it would be a constant standing in for a
-number nobody measured, and a real budget cannot be gated against that. The prover cost
-model is **qualitative** instead — a `cost` tier answering one question, *is the answer
-something you look up, compute, or search for?*
-(`vaelii.impl.provers/cost-tiers`):
+The prover cost model is **qualitative**, not a per-prover time estimate
+[why qualitative](defenses.md#qualitative-cost-tiers-over-time-estimates) — a `cost`
+tier answering one question, *is the answer something you look up, compute, or search
+for?* (`vaelii.impl.provers/cost-tiers`):
 
 ```
 :lookup  <  :compute  <  :search
@@ -135,16 +133,16 @@ something you look up, compute, or search for?*
   step, lazy to the first result, and no decision turns on which of the three it is, so
   they fold into one tier. Twelve of the shipped provers sit here.
 - `:compute` — work over stored facts before the first answer, and five provers claim
-  it: a declared-`transitive` predicate walking its closure, `argPreserving`, `unknown`,
+  it: a declared-`transitive` predicate walking its closure, `transitiveInArg`, `unknown`,
   `thereExists`, and the aggregates. Those last three are the ones `{:max-cost :lookup}`
   is really about, since a `count` is a census of a whole extent and closed-world
   negation is a query run to exhaustion.
 - `:search` — recursive backward chaining, open-ended proof search. **Unoccupied**, and
   by construction: no member of the registry expands a rule, so nothing `ask` dispatches
-  opens a proof search. The tier stays because the ceiling is a claim about what a prover
-  may cost rather than a census of the shipped ones — an application prover added through
-  `add-prover` can claim it. Rule expansion itself is priced by the engine that does it,
-  as `:max-depth` below, which is a bound rather than a tier.
+  opens a proof search — an application prover added through `add-prover` can claim it
+  [why the tier stays](defenses.md#qualitative-cost-tiers-over-time-estimates). Rule
+  expansion itself is priced by the engine that does it, as `:max-depth` below, which is
+  a bound rather than a tier.
 
 The union path already orders applicable provers by this tier (cheapest first, so a
 consumer taking one answer never pays for a closure when a lookup answers).
@@ -155,12 +153,9 @@ empty, `:compute` and `:search` both keep the whole registry. A goal answerable 
 a dropped tier simply yields nothing (an honest empty, not a hang). Combined with `:max-ms` it is a genuine anytime
 strategy: *cheap tiers only, and stop at N milliseconds*.
 
-A value that is not one of the three tiers is **refused** (`:type :unknown-option`), not read
-as no ceiling. A caller writing `:cheap` for `:lookup` is asking to exclude the
-expensive tier, so running it is the one reading of that typo that is certainly wrong —
-and the mistake is invisible in the result, since a ceiling that admits everything
-returns exactly the answers a correct one would, only slower and having done the work
-the bound existed to avoid.
+A value that is not one of the three tiers is **refused** (`:type :unknown-option`), not
+read as no ceiling
+[why refuse](defenses.md#refusing-an-unrecognized-cost-ceiling).
 
 `:max-cost` is an `ask` concept — `prove` runs only facts and rules — so
 `prove-within` ignores it and uses `:max-depth` to bound the search instead.
@@ -184,10 +179,11 @@ depth rather than by `resume`. It is the analogue of Cyc's
   solutions; a single expensive `solve` (a large closure) runs to its own
   completion. `:max-cost` is the lever for that case — exclude the expensive tier
   rather than interrupt it.
-- **No estimate-based admission control.** The budget spends *real* time; it does
-  not trust an estimate to pre-decide a prover fits. Tier-based admission
-  (`:max-cost`) is the coarse and honest version, and there is no finer gate reading
-  a prover's `est-bindings` against the remaining budget.
+- **No estimate-based admission control.** The budget spends *real* time, never a
+  per-prover estimate
+  [why qualitative](defenses.md#qualitative-cost-tiers-over-time-estimates);
+  `:max-cost` is the tier-based version, and there is no finer gate reading a
+  prover's `est-bindings` against the remaining budget.
 - **No cross-process / cross-restart resume.** The continuation is heap state.
 
 ## Where it plugs in

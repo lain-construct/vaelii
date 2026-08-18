@@ -224,7 +224,7 @@
 
 (defn- functor-of [goal]
   (cond (not (sequential? goal)) goal
-        (negative? goal)         (functor-of (second goal))
+        (negative? goal)         (recur (second goal))
         :else                    (first goal)))
 
 (defn- variable-functor?
@@ -271,7 +271,7 @@
          (val e)
          (let [v (f a b)] (vswap! cache update a assoc b v) v)))
       ([a b c]
-       (if-let [e (find (get (get @cache a) b) c)]
+       (if-let [e (find (get-in @cache [a b]) c)]
          (val e)
          (let [v (f a b c)] (vswap! cache update-in [a b] assoc c v) v))))))
 

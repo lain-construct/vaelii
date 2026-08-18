@@ -15,7 +15,7 @@
 
     **read-only** — no premises.  The shipped schema is types, taxonomy, metadata and
     rules, so everything asked *of kinds* is answerable with no write at all, and the
-    page computes it on render.  This is where the taxonomy, `argPreserving`,
+    page computes it on render.  This is where the taxonomy, `transitiveInArg`,
     disjointness and the predicate meta-ontology live.
 
     **sandboxed** — premises naming individuals.  The starter ships no cast (the
@@ -59,12 +59,12 @@
    {:id "arg-preserving" :group "Taxonomy"
     :title "A claim about kinds, reaching kinds it never mentions"
     :shows "(largerThan mammal insect) is a claim about two kinds. Because largerThan is
-            declared argPreserving along genl on both positions, it answers about every
+            declared transitiveInArg along genl on both positions, it answers about every
             pair of subkinds beneath it — here dogs and ants, about whose sizes the KB
             holds nothing whatever."
     :rests-on [['(largerThan mammal insect) 'CxSize]
-               ['(argPreserving largerThan 1 genl) 'CxAbstract]
-               ['(argPreserving largerThan 2 genl) 'CxAbstract]]
+               ['(transitiveInArg largerThan 1 genl) 'CxAbstract]
+               ['(transitiveInArg largerThan 2 genl) 'CxAbstract]]
     :goal '(largerThan dog ant) :context 'CxWell :expect :yes}
 
    {:id "arg-preserving-stops" :group "Taxonomy"
@@ -79,13 +79,13 @@
    ;; ---- the vocabulary reasoning about itself -------------------------
    {:id "metadata-to-type" :group "Predicates about predicates"
     :title "Declaring a property concludes a type"
-    :shows "(symmetric friendOf) is metadata the engine reads. It is also an ordinary
-            antecedent: a CxCore rule concludes the predicate-type membership from
-            it, into CxUniverse by an ist consequent. So the type hierarchy over
-            predicates is derived, not maintained."
+    :shows "(symmetric friendOf) is metadata the engine reads. Because `symmetric` is
+            itself a kind of binaryPredicate — (genl symmetric binaryPredicate) in CxCore
+            — the same assertion classifies friendOf as a binaryPredicate, with no derived
+            twin between the mark and the type."
     :rests-on [['(symmetric friendOf) 'CxSociety]
-               ['(implies (and (symmetric ?p)) (symmetricPredicate ?p)) 'CxCore]]
-    :goal '(symmetricPredicate friendOf) :context 'CxWell :expect :yes}
+               ['(genl symmetric binaryPredicate) 'CxCore]]
+    :goal '(binaryPredicate friendOf) :context 'CxWell :expect :yes}
 
    {:id "arity-cycle" :group "Predicates about predicates"
     :title "Two rules that derive each other"
@@ -109,13 +109,13 @@
 
    {:id "part-type" :group "Predicates about predicates"
     :title "Preserved on one position and not the other"
-    :shows "Nobody wrote that penguins have wings. partType is declared argPreserving
+    :shows "Nobody wrote that penguins have wings. partType is declared transitiveInArg
             along genl on its first position only, and that asymmetry is the claim: a
             kind of bird has whatever parts birds have, while birds having wings says
             nothing about which kinds of wing. Compare largerThan, which is declared on
             both — each position is a separate decision about the relation."
     :rests-on [['(partType bird wing) 'CxAnatomy]
-               ['(argPreserving partType 1 genl) 'CxAbstract]
+               ['(transitiveInArg partType 1 genl) 'CxAbstract]
                ['(genl penguin bird) 'CxOrganism]]
     :goal '(partType penguin wing) :context 'CxWell :expect :yes}
 
@@ -175,7 +175,7 @@
             estimated fan-out before running them."
     :rests-on [['(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z))
                 'CxKinship]]
-    :premises '[(person AdaEx) (person BenEx) (person CalEx)
+    :premises '[(human AdaEx) (human BenEx) (human CalEx)
                 (parentOf AdaEx BenEx) (parentOf BenEx CalEx)]
     :goal '(grandparentOf AdaEx CalEx) :expect :yes}
 
@@ -223,7 +223,7 @@
                   (implies (and (birthYearOf ?x ?bx) (birthYearOf ?y ?by) (lessThan ?bx ?by))
                            (olderThan ?x ?y)))
                 'CxKinship]]
-    :premises '[(person AdaEx) (person BenEx)
+    :premises '[(human AdaEx) (human BenEx)
                 (birthYearOf AdaEx 1970) (birthYearOf BenEx 1980)]
     :goal '(olderThan AdaEx BenEx) :expect :yes}
 

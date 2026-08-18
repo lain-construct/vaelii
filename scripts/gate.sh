@@ -41,7 +41,7 @@
 #   lein gate --skip test      # drop a stage; repeatable
 #   lein gate --only perf      # run one; repeatable
 #   lein gate --all            # test stage at `:all` — the ^:slow tests too
-#   lein gate --jobs 4         # test shards (default: cores - 2; 1 = one JVM)
+#   lein gate --jobs 4         # test shards (default: scripts/lib/slots.sh; 1 = one JVM)
 #   lein gate --sequential     # the old shape: one test JVM, one stage at a time
 #   lein gate --brief          # stage verdicts only, without each stage's roster
 #
@@ -58,7 +58,7 @@
 #     other's answer, so lint is a free minute inside the suite's wall clock.
 #   - **perf runs alone on purpose.**  It judges growth ratios rather than
 #     milliseconds, which is what makes it machine-independent — but a reading taken
-#     while eight test JVMs saturate the box is noise, and a perf gate that goes
+#     while the test shards saturate the box is noise, and a perf gate that goes
 #     amber under its own harness is one nobody trusts.  It is ~40s; that is a cheap
 #     price for a number that means something.
 #
@@ -70,9 +70,12 @@
 #   GATE_JOBS       default shard count for the test stage
 #   PERF_TOLERANCE  passed to `lein perf --tolerance` — raise it on a loaded box
 #
-# Each stage streams to its own log, printed as it starts, so the run is
-# tailable while it goes.  A failing stage prints the tail of its log inline;
-# the whole log is always on disk.
+# Each stage streams to its own log, tailable while it goes.  On the console a
+# stage is ONE chunk — its command, then its verdict, then its detail, printed
+# together when it finishes and set off by a blank line — so a stage reads as a
+# block with its context attached rather than a header at the top and a result
+# far below.  A failing stage prints the tail of its log inline; the whole log is
+# always on disk.
 #
 # Every one of those says which REVISION it is a verdict about — the banner, each
 # stage log's first line, and the closing pass/fail line — and the closing line says
@@ -161,6 +164,10 @@ else
   GREEN=''; RED=''; DIM=''; BOLD=''; RST=''
 fi
 
+# The live perf bar repositions the cursor, so it wants a real terminal — not merely
+# colour, which `VAELII_COLOR=always` can force onto a pipe where cursor motion is noise.
+live=0; [[ $color -eq 1 && -t 1 ]] && live=1
+
 # ---- interruption -------------------------------------------------------
 #
 # A gate is minutes long, so it gets interrupted; what it must not do is leave the
@@ -234,6 +241,7 @@ stamp_interrupted () {         # stamp_interrupted <signal-name>
 # shellcheck disable=SC2317,SC2329  # ditto — `trap 'interrupted INT' INT`
 interrupted () {               # interrupted <signal-name>
   trap - INT TERM              # a second one is the OS's now
+  printf '\e[?25h'             # the perf bar may have hidden the cursor; put it back
   printf '\n%sgate interrupted (SIG%s)%s %s— stopping the stages%s\n' \
     "$RED" "$1" "$RST" "$DIM" "$RST"
   # A bare `wait` reaps every stage, not just the one being waited on when the signal
@@ -275,12 +283,21 @@ trap 'interrupted TERM' TERM
 # its logs are.  Read once here and again at the end, because a gate is minutes
 # long on a checkout several agents write to.
 gate_rev=$(revision_hash)
-printf '%s==>%s %s%-5s%s %s%s  # %s%s\n' \
-  "$BOLD" "$RST" "$BOLD" "gate" "$RST" "$DIM" "$(revision_line)" "$OUT" "$RST"
+# Each banner leads with the command that reproduces that section, so the whole
+# line copy-pastes to re-run it and the `#` turns the blurb and log path into a
+# shell comment.  No `==>`/label gutter before the command — that would break the
+# paste.  The gate affords this where the matrix cannot: three short stages, not a
+# thirteen-wide column of `-Dvaelii.disk.dir=…` launches (test-matrix.sh says why).
+printf '%slein gate%s  %s# %s — logs in %s%s\n' \
+  "$BOLD" "$RST" "$DIM" "$(revision_line)" "$OUT" "$RST"
 
-announce () {                  # announce <name> <blurb>
-  printf '%s==>%s %s%-5s%s %s%s  # %s%s\n' \
-    "$BOLD" "$RST" "$BOLD" "$1" "$RST" "$DIM" "$2" "$OUT/$1.log" "$RST"
+announce () {                  # announce <name> <blurb> <cmd...>
+  local name="$1" blurb="$2"; shift 2
+  # command first so the whole line pastes to re-run the stage; the blurb and log
+  # path follow the `#` as a comment.  The stage name is not repeated — the command
+  # and the `<name>.log` path on this same line already say which stage it is.
+  printf '%s%s%s  %s# %s → %s%s\n' \
+    "$BOLD" "$*" "$RST" "$DIM" "$blurb" "$OUT/$name.log" "$RST"
 }
 
 # ---- what each stage actually checked ------------------------------------
@@ -348,11 +365,64 @@ report_stage () {              # report_stage <name> <exit-code> <seconds>
     printf '    %s✗ %-5s FAILED (exit %d)%s %s[%ds]%s\n' \
       "$RED" "$name" "$code" "$RST" "$DIM" "$t1" "$RST"
     printf '%s' "$DIM"
-    while IFS= read -r line; do printf '      %s\n' "$line"; done \
-      < <(tail -n "$TAIL_LINES" "$log")
+    # What to echo under a red stage depends on what its log is.  lint.sh already
+    # prints one line per passing check and the full detail of only the FAILED
+    # ones, so the whole of that report is the useful thing — a 40-line tail cuts
+    # the earliest failed check (drift and kondo run before cljfmt) off the top and
+    # hands you the last check's rows instead, which is how a red `drift kondo`
+    # shows nothing but a cljfmt diff.  test and perf logs are thousands of lines,
+    # so those stay a tail.  `^#` drops the revision stamp.
+    if [[ "$name" == lint ]]; then
+      while IFS= read -r line; do printf '      %s\n' "$line"; done \
+        < <(grep -v '^#' "$log")
+    else
+      while IFS= read -r line; do printf '      %s\n' "$line"; done \
+        < <(tail -n "$TAIL_LINES" "$log")
+    fi
     printf '%s' "$RST"
     fail=$((fail + 1)); failed+=("$name")
   fi
+}
+
+# ---- the live perf bar ---------------------------------------------------
+#
+# perf runs ~40s of scaling checks and reports them all at once at the end, so its stage
+# would otherwise be a blank wait.  Under a live terminal it gets a filling bar instead.
+# `vaelii.bench.perf` names its check total in the opening banner and prints a
+# `perf-progress k/total …` marker as each check finishes; `perf_bar` reads the total from
+# the banner and counts the markers.  The bar is the matrix's shape — filled green, the
+# unreached tail dim grey (scripts/test-matrix.sh carries the same glyphs and the
+# non-UTF-8-locale note on why `${s}` is braced).
+bar () {                                            # bar <reached> <total> <width>
+  local reached="$1" total="$2" w="$3" fill i s=""
+  (( total < 1 )) && total=1
+  fill=$(( reached * w / total )); (( fill > w )) && fill=w
+  s="${GREEN}"
+  for ((i = 0; i < w; i++)); do
+    if   (( i <  fill )); then s="${s}━"
+    elif (( i == fill )); then s="${s}╾${DIM}"
+    else                       s="${s}─"
+    fi
+  done
+  printf '%s%s' "$s" "$RST"
+}
+
+# Repaint a one-line bar for the perf stage while <pid> runs, in place with `\r`, then
+# erase it so `report_stage` prints the verdict where it stood.  The `sleep` is backgrounded
+# and waited on for the same reason the stages are — a foreground `sleep` swallows the ^C
+# and the INT trap never runs (see the interruption note above).
+perf_bar () {                                       # perf_bar <pid> <log>
+  local pid="$1" log="$2" total reached
+  printf '\e[?25l'                                  # hide the cursor while it repaints
+  while kill -0 "$pid" 2>/dev/null; do
+    total=$(grep -oE '[0-9]+ check\(s\)' "$log" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    [[ -n "$total" ]] || total=0
+    reached=$(grep -c '^perf-progress ' "$log" 2>/dev/null); reached=${reached:-0}
+    printf '\r\e[K    %s  %s%s/%s%s' \
+      "$(bar "$reached" "$total" 28)" "$DIM" "$reached" "$total" "$RST"
+    sleep 0.5 & wait $! 2>/dev/null
+  done
+  printf '\r\e[K\e[?25h'                            # erase the bar; the verdict prints here
 }
 
 run_stage () {                 # run_stage <name> <blurb> <cmd...>
@@ -360,7 +430,8 @@ run_stage () {                 # run_stage <name> <blurb> <cmd...>
   if ! wanted "$name"; then skipped+=("$name"); return 0; fi
 
   local t0 code
-  announce "$name" "$blurb"
+  echo                         # a blank line sets each stage off as its own chunk
+  announce "$name" "$blurb" "$@"
   t0=$SECONDS
   # Captured, never piped: a pipeline reports the *last* command's status, which
   # is how a green gate over a red suite happens.  The stamp first and the stage
@@ -371,6 +442,10 @@ run_stage () {                 # run_stage <name> <blurb> <cmd...>
   # is what lets that handler run at all while a stage is going.
   revision_stamp "$name" >"$OUT/$name.log"
   spawn "$OUT/$name.log" "$@"
+  # perf alone gets the live bar: it is the one stage that runs by itself with nothing to
+  # show meanwhile.  The bar loop returns when the process exits, and the `wait` below then
+  # reaps its retained status — polling with `kill -0` never consumed it.
+  [[ "$name" == perf && $live -eq 1 ]] && perf_bar "$spawned_pid" "$OUT/$name.log"
   wait "$spawned_pid" 2>/dev/null     # 2>/dev/null: the job-done notice
   code=$?
   report_stage "$name" "$code" "$((SECONDS - t0))"
@@ -402,7 +477,7 @@ check_test_reflection () {
 if [[ $sequential -eq 1 ]]; then
   test_cmd=(lein test); [[ $all -eq 1 ]] && test_cmd+=(:all)
 else
-  test_cmd=(scripts/test-parallel.sh); [[ $all -eq 1 ]] && test_cmd+=(:all)
+  test_cmd=(lein test-parallel); [[ $all -eq 1 ]] && test_cmd+=(:all)
   [[ -n "$jobs" ]] && test_cmd+=(--jobs "$jobs")
 fi
 test_blurb="the suite$([[ $all -eq 1 ]] && echo " (:all)")$([[ $sequential -eq 0 ]] && echo ", sharded")"
@@ -418,27 +493,44 @@ if [[ $sequential -eq 1 ]]; then
   check_test_reflection
   [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage perf "the scaling claims" lein "${perf_args[@]}" || true
 else
-  # lint ‖ test, then perf alone — see SHAPE at the top.
+  # lint ‖ test, then perf alone — see SHAPE at the top.  Both start silently; each
+  # one's header prints WITH its verdict and detail as a single chunk when it
+  # finishes (below), so a concurrent stage is still one contiguous block to scan
+  # rather than a header up top and a result far down.  A one-line note names what
+  # is running so the console is not blank while they go.
   lint_pid=""; test_pid=""; lint_t0=0; test_t0=0
   if wanted lint; then
-    announce lint "static analysis"
     lint_t0=$SECONDS
     revision_stamp lint >"$OUT/lint.log"
     spawn "$OUT/lint.log" lein lint; lint_pid=$spawned_pid
   else skipped+=(lint); fi
   if wanted test; then
-    announce test "$test_blurb"
     test_t0=$SECONDS
     revision_stamp test >"$OUT/test.log"
     spawn "$OUT/test.log" "${test_cmd[@]}"; test_pid=$spawned_pid
   else skipped+=(test); fi
 
-  # Joined in the order they were announced, so the report reads top to bottom.
+  running=()
+  [[ -n "$lint_pid" ]] && running+=("lint")
+  [[ -n "$test_pid" ]] && running+=("test")
+  if [[ ${#running[@]} -gt 0 ]]; then
+    run_note="${running[*]}"; run_note="${run_note// / ‖ }"
+    printf '  %srunning %s …%s\n' "$DIM" "$run_note" "$RST"
+  fi
+
+  # Reported lint-then-test regardless of which finishes first, so the report reads
+  # top to bottom; each `wait` blocks until that stage is done.  Its exit code is
+  # captured into a variable BEFORE the header prints — announce's own $? would
+  # otherwise clobber the one report_stage needs.
   if [[ -n "$lint_pid" ]]; then
-    wait "$lint_pid" 2>/dev/null; report_stage lint "$?" "$((SECONDS - lint_t0))"
+    wait "$lint_pid" 2>/dev/null; lint_rc=$?
+    echo; announce lint "static analysis" lein lint
+    report_stage lint "$lint_rc" "$((SECONDS - lint_t0))"
   fi
   if [[ -n "$test_pid" ]]; then
-    wait "$test_pid" 2>/dev/null; report_stage test "$?" "$((SECONDS - test_t0))"
+    wait "$test_pid" 2>/dev/null; test_rc=$?
+    echo; announce test "$test_blurb" "${test_cmd[@]}"
+    report_stage test "$test_rc" "$((SECONDS - test_t0))"
   fi
   check_test_reflection
 

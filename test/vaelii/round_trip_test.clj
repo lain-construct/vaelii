@@ -23,6 +23,7 @@
             [vaelii.impl.catalog :as catalog]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.io.export :as export]
+            [vaelii.impl.io.frames :as frames]
             [vaelii.impl.io.import :as imp]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
@@ -449,12 +450,12 @@
   [^File dir sentence context]
   (let [meta*  (read-string (slurp (io/file dir "meta.edn")))
         stream (io/file dir "sentexes.nippy.stream")
-        frames (vec (#'imp/read-chunked-seq stream (:compression meta* :none)))
+        frames (vec (frames/read-chunked-seq stream (:compression meta* :none)))
         added  {:id (inc (long (apply max 0 (keep :id frames))))
                 :sentence sentence
                 :context context}]
-    (#'export/write-frames! stream (conj frames added)
-                            {:compression (:compression meta* :none) :chunk-size 64})
+    (frames/write-frames! stream (conj frames added)
+                          {:compression (:compression meta* :none) :chunk-size 64})
     (spit (io/file dir "meta.edn")
           (pr-str (update meta* :sentex-count inc)))
     added))
@@ -553,16 +554,16 @@
         (build! kb (terms))
         (export/export! kb dump {:compression :none})
         (let [f      (io/file dump "justifications.nippy.stream")
-              frames (vec (#'imp/read-chunked-seq f :none))
+              frames (vec (frames/read-chunked-seq f :none))
               victim (first frames)
               stored (fn [] [(count (p/sentex-ids (:records kb)))
                              (count (p/justification-ids (:records kb)))])]
           (is (seq frames) "the fixture derived something, so there is a frame to fill")
           (is (= #{} (:out victim)) "and the writer wrote the slot empty, as it always does")
-          (#'export/write-frames! f
-                                  (cons (assoc victim :out #{(:consequence victim)})
-                                        (rest frames))
-                                  {:compression :none :chunk-size 10000})
+          (frames/write-frames! f
+                                (cons (assoc victim :out #{(:consequence victim)})
+                                      (rest frames))
+                                {:compression :none :chunk-size 10000})
           (tu/clear-kb! kb)
           (is (= [0 0] (stored)) "the destination starts empty, as the importer demands")
           (let [e (is (thrown? clojure.lang.ExceptionInfo (imp/import-dump kb dump)))]
@@ -575,7 +576,7 @@
             (is (empty? (tu/premise-ids kb)))
             (is (empty? (v/terms kb)) "and no term was minted into the index either"))
           (testing "so the retry needs no clear! — the empty-destination gate still passes"
-            (#'export/write-frames! f frames {:compression :none :chunk-size 10000})
+            (frames/write-frames! f frames {:compression :none :chunk-size 10000})
             (let [summary (imp/import-dump kb dump)]
               (is (pos? (:sentexes summary)))
               (is (pos? (:justifications summary))
@@ -621,8 +622,8 @@
         comp*   (:compression meta* :none)
         sx-file (io/file dir "sentexes.nippy.stream")
         j-file  (io/file dir "justifications.nippy.stream")
-        frames  (vec (#'imp/read-chunked-seq sx-file comp*))
-        jframes (vec (#'imp/read-chunked-seq j-file comp*))
+        frames  (vec (frames/read-chunked-seq sx-file comp*))
+        jframes (vec (frames/read-chunked-seq j-file comp*))
         embeds? (fn [s] (some sx/sentex-handle? (tree-seq sequential? seq s)))
         meta-fr (first (filter #(embeds? (:sentence %)) frames))
         plain   (first (remove #(embeds? (:sentence %)) frames))
@@ -650,9 +651,9 @@
         doomed  (assoc jframe :id (inc next-j)
                        :antecedents [(:id meta-fr) (+ ghost 500)])]
     (is (some? meta-fr) "the fixture exports a meta-sentex, or this proves nothing")
-    (#'export/write-frames! sx-file frames* {:compression comp* :chunk-size 64})
-    (#'export/write-frames! j-file (conj jframes jframe doomed)
-                            {:compression comp* :chunk-size 64})
+    (frames/write-frames! sx-file frames* {:compression comp* :chunk-size 64})
+    (frames/write-frames! j-file (conj jframes jframe doomed)
+                          {:compression comp* :chunk-size 64})
     (spit (io/file dir "meta.edn")
           (pr-str (-> meta*
                       (update :sentex-count inc)

@@ -64,7 +64,7 @@
 
 (tu/deftest-kb a-size-claim-about-two-kinds-reaches-the-kinds-beneath-them
   ;; (largerThan mammal insect) is stated; nothing is stated about dogs or ants.  The
-  ;; reach is licensed by `argPreserving` on both positions along genl, which is a
+  ;; reach is licensed by `transitiveInArg` on both positions along genl, which is a
   ;; claim about largerThan and not about the world — declared, so it can be wrong,
   ;; rather than assumed, where it could not be.
   (testing "the stated claim, and one nobody stated"

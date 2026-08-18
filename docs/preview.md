@@ -346,5 +346,6 @@ every change of the accepted set has to be free to be wrong about.
 `suspend-premise` is covered where the rest of the network is: `jtms_dense_oracle_test`
 applies it in the randomized op streams and pins it by name, so the two representations
 are proved to agree about it op by op. The suite's two gates cover the rest —
-`VAELII_TEST_TMS=dense` runs these tests against the dense network and
-`VAELII_TEST_BACKEND=disk` against the durable store.
+`VAELII_TEST_TMS=reference` runs these tests against the persistent-map baseline (the
+default network is the dense one) and `VAELII_TEST_BACKEND=disk` against the durable
+store.

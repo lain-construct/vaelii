@@ -55,7 +55,7 @@
   (testing "and it climbs the capability hierarchy: what flies travels"
     (is (v/ask? kb '(capabilityType bird travelling) B))
     (is (v/ask? kb '(capabilityType eagle travelling) B)))
-  (testing "answered by argPreservingInverse, so the kind level stores no rule's output"
+  (testing "answered by transitiveInArgInverse, so the kind level stores no rule's output"
     (is (empty? (v/sentexes-matching kb '(capabilityType bird travelling) '?ctx)))))
 
 (tu/deftest-kb a-nearer-claim-stops-an-inherited-default-at-itself
@@ -140,13 +140,13 @@
 ;; ---- the exception mechanism itself, apart from birds --------------------
 
 (tu/deftest-kb an-inherited-default-is-undercut-and-an-inherited-monotonic-one-is-not
-  ;; `argPreserving`'s contract in one test, both halves.  A default yields to a nearer
+  ;; `transitiveInArg`'s contract in one test, both halves.  A default yields to a nearer
   ;; claim; a monotonic claim does not, because yielding would make a stated certainty
   ;; depend on what else got said, and the strength is exactly the author saying it must
   ;; not.  Two independent hierarchies so neither answer can come from the other.
   (tu/with-terms [carriesLoad pack_animal mule_kind hauler_kind cart_kind]
     (v/assert kb (list 'binaryPredicate carriesLoad) 'CxUniverse)
-    (v/assert kb (list 'argPreserving carriesLoad 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl pack_animal 'animal) 'CxUniverse)
     (v/assert kb (list 'genl mule_kind pack_animal) 'CxUniverse)
     (v/assert kb (list 'genl hauler_kind 'animal) 'CxUniverse)
@@ -208,6 +208,34 @@
         "a type with no path to thing answers nothing and is a type in spelling only")
     (is (= (:edged (:taxonomy q)) (:rooted (:taxonomy q)))
         "every name with a genl edge reaches the root")))
+
+(tu/deftest-kb a-social-agent-is-a-person-but-not-a-mammal
+  ;; The person/human split (#11): `human` is the biological type — a mammal — while
+  ;; `person` is the broad class of anything with social agency.  A non-biological agent
+  ;; is a person by the genl edge to `person`, and inherits none of the biology, so the
+  ;; social predicates constrain their arguments to `person` and still admit it.
+  (tu/with-terms [sentientAndroid CmdrData Geordi]
+    (v/assert kb (list 'genl sentientAndroid 'person) N)
+    (v/assert kb (list sentientAndroid CmdrData) N)
+    (v/assert kb (list 'person Geordi) N)
+    (testing "the android is a person by the edge to the broad class"
+      (is (v/isa? kb CmdrData 'person))
+      (is (v/ask? kb (list 'person CmdrData) N)))
+    (testing "but not a mammal or an animal — person implies neither any more"
+      (is (not (v/isa? kb CmdrData 'mammal)))
+      (is (not (v/isa? kb CmdrData 'animal)))
+      (is (not (v/ask? kb (list 'mammal CmdrData) N))))
+    (testing "so a social relation type-checks between two persons"
+      (is (v/assert kb (list 'friendOf CmdrData Geordi) N))
+      (is (v/ask? kb (list 'friendOf CmdrData Geordi) N)))
+    (testing "while a biological predicate refuses the non-animal person"
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list 'parentOf CmdrData Geordi) N))))
+    (testing "and human, the biological half, reaches mammal, animal and person alike"
+      (is (v/genl? kb 'human 'mammal))
+      (is (v/genl? kb 'human 'animal))
+      (is (v/genl? kb 'human 'person))
+      (is (not (v/genl? kb 'person 'mammal))))))
 
 (tu/deftest-kb the-types-added-for-argument-constraints-are-placed-where-they-are-used
   (testing "the two calculi types the argument declarations name"

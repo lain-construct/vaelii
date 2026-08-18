@@ -29,6 +29,12 @@
   already makes.  A slot that does not carry the bit sends that one handle to its
   record, and the record is authoritative wherever both speak (`rebuild-premises!`).
 
+  The premise's **strength rank** rides the same slot flags (bits 2..3), so
+  `premise-strength` — read once per premise on every `recover` — answers off the 24-byte
+  slot instead of paging the whole record for one keyword.  A slot carrying no rank (a
+  non-premise, or one older than the bits) falls back to the record, the same
+  no-format-bump story as the premise bit itself (`f/slot-strength`).
+
   Recovery on open: finish any interrupted compaction, truncate a torn log tail, then
   tombstone any slot whose frame now extends past the log (`validate-idx-tail!`).
   Crash-safety rests on the write ordering (append the frame, then point the slot at it)
@@ -54,7 +60,8 @@
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.tokens :as dtok]
             [vaelii.impl.io.fingerprint :as fp]
-            [vaelii.impl.protocols :as p]))
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.strength :as strength]))
 
 (def ^:private kind-names ["sentexes" "justifications" "provenance"])
 
@@ -152,7 +159,10 @@
    (locking (:lock k)
      (let [off  (f/append-record! (:log k) ((:enc k) rec))
            plen (- (f/log-length (:log k)) off 4)]  ; payload length (frame minus prefix)
-       (f/write-slot! (:idx k) id off plen (f/premise-flags premise?) 0))
+       ;; the premise's strength rides the slot too (bits 2..3), so `premise-strength`
+       ;; reads it off the idx the open walk already makes rather than paging the record
+       (f/write-slot! (:idx k) id off plen
+                      (f/premise-flags premise? (strength/rank-of (:strength rec))) 0))
      (track-touched k id))
    (swap! (:live-ids k) conj id)
    ;; a just-written record is hot, and this is also what keeps the cache honest when a
@@ -268,7 +278,29 @@
     (swap! premises disj id)
     nil)
   (premise-ids      [_] (set @premises))
-  (premise-strength [this id] (or (:strength (p/get-sentex this id)) :default))
+  (premise-strength [_ id]
+    ;; read the rank off the slot (bits 2..3) — one positional 24-byte read, no frame and
+    ;; no thaw.  A rank-0 slot carries no strength (a non-premise, or a slot older than the
+    ;; strength bits), so it falls back to the record, exactly as the premise bit does for a
+    ;; slot that predates it; any write upgrades the slot and the fetch never runs again.
+    ;;
+    ;; The rank is a cache over the record like the premise bit beside it (`rebuild-premises!`),
+    ;; and it shares that bit's flags-word residual: a torn flags page across a crash can leave a
+    ;; stale rank on a non-tokenized store until the handle's next write (a tokenized open reads
+    ;; every record; a `reindex`/re-mark repairs it).  The record stays the durable truth.
+    ;;
+    ;; Guard the id as `fetch` does — a non-integer informant or a negative id is the nil the
+    ;; memory store answers, not a `read-slot` coercion throw; `premise-strength` must not
+    ;; depend on the backend for a key it does not hold.
+    (let [k (:sentexes kinds)]
+      (if (and (integer? id) (not (neg? (long id))))
+        (if-let [slot (locking (:lock k) (f/read-slot (:idx k) id))]
+          (let [rank (f/slot-strength (:flags slot))]
+            (if (pos? rank)
+              (strength/class-of-rank rank)
+              (or (:strength (fetch k id)) :default)))
+          :default)
+        :default)))
 
   (clear-records! [_]
     (doseq [k (vals kinds)]
@@ -391,11 +423,20 @@
   keeping an undecodable one.
 
   Wherever both speak the **record wins**, which is what makes the bit safe to trust:
-  it is derived state over a durable record, exactly like the live-id set beside it."
-  [k root dict marked unsaid]
+  it is derived state over a durable record, exactly like the live-id set beside it.
+
+  On a **dirty** open the walk covers every live record — as a tokenized open already
+  does — and the slot flags are reconciled against them (`f/reconcile-slot-flags!`): the
+  flags word is a cache and is not crash-atomic, so a torn flags page can leave a slot
+  speaking a stale premise bit or strength rank, and the in-memory set the walk rebuilds
+  fixes belief for this session but not the slot a later *clean* open would trust.  A slot
+  that disagrees with its record is rewritten here, once, on the rare unclean open —
+  self-healing, so the next open is fast again."
+  [k root dict marked unsaid dirty?]
   (let [prem    (java.util.HashSet. ^java.util.Collection marked)
-        walk    (if dict @(:live-ids k) unsaid)
-        damaged (volatile! 0)]
+        walk    (if (or dict dirty?) @(:live-ids k) unsaid)
+        damaged (volatile! 0)
+        fixed   (volatile! 0)]
     (doseq [id walk]
       ;; only crash damage is repaired by tombstoning: a token the dictionary does not
       ;; hold or a body the codec cannot parse is the log's tail having outrun its
@@ -410,11 +451,23 @@
                       (vswap! damaged inc)
                       (kill! k id)
                       nil))]
-        (if (:strength sx) (.add prem id) (.remove prem id))))
+        (if (:strength sx) (.add prem id) (.remove prem id))
+        ;; a torn flags page across a crash may have left this slot's bit or rank stale;
+        ;; the record is the truth, so rewrite the slot to it wherever they disagree
+        (when (and dirty? sx)
+          (let [premise? (some? (:strength sx))
+                rank     (if premise? (strength/rank-of (:strength sx)) 0)]
+            (when (f/reconcile-slot-flags! (:idx k) id premise? rank)
+              (vswap! fixed inc))))))
     (when (pos? @damaged)
       (trove/log! {:level :warn
                    :msg (str "disk records: " @damaged " record(s) at " root
                              " cite tokens the dictionary does not hold — tombstoned")}))
+    (when (pos? @fixed)
+      (trove/log! {:level :warn :id ::flags-reconciled
+                   :msg (str "disk records: reconciled " @fixed " slot flag(s) at " root
+                             " against their records after an unclean shutdown"
+                             " (torn flags page)")}))
     (trove/log! {:level :debug :id ::premise-set
                  :msg (str "disk records: premise set from " (count marked)
                            " annotated slot(s), " (count walk) " record(s) decoded")})
@@ -437,14 +490,19 @@
    (let [root (str dir "/records")]
      (f/ensure-dir! root)
      (f/assert-format! root)
-     (when (f/dirty-marker-present? root)
-       (trove/log! {:level :warn
-                    :msg (str "disk records: unclean shutdown at " root " — verifying on open")}))
      ;; the dictionary is opened whenever the store *has* one, even with tokenized
      ;; writes off, because frames already written need it to decode
-     (let [;; read before the open writes anything, and drop it: the marker describes a
+     (let [;; the marker says the last close was unclean; capture it once — it gates the
+           ;; flags-word reconcile in `rebuild-premises!`, and is consumed (removed) below
+           ;; before the open writes anything
+           dirty?  (f/dirty-marker-present? root)
+           _       (when dirty?
+                     (trove/log! {:level :warn
+                                  :msg (str "disk records: unclean shutdown at " root
+                                            " — verifying on open")}))
+           ;; read before the open writes anything, and drop it: the marker describes a
            ;; store nobody holds, so it can never survive into a session that grows a log
-           clean   (when-not (f/dirty-marker-present? root) (f/read-clean-marker root))
+           clean   (when-not dirty? (f/read-clean-marker root))
            _       (f/remove-clean-marker! root)
            ;; Every open below takes file handles, and a throw part-way leaves the ones
            ;; already taken with nothing to close them: the caller gets an exception
@@ -477,7 +535,7 @@
                                         [(keyword n) k])))
                             kind-names)
                counter (atom (recover-next-id root kinds))
-               prem    (atom (rebuild-premises! (:sentexes kinds) root dict marked unsaid))]
+               prem    (atom (rebuild-premises! (:sentexes kinds) root dict marked unsaid dirty?))]
            (f/create-dirty-marker! root)
            (->DiskRecordStore root kinds counter prem dict))
          (catch Throwable t

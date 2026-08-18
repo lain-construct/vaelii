@@ -72,6 +72,7 @@
    [vaelii.impl.asp.aspif :as aspif]
    [vaelii.impl.asp.atoms :as atoms]
    [vaelii.impl.asp.solver :as solver]
+   [vaelii.impl.naming :as nm]
    [vaelii.impl.solve :as solve]))
 
 ;; Objective levels.  Violations sit above both, at 2 + the rank of the caller's
@@ -112,20 +113,26 @@
   ([program] (translate program {}))
   ([{:keys [assumptions contradictions] :as program}
     {:keys [tiebreak? keep-belief?] :or {tiebreak? true keep-belief? true}}]
-   (let [ordered   (sort-by #(solve/content-key program %) assumptions)
+   (let [ordered   (nm/sort-by-content-key #(solve/content-key program %) compare assumptions)
          ;; the nogoods too: `settle` hands them in arrival order, and every emission
          ;; below — the violation-atom interning, the constraints, the minimize and
          ;; show statements — walks this seq, so an unsorted one renders two logically
          ;; identical programs as different ASPIF text and (without the tiebreak) two
-         ;; different first-found optima for one KB
-         contradictions (sort-by (fn [ng]
-                                   (binding [*print-length* nil *print-level* nil]
-                                     (pr-str [(mapv #(solve/content-key program %)
-                                                    (sort-by #(solve/content-key program %)
-                                                             (concat (:nogood ng) (:neg ng))))
-                                              (:priority ng)
-                                              (boolean (:hard ng))])))
-                                 contradictions)
+         ;; different first-found optima for one KB.  The key is a COMPARABLE STRUCTURE
+         ;; (a vector `compare` orders directly), not a printed string, and it is built
+         ;; ONCE per nogood here — not by the sort's key fn, which `sort-by` re-invokes
+         ;; on every comparison.  The old key `(pr-str [ … ])` did both: it re-rendered
+         ;; the whole nogood, re-`content-key`'d every member, O(n log n) times over the
+         ;; nogood set, grounding the w7 3-colouring ~12× slower than arrival order did.
+         contradictions (let [ck #(solve/content-key program %)]
+                          (->> contradictions
+                               (map (fn [ng]
+                                      [[(vec (sort (map ck (concat (:nogood ng) (:neg ng)))))
+                                        (:priority ng)
+                                        (boolean (:hard ng))]
+                                       ng]))
+                               (sort-by first)
+                               (mapv second)))
          n         (count ordered)
          table     (atoms/new-table)
          ;; Allocate in content-key order so atom ids never depend on assertion order.

@@ -100,9 +100,11 @@ src/vaelii/impl/
   starter.clj       schema-only common-sense KB: loads every kb/ context on start (Core, then upper, then middle), then the type→unaryPredicate batch
   imperative.clj    the do/ imperative dispatch (do/labeling|label|classify): the one non-fact/non-rule shape `assert` takes, routed to asp.* labeling by lazy resolve
   io/generate.clj   synthesize a KB from numbers (types/individuals/rules, a fwd/backward mix, a seed): deterministic, stratified, Zipf-skewed — the shape a measurement needs
-  io/export.clj     write a KB out as a portable dump: field-map frames (never a frozen record), chunked streams, meta.edn written last as the completion marker; `:records+index` writes the index too, as the protocol's `[key value]` projection every backend shares
-  io/import.clj     read one back — our own dialect natively and at the handles the dump gave (a foreign one is remapped, since re-canonicalizing can collapse two of its forms onto one record), a foreign one through the seam below; the dumped index is replayed only when layout + records fingerprint + preserved handles all check out, else rebuilt with the reason said out loud
+  io/frames.clj     the chunked nippy framing under both the dump and the snapshot: `[int32 length][compressed chunk]`, each chunk an independent window so the writer holds one chunk and the reader thaws one — constant memory both ways.  The one home for it, so the dump writer, the dump reader and the sink share a copy instead of three
+  io/export.clj     write a KB out as a portable dump: field-map frames (never a frozen record), chunked streams (`io/frames`), meta.edn written last as the completion marker; `:records+index` writes the index too, sourcing the `[key value]` projection from `io/snapshot` (`index-frames`) so a dump's index and a standalone image are one format
+  io/import.clj     read one back — our own dialect natively and at the handles the dump gave (a foreign one is remapped, since re-canonicalizing can collapse two of its forms onto one record), a foreign one through the seam below; the dumped index is replayed only when handles are preserved and the layout+records core (`snapshot/index-mismatch`, shared with the image) checks out, else rebuilt with the reason said out loud
   io/fingerprint.clj  what makes a dumped index and its records provably the same KB: a commutative sum of per-record hashes over exactly what the index is a function of, accumulated in the storing pass rather than by a second walk
+  io/snapshot.clj   a **snapshot** of derived state (the index today; the JTMS labels next) and the two-op sink it is written through: `SnapshotSink` streams a named section and commits a manifest-last, `SnapshotSource` reads them back; a `file-sink`/`file-source` over `io/frames` and a `memory-medium` that is both.  `decision` is the validate-or-discard lifted from `disk/index_snapshot.clj` — one reason per mismatch class, any doubt discards the whole image and the caller rebuilds.  Holds the `[key value]` projection and the layout+records validity core that the dump above now shares ([storage.md](storage.md))
   foreign.clj       THE SEAM for the formats we read and do not write, and the whole of them here: no reader ships in this tree, and a plugin declares `kind -> reader var` in one edn resource on the classpath, resolved by `requiring-resolve` so no compile-time reference to one exists ([foreign.md](foreign.md))
   catalog.clj       the KB catalog: sources (shipped / generated / corpus / dump / on-disk store, found on a search path), the background load with progress + cancel, and which loaded KB is active ([catalog.md](catalog.md))
   jobs.clj          the registry every long operation runs in — a load, an export, a chaining run: one status vocabulary, one progress reading, one cancel, and the claim that only one job writes at a time ([web.md](web.md))
@@ -164,37 +166,27 @@ run one way:
 kb <- checks <- special <- integrate <- chain <- settle <- vaelii.core
 ```
 
-Exactly two calls run the other way. Both live in `impl/wiring.clj` rather than at the
-call site that needs them, and neither is a misplaced function that could be moved
-somewhere better. A third entry sits in the same file for a related reason, below them.
+Exactly two calls run the other way, and a third is a layering inversion rather than a
+recursion. All three live in `impl/wiring.clj` rather than at the call site that needs
+them ([why they live here](defenses.md#the-layering-inversions-live-in-wiringclj-not-at-the-call-sites)).
 
 - **`assert-sentence`** — the full assertion path, called from `impl/nat.clj` (a reified
   NAT stores its `(termOfUnit K E)` map and its materialized types) and from
   `impl/skolem.clj` (a firing mints its witness). Storing is a *whole* assert — naming,
   the definitional checks, the index, chaining, settle — so the write path runs chaining,
-  and chaining calls back to mint a constant. The recursion is the feature
-  ([skolem.md](skolem.md)): the cycle is in the **behaviour**, and no arrangement of the
-  code removes it.
+  and chaining calls back to mint a constant ([skolem.md](skolem.md)).
 - **`solve-goal`** — the prover registry, called from `impl/resolution.clj` to discharge a
   deferred antecedent (`different` / `evaluate` / `unknown`). Backward chaining is a leaf
   the registry dispatches to, and `unknown` runs the registry back over its own argument,
   so negation-as-failure is mutually recursive with the chainer that asked for it
   ([naf.md](naf.md)).
-- **`import-dump`** — a layering *inversion* rather than a recursion, which is why it is
-  the third entry and not a third cut. `impl/io/import.clj` sits **above** `vaelii.core`
-  and requires it, because reading a dump is asserting: it re-canonicalizes records,
-  reindexes and recovers through the public write path. `core/import!` is `export!`'s
-  inverse and `export!` is public, and a round trip whose two halves are not both public
-  is not a round trip — so the delegation points up, and this is the file a call that
-  points up is written down in.
+- **`import-dump`** — `impl/io/import.clj` sits **above** `vaelii.core` and requires it,
+  because reading a dump is asserting: it re-canonicalizes records, reindexes and recovers
+  through the public write path. `core/import!` is `export!`'s inverse, and both run
+  through that same path, so the delegation points up to reach it.
 
-They are collected because a `requiring-resolve` in whichever file happens to need it is
-invisible: nothing counts them, nothing stops the next one, and the set of places the
-layering is broken can only be recovered by grepping for it. Gathered, they are an
-inventory — three entries, each owing the reason it cannot be an ordinary require — and
 `lein lint`'s **E8** fails a literal `requiring-resolve` anywhere else under `src/`,
-excepting the keyword-dispatch registries it names. A cut with a real fix is expected to
-take the fix; one that lands in the inventory argues for itself in writing first.
+excepting the keyword-dispatch registries it names.
 
 Each entry is a `delay`, so the resolve and the `require` behind it are paid once, on
 first use. A delay rather than a dynamic var bound per call, because the var it caches has

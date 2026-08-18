@@ -155,13 +155,10 @@ terminus, so the skip can never cross into a leaf handle or read a marker as one
 sentex's whole path can be a proper prefix of another's, so a node is leaf and
 interior at once: `(rel A B)` in `CxCee` keys as `[rel A B CxCee]`, and
 `(rel A B CxCee X)` in `CxDee` keys as `[rel A B CxCee X CxDee]`
-— the first path is an interior node of the second. If handles shared the `:s` token
-set they would be indistinguishable from tokens (a handle is an integer, and so is
-the token `1970`), so `lookup [bornIn Tom]` on a stored `(bornIn Tom 1970)` would
-return `1970` as a phantom handle, and `get-sentex 1970` is a real, unrelated sentex.
-Neither rejecting a non-leaf terminus nor type-discrimination can fix that — the node
-*is* a leaf, and a handle and a token are both integers — so the distinction is
-structural: handles live under `[:trie :handles prefix]`, tokens under `[:trie :children prefix]`.
+— the first path is an interior node of the second. Handles and tokens live under
+separate keys rather than sharing one — [why a separate
+key](defenses.md#handles-get-a-key-separate-from-tokens): handles under
+`[:trie :handles prefix]`, tokens under `[:trie :children prefix]`.
 `lookup` reads only the leaf key at its terminus, so it never returns a token as a
 handle; `p/children` reads only the child set, so it is correct at such a node and
 `plan/prefix-estimate`'s fan-out carries no phantom branches.
@@ -170,9 +167,8 @@ handle; `p/children` reads only the child set, so it is correct at such a node a
 answers the width off a cardinality — the set's own count in the KV family, an edge-array
 span or a map's size in the columnar trie — where `children` *materializes* the child set
 to answer at all. That is the distinct-value count the query planner's cost model divides
-by, and it is asked once per literal per plan (`docs/inference.md`), so answering it by
-building the children makes planning one fixed conjunction scale with the KB: 32× the
-facts read 25× the planning cost, on a conjunction that never changed. `lein perf`'s
+by, and it is asked once per literal per plan (`docs/inference.md`) — [why a separate
+read](defenses.md#child-count-is-its-own-read). `lein perf`'s
 `plan-scaling` holds it flat.
 
 The O(1) has one exception, and it is the overlay's merge rule rather than this read:
@@ -303,6 +299,19 @@ predicate) and `[:rule-index :consequent pred] -> #{...}` (by consequent predica
 predicates *and* its consequent predicate, whatever its direction — so "what could
 conclude P?" is answerable for a forward-only rule too.
 
+A rule concluding a **variable** predicate — `(implies (holds ?p ?x ?y) (?p ?x ?y))`,
+allowed because range restriction binds `?p` to a concrete antecedent — has no concrete
+consequent predicate to key on, so its consequent is filed under one catch-all bucket,
+`[:rule-index :consequent :var-pred]` (`protocols/var-consequent-key`). It fires *forward*
+through its concrete antecedent like any other rule; for the *backward* read, "what could
+conclude P?" is the `P` bucket unioned with that catch-all, since a rule concluding `(?p …)`
+could conclude any `P` once `?p` binds. `resolution/concluding-rule-handles` does the union,
+and `rules/direct-concluders` does the same stored-graph read for the stratification and
+blocked-firing paths. A variable functor in an *antecedent* is a different matter and stays
+refused ([the split](defenses.md#a-variable-functor-rule-is-refused-not-silently-accepted)).
+An `:inert` rule concludes nothing in either engine, so a variable consequent on one keeps
+the canonical `?var0` — a dead key nothing reads — rather than the live catch-all.
+
 What may actually *fire* is **not indexed**. A rule's `:direction` and `:defeasible`
 are fields on its own sentex, put there by its `set/*Rule` wrapper (see
 [storage.md](storage.md)), and every consumer reads them from the record:
@@ -310,12 +319,11 @@ are fields on its own sentex, put there by its `set/*Rule` wrapper (see
 chainers `rules/backward-sentex?`. The index answers *which rules mention this
 predicate*; the record answers *what this rule may do*.
 
-There is **no exception** to that split, and nothing indexes `:defeasible` — do not
-add a set that mirrors it. Defaults fire from the same agenda as strict rules, found by
+There is **no exception** to that split, and nothing indexes `:defeasible`.
+Defaults fire from the same agenda as strict rules, found by
 predicate like any other candidate and fired at the strength their own record reports,
-so nothing ever needs to enumerate the defeasible ones. An index that could enumerate
-them is an index that has to be kept in step with a field the record already carries.
-See [inference.md](inference.md).
+so nothing ever needs to enumerate the defeasible ones — [why no defeasibility
+index](defenses.md#rule-defeasibility-is-not-indexed). See [inference.md](inference.md).
 
 A rule concluding a **conjunction** is polycanonicalized into one rule per conjunct
 before storage (`rules/expand-consequent`), so `(implies A (and C1 C2))` is stored
@@ -336,15 +344,13 @@ index exists only to decide *when*:
 A fact on `P` arriving or leaving looks up `[:exception-index P]` and re-checks those rules'
 conclusions. An exception can also flip with no matching fact ever arriving — assert
 `(genl penguin flightlessBird)` and `(flightlessBird ?b)` starts holding — so any
-`genl` / `genlCx` edge change re-checks `[:exception-index :rules]` wholesale. Edge changes
-are rare and exception-bearing rules are few, so the coarse trigger is cheaper than
-tracking which closures a query touched, and it cannot be subtly wrong.
+`genl` / `genlCx` edge change re-checks `[:exception-index :rules]` wholesale.
 
 Granularity is the **rule**, never the firing. A rule handle is already an antecedent
 of every justification it licenses, so each conclusion it produced is reachable
-through the consequence links that exist anyway; indexing individual derivations
-would buy nothing and grow the store with the exceptions that do *not* apply. This is
-the rule index's scale — tens of entries, never millions.
+through the consequence links that exist anyway. This is
+the rule index's scale — tens of entries, never millions — [why the index stays this
+coarse](defenses.md#the-exception-index-stays-coarse).
 
 It stores **no truth value**. It answers "which rules might need re-checking", never
 "does the exception hold" — a hint, never an answer. That is precisely what separates
@@ -547,16 +553,25 @@ than failing:
   buckets are keyed by **top-level position and arity**. A term nested inside an
   argument is not a key in either.
 - **A `:false` body and a rule literal** are not structurally indexed, including the
-  dotted-rest `(?pred . ?args)` shape.
+  dotted-rest `(?pred . ?args)` shape. A dotted pattern changes its functor's arity, so
+  neither the trie nor the argument roots can key it; `res/candidate-handles` retrieves it
+  through the arity-spanning roots instead — the functor extent for a concrete functor, the
+  whole fact extent for an open one — which `unify` then filters (the `:dotted-roots` /
+  `:dotted-fan` paths).
 - **The rule index is keyed by predicate**, not by full antecedent shape, so two rules
   whose antecedents differ below the predicate share a bucket.  A predicate is what the
-  key *is*, so a rule literal with a variable in functor position — `(?p ?x ?y)` — is
-  **refused** at `assert` with `:not-indexable`: canonicalization numbers the functor to
-  `?var0`, no arriving fact and no goal can spell that, and the rule would answer
-  nothing while reporting as accepted.  An `:inert` rule is exempt, since it runs in
-  neither engine; `CxCore`'s `(implies (?pred . ?args) (ist CxUniverse (?pred
+  key *is*, so a variable in functor position turns on *where* it sits.  In an
+  **antecedent** — `(?p ?x ?y)` as a trigger — it names none, so it is **refused** at
+  `assert` with `:not-indexable` — [why refuse rather than accept
+  it](defenses.md#a-variable-functor-rule-is-refused-not-silently-accepted).  In the
+  **consequent** — `(implies (holds ?p ?x ?y) (?p ?x ?y))` — it is allowed: range
+  restriction binds `?p` to a concrete antecedent, so the rule fires forward with the
+  predicate ground, and its consequent is filed under the `:var-pred` catch-all (§3) for
+  the backward read.  An `:inert` rule is exempt from the antecedent refusal, since it runs
+  in neither engine; `CxCore`'s `(implies (?pred . ?args) (ist CxUniverse (?pred
   . ?args)))` is one, stating for a reader what the decontextualized-predicate lift does
-  in code.
+  in code — and being inert, its variable consequent keeps the dead `?var0` key rather than
+  the live catch-all.
 
   A **generator's** stamped rule is the other exemption, and it is the one that buys
   something back: a variable functor there is a *hole*, filled with a concrete predicate

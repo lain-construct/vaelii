@@ -95,7 +95,7 @@ and a bottom anchor. Data hangs below the bottom.
     deliberate: "birds have wings" to "Pingu has a wing" needs a quantifier reading.
   - `CxSize` — comparative size said the two ways it can be said: `largerThan`
     among kinds, and a comparison computed between two objects' measures. The worked
-    example of `argPreserving` ([inherit.md](inherit.md)).
+    example of `transitiveInArg` ([inherit.md](inherit.md)).
   - `CxSocial` — what acquaintance follows from, and how employment relates to
     membership. Every rule runs one way only, because `knows` is deliberately not
     symmetric.
@@ -298,15 +298,18 @@ so. A rule antecedent is the other case: nobody asked, the rule's own context ma
 **The predicate meta-ontology** is a worked example. Predicates are reified as
 individuals under `predicate` (itself a `thing`): `unaryPredicate` (types and
 one-place properties), `binaryPredicate`, `ternaryPredicate`, and the algebraic
-subtypes of `binaryPredicate` — `symmetricPredicate` / `asymmetricPredicate` /
-`transitivePredicate` / `reflexivePredicate` / `functionalPredicate`. The algebraic five
-are **derived** from the predicate metadata by CxCore rules, so a `(symmetric siblingOf)` declaration
-yields `(symmetricPredicate siblingOf)` and `isa? siblingOf symmetricPredicate` holds —
-exactly as `isa? dog unaryPredicate` does for a type. Those rules deliberately name **no**
-context and place by the ordinary rule: every context sees CxCore, so a declaration
-made there still concludes there, and one made in a context concludes in that
-context rather than becoming vocabulary the whole KB reads (see "The consumers"
-below).
+subtypes of `binaryPredicate` — `symmetric` / `asymmetric` / `transitive` /
+`reflexive` / `functional`. The algebraic marks **are** the classification: each is one
+predicate that maintains its property *and*, through `(genl symmetric binaryPredicate)`,
+is a membership, so a `(symmetric siblingOf)` declaration makes `isa? siblingOf symmetric`
+and `isa? siblingOf binaryPredicate` hold — exactly as `isa? dog unaryPredicate` does for
+a type. The two families scope **oppositely**, on purpose: the **arity** memberships are
+derived by CxCore rules that name no context, so they place where the declaration was made
+(a predicate declared binary in one theory is binary *there*, not KB-wide — see "The
+consumers" below), while the algebraic marks are `decontextualizedPredicate`s, lifted into
+CxUniverse and seen by every data context. A predicate's algebra is a claim about the
+predicate itself and belongs to the whole KB; its arity, read off whatever theory declared
+it, stays with that theory.
 
 ## decontextualizedPredicate: a fact that belongs to the KB, not to one theory
 
@@ -652,16 +655,18 @@ just as well when the feature is broken outright.
   (the unique-name assumption is what a context holds until *it* is told
   otherwise), and the public reads take the context too (docs/taxonomy.md).
 
-- **`argPreserving` walks the edges the asker can see** — `inherit/witness-terms`
+- **`transitiveInArg` walks the edges the asker can see** — `inherit/witness-terms`
   scopes its `genl` walk as it already scoped its `fact-reach`, and re-reads the
   relation's transitivity from the same vantage.
 
-- **The predicate meta-ontology concludes where it was declared.** The metadata rules
-  in `kb/CxCore.txt` place by the ordinary rule and name no context, so a
-  `(symmetric myRel)` stated in a context concludes `(symmetricPredicate myRel)`
-  *there*. **Do not name CxCore in them.** Doing so publishes the conclusion: `isa?`
-  would answer from a context that cannot see the declaration, while `has-prop?`, asked
-  of the same declaration from the same context, answers false.
+- **The predicate arity meta-ontology concludes where it was declared.** The arity
+  rules in `kb/CxCore.txt` place by the ordinary rule and name no context, so an
+  `(arity myRel 2)` stated in a context concludes `(binaryPredicate myRel)` *there*.
+  **Do not name CxCore in them.** Doing so publishes the conclusion: `isa?` would answer
+  from a context that cannot see the declaration, while `has-prop?`, asked of the same
+  declaration from the same context, answers false. (The *algebraic* marks — `symmetric`,
+  `transitive`, … — go the other way on purpose: they are `decontextualizedPredicate`s,
+  so a declaration is lifted to CxUniverse and read KB-wide.)
 
 An **`(ist Ctx S)` consequent remains an explicit escape hatch** and is not scoped —
 that is what it is for. A rule author writing one is choosing the target, the same way

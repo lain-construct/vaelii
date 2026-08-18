@@ -635,7 +635,7 @@
   graph.  Two implementations ship: `RefTms` here — an atom over one persistent map,
   the reference — and `vaelii.impl.dense-jtms`, which holds the same graph in
   bitmaps and primitive-keyed maps.  Selected per KB (`open-kb`'s `:tms` opt),
-  reference by default, and proven to answer identically by `jtms_dense_oracle_test`.
+  dense by default since 0.9.0, and proven to answer identically by `jtms_dense_oracle_test`.
 
   The seam is at the *representation*, not at the algorithm: both implementations
   run the same least-fixpoint relabel over the same affected region, because that is
@@ -648,6 +648,11 @@
   (-believed         [tms]       "Seq of the believed datums, or nil when none.")
   (-node?            [tms datum] "Is there a node for `datum`?")
   (-datums           [tms]       "Seq of every datum with a node.")
+  (-any-node?        [tms]       "Is there any node at all?  A boolean that must not
+    materialize the datum seq — `(first (-datums …))` drains the whole dense bitmap
+    into boxed Longs, so callers on a render/poll path use this instead.")
+  (-any-belief?      [tms]       "Is any datum believed (IN, minus supersession)?  Like
+    `-any-node?`, terminates at the first believed datum rather than draining `-believed`.")
   (-depth            [tms datum] "Derivation depth, 0 when unknown.")
   (-premise?         [tms datum] "Is `datum` a premise?")
   (-premise-strength [tms datum] "Its assumption strength, or nil.")
@@ -700,6 +705,9 @@
       (and (contains? (:in s #{}) datum)
            (not (contains? (:superseded s {}) datum)))))
   (-believed [_] (let [s @state] (seq (remove (:superseded s {}) (:in s #{})))))
+  (-any-node?   [_] (boolean (seq (:nodes @state))))
+  (-any-belief? [_] (let [s @state]
+                      (boolean (first (remove (:superseded s {}) (:in s #{}))))))
   (-node? [_ datum] (contains? (:nodes @state) datum))
   (-datums [_] (keys (:nodes @state)))
   (-depth [_ datum] (get-in @state [:nodes datum :depth] 0))
@@ -787,6 +795,8 @@
   `retract!` tells a belief-bearing retraction from a direct teardown."
   [tms datum] (-node? tms datum))
 (defn in-datums [tms] (-believed tms))
+(defn any-node?   [tms] (-any-node? tms))
+(defn any-belief? [tms] (-any-belief? tms))
 (defn premise? [tms datum] (-premise? tms datum))
 (defn premise-strength [tms datum] (-premise-strength tms datum))
 (defn datums [tms] (-datums tms))
@@ -1094,14 +1104,17 @@
   tms)
 
 (defn relabel
-  "Recompute *every* node's label and defeat-class.  This is the one whole-graph
-  operation, and it exists for `recover`, which rebuilds the network from the durable
-  store and therefore has no smaller region to start from.  Nothing on the assert /
-  retract / settle path calls it.
+  "Recompute *every* node's label and defeat-class, and clear the blocked and superseded
+  sets — the whole-graph counterpart to the region relabels the assert / retract / settle
+  path runs, for a caller that holds no smaller region.  Nothing on the live paths calls it:
+  the assert / retract / settle path relabels regions, and `recover` composes the region
+  relabels its own rebuild runs (`core/rebuild-tms`), its settle re-deriving blocking
+  wholesale.  It is the
+  differential oracle's whole-graph operation (`strength_test`, `jtms_dense_oracle_test`,
+  `jtms_blocked_test`), which is why both representations implement it.
 
-  It also **clears the blocked set**: blocking is derived from exception queries that
-  are never stored, so a rebuild cannot recover it and must not inherit a stale one.
-  Recovery lands unblocked, and the caller re-evaluates."
+  It **clears blocked and superseded** because both are derived from queries that are never
+  stored — a whole-graph relabel cannot recover either and must not inherit a stale one."
   [tms] (observe/note-change) (-relabel tms) tms)
 
 (defn defeat

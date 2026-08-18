@@ -84,7 +84,9 @@
   defeated genl edge leaves the closure.  See docs/taxonomy.md."
   (:require [clojure.set :as set]
             [vaelii.impl.caches :as caches]
-            [vaelii.impl.observe :as observe]))
+            [vaelii.impl.naming :as nm]
+            [vaelii.impl.observe :as observe]
+            [vaelii.impl.strength :as strength]))
 
 (defn- term-key
   "A total order on terms keyed on **content only**.  Representative choice may never
@@ -96,7 +98,11 @@
   (if (nil? t) ["" ""] [(str t) (.getName (class t))]))
 
 (defn- term-min [terms]
-  (reduce (fn [x y] (if (neg? (compare (term-key x) (term-key y))) x y)) terms))
+  ;; keyed once per term, not twice per comparison: `term-key` allocates two strings, so
+  ;; a plain reduce rebuilds it on both operands at every step.  Tie keeps the later, as
+  ;; the reduce did (a tie is two terms that print alike under the same class anyway).
+  (second (reduce (fn [a b] (if (neg? (long (compare (first a) (first b)))) a b))
+                  (map (fn [t] [(term-key t) t]) terms))))
 
 (defn- reach
   "Reflexive-transitive reachable set from `start` over adjacency `adj` (a fn
@@ -324,23 +330,41 @@
 ;; This keeps a repeated read on a shallow hierarchy O(1) while never paying to
 ;; materialize a deep one.
 
+(def ^:dynamic *closure-pass-cache*
+  "An optional atom holding a `{[rel-key dir-key node vis] closure}` map for the span of a
+  **read-only** pass over a still taxonomy — the closing settle's clash detection, which
+  reads `genls`/`specs` for millions of memberships while writing no edge.  The gen-stamped
+  memo below is keyed on the relation's generation, and a whole-corpus settle bumps that
+  generation often enough that a recurring closure misses and is re-walked — the shape a
+  cold rebuild's clash pass spends its time in.  When this is bound, `closure-of` /
+  `closure-of-vis` answer from it and populate it, so each closure is walked once for the
+  pass; the pass owns the atom and drops it on the way out, and the generation cannot move
+  under a reader that does not write.  nil off such a pass, where the gen-stamped memo is
+  the only cache and a mutation must retire it."
+  nil)
+
 (defn- closure-of
   "The reflexive-transitive reach of `node` in relation `rel-key`, direction
   `dir-key` (`:fwd` up, `:rev` down), memoized per generation.  `tax` is the
   taxonomy atom."
   [tax rel-key dir-key node]
-  (let [t    @tax
-        rel  (get t rel-key)
-        gen  (:gen rel)
-        memo (:closure-memo t)
-        m    @memo
-        cur  (when (= gen (get-in m [rel-key :gen])) (get m rel-key))]
-    (or (get-in cur [dir-key node])
-        (let [s (reach node #(get (dir-key rel) %))]
-          (swap! memo (fn [mm]
-                        (let [e (get mm rel-key)
-                              e (if (= gen (:gen e)) e {:gen gen :fwd {} :rev {}})]
-                          (assoc mm rel-key (assoc-in e [dir-key node] s)))))
+  (let [pc *closure-pass-cache*
+        pk (when pc [rel-key dir-key node nil])]
+    (or (when pc (get @pc pk))
+        (let [t    @tax
+              rel  (get t rel-key)
+              gen  (:gen rel)
+              memo (:closure-memo t)
+              m    @memo
+              cur  (when (= gen (get-in m [rel-key :gen])) (get m rel-key))
+              s    (or (get-in cur [dir-key node])
+                       (let [s (reach node #(get (dir-key rel) %))]
+                         (swap! memo (fn [mm]
+                                       (let [e (get mm rel-key)
+                                             e (if (= gen (:gen e)) e {:gen gen :fwd {} :rev {}})]
+                                         (assoc mm rel-key (assoc-in e [dir-key node] s)))))
+                         s))]
+          (when pc (swap! pc assoc pk s))
           s))))
 
 ;; ---- scoped reads: the visibility filter over the same closures ----------
@@ -398,15 +422,35 @@
   [cs visq]
   (boolean (some (fn [c] (or (nil? c) (visq c))) cs)))
 
+(def ^:dynamic *visible-neighbours-cache*
+  "An optional atom holding a `{[dir-key vis n] neighbours}` map for a **read-only**
+  pass (see `*closure-pass-cache*`).  The closure memo keys whole closures per
+  `(node, vis)`, so a shared upper cone is re-filtered under every distinct root
+  that walks through it — the cost the closure cache structurally cannot fold and
+  the one this one does: each node's edges are context-filtered once per pass, not
+  once per walk.  Bound and dropped by the pass, which holds the taxonomy still, so
+  the filtered set is gen-stable for its span; nil off such a pass."
+  nil)
+
 (defn- visible-neighbours
   "The `dir-key` neighbours of `n` reachable through an edge some supporter asserts
   from `vis` — the scoped walk's adjacency.  Edge orientation: `:fwd` n→x is edge
-  [n x], `:rev` n→x is edge [x n]."
-  [rel dir-key vis n]
-  (let [ectxs (:edge-ctxs rel)
-        e-of  (if (= dir-key :fwd) (fn [x] [n x]) (fn [x] [x n]))]
-    (filter (fn [x] (ctxs-visible? (get ectxs (e-of x)) vis))
-            (get (dir-key rel) n))))
+  [n x], `:rev` n→x is edge [x n].  Filtered once per pass when a neighbour cache
+  is bound (an empty result caches as `[]`, still truthy, so it is not re-walked).
+  `rel-key` names the relation `rel` is: it keys the cache, since one pass scopes
+  more than one relation (`:genl` and the `:genlCx` witness walk) and their filtered
+  neighbours must not collide on a shared `[dir vis n]`."
+  [rel-key rel dir-key vis n]
+  (let [nc *visible-neighbours-cache*
+        k  (when nc [rel-key dir-key vis n])]
+    (or (when nc (get @nc k))
+        (let [ectxs (:edge-ctxs rel)
+              e-of  (if (= dir-key :fwd) (fn [x] [n x]) (fn [x] [x n]))
+              pred  (fn [x] (ctxs-visible? (get ectxs (e-of x)) vis))
+              nbrs  (get (dir-key rel) n)
+              res   (if nc (filterv pred nbrs) (filter pred nbrs))]
+          (when nc (swap! nc assoc k res))
+          res))))
 
 (def ^:dynamic *scoped-memo-budget*
   "How many distinct visibility sets the scoped closure memo holds per relation
@@ -425,22 +469,27 @@
   bounded by `*scoped-memo-budget*` distinct vissets; admitting one past the budget
   flushes the level rather than growing it."
   [tax rel-key dir-key node vis]
-  (let [t    @tax
-        rel  (get t rel-key)
-        gen  (:gen rel)
-        memo (:closure-memo t)
-        m    @memo
-        cur  (when (= gen (get-in m [rel-key :gen])) (get m rel-key))]
-    (or (get-in cur [:scoped vis dir-key node])
-        (let [s (reach node #(visible-neighbours rel dir-key vis %))]
-          (swap! memo (fn [mm]
-                        (let [e (get mm rel-key)
-                              e (if (= gen (:gen e)) e {:gen gen :fwd {} :rev {}})
-                              e (if (and (not (contains? (:scoped e) vis))
-                                         (<= *scoped-memo-budget* (count (:scoped e))))
-                                  (assoc e :scoped {})
-                                  e)]
-                          (assoc mm rel-key (assoc-in e [:scoped vis dir-key node] s)))))
+  (let [pc *closure-pass-cache*
+        pk (when pc [rel-key dir-key node vis])]
+    (or (when pc (get @pc pk))
+        (let [t    @tax
+              rel  (get t rel-key)
+              gen  (:gen rel)
+              memo (:closure-memo t)
+              m    @memo
+              cur  (when (= gen (get-in m [rel-key :gen])) (get m rel-key))
+              s    (or (get-in cur [:scoped vis dir-key node])
+                       (let [s (reach node #(visible-neighbours rel-key rel dir-key vis %))]
+                         (swap! memo (fn [mm]
+                                       (let [e (get mm rel-key)
+                                             e (if (= gen (:gen e)) e {:gen gen :fwd {} :rev {}})
+                                             e (if (and (not (contains? (:scoped e) vis))
+                                                        (<= *scoped-memo-budget* (count (:scoped e))))
+                                                 (assoc e :scoped {})
+                                                 e)]
+                                         (assoc mm rel-key (assoc-in e [:scoped vis dir-key node] s)))))
+                         s))]
+          (when pc (swap! pc assoc pk s))
           s))))
 
 (defn- reachable-filtered?
@@ -459,8 +508,8 @@
   component.  Mutual reachability there is a fact about the *global* edge set, and the
   whole question here is which of those edges the reader can see, so a component is a
   reason to keep walking and never an answer."
-  [src tgt rel vis depth scc]
-  (let [nbrs #(visible-neighbours rel :fwd vis %)]
+  [src tgt rel-key rel vis depth scc]
+  (let [nbrs #(visible-neighbours rel-key rel :fwd vis %)]
     (or (= src tgt)
         (if (nil? depth)
           (loop [seen #{src}, stack [src]]
@@ -941,7 +990,7 @@
                       {} nodes)
         crev  (reduce (fn [m [x ys]] (reduce (fn [m2 y] (update m2 y (fnil conj #{}) x)) m ys))
                       {} cfwd)
-        pending (reduce (fn [m x] (assoc m x (count (get cfwd x)))) {} cnodes)]
+        pending (into {} (map (fn [x] [x (count (get cfwd x))])) cnodes)]
     (loop [cdepth  (transient {})
            pending pending
            ready   (into [] (comp (filter #(zero? (long (pending %))))) cnodes)]
@@ -2037,7 +2086,7 @@
   ([tax sub super context]
    (if-some [vis (visible-ctxs tax :genl context)]
      (let [rel (get @tax :genl)]
-       (reachable-filtered? sub super rel vis
+       (reachable-filtered? sub super :genl rel vis
                             (when-not (:loose? rel) (:depth rel))
                             (:scc rel)))
      (reachable-in? tax :genl sub super))))
@@ -2083,6 +2132,18 @@
                                cands))
                      cands))))
 
+(defn- visible-edge-supporters
+  "The believed supporters of active edge `e` a reader seeing `vis` can use, as a vector
+  of `[handle ctx]` — the candidate set `edge-supporter` chooses the most general of, and
+  the strength-aware pickers below read for class.  A supporter is believed iff its own
+  context is in `:edge-ctxs` (an edge is stored once per context, so the context
+  identifies it); nil `vis` is the unscoped read where every asserting context is visible."
+  [rel e vis]
+  (into [] (filter (let [live (get (:edge-ctxs rel) e #{})]
+                     (fn [[_ c]] (and (contains? live c)
+                                      (or (nil? vis) (nil? c) (vis c))))))
+        (get (:support rel) e {})))
+
 (defn- edge-supporter
   "A believed supporter of active edge `e` that a reader seeing `vis` can use, as
   `[handle ctx]`, or nil.  `:edge-ctxs` is the believed supporters' context set, so a
@@ -2106,15 +2167,72 @@
   genlCx closure, whose memo a bulk load retires on every context edge it asserts,
   so paying it per edge per subsuming firing cost a fifth of the schema load."
   [tax rel e vis]
-  (let [cands (into [] (filter (let [live (get (:edge-ctxs rel) e #{})]
-                                 (fn [[_ c]] (and (contains? live c)
-                                                  (or (nil? vis) (nil? c) (vis c))))))
-                    (get (:support rel) e {}))]
+  (let [cands (visible-edge-supporters rel e vis)]
     (cond
       (empty? cands)      nil
       (nil? (next cands)) (nth cands 0)
       :else (let [ordered (sort-by (fn [[_ c]] (str c)) cands)]
               (or (more-general-supporter tax ordered) (nth ordered 0))))))
+
+(defn- most-general-of
+  "The most general of `cands` (a non-empty vector of `[handle ctx]`), tie-broken by
+  asserting-context name and never by handle — exactly `edge-supporter`'s choice, factored
+  so the strength-aware picker below shares it once it has narrowed to one strength class."
+  [tax cands]
+  (if (nil? (next cands))
+    (nth cands 0)
+    (let [ordered (sort-by (fn [[_ c]] (str c)) cands)]
+      (or (more-general-supporter tax ordered) (nth ordered 0)))))
+
+(defn- edge-class
+  "The defeat class active edge `e` holds at, as `vis` sees it: the **strongest** of its
+  visible supporters' classes (`strength/max`), `:default` when none is monotonic, or nil
+  when no supporter is visible at all.  `supporter-class` is `handle → class` — a live
+  JTMS `defeat-class` read — and a supporter it cannot classify (OUT, or mid-settle)
+  counts as `:default`, the weakest, so the walk never over-claims `:monotonic` for an
+  edge it cannot confirm holds that strongly."
+  [rel e vis supporter-class]
+  (let [cands (visible-edge-supporters rel e vis)]
+    (when (seq cands)
+      (reduce (fn [c [h _]] (strength/max c (or (supporter-class h) :default)))
+              :default cands))))
+
+(defn- strongest-edge-supporter
+  "A `[handle ctx]` witness for edge `e` that holds at the edge's own strength: the most
+  general supporter *among those at the maximum class*.  So the justification records a
+  supporter as strong as the edge is, and where two supporters tie on strength the
+  placement-relevant (most general) one is named — `edge-supporter`'s own choice, applied
+  after the strength filter.  nil when the edge has no visible supporter."
+  [tax rel e vis supporter-class]
+  (let [cands (visible-edge-supporters rel e vis)]
+    (when (seq cands)
+      (let [top  (reduce (fn [c [h _]] (strength/max c (or (supporter-class h) :default)))
+                         :default cands)
+            best (filterv (fn [[h _]] (= top (or (supporter-class h) :default))) cands)]
+        (most-general-of tax best)))))
+
+(defn- bfs-witness-path
+  "Shortest path `sub →* super` over neighbours `nbrs`, admitting an edge `[p x]` only
+  when `admit?` allows it and mapping each traversed edge to a `[handle ctx]` supporter via
+  `witness`.  Returns the vector of witnesses (one per edge, `super`-end first) or nil —
+  unreachable, or an admitted edge whose `witness` came back nil.  Neighbours are expanded
+  in the order `nbrs` imposes (name order), so the path is a function of the hierarchy
+  rather than of the order it was built in, and the first path to `super` is a shortest
+  one."
+  [sub super nbrs admit? witness]
+  (loop [q (conj clojure.lang.PersistentQueue/EMPTY sub), parent {sub nil}]
+    (when-let [n (peek q)]
+      (if (= n super)
+        (loop [x n, acc []]
+          (if (= x sub)
+            acc
+            (let [p (get parent x)]
+              (when-let [s (witness [p x])]
+                (recur p (conj acc s))))))
+        (let [fresh (remove #(contains? parent %)
+                            (filter #(admit? [n %]) (nbrs n)))]
+          (recur (into (pop q) fresh)
+                 (into parent (map (fn [x] [x n])) fresh)))))))
 
 (defn reach-support
   "A witness for `sub →* super` in relation `rel-key`, as the `[handle ctx]` of one
@@ -2123,33 +2241,64 @@
   unscoped, which is what a caller wanting the witness *before* it knows its vantage
   asks for.
 
-  Walks the same visible adjacency the scoped closure reads do, so it finds a witness
-  for exactly the pairs `genl?` answers true from that context, and the two can never
-  disagree about what a context can reach.  Breadth-first, so the witness is a
-  *shortest* path — the fewest supports the reachability can be made to depend on —
-  and neighbours are expanded in name order, so the answer is a function of the
-  hierarchy rather than of the order it was built in."
-  [tax rel-key sub super context]
+  Walks the same visible adjacency the scoped closure reads do, so it finds a witness for
+  exactly the pairs `genl?` answers true from that context, and the two can never disagree
+  about what a context can reach.  Neighbours are expanded in name order, so the answer is
+  a function of the hierarchy rather than of the order it was built in.
+
+  **Without `supporter-class`** it is breadth-first — the witness is a *shortest* path (the
+  fewest supports the reachability can be made to depend on), and each edge names its most
+  general supporter (`edge-supporter`), the choice placement wants.  This is the read the
+  `genlCx` visibility walk and every unstrengthened caller take.
+
+  **With `supporter-class`** (a `handle → defeat-class` read) it is a *widest-bottleneck*
+  path: the route whose floor — the `min` defeat class along it — is highest, tie-broken by
+  depth then by the same name order.  Each edge names its **strongest** supporter
+  (`strongest-edge-supporter`), so the conclusion a firing builds over these handles is
+  capped at the floor and no lower (reasoning/26).  Since there are exactly two classes
+  (`strength.clj`), the widest floor is found by trying each class as a threshold, highest
+  first, and taking the first shortest path made only of edges that clear it — a threshold
+  scan that stays correct for any fixed number of classes and is two passes for two."
+  ([tax rel-key sub super context] (reach-support tax rel-key sub super context nil))
+  ([tax rel-key sub super context supporter-class]
+   (if (= sub super)
+     []
+     (let [rel (get @tax rel-key)
+           vis (visible-ctxs tax rel-key context)
+           ;; nil `vis` is the unscoped walk — every asserting context is visible, so
+           ;; the plain adjacency *is* the visible one, exactly as in `genls`
+           adj (if (nil? vis) #(get (:fwd rel) %) #(visible-neighbours rel-key rel :fwd vis %))
+           ;; `str` keeps a node that is not a symbol (a NAT) sortable; built once per
+           ;; adjacency now, and a node with 0/1 neighbour — common in a sparse relation —
+           ;; sorts nothing
+           nbrs #(nm/sort-by-content-key str compare (adj %))]
+       (if (nil? supporter-class)
+         (bfs-witness-path sub super nbrs (fn [_] true)
+                           #(edge-supporter tax rel % vis))
+         (some (fn [threshold]
+                 (bfs-witness-path
+                  sub super nbrs
+                  (fn [e] (>= (strength/rank-of (edge-class rel e vis supporter-class))
+                              (strength/rank-of threshold)))
+                  #(strongest-edge-supporter tax rel % vis supporter-class)))
+               [:monotonic :default]))))))
+
+(defn reach-strength
+  "The defeat class of the **strongest** route `sub →* super` in `rel-key` that `context`
+  sees — `:monotonic` / `:default`, or nil when unreachable.  `:monotonic` for `sub` =
+  `super`, which rests on nothing and so holds as strongly as anything can.
+  `supporter-class` is the same `handle → class` read `reach-support` takes.
+
+  Derived from `reach-support`'s widest-bottleneck path so the number and the witness can
+  never disagree: the floor of the path it names *is* the strength, since each edge on it
+  contributes its strongest supporter (docs/taxonomy.md, \"Strength of a subsumption
+  path\")."
+  [tax rel-key sub super context supporter-class]
   (if (= sub super)
-    []
-    (let [rel (get @tax rel-key)
-          vis (visible-ctxs tax rel-key context)
-          ;; nil `vis` is the unscoped walk — every asserting context is visible, so
-          ;; the plain adjacency *is* the visible one, exactly as in `genls`
-          adj (if (nil? vis) #(get (:fwd rel) %) #(visible-neighbours rel :fwd vis %))
-          nbrs #(sort-by str (adj %))]
-      (loop [q (conj clojure.lang.PersistentQueue/EMPTY sub), parent {sub nil}]
-        (when-let [n (peek q)]
-          (if (= n super)
-            (loop [x n, acc []]
-              (if (= x sub)
-                acc
-                (let [p (get parent x)]
-                  (when-let [s (edge-supporter tax rel [p x] vis)]
-                    (recur p (conj acc s))))))
-            (let [fresh (remove #(contains? parent %) (nbrs n))]
-              (recur (into (pop q) fresh)
-                     (reduce (fn [m x] (assoc m x n)) parent fresh)))))))))
+    :monotonic
+    (when-let [path (reach-support tax rel-key sub super context supporter-class)]
+      (reduce (fn [floor [h _]] (strength/min floor (or (supporter-class h) :default)))
+              :monotonic path))))
 
 ;; ---- genlCx (contexts) ---------------------------------------------------
 
@@ -2296,8 +2445,11 @@
       start
       (loop [acc start]
         (let [more (into acc
+                         ;; contexts are symbols, so order them directly — the `str` was
+                         ;; rebuilt for both on every pair of an n² sweep, and the result
+                         ;; is a set, so the pair-dedup order is immaterial anyway
                          (for [a acc, b acc
-                               :when (neg? (compare (str a) (str b)))
+                               :when (neg? (compare a b))
                                m (maximal-common-descendant-contexts tax [a b])]
                            m))]
           (if (= more acc) acc (recur more)))))))
@@ -2393,7 +2545,17 @@
   tax)
 (defn metatype-members [tax m] (get-in @tax [:metatype-members m] #{}))
 
-(defn- separation-frame
+(def ^:dynamic *separation-frame-cache*
+  "An optional atom `{[a context] frame}` for a **read-only** pass (see
+  `*closure-pass-cache*`).  A cold rebuild's clash pass asks `disjointness-test` — and
+  so `separation-frame` — once per candidate membership `(a x)`, but the frame depends
+  on `a` and `context` alone, and the region holds millions of memberships over a few
+  thousand types, so the same `[a context]` frame is rebuilt once per *instance* of the
+  type.  Bound and dropped by the pass, which holds the taxonomy still, so the frame is
+  gen-stable for its span; nil off such a pass."
+  nil)
+
+(defn- separation-frame*
   "Everything a disjointness question about `a` settles before any candidate is named:
   `a`'s supertype closure, the declarations that reach it, and the visibility
   predicates its context imposes.
@@ -2445,6 +2607,20 @@
                     (:disjoint-metatypes t))]
     {:scoped? scoped? :seps seps :metas metas
      :pair-vis? pair-vis? :member-vis? member-vis?}))
+
+(defn- separation-frame
+  "`separation-frame*`, memoized per `[a context]` when a pass cache is bound
+  (`*separation-frame-cache*`).  The clash pass asks the same type's frame once per
+  instance of the type; off the pass this is a bare call, byte-identical."
+  [tax a context]
+  (let [sfc *separation-frame-cache*]
+    (if sfc
+      (let [k [a context]]
+        (or (get @sfc k)
+            (let [f (separation-frame* tax a context)]
+              (swap! sfc assoc k f)
+              f)))
+      (separation-frame* tax a context))))
 
 (defn disjointness-test
   "A predicate `type -> boolean` answering `(disjoint? tax a <type> context)` — the
@@ -2683,7 +2859,7 @@
   found.
 
   **Not for the generative ones.**  `transitive`, `symmetric`, `reflexive` and
-  `argPreserving` license tuples rather than refusing them, and a licence read for a
+  `transitiveInArg` license tuples rather than refusing them, and a licence read for a
   predicate nobody declared it of manufactures knowledge — `inherit-test`'s
   `the-licence-stays-with-the-predicate-it-names` and `provers-test`'s
   `the-walk-reads-hops-through-the-subsumption-fan` pin that, and both call `has-prop?`
@@ -2704,6 +2880,16 @@
        (into #{}
              (comp (filter marked) (filter #(has-prop? tax kind % context)))
              (if (some? context) (genls tax p context) (genls tax p)))))))
+
+(def closure-relations
+  "The two relations whose transitive closure the engine caches and answers itself —
+  `genl` and `genlCx`.  They are held **out** of the generic `:transitive` prop
+  machinery, so a `(transitive genl)` fact stays queryable but *inert*: it never routes
+  genl to the generic closure prover, never sets `has-prop? :transitive genl`, and the
+  taxonomy answers genl-transitivity from its own cache as it always has.
+  `provers/transitive-predicates` and `inherit/virtual-relations` are both this set, and
+  `special`'s mark ingestion reads it as the skip-set."
+  '#{genl genlCx})
 
 (def arg-declaration-props
   "Per argument-constraint kind, the `:props` roster its **subject** is marked under —

@@ -229,6 +229,14 @@
   []
   (prop-bool "vaelii.index.snapshot" false))
 
+(defn belief-snapshot?
+  "Is the belief certificate written on a full recover and read on the next cold open
+  (`vaelii.belief.snapshot`, default off)?  When on, a clean disk KB's cold open skips the
+  closing settle's definitional-clash scan and rederives identical belief
+  (`vaelii.impl.disk.belief-snapshot`).  Off is byte-identical to never having the file."
+  []
+  (prop-bool "vaelii.belief.snapshot" false))
+
 (defn arbitrate-constraints?
   "Does the process default to arbitrating a definitional clash rather than refusing it
   (`VAELII_ARBITRATE_CONSTRAINTS`, default off)?  A KB naming a `:constraints` policy

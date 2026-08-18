@@ -10,7 +10,7 @@
   would return, and a calculus reads both the facts and the derived conclusions into
   its network before entailing anything.
 
-  What none of them can read is a claim nobody stored.  `(argPreserving P n R)`
+  What none of them can read is a claim nobody stored.  `(transitiveInArg P n R)`
   licenses a statement about a tuple that appears in no fact, no rule conclusion and no
   network — so a prover that claimed 100 unconditionally would discard it silently,
   and `query-plan` would list a prover that never runs.
@@ -47,14 +47,14 @@
     (v/add-prover kb (space/spatial-prover))
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl library_t zone_t) ctx)
-      (v/assert kb (list 'argPreserving 'partOfRegion 1 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg 'partOfRegion 1 'genl) ctx))
     ;; the claim is stated of the *general* term and inherits down to the specific one
     (v/assert kb (list 'partOfRegion zone_t zone_t) ctx)
     (testing "the inherited claim is answered rather than discarded by the calculus"
       (is (v/ask? kb (list 'partOfRegion library_t zone_t) ctx)))
     (testing "and the plan says both provers run"
       (let [plan (v/query-plan kb (list 'partOfRegion library_t zone_t) ctx)]
-        (is (contains? (runs plan) "ArgPreservingProver"))
+        (is (contains? (runs plan) "TransitiveInArgProver"))
         (is (contains? (runs plan) "CalculusProver"))
         (is (empty? (shadowed plan))
             "no prover is listed as applicable and then never consulted")
@@ -86,7 +86,7 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl sub_a_t thing_a_t) ctx)
       ;; a declaration on `genl` itself: argument 2 of a genl claim inherits upwards
-      (v/assert kb (list 'argPreserving 'genl 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg 'genl 2 'genl) ctx))
     (v/assert kb (list 'genl thing_a_t thing_b_t) ctx)
     (let [goal (list 'genl sub_a_t thing_b_t)
           plan (v/query-plan kb goal ctx)]
@@ -95,7 +95,7 @@
       (testing "and the plan names why the closure does not run alone"
         (is (= #{:preserving} (channels-of plan)))
         (is (contains? (guarded plan) "TransitivityProver"))
-        (is (contains? (runs plan) "ArgPreservingProver"))))))
+        (is (contains? (runs plan) "TransitiveInArgProver"))))))
 
 (tu/deftest-kb an-ordinary-genl-goal-is-answered-by-the-closure-alone
   (tu/with-terms [dog_t animal_t]
@@ -114,17 +114,17 @@
         (is (= #{"DifferentProver"} (runs plan)))
         (is (v/ask? kb (list 'different Ann Bob) ctx))))
     ;; A declaration naming a predicate nothing can state: `different` is refused by
-    ;; `wff`, so no claim about it can exist and `ArgPreservingProver` will find none.
+    ;; `wff`, so no claim about it can exist and `TransitiveInArgProver` will find none.
     ;; The guard fires anyway — it reads the declaration, not the claims — and that is
     ;; the point being pinned.
-    (v/assert kb (list 'argPreserving 'different 1 'genl) ctx)
+    (v/assert kb (list 'transitiveInArg 'different 1 'genl) ctx)
     (let [plan (v/query-plan kb (list 'different Ann Bob) ctx)]
       (is (= 100 (:completeness (prover-entry plan "DifferentProver")))
           "the prover's own claim is unchanged — it is about the sources it reads")
       (testing "the guard fires, so the union runs instead of the one prover"
         (is (= #{:preserving} (channels-of plan)))
         (is (contains? (guarded plan) "DifferentProver"))
-        (is (contains? (runs plan) "ArgPreservingProver")))
+        (is (contains? (runs plan) "TransitiveInArgProver")))
       (testing "and the answer is unchanged, which is the property that matters:
                 a guard that fires needlessly costs a lazy prover nobody forces,
                 where one that fails to fire loses an answer"
@@ -137,7 +137,7 @@
   (tu/with-terms [dog_t animal_t largerThan]
     (is (empty? (provers/shadowing-channels kb (list largerThan dog_t animal_t) ctx))
         "nothing shadows a computed answer in a KB that declares no preservation")
-    (v/assert kb (list 'argPreserving largerThan 1 'genl) ctx)
+    (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
     (is (= #{:preserving}
            (provers/shadowing-channels kb (list largerThan dog_t animal_t) ctx)))
     (testing "and it is scoped like every other declaration read"
@@ -154,7 +154,7 @@
     (v/add-prover kb (space/spatial-prover))
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl library_t zone_t) ctx)
-      (v/assert kb (list 'argPreserving 'partOfRegion 1 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg 'partOfRegion 1 'genl) ctx))
     (is (nil? (provers/est-goal kb (list 'partOfRegion library_t zone_t) ctx))
         "no complete prover, so no authoritative estimate — the planner uses its own
          count-aware model rather than a shadowed prover's number")))

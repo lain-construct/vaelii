@@ -45,6 +45,7 @@
             [vaelii.core :as v]
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
@@ -64,8 +65,8 @@
 ;; second one is data loss.
 
 (defn- ctx-sym [base & parts] (symbol (apply str (name base) parts)))
-(defn- class-context [into]      (ctx-sym into "Class"))
-(defn- labeling-context [into i] (ctx-sym into i))
+(defn- class-context [into-cx]      (ctx-sym into-cx "Class"))
+(defn- labeling-context [into-cx i] (ctx-sym into-cx i))
 
 (defn- marker?
   "Is this stored sentence a `labelingOf` ownership marker?"
@@ -73,14 +74,14 @@
   (and (seq? sentence) (= 'labelingOf (first sentence))))
 
 (defn- labeling-contexts
-  "The labeling contexts a prior `label` created for `into`, in labeling order —
+  "The labeling contexts a prior `label` created for `into-cx`, in labeling order —
   read from the `(labelingOf <ctx> <Into> <i>)` marker each one carries, through
   the term index.  Exact ownership, no name pattern (see the naming comment)."
-  [kb into]
-  (->> (v/find-sentexes kb into)
+  [kb into-cx]
+  (->> (v/find-sentexes kb into-cx)
        (keep (fn [s]
                (let [f (:sentence s)]
-                 (when (and (marker? f) (= into (nth f 2 nil)))
+                 (when (and (marker? f) (= into-cx (nth f 2 nil)))
                    [(nth f 3 0) (second f)]))))
        (sort-by first)
        (mapv second)))
@@ -92,13 +93,11 @@
   before this runs, so they do not block their own slots; a user context that
   happens to share the naming is never written into (the marker keeps it out of
   rediscovery, this keeps it out of materialization)."
-  [kb into n]
-  ;; `into` names the Into context here (as everywhere in this ns), so this body
-  ;; must not touch clojure.core/into
+  [kb into-cx n]
   (let [existing (set (v/contexts kb))
         taken?   (fn [c] (or (existing c) (pos? (v/count-in-context kb c))))]
     (->> (iterate inc 1)
-         (map #(labeling-context into %))
+         (map #(labeling-context into-cx %))
          (remove taken?)
          (take n)
          vec)))
@@ -127,8 +126,8 @@
   retracting the `genlCx` edges is what drops a surplus stale context (a run
   that shrank from three labelings to two) out of the hierarchy, so `classify`
   cannot sweep it back in."
-  [kb into]
-  (doseq [ctx (concat (labeling-contexts kb into) [(class-context into)])]
+  [kb into-cx]
+  (doseq [ctx (concat (labeling-contexts kb into-cx) [(class-context into-cx)])]
     (clear-context! kb ctx)))
 
 ;; ---- grounding: assumptionRules × visible facts → choice heads -----------
@@ -173,28 +172,33 @@
 
 (defn- functional-clash?
   "Two heads of a `functional` predicate that agree on the first argument but differ
-  on the value — the constraint that makes `functional color` mean 'at most one'."
-  [kb s1 s2]
+  on the value — the constraint that makes `functional color` mean 'at most one'.
+
+  The mark is read from `base`, the solving context: the explicit constraint rules beside
+  these detectors are scoped to `base` (`constraint-rules`), so a `functional` declared in
+  a context `base` cannot see must not forbid two of its choice heads either."
+  [kb base s1 s2]
   (and (sequential? s1) (sequential? s2)
        (= 3 (count s1)) (= 3 (count s2))
        (= (first s1) (first s2))
        (= (second s1) (second s2))
        (not= (nth s1 2) (nth s2 2))
-       (v/has-prop? kb :functional (first s1))))
+       (v/has-prop? kb :functional (first s1) base)))
 
 (defn- disjoint-clash?
-  "Two unary type memberships of the same individual whose types are disjoint."
-  [kb s1 s2]
+  "Two unary type memberships of the same individual whose types are disjoint —
+  disjointness read from `base`, for `functional-clash?`'s reason."
+  [kb base s1 s2]
   (and (sequential? s1) (sequential? s2)
        (= 2 (count s1)) (= 2 (count s2))
        (= (second s1) (second s2))
        (not= (first s1) (first s2))
-       (v/disjoint? kb (first s1) (first s2))))
+       (v/disjoint? kb (first s1) (first s2) base)))
 
-(defn- clash? [kb s1 s2]
+(defn- clash? [kb base s1 s2]
   (or (negation-pair? s1 s2)
-      (functional-clash? kb s1 s2)
-      (disjoint-clash? kb s1 s2)))
+      (functional-clash? kb base s1 s2)
+      (disjoint-clash? kb base s1 s2)))
 
 (defn- pairs [xs]
   (let [v (vec xs)]
@@ -222,10 +226,10 @@
   to pairs that could possibly clash, so a 3-coloring's 30k choice heads cost O(nodes)
   rather than O(heads²).  The bucketing is content-derived and each bucket is sorted, so
   the nogood set is order-independent."
-  [kb head->id]
+  [kb base head->id]
   (for [bucket (vals (group-by (comp clash-key key) head->id))
-        [[s1 _] [s2 _]] (pairs (sort-by (comp pr-str key) bucket))
-        :when   (clash? kb s1 s2)]
+        [[s1 _] [s2 _]] (pairs (nm/sort-by-content-key (comp pr-str key) compare bucket))
+        :when   (clash? kb base s1 s2)]
     {:nogood #{(head->id s1) (head->id s2)}
      :priority 1
      :sentence (list 'contradicts s1 s2)}))
@@ -364,11 +368,11 @@
   instead (the old design) left write-only sentexes nothing maintained — see the ns
   docstring, \"What persists, and what does not\"."
   [kb base]
-  (let [heads (sort-by pr-str (ground-heads kb base))]
+  (let [heads (nm/sort-by-content-key pr-str compare (ground-heads kb base))]
     (when (seq heads)
       (let [head->id (into {} (map-indexed (fn [i s] [s (inc i)])) heads)
             content  (into {} (map (fn [[s id]] [id {:sentence s :context base}])) head->id)
-            ngoods   (concat (nogoods kb head->id)
+            ngoods   (concat (nogoods kb base head->id)
                              (constraint-nogoods kb base head->id))
             program  (solve/program (set (vals head->id)) ngoods content)]
         {:program program :head->id head->id}))))
@@ -441,15 +445,17 @@
   Returns `{:base :into :choices [..] :labelings [{:context :true [..] :false [..]}]
   :count n}` (`:context` nil in `:one` mode, which persists nothing).  `:count 0` with
   `:reason` when there is nothing to solve or no ASP backend."
-  ([kb base into] (label kb base into :all))
-  ([kb base into mode]
+  ([kb base into-cx] (label kb base into-cx :all))
+  ([kb base into-cx mode]
    (let [t0    (System/nanoTime)
          built (build kb base)
          t1    (System/nanoTime)]
      (if-let [{:keys [program head->id]} built]
        (let [id->head (zipmap (vals head->id) (keys head->id))
              all-ids  (set (vals head->id))
-             choices  (vec (sort-by pr-str (keys head->id)))
+             ;; the heads in the order `build` minted their ids (a `pr-str` sort over the
+             ;; same set), read straight off `id->head` — no re-sort, no re-`pr-str`
+             choices  (mapv id->head (range 1 (inc (count head->id))))
              single?  (contains? #{:one :sat} mode)
              {:keys [optima translate-ms solve-ms]}
              (if single?
@@ -457,24 +463,24 @@
                (let [ta (System/nanoTime), o (edge/enumerate-optima program)]
                  {:optima o :solve-ms (/ (- (System/nanoTime) ta) 1e6)}))
              timing   {:ground-ms (/ (- t1 t0) 1e6) :translate-ms translate-ms :solve-ms solve-ms}
-             labeling (fn [chosen] {:true  (vec (map id->head chosen))
-                                    :false (vec (map id->head (remove (set chosen) all-ids)))})]
+             labeling (fn [chosen] {:true  (into [] (map id->head) chosen)
+                                    :false (into [] (map id->head) (remove (set chosen) all-ids))})]
          (cond
            (nil? optima)
-           (merge {:base base :into into :count 0 :choices choices
+           (merge {:base base :into into-cx :count 0 :choices choices
                    :reason :no-backend :labelings []} timing)
 
            ;; :one / :sat — return the single labeling, persist nothing
            single?
-           (merge {:base base :into into :count 1 :choices choices
+           (merge {:base base :into into-cx :count 1 :choices choices
                    :labelings [(assoc (labeling (first optima)) :context nil)]} timing)
 
            ;; :all — materialize each optimum as its own inert labeling context
            :else
            (do
-             (clear-run! kb into)
-             (let [ctxs (free-labeling-contexts kb into (count optima))]
-               (merge {:base base :into into :count (count optima) :choices choices
+             (clear-run! kb into-cx)
+             (let [ctxs (free-labeling-contexts kb into-cx (count optima))]
+               (merge {:base base :into into-cx :count (count optima) :choices choices
                        :labelings
                        (vec (map-indexed
                              (fn [i chosen]
@@ -486,14 +492,14 @@
                                  ;; monotonic because it is a real structural edge, not a solve result
                                  (v/assert kb (list 'genlCx ctx base) base {:strength :monotonic})
                                  ;; the ownership marker rediscovery reads (see labeling-contexts)
-                                 (v/assert-inert kb (list 'labelingOf ctx into (inc i)) ctx)
+                                 (v/assert-inert kb (list 'labelingOf ctx into-cx (inc i)) ctx)
                                  (doseq [s truths] (v/assert-inert kb s ctx))
                                  (doseq [s falses] (v/assert-inert kb (list 'not s) ctx))
                                  (assoc l :context ctx)))
                              optima))}
                       timing)))))
-       (do (when-not (contains? #{:one :sat} mode) (clear-run! kb into))
-           {:base base :into into :count 0 :choices []
+       (do (when-not (contains? #{:one :sat} mode) (clear-run! kb into-cx))
+           {:base base :into into-cx :count 0 :choices []
             :reason :no-choices :labelings []})))))
 
 ;; ---- do/classify: gather brave/cautious over the labelings ---------------
@@ -529,14 +535,14 @@
   same discipline as `label`): a stale classification describes labelings that no
   longer exist.  Returns `{:class-context :forced [..] :supportable [..] :excluded [..]}`,
   or `:count 0` `:reason :no-labelings` when `label` was never run for `Into`."
-  [kb into]
-  (let [labelings (labeling-contexts kb into)]
+  [kb into-cx]
+  (let [labelings (labeling-contexts kb into-cx)]
     (if (empty? labelings)
-      {:into into :count 0 :reason :no-labelings
+      {:into into-cx :count 0 :reason :no-labelings
        :forced [] :supportable [] :excluded []}
       (let [tables (mapv #(polarity-table kb %) labelings)
             heads  (distinct (mapcat keys tables))
-            klass  (class-context into)
+            klass  (class-context into-cx)
             classify-one
             (fn [s]
               (let [ps (map #(get % s) tables)]
@@ -547,7 +553,7 @@
         (clear-context! kb klass)
         (doseq [[k ss] grouped, s ss]
           (v/assert-inert kb (list (symbol (name k)) s) klass))
-        {:into into :class-context klass :count (count labelings)
+        {:into into-cx :class-context klass :count (count labelings)
          :forced      (vec (:forced grouped))
          :supportable (vec (:supportable grouped))
          :excluded    (vec (:excluded grouped))}))))

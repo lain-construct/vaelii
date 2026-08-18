@@ -4,7 +4,7 @@
 ;; CxWell sees it.
 ;;
 ;; The kind-level half is the worked example of argument-position preservation
-;; (docs/inherit.md). `largerThan` is declared argPreserving along `genl` on both
+;; (docs/inherit.md). `largerThan` is declared transitiveInArg along `genl` on both
 ;; positions, so each claim below reaches every pair of subkinds beneath it: (largerThan
 ;; mammal insect) answers (largerThan dog ant) with nothing stored about dogs or ants,
 ;; and (largerThan tree flower) answers (largerThan oak rose). Eleven stated claims, and

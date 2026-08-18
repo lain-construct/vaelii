@@ -181,6 +181,6 @@
     (is (v/isa? kb 'Flatter1 'event))                       ; action < event
     (is (v/isa? kb 'FoxF 'agent)))
   (testing "the narrative relations are self-classified"
-    (is (v/isa? kb 'causes 'transitivePredicate))
+    (is (v/isa? kb 'causes 'transitive))
     (is (v/isa? kb 'achievesGoal 'binaryPredicate))
     (is (v/isa? kb 'responsibleFor 'binaryPredicate))))

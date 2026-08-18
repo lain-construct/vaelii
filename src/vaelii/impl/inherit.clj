@@ -11,15 +11,15 @@
   emphatically do not (a chihuahua is a dog, a maine coon is a cat, and the maine coon
   is bigger).  So it is **declared**, per predicate, per argument position:
 
-      (argPreserving        P n R)   ; a stored (P … w …) licenses (P … a …) when (R a w)
-      (argPreservingInverse P n R)   ; …licenses it when (R w a)
+      (transitiveInArg        P n R)   ; a stored (P … w …) licenses (P … a …) when (R a w)
+      (transitiveInArgInverse P n R)   ; …licenses it when (R w a)
 
   `R` is any **transitive** relation — `genl` and `genlCx` through their cached
   closures, or a predicate declared `(transitive R)` walked over stored facts.  A
   declaration over anything else is refused at assert
   (`wff/arg-preserving-problems`): the reach is walked to a fixpoint, so a relation
   that was never said to compose would have transitivity *manufactured* for it, and
-  `(argIsa argPreserving 3 transitivePredicate)` cannot say so — argIsa is
+  `(argIsa transitiveInArg 3 transitive)` cannot say so — argIsa is
   open-world, and an untyped relation cannot violate it.  Naming the relation is what
   keeps this from being a `genl` special case: an argument can equally be preserved
   along `partOf`, `connectedTo`, or anything else transitive.  The inverse form exists
@@ -87,7 +87,7 @@
 
 (def declarations
   "The two declaration functors, mapped to whether they read `R` backwards."
-  '{argPreserving false, argPreservingInverse true})
+  '{transitiveInArg false, transitiveInArgInverse true})
 
 ;; ---- one question, one set of closure reads ------------------------------
 
@@ -121,10 +121,11 @@
 (def virtual-relations
   "The relations `witness-terms` walks from a cached closure of the engine's own
   rather than from stored `(R a b)` facts — the type hierarchy and the context
-  hierarchy.  Both are transitive by construction, so there is no `(transitive R)`
-  declaration to demand of them and none possible; every other relation must carry
-  one, which is what `wff/arg-preserving-problems` reads this set to decide."
-  '#{genl genlCx})
+  hierarchy.  Both are transitive by construction, so a `(transitive R)` declaration
+  on them is inert (it never routes them to the generic prover); every other relation
+  must carry one, which is what `wff/arg-preserving-problems` reads this set to decide.
+  The same set the taxonomy names `closure-relations`."
+  tax/closure-relations)
 
 ;; ---- the declared positions ---------------------------------------------
 ;; Read as ordinary stored sentexes through `matches-visible`, exactly as `argIsa` and
@@ -165,7 +166,7 @@
   withdrawal.
 
   It earns its place on the query path rather than the assert path.  `positions` is
-  read by `ArgPreservingProver.applicable?` and by `provers/shadowing-channels`, so it
+  read by `TransitiveInArgProver.applicable?` and by `provers/shadowing-channels`, so it
   runs for **every goal's functor in the KB**, and each real read is two
   `matches-visible` calls.  Ungated, one declaration anywhere made a `genl` goal cost
   2.8x what it costs in a KB with none — a tax every query pays for a feature almost
@@ -272,7 +273,7 @@
 
 (defn witness-terms
   "The terms a claim's argument may be **stated of** for it to reach `x` at this
-  position: `{w : (rel x w)}` for `argPreserving`, `{w : (rel w x)}` for the inverse
+  position: `{w : (rel x w)}` for `transitiveInArg`, `{w : (rel w x)}` for the inverse
   form.  Reflexive, so `x` itself is always among them and a directly-stated claim is
   found by the same walk as an inherited one.
 
@@ -489,10 +490,13 @@
                :class (or (jtms/defeat-class (:tms kb) h) :default)}))
        (group-by :tuple)
        (map (fn [[_ cs]]
-              (first (sort-by (juxt #(- (st/rank-of (:class %)))
-                                    #(str (:context %))
-                                    #(pr-str (:sentence %)))
-                              cs))))))
+              ;; the strongest claim on a tuple: key built once per claim (min in one
+              ;; pass), not per comparison of a full sort thrown away but for its first
+              (nm/min-by-content-key (juxt #(- (st/rank-of (:class %)))
+                                           #(str (:context %))
+                                           #(pr-str (:sentence %)))
+                                     compare
+                                     cs)))))
 
 (defn claims
   "Every believed claim bearing on the ground goal `(P a1 … an)`, each tagged with the
@@ -784,11 +788,15 @@
                                       hs)
                                     hs)]
                            {:claim (:handle c) :handles (vec (distinct hs))})))
-                     (sort-by (juxt #(- (st/rank-of (:class %)))
-                                    #(str (:tuple %))
-                                    #(str (:context %))
-                                    #(pr-str (:sentence %)))
-                              sv))))))))))
+                     ;; the key mixes a `str` tuple and a `pr-str` sentence — built once
+                     ;; per survivor now, not per comparison; the `[rank …]` tuple orders
+                     ;; under `compare`
+                     (nm/sort-by-content-key (juxt #(- (st/rank-of (:class %)))
+                                                   #(str (:tuple %))
+                                                   #(str (:context %))
+                                                   #(pr-str (:sentence %)))
+                                             compare
+                                             sv))))))))))
 
 ;; ---- enumerating what a claim licenses -----------------------------------
 ;; A backward goal is closed and asks one question.  A **forward** antecedent is a

@@ -768,7 +768,7 @@
 
 ;; ---- regression: the whole starter still reasons ------------------------
 
-(tu/deftest-kb starter-reasons-under-canonicalized-sentexes
+(tu/deftest-kb ^:slow starter-reasons-under-canonicalized-sentexes
   (do
     (starter/load-into kb)
     (world/load-cast kb)

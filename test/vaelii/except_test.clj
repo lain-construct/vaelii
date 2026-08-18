@@ -100,9 +100,9 @@
         (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
       (testing "and so is the storage — swept, not merely disbelieved"
         (is (nil? (v/sentex kb h))
-            "the sentex record survived; exceptWhen sweeps, it does not defeat")
+            "exceptWhen sweeps rather than defeats, so the sentex record must be gone")
         (is (nil? (v/handle-of kb (list flies Opus) CxBird))
-            "handle-of still finds it, so it is stored-but-out rather than deleted"))
+            "the conclusion was swept, so handle-of must not still find it"))
       (testing "its justification went with it"
         (is (empty? (v/supporting-justifications kb h)))))))
 

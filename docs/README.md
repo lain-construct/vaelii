@@ -29,6 +29,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | make a rule fire, and see what it concluded | [inference.md](inference.md) | [levels.md](levels.md), [contexts.md](contexts.md) |
 | say "usually, but not when…" | [exceptions.md](exceptions.md) | [nmtms.md](nmtms.md), [inherit.md](inherit.md) |
 | understand why the KB believes something | [nmtms.md](nmtms.md) | [preview.md](preview.md), [feed.md](feed.md) |
+| understand why a subsystem is designed the way it is | [defenses.md](defenses.md) | [nmtms.md](nmtms.md) |
 | resolve a contradiction | [nmtms.md](nmtms.md) | [solving.md](solving.md), [asp.md](asp.md), [labeling.md](labeling.md) |
 | keep a KB across restarts | [storage.md](storage.md) | [overlay.md](overlay.md) |
 | know what a word in these docs means | [glossary.md](glossary.md) | |
@@ -78,7 +79,7 @@ rather than a compatibility claim.
 - [overlay.md](overlay.md) — forks: a private writable overlay over a shared read-only base, so any number of forks in one JVM share one frozen KB while each keeps its own divergent copy.
 - [contexts.md](contexts.md) — contexts, the `genlCx` spindle (head / mantle / collector), `ist` reification, justification placement.
 - [taxonomy.md](taxonomy.md) — the `genl` type hierarchy, `isa?`, `disjoint` / `disjointMetatype`.
-- [inherit.md](inherit.md) — argument-position preservation: `(argPreserving P n R)` / `(argPreservingInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, the `(asymmetric P)` that lets a strict one conflict instead, and how a forward rule fires on an inherited claim by naming what the claim was read from.
+- [inherit.md](inherit.md) — argument-position preservation: `(transitiveInArg P n R)` / `(transitiveInArgInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, the `(asymmetric P)` that lets a strict one conflict instead, and how a forward rule fires on an inherited claim by naming what the claim was read from.
 - [argtypes.md](argtypes.md) — `argIsa` / `argGenl` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. Off by default.
 
 ## Inference & belief
@@ -92,6 +93,7 @@ rather than a compatibility claim.
 - [naf.md](naf.md) — negation as failure: `unknown` / `thereExists`, evaluated at level 6, storing nothing (and why the JTMS `out` slot stays reserved).
 - [aggregate.md](aggregate.md) — aggregation as a query operator: the five reductions over a query's solutions, where GROUP BY comes from, and how a firing that rests on a count is maintained.
 - [nmtms.md](nmtms.md) — the non-monotonic TMS: assumption strengths, soft prioritized contradictions, the solver seam.
+- [defenses.md](defenses.md) — the design defenses: why a non-obvious decision across the engine is shaped the way it is and why the tempting alternative is worse, collected out of the subsystem docs so each states the mechanism and links the argument.
 - [preview.md](preview.md) — `preview`: the belief a batch would add and take away, read off and then rolled back at the same handles.
 - [equality.md](equality.md) — `rewriteOf` / `sameAs` / `equals` over one belief-following partition, and the `different` that keeps the unique-name assumption.
 - [equational.md](equational.md) — symbolic (schematic) equational reasoning: oriented term rewriting by a Knuth-Bendix order, normalizing store and query to one belief-following normal form.

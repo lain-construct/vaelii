@@ -147,20 +147,10 @@ unconstrained, every base relation still possible — and only ever removes. Tha
 greatest fixpoint below the input, and it says **nothing is ruled out that the constraints
 do not rule out**.
 
-The least fixpoint of the same operator is a genuine fixpoint and a useless one: set every
-constraint to `#{}`. Intersecting the empty set with anything is empty, so it is perfectly
-stable, and it claims that no two regions can stand in any relation at all — which is to
-say the theory is contradictory, of every KB, always. Nothing in the equations rejects it.
-Only starting from the top does.
-
-The dual is in this codebase too, a couple of namespaces away, and it is worth reading the
-pair together. `jtms/region-classes` solves the defeat-class equation by starting every
-in-region node at `:default` and iterating **upward** to stability — a least fixpoint,
-chosen for exactly the mirrored reason. There, starting from the top would let a node
-claim a strength nothing conferred; here, starting from the bottom would let the network
-deny a relation nothing refuted. Least fixpoint means *nothing is in unless something put
-it in*; greatest means *nothing is out unless something took it out*. Reachability and
-derivation are the first kind; possibility and consistency are the second.
+Which end the loop starts from is not a free choice: the least fixpoint of the same
+operator is a different, degenerate answer — every constraint set to `#{}`, stable but
+claiming that every KB's theory is contradictory. [why greatest, not
+least](defenses.md#path-consistency-computes-the-greatest-fixpoint-not-the-least)
 
 Both are unique, which is what makes both order-independent. That is the property the
 engine actually needs, and it is available at either end — but only at an end.
@@ -525,11 +515,8 @@ appends a `:qualitative-inconsistency` entry to the KB's violations ledger — t
 and the pairs that are unsatisfiable *as written* (absent when only composition found it).
 Otherwise an impossible KB answers nothing and says nothing about why.
 
-It is deliberately **not** a `wff` check. `wff` throws, and which fact it would throw on
-is whichever arrived last — the clash is a property of a *set*, so blaming a member makes
-the stored KB depend on assertion order. It would also cost a fixpoint per assert, and
-the provers are opt-in, so a KB that never registered one would be held to a calculus it
-never asked for. Recording it where the pass already proved it costs nothing.
+It is deliberately **not** a `wff` check. [why not a wff
+check](defenses.md#an-impossible-network-is-reported-off-the-pass-not-thrown-as-a-wff-check)
 
 The entry is filed once per network **per KB and context**, which is not the same thing as
 once per pass. The pass is memoized on the network *value* and so is shared — two contexts
@@ -725,23 +712,15 @@ context there is nothing for a second to meet.
 
 The same set answers a second question, which is why it lives in `qcn-kb` rather than in
 the chainer. A goal whose context is a **variable** means "in some context", as it does
-for every other prover — and the reading that would be wrong is the tempting one: read
-every context's facts into a single network and ask it. Those differ, and unsoundly.
-`(ntpp A B)` in one context and `(ntpp B D)` in an incomparable one compose for
-*nobody*, since no context inherits both, yet one wildcard read holds them together and
-reports `A ⊏ D`. So the prover fans over the readers and unions their answers, and every
-binding it yields is entailed for a reader that exists. The union network is still what
-`qcn-kb/network` returns for a variable context, and it is a diagnostic view of everything
-stored rather than anything a reader sees; no goal is answered off it.
-
-Reading only where facts are *stated* is not a weaker answer, it is an order-dependent
-one, which is why this is stated as a rule rather than as a cost decision. The firing
-would wait for some unrelated fact to be asserted in the meeting context — any fact,
-entailing nothing about the pair — and then **survive that fact's retraction**, since by
-then it has a justification of its own. Reloading the identical content would not
-reproduce the KB (docs/nmtms.md). Placement is unaffected either way: a conclusion is
-placed from the contexts of its support handles, so one solved at the meeting context
-lands there because the facts that entailed it meet there.
+for every other prover, and it is answered by fanning the prover over the readers and
+unioning their answers — never by reading every context's facts into one network, and
+never by reading wherever happens to be convenient. [why the reader set is exact, not a
+convenience](defenses.md#a-variable-context-goal-fans-over-readers-rather-than-reading-one-unioned-network)
+The union network is still what `qcn-kb/network` returns for a variable context, and it is
+a diagnostic view of everything stored rather than anything a reader sees; no goal is
+answered off it. Placement is unaffected either way: a conclusion is placed from the
+contexts of its support handles, so one solved at the meeting context lands there because
+the facts that entailed it meet there.
 
 ### The re-join is semi-naive, over the pairs that moved
 

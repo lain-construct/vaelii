@@ -99,7 +99,18 @@ print_status() {
     [[ $VERBOSE -eq 1 ]] && sed 's/^/        /' "$o"
   else
     printf '%s✗%s FAILED%s\n' "$RED" "$RST" "$tstr"
-    sed 's/^/        /' "$o"
+    # cljfmt's failure detail is the whole reformat diff, and `lein fix` is what
+    # applies it — so the diff is noise in a report you read to decide what to do,
+    # and on a big rewrite it buries every other check's finding.  Keep cljfmt's
+    # own file list and count, drop the diff (and lein's $CLASSPATH WARNING with
+    # it), unless VERBOSE asked for all of it.  Every other check's detail IS the
+    # finding, so it prints in full.
+    if [[ "$label" == cljfmt && $VERBOSE -eq 0 ]]; then
+      grep -E 'has incorrect formatting|[0-9]+ file\(s\) formatted incorrectly' "$o" \
+        | sed 's/^/        /'
+    else
+      sed 's/^/        /' "$o"
+    fi
     [[ "$label" == cljfmt ]] && printf "        %s→ run \`lein fix\`%s\n" "$DIM" "$RST"
     fail=$((fail + 1)); failed_labels+=("$label")
   fi

@@ -292,7 +292,7 @@
          up        (for [t seeds :when (all-types t)
                          g (take max-genls (nearest (disj (set (v/genls kb t)) t)))]
                      g)
-         types     (distinct (concat (filter all-types seeds) (sort (distinct up))))
+         types     (distinct (concat (filter all-types seeds) (sort-by str (distinct up))))   ; supertypes may be NATs
          head-only? #(and (struct %) (not (seed-set %)))
          domain?   #(and (not (all-types %)) (not (head-only? %))
                          (not (inventory/structural-functor? %)))

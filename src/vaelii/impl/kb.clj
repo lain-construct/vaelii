@@ -156,8 +156,10 @@
   `:memory` and `:disk` are the two pairs that are the same store on both axes, named for
   the store rather than doubled.
 
-  Seven pairs, not eight: **RAM records with the durable index is refused**, so no name
-  spells it (`backend-axes` says why)."
+  Seven `:memory`/`:disk` pairs, plus `:sqlite` — a third durable records axis (an
+  embedded-SQLite record store, the `com.vaelii/sqlite` adapter resolved lazily so the
+  engine stays JDBC-free) with the derived index in RAM.  **RAM records with the durable
+  index is refused**, so no name spells it (`backend-axes` says why)."
   {:memory          {:records :memory :index :memory}
    :memory-dense    {:records :memory :index :dense}
    :memory-columnar {:records :memory :index :columnar}
@@ -165,6 +167,7 @@
    :disk-dense      {:records :disk   :index :dense}
    :disk-columnar   {:records :disk   :index :columnar}
    :disk            {:records :disk   :index :disk}
+   :sqlite          {:records :sqlite :index :memory}
    ;; a fork: both halves decorate whatever the frozen base resolved to, so `:overlay` is
    ;; a *decorator* selection rather than a store — see the `:base` / `:overlay` opts
    :overlay         {:records :overlay :index :overlay}})
@@ -188,13 +191,31 @@
                                  {:type :unknown-backend :backend backend})))
         axes {:records (or records (:records pair))
               :index   (or index   (:index pair))}]
-    (when (= axes {:records :memory :index :disk})
-      (throw (ex-info (str "the :disk index needs :disk records — an index is derived from "
-                           "the records, so persisting it over a record store that empties "
-                           "at JVM exit leaves it describing records that are gone.  Want "
-                           "durability? :disk.  Want the RAM index? :memory.")
+    (when (and (= :disk (:index axes)) (not= :disk (:records axes)))
+      (throw (ex-info (str "the :disk index needs :disk records — an index is derived from the "
+                           "records, and the durable :disk index is built against the disk record "
+                           "store in one directory (shared handles and lifecycle), so it pairs with "
+                           ":disk records and no other.  A " (pr-str (:records axes)) " record store "
+                           "under it either empties at JVM exit (`:memory`) or is a different durable "
+                           "store the index does not describe (`:sqlite`).  Want a durable pair? "
+                           ":disk.  Want " (pr-str (:records axes)) " records? take the RAM index "
+                           "(`:memory`), rebuilt on open.")
                       (assoc axes :type :unknown-backend))))
     axes))
+
+(defn- sqlite-record-store-ctor
+  "The `com.vaelii/sqlite` adapter's record-store constructor, resolved **lazily** — the
+  same trick `create-tms` uses for the dense TMS — so the SSPL engine never loads the
+  SQLite driver unless a KB selects `:sqlite`.  Throws a clear missing-adapter error when
+  the Apache-2.0 sibling is not on the classpath, rather than a bare
+  `FileNotFoundException` from the resolve."
+  []
+  (or (try (requiring-resolve 'vaelii.sqlite.record-store/sqlite-record-store)
+           (catch java.io.FileNotFoundException _ nil))
+      (throw (ex-info (str "backend :sqlite needs the vaelii-sqlite adapter (com.vaelii/sqlite) "
+                           "on the classpath — an Apache-2.0 sibling the engine does not depend "
+                           "on, so add it to your project to select the :sqlite backend.")
+                      {:type :unknown-backend :records :sqlite}))))
 
 (defn- record-store-for
   "The `RecordStore` for the record axis.  `:memory` keys the in-RAM store by `:space`,
@@ -202,15 +223,21 @@
   (`vaelii.impl.memory`); `:disk` opens the durable log/idx record store in a directory
   (`:dir`, else derived from the space number), shared per directory — and opens
   *only* the records, so a derived-index mode writes no index files
-  (`vaelii.impl.disk.backend`)."
+  (`vaelii.impl.disk.backend`).  `:sqlite` opens the embedded-SQLite record store over a
+  single file in that same directory, through the lazily-resolved sibling adapter."
   [kind {:keys [space] :or {space 0} :as opts}]
   (case kind
     :memory (mem/memory-record-store {:space space})
     :disk   (disk/records-for (disk/disk-dir opts))
+    ;; a single file under the KB's directory; ensure the directory exists (SQLite
+    ;; creates the file, not its parent), the way the disk backend makes its own dir.
+    :sqlite (let [dir (disk/disk-dir opts)]
+              (.mkdirs (java.io.File. ^String dir))
+              ((sqlite-record-store-ctor) {:dbtype "sqlite" :dbname (str dir "/records.sqlite")}))
     ;; `:overlay` is resolved by `open-kb`, which alone knows the base — reaching here
     ;; means a base or an overlay half was itself declared `:overlay`, and a stack of
     ;; forks is deliberately not built (docs/overlay.md)
-    (throw (ex-info (str "unknown record backend " (pr-str kind) " — want :memory or :disk"
+    (throw (ex-info (str "unknown record backend " (pr-str kind) " — want :memory, :disk or :sqlite"
                          (when (= :overlay kind)
                            " (an :overlay half cannot itself be an overlay)"))
                     {:type :unknown-backend :records kind}))))
@@ -317,13 +344,16 @@
                           {:type :no-base}))))
 
 (defn- create-tms
-  "The truth-maintenance network `:tms` selects: `:reference` (default) is the atom
-  over one persistent map; `:dense` is the bitmap/primitive-map representation
-  (`vaelii.impl.dense-jtms`), off by default and
-  proven to answer identically by `jtms_dense_oracle_test`.
+  "The truth-maintenance network `:tms` selects: `:dense` (default) is the
+  bitmap/primitive-map representation (`vaelii.impl.dense-jtms`); `:reference` is the
+  atom over one persistent map.  The two are proven to answer identically by
+  `jtms_dense_oracle_test`, so the choice is resident cost, not belief: dense holds the
+  network in ~3.8× less RAM at corpus scale (docs/density.md, Phase 3) at no wall cost,
+  which is why the engine — built for KBs that must fit a single large node — defaults
+  to it.  `:reference` stays the simpler baseline a caller can pin.
 
-  Resolved lazily, exactly as the solver backends are, so a KB that never asks for the
-  dense network never loads RoaringBitmap or fastutil."
+  Resolved lazily, exactly as the solver backends are, so `:reference` never loads
+  RoaringBitmap or fastutil."
   [kind]
   (case kind
     :reference (jtms/create-tms)
@@ -402,9 +432,10 @@
   different KB.  `:base` / `:base-stores` / `:overlay` are read when an axis is
   `:overlay`: on any other selection `{:backend :memory :base-stores …}` opens a plain
   KB with nothing mounted, and every read that was meant to see the base answers as
-  though it were empty.  `:dir` is read when a half is `:disk`: on RAM stores it names
-  a directory nothing writes, so the caller who asked for durability loses the store
-  at JVM exit — behind an open that looked exactly like the durable one.  (A fork's
+  though it were empty.  `:dir` is read when a half is `:disk`, or the records are
+  `:sqlite` (whose file lives in that directory): on RAM stores it names a directory
+  nothing writes, so the caller who asked for durability loses the store at JVM exit —
+  behind an open that looked exactly like the durable one.  (A fork's
   top-level `:dir` is the same nothing: its own writable half's directory lives in the
   `:overlay` sub-map, checked here on its own axes.)  `where` names the opts map, as
   in `check-opts!`."
@@ -419,14 +450,14 @@
                            " meant.")
                       {:type :unknown-option :unknown (vec given)
                        :records rkind :index ikind}))))
-  (when-not (or (= :disk rkind) (= :disk ikind))
+  (when-not (or (= :disk rkind) (= :disk ikind) (= :sqlite rkind))
     (when (contains? opts :dir)
       (throw (ex-info (str where " was given :dir " (pr-str (:dir opts))
-                           " but no half is :disk, so nothing writes there — the store"
-                           " lives in RAM and is gone at JVM exit, the opposite of what"
+                           " but no half is :disk or :sqlite, so nothing writes there — the"
+                           " store lives in RAM and is gone at JVM exit, the opposite of what"
                            " naming a directory asks for.  Want durability?"
                            " {:backend :disk} (or :disk-memory / :disk-dense /"
-                           " :disk-columnar).")
+                           " :disk-columnar / :sqlite).")
                       {:type :unknown-option :unknown [:dir]
                        :records rkind :index ikind})))))
 
@@ -658,7 +689,7 @@
   "Construct a KB — the implementation behind `vaelii.core/open-kb`, which owns the
   user-facing docstring.  `:backend` (`:memory` default) names a record/index store
   pair, or `:records` / `:index` select the two axes independently; `:tms`
-  (`:reference` default, or `:dense`) selects the truth-maintenance representation.
+  (`:dense` default, or `:reference`) selects the truth-maintenance representation.
 
   `recover-fn` and `reindex-fn` are injected by the caller: both rebuild through the
   whole engine stack (taxonomy, TMS, settle), which sits *above* this namespace, so they
@@ -677,7 +708,7 @@
   ;; that are gone) repairs first and logs after, and this branch agrees with it.
   ;; `:warn` and `false` are there for a caller that wants one of them, spelled out.
   [{:keys [space recover? tms naming constraints]
-    :or   {space 0 recover? :auto tms :reference naming :strict}
+    :or   {space 0 recover? :auto tms :dense naming :strict}
     :as   opts}
    recover-fn reindex-fn]
   ;; The build's switches, before the KB's own options: a JVM property is read on a
@@ -1025,7 +1056,7 @@
         ;; the dispatch above actually left rather than which arm it took — a mapped
         ;; index snapshot populates the derived index without a `reindex`, and a
         ;; `:recover? :warn` recovers nothing at all.
-        (note-hazards! kb {:no-belief (nil? (first (jtms/datums (:tms kb))))
+        (note-hazards! kb {:no-belief (not (jtms/any-node? (:tms kb)))
                            :no-index  (zero? (long (p/count-at (:index kb) [])))})
         ;; ...and saying so, which `{:recover? false}` was silent about entirely.  The
         ;; warning above describes what a *read* gets, and `false` asks not to hear it —
@@ -1202,6 +1233,20 @@
        (boolean (some #(contains? (tax/genls tax % context) t) (types-of kb x context))))
      (exists-in? kb (list t x) context))))
 
+(defn reach-strength
+  "The defeat class of the **strongest** route `sub →* super` in `rel-key` (`:genl` for the
+  type/predicate hierarchy, `:genlCx` for contexts) that `context` sees — `:monotonic` /
+  `:default`, or nil when unreachable.  `nil` context is the unscoped read.
+
+  The diagnostic half of reasoning/26: it reports the widest-bottleneck strength a subsuming
+  firing's conclusion now rests on, so a KB with a defeasible taxonomy edge and an alternate
+  route can ask how strongly one term subsumes another.  Reads the live JTMS defeat-class of
+  each edge supporter (docs/taxonomy.md, \"Strength of a subsumption path\")."
+  ([kb rel-key sub super] (reach-strength kb rel-key sub super nil))
+  ([kb rel-key sub super context]
+   (tax/reach-strength (:taxonomy kb) rel-key sub super context
+                       #(jtms/defeat-class (:tms kb) %))))
+
 (defn membership-reader
   "A `term -> `memberships`` reader, memoized for the life of one caller.
 
@@ -1242,6 +1287,77 @@
   [kb]
   [(:records kb) (tax/props (:taxonomy kb) :symmetric)])
 
+;; A forward-chain run binds the handle cache over its whole fixpoint
+;; (`chain/chain-all`), so every sentex the run *creates* is cached.  For a functor
+;; the store held **no** sentex under when the run began, that makes the cache
+;; authoritative: nothing outside the run could have stored one, and everything the
+;; run stored is cached, so a cache *miss* is proof of absence — and the trie walk
+;; `find-sentex-handle` would otherwise do to reconfirm it (a ~5-level megamorphic
+;; walk per novel conclusion, the join pyramid's dominant cost) is pure overhead.
+;;
+;; This memo records that verdict per functor, decided at the functor's first probe —
+;; which is before its first conclusion is placed, so the store still reads zero for a
+;; genuinely chain-only functor.  A functor that already held facts reads non-zero and
+;; is never trusted (the trie answers it, exactly as before).  Bound only by
+;; `chain` (`chain-all`'s fixpoint), and only alongside the handle cache it reasons
+;; about; nil for every other caller, so a lone `find-sentex-handle` behaves precisely
+;; as it did.
+;;
+;; **Armed only for a bulk frontier** (`chain-authority-min-frontier`).  The probe is a
+;; `count-with-functor` read, repaid only when the run concludes *many* facts of the
+;; functor so the one read skips many walks.  A large forward-chain earns it — a
+;; `forward-chain` seeds every believed sentex, a bulk load or a broad `genl` edge seeds
+;; a wide frontier — but an incremental `assert` seeds one fact, concludes a handful, and
+;; would pay a probe per assert it could never amortize (worse, a probe that reads
+;; non-zero off an *accumulating* conclusion functor and walks anyway).  So `chain` binds
+;; the memo only when the seed frontier clears the floor; below it the var stays nil and
+;; the assert path costs exactly what it did before the optimization.  A run seeded small
+;; that nonetheless fans out wide forgoes the skip — the frontier is a lower bound on the
+;; run, not a prediction of it — but that is the cheap-store case where a walk is cheap,
+;; and the profiled win (`w4.join`, `find-sentex-handle` 9.95% -> 2.47%) is a single
+;; large-seed `forward-chain` the floor passes.
+;;
+;; **The functor is the store's own root key, not the sentence head**, which is the
+;; whole point of asking `count-with-functor` at all: a negative fact roots under its
+;; positive body's predicate (`kv/root-keys`, polarity lives in the record), so
+;; `(not (believed X))` counts under `believed` and *never* under `not`.  Keying the
+;; memo on the sentence head would ask `count-with-functor` about `not` — a functor
+;; nothing ever roots under — read zero every time, and declare the cache authoritative
+;; for a body the store may well hold, skipping the trie into a duplicate sentex.  So
+;; the key is `(sx/body built)`'s functor, computed exactly as `root-keys` does; a rule
+;; has no body and no functor-root posting, so the memo declines it and the trie answers.
+(def ^:dynamic *chain-authoritative-functors* nil)
+
+(def chain-authority-min-frontier
+  "The smallest seed frontier a `chain` run arms the authority memo above for.  Coarse,
+  not tuned: it separates an incremental `assert` (a seed of one, plus a few migration
+  seeds) from a bulk fixpoint (a `forward-chain`'s whole datum set, a load, a broad edge's
+  subsumption seeds), and the memo's benefit is flat across the wide band between them —
+  above the floor one probe per functor is repaid by the walks it skips, below it there
+  are too few conclusions to repay a probe at all.  Placed here beside the var it gates so
+  the mechanism and the policy that arms it read together."
+  64)
+
+(defn- functor-cache-authoritative?
+  "Is the run's handle cache authoritative for the sentex `built` — did the store hold
+  zero sentexes under the functor it roots at when this run first asked?  The functor is
+  the store's root key (`(first (sx/body built))`, `kv/root-keys`), so a negative asks
+  about its body's predicate rather than `not`.  Memoized in
+  `*chain-authoritative-functors*` (a mutable map bound by `chain-all`); a nil var (no
+  run, or no cache) answers falsey, leaving the caller on the trie — as does a `built`
+  with no functor-root posting (a rule, or a non-symbol-headed body)."
+  [kb built]
+  (when-let [^java.util.Map memo *chain-authoritative-functors*]
+    (let [b (sx/body built)]
+      (when (and (sequential? b) (seq b) (symbol? (first b)))
+        (let [functor (first b)
+              cached  (.get memo functor)]
+          (if (some? cached)
+            cached
+            (let [auth (zero? (long (p/count-with-functor (:index kb) functor)))]
+              (.put memo functor auth)
+              auth)))))))
+
 (defn find-sentex-handle
   "The handle of an existing sentex for `sentence` in `context`, or nil.  A **ground**
   symmetric literal also probes its mirror, so a fact stored before its `symmetric`
@@ -1250,29 +1366,38 @@
   [kb sentence context]
   (let [stamp (canon-stamp kb)]
     (or (observe/cached-handle stamp sentence context)
-        (let [probe  #(first (p/lookup (:index kb) (sx/path (res/kb-sentex kb % context))))
-              built  (res/kb-sentex kb sentence context)
-              direct (first (p/lookup (:index kb) (sx/path built)))]
-          (if direct
-            ;; only this arm fills the cache, and the difference is what the answer
-            ;; *says*.  Here it is "this sentence is stored at this handle" — true until
-            ;; the sentex is removed, which is a choke point.  The mirror arm's answer is
-            ;; "this sentence resolves to the handle of its mirror", which additionally
-            ;; needs the mirror to keep resolving; the stamp covers that, but a firing
-            ;; never asks it, so there is nothing to buy by widening the contract.
-            ;; **Cached only when the spelling survives canonicalization**: the removal
-            ;; choke point clears the canonical key (`integrate/sentex-removed!`), so an
-            ;; entry keyed on a spelling canonicalization rewrites — a sorted symmetric
-            ;; literal, a folded comparison — would outlive its sentex as a stale handle
-            (if (= sentence (:sentence built))
-              (observe/cache-handle! stamp sentence context direct)
-              direct)
-            ;; the global property, matching kb-sentex's key discipline: storage sorted
-            ;; the arguments (or did not), and which it did cannot vary by who is looking
-            (let [sym? #(tax/has-prop? (:taxonomy kb) :symmetric %)]
-              (when (and (sx/symmetric-literal? sentence sym?)
-                         (every? sx/ground-term? (rest sentence)))
-                (probe (sx/mirror-literal sentence)))))))))
+        (let [built  (res/kb-sentex kb sentence context)]
+          ;; The run cache already answered "no", and for a chain-authoritative functor
+          ;; that "no" is final — skip the trie.  Guarded on the queried spelling being
+          ;; the canonical one: if canonicalization moved it (a symmetric literal sorted,
+          ;; an α-rename, a fold), the cache was consulted under a different key than the
+          ;; store holds, so its miss proves nothing and the trie must answer.  That one
+          ;; equality subsumes every special-predicate storage rule at once.
+          (if (and (= sentence (:sentence built))
+                   (functor-cache-authoritative? kb built))
+            nil
+            (let [probe  #(first (p/lookup (:index kb) (sx/path (res/kb-sentex kb % context))))
+                  direct (first (p/lookup (:index kb) (sx/path built)))]
+              (if direct
+                ;; only this arm fills the cache, and the difference is what the answer
+                ;; *says*.  Here it is "this sentence is stored at this handle" — true until
+                ;; the sentex is removed, which is a choke point.  The mirror arm's answer is
+                ;; "this sentence resolves to the handle of its mirror", which additionally
+                ;; needs the mirror to keep resolving; the stamp covers that, but a firing
+                ;; never asks it, so there is nothing to buy by widening the contract.
+                ;; **Cached only when the spelling survives canonicalization**: the removal
+                ;; choke point clears the canonical key (`integrate/sentex-removed!`), so an
+                ;; entry keyed on a spelling canonicalization rewrites — a sorted symmetric
+                ;; literal, a folded comparison — would outlive its sentex as a stale handle
+                (if (= sentence (:sentence built))
+                  (observe/cache-handle! stamp sentence context direct)
+                  direct)
+                ;; the global property, matching kb-sentex's key discipline: storage sorted
+                ;; the arguments (or did not), and which it did cannot vary by who is looking
+                (let [sym? #(tax/has-prop? (:taxonomy kb) :symmetric %)]
+                  (when (and (sx/symmetric-literal? sentence sym?)
+                             (every? sx/ground-term? (rest sentence)))
+                    (probe (sx/mirror-literal sentence)))))))))))
 
 ;; ---- the P/¬P coincidence set --------------------------------------------
 ;; A negation nogood (`settle/negation-nogoods`) needs a body stored in *both*
@@ -1497,7 +1622,7 @@
 
 (defn antecedent-order
   "`handles` as a justification's stored antecedent vector: ordered by what each
-  antecedent **says** — its printed sentence, then its context — never by the handle.
+  antecedent **says** — its sentence, then its context — never by the handle.
 
   A handle is allocated in assertion order, so a vector in the order the derivation
   built it is a record of which side arrived first.  A firing is seeded by the antecedent
@@ -1519,10 +1644,10 @@
 
   Keyed once per antecedent rather than once per comparison, and short-circuited below
   two: this runs on the derivation path, where a firing builds one vector per placement
-  and a printed sentence is not free.
+  and the content key is not free.
 
   **Called where something is stored, never where something is only decided.**  A
-  printed sentence per antecedent is the price of the order, so it is paid once per
+  content key per antecedent is the price of the order, so it is paid once per
   record written rather than once per firing: the callers are the justification writers
   (`chain/place-fact-conclusion`, `chain/mint-rule`, `special/derive-equality`) and the
   refusal ledger.  Everything upstream of them reads the antecedents as a **set** or as a
@@ -1531,29 +1656,15 @@
   the sort against firings rather than against records.  Keep it that way: move a call
   **later** if a caller turns out to decide before it stores, never earlier."
   [kb handles]
-  (if (< (count handles) 2)
-    (vec handles)
-    (let [recs (:records kb)
-          ;; The key is the one `pr-str` would write, and it is written the way `pr-str`
-          ;; writes it — `pr-on`'s body against a writer of our own — rather than through
-          ;; `pr-str` itself.  Same string for every value, `*print-dup*` included, and it
-          ;; drops the `*out*` rebinding `with-out-str` does per antecedent: a thread
-          ;; binding pushed and popped is about a third of what keying three handles
-          ;; costs, and this runs once per justification the engine stores.
-          k    (fn [h] (let [s (p/get-sentex recs h)
-                             w (java.io.StringWriter.)]
-                         (if *print-dup*
-                           (print-dup (:sentence s) w)
-                           (print-method (:sentence s) w))
-                         [(.toString w) (str (:context s))]))]
-      ;; print vars bound off, as everywhere EDN is written for something other than
-      ;; a human to read: an ambient `*print-length*` would elide two long sentences
-      ;; to one prefix, and the stable sort would fall back to the order the join
-      ;; happened to yield — which is the arrival order this exists to remove.  One
-      ;; frame for the whole vector, not one per antecedent — the keys are built inside
-      ;; it either way, and the vars are read by the printer rather than by the caller.
-      (binding [*print-length* nil *print-level* nil]
-        (->> handles (map (fn [h] [(k h) h])) (sort-by first) (mapv second))))))
+  ;; The key is **structural** — the antecedent's sentence, then its context — and
+  ;; `nm/sort-by-content-key` compares it by `compare-form`, walking the two forms in place
+  ;; rather than printing them: no String is built per handle, and no ambient
+  ;; `*print-length*` can elide two long sentences to one prefix, collapse the key and
+  ;; drop the tie back onto the arrival order this exists to remove.  The key is built
+  ;; once per antecedent (not once per comparison), and a run of one is left as it came.
+  (let [recs (:records kb)]
+    (nm/sort-by-content-key (fn [h] (let [s (p/get-sentex recs h)] [(:sentence s) (:context s)]))
+                            handles)))
 
 (defn justification-content-key
   "The key every listing of justifications sorts on: what a justification **says** — the
@@ -1585,8 +1696,10 @@
   the other two readings, which each list one conclusion's supports, so it moves
   nothing there.
 
-  Two justifications with equal keys say the same thing and print the same way; only
-  their ids separate them, and an id is the arrival order this key exists to keep out."
+  The keys are **structural** forms, ordered by `nm/compare-form` — a caller sorts with
+  that comparator, never with the default `compare` (which would throw on a sentence).
+  Two justifications with equal keys say the same thing; only their ids separate them,
+  and an id is the arrival order this key exists to keep out."
   [kb]
   (let [recs (:records kb)
         ;; **with the context**, because `antecedent-order` sorts on it: a key coarser
@@ -1595,23 +1708,26 @@
         ;; arrival order this key exists to keep out.  `core/preview` reads
         ;; `(first (supporting-justifications …))`, so the tie is not cosmetic there
         sent (fn [x] (when-let [s (some->> x (p/get-sentex recs))]
-                       [(:sentence s) (str (:context s))]))]
+                       [(:sentence s) (:context s)]))]
     (fn [j]
       (let [inf (:informant j)
             isx (when (integer? inf) (p/get-sentex recs inf))
             c   (some->> (:consequence j) (p/get-sentex recs))]
-        ;; print vars bound off, for `antecedent-order`'s reason: an elided sentence is
-        ;; a tie, and a tie falls back to the id set's own order
-        (binding [*print-length* nil *print-level* nil]
-          (pr-str [(if (integer? inf) (:sentence isx) (str inf)) (str (:context isx))
-                   (mapv sent (:antecedents j))
-                   ;; sorted, because a small binding map is a `PersistentArrayMap` and
-                   ;; prints in **insertion** order — which is the trigger order.  One
-                   ;; rule reached through two antecedents binds the same variables to
-                   ;; the same terms and printed two different ways, so equal bindings
-                   ;; gave unequal keys and the reading depended on which fact fired it
-                   (some->> (:bindings j) (into (sorted-map)))
-                   (:sentence c) (str (:context c))]))))))
+        ;; A **structural** key, compared by `nm/compare-form` — never printed.  Was a
+        ;; `*print-length*`-guarded `pr-str`; the comparator closes both of that key's
+        ;; costs — no String is built per justification, and no ambient `*print-length*`
+        ;; can elide a long sentence to a prefix and drop the tie back onto the id set's
+        ;; own order (`antecedent-order`'s reason).
+        [(if (integer? inf) (:sentence isx) inf) (:context isx)
+         (mapv sent (:antecedents j))
+         ;; sorted, because a small binding map is a `PersistentArrayMap` and iterates in
+         ;; **insertion** order — which is the trigger order.  One rule reached through two
+         ;; antecedents binds the same variables to the same terms, so unsorted the equal
+         ;; bindings would give unequal keys and the reading would depend on which fact
+         ;; fired it.  Sorted into a vector of pairs, which `nm/compare-form` walks — a map
+         ;; is not sequential to it.
+         (when-let [b (:bindings j)] (mapv (fn [[k v]] [k v]) (into (sorted-map) b)))
+         (:sentence c) (:context c)]))))
 
 ;; ---- the equality closure: reading and rewriting -------------------------
 ;; The closure itself is `vaelii.impl.taxonomy`'s; the *machinery* that runs when two

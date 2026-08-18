@@ -271,10 +271,10 @@
                               (get low v) (get g v #{}))
                   low (assoc low v lo)]
               (if (= lo (get idx v))
-                (let [[comp s'] (split-with #(not= % v) (reverse s))
-                      comp      (conj (vec comp) v)]
-                  (recur stack idx low (reduce disj on comp)
-                         (vec (reverse (rest s'))) (conj out (set comp)) counter (pop work)))
+                (let [[component s'] (split-with #(not= % v) (reverse s))
+                      component      (conj (vec component) v)]
+                  (recur stack idx low (reduce disj on component)
+                         (vec (reverse (rest s'))) (conj out (set component)) counter (pop work)))
                 (recur stack idx low on s out counter (pop work))))))
         (seq stack)
         (recur (pop stack) idx low on s out counter [[(peek stack) :enter]])

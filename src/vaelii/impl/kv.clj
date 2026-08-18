@@ -206,6 +206,55 @@
 ;; handle families into int postings routes `[:term-roster]` to its ordinary set storage.
 (def ^:private roster-key [:term-roster])
 
+;; ---- the argument columns -------------------------------------------------
+;; The predicate-scoped argument-root family is the one family whose key is a four-element
+;; VECTOR — `[:argument-root pred pos term]` — so a probe through a flat key→set map pays
+;; `APersistentVector.doEquiv` per read and conses that vector at the call site.  The
+;; family is also *hierarchical*: `pos → term → pred → handles`, and the reads a settle
+;; leans on ask for a subtree of it — a scoped bucket at one leaf, the predicate-agnostic
+;; UNION at a `(pos, term)` node, or that node's cardinality (`could-clash?` /
+;; `pairable?`).  `ArgColumns` names those reads directly so a backend that stores the
+;; family as a counted trie answers them as node reads: no consed vector, no `doEquiv`, a
+;; count read off a node, and the agnostic union handed back by reference instead of
+;; rebuilt per call.
+;;
+;; Every `KvBackend` gets the `Object` default below, which reconstructs the vector keys
+;; and folds the generic set ops — byte-identical to what `KvIndexStore` did inline before
+;; — so a backend that has not specialized the family keeps the exact same answers.  Only
+;; the in-memory backend (`vaelii.impl.memory`) overrides it with the trie; the columnar,
+;; disk and overlay backends ride the default and are unchanged.
+(defprotocol ArgColumns
+  "Descent reads over the predicate-scoped argument-root family (`pos → term → pred`)."
+  (arg-scoped-members [b pred pos term]
+    "Handles at `[:argument-root pred pos term]` — one scoped leaf.")
+  (arg-scoped-intersect [b pred pos-terms]
+    "Intersection of the scoped leaves over `pos-terms` (a seq/map of `[pos term]`) — the
+    multi-column narrowing; a single column is that leaf handed back directly.")
+  (arg-agnostic-members [b pos term]
+    "Union of the handles at `(pos, term)` across every predicate — the predicate-agnostic
+    read, over the slot roster in the default and off a maintained node union in the trie.")
+  (arg-agnostic-count [b pos term]
+    "Cardinality of that union — a node read where the family is a counted trie."))
+
+(extend-protocol ArgColumns
+  Object
+  ;; the pre-trie behaviour, verbatim: a scoped read is one vector-keyed set fetch, a
+  ;; multi-column read one intersection, and an agnostic read a union/sum over the slot
+  ;; roster's predicates.  `arg-key` canonicalizes the term exactly as the stored key did.
+  (arg-scoped-members [b pred pos term] (kv-members b (arg-key pred pos term)))
+  (arg-scoped-intersect [b pred pos-terms]
+    (let [ks (mapv (fn [[pos term]] (arg-key pred pos term)) pos-terms)]
+      (if (= 1 (count ks)) (kv-members b (nth ks 0)) (kv-intersect b ks))))
+  (arg-agnostic-members [b pos term]
+    (let [preds (kv-members b (slot-key pos term))]
+      (case (count preds)
+        0 #{}
+        1 (kv-members b (arg-key (first preds) pos term))
+        (reduce (fn [acc pd] (into acc (kv-members b (arg-key pd pos term)))) #{} preds))))
+  (arg-agnostic-count [b pos term]
+    (reduce (fn [n pd] (+ (long n) (long (kv-count b (arg-key pd pos term)))))
+            0 (kv-members b (slot-key pos term)))))
+
 (defn root-keys
   "The secondary-root keys a sentex belongs to: its context always, plus — for a
   *fact* — its functor and each indexable top-level argument by 1-based position.
@@ -327,6 +376,22 @@
   ever meets it.  Zero on a store whose index arrived by `index-load` replay or was
   written before the counter existed — the gate falls back to the root count there."
   [::sealed])
+
+(def ^:dynamic *arg-point-cache*
+  "An OPTIONAL point-query memo for the predicate-agnostic argument reads
+  (`sentexes-with-arg` / `count-with-arg`): an atom holding `{[:m pos term] members}` and
+  `{[:c pos term] count}`, or **nil (the default) for no memo**.
+
+  It exists to answer one question the belief-settle sweep raised: does memoizing the
+  `could-clash?` / `pairable?` point reads pay?  It does not, for the sweep.  The sweep is
+  a one-shot pass over its region that reads each `(pos, term)` about once, so the memo
+  pays a hash and a growing map for hits that rarely land — and, decisively, it is
+  **unsound across a write**: the sweep settles belief as it reads, so a memo held over it
+  can hand back a stale posting.  The sweep therefore MUST leave this nil (its default);
+  bind it to a fresh atom only around a read-only burst that re-probes the same `(pos,
+  term)` many times with no intervening index write.  Off, the check is one `nil?` branch
+  on the read path — the reason it is a dynamic var and not a field."
+  nil)
 
 (defrecord KvIndexStore [backend]
   p/IndexStore
@@ -509,18 +574,20 @@
   ;; int posting, and a fork still merges; what the branch saves them is the union.
   (sentexes-with-arg [_ pos term]
     (prof/record-read :argument-slot)
-    (let [preds (kv-members backend (slot-key pos term))]
-      (prof/record-read :argument-root)
-      (case (count preds)
-        0 #{}
-        1 (kv-members backend (arg-key (first preds) pos term))
-        (reduce (fn [acc pd] (into acc (kv-members backend (arg-key pd pos term))))
-                #{} preds))))
+    (prof/record-read :argument-root)
+    (if-let [c *arg-point-cache*]
+      (let [k [:m pos term]]
+        (if-some [v (get @c k)] v (let [v (arg-agnostic-members backend pos term)]
+                                    (swap! c assoc k v) v)))
+      (arg-agnostic-members backend pos term)))
   (count-with-arg    [_ pos term]
     (prof/record-read :argument-slot)
     (prof/record-read :argument-root)
-    (reduce (fn [n pd] (+ (long n) (long (kv-count backend (arg-key pd pos term)))))
-            0 (kv-members backend (slot-key pos term))))
+    (if-let [c *arg-point-cache*]
+      (let [k [:c pos term]]
+        (if-some [v (get @c k)] v (let [v (arg-agnostic-count backend pos term)]
+                                    (swap! c assoc k v) v)))
+      (arg-agnostic-count backend pos term)))
 
   ;; Multi-column narrowing. With the argument roots scoped by predicate, a named
   ;; functor needs NO functor-root intersection: `(rel ?x B C)` reads
@@ -541,11 +608,8 @@
                 nil pos-terms))
       (empty? pos-terms) (do (prof/record-read :functor-root) (kv-members backend (pred-key pred)))
       :else
-      (let [ks (mapv (fn [[pos term]] (arg-key pred pos term)) pos-terms)]
-        (prof/record-read :argument-root)
-        (if (= 1 (count ks))
-          (kv-members backend (nth ks 0))
-          (kv-intersect backend ks)))))
+      (do (prof/record-read :argument-root)
+          (arg-scoped-intersect backend pred pos-terms))))
 
   ;; Both predicate sets are complete — every rule is registered under all of its
   ;; antecedent predicates and its consequent predicate, whatever its direction — so

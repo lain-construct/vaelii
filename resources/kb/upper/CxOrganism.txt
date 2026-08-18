@@ -77,6 +77,10 @@
 (comment horse "A large mammal ridden and used to pull loads.")
 (genl horse mammal)
 
+(comment human "A human being — a mammal that is also a social and rational agent.")
+(genl human mammal)
+(genl human person)
+
 (comment insect "A small six-legged animal.")
 (genl insect animal)
 
@@ -99,8 +103,8 @@
 (comment penguin "A flightless bird — the standard exception to 'birds fly'.")
 (genl penguin bird)
 
-(comment person "A human being — a mammal that is also a social and rational agent.")
-(genl person mammal)
+(comment person "An entity with social agency — a human, or any other agent that stands in social relations. Broader than human: a non-biological agent (a sentient construct) can be a person without being a mammal or an animal, which is what lets the social predicates (friendOf, knows, marriedTo, …) constrain their arguments to person and still admit it. A physical entity — an agent has a location and can act — but not, by itself, a living thing.")
+(genl person physical_object)
 
 (comment plant "A living thing that photosynthesizes; disjoint from animal.")
 (genl plant living_thing)

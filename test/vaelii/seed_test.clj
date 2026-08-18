@@ -51,13 +51,13 @@
 
 (tu/deftest-kb a-sentence-refused-for-what-has-not-arrived-yet-is-retried
   ;; The blocks of a KB file run in natural sort order, so it cannot also be
-  ;; dependency-ordered: `(argPreserving largerThan 1 partOf)` is filed under
+  ;; dependency-ordered: `(transitiveInArg largerThan 1 partOf)` is filed under
   ;; `largerThan` and `(transitive partOf)` under `partOf`, and `l` sorts before `p`.
   ;; The preservation's transitivity check reads the store, so in file order it is
   ;; refused — for where its author filed a sentence, which is not a property of the
   ;; knowledge.
   (tu/with-terms [largerThan1 partOf1 A1 B1 C1]
-    (let [sentences [(list 'argPreserving largerThan1 1 partOf1)  ; needs the next line
+    (let [sentences [(list 'transitiveInArg largerThan1 1 partOf1)  ; needs the next line
                      (list 'transitive partOf1)
                      (list partOf1 B1 C1)
                      (list partOf1 A1 B1)
@@ -78,7 +78,7 @@
   (tu/with-terms [cursed2 begat2 dog2_t Nobody2]
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo #"not transitive"
-         (seed/load-sentences kb [(list 'argPreserving cursed2 1 begat2)
+         (seed/load-sentences kb [(list 'transitiveInArg cursed2 1 begat2)
                                   (list dog2_t Nobody2)]
                               'CxUniverse)))
     (testing "and what could load, did"

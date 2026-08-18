@@ -98,6 +98,15 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
+# leiningen's own terminal state, handed down first by the alias: lein-shell pipes
+# this script's stdout, so `-t 1` (in suite-marks.sh, sourced below) would say "not a
+# terminal" and the graph would fall to one line per backend even with someone
+# watching.  Absent when run directly, where `-t 1` stands.
+case "${1:-}" in
+  --tty)    SUITE_TTY=1; shift ;;
+  --no-tty) SUITE_TTY=0; shift ;;
+esac
+
 # The roster, and the environment that selects each: `scripts/lib/suite-configs.sh`,
 # shared with `test-sweeps.sh` and `test-matrix.sh` so a new backend is one edit.
 # `overlay` is an eighth run and not an eighth pair: it is the DECORATOR — a private

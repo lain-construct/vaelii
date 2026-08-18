@@ -243,7 +243,8 @@
           n   (alength ks)
           out (long-array n)]
       (dotimes [i n] (aset out i ^long (re (aget ks i))))
-      (let [order (long-array (sort out))                 ; sorted, so a read binary-searches
+      (let [order (let [^longs o (aclone ^longs out)]     ; sorted copy, so a read binary-searches
+                    (java.util.Arrays/sort o) o)          ; Arrays/sort on the primitives — no boxing
             back  (java.util.HashMap.)]                   ; remapped key -> its posting
         (dotimes [i n] (.put back (aget out i) (.get m (aget ks i))))
         (let [^ints offs (int-array (inc n))
@@ -376,7 +377,41 @@
     (.clear m)
     (set! mkeys nil) (set! moff nil) (set! mhandles nil) (set! mn (int 0))
     (kv/kv-clear! fallback)
-    nil))
+    nil)
+
+  ;; The predicate-scoped argument-root family is the one handle family this backend does
+  ;; NOT int-route: `[:argument-root pred pos term]` carries a predicate the packed long
+  ;; has no room for, so `route` sends it to the fallback (`unpackable-handle-families`).
+  ;; The fallback is a `MemoryKvBackend`, which holds the family as its counted `::arg`
+  ;; trie and answers `ArgColumns` off it NATIVELY — a scoped leaf and the agnostic union
+  ;; by reference, the agnostic count as a node read, the multi-column probe as an
+  ;; intersection of scoped leaves.  So the aggregate reads delegate straight to it, ints
+  ;; and all, and get the whole collapse.
+  ;;
+  ;; Without this, `DenseRoots` took the `Object` default (`vaelii.impl.kv`), which
+  ;; reconstructs the four-part `[:argument-root pred pos term]` VECTOR through `arg-key`
+  ;; and calls the generic `kv-members`/`kv-count`/`kv-intersect` — routed to `:fallback`
+  ;; and re-parsed by the fallback's `arg-root-key?` back into `pos`/`term`/`pred`.  That
+  ;; cons-and-reparse per read, and the union rebuilt over the slot roster rather than read
+  ;; off the maintained node, is exactly the cost the trie exists to remove; delegating
+  ;; here is what carries the v2/v3 memory-backend win onto the columnar / disk-columnar
+  ;; path, whose argument reads bottom out on this backend.
+  ;;
+  ;; **Both routing states, one path.**  The argument roots are resident in the fallback
+  ;; whether or not a snapshot is mapped: unmapped they are *written* there (`route ⇒
+  ;; :fallback`), and a mapped image loads them there from the resident `roots-fallback.nippy`
+  ;; blob — they ride the resident blob, NOT the mapped run (`disk/index_snapshot.clj`,
+  ;; "The residency split"; `mapped?` and the `m`/`mkeys` columns concern only the
+  ;; int-routed families).  So this needs no mapped/unmapped branch: `mapped?` never moves
+  ;; an argument-root posting out of the fallback's `::arg` trie, and the delegate is the
+  ;; correct native read in either state.  (The fallback's own `ArgColumns` is the `Object`
+  ;; default on any non-memory fallback, so this stays correct even were the fallback
+  ;; swapped — it would only lose the trie collapse, never an answer.)
+  kv/ArgColumns
+  (arg-scoped-members   [_ pred pos term]   (kv/arg-scoped-members   fallback pred pos term))
+  (arg-scoped-intersect [_ pred pos-terms]  (kv/arg-scoped-intersect fallback pred pos-terms))
+  (arg-agnostic-members [_ pos term]        (kv/arg-agnostic-members fallback pos term))
+  (arg-agnostic-count   [_ pos term]        (kv/arg-agnostic-count   fallback pos term)))
 
 (defn dense-roots
   "A key-interning `KvBackend` sharing `dict` (the columnar trie's token dictionary) so a

@@ -76,8 +76,9 @@
   self-consistent and describe a KB that no longer exists.  So the stamp covers the
   **records**, not the snapshot's own bytes, and it is checked on **every** open — never
   behind a flag.  Three things must agree or the snapshot is discarded and `reindex` runs:
-  the format and `kv/index-layout-version`, the byte-order tag (an image whose endianness
-  differs is refused rather than read wrong), and `record-store/slot-fingerprint`.  The
+  the format and `kv/index-layout-version`, the byte-order tag (the sections are always
+  little-endian, so this guards a future format that changes the order, not this machine's
+  architecture), and `record-store/slot-fingerprint`.  The
   decision carries a reason from `import`'s vocabulary — `:absent` `:layout-changed`
   `:records-differ` `:entries-truncated` `:unsupported-platform` — because a rebuild
   nobody can explain is a rebuild nobody notices.
@@ -127,8 +128,11 @@
 (def ^:private ^:const roots-magic 0x56524f54)     ; "VROT"
 
 (def ^:private byte-order-tag
-  "The byte order the sections are written in.  Recorded rather than assumed, so an image
-  from a machine of the other endianness is refused instead of read as noise."
+  "The byte order the sections are written in — always little-endian, on every platform,
+  since `put-ints!` and `map-ints` both force it.  So an image is portable across
+  architectures: a big-endian JVM reads it back correctly, not as noise.  Recorded in the
+  meta and checked on load so a future format that changed the order could not be read
+  under this one's assumptions — it cannot mismatch an image this code wrote."
   "LITTLE_ENDIAN")
 
 ;; ---- the platform the image publishes on --------------------------------
@@ -390,11 +394,12 @@
         (try
           (let [remap (durable-remap dict tl)
                 etok  (remap-edges (:edge-tok csr) remap)
-                etgt  (let [s (:edge-tgt csr)]                ; a copy: the sort permutes it
-                        (if (instance? IntBuffer s)
-                          (let [n (.limit ^IntBuffer s) a (int-array n)]
-                            (.get (doto (.duplicate ^IntBuffer s) (.rewind)) a 0 n) a)
-                          (aclone ^ints s)))
+                ;; a copy, because `sort-edge-runs!` permutes it and the live index's own
+                ;; array must not move.  The skeleton is heap `int[]` in every trie mode —
+                ;; only the leaf pair is ever mapped (`columnar/t-csr`), and the walk reads
+                ;; edge targets at every frontier node, so they never page — so this is an
+                ;; array clone, never a buffer read.
+                etgt  (aclone ^ints (:edge-tgt csr))
                 _     (sort-edge-runs! (:offsets csr) etok etgt (:nodes csr))
                 cols  (roots/snapshot-columns rts remap)
                 tmp   #(str % ".tmp")

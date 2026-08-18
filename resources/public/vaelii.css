@@ -375,6 +375,22 @@ a.stat:hover { border-color: var(--accent); text-decoration: none; }
 .stats-table .num { text-align: right; font-family: var(--mono); }
 .stats-table thead th { border-bottom: 1px solid var(--edge); font-weight: 600; }
 
+/* ---- the inference debugger (/inference, docs/web.md) ---------------- */
+
+/* the search tree: nested <details>, one node each, indented by the parent's border */
+.search-tree details.node { border-left: 2px solid var(--edge); margin: .1rem 0 .1rem .25rem; padding-left: .6rem; }
+.search-tree summary       { cursor: pointer; padding: .1rem 0; }
+.search-tree summary::marker { color: var(--muted); }
+.search-tree .node-tag     { font-family: var(--mono); color: var(--brand); margin-right: .4em; }
+.search-tree .node-body    { margin: .2rem 0 .3rem; }
+.search-tree .est-line     { font-family: var(--mono); font-size: .82em; color: var(--muted); margin: .15rem 0 .3rem; }
+
+/* the "same answers across every tactician" verdict — the property this page verifies */
+.verdict { padding: .5rem .85rem; border-radius: 6px; margin: .7rem 0; border-left: 3px solid; background: var(--belief-bg); }
+.verdict p:first-child { margin: 0; }
+.verdict-agree    { border-color: #0a7d5a; }
+.verdict-disagree { border-color: #c0392b; }
+
 /* the regex term-search results */
 .find-hits { columns: 3 12rem; margin: .5rem 0; padding-left: 1.2rem; }
 .find-hits li { break-inside: avoid; }

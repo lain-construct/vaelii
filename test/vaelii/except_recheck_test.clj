@@ -397,13 +397,13 @@
 
 (deftest a-preserved-argument-position-still-withdraws-the-conclusion
   (testing "a claim stated at the supertypes satisfies an exception written at the subtypes"
-    ;; `(argPreserving bigger n genl)` makes a stored `(bigger dog cat)` answer
-    ;; `(bigger poodle siamese)` — `ArgPreservingProver` walks the *arguments'* reach, so
+    ;; `(transitiveInArg bigger n genl)` makes a stored `(bigger dog cat)` answer
+    ;; `(bigger poodle siamese)` — `TransitiveInArgProver` walks the *arguments'* reach, so
     ;; the trigger and the conjunct share no argument at all and the argument-agreement
     ;; filter drops the firing unless preservation waves it through.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      (v/assert kb '(argPreserving pbigger 1 genl) ctx)
-      (v/assert kb '(argPreserving pbigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArg pbigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArg pbigger 2 genl) ctx)
       (v/assert kb '(genl ppoodle pdog) ctx)
       (v/assert kb '(genl psiamese pcat) ctx)
       (v/assert kb '(exceptWhen (pbigger ppoodle psiamese)
@@ -421,8 +421,8 @@
 (deftest a-preserved-argument-position-still-releases-the-conclusion
   (testing "and removing the inherited claim brings the conclusion back"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      (v/assert kb '(argPreserving pbigger 1 genl) ctx)
-      (v/assert kb '(argPreserving pbigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArg pbigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArg pbigger 2 genl) ctx)
       (v/assert kb '(genl ppoodle pdog) ctx)
       (v/assert kb '(genl psiamese pcat) ctx)
       (v/assert kb '(exceptWhen (pbigger ppoodle psiamese)
@@ -495,7 +495,7 @@
 ;; exactly what it was, and what changed is what may be concluded from it.
 ;; `(symmetric sibOf)` makes a stored `(sibOf Ann Bob)` answer `(sibOf Bob Ann)`;
 ;; `(transitive partOf)` closes a chain; `(inverse childOf parentOf)` answers a goal
-;; from the partner predicate's facts; `(argPreserving P n R)` opens the inheritance
+;; from the partner predicate's facts; `(transitiveInArg P n R)` opens the inheritance
 ;; and `(asymmetric P)` is what gives a converse the standing to close it again.
 ;;
 ;; None of those sentences is *on* the predicate the exception is written over, so the
@@ -570,7 +570,7 @@
           "so the exception holds and the conclusion is swept"))))
 
 (deftest a-preservation-declaration-arriving-late-still-withdraws-the-conclusion
-  (testing "(argPreserving P n R) opens the inheritance over facts already stored"
+  (testing "(transitiveInArg P n R) opens the inheritance over facts already stored"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(genl gpoodle gdog) ctx)
       (v/assert kb '(genl gsiamese gcat) ctx)
@@ -581,8 +581,8 @@
       (v/assert kb '(gmark GM1) ctx)
       (is (seq (v/sentexes-matching kb '(gseen GM1) '?ctx))
           "the claim about the supertypes reaches nothing until it is declared to")
-      (v/assert kb '(argPreserving gbigger 1 genl) ctx)
-      (v/assert kb '(argPreserving gbigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArg gbigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArg gbigger 2 genl) ctx)
       (is (v/ask? kb '(gbigger gpoodle gsiamese) ctx))
       (is (empty? (v/sentexes-matching kb '(gseen GM1) '?ctx))
           "so the exception holds and the conclusion is swept"))))
@@ -601,8 +601,8 @@
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(genl nchi ndog) ctx)
       (v/assert kb '(genl nmc ncat) ctx)
-      (v/assert kb '(argPreserving nbigger 1 genl) ctx)
-      (v/assert kb '(argPreserving nbigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArg nbigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArg nbigger 2 genl) ctx)
       (v/assert kb '(nbigger ndog ncat) ctx)
       (v/assert kb '(nbigger nmc nchi) ctx)
       (v/assert kb '(exceptWhen (nbigger nchi nmc)
@@ -623,7 +623,7 @@
           "and a firing made after the declaration is not blocked"))))
 
 (deftest withdrawing-a-transitivity-releases-the-inheritance-it-licensed
-  (testing "(transitive R) is also the licence every (argPreserving P n R) reads at use"
+  (testing "(transitive R) is also the licence every (transitiveInArg P n R) reads at use"
     ;; The indirect one, and the reason `transitive` gets a second posting: nothing
     ;; here mentions `wneedsOil` except the declaration, and retracting the *relation's*
     ;; transitivity is what stops its reach from closing.
@@ -631,7 +631,7 @@
       (v/assert kb '(transitive wpartOf) ctx)
       (v/assert kb '(wpartOf WPiston WEngine) ctx)
       (v/assert kb '(wpartOf WEngine WCar) ctx)
-      (v/assert kb '(argPreserving wneedsOil 1 wpartOf) ctx)
+      (v/assert kb '(transitiveInArg wneedsOil 1 wpartOf) ctx)
       (v/assert kb '(wneedsOil WCar) ctx)
       (v/assert kb '(exceptWhen (wneedsOil WPiston)
                                 (set/defaultRule (implies (and (wmark ?x)) (wseen ?x))))

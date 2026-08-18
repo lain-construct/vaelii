@@ -87,12 +87,12 @@
                      m rule-handles)))))
 
 (defn- recheck-preserving-along
-  "`rel` is the relation of some `(argPreserving P n rel)` declaration and its extent
+  "`rel` is the relation of some `(transitiveInArg P n rel)` declaration and its extent
   just moved — a fact on it arrived or left, or it is `genl` / `genlCx` and an
   edge moved.  Queue every rule whose exception mentions a declaring `P`.
 
   This is the argument-side twin of the predicate keying below.  An exception on
-  `largerThan` is answered by `ArgPreservingProver` walking the *arguments'* reach, so
+  `largerThan` is answered by `TransitiveInArgProver` walking the *arguments'* reach, so
   `(genl chihuahua dog)` can flip it with neither `chihuahua` nor `dog` appearing
   anywhere near `largerThan` — the genls walk cannot see that, and the firings that
   predate the edge would keep a block the firings after it correctly drop.
@@ -114,7 +114,7 @@
   stored `(sibOf Ann Bob)` answer `(sibOf Bob Ann)`; `(inverse childOf parentOf)`
   makes it answer a goal on the partner predicate; `(asymmetric typL)` is what gives
   the converse the standing to deny a claim, so it decides whether
-  `ArgPreservingProver` finds anything against one.  The re-check index is keyed on
+  `TransitiveInArgProver` finds anything against one.  The re-check index is keyed on
   the exception's own predicate and none of these functors is that predicate, so
   without this the firings that predate the declaration keep a conclusion the firings
   after it correctly drop — an order dependence, and the same one
@@ -131,8 +131,8 @@
     asymmetric           [1]
     reflexive            [1]
     inverse              [1 2]
-    argPreserving        [1]
-    argPreservingInverse [1]})
+    transitiveInArg        [1]
+    transitiveInArgInverse [1]})
 
 (defn- recheck-declaration
   "A declaration licensing an inference about some predicate arrived or left: queue
@@ -146,7 +146,7 @@
 
   `(transitive R)` gets a second posting, because it is two claims at once.  Beside
   `TransitivePredicateProver` reading it, it is the **licence** `inherit/usable-relation?`
-  reads at use for every `(argPreserving P n R)` — so withdrawing it withdraws the
+  reads at use for every `(transitiveInArg P n R)` — so withdrawing it withdraws the
   inheritance for a `P` this sentence never names, and `recheck-preserving-along` is
   exactly the walk from a relation to those predicates.
 
@@ -238,7 +238,7 @@
 
   A fact can also move an exception's answer without being on the exception's
   predicate at all, and along two channels the genls walk cannot see: `pred` is the
-  relation some `argPreserving` declaration inherits along
+  relation some `transitiveInArg` declaration inherits along
   (`recheck-preserving-along`), or `pred` has an `argIsa`-declared argument type, which
   makes the fact evidence of a membership nobody wrote (`recheck-argisa-inferred`)."
   [kb pred trigger]
@@ -697,7 +697,11 @@
 (defn index-rule-sentex
   "Index a rule handle by **all** of its predicates — both sets are complete, so
   `rules-by-consequent` answers \"what could conclude P?\" for a forward-only rule
-  too.
+  too.  A rule whose consequent functor is a variable is filed under the
+  `p/var-consequent-key` catch-all instead of a canonical `?var0` (see
+  `rules/consequent-index-pred`); completeness of the consequent read is then the
+  concrete bucket unioned with that catch-all, which `resolution/concluding-rule-handles`
+  does.
 
   Only the *predicates* are indexed.  The **record is the source of truth** for what
   a rule may do: a `set/*Rule` wrapper canonicalizes into the sentex (see
@@ -712,7 +716,7 @@
   (let [s (:sentence rule-sentex)]
     (p/index-rule (:index kb) handle
                   (rules/antecedent-predicates s)
-                  (rules/consequent-predicate s))
+                  (rules/consequent-index-pred rule-sentex))
     (note-rule! kb rule-sentex (rules/antecedent-predicates s) inc)
     ;; ...and, if it carries an `(unknown S)` antecedent, by the predicates that NAF
     ;; query mentions (`recheck-predicates`).  It must not make the rule term-indexed,
@@ -1530,8 +1534,13 @@
   the exception re-check index under `twin`.
 
   `eqs` are the equality supporters that migrated the rule — the exception twin exists
-  *because* the rule did, so it rests on the same merge."
-  [kb orig twin eqs]
+  *because* the rule did, so it rests on the same merge.
+
+  The query is rewritten from `reader`, the same vantage the twin's own form was rewritten
+  from (`migrate-into`), so the guard elects the spellings the twin does; the unscoped
+  rewrite used the global election, which a merge `reader` cannot see would diverge from —
+  a twin firing mis-guarded."
+  [kb orig twin eqs reader]
   (let [realign (varmap-realign (p/get-sentex (:records kb) twin))]
     (doseq [mh   (p/sentexes-with-term (:index kb) (sx/sentex-handle orig))
             :let  [msx (p/get-sentex (:records kb) mh)]
@@ -1542,7 +1551,7 @@
       ;; rewrite the query's terms to the representatives (a no-op when the exception
       ;; mentions no merged term) and realign its variables to the twin's canonical
       ;; numbering (a no-op when the merge did not reorder the antecedents)
-      (let [q'  (mapv #(sx/canon (rename-vars realign (kb/rewrite-term kb %)))
+      (let [q'  (mapv #(sx/canon (rename-vars realign (kb/rewrite-term kb % reader)))
                       (sx/exception-query-conjuncts (:sentence msx)))
             m'  (sx/exceptWhen-meta q' twin)
             ctx (:context msx)
@@ -1614,7 +1623,10 @@
     (when (seq ectxs)
       (->> (tax/meet-closure tx (conj ectxs pctx))
            (filter #(tax/sees? tx % pctx))
-           (sort-by (juxt #(if (= % pctx) 0 1) #(count (tax/context-up tx %)) str))))))
+           ;; the middle key is a taxonomy-closure read — built once per context, not
+           ;; ~2·n·log n times; the tuple is `[0/1 long string]`, ordered by `compare`
+           (nm/sort-by-content-key (juxt #(if (= % pctx) 0 1) #(count (tax/context-up tx %)) str)
+                                   compare)))))
 
 (defn- migrate-into
   "Restate `sentex` as `reader` sees it, and store the result there.  Returns
@@ -1678,7 +1690,7 @@
                 ;; keyed by the rule's handle, so they must be re-pointed onto the twin
                 ;; or it fires unguarded (docs/equality.md, round two).
                 (when (rules/rule-sentence? rewritten)
-                  (migrate-rule-exceptions kb handle h eqs))
+                  (migrate-rule-exceptions kb handle h eqs reader))
                 (cond-> {:form rewritten :new (if new? [h] [])}
                   ;; only the fact's own context supersedes: a reader below it restates
                   ;; the fact for itself and leaves the original believed where it lives
@@ -2104,12 +2116,18 @@
         ;; content-ordered, so which pair gets the explicit equality is a function
         ;; of the values rather than of which filler was written first — it shows
         ;; when a standing merge among the fillers is later retracted
-        clashes (sort-by (comp pr-str second)
-                         (checks/functional-clashes kb sentence context))]
+        clashes (nm/sort-by-content-key (comp pr-str second) compare
+                                        (checks/functional-clashes kb sentence context))]
     (when (seq clashes)
       (reduce (fn [acc [oh v via]]
+                ;; the idempotence guard is **scoped to `context`**: skip a pair only
+                ;; when the merge that reconciles them is one `context` can already see.
+                ;; Read globally it skipped a pair merged behind an edge `context` cannot
+                ;; see, so a context could not derive a functional equality it is owed
+                ;; because some other context happened to hold one — belief drifting with
+                ;; a merge the reader never heard of.
                 (if-not (and (checks/mergeable-values? v b)
-                             (not (tax/same-class? tax v b)))
+                             (not (res/same-class-in? kb v b context)))
                   acc
                   ;; the edges *both* sides of the pair descended to reach the mark —
                   ;; deduped, since the two descents share every hop they have in common
@@ -2146,9 +2164,10 @@
   from the other side, so the two directions cannot drift about what a functional slot
   licenses or what justifies the merge: the equality names both facts and this
   declaration whichever way round it was reached, and retracting any of the three
-  un-merges.  Re-deriving is idempotent — `same-class?` skips a pair the closure already
-  holds and `has-justification?` skips an argument it already has — so a slot filled by
-  three values collapses to one class rather than to the first pair walked.
+  un-merges.  Re-deriving is idempotent — the scoped `same-class-in?` skips a pair the reader's
+  visible closure already holds and `has-justification?` skips an argument it already
+  has — so a slot filled by three values collapses to one class rather than to the first
+  pair walked.
 
   Sweeps what is **stored** rather than what is believed, for `entail-existing`'s
   reason: an equality derived off a defeated fact rests on that fact and is defeated
@@ -2217,6 +2236,103 @@
                 {:new [] :superseded [] :violations []}
                 (subtree-sentexes kb sub))))))
 
+(defn derive-antisymmetric-equalities
+  "`(antiSymmetric P)` plus a believed converse `(P b a)` for `(P a b)` **derives**
+  `(equals a b)` and merges — the antisymmetric twin of `derive-functional-equalities`,
+  and the same machinery.
+
+  Making it a real justification is what makes it safe.  The merge is justified by
+  **[this fact, the converse, the declaration]** — plus the `genl` edges either spelling
+  descended through to reach the mark (`checks/edge-support`), for `derive-functional-
+  equalities`' reason — so `why` names exactly what caused it and retracting any one
+  un-merges.  One justification per declaring sentex (`tax/prop-supporters`), so a
+  predicate declared antisymmetric in two contexts leaves the merge standing on the other
+  when one is retracted.
+
+  Gated on the `:anti-symmetric` roster before the store is read, so a KB declaring
+  nothing antisymmetric — the common case — pays one O(1) set lookup per asserted fact and
+  no more.  Both arguments must be plain symbols the partition can hold
+  (`checks/mergeable-values?`); a self tuple, or a pair some visible merge already
+  reconciles, is skipped.  A non-mergeable converse is the hard contradiction
+  `checks/antisymmetry-problems` refuses at the door instead."
+  [kb sentence context handle]
+  (let [tax (:taxonomy kb)]
+    (when (seq (tax/props tax :anti-symmetric))
+      (let [pred (nm/functor sentence)
+            args (vec (nm/args sentence))]
+        (when (= 2 (count args))
+          (let [[a b] args]
+            (when (checks/mergeable-values? a b)
+              (let [recs      (:records kb)
+                    ;; on content, never the handle: order the converses by the sentence
+                    ;; the handle names, its context, and the marked predicate read
+                    ;; through — so which merge is derived first is a function of what the
+                    ;; KB says, not of which converse was asserted first.  Belief is the
+                    ;; same either way (every converse derives the one `(equals a b)`), but
+                    ;; a handle key would have decided the derivation order on arrival.
+                    converses (nm/sort-by-content-key
+                               (fn [[h via]] (let [s (p/get-sentex recs h)]
+                                               [(:sentence s) (:context s) via]))
+                               (checks/antisymmetric-converses kb sentence context))]
+                (reduce
+                 (fn [acc [oh via]]
+                   ;; a self tuple probes itself, and a pair a visible merge already holds
+                   ;; is done — both scoped to `context`, matching the clash it is drawn from
+                   (if (or (= oh handle) (res/same-class-in? kb a b context))
+                     acc
+                     (let [other (some-> (p/get-sentex (:records kb) oh) :sentence nm/functor)
+                           edges (into [] (distinct)
+                                       (cond-> (vec (checks/edge-support kb pred via context))
+                                         (and (symbol? other) (not= other pred))
+                                         (into (checks/edge-support kb other via context))))
+                           antes (map #(into [%] edges)
+                                      (sort (tax/prop-supporters tax :anti-symmetric via)))]
+                       (reduce (fn [acc a-list]
+                                 (merge-with into acc
+                                             (derive-equality kb a b context 'antiSymmetric
+                                                              (into [handle oh] a-list))))
+                               acc antes))))
+                 {:new [] :superseded [] :violations []}
+                 converses)))))))))
+
+(defn antisym-equate-existing
+  "When an `(antiSymmetric P)` declaration arrives, derive the equalities P's **already
+  stored** facts license — the twin of `equate-existing`, over the antisymmetric merge.
+  Sweeps the whole spec subtree beneath `P` (the mark descends), and hands each stored
+  fact back to `derive-antisymmetric-equalities`, so the two arrival directions cannot
+  drift about what a converse licenses or what justifies the merge.  nil when `sentence`
+  declares nothing antisymmetric."
+  [kb sentence]
+  (when (and (= 'antiSymmetric (nm/functor sentence)) (= 1 (nm/arity sentence)))
+    (let [pred (first (nm/args sentence))]
+      (when (symbol? pred)
+        (reduce (fn [acc sx]
+                  (merge-with into acc
+                              (derive-antisymmetric-equalities
+                               kb (:sentence sx) (:context sx) (:id sx))))
+                {:new [] :superseded [] :violations []}
+                (subtree-sentexes kb pred))))))
+
+(defn antisym-equate-under-edge
+  "When a `(genl sub super)` edge arrives, derive the equalities an `(antiSymmetric …)`
+  mark above `super` now licenses over the `(sub …)` facts already stored — the twin of
+  `equate-under-edge`.  Free for a KB declaring nothing antisymmetric, decided before the
+  subtree is read.  nil when `sentence` is not a `genl` edge."
+  [kb sentence]
+  (when (and (= 'genl (nm/functor sentence))
+             (= 2 (nm/arity sentence))
+             (seq (tax/props (:taxonomy kb) :anti-symmetric)))
+    (let [[_ sub] sentence]
+      (when (symbol? sub)
+        (reduce (fn [acc sx]
+                  (if-not (and (= :true (:truth sx)) (nil? (:antecedent sx)))
+                    acc
+                    (merge-with into acc
+                                (derive-antisymmetric-equalities
+                                 kb (:sentence sx) (:context sx) (:id sx)))))
+                {:new [] :superseded [] :violations []}
+                (subtree-sentexes kb sub))))))
+
 (defn- stored-declarations
   "Every **stored** sentex whose functor is `f`, believed or not.
 
@@ -2261,14 +2377,28 @@
   this the mark is recorded only under the context the declaration was stated in while
   the *sentex* is visible everywhere.  `:rebuild` replays every stored sentex of the
   functor either way, so the live KB and the recovered one disagreed about the same
-  store — a restart changed the answer."
-  [kind]
-  {:prop         kind                       ; the roster `has-prop?`'s spec is held to
-   :integrate    (fn [kb sx h] (tax/mark-prop (:taxonomy kb) kind (second (:sentence sx)) h (:context sx)))
-   :disintegrate (fn [kb sx] (tax/unmark-prop! (:taxonomy kb) kind (second (:sentence sx)) (:id sx)))
-   :rebuild      (fn [tax {[_ pred] :sentence id :id ctx :context}] (tax/mark-prop tax kind pred id ctx))
-   :wff          wff/prop-problems
-   :derived?     true})
+  store — a restart changed the answer.
+
+  `skip` is the set of predicates whose property is the engine's own to compute — the
+  `closure-relations` genl / genlCx, whose transitivity comes off the cached closures.
+  A `(transitive genl)` fact stays stored and queryable, but its prop is **not** marked,
+  so `has-prop? :transitive genl` stays false and genl is never handed to the generic
+  closure prover.  The skip is applied identically on integrate, disintegrate and
+  rebuild, so the live and recovered stores agree."
+  ([kind] (prop-entry kind nil))
+  ([kind skip]
+   (let [marked? (fn [pred] (not (contains? skip pred)))]
+     {:prop         kind                       ; the roster `has-prop?`'s spec is held to
+      :integrate    (fn [kb sx h] (let [pred (second (:sentence sx))]
+                                    (when (marked? pred)
+                                      (tax/mark-prop (:taxonomy kb) kind pred h (:context sx)))))
+      :disintegrate (fn [kb sx] (let [pred (second (:sentence sx))]
+                                  (when (marked? pred)
+                                    (tax/unmark-prop! (:taxonomy kb) kind pred (:id sx)))))
+      :rebuild      (fn [tax {[_ pred] :sentence id :id ctx :context}]
+                      (when (marked? pred) (tax/mark-prop tax kind pred id ctx)))
+      :wff          wff/prop-problems
+      :derived?     true})))
 
 (def ^:private equality-entry
   "One entry-shape for all three equality relations: they produce the same class,
@@ -2459,8 +2589,13 @@
         ;; replayed it.  The arm returns nothing the derivation path needs — it marks and
         ;; records supporters — so the flag is the whole of what it takes to reach.
         :derived?     true}]]
-     (map (fn [kind] [(symbol (name kind)) (prop-entry kind)])
-          [:transitive :symmetric :asymmetric :reflexive :functional])
+     (map (fn [kind] [(symbol (name kind)) (prop-entry kind tax/closure-relations)])
+          [:transitive :symmetric :asymmetric :reflexive :functional :irreflexive])
+     ;; `antiSymmetric` marks the same way but its keyword name would not spell the
+     ;; camelCase functor, so it takes an explicit pair like the two decontextualized
+     ;; marks below.  `(antiSymmetric P)` derives `(equals a b)` from a believed converse
+     ;; (`derive-antisymmetric-equalities`); the mark is what that reads.
+     [['antiSymmetric (prop-entry :anti-symmetric tax/closure-relations)]]
      [['arity
        ;; `(arity P n)` is read by the per-assert arity check, so it is cached like the
        ;; other declarations the engine interprets rather than re-queried per
@@ -2555,8 +2690,8 @@
                                           :wff wff/arg-constraint-problems)]
             ['interArgIsa          (assoc (prop-entry (tax/arg-declaration-props 'interArgIsa))
                                           :wff wff/inter-arg-constraint-problems)]
-            ['argPreserving        {:wff wff/arg-preserving-problems}]
-            ['argPreservingInverse {:wff wff/arg-preserving-problems}]
+            ['transitiveInArg        {:wff wff/arg-preserving-problems}]
+            ['transitiveInArgInverse {:wff wff/arg-preserving-problems}]
             ['different            {:wff wff/different-problems}]
             ['unknown              {:wff wff/naf-problems}]
             ['thereExists          {:wff wff/naf-problems}]]
@@ -2698,7 +2833,7 @@
       (rules/rule-sentence? sentence)
       (do (p/unindex-rule! (:index kb) (:id sentex)
                            (rules/antecedent-predicates sentence)
-                           (rules/consequent-predicate sentence))
+                           (rules/consequent-index-pred sentex))
           (note-rule! kb sentex (rules/antecedent-predicates sentence) dec)
           ;; Deregistration **recomputes** the re-check predicates from the stored
           ;; sentex rather than trusting anything a caller has in hand.  The index

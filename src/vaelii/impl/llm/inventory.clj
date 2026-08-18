@@ -455,7 +455,7 @@
                             {} ranked)
          ordered    (map first (sort-by (fn [[p tier]] [tier (str p)]) best))
          kept       (take max-relations ordered)
-         types      (->> (concat (filter all-types nb) (sort (remove nb-set all-types)))
+         types      (->> (concat (filter all-types nb) (sort-by str (remove nb-set all-types)))   ; types may be NATs
                          (remove head-only?)
                          distinct)
          shown      (take max-types types)]

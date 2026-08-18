@@ -555,10 +555,18 @@
 
   Shape-dependent, and that is the estimate's main error term: a fact of arity 2 with no
   compound arguments indexes at ~1,549 B while a richer one measured ~2,158 B.  The
-  leaner figure is used, so a corpus of fat sentences reads low."
+  leaner figure is used, so a corpus of fat sentences reads low.
+
+  The `:tms` figure is the **dense** network's, since that is the default (the reference
+  map costs ~467 B/sentex — ~3.8× more — and is now the pinned baseline).  It is a second
+  shape term: the dense JTMS is `18 B/node + 166 B/justification` (bench-scale, item 09),
+  so per *stored* sentex it is 18 + (j/n)·166 — ~101 at a moderate j/n≈0.5, the basis the
+  467 was taken on.  A justification-heavy KB (j/n≈1) reads low here for the same reason a
+  fat-sentence corpus reads low above; the single coefficient trades that error for an
+  O(1) estimate that never counts justifications on the render path."
   {:index   1549
    :records 279
-   :tms     467})
+   :tms     101})
 
 (defn heap
   "What this JVM's heap is doing **right now** — `{:used :committed :max}` in bytes, read
@@ -600,7 +608,7 @@
         kb (:kb e)]
     (when-let [n (when (:records kb) (try (v/sentex-count kb) (catch Exception _ nil)))]
       (let [paged?   (= :disk (:backend (:where e)))
-            belief?  (boolean (first (jtms/datums (:tms kb))))
+            belief?  (jtms/any-node? (:tms kb))
             {:keys [index records tms]} resident-bytes-per-sentex
             parts    {:index   (* n index)
                       :records (if paged? 0 (* n records))
@@ -1034,7 +1042,7 @@
             ;; precisely the state this caveat exists to point at
             belief?  (if (= ::unreadable n)
                        false
-                       (or (zero? (long n)) (boolean (first (jtms/in-datums (:tms kb))))))
+                       (or (zero? (long n)) (jtms/any-belief? (:tms kb))))
             settled? (and (not= ::unreadable n) (= :done (:status e)))
             ;; Which repair a beliefless KB needs, and the store is the only thing that
             ;; knows.  `recover` reads the premise roster and the justifications out of

@@ -748,11 +748,13 @@ for path in repo_text_files():
 #     foreign's plugins, the LLM providers).  Deferral is the feature: the table is
 #     the public way to ask for a subsystem, and naming one must not load eight.
 #   - an optional dependency whose entire point is not being loaded — the dense TMS
-#     (RoaringBitmap, fastutil), the clingo bridge (JNA, libclingo), and the
-#     sampling profiler, which ships in the `:repl` profile and is therefore
-#     absent from a served process by design.  A require of one of those is not a
-#     layering cut this repo could straighten out: it is a namespace that is not
-#     on the classpath, so the require would fail the load rather than defer it.
+#     (RoaringBitmap, fastutil), the clingo bridge (JNA, libclingo), the
+#     embedded-SQLite record store (the Apache-2.0 `com.vaelii/sqlite` sibling the
+#     SSPL engine does not depend on), and the sampling profiler, which ships in the
+#     `:repl` profile and is therefore absent from a served process by design.  A
+#     require of one of those is not a layering cut this repo could straighten out:
+#     it is a namespace that is not on the classpath, so the require would fail the
+#     load rather than defer it.
 #     Listed here by target, so adding one is a deliberate edit rather than a habit.
 #
 # What this does NOT see, stated so nobody over-trusts it: only the literal form
@@ -764,6 +766,7 @@ for path in repo_text_files():
 # check defends, not a sandbox it enforces.
 E8_OK_FILES = {"src/vaelii/impl/wiring.clj"}
 E8_OK_TARGETS = {"vaelii.impl.dense-jtms/create-dense-tms",
+                 "vaelii.sqlite.record-store/sqlite-record-store",
                  "vaelii.impl.asp.clingo/solve",
                  "vaelii.impl.asp.clingo/classify-both",
                  "vaelii.impl.asp.clingo/available?",

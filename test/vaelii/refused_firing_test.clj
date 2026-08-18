@@ -30,8 +30,8 @@
   "`(bigger dog cat)` inherited down to `[chi mc]` by argument preservation, with the
   predicate asymmetric so a specific converse can undercut it."
   [kb]
-  (v/assert kb '(argPreserving fbigger 1 genl) ctx)
-  (v/assert kb '(argPreserving fbigger 2 genl) ctx)
+  (v/assert kb '(transitiveInArg fbigger 1 genl) ctx)
+  (v/assert kb '(transitiveInArg fbigger 2 genl) ctx)
   (v/assert kb '(asymmetric fbigger) ctx)
   (v/assert kb '(genl fchi fdog) ctx)
   (v/assert kb '(genl fmc fcat) ctx)
@@ -88,8 +88,8 @@
     ;; Wiring the two contexts together is what brings the converse into view.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb (list 'genlCx 'CxFSub ctx) ctx {:strength :monotonic})
-      (v/assert kb '(argPreserving ebigger 1 genl) ctx)
-      (v/assert kb '(argPreserving ebigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArg ebigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArg ebigger 2 genl) ctx)
       (v/assert kb '(asymmetric ebigger) ctx)
       (v/assert kb '(genl echi edog) ctx)
       (v/assert kb '(genl emc ecat) ctx)
@@ -149,6 +149,45 @@
         (is (empty? (v/sentexes-matching kb '(rseen RM1) '?ctx))
             "the premise is gone, so the released exception derives nothing")
         (is (zero? (recorded kb)) "and the dead entry is dropped")))))
+
+(deftest a-refusal-remembers-the-run-s-depth-bound-not-the-default
+  (testing "the bound a release honours travels on the entry, set to the refusing run's"
+    ;; `release-refusal!` re-derives in a settle with no run config in scope, so the
+    ;; depth bound has to ride on the entry.  Recorded as the *default* 64 it would place
+    ;; (or drop) a released firing at a ceiling the configured run never set; recorded as
+    ;; the run's own, the release honours what the firing was refused under.
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (skip-rule! kb)
+      (v/assert kb '(rskip RM1) ctx)
+      ;; the mark's chain runs at a non-default max-depth; the firing it refuses must
+      ;; remember *that* bound
+      (v/assert kb '(rmark RM1) ctx {:max-depth 7})
+      (is (= 1 (recorded kb)))
+      (let [entry (-> @(:refused kb) vals first first)]
+        (is (= 7 (:max-depth entry))
+            "the entry carries the run's bound, which release-refusal! reads over the default")))))
+
+(deftest a-rebuild-re-records-at-the-default-bound-not-the-live-one
+  (testing "a run's max-depth is live-session config no store holds; recover rebuilds at the default"
+    ;; The bound on an entry refines *that session's* releases (`release-refusal!` reads it
+    ;; over the default).  It is not durable: `recover` replays stored justifications but
+    ;; resets derivation depths to 0, and a bound only ever governs future chaining, so the
+    ;; re-fire that rebuilds the record runs at the default.  A KB chained under a smaller
+    ;; bound therefore rebuilds its refusals at the default — documented in
+    ;; docs/exceptions.md as the one place a recovered KB can release differently from the
+    ;; live one, and the reason it is coherent rather than a drift: the recovered KB's
+    ;; reset depths bound future chaining against that same default.
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (skip-rule! kb)
+      (v/assert kb '(rskip RM1) ctx)
+      (v/assert kb '(rmark RM1) ctx {:max-depth 7})
+      (is (= 7 (:max-depth (-> @(:refused kb) vals first first)))
+          "the live entry carries the run's bound")
+      (v/recover kb)
+      (is (= 1 (recorded kb)) "the rebuild re-records the standing refusal")
+      (is (= (:max-depth chain/default-chain-opts)
+             (:max-depth (-> @(:refused kb) vals first first)))
+          "and at the default bound, since the run's bound did not survive the restart"))))
 
 (deftest a-refusal-is-not-a-contradiction
   (testing "nothing was believed and nothing conflicts: the rule simply did not fire"

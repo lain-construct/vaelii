@@ -32,6 +32,7 @@
             [vaelii.impl.chain :as chain]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.disk.belief-snapshot :as belief-snap]
             [vaelii.impl.feed :as feed]
             [vaelii.impl.imperative :as imperative]
             [vaelii.impl.inference :as inference]
@@ -83,7 +84,7 @@
   | `:space` | which in-RAM stores this KB shares | `0` |
   | `:dir` | the directory a `:disk` half lives in | derived from the space |
   | `:base` / `:overlay` | the two halves of an `:overlay` fork | — |
-  | `:tms` | `:reference` or `:dense` truth-maintenance representation | `:reference` |
+  | `:tms` | `:dense` or `:reference` truth-maintenance representation | `:dense` |
   | `:naming` | `:strict` / `:warn` / `:off` — what the front door does with a name | `:strict` |
   | `:constraints` | `:refuse` / `:arbitrate` — what a definitional clash does | the process default |
   | `:recover?` | `:auto` (or `true`) / `:warn` / `false` — what a non-empty store gets | `:auto` |
@@ -149,7 +150,10 @@
   default — an ephemeral hypothesis on a space nothing else uses; `{:backend :disk
   :dir …}` gives a durable one, which can be remounted over the same base later and
   serves the merged view it was left in).  `:tms` selects the fork's truth-maintenance
-  representation.
+  representation and, unlike the front-door policies below, does **not** inherit: an
+  unnamed `:tms` takes the engine default (`:dense`), not the base's rep.  That is safe
+  because the two are belief-identical (`jtms_dense_oracle_test`), so a fork holds the same
+  beliefs whichever representation it rebuilds them in.
 
   **The fork's belief is rebuilt, not inherited.**  Belief is not storage — it is a
   derived graph over the records — so the fork is `recover`ed over the merged view rather
@@ -182,7 +186,7 @@
                              :index    :overlay
                              :base-stores {:records (:records kb) :index (:index kb)}
                              :overlay  own
-                             :tms      (:tms opts :reference)
+                             :tms      (:tms opts :dense)
                              :naming   (:naming opts (:naming kb :strict))
                              :constraints (:constraints opts (:constraints kb))
                              :recover? false}
@@ -575,7 +579,7 @@
   *function*'s kind, declared by `(reifiableFunction F)`, and read by the reify pass
   (`vaelii.impl.nat`).
 
-  Argument-position *preservation* is not here: `(argPreserving P n R)` is per
+  Argument-position *preservation* is not here: `(transitiveInArg P n R)` is per
   position, so like `argIsa` it is an ordinary stored sentex read through
   `matches-visible` rather than a cached predicate property (`vaelii.impl.inherit`).
 
@@ -1319,7 +1323,14 @@
               ;; ...and from the third side: a `genl` edge between predicates brings
               ;; stored sub-predicate facts under a `functional` mark above them
               fdn  (special/equate-under-edge kb sentence)
-              mig  (merge-with into {:new [] :superseded [] :violations []} eq own fnl fex fdn)]
+              ;; ...and the antisymmetric merge, in the same three arrival orders: a fact
+              ;; meeting its converse under an `(antiSymmetric P)` mark, the declaration
+              ;; meeting the facts, and the `genl` edge bringing them under a mark above
+              asym (special/derive-antisymmetric-equalities kb sentence context h)
+              axe  (special/antisym-equate-existing kb sentence)
+              axd  (special/antisym-equate-under-edge kb sentence)
+              mig  (merge-with into {:new [] :superseded [] :violations []}
+                               eq own fnl fex fdn asym axe axd)]
           ;; Only when this assert actually merged something.  The reconcile re-examines
           ;; every entry the closure currently displaces, and an assert that merged
           ;; nothing cannot change one: an entry stops being displaced when its terms
@@ -1922,7 +1933,7 @@
     :not-ground            a fact still holding a variable
     :not-well-formed       a special predicate's structure (genl, argIsa, the equalities…)
     :not-range-restricted  a rule variable the antecedents never bind
-    :not-indexable         a rule literal whose predicate is a variable
+    :not-indexable         a rule antecedent literal whose predicate is a variable
     :not-stratified        a cycle through negation the rule or edge would close
     :not-assertible        a `do/` imperative inside a rule
     :arg-type              an argIsa constraint on an argument
@@ -3140,6 +3151,66 @@
        (plan/explain kb goal context)
        (provers/plan kb goal context)))))
 
+(defn search-tree
+  "The backward search for `goal` in `context`, as data — every node the frontier reached,
+  not only the path that answered.  `query-plan` is the plan; this is the run that plan
+  predicted, one step later: where `query {:proof? true}` returns the proof that *worked*,
+  this returns the whole tree it worked in — the frontier, what each node cost, and what
+  got dropped before it was expanded.  The read behind the inference debugger.
+
+  Needs a depth (`{:max-depth n}`, or `*query-options*` / `inference/*max-depth*`), the
+  same as `query` under `:proof? true` and for the same reason: with no rule expanded there
+  is no search to show.  It runs the search `query` runs — the registry as the leaf, so an
+  antecedent is answerable by any prover — so the tree and the answers match `query`'s.
+
+  Bounded so a large KB cannot turn one read into an unbounded search: the depth bound, a
+  node-expansion budget (`:node-budget`, default `inference/default-node-budget`), and an
+  optional wall-clock `:max-ms` that reports `:timeout` rather than hanging.  Everything
+  else in `opts` is the node engine's, `query`'s `:strategy` included.
+
+  Returns `{:goals :context :strategy :status :bounded? :answers :nodes :stats}`;
+  `:status` is `:complete`, `:bounded` or `:timeout`, and each answer carries the `:node`
+  it came off.  Reads-only, like every query in this engine."
+  ([kb goal] (search-tree kb goal '?ctx nil))
+  ([kb goal context] (search-tree kb goal context nil))
+  ([kb goal context opts]
+   (check-shape! (conjunction-goal-problem goal))
+   (let [[goal context] (ist-goal goal context)
+         d     (query-depth opts)
+         goals (goal-conjunction (prepare-goal-for-read kb goal context))]
+     (inference/search-tree kb goals context
+                            (merge (query-options nil) opts
+                                   {:max-depth    d
+                                    :leaf-solver  provers/solve-goal
+                                    :est-override (provers/registry-est-override kb context)})))))
+
+(defn compare-tacticians
+  "Run `goal` in `context` under several **tacticians** — the node engine's search
+  orderings — each to completion, and return one row per tactician: the search it ran, its
+  wall-clock, and its answer set.  What the debugger tables side by side.
+
+  Every tactician only reorders the frontier, so the answer sets **must be identical**;
+  the point of running them side by side is that a caller can verify it rather than trust
+  it, and see the latency each ordering pays for the same answers.  A row whose answers
+  differ from the others is a bug the completeness sweep says cannot happen — surfaced,
+  not swallowed.
+
+  `opts` is `search-tree`'s, plus `:tacticians` — the subset to run
+  (`inference/default-compare-tacticians` otherwise).  Needs a depth for the same reason
+  `search-tree` does, and is bounded the same three ways; `:status` and `:ms` are per row."
+  ([kb goal] (compare-tacticians kb goal '?ctx nil))
+  ([kb goal context] (compare-tacticians kb goal context nil))
+  ([kb goal context opts]
+   (check-shape! (conjunction-goal-problem goal))
+   (let [[goal context] (ist-goal goal context)
+         d     (query-depth opts)
+         goals (goal-conjunction (prepare-goal-for-read kb goal context))]
+     (inference/compare-tacticians kb goals context
+                                   (merge (query-options nil) opts
+                                          {:max-depth    d
+                                           :leaf-solver  provers/solve-goal
+                                           :est-override (provers/registry-est-override kb context)})))))
+
 (defn add-prover
   "Register an additional prover (implementing vaelii.impl.provers/Prover) on `kb`."
   [kb prover]
@@ -3665,6 +3736,8 @@
   | `:arity` | a conclusion whose length disagrees with the arity the predicate declares or inherits | the check's problem map |
   | `:disjoint` | a membership putting a term in two types declared disjoint | the check's problem map |
   | `:functional` / `:asymmetric` | a second filler for a functional slot, or both directions of an asymmetric predicate | the check's problem map |
+  | `:irreflexive` | a self tuple `(P a a)` of a predicate declared `irreflexive` — a lone tuple with no pair to weigh, so it refuses rather than arbitrates | the check's problem map |
+  | `:anti-symmetric` | both directions of an `antiSymmetric` predicate whose two arguments no equality could merge (two numbers, a compound) — the mergeable case derives `(equals a b)` instead | the check's problem map |
   | `:not-stratified` | a derived `genl` / `genlCx` edge would put a cycle through negation in the rule set, or a minted generator would feed one | `:cycle` `:message` |
   | `:not-well-formed` | a minted sentence a special predicate's own structure check refuses | `:problems` `:message` |
   | `:naming` | a minted sentence breaking a naming invariant — the spellings in docs/naming.md | `:message` |
@@ -3762,6 +3835,21 @@
   `forward-chain` by hand."
   [kb]
   @(:chain-stats kb))
+
+(defn chain-report
+  "Per forward rule, what forward chaining did with it — how many firings it **placed**,
+  how many it **refused** and why, or whether it did nothing at all.  Where `chain-stats`
+  is the run's headline counters, this is the per-rule breakdown behind them: the read the
+  ontological engineer's *which of my rules actually do anything* wants.
+
+  `O(rules)`, off the rule index and the state a run leaves standing — the refusal ledger
+  (re-decided against current belief) and the justification graph — so it needs no
+  instrumentation and reflects the KB as it is now, not a snapshot of one run. Each row is
+  `{:rule :sentence :believed? :placed :refused :refusals :status}`; see
+  `vaelii.impl.chain/rule-firing-report`.  The `:no-placement` and other violations a
+  firing files are read separately through `violations`, keyed by the same `:rule` handle."
+  [kb]
+  (chain/rule-firing-report kb))
 
 (defn last-program
   "The last edge `Program` handed to the solver — the contested assumptions and the
@@ -4123,25 +4211,19 @@
     (jtms/defeat-class (:tms kb) h)))
 
 (defn- in-content-order
-  "`justifications` ordered by `kb/justification-content-key`, the key built **once per
-  justification**: decorate each with its key, sort the pairs, strip them — the shape
-  `kb/antecedent-order` already uses, for the same reason.
+  "`justifications` ordered by `kb/justification-content-key` through `nm/sort-by-content-key`,
+  which builds that key **once per justification** and short-circuits below two.
 
-  `sort-by` calls its key fn from inside the comparator, so the key is rebuilt at every
-  comparison — about 2·n·log₂n times for n justifications, where n would do.  Each build
-  is a `get-sentex` per antecedent plus a `pr-str` of the whole thing, and a **rule
-  handle is an antecedent of every justification it licenses**, so
-  `dependent-justifications` on one lists that rule's entire firing history: at 100k
-  firings the decorated sort pays 100k key builds against roughly 3.3M, and the store
-  lookups behind them fall by the same factor.  `web/swept-by` — the retract-impact
-  fixpoint — calls it once per frontier handle and discards the order immediately.
-
-  The order is unchanged, and identically so: `compare` over the same keys, over the
-  same input order, and `sort-by` is stable both ways, so justifications with equal keys
-  keep the relative order the id set yielded."
+  Both properties earn their keep here.  Each key build is a `get-sentex` per antecedent
+  plus the structural key it assembles, and a **rule handle is an antecedent of every
+  justification it licenses**, so `dependent-justifications` on one lists that rule's
+  entire firing history: at 100k firings the decorated sort pays 100k key builds against
+  the ~3.3M a per-comparison key fn would, and the store lookups behind them fall by the
+  same factor.  And a derived fact usually rests on **one** justification, so the whole
+  content key is pure overhead on every hop of a proof walk (`why`, w10 retrieval,
+  `web/swept-by`) that only ever wanted the one — which the below-two guard skips."
   [kb justifications]
-  (let [k (kb/justification-content-key kb)]
-    (->> justifications (map (fn [j] [(k j) j])) (sort-by first) (mapv second))))
+  (nm/sort-by-content-key (kb/justification-content-key kb) justifications))
 
 (defn supporting-justifications
   "Justifications that conclude `handle` (its supporting justifications), in
@@ -4355,7 +4437,15 @@
       ;; under the representative its terms now merge to.
       (jtms/superseded? (:tms kb) handle)
       (assoc base :believed? false :reason :superseded
-             :superseded-by (let [r (kb/rewrite-goal kb (:sentence sx))]
+             ;; rewritten from the **sentex's own context**, which is the only context
+             ;; that supersedes it (`special/migrate-into`: `(= reader (:context sentex))`),
+             ;; so the representative named is the one that context elected.  The unscoped
+             ;; rewrite would name the global election, which diverges when a `rewriteOf`
+             ;; outside this context's cone re-elected the head — then `:sentence` names a
+             ;; spelling this context never elected and `:handle` misses, while the
+             ;; `:rewrites` map beside them is the correct scoped one, and the report
+             ;; contradicts itself (docs/equality.md's context-scoped supersession).
+             :superseded-by (let [r (kb/rewrite-goal kb (:sentence sx) (:context sx))]
                               {:sentence r
                                :handle   (kb/find-sentex-handle kb r (:context sx))
                                :rewrites (jtms/supersession (:tms kb) handle)}))
@@ -4364,7 +4454,8 @@
              ;; content-ordered: the matcher promises the set, not the order, and the
              ;; order it happens to yield moves with the retrieval sweeps
              :contradicted-by (->> (sentexes-matching kb (opposite-sentence (:sentence sx)) '?ctx)
-                                   (sort-by (juxt #(pr-str (:sentence %)) #(str (:context %))))
+                                   (nm/sort-by-content-key (juxt #(pr-str (:sentence %)) #(str (:context %)))
+                                                           compare)
                                    (mapv (fn [o] {:handle (:id o) :sentence (readable-sentence o)
                                                   :context (:context o)
                                                   :defeat-class (defeat-class kb (:id o))}))))
@@ -4395,7 +4486,7 @@
   rules concluding one goal would otherwise make the whole answer a function of which
   was asserted first."
   [kb sentence context]
-  (->> (for [rh   (p/rules-by-consequent (:index kb) (nm/functor sentence))
+  (->> (for [rh   (rules/direct-concluders (:index kb) (nm/functor sentence))
              :let [rsx (p/get-sentex (:records kb) rh)]
              :when (and rsx (rules/rule? rsx) (p/exception-rule? (:index kb) rh) (in? kb rh))
              :let  [rule (chain/rule-view-of kb rh rsx)
@@ -4744,7 +4835,11 @@
            ;; decide *which* entries the caller sees (`diff-order`).  Sorting the built
            ;; entries rather than the region costs no extra read — every entry in the
            ;; region is built above, the rollback having taken away the KB they describe
-           cap (fn [xs] (cond->> (sort-by diff-order xs) (pos-int? limit) (take limit)))
+           ;; `diff-order` builds two `pr-str` under a print-guard frame — once per entry
+           ;; now (`nm/sort-by-content-key`), not per comparison, as the sibling `believed-diff`
+           ;; already keys it; the `[pr-str pr-str]` key orders under `compare`
+           cap (fn [xs] (cond->> (nm/sort-by-content-key diff-order compare xs)
+                          (pos-int? limit) (take limit)))
            added   (into [] (clojure.core/remove believed-before?) (:believed-added @result))
            removed (into [] (filter believed-before?) (:believed-removed @result))]
        (assoc @result
@@ -4875,14 +4970,19 @@
   lookup, so this stays a *filter over the region* rather than the re-run of a query
   that would make every mutation cost a query per listener.
 
-  Context-scoped like every other read: the sentex must sit in a context the watch's own
-  can see, up the `genlCx` cone.  A **variable** context watches every context and
-  binds to the one that answered, which is the `'?ctx` convention `ask` already takes."
+  Context-scoped like every other read, on **both** halves of the match: the sentex must
+  sit in a context the watch's own can see up the `genlCx` cone, *and* the subsumption
+  that connects the goal's predicate to the stored one is walked only through the `genl`
+  edges that context can see — so a watch does not fire through a predicate-genl edge
+  stated where it cannot see it, which is the edge `ask` from that context would not walk
+  either.  A **variable** context watches every context and binds to the one that
+  answered, which is the `'?ctx` convention `ask` already takes; it is unscoped on both
+  halves alike."
   [kb goal context handle]
   (when-let [sx (p/get-sentex (:records kb) handle)]
     (let [any? (sx/variable? context)]
       (when (or any? (sees? kb context (:context sx)))
-        (when-let [b (res/match1 kb goal (:sentence sx))]
+        (when-let [b (res/match1 kb goal (:sentence sx) (when-not any? context))]
           (cond-> b any? (assoc context (:context sx))))))))
 
 (defn- watch-goal-problem
@@ -5106,8 +5206,8 @@
   "Every stored sentex the rebuilt equality closure displaces, as `refresh-supersessions`
   wants it.
 
-  Recovery cannot read supersession back — it is derived from the closure, and
-  `jtms/relabel` deliberately lands with the map empty, exactly as it lands unblocked.
+  Recovery cannot read supersession back — it is derived from the closure, and recovery
+  lands with the map empty (a fresh network holds none), exactly as it lands unblocked.
   Left that way, *both* spellings of every merged fact would be believed, which is a
   worse state than the merge simply being forgotten.  So the displaced sentexes are
   nominated once here and `supersession-map` filters them down to the ones whose twin
@@ -5140,7 +5240,25 @@
 
 (defn- rebuild-tms
   "Rebuild the network from the store: a node per stored sentex, a premise per rostered
-  handle, a justification per stored justification, then one whole-graph relabel.
+  handle, and a justification per stored justification.  Belief is the composition of the
+  region relabels the adds run, not a separate whole-graph pass.
+
+  **No whole-graph relabel closes this.**  `add-justification` relabels its consequence's
+  affected region as it lands, and a region relabel over the affected closure is equal to a
+  global one (`jtms/relabel-region*`); premises are marked before any justification, so each
+  add already reads its antecedents' final belief.  The region relabels therefore compose to
+  the fixpoint a whole-graph `jtms/relabel` computes, and a global pass on top of them only
+  recomputes what is already settled — measured at a third of `rebuild-tms` on a disk corpus
+  (`scale-100m.md`, the recover decomposition's step 4).
+
+  **And no reset of blocking or supersession either — recovery lands unblocked because it
+  starts fresh.**  A network opened for recovery is empty, blocked and superseded sets
+  included, so the region relabels above already label unblocked.  Neither is stored
+  (docs/nmtms.md), so a rebuild cannot read either back; it need not clear them because the
+  two are re-derived **wholesale** rather than merged — `recheck-every-exception` queues
+  every exception-bearing rule and the settle *replaces* the blocked set (`jtms/set-blocked`),
+  and `refresh-supersessions` replaces the supersession map — so not even a `core/reindex`
+  over a live network can carry a stale one past the settle.
 
   **A justification naming a sentex this store does not hold is left out**, and this is
   the one path that can meet one.  Everywhere else a justification is built by a firing,
@@ -5160,11 +5278,22 @@
   [kb]
   (let [tms     (:tms kb)
         rec     (:records kb)
+        ;; `sentex-ids` is *the live handle set* by the RecordStore contract, and
+        ;; `premise-ids` a subset of it — every backend's `mark-premise` guards on the
+        ;; record existing before rostering the handle (memory.clj, disk record-store).
+        ;; So neither loop re-reads the whole record to prove it is there: the node loop
+        ;; trusts the set, and the premise loop tests membership in it (O(1), no fetch)
+        ;; rather than fetching a frame per premise only to check for nil.  A fetch here
+        ;; costs ~1 s of a 313k `recover` on disk and hours over a network store, all of
+        ;; it to re-derive a fact the enumerator already answered.  A **justification** is
+        ;; the one thing a store can hold over a sentex it does not (a `delete-sentex!`, a
+        ;; foreign loader under no consistency obligation) — that loop keeps `stored?`.
+        live    (p/sentex-ids rec)
         stored? (fn [h] (or (not (integer? h)) (some? (p/get-sentex rec h))))
         skipped (volatile! 0)]
-    (doseq [id (p/sentex-ids rec) :let [s (p/get-sentex rec id)] :when s]
+    (doseq [id live]
       (jtms/ensure-node tms id 0))
-    (doseq [id (p/premise-ids rec) :let [s (p/get-sentex rec id)] :when s]
+    (doseq [id (p/premise-ids rec) :when (contains? live id)]
       (jtms/add-premise tms id (p/premise-strength rec id)))
     (doseq [id (p/justification-ids rec) :let [d (p/get-justification rec id)] :when d]
       (if (and (stored? (:consequence d)) (every? stored? (:antecedents d)))
@@ -5175,7 +5304,34 @@
                    :msg  (str @skipped " stored justifications name a sentex this store"
                               " does not hold and are left out of the network")
                    :data {:skipped @skipped}}))
-    (jtms/relabel tms)))
+    tms))
+
+(defn- belief-certificate
+  "The disbelief this recover settled, as data for `belief-snapshot/save!`: the
+  content-keyed OUT sentexes, and whether the KB is **clean** — no definitional clash has a
+  strength-differentiated loser (a member that is OUT while it stands in a clash pair).  A
+  clash whose members are both IN (an equal-strength dilemma) has no loser and does not
+  make the KB unclean; only a member the scan actually defeated does, and only such a KB
+  must pay the scan on its next open.  The OUT set over-approximates cleanliness safely: an
+  OUT sentex that happens to sit in a clash pair for an unrelated reason is counted a loser,
+  which only forces the honest full recover rather than skipping it."
+  [kb]
+  (let [tms     (:tms kb)
+        recs    (:records kb)
+        clash   (some-> (:clashes kb) deref)
+        pairs   (:pairs clash)
+        members (into #{} cat (or pairs #{}))
+        out-ids (into [] (remove #(jtms/in? tms %)) (p/sentex-ids recs))
+        losers  (filterv #(contains? members %) out-ids)
+        out     (into [] (keep (fn [id]
+                                 (when-let [s (p/get-sentex recs id)]
+                                   [(:sentence s) (:context s)])))
+                      out-ids)]
+    {:clean?       (zero? (count losers))
+     :out-count    (count out-ids)
+     :clash-count  (count (or pairs #{}))
+     :clash-losers (count losers)
+     :out          out}))
 
 (defn recover
   "Rebuild the in-memory JTMS and taxonomy from the persistent stores (records and
@@ -5192,68 +5348,94 @@
   against belief immediately after it is what narrows the caches to what the KB entails.
   Belief is settled last."
   [kb]
-  (rebuild-tms kb)
-  ;; The rebuild replays every stored `genl` / `genlCx` edge, so it is a bulk load
-  ;; and pays what one pays: repairing the depth potential per edge costs that edge's
-  ;; descendants.  Defer it and repair once, exactly as `with-deferred-settle` does —
-  ;; and repair *here* rather than leaning on the settle below, so the intervening
-  ;; rebuilds never read a loose relation.  The reconcile shares that one repair, which
-  ;; is why it sits inside the same deferral: dropping an edge can dissolve a component.
-  (binding [tax/*defer-depths?* true]
-    (special/rebuild-taxonomy kb)
-    ;; Now narrow the replayed caches to belief, and **unconditionally**.  The
-    ;; region-scoped arm of `refresh-beliefs` reconciles what a settle moved, and the
-    ;; unsupported edge moves nothing: a record carrying no premise mark and no
-    ;; justification is OUT from the moment `rebuild-tms` makes its node, so no defeat,
-    ;; block or supersession ever names it and no region ever reaches it — while the
-    ;; replay has already made it answer `genls`.  (The *defeated* edge is narrowed
-    ;; either way, since its opposition is an event the settle reacts to.)  Recovery is
-    ;; exactly the caller holding no region that the `nil` arm exists for, and it costs
-    ;; one belief lookup per stored declaration — what the replay above just paid.
-    ;; Before the settle rather than after it, so everything the settle reads — nogoods,
-    ;; placement, exception queries — reads a taxonomy that already agrees with belief;
-    ;; the settle's own reconcile then keeps the two together across whatever it moves.
-    (tax/refresh-beliefs (:taxonomy kb) #(jtms/in? (:tms kb) %)))
-  (tax/restore-depths (:taxonomy kb))
-  ;; Nothing about an exception is stored, so blocking cannot be read back: `relabel`
-  ;; deliberately lands unblocked (see `jtms/relabel`) and the window in between
-  ;; believes an excepted conclusion.  Queue every exception-bearing rule so the settle
-  ;; below re-evaluates and withdraws them.  This is recovery, not a store mutation,
-  ;; so it is a deliberate explicit trigger rather than the choke-point seam: no
-  ;; sentence arrived or left — the whole in-memory blocking state did.
-  (special/recheck-every-exception kb)
-  ;; ...and the same for supersession, which is derived from the equality closure and
-  ;; is likewise not readable back from the store.  Seeded before the settle, since
-  ;; `refresh-supersessions` only re-examines the entries it already holds.
-  (special/refresh-supersessions kb (recovered-supersessions kb))
-  ;; the P/¬P coincidence set is derived from storage and no store holds it, so rebuild
-  ;; it before the settle below reads it (`settle/negation-nogoods`)
-  (kb/rebuild-opposed! kb)
-  ;; ...and the visibility roster, for the same reason and one more: a **fork** rebuilds
-  ;; its belief over the merged view rather than inheriting it (`fork`), so without this
-  ;; a fork would answer its base's excepts off a roster of its own that nothing filled.
-  ;; Before the settle for the same reason too — `justification-excepted?` reads it.
-  (kb/rebuild-excepted! kb)
-  ;; ...and the settle that finishes the rebuild is told it *is* one, so the exposure
-  ;; pass stays out of it: what it reports is what a change newly made jointly visible,
-  ;; and a restore changes nothing (`settle/*rebuilding?*`).
-  (binding [settle/*rebuilding?* true]
-    (settle/settle kb)
-    ;; The **refusal** record is the other in-memory state no store holds: a firing
-    ;; refused at derive time left no justification, so replaying the stored ones cannot
-    ;; put it back, and a KB restarted with refusals standing would answer a later
-    ;; release differently from one that never restarted.  Re-firing the rules that can
-    ;; refuse re-records what they refuse, and it runs after the settle above because a
-    ;; refusal is a claim about what the KB *believes*.  A re-fire that placed something
-    ;; the narrowed re-chain had not owes a second settle.
-    (let [{:keys [derived]} (chain/rerecord-refusals! kb)]
-      (when (pos? (long (or derived 0))) (settle/settle kb))))
-  ;; Belief now exists over whatever the store holds, so the write doors stop refusing
-  ;; on that count.  Only that count: a **derived** index is not rebuilt here — `recover`
-  ;; reads it rather than writing it — so a KB recovered over one still mints a second
-  ;; handle per assert, and `reindex` is the call that clears the other half.
-  (kb/note-hazards! kb {:no-belief false})
-  kb)
+  ;; A **belief certificate** left by an earlier clean recover (`belief-snapshot/usable?`,
+  ;; off by default) lets this one skip the closing settle's definitional-clash scan and
+  ;; rederive identical belief.  The decision is taken once, against the records' current
+  ;; fingerprint, and threads two ways: it turns the scan off in the settle below, and it
+  ;; says not to rewrite a certificate this open just trusted.  Off, `fast?` is false and
+  ;; this is byte-for-byte the recover it always was.
+  (let [fast? (belief-snap/usable? (:records kb))]
+    ;; The scoped closure memo (`tax/*scoped-memo-budget*`) is sized for steady-state, whose
+    ;; hot working set is a few recently-touched contexts.  A cold rebuild is the opposite:
+    ;; it reads the whole corpus from every context at once — OpenCyc induces 561 vissets by
+    ;; the budget's own census — so the default 128 flushes and re-walks `specs` closures
+    ;; forever, which the clash pass then pays per membership.  Widen it for the rebuild so
+    ;; the whole context set stays memoised; this is pure cache size (docstring: "a heap, not
+    ;; a wrong answer"), and the cap only bounds retention, so the memory is the working set
+    ;; either way — the 561 closures the walk computes regardless, kept instead of redone.
+    (binding [tax/*scoped-memo-budget* (max (long tax/*scoped-memo-budget*) 8192)]
+      (rebuild-tms kb)
+      ;; The rebuild replays every stored `genl` / `genlCx` edge, so it is a bulk load
+      ;; and pays what one pays: repairing the depth potential per edge costs that edge's
+      ;; descendants.  Defer it and repair once, exactly as `with-deferred-settle` does —
+      ;; and repair *here* rather than leaning on the settle below, so the intervening
+      ;; rebuilds never read a loose relation.  The reconcile shares that one repair, which
+      ;; is why it sits inside the same deferral: dropping an edge can dissolve a component.
+      (binding [tax/*defer-depths?* true]
+        (special/rebuild-taxonomy kb)
+        ;; Now narrow the replayed caches to belief, and **unconditionally**.  The
+        ;; region-scoped arm of `refresh-beliefs` reconciles what a settle moved, and the
+        ;; unsupported edge moves nothing: a record carrying no premise mark and no
+        ;; justification is OUT from the moment `rebuild-tms` makes its node, so no defeat,
+        ;; block or supersession ever names it and no region ever reaches it — while the
+        ;; replay has already made it answer `genls`.  (The *defeated* edge is narrowed
+        ;; either way, since its opposition is an event the settle reacts to.)  Recovery is
+        ;; exactly the caller holding no region that the `nil` arm exists for, and it costs
+        ;; one belief lookup per stored declaration — what the replay above just paid.
+        ;; Before the settle rather than after it, so everything the settle reads — nogoods,
+        ;; placement, exception queries — reads a taxonomy that already agrees with belief;
+        ;; the settle's own reconcile then keeps the two together across whatever it moves.
+        (tax/refresh-beliefs (:taxonomy kb) #(jtms/in? (:tms kb) %)))
+      (tax/restore-depths (:taxonomy kb))
+      ;; Nothing about an exception is stored, so blocking cannot be read back: recovery lands
+      ;; unblocked (a fresh network holds no blocks, and the settle below re-derives them) and the
+      ;; window in between believes an excepted conclusion.  Queue every exception-bearing rule so the settle
+      ;; below re-evaluates and withdraws them.  This is recovery, not a store mutation,
+      ;; so it is a deliberate explicit trigger rather than the choke-point seam: no
+      ;; sentence arrived or left — the whole in-memory blocking state did.
+      (special/recheck-every-exception kb)
+      ;; ...and the same for supersession, which is derived from the equality closure and
+      ;; is likewise not readable back from the store.  Seeded before the settle, since
+      ;; `refresh-supersessions` only re-examines the entries it already holds.
+      (special/refresh-supersessions kb (recovered-supersessions kb))
+      ;; the P/¬P coincidence set is derived from storage and no store holds it, so rebuild
+      ;; it before the settle below reads it (`settle/negation-nogoods`)
+      (kb/rebuild-opposed! kb)
+      ;; ...and the visibility roster, for the same reason and one more: a **fork** rebuilds
+      ;; its belief over the merged view rather than inheriting it (`fork`), so without this
+      ;; a fork would answer its base's excepts off a roster of its own that nothing filled.
+      ;; Before the settle for the same reason too — `justification-excepted?` reads it.
+      (kb/rebuild-excepted! kb)
+      ;; ...and the settle that finishes the rebuild is told it *is* one, so the exposure
+      ;; pass stays out of it: what it reports is what a change newly made jointly visible,
+      ;; and a restore changes nothing (`settle/*rebuilding?*`).  On the certified fast path
+      ;; the clash scan is off for the same settle: a clean KB's scan defeats nothing, so the
+      ;; rest of this settle rederives the same belief without it (`*skip-constraint-nogoods*`).
+      (binding [settle/*rebuilding?* true
+                settle/*skip-constraint-nogoods* fast?]
+        (settle/settle kb)
+        ;; The **refusal** record is the other in-memory state no store holds: a firing
+        ;; refused at derive time left no justification, so replaying the stored ones cannot
+        ;; put it back, and a KB restarted with refusals standing would answer a later
+        ;; release differently from one that never restarted.  Re-firing the rules that can
+        ;; refuse re-records what they refuse, and it runs after the settle above because a
+        ;; refusal is a claim about what the KB *believes*.  A re-fire that placed something
+        ;; the narrowed re-chain had not owes a second settle.
+        (let [{:keys [derived]} (chain/rerecord-refusals! kb)]
+          (when (pos? (long (or derived 0))) (settle/settle kb))))
+      ;; The slow recover just settled belief from scratch, so leave a certificate: the next
+      ;; cold open over these same records can then take the fast path.  Only the slow path
+      ;; writes one — the fast path already trusted a valid one — and only a disk KB with the
+      ;; switch on (`belief-snapshot/writable?`), so a KB with nowhere to put it, or the switch
+      ;; off, never even computes the disbelief.
+      (when (and (not fast?) (belief-snap/writable? (:records kb)))
+        (belief-snap/save! (:records kb) (belief-certificate kb)))
+      ;; Belief now exists over whatever the store holds, so the write doors stop refusing
+      ;; on that count.  Only that count: a **derived** index is not rebuilt here — `recover`
+      ;; reads it rather than writing it — so a KB recovered over one still mints a second
+      ;; handle per assert, and `reindex` is the call that clears the other half.
+      (kb/note-hazards! kb {:no-belief false})
+      kb)))
 
 (defn reindex
   "Rebuild the index store — the trie, secondary roots, rule index, exception index,
@@ -5344,10 +5526,18 @@
 
   A no-op on a KB with no directory (every in-memory backend, and an ephemeral fork), so
   it is safe to call unconditionally in a `finally`.  The KB must not be used
-  afterwards; open it again to read the same directory."
+  afterwards; open it again to read the same directory.
+
+  A durable records backend that is not the disk store — the `:sqlite` adapter, which
+  holds a JDBC connection rather than a directory — releases its resource here too: any
+  record store that is `java.io.Closeable` is closed.  The disk store is torn down by
+  `close-dir!` above and is not `Closeable`, so this fires once, for such a backend, and
+  never twice."
   [kb]
   (when-let [dir (:dir kb)]
     (disk/close-dir! dir))
+  (when (instance? java.io.Closeable (:records kb))
+    (.close ^java.io.Closeable (:records kb)))
   kb)
 
 (defn import!

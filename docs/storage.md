@@ -1,8 +1,8 @@
 # Storage
 
 - **Covers:** the `RecordStore` / `IndexStore` protocols, the seven legal record×index
-  backend pairings, nippy serialization, what one fact of a bulk load costs phase by
-  phase, and the single-writer contract.
+  backend pairings and the optional `:sqlite` records adapter, nippy serialization, what
+  one fact of a bulk load costs phase by phase, and the single-writer contract.
 - **Not here:** the six index families' key layout and retrieval →
   [indexing.md](indexing.md); the dense/columnar backends that replace the default
   map-based structures → [density.md](density.md).
@@ -48,11 +48,11 @@ are below.
 | record store | sentexes + justifications (values); a per-handle provenance map | the ground truth |
 | index store  | trie, rule index, term index (keys → sets/counts) | derived from the records |
 
-**The asymmetry is the design.** The records are what has to survive: lose one and the
-knowledge is gone. The index is a cache over them — every entry is recomputable, so
-`reindex` throws the whole thing away and rebuilds it from the records. Durability is
-therefore the record store's problem alone, which is why the two are separate stores
-behind separate protocols rather than one.
+The index is a cache over the records — every entry is recomputable, so
+`reindex` throws the whole thing away and rebuilds it from the records — while the
+records are what has to survive: lose one and the knowledge is gone. That asymmetry is
+why the two are separate stores behind separate protocols rather than one — [why
+separate stores](defenses.md#records-and-the-index-are-separate-stores).
 
 That also sets what each backend owes. A record backend must persist; an index backend
 need not. The index is resident in RAM: the on-disk one logs its mutations for a fast
@@ -109,6 +109,7 @@ to durability and the index to representation, so `open-kb` chooses them separat
 | `:disk-dense` | durable | int postings | rebuilt on open |
 | `:disk-columnar` | durable | native trie | rebuilt on open |
 | `:disk` | durable | durable | one store on both axes |
+| `:sqlite` | durable (SQLite file) | RAM map | an Apache adapter, resolved lazily — below |
 | `:overlay` | a decorator | a decorator | a fork over a frozen base — [overlay.md](overlay.md) |
 
 `:memory` and `:disk` are the two pairs that are the same store on both axes, named for
@@ -125,15 +126,23 @@ the store rather than doubled into `:memory-memory` / `:disk-disk`.
   crash-safe, with no server. Selected for the whole suite with
   `VAELII_TEST_BACKEND=disk lein test` (durability parity gate: identical results).
   Detailed below.
+- **SQLite records** (`com.vaelii/sqlite`, the `vaelii.sqlite.record-store` adapter) — an
+  embedded-SQLite store in a single file (`<dir>/records.sqlite`) under `:dir`, durable
+  across a restart with no server. It is **not built into the engine**: `record-store-for`
+  resolves it lazily (`requiring-resolve`, the way `create-tms` reaches the dense TMS), so
+  the SSPL engine carries no JDBC dependency, and the `:sqlite` backend works only when the
+  Apache-2.0 adapter is on the classpath. It pairs with a derived RAM index (the `:sqlite`
+  sugar is `{:records :sqlite :index :memory}`), rebuilt on open; a durable `:disk` index
+  over it is refused, the same rule RAM records meet. Outside the built-in grid below — not
+  one of the eight pairings, and the adapter carries its own suite.
 - **A derived index** — the RAM map, the dense postings, the columnar trie — holds
   nothing that is not recomputable, so it is never written. Over durable records that
   costs one `reindex` per open (below); in exchange, every density experiment can be run
   against a durable KB instead of only in RAM.
 
 The axes admit eight pairings and **seven are legal**, each with a name: RAM records
-under the durable index is refused, since the index is derived from the records and
-persisting it over a store that empties at JVM exit leaves index files describing records
-that are gone — the next open would answer every query out of them. So `:records` /
+under the durable index is refused — [why that pairing is
+refused](defenses.md#ram-records-under-a-durable-index-is-refused). So `:records` /
 `:index` are for overriding *half* of a name, not for reaching a pair the table left out,
 and `VAELII_TEST_BACKEND` takes a name. `./scripts/test-backends.sh` (`lein
 test-backends`) runs the whole suite on all seven, one log and one ✔/✘ per run, plus an
@@ -254,12 +263,54 @@ One part of it does not work: the token dictionary is **not** vocabulary-scaled,
 is read into heap whole and its cost grows with the number of distinct terms rather
 than with residency.
 
+#### The belief certificate (`vaelii.belief.snapshot`, off by default)
+
+The image caches the derived *index*; the belief certificate caches the one thing a full
+`recover` settles that the index cannot — that the store's definitional constraints stand
+in no clash. With `vaelii.belief.snapshot` set, a `recover` of a clean `:disk` KB writes a
+small certificate beside the records (`<dir>/belief/`) recording that clean bill and the
+record store's slot fingerprint. The next cold open reads it, and if the fingerprint still
+matches skips the closing settle's constraint-clash scan — the part of recover whose cost
+is the count of standing clashes, minutes of it at corpus scale — while rederiving belief
+exactly as before.
+
+Like the image, it is a **cache of derived state** stamped and checked on every open: a
+moved record, a torn stamp, a layout change or an unclean close discards it and runs the
+full scan, and with the property unset `recover` computes nothing extra and is byte-for-byte
+the recover it always was. What the certificate never does is *supply* belief — it records
+only that a clean close found no clash, so the worst a stale one can do is be discarded,
+never believed. Why a certificate of a clean bill rather than a stored image of the labels:
+[defenses.md](defenses.md#the-belief-certificate-records-a-clean-bill-not-the-labels).
+
 A derived index is shared for the life of the JVM under the identity of the records it
 belongs to — the space number for RAM records, the **canonical directory** for durable
 ones. Keying a disk-backed KB's RAM index by the space number instead would hand two KBs
 over different directories one shared index whenever they took the default. If
 the records are emptied out from under it, the leftover index is dropped on the next
 open rather than left describing records that no longer exist.
+
+#### The belief certificate (`vaelii.belief.snapshot`, off by default)
+
+The image is one half of a `:disk-columnar` cold open; `recover` is the other, and its own
+expensive pass is the closing settle's definitional-clash scan (`settle/constraint-nogoods`).
+On a **clean** corpus that scan defeats nothing — every standing clash an equal-strength
+dilemma that disbelieves neither side (`settle/decide-nogood`) — so it is verification, and the
+belief it reaches is the belief the rest of the settle reaches without it. The belief
+certificate (`vaelii.impl.disk.belief-snapshot`) is to that scan what the image is to
+`reindex`: a full recover writes belief's **sparse complement** to `<dir>/belief/` — a
+`record-store/slot-fingerprint` stamp, whether the corpus was clean, and the disbelieved
+sentexes content-keyed as EDN, human-readable — and the next cold open that still matches the
+stamp binds `settle/*skip-constraint-nogoods*` for the closing settle and rederives identical
+belief without the scan.
+
+Same cache-of-derived-state discipline as the image, and it reuses the same stamp: checked on
+**every** open, never behind a flag, and any doubt — a changed record, an unclean stamp, an
+absent or torn file — discards it and runs the full recover, always correct because belief is
+derived. Unlike the image it needs no platform guard: the writes are EDN through an atomic
+rename, not a mapping a swap has to break. A corpus carrying a strength-differentiated
+clash-**loser** — whose defeat cascades through what it supported, and which no post-hoc replay
+reconstructs — is stamped **unclean** and never taken on the fast path, the one case where
+skipping the scan would believe the wrong thing.
 
 ### The index is written once — `KvBackend`
 
@@ -321,9 +372,20 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   both do, which is what keeps the bits a cache rather than a second truth.  Two bits
   and not one for the same reason: a legacy slot reads as 0, and 0 has to mean *unknown*
   rather than *not a premise*, so no store needs rewriting and no version needs bumping.
+  Two bits further along (bits 2..3) carry the premise's **strength rank**, so
+  `premise-strength` — the one field `recover` reads per premise, and the whole record
+  fetched for it on disk — answers off the same 24-byte slot the walk already reads.  A
+  rank of 0 means *unrecorded* and falls back to the record, exactly as the premise bit
+  does, so the strength column is the same no-version-bump cache one field up — and it
+  shares that bit's residual: the flags word is not crash-atomic, so a torn flags page can
+  leave a stale rank (or bit) across a crash.  A **dirty** open closes it: the marker says
+  the last close was unclean, so the open walks the records and rewrites every slot whose
+  flags disagree (`reconcile-slot-flags!`), which a clean open — its slots consistent by
+  construction — skips entirely.  Between crash and that open the record is the durable
+  truth, and a re-mark or a compaction repairs a slot the same way.
 - **The frame codec** (`disk.codec`) — a frame holds its record's fields
-  **positionally**, because nippy otherwise writes the record's type tag and every field
-  name into every frame, which measured 56% of the store.  A sentex frame is
+  **positionally** — [why positional, not
+  tagged](defenses.md#frames-are-positional-not-tagged).  A sentex frame is
   `[tag sentence context id truth strength …]`, a justification frame a bare vector (one
   shape needs no tag), and provenance — an open application map — passes through as it
   comes.  Each decoder dispatches on the thawed frame's shape, so **frames written before
@@ -354,9 +416,9 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   write-ahead log that replays on open.  Durability without changing the index logic.
   The WAL is **logical**: a frame is the write op itself (`[:add-to-set k m]`, `[:remove-from-set k m]`,
   `[:put k v]`, `[:delete k]`, `[:increment k]`, `[:decrement k]`), so a set-add logs the one added
-  member — O(1) — and a bulk load of N members into one root writes O(N) WAL bytes.
-  (Logging the resulting *value* would re-serialize the size-i set on the i-th add and
-  cost O(N²), with a few hot roots — `[:functor-root p]`, the common contexts — dominating.)
+  member — O(1) — and a bulk load of N members into one root writes O(N) WAL bytes,
+  rather than logging the resulting value — [why the op, not the
+  value](defenses.md#the-index-wal-logs-the-operation-not-the-value).
   Replay folds each frame through the same `apply-op` that applies a live op; `compact!`
   rewrites the log as one `[:put k v]` op per live key, so every frame is a uniform op
   and the reader needs no snapshot-vs-delta discrimination.  Compaction is this store's
@@ -399,10 +461,9 @@ interrupted compaction, truncate a torn tail, tombstone any slot now past EOF.
 
 Finding that torn tail reads the frame **lengths** and decodes nothing
 (`files/log-tail-offset`): a prefix, a skip, repeat, through a positional read window,
-since a `RandomAccessFile` is unbuffered and a `seek` per frame is syscall-bound.  Not
-decoding is the point rather than a side-effect — the question is *how long is the log*,
-and answering it by thawing every frame made a record class rename delete the store it
-could not read.  The length chain suffices because a frame is appended **before** the
+since a `RandomAccessFile` is unbuffered and a `seek` per frame is syscall-bound —
+[why lengths, not frames](defenses.md#torn-tail-recovery-reads-lengths-not-frames).
+The length chain suffices because a frame is appended **before** the
 slot that points at it, so a torn tail frame is one nothing references, and
 `validate-idx-tail!` is what reconciles a slot against a log that lost its end.  A
 **non-positive** length ends the walk: no frame payload is empty, so a zero is space
@@ -503,7 +564,8 @@ The **core** (`AtomicSentex` and `RuleSentex` alike):
 - `:strength` — the assumption strength (`:monotonic` / `:default`) when the sentex is
   asserted as a premise; `nil` for a purely-derived sentex. The record store writes it
   on `mark-premise` and reads it back with `premise-strength`, so premise strength
-  lives **on the record**.
+  lives **on the record** — with the rank mirrored into the disk idx slot (above), so
+  `premise-strength` answers off the slot rather than paging the record on every open.
 
 **`AtomicSentex`** is an atomic sentence — a fact, a metadata declaration, or a query
 pattern: one signed predicate application, ground or holding variables. It adds nothing
@@ -687,7 +749,14 @@ log for the same reason the index can: the shape of its derivation is different.
 
 That argues against *logging* it, not against *snapshotting* it — a snapshot is O(nodes),
 written once and read once, and it is what the mapped index image already does for the
-index. The taxonomy sits at the other end again: its adjacency is O(V+E) and each edge
+index. The write-once, validate-or-discard machinery that image carries is factored out of
+it into a two-op **sink** seam (`vaelii.impl.io.snapshot` — a `SnapshotSink` streams a named
+section and commits a manifest-last, a `SnapshotSource` reads them back; `decision` is the
+validity check, one reason per mismatch class, any doubt discarding the whole image), so a
+JTMS snapshot and a database image can share one format and one check with only the target —
+a directory, a database, memory — varying. The export dump's index already reads and writes
+through it, which is what keeps a dump's index and a standalone image the same bytes rather
+than two serializations that drift. The taxonomy sits at the other end again: its adjacency is O(V+E) and each edge
 insert is local and O(1), so it is a set-and-counter structure that `KvBackend` could hold
 with no new ideas — the reason it is not held there is that nobody has needed it to be,
 not that it resists it.
@@ -819,13 +888,17 @@ is what decides whether a median means anything.
 (the TMS, the taxonomy closures), and only the writing process's memory tracks its
 writes:
 
-- *Two threads, one process:* every TMS mutation applies atomically
-  (`jtms/swap-with-result!` for the result-returning ops, `swap!` for the rest),
-  so concurrent operations **compose** — none is silently lost. That is a
-  liveness floor, not a semantics: interleaved `assert`/`retract!` sequences are
-  not serializable (find-or-create and the settle pipeline are check-then-act), so
-  concurrent *writing* still needs a single writer. A reader thread beside a writer
-  thread (the web browser over a REPL's KB) is the supported shape.
+- *Two threads, one process:* every TMS mutation applies atomically — the reference
+  network through `jtms/swap-with-result!`/`swap!` on its atom, the dense one under a
+  `StampedLock` write stamp — so concurrent operations **compose** and none is silently
+  lost. That is a liveness floor, not a semantics: interleaved `assert`/`retract!`
+  sequences are not serializable (find-or-create and the settle pipeline are
+  check-then-act), so concurrent *writing* still needs a single writer. A reader thread
+  beside a writer thread (the web browser over a REPL's KB) is the supported shape, and
+  **both** TMS representations give that reader a consistent view — the reference out of
+  its persistent-map snapshot, the dense one out of an optimistic read stamp validated
+  against the writer's, so neither ever shows a partially-applied relabel
+  (`jtms_concurrency_test`).
 
   **Two selectable index backends are narrower than that**, and it is the one place the
   floor does not reach. `:columnar` (`vaelii.impl.columnar`, and the `vaelii.impl.dense-roots`
@@ -836,9 +909,9 @@ writes:
   a compaction or a snapshot install, with no happens-before edge to stop it. The atom-
   and lock-based backends give the incidental reader a consistent view; these two do
   not, and keeping such a read on the writer's thread or behind a synchronizer is the
-  caller's. The fields are unsynchronized because the walk reads them at every frontier
-  node — the index's hottest loop — where a volatile read buys a guarantee the engine's
-  own single writer never needs.
+  caller's. The walk reads these fields at every frontier node, the index's hottest
+  loop — [why unsynchronized
+  there](defenses.md#the-columnar-and-dense-backends-use-unsynchronized-fields).
 - *Two processes, one store:* not supported, and worse than stale — process B's
   belief filter hides A's facts, and B's retraction sweeps **delete records A
   still believes**. The `:disk` backend enforces this with an exclusive file lock

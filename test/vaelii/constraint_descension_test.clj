@@ -11,7 +11,7 @@
   through the matcher's own fan.  Every test here is a pair of doors that must agree.
 
   The line this must not cross is the other direction: a **generative** property —
-  `argPreserving`, `transitive`, `symmetric`, `reflexive` — is a claim about a relation
+  `transitiveInArg`, `transitive`, `symmetric`, `reflexive` — is a claim about a relation
   and stays with the predicate that carries it.  Refusal-side constraints descend
   because tuples narrow; licences generate tuples and do not.  `inherit-test`'s
   `the-licence-stays-with-the-predicate-it-names` and `provers-test`'s
@@ -219,11 +219,11 @@
 ;; the constraints is sound.  `arity`, `asymmetric`, `functional` and the argument
 ;; declarations *refuse* tuples, and a sub-predicate's tuples are the super's, so a
 ;; refusal above is a refusal below.  `transitive`, `symmetric`, `reflexive` and
-;; `argPreserving` *license* tuples, and a licence read for a predicate nobody declared
+;; `transitiveInArg` *license* tuples, and a licence read for a predicate nobody declared
 ;; it of manufactures knowledge — dogs may be larger than cats without every subkind
 ;; being much larger.  So the generative four stay exactly where they were stated.
 ;;
-;; `argPreserving` is pinned by `inherit-test`'s `the-licence-stays-with-the-predicate-
+;; `transitiveInArg` is pinned by `inherit-test`'s `the-licence-stays-with-the-predicate-
 ;; it-names` and `transitive` by `provers-test`'s `the-walk-reads-hops-through-the-
 ;; subsumption-fan`.  The other two are here, because a property that quietly began to
 ;; descend would not fail any test that only checks the refusing four.

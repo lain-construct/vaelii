@@ -72,6 +72,24 @@
             (is (= :default (p/premise-strength s a))))
           (finally (drs/close! s)))))))
 
+(deftest premise-strength-of-a-bad-id-is-default-on-either-store
+  ;; `premise-strength` reads the slot directly (not through `fetch`), so it must keep
+  ;; `fetch`'s guard: a non-integer informant or a negative id is a key the store does not
+  ;; hold, answered `:default` — never a `read-slot` coercion throw — exactly as the memory
+  ;; store answers, or the backend leaks through a read.
+  (with-tmp
+    (fn [dir]
+      (let [d (drs/open-record-store dir)
+            m (mem/memory-record-store {:space ::bad-id-premise})]
+        (try
+          (doseq [s [d m]]
+            (is (= :default (p/premise-strength s :some-informant)) "a non-integer id")
+            (is (= :default (p/premise-strength s -1)) "a negative id")
+            (is (= :default (p/premise-strength s 999)) "an id the store never issued"))
+          (finally
+            (drs/close! d)
+            (p/clear-records! m)))))))
+
 (deftest marking-an-unstored-handle-marks-nothing-on-either-store
   ;; the premise set follows the record set: a handle with no sentex takes no mark, on
   ;; the memory store exactly as on the disk one — the two must answer `premise-ids`
@@ -116,6 +134,112 @@
               :when (and slot (not (:tombstone? slot)))]
         (f/write-slot! idx id (:offset slot) (:length slot) 0 (:gen slot)))
       (finally (f/close! idx)))))
+
+(defn- strip-strength-flags!
+  "Rewrite `ids`' premise slots keeping the premise bit but zeroing the strength rank —
+  the shape a store written after the premise bit but before the strength bits has.  That
+  is the slot `premise-strength` must fall back to the record for."
+  [^String dir ids]
+  (let [idx (f/open-idx (str dir "/records/sentexes.idx"))]
+    (try
+      (doseq [id ids
+              :let [slot (f/read-slot idx id)]
+              :when (and slot (not (:tombstone? slot)) (f/slot-premise (:flags slot)))]
+        (f/write-slot! idx id (:offset slot) (:length slot) (f/premise-flags true 0) (:gen slot)))
+      (finally (f/close! idx)))))
+
+;; ---- the flags word after a crash ---------------------------------------
+;; The flags word (premise bit + strength rank) is a cache over the durable record and is
+;; not crash-atomic: a 24-byte slot straddles a page, so a torn flags page across a crash
+;; can persist a handle's new frame while leaving the old flags.  A clean open trusts the
+;; slot; a **dirty** open must reconcile it against the records.  These pin that it does,
+;; on both a stale rank and a stale bit, tokenized and not — and that a clean open does not.
+
+(defn- corrupt-slot-flags!
+  "Overwrite `id`'s sentex slot with `flags`, keeping its offset/length/gen — the shape a
+  torn flags page leaves: the frame is current but the flags word reverted.  Store closed."
+  [^String dir id flags]
+  (let [idx (f/open-idx (str dir "/records/sentexes.idx"))]
+    (try
+      (let [slot (f/read-slot idx id)]
+        (f/write-slot! idx id (:offset slot) (:length slot) flags (:gen slot)))
+      (finally (f/close! idx)))))
+
+(defn- simulate-crash!
+  "Leave `dir` in the on-disk state a crashed session leaves: the dirty marker present (its
+  open never ran a clean close!) and the clean marker gone."
+  [^String dir]
+  (let [root (str dir "/records")]
+    (f/remove-clean-marker! root)
+    (f/create-dirty-marker! root)))
+
+(defn- slot-flags [^String dir id]
+  (let [idx (f/open-idx (str dir "/records/sentexes.idx"))]
+    (try (:flags (f/read-slot idx id)) (finally (f/close! idx)))))
+
+(deftest a-dirty-open-reconciles-a-stale-strength-rank
+  ;; `premise-strength` reads the rank off the slot, so a clean open would trust a torn
+  ;; one.  A dirty open rewrites the slot to the record's rank.
+  (doseq [tok [false true]]
+    (with-tmp
+      (fn [dir]
+        (let [s (drs/open-record-store dir {:tokenize? tok})
+              a (p/put-sentex s {:sentence '(dog Muffet) :context 'C})]
+          (p/mark-premise s a :monotonic)                       ; rank 2 on disk
+          (drs/close! s))
+        (corrupt-slot-flags! dir 1 (f/premise-flags true 1))    ; stale: premise, rank 1
+        (simulate-crash! dir)
+        (let [s2 (drs/open-record-store dir {:tokenize? tok})]
+          (try
+            (is (= :monotonic (p/premise-strength s2 1))
+                (str "tokenize? " tok ": dirty open restored the rank (a clean open reads the stale :default)"))
+            (is (= #{1} (p/premise-ids s2)))
+            (finally (drs/close! s2))))
+        (is (= 2 (f/slot-strength (slot-flags dir 1)))
+            (str "tokenize? " tok ": the slot itself is rewritten, so the next clean open is right"))))))
+
+(deftest a-dirty-open-reconciles-a-stale-premise-bit
+  ;; A torn page can flip the bit too: a slot claiming premise over a record that is not
+  ;; one, and the reverse.  The set follows the records and the slots are rewritten to match.
+  (doseq [tok [false true]]
+    (with-tmp
+      (fn [dir]
+        (let [s (drs/open-record-store dir {:tokenize? tok})
+              a (p/put-sentex s {:sentence '(dog Muffet) :context 'C})   ; a premise
+              _ (p/put-sentex s {:sentence '(cat Tom) :context 'C})]     ; not a premise
+          (p/mark-premise s a :default)
+          (drs/close! s))
+        (corrupt-slot-flags! dir 1 (f/premise-flags false))     ; a: bit lost
+        (corrupt-slot-flags! dir 2 (f/premise-flags true 2))    ; b: phantom premise, rank 2
+        (simulate-crash! dir)
+        (let [s2 (drs/open-record-store dir {:tokenize? tok})]
+          (try
+            (is (= #{1} (p/premise-ids s2))
+                (str "tokenize? " tok ": the set follows the records, not the torn bits"))
+            (is (= :default (p/premise-strength s2 1)))
+            (is (= :default (p/premise-strength s2 2))
+                "b is not a premise, whatever its slot claimed")
+            (finally (drs/close! s2))))
+        (is (true?  (f/slot-premise (slot-flags dir 1))) "a's premise bit restored")
+        (is (false? (f/slot-premise (slot-flags dir 2))) "b's phantom bit cleared")
+        (is (zero?  (f/slot-strength (slot-flags dir 2))) "b's phantom rank cleared")))))
+
+(deftest a-clean-open-does-not-reconcile-the-flags
+  ;; The reconcile is a dirty-open cost only.  A clean reopen trusts the slots as written,
+  ;; so a stale one survives it untouched — which is what keeps the fast path fast.
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)
+            a (p/put-sentex s {:sentence '(dog Muffet) :context 'C})]
+        (p/mark-premise s a :monotonic)
+        (drs/close! s))
+      (corrupt-slot-flags! dir 1 (f/premise-flags true 1))      ; stale rank, but no crash
+      (let [s2 (drs/open-record-store dir)]                      ; clean reopen
+        (try
+          (is (= :default (p/premise-strength s2 1))
+              "a clean open reads the slot as written — the stale rank survives, so no reconcile fired")
+          (finally (drs/close! s2))))
+      (is (= 1 (f/slot-strength (slot-flags dir 1))) "the slot was not rewritten on a clean open"))))
 
 (deftest every-write-path-annotates-its-slot
   (with-tmp
@@ -545,6 +669,34 @@
               (doseq [i (range 0 2000 137)]
                 (is (= (list 'p (symbol (str "I" i))) (:sentence (p/get-sentex s (nth ids i))))))))
           (finally (drs/close! s)))))))
+
+(deftest premise-strength-reads-the-slot-not-the-record
+  ;; The strength rides bits 2..3 of the idx slot, so `premise-strength` — called once per
+  ;; premise on every recover — answers off the 24 bytes the open walk already reads,
+  ;; without paging the record for one keyword.  Proven white-box: with the hot-record
+  ;; cache cold, a strength read must leave it cold, because a record fetch would populate
+  ;; it (`hot-cache-stays-consistent-with-the-store` pins that a `get-sentex` caches).
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)
+            a (p/put-sentex s {:sentence '(dog Muffet) :context 'C :strength :monotonic})
+            b (p/put-sentex s {:sentence '(cat Tom) :context 'C :strength :default})]
+        (testing "the strength comes off the slot; no frame is paged"
+          (.clear ^java.util.Map (:cache (:sentexes (:kinds s))))
+          (is (= :monotonic (p/premise-strength s a)))
+          (is (= :default   (p/premise-strength s b)))
+          (is (nil? (cached s :sentexes a)) "a's record stayed on disk")
+          (is (nil? (cached s :sentexes b)) "and b's"))
+        (drs/close! s))
+      (testing "but a slot older than the strength bits falls back to the record"
+        (strip-strength-flags! dir [1 2])                 ; keep the premise bit, drop the rank
+        (let [s2 (drs/open-record-store dir)]
+          (try
+            (.clear ^java.util.Map (:cache (:sentexes (:kinds s2))))
+            (is (= :monotonic (p/premise-strength s2 1)) "recovered from the record instead")
+            (is (= :default   (p/premise-strength s2 2)))
+            (is (some? (cached s2 :sentexes 1)) "which means it did page the record — the fallback")
+            (finally (drs/close! s2))))))))
 
 ;; ---- tokenized bodies, end to end ---------------------------------------
 ;; The store-level half of what `disk_codec_test` checks on the codec: a tokenized frame
