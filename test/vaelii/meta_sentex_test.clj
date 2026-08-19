@@ -415,3 +415,35 @@
         (is (roster-agrees? kb [gp pm 'CxWell]))
         (is (not (v/ask? kb (list shiny gold) pm)) "and the read still follows it")
         (is (v/ask? kb (list shiny gold) gp))))))
+
+;; ---- except strength converse: monotonic except defeats default not-except -
+
+(tu/deftest-kb a-monotonic-except-defeats-a-default-not-except
+  ;; The converse of `a-defeated-except-does-not-hide`: a default (not (except H))
+  ;; cannot override a monotonic (except H) — strength wins, so the target stays hidden.
+  (let [ctx (tu/tmp-ctx "Conv") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})]
+      (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})
+      (is (not (v/ask? kb (list shiny gold) ctx)) "the monotonic except hides it")
+      (v/assert kb (list 'not (list 'except (sx/sentex-handle h))) ctx {:strength :default})
+      (testing "the default negation cannot defeat the monotonic except; the target stays hidden"
+        (is (not (v/ask? kb (list shiny gold) ctx)))))))
+
+;; ---- meta-exception: excepting an except ----------------------------------
+
+(tu/deftest-kb meta-exception-is-ill-formed
+  ;; A meta-exception — (except (sentexHandle E)) where E is itself an (except …) —
+  ;; is ill-formed: the visibility roster does not cascade, so the sentence would
+  ;; silently do nothing.  The KB refuses it at assert time.
+  (let [ctx (tu/tmp-ctx "MetaEx") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})]
+      (testing "P is true after assertion"
+        (is (v/ask? kb (list shiny gold) ctx)))
+      (let [e (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})]
+        (testing "P is hidden after excepting"
+          (is (not (v/ask? kb (list shiny gold) ctx))))
+        (testing "excepting the except is refused as ill-formed"
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"meta-exception.*ill-formed"
+                (v/assert kb (list 'except (sx/sentex-handle e)) ctx {:strength :monotonic}))))))))

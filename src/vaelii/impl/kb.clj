@@ -1506,7 +1506,13 @@
   "The handle a visibility `(except (sentexHandle H))` sentence hides, or nil for any
   other sentence — including `(not (except …))`, whose functor is `not`.  The one shape
   test the roster keys on, so a sentence that is not an `except` costs a `=` on its
-  functor at the store choke point and nothing else."
+  functor at the store choke point and nothing else.
+
+  A **meta-exception** — `(except (sentexHandle E))` where E is itself an `(except …)` —
+  is ill-formed and refused at assert time.  The visibility roster does not cascade:
+  excepting an except hides the except from queries but does not restore visibility of
+  the fact the except was hiding.  Since the sentence would silently do nothing useful,
+  it is refused rather than stored inertly."
   [sentence]
   (when (and (sequential? sentence)
              (= sx/except-functor (first sentence))
