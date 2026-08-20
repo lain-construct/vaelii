@@ -426,7 +426,7 @@
   [t]
   (boolean (when-let [active? (:supporter-filter-active? t)] (active?))))
 
-(defn- scoped-support-visible?
+(defn- scope-admits-supporter?
   "Does `scope` admit supporter `[handle context]`?
 
   A plain set is the original context-only scope. An exception-aware scope is a map
@@ -538,7 +538,7 @@
               e-of    (if (= dir-key :fwd) (fn [x] [n x]) (fn [x] [x n]))
               pred    (if (map? scope)
                         (fn [x]
-                          (some (fn [[h c]] (scoped-support-visible? scope h c))
+                          (some (fn [[h c]] (scope-admits-supporter? scope h c))
                                 (get support (e-of x))))
                         (fn [x] (ctxs-visible? (get ectxs (e-of x)) scope)))
               nbrs  (get (dir-key rel) n)
@@ -2160,7 +2160,7 @@
                      :context context
                      :supporter-visible? (:supporter-visible? t)}]
           (boolean
-           (some (fn [[h c]] (scoped-support-visible? scope h c))
+           (some (fn [[h c]] (scope-admits-supporter? scope h c))
                  (get-in t [:cache-support k]))))
         (ctxs-visible? (get-in t [:cache-ctxs k])
                        (closure-of tax :genlCx :fwd context))))))
@@ -2301,7 +2301,7 @@
   (into [] (filter (let [live (get (:edge-ctxs rel) e #{})]
                      (fn [[h c]]
                        (if (map? scope)
-                         (scoped-support-visible? scope h c)
+                         (scope-admits-supporter? scope h c)
                          (and (contains? live c)
                               (or (nil? scope) (nil? c) (scope c)))))))
         (get (:support rel) e {})))

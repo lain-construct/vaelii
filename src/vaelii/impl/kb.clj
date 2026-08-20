@@ -883,7 +883,7 @@
     (tax/install-supporter-visibility!
      (:taxonomy kb)
      #(seq @(:excepted kb))
-     (partial res/supporter-effective? kb))
+     (partial res/supporter-believed? kb))
     (when snapshot? (register-index-snapshot! (disk/disk-dir opts) istore rstore))
     ;; The durable index is gated on its key-layout sentinel before anything reads
     ;; it: a log written under another `kv/index-layout-version` replays cleanly and

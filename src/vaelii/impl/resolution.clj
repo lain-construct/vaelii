@@ -441,7 +441,7 @@
     (or (not (jtms/known-datum? tms handle))
         (jtms/in? tms handle))))
 
-(defn supporter-effective?
+(defn supporter-believed?
   "Is stored supporter `handle` believed and not excepted from `context`?
 
   Assertion-context inheritance is deliberately not answered here: taxonomy's scoped
@@ -460,7 +460,7 @@
   "Is stored supporter `handle` believed, inherited, and not excepted from `context`?"
   [kb handle context]
   (boolean
-   (and (supporter-effective? kb handle context)
+   (and (supporter-believed? kb handle context)
         (when-let [sentex (p/get-sentex (:records kb) handle)]
           (tax/sees? (:taxonomy kb) context (:context sentex))))))
 
@@ -1061,7 +1061,7 @@
             v)
           out)))))
 
-(defn- effectively-active?
+(defn- except-in-force?
   "Is except-handle `eh` believed **and** not itself hidden by a cascading meta-except?
   Recursive with a `seen` set as cycle guard (unreachable with well-formed input, since
   stratification forbids the cycle, but defensive).
@@ -1076,7 +1076,7 @@
          (let [meta-ehs (get target->ehs eh)]
            (if meta-ehs
              ;; eh is itself a target; active only if none of its meta-excepts are active
-             (not (some #(effectively-active? tms target->ehs % (conj seen eh)) meta-ehs))
+             (not (some #(except-in-force? tms target->ehs % (conj seen eh)) meta-ehs))
              ;; eh is not a target; it is active
              true)))))
 
@@ -1099,7 +1099,7 @@
 
   **Meta-exception cascade.**  An except whose handle is itself hidden by another
   believed except does not suppress its target — the cascade is evaluated at read time by
-  `effectively-active?`, which walks the roster's own entries rather than the index.
+  `except-in-force?`, which walks the roster's own entries rather than the index.
   Most KBs store zero meta-exceptions, so the cascade adds no cost to the common path.
 
   **The O(1) gate is the empty roster**, which is where the functor-root count used to
@@ -1137,7 +1137,7 @@
                          {} by-ctx)]
         (persistent!
          (reduce-kv (fn [acc target ehs]
-                      (if (some #(effectively-active? tms target->ehs % #{}) ehs)
+                      (if (some #(except-in-force? tms target->ehs % #{}) ehs)
                         (conj! acc target)
                         acc))
                     (transient #{})
@@ -1185,7 +1185,7 @@
           (fn [handle]
             (boolean
              (when-let [ehs (get target->ehs handle)]
-               (some #(effectively-active? tms target->ehs % #{}) ehs)))))))))
+               (some #(except-in-force? tms target->ehs % #{}) ehs)))))))))
 
 (defn excepted?
   "Is the sentex at `handle` hidden from `view-context` by a believed `except`?  The
