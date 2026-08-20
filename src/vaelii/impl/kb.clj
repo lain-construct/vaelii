@@ -876,6 +876,14 @@
                      ;; index half by this open — see `write-hazards`
                      :unrecovered (atom {})})
         snapshot? (snapshot-mode? rkind ikind)]
+    ;; Taxonomy owns derived structures; the KB owns whether one recorded supporter
+    ;; is believed and visible from a reader after context-scoped exceptions.  Install
+    ;; the seam only after the mutually-referential KB exists, and before recovery can
+    ;; ask any scoped cache question.
+    (tax/install-supporter-visibility!
+     (:taxonomy kb)
+     #(seq @(:excepted kb))
+     (partial res/supporter-effective? kb))
     (when snapshot? (register-index-snapshot! (disk/disk-dir opts) istore rstore))
     ;; The durable index is gated on its key-layout sentinel before anything reads
     ;; it: a log written under another `kv/index-layout-version` replays cleanly and

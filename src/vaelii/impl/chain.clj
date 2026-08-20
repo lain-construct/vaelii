@@ -1172,6 +1172,25 @@
                 (distinct))
           ctxs)))
 
+(defn- exception-aware-placements
+  "Placement candidates for `handles` while one of them is hidden somewhere.
+
+  Assertion contexts alone are no longer sufficient in that case: an exception can
+  hide a supporter at its own context while a meta-exception restores it in only one
+  descendant cone.  Enumerate the contexts that structurally see every assertion,
+  retain the readers that see every exact supporter, then keep only their maximal
+  elements.  `excepted-anywhere?` is the coarse gate, so the ordinary placement path
+  still takes no cone walk when none of this firing's supporters is targeted."
+  [kb handles contexts]
+  (let [tax (:taxonomy kb)]
+    (if (some #(res/excepted-anywhere? kb %) handles)
+      (let [common  (tax/common-descendants tax contexts)
+            visible (filter (fn [ctx]
+                              (every? #(res/supporter-visible? kb % ctx) handles))
+                            common)]
+        (tax/maximal-contexts tax visible))
+      (tax/maximal-common-descendant-contexts tax contexts))))
+
 (defn- placement-ingredients
   "Where a firing's conclusion may live, and which taxonomy supporters it names getting
   there: `[placement-contexts {placement-context [edge-handle]}]`.  Both relations are
@@ -1206,7 +1225,7 @@
   firing whose candidates *some* of which see a path keeps only those, and does not also
   descend below the others.  Placing under both would need the union re-maximalized, and
   the case — incomparable candidates disagreeing about one edge — is exotic."
-  [kb rule raw-c ist? links fact-ctxs]
+  [kb rule raw-c ist? links fact-handles fact-ctxs]
   (let [tax (:taxonomy kb)]
     (if ist?
       (let [c  (when (nm/context? (second raw-c)) (second raw-c))
@@ -1215,7 +1234,8 @@
           [[c] {c (into (mapv first hs) (visibility-support tax c (keep second hs)))}]
           [nil nil]))
       (let [ingredients (cons (:context rule) fact-ctxs)
-            base        (tax/maximal-common-descendant-contexts tax ingredients)]
+            supporters  (cons (:rule-handle rule) fact-handles)
+            base        (exception-aware-placements kb supporters ingredients)]
         (if (empty? links)
           ;; no subsumption to witness, so the whole support map is the visibility one —
           ;; and it is empty for the firing whose rule and facts are where the conclusion
@@ -1369,7 +1389,7 @@
   (let [ist?        (and (sequential? raw-c) (= sx/ist-functor (first raw-c)))
         conseq      (if ist? (nth raw-c 2) raw-c)         ; (ist Ctx S) concludes S ...
         fact-ctxs   (map :context facts)
-        [placements support] (placement-ingredients kb rule raw-c ist? links fact-ctxs)]
+        [placements support] (placement-ingredients kb rule raw-c ist? links handles fact-ctxs)]
     (if (empty? placements)
       ;; The join completed — every antecedent matched — and then the conclusion
       ;; evaporated: no context sees everything the firing rests on (sibling

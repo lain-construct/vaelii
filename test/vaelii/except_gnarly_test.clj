@@ -84,6 +84,58 @@
             (is (not (v/ask? kb (list bright gem) CxLeaf)))))
         (v/retract! kb e)))))
 
+(tu/deftest-kb conjunctive-meta-excepts-compose-only-at-joint-reader
+  ;; P and Q are each hidden at the base. CxLeft restores only P; CxRight restores
+  ;; only Q. A static closure per context cannot answer this correctly: CxBottom may
+  ;; prove the conjunction's consequence only while it inherits both restoration
+  ;; cones at once, and loses it again when either inheritance edge is withdrawn.
+  (tu/with-terms [p q r Item CxBase CxLeft CxRight CxBottom]
+    (doseq [[sub super] [[CxBase 'CxWell]
+                         [CxLeft CxBase]
+                         [CxRight CxBase]
+                         [CxBottom CxBase]]]
+      (v/assert kb (list 'genlCx sub super) 'CxUniverse {:strength :monotonic}))
+    (v/assert-rule kb [(list p Item) (list q Item)] (list r Item) CxBase
+                   {:strength :monotonic})
+    (let [ph (v/assert kb (list p Item) CxBase {:strength :monotonic})
+          qh (v/assert kb (list q Item) CxBase {:strength :monotonic})
+          pe (v/assert kb (list 'except (sx/sentex-handle ph)) CxBase
+                       {:strength :monotonic})
+          qe (v/assert kb (list 'except (sx/sentex-handle qh)) CxBase
+                       {:strength :monotonic})]
+      (v/assert kb (list 'except (sx/sentex-handle pe)) CxLeft
+                {:strength :monotonic})
+      (v/assert kb (list 'except (sx/sentex-handle qe)) CxRight
+                {:strength :monotonic})
+      (testing "neither branch alone restores the conjunction"
+        (let [left-edge (v/assert kb (list 'genlCx CxBottom CxLeft) 'CxUniverse
+                                  {:strength :monotonic})]
+          (is (v/ask? kb (list p Item) CxBottom))
+          (is (not (v/ask? kb (list q Item) CxBottom)))
+          (is (not (v/ask? kb (list r Item) CxBottom)))
+          (v/retract! kb left-edge))
+        (let [right-edge (v/assert kb (list 'genlCx CxBottom CxRight) 'CxUniverse
+                                   {:strength :monotonic})]
+          (is (not (v/ask? kb (list p Item) CxBottom)))
+          (is (v/ask? kb (list q Item) CxBottom))
+          (is (not (v/ask? kb (list r Item) CxBottom)))
+          (v/retract! kb right-edge)))
+      (testing "the joint reader proves R, and either missing edge withdraws it"
+        (let [left-edge  (v/assert kb (list 'genlCx CxBottom CxLeft) 'CxUniverse
+                                   {:strength :monotonic})
+              right-edge (v/assert kb (list 'genlCx CxBottom CxRight) 'CxUniverse
+                                   {:strength :monotonic})]
+          (is (v/ask? kb (list p Item) CxBottom))
+          (is (v/ask? kb (list q Item) CxBottom))
+          (is (true? (boolean (v/ask? kb (list r Item) CxBottom))))
+          (v/retract! kb left-edge)
+          (is (not (v/ask? kb (list r Item) CxBottom)))
+          (v/assert kb (list 'genlCx CxBottom CxLeft) 'CxUniverse
+                    {:strength :monotonic})
+          (is (true? (boolean (v/ask? kb (list r Item) CxBottom))))
+          (v/retract! kb right-edge)
+          (is (not (v/ask? kb (list r Item) CxBottom))))))))
+
 ;; ---- 3. chain of 212 excepts --------------------------------------------
 
 (tu/deftest-kb chain-of-212-excepts
@@ -134,9 +186,10 @@
 ;; ---- 4. except a genlCx link -------------------------------------------
 
 (tu/deftest-kb except-genlCx-link
-  ;; Try `(except (sentexHandle H))` where H is a `(genlCx A B)` sentex.
-  ;; If it works, the context closure should update: A no longer sees B.
-  ;; If it's ill-formed, test the refusal.
+  ;; A genlCx declaration is forced into CxUniverse, but its effect can be excepted
+  ;; from a concrete reader.  From that reader's cone it behaves as if retracted;
+  ;; an ancestor that cannot see the exception keeps the edge.  The ordinary genl
+  ;; test below pins the degenerate declaration-and-except-in-one-context case.
   (tu/with-terms [shiny gold CxChild CxParent]
     (v/assert kb (list 'genlCx CxParent 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [edge-h (v/assert kb (list 'genlCx CxChild CxParent) 'CxUniverse {:strength :monotonic})]
@@ -145,104 +198,59 @@
       (testing "CxChild sees CxParent's facts before any except"
         (is (v/ask? kb (list shiny gold) CxChild)))
 
-      ;; Attempt to except the genlCx link
-      (let [result (try
-                     {:handle (v/assert kb (list 'except (sx/sentex-handle edge-h))
-                                        'CxUniverse {:strength :monotonic})}
-                     (catch clojure.lang.ExceptionInfo e
-                       {:error e :type (:type (ex-data e))}))]
-        (if (:handle result)
-          ;; It worked — the genlCx link is excepted
-          (do
-            (testing "excepting a genlCx link hides it from sentexes-matching"
-              ;; `ask?` still answers true because the TransitivityProver reads the
-              ;; taxonomy closure, which is maintained by integrate/disintegrate and
-              ;; not by the except filter.  `sentexes-matching` is the level that
-              ;; honours the except.
-              (is (empty? (v/sentexes-matching kb (list 'genlCx CxChild CxParent) 'CxUniverse))
-                  "the genlCx sentex is hidden from sentexes-matching"))
-            (testing "retract the except — the genlCx link returns"
-              (v/retract! kb (:handle result))
-              (is (seq (v/sentexes-matching kb (list 'genlCx CxChild CxParent) 'CxUniverse)))))
-          ;; It was refused — document the refusal
-          (testing "excepting a genlCx link is refused as ill-formed"
-            (is (some? (:error result))
-                (str "expected a refusal, got: " (pr-str result)))))))))
+      (let [eh (v/assert kb (list 'except (sx/sentex-handle edge-h))
+                         CxChild {:strength :monotonic})]
+        (testing "excepting a genlCx link removes its interpreted closure"
+          (is (not (v/ask? kb (list shiny gold) CxChild)))
+          (is (v/ask? kb (list shiny gold) CxParent)
+              "the reader-scoped exception does not retract the edge globally"))
+        (testing "retract the except — the genlCx link returns"
+          (v/retract! kb eh)
+          (is (v/ask? kb (list shiny gold) CxChild)))))))
 
 ;; ---- 5. except a genl link ---------------------------------------------
 
 (tu/deftest-kb except-genl-link
-  ;; Try `(except (sentexHandle H))` where H is a `(genl sub super)` sentex.
+  ;; Excepting a genl declaration is well-formed and removes its interpreted edge.
   (tu/with-terms [dog animal CxTax]
     (v/assert kb (list 'genlCx CxTax 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [genl-h (v/assert kb (list 'genl dog animal) CxTax {:strength :monotonic})]
 
       (testing "genl closure is active before any except"
-        (is (v/genl? kb dog animal))
-        (is (contains? (v/genls kb dog) animal)))
+        (is (v/genl? kb dog animal CxTax))
+        (is (contains? (v/genls kb dog CxTax) animal)))
 
-      ;; Attempt to except the genl link
-      (let [result (try
-                     {:handle (v/assert kb (list 'except (sx/sentex-handle genl-h))
-                                        CxTax {:strength :monotonic})}
-                     (catch clojure.lang.ExceptionInfo e
-                       {:error e :type (:type (ex-data e))}))]
-        (if (:handle result)
-          ;; It worked — the genl sentex is excepted
-          (do
-            (testing "the genl sentex is hidden from query"
-              (is (empty? (v/sentexes-matching kb (list 'genl dog animal) CxTax))
-                  "the sentex is invisible through sentexes-matching"))
-            ;; The taxonomy cache is maintained separately — the closure may or may
-            ;; not still show the edge.  We document what happens.
-            (testing "retract the except — the genl sentex returns"
-              (v/retract! kb (:handle result))
-              (is (seq (v/sentexes-matching kb (list 'genl dog animal) CxTax)))))
-          ;; It was refused — document the refusal
-          (testing "excepting a genl link is refused as ill-formed"
-            (is (some? (:error result))
-                (str "expected a refusal, got: " (pr-str result)))))))))
+      (let [eh (v/assert kb (list 'except (sx/sentex-handle genl-h))
+                         CxTax {:strength :monotonic})]
+        (testing "the genl sentex and interpreted edge are absent"
+          (is (empty? (v/sentexes-matching kb (list 'genl dog animal) CxTax)))
+          (is (not (v/genl? kb dog animal CxTax)))
+          (is (v/genl? kb dog animal)
+              "the unscoped cache remains a global superset, not a false retraction"))
+        (testing "retract the except — the genl sentex and edge return"
+          (v/retract! kb eh)
+          (is (seq (v/sentexes-matching kb (list 'genl dog animal) CxTax)))
+          (is (v/genl? kb dog animal CxTax)))))))
 
 ;; ---- 6. except an equals sentex ----------------------------------------
 
 (tu/deftest-kb except-equals-sentex
-  ;; Try `(except (sentexHandle H))` where H is an `(equals A B)` sentex.
+  ;; Excepting an equality is well-formed and splits the interpreted class.
   (tu/with-terms [CxEq]
     (v/assert kb (list 'genlCx CxEq 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [a (tu/tmp-ind) b (tu/tmp-ind)]
-      ;; Attempt to assert and then except an equality
-      (let [result (try
-                     (let [eq-h (v/assert kb (list 'equals a b) CxEq {:strength :monotonic})]
-                       {:handle eq-h})
-                     (catch clojure.lang.ExceptionInfo e
-                       {:error e :type (:type (ex-data e))}))]
-        (if (:handle result)
-          (let [eq-h (:handle result)]
-            ;; Attempt to except the equality sentex
-            (let [except-result (try
-                                  {:handle (v/assert kb (list 'except (sx/sentex-handle eq-h))
-                                                     CxEq {:strength :monotonic})}
-                                  (catch clojure.lang.ExceptionInfo e
-                                    {:error e :type (:type (ex-data e))}))]
-              (if (:handle except-result)
-                (do
-                  (testing "excepting an equals sentex hides it from query"
-                    (is (empty? (v/sentexes-matching kb (list 'equals a b) CxEq))
-                        "the equals sentex is hidden"))
-                  (testing "retract the except — the equals sentex record still exists"
-                    (v/retract! kb (:handle except-result))
-                    ;; The equality merge rewrites terms, so sentexes-matching with
-                    ;; the original terms may not find the sentex.  We check that the
-                    ;; handle still has a sentex record — what matters is that
-                    ;; retraction did not corrupt anything.
-                    (is (some? (v/sentex kb eq-h))
-                        "the equals sentex record is still present after retract of except")))
-                (testing "excepting an equals sentex is refused"
-                  (is (some? (:error except-result))
-                      (str "expected a refusal, got: " (pr-str except-result)))))))
-          ;; Even the assert was refused — skip
-          (testing "equals assertion was refused"
-            (is false (str "could not assert equals: " (pr-str result)))))))))
+      (let [eq-h (v/assert kb (list 'equals a b) CxEq {:strength :monotonic})
+            eh   (v/assert kb (list 'except (sx/sentex-handle eq-h))
+                           CxEq {:strength :monotonic})]
+        (testing "excepting equals hides the sentex and splits the class"
+          (is (empty? (v/sentexes-matching kb (list 'equals a b) CxEq)))
+          (is (not (v/same-class? kb a b CxEq)))
+          (is (v/same-class? kb a b)
+              "the global equality partition stays intact"))
+        (testing "retract the except — equality returns"
+          (v/retract! kb eh)
+          (is (some? (v/sentex kb eq-h)))
+          (is (v/same-class? kb a b CxEq)))))))
 
 ;; ---- 7. special-predicate sweep -----------------------------------------
 ;; For each special predicate with code support, assert the sentex, verify the
@@ -255,15 +263,16 @@
     (v/assert kb (list 'genlCx CxG 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [gh (v/assert kb (list 'genl dog animal) CxG {:strength :monotonic})]
       (testing "genl closure active"
-        (is (v/genl? kb dog animal))
-        (is (contains? (v/genls kb dog) animal)))
+        (is (v/genl? kb dog animal CxG))
+        (is (contains? (v/genls kb dog CxG) animal)))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle gh)) CxG {:strength :monotonic})]
-        (testing "the genl sentex is hidden from sentexes-matching"
-          (is (empty? (v/sentexes-matching kb (list 'genl dog animal) CxG))))
+        (testing "the sentex and its context-scoped closure are hidden"
+          (is (empty? (v/sentexes-matching kb (list 'genl dog animal) CxG)))
+          (is (not (v/genl? kb dog animal CxG))))
         (testing "retract except — genl sentex returns"
           (v/retract! kb eh)
           (is (seq (v/sentexes-matching kb (list 'genl dog animal) CxG)))
-          (is (v/genl? kb dog animal)))))))
+          (is (v/genl? kb dog animal CxG)))))))
 
 (tu/deftest-kb except-blocks-genlCx-sentex-visibility
   ;; genlCx: the context inheritance closure.
@@ -274,7 +283,7 @@
       (testing "CxB sees CxA's content before except"
         (is (v/ask? kb (list shiny gold) CxB)))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle cx-h)) 'CxUniverse
-                          {:strength :monotonic})]
+                         {:strength :monotonic})]
         (testing "the genlCx sentex is hidden from query"
           (is (empty? (v/sentexes-matching kb (list 'genlCx CxB CxA) 'CxUniverse))))
         (testing "retract except — genlCx sentex returns"
@@ -482,7 +491,7 @@
     (v/assert kb (list 'genl carnivore 'thing) CxIA {:strength :monotonic})
     (v/assert kb (list 'genl meat 'thing) CxIA {:strength :monotonic})
     (let [iah (v/assert kb (list 'interArgIsa eats 1 carnivore 2 meat) CxIA
-                         {:strength :monotonic})]
+                        {:strength :monotonic})]
       (testing "interArgIsa constraint is active — queryable"
         (is (v/ask? kb (list 'interArgIsa eats 1 carnivore 2 meat) CxIA)))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle iah)) CxIA {:strength :monotonic})]
