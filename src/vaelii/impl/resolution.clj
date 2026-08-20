@@ -1134,10 +1134,15 @@
                              (reduce-kv (fn [m2 target ehs]
                                           (update m2 target (fnil into #{}) ehs))
                                         m entries)))
-                         {} by-ctx)]
+                         {} by-ctx)
+            ;; Meta-except counter gate: when zero, no except targets another except,
+            ;; so every believed except is trivially in force — skip the cascade.
+            has-meta? (pos? @(:meta-except-count kb))]
         (persistent!
          (reduce-kv (fn [acc target ehs]
-                      (if (some #(except-in-force? tms target->ehs % #{}) ehs)
+                      (if (if has-meta?
+                            (some #(except-in-force? tms target->ehs % #{}) ehs)
+                            (some #(jtms/in? tms %) ehs))
                         (conj! acc target)
                         acc))
                     (transient #{})
@@ -1182,10 +1187,13 @@
                                              m entries))
                                 {} live)]
         (when (seq live)
-          (fn [handle]
-            (boolean
-             (when-let [ehs (get target->ehs handle)]
-               (some #(except-in-force? tms target->ehs % #{}) ehs)))))))))
+          (let [has-meta? (pos? @(:meta-except-count kb))]
+            (fn [handle]
+              (boolean
+               (when-let [ehs (get target->ehs handle)]
+                 (if has-meta?
+                   (some #(except-in-force? tms target->ehs % #{}) ehs)
+                   (some #(jtms/in? tms %) ehs)))))))))))
 
 (defn excepted?
   "Is the sentex at `handle` hidden from `view-context` by a believed `except`?  The
