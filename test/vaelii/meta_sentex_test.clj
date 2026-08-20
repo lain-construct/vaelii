@@ -9,7 +9,6 @@
   it starts with the handle term primitives (`vaelii.impl.sentex`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.integrate :as integrate]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
@@ -482,8 +481,8 @@
                                               (swap! log conj :except-target)
                                               (real-except-target sentence))
                     special/disintegrate-sentex! (fn [kb sentex]
-                                                  (swap! log conj :disintegrate)
-                                                  (real-disintegrate kb sentex))]
+                                                   (swap! log conj :disintegrate)
+                                                   (real-disintegrate kb sentex))]
         (v/retract! kb eh))
       ;; The fact should be visible again after retracting the except
       (is (v/ask? kb (list pred ind) ctx) "retracting except restores visibility")

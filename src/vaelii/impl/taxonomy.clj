@@ -2473,7 +2473,7 @@
   [tax c]
   (closure-of tax :genlCx :fwd c))
 
-(defn raw-sees?
+(defn- raw-sees?
   "Does `k` inherit `y` in the active genlCx cache before exception filtering?"
   [tax k y]
   (reachable-in? tax :genlCx k y))
