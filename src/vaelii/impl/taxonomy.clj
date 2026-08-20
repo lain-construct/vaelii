@@ -419,6 +419,9 @@
   [context]
   (and (symbol? context) (not (.startsWith (name context) "?"))))
 
+;; Forward declarations: `relation-scope` and `scope-admits-supporter?` reference
+;; these before their definitions because the scope machinery sits above the walk
+;; but below the closure, creating a mutual dependency.
 (declare visible-ctxs context-up sees?)
 
 (defn- supporter-filter-active?
@@ -2147,10 +2150,10 @@
 (defn- cache-entry-visible?
   "Does flat-cache entry `k` have a believed supporter visible from `context`?
 
-  The old path remains a context-set intersection while no exception exists. Once
-  exception filtering is active, inspect supporters: the effective context cone
-  handles excepted genlCx links and the KB callback handles belief plus exceptions
-  targeting the declaration itself."
+  Without exceptions, a context-set intersection is sufficient.  With exception
+  filtering active, each supporter is checked individually: the exception-aware
+  context cone handles excepted genlCx links and the KB callback handles belief
+  plus exceptions targeting the declaration itself."
   [tax k context]
   (if-not (scoped-context? context)
     true
@@ -2472,11 +2475,6 @@
   excepted genlCx supporter from the resulting walk."
   [tax c]
   (closure-of tax :genlCx :fwd c))
-
-(defn- raw-sees?
-  "Does `k` inherit `y` in the active genlCx cache before exception filtering?"
-  [tax k y]
-  (reachable-in? tax :genlCx k y))
 
 (defn context-up
   "Contexts c inherits from, incl c, after context-visible genlCx exceptions."
