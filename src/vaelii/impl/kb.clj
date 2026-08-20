@@ -1509,10 +1509,10 @@
   functor at the store choke point and nothing else.
 
   A **meta-exception** — `(except (sentexHandle E))` where E is itself an `(except …)` —
-  is ill-formed and refused at assert time.  The visibility roster does not cascade:
-  excepting an except hides the except from queries but does not restore visibility of
-  the fact the except was hiding.  Since the sentence would silently do nothing useful,
-  it is refused rather than stored inertly."
+  cascades: hiding an except suppresses its effect, restoring visibility of the target
+  the inner except was hiding.  The cascade is evaluated at read time by
+  `resolution/excepted-handles`, which checks whether each except-handle is itself
+  hidden before counting it as active."
   [sentence]
   (when (and (sequential? sentence)
              (= sx/except-functor (first sentence))

@@ -1040,6 +1040,25 @@
             v)
           out)))))
 
+(defn- effectively-active?
+  "Is except-handle `eh` believed **and** not itself hidden by a cascading meta-except?
+  Recursive with a `seen` set as cycle guard (unreachable with well-formed input, since
+  stratification forbids the cycle, but defensive).
+
+  The cascade semantics: `(except H)` hides H.  `(except E)` where E is the except that
+  hides H suppresses E's effect, restoring H.  `(except M)` where M is the meta-except
+  suppresses M, restoring E's effect, re-hiding H — and so on, toggling at each depth."
+  [tms target->ehs eh seen]
+  (and (jtms/in? tms eh)
+       (if (contains? seen eh)
+         false
+         (let [meta-ehs (get target->ehs eh)]
+           (if meta-ehs
+             ;; eh is itself a target; active only if none of its meta-excepts are active
+             (not (some #(effectively-active? tms target->ehs % (conj seen eh)) meta-ehs))
+             ;; eh is not a target; it is active
+             true)))))
+
 (defn excepted-handles
   "The handles hidden from `view-context` by believed `(except (sentexHandle H))`
   facts: an `except` asserted in a context `view-context` sees (its genlCx
@@ -1056,6 +1075,11 @@
   and re-derive its target from its sentence — which on a chaining run is per placement
   and per candidate justification, and was 89% of the run's wall clock at 1,000 excepts
   (`lein bench-hotreads`).
+
+  **Meta-exception cascade.**  An except whose handle is itself hidden by another
+  believed except does not suppress its target — the cascade is evaluated at read time by
+  `effectively-active?`, which walks the roster's own entries rather than the index.
+  Most KBs store zero meta-exceptions, so the cascade adds no cost to the common path.
 
   **The O(1) gate is the empty roster**, which is where the functor-root count used to
   be and is both cheaper and tighter: a KB storing only `(not (except H))` roots under
@@ -1080,16 +1104,23 @@
     (if (or (empty? by-ctx) (sx/variable? view-context))
       #{}
       (let [up  (tax/context-up (:taxonomy kb) view-context)
-            tms (:tms kb)]
+            tms (:tms kb)
+            ;; flatten the visible roster into a single target->ehs map for cascade
+            target->ehs (reduce-kv
+                         (fn [m ctx entries]
+                           (if-not (contains? up ctx)
+                             m
+                             (reduce-kv (fn [m2 target ehs]
+                                          (update m2 target (fnil into #{}) ehs))
+                                        m entries)))
+                         {} by-ctx)]
         (persistent!
-         (reduce-kv (fn [acc ctx entries]
-                      (if-not (contains? up ctx)                 ; visible from view-context
-                        acc
-                        (reduce-kv (fn [a target ehs]
-                                     (if (some #(jtms/in? tms %) ehs) (conj! a target) a))
-                                   acc entries)))
+         (reduce-kv (fn [acc target ehs]
+                      (if (some #(effectively-active? tms target->ehs % #{}) ehs)
+                        (conj! acc target)
+                        acc))
                     (transient #{})
-                    by-ctx))))))
+                    target->ehs))))))
 
 (defn hidden-fn
   "A predicate `(fn [handle]) -> boolean` answering, for **one** `view-context`, what
@@ -1122,12 +1153,18 @@
             ;; only the contexts that both state an except and are visible from here —
             ;; computed once, so the predicate walks nothing it will always reject
             live (into [] (comp (filter #(contains? up (key %))) (map val)) by-ctx)
-            tms  (:tms kb)]
+            tms  (:tms kb)
+            ;; flatten into target->ehs for cascade check
+            target->ehs (reduce (fn [m entries]
+                                  (reduce-kv (fn [m2 target ehs]
+                                               (update m2 target (fnil into #{}) ehs))
+                                             m entries))
+                                {} live)]
         (when (seq live)
           (fn [handle]
-            (boolean (some (fn [entries]
-                             (some #(jtms/in? tms %) (get entries handle)))
-                           live))))))))
+            (boolean
+             (when-let [ehs (get target->ehs handle)]
+               (some #(effectively-active? tms target->ehs % #{}) ehs)))))))))
 
 (defn excepted?
   "Is the sentex at `handle` hidden from `view-context` by a believed `except`?  The

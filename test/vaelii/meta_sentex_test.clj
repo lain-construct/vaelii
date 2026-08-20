@@ -430,12 +430,12 @@
       (testing "the default negation cannot defeat the monotonic except; the target stays hidden"
         (is (not (v/ask? kb (list shiny gold) ctx)))))))
 
-;; ---- meta-exception: excepting an except ----------------------------------
+;; ---- meta-exception: excepting an except cascades -------------------------
 
-(tu/deftest-kb meta-exception-is-ill-formed
+(tu/deftest-kb meta-exception-cascades-restoring-visibility
   ;; A meta-exception — (except (sentexHandle E)) where E is itself an (except …) —
-  ;; is ill-formed: the visibility roster does not cascade, so the sentence would
-  ;; silently do nothing.  The KB refuses it at assert time.
+  ;; cascades: hiding the except suppresses its effect and restores visibility of the
+  ;; target the inner except was hiding.
   (let [ctx (tu/tmp-ctx "MetaEx") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
     (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})]
@@ -444,6 +444,14 @@
       (let [e (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})]
         (testing "P is hidden after excepting"
           (is (not (v/ask? kb (list shiny gold) ctx))))
-        (testing "excepting the except is refused as ill-formed"
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"meta-exception.*ill-formed"
-                (v/assert kb (list 'except (sx/sentex-handle e)) ctx {:strength :monotonic}))))))))
+        (let [m (v/assert kb (list 'except (sx/sentex-handle e)) ctx {:strength :monotonic})]
+          (testing "excepting the except restores visibility — the cascade"
+            (is (v/ask? kb (list shiny gold) ctx)
+                "P should be visible again: E hides H, M hides E, so E's effect is suppressed"))
+          (testing "the inner except E is hidden"
+            (is (not (v/ask? kb (list 'except (sx/sentex-handle h)) ctx))
+                "the except itself is hidden by the meta-except"))
+          (testing "retracting the meta-except re-hides P"
+            (v/retract! kb m)
+            (is (not (v/ask? kb (list shiny gold) ctx))
+                "E's effect is restored when M goes away")))))))

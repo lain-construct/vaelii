@@ -1287,15 +1287,6 @@
                    (when-let [ps (seq (special/wff-problems (:taxonomy kb) sentence))]
                      (throw (ex-info (str "not well-formed: " (str/join "; " ps))
                                      {:type :not-well-formed :sentence sentence})))
-                   ;; a meta-exception — (except (sentexHandle H)) where H is itself
-                   ;; an (except …) — is ill-formed: excepting an except is inert (the
-                   ;; visibility roster does not cascade), so the sentence would silently
-                   ;; do nothing.  Refused here so the caller learns immediately.
-                   (when-let [target-h (kb/except-target sentence)]
-                     (when-let [target-sx (p/get-sentex (:records kb) target-h)]
-                       (when (kb/except-target (:sentence target-sx))
-                         (throw (ex-info "not well-formed: meta-exception (excepting an except) is ill-formed"
-                                         {:type :not-well-formed :sentence sentence})))))
                    ;; the rule-set half of well-formedness, for the *other* thing that can
                    ;; close a cycle through negation: a genl / genlCx edge arriving
                    ;; underneath rules already stored (docs/exceptions.md).  Before anything
