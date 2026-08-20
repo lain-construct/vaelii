@@ -5,7 +5,7 @@
 
   The wff dispatch (the `:wff` column of `vaelii.impl.special`'s table, walked by
   `special/wff-problems`) routes each special predicate to its checker.  `genl` and
-  `argIsa` are covered; `genlCx`'s cycle branch, `disjointMetatype`, the six
+  `arg` are covered; `genlCx`'s cycle branch, `disjointMetatype`, the six
   predicate properties routed through `prop-problems`, and `inverse` are not — so a
   predicate whose entry loses its `:wff` arm falls through to `[]` and is accepted
   unchecked, with nothing to notice.
@@ -110,29 +110,29 @@
            (ex-type #(v/assert kb (list 'inverse parentOf) 'CxUniverse)))
         "and it takes two")))
 
-(tu/deftest-kb argIsa-checks-the-shape-of-all-three-arguments
+(tu/deftest-kb arg-checks-the-shape-of-all-three-arguments
   (tu/with-terms [parentOf person Muffet]
-    (is (nil? (ex-type #(v/assert kb (list 'argIsa Muffet 1 person) 'CxUniverse)))
+    (is (nil? (ex-type #(v/assert kb (list 'arg Muffet 1 person) 'CxUniverse)))
         "argument 1 is not held to a spelling: a function has argument positions like a
          predicate does and is spelled like an individual, so no spelling test separates
          the two — and a constraint on a term that never heads a sentence is inert")
-    (is (nil? (ex-type #(v/assert kb (list 'argIsa (list 'RoleFn parentOf) 1 person)
+    (is (nil? (ex-type #(v/assert kb (list 'arg (list 'RoleFn parentOf) 1 person)
                                   'CxUniverse)))
         "a relation may be denoted by a NAT rather than named, and that is a term too")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'argIsa 7 1 person) 'CxUniverse)))
+           (ex-type #(v/assert kb (list 'arg 7 1 person) 'CxUniverse)))
         "but a number is no kind of term for a relation to be")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'argIsa parentOf 0 person) 'CxUniverse)))
+           (ex-type #(v/assert kb (list 'arg parentOf 0 person) 'CxUniverse)))
         "the position is 1-based, so 0 is out of range")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'argIsa parentOf 'one person) 'CxUniverse)))
+           (ex-type #(v/assert kb (list 'arg parentOf 'one person) 'CxUniverse)))
         "and it must be an integer")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'argIsa parentOf 1 Muffet) 'CxUniverse)))
+           (ex-type #(v/assert kb (list 'arg parentOf 1 Muffet) 'CxUniverse)))
         "argument 3 must be a type, not an individual")
-    (testing "a well-formed argIsa is accepted"
-      (is (nil? (ex-type #(v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)))))))
+    (testing "a well-formed arg is accepted"
+      (is (nil? (ex-type #(v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)))))))
 
 ;; ---- the ex-info :type contract ----------------------------------------
 
@@ -146,7 +146,7 @@
     (is (= :not-ground (ex-type #(v/assert kb (list mortal '?x) 'CxUniverse))))))
 
 (tu/deftest-kb a-disjointness-violation-is-typed-disjoint
-  ;; Everything in one context, like the argIsa test below: the constraint checks
+  ;; Everything in one context, like the arg test below: the constraint checks
   ;; are context-scoped — disjointness included — and this KB is fresh, so a
   ;; declaration in an unwired CxUniverse would simply be invisible here.
   (tu/with-terms [dog cat Felix]
@@ -154,7 +154,7 @@
     (v/assert kb (list cat Felix) 'CxNaturalWorld)
     (is (= :disjoint (ex-type #(v/assert kb (list dog Felix) 'CxNaturalWorld))))))
 
-(tu/deftest-kb an-argIsa-violation-is-typed-arg-type
+(tu/deftest-kb an-arg-violation-is-typed-arg-type
   ;; Everything in one context on purpose: the constraint checks are context-scoped,
   ;; and this KB is fresh, so `CxNaturalWorld` has no genlCx edge to
   ;; CxUniverse and a constraint declared there would simply be invisible.
@@ -163,7 +163,7 @@
     ;; `thing`, so an untyped individual can never violate a constraint.  The genl
     ;; edge is what makes Boulder checkable at all.
     (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
     (v/assert kb (list rock Boulder) 'CxUniverse)
     (is (= :arg-type
            (ex-type #(v/assert kb (list parentOf Boulder Muffet) 'CxUniverse)))
@@ -194,11 +194,11 @@
   ;; that reports "argument 2 of parentOf should be a person" needs them.
   (tu/with-terms [parentOf person rock Muffet Boulder]
     (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 2 person) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 2 person) 'CxUniverse)
     (v/assert kb (list rock Boulder) 'CxUniverse)
     (try
       (v/assert kb (list parentOf Muffet Boulder) 'CxUniverse)
-      (is false "expected the argIsa constraint to reject this")
+      (is false "expected the arg constraint to reject this")
       (catch clojure.lang.ExceptionInfo e
         (let [d (ex-data e)]
           (is (= :arg-type (:type d)))

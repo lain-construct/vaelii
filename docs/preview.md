@@ -107,7 +107,7 @@ derivation happened to land first, so the same batch against the same knowledge 
 same reason on any load order.
 
 `:rule` is present only where the informant is a **handle**. Half the engine's informants
-are symbols — `rewriteOf`, `functional`, `decontextualizedPredicate`, `argIsa` — and
+are symbols — `rewriteOf`, `functional`, `decontextualizedPredicate`, `arg` — and
 those name no stored rule, so the key is absent rather than nil.
 
 **`:antecedents` is every sentex the firing rests on, and that is more than the facts.**
@@ -146,7 +146,7 @@ it — an admissible batch minus its bad line is what the caller is about to ask
 anyway.
 
 `:violations` is what the **derivation path** dropped: the definitional constraints
-(argIsa, disjointness, functionality) that hold of derived content as much as of
+(arg, disjointness, functionality) that hold of derived content as much as of
 asserted content, and that chaining reports rather than throws
 ([inference.md](inference.md)). The KB's own ledger is restored, so a preview never
 shows up in `(violations kb)`.

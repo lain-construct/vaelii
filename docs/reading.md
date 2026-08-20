@@ -25,7 +25,7 @@ KB is dangerous because nothing in the engine can say an English sentence descri
 `(genl penguin bird)` is wrong.
 
 Reading has exactly the same hole, pointed the other way. Every check the engine has —
-naming invariants, groundness, well-formedness, `argIsa`, disjointness, functionality —
+naming invariants, groundness, well-formedness, `arg`, disjointness, functionality —
 reads the **sentence**. Every one of them passes on a fluent, well-formed translation of a
 claim the text never made. `(freed LionA MouseA)` is admissible; so is
 `(freed MouseA LionA)`; the text says one of them.
@@ -138,7 +138,7 @@ unchanged. What differs is the seeding, and the order matters because it is wher
 cap cuts:
 
 1. **What the document's words resolved to** — the vocabulary the text demonstrably wants.
-2. **What an `argIsa` licenses** for a resolved type, so a document about a mouse is offered
+2. **What an `arg` licenses** for a resolved type, so a document about a mouse is offered
    the relations a mouse can stand in.
 3. **Everything else the target context declares**, nearest context first.
 

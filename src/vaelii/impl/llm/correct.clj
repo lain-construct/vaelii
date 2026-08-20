@@ -7,7 +7,7 @@
   `(eats penguin fish)`, `(mortal penguin)` — where the KB's idiom quantifies over the
   type's instances.  Measured across eight models on the shipped schema this is the
   dominant remaining error class, and nothing else catches it: `naming/problems` passes
-  it (the names are all well-formed), `wff` passes it, the argIsa constraints pass it
+  it (the names are all well-formed), `wff` passes it, the arg constraints pass it
   (open-world — a type symbol carries no type membership, and an untyped argument cannot
   violate), and it stores.  The claim is *usually right*; only its shape is wrong.
 
@@ -40,7 +40,7 @@
   "Is `a` a symbol the KB treats as a **type** — something whose instances a claim
   could be about?  Asked of the KB (`inventory/term-kind`) and never of the spelling: a
   bare lowercase word satisfies the predicate and the type convention alike, so `dog`
-  and `flies` are decided by their genl edges and argIsa constraints, not by their
+  and `flies` are decided by their genl edges and arg constraints, not by their
   letters."
   [kb a]
   (and (symbol? a)
@@ -49,7 +49,7 @@
 
 (defn- instance-position?
   "Does position `n` of `pred` want an *instance* rather than a type?  True when an
-  `argIsa` constrains it to something **narrower than the root**: `(argIsa eats 1 animal)`
+  `arg` constrains it to something **narrower than the root**: `(arg eats 1 animal)`
   asks for an animal, and a type is not an animal — `genl penguin animal` holds while
   `isa? penguin animal` does not, which is exactly the distinction the constraint is about.
 
@@ -62,16 +62,16 @@
   would be the bug.
 
   A position holding a **kind** is a different matter and is not this test's business:
-  it is declared with `argGenl`, which this never reads.  That is why `(argIsa eats 1
-  animal)` passes — `animal` sits at `argIsa`'s third position, declared `(argGenl argIsa
+  it is declared with `genlArg`, which this never reads.  That is why `(arg eats 1
+  animal)` passes — `animal` sits at `arg`'s third position, declared `(genlArg arg
   3 thing)` — rather than because the root is being ignored there."
   [kb pred n]
-  (boolean (seq (for [sx (v/sentexes-matching kb (list 'argIsa pred n '?t) '?ctx)
+  (boolean (seq (for [sx (v/sentexes-matching kb (list 'arg pred n '?t) '?ctx)
                       :when (not= 'thing (nth (:sentence sx) 3))]
                   sx))))
 
 (defn- arg-type
-  "The type `argIsa` constrains position `n` of `pred` to — the **narrowest** one, or nil
+  "The type `arg` constrains position `n` of `pred` to — the **narrowest** one, or nil
   when unconstrained.
 
   Two contexts each declaring one position is the usual shape, and `sentexes-matching`
@@ -84,7 +84,7 @@
   honest reading of two constraints: a term must satisfy both to stand there."
   [kb pred n]
   (first (sort-by (partial inv/specificity kb)
-                  (for [{:keys [sentence]} (v/sentexes-matching kb (list 'argIsa pred n '?t) '?ctx)]
+                  (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg pred n '?t) '?ctx)]
                     (nth sentence 3)))))
 
 (defn- structural?
@@ -93,7 +93,7 @@
   roster, and it holds the connectives only.
 
   The vocabulary head is *not* on it and does not need to be.  `genl` and `disjoint` take
-  types by declaration — they are `typeRelationPredicate`s constrained with `argGenl`,
+  types by declaration — they are `typeRelationPredicate`s constrained with `genlArg`,
   which `instance-position?` never reads — and `comment` takes anything, which is what its
   `thing` constraint says.  Each is left alone by the declaration it carries rather than by
   being named here, so there is one place to look when one of them is rewritten in error."
@@ -152,7 +152,7 @@
   (symbol (str (name pred) "Type")))
 
 (defn- relation-on-types
-  "`(R T1 T2)` where R's argIsa wants instances and an argument is a type — \"every T1
+  "`(R T1 T2)` where R's arg wants instances and an argument is a type — \"every T1
   Rs a T2\".  The lift `(RTypeName T1 T2)` leads because it keeps the claim in one
   ground sentence; the quantified rule is the alternative that spells the meaning out.
 
@@ -193,7 +193,7 @@
                                                                 (list r '?x '?y))))])))
          :rule :relation-on-types
          :confidence (if same-type? :low :medium)
-         :why (str r " relates individuals (its argIsa constrains an argument to a"
+         :why (str r " relates individuals (its arg constrains an argument to a"
                    " type's instances), but "
                    (str/join ", " types) (if (= 1 (count types)) " names a type. "
                                              " name types. ") lift

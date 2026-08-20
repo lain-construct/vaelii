@@ -356,7 +356,7 @@ interface would have been machinery bought for no return.
 **Soundness.** Path consistency is sound, and decides each of these algebras over its
 maximal tractable subclass. On the full language it can leave a network path-consistent
 yet globally unsatisfiable, so an entailment reported here is real but a *non*-entailment
-means **"not provable", never "provably false"** — the same open-world reading `argIsa`
+means **"not provable", never "provably false"** — the same open-world reading `arg`
 and `exceptWhen` take.
 
 ## What every algebra does with it

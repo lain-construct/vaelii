@@ -383,14 +383,6 @@
 (def ist-functor  'ist)
 (def dot-marker   '.)
 
-(defn dotted?
-  "True when `form`'s argument list ends in a dotted-rest tail — `(pred a . ?rest)` or
-  `(?pred . ?rest)` — so the trailing variable binds the remaining arguments and the
-  form matches its functor at any arity.  Detected by `dot-marker` sitting as a
-  top-level element."
-  [form]
-  (boolean (and (sequential? form) (some #(= dot-marker %) form))))
-
 ;; ---- sentex handles: a stored sentex as a term --------------------------
 ;; A handle is `(sentexHandle <id>)` — the term form of a stored sentex's integer
 ;; handle, so a *meta-sentex* (`exceptWhen`, `except`) can name another sentex as an
@@ -1522,7 +1514,7 @@
   sentence is genuinely negative.  Constraint checks use this rather than the full
   canonical form: they must see the predicate and argument order the *author* wrote,
   not a folded sibling (`greaterThan` ⇒ `lessThan`) or sorted symmetric arguments,
-  or an `argIsa` would be enforced against the wrong position."
+  or an `arg` would be enforced against the wrong position."
   [sentence]
   (let [[truth body] (peel-not (canon sentence))]
     (when (= :true truth) body)))

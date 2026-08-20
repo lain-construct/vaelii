@@ -30,9 +30,9 @@
 (comment conversionFactor
          "(conversionFactor ?unit ?baseUnit ?factor) means that one ?unit equals ?factor of ?baseUnit. So (conversionFactor Gram Kilogram 0.001) says a gram is a thousandth of a kilogram. Every unit states its factor against its dimension's base unit directly rather than against a neighbouring one, so normalizing a magnitude is a single multiply and never a chain. An ordinary stored fact, read by the quantity provers.")
 (ternaryPredicate conversionFactor)
-(argIsa conversionFactor 1 thing)
-(argIsa conversionFactor 2 thing)
-(argIsa conversionFactor 3 thing)
+(arg conversionFactor 1 thing)
+(arg conversionFactor 2 thing)
+(arg conversionFactor 3 thing)
 
 (comment Day "Twenty-four hours.")
 (dimensionOf Day Duration)
@@ -42,8 +42,8 @@
          "(dimensionOf ?unit ?dimension) means that ?unit measures ?dimension. So (dimensionOf Kilogram Mass) says kilograms measure mass. Two measures are comparable only within one dimension, so this is what the quantity provers consult before they normalize anything, and a mismatch comes back not comparable rather than false. An ordinary stored fact.")
 (binaryPredicate dimensionOf)
 (instanceRelationPredicate dimensionOf)
-(argIsa dimensionOf 1 thing)
-(argIsa dimensionOf 2 thing)
+(arg dimensionOf 1 thing)
+(arg dimensionOf 2 thing)
 
 (comment Duration "The dimension of extent in time. Its base unit is Second, and an interval's length is measured in it.")
 
@@ -55,16 +55,16 @@
          "(heavierThan ?object1 ?object2) means that ?object1 weighs more than ?object2. Between two particular objects, and derived rather than asserted: a rule compares their two weightOf measures with quantityGreaterThan, so it holds exactly when both weights are known and ordered. The instance-level counterpart of the type-level largerThan, and declared asymmetric, so a KB told it both ways round has a contradiction to report.")
 (binaryPredicate heavierThan)
 (instanceRelationPredicate heavierThan)
-(argIsa heavierThan 1 physical_object)
-(argIsa heavierThan 2 physical_object)
+(arg heavierThan 1 physical_object)
+(arg heavierThan 2 physical_object)
 (asymmetric heavierThan)
 
 (comment heightOf
          "(heightOf ?object ?measure) means that ?object stands ?measure tall. A measure of Length, exact as (QuantityFn 2 Meter) or bounded as (QuantityIntervalFn 1 2 Meter). Functional, like weightOf and for the same reason: with no time argument to say when, a second height is a contradiction rather than a second fact.")
 (binaryPredicate heightOf)
 (instanceRelationPredicate heightOf)
-(argIsa heightOf 1 physical_object)
-(argIsa heightOf 2 thing)
+(arg heightOf 1 physical_object)
+(arg heightOf 2 thing)
 (functional heightOf)
 
 (comment Hour "Sixty minutes.")
@@ -103,15 +103,15 @@
          "(quantityGreaterThan ?measure1 ?measure2) means that ?measure1 is greater than ?measure2 once both are normalized to their dimension's base unit. Necessarily greater, so for intervals all of ?measure1 must lie strictly above all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
 (binaryPredicate quantityGreaterThan)
 (instanceRelationPredicate quantityGreaterThan)
-(argIsa quantityGreaterThan 1 thing)
-(argIsa quantityGreaterThan 2 thing)
+(arg quantityGreaterThan 1 thing)
+(arg quantityGreaterThan 2 thing)
 
 (comment quantityGreaterThanOrEqual
          "(quantityGreaterThanOrEqual ?measure1 ?measure2) means that ?measure1 is at least ?measure2 once both are normalized to their dimension's base unit. Necessarily at least, so for intervals every value of ?measure1 must reach every value of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
 (binaryPredicate quantityGreaterThanOrEqual)
 (instanceRelationPredicate quantityGreaterThanOrEqual)
-(argIsa quantityGreaterThanOrEqual 1 thing)
-(argIsa quantityGreaterThanOrEqual 2 thing)
+(arg quantityGreaterThanOrEqual 1 thing)
+(arg quantityGreaterThanOrEqual 2 thing)
 
 (comment QuantityIntervalFn
          "(QuantityIntervalFn ?lo ?hi ?unit) means the measure lying somewhere between ?lo and ?hi ?unit. So (QuantityIntervalFn 1 2 Meter) is between one and two metres. An unreifiableFunction application like QuantityFn, and compared under the necessary reading: a claim holds of the interval only when it holds of every value in it.")
@@ -121,22 +121,22 @@
          "(quantityLessThan ?measure1 ?measure2) means that ?measure1 is less than ?measure2 once both are normalized to their dimension's base unit. Necessarily less, so for intervals all of ?measure1 must lie strictly below all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
 (binaryPredicate quantityLessThan)
 (instanceRelationPredicate quantityLessThan)
-(argIsa quantityLessThan 1 thing)
-(argIsa quantityLessThan 2 thing)
+(arg quantityLessThan 1 thing)
+(arg quantityLessThan 2 thing)
 
 (comment quantityLessThanOrEqual
          "(quantityLessThanOrEqual ?measure1 ?measure2) means that ?measure1 is at most ?measure2 once both are normalized to their dimension's base unit. Necessarily at most, so for intervals every value of ?measure1 must stay under every value of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
 (binaryPredicate quantityLessThanOrEqual)
 (instanceRelationPredicate quantityLessThanOrEqual)
-(argIsa quantityLessThanOrEqual 1 thing)
-(argIsa quantityLessThanOrEqual 2 thing)
+(arg quantityLessThanOrEqual 1 thing)
+(arg quantityLessThanOrEqual 2 thing)
 
 (comment sameQuantity
          "(sameQuantity ?measure1 ?measure2) means that ?measure1 and ?measure2 are the same quantity once both are normalized to their dimension's base unit. So a thousand grams and one kilogram are the same quantity though they are different terms. Computed by a prover from the dimensionOf and conversionFactor facts, never stored, and never an equality: the equality closure is a partition over symbols and holds no numbers or compounds, so this says two measures agree and not that two names denote one thing.")
 (binaryPredicate sameQuantity)
 (instanceRelationPredicate sameQuantity)
-(argIsa sameQuantity 1 thing)
-(argIsa sameQuantity 2 thing)
+(arg sameQuantity 1 thing)
+(arg sameQuantity 2 thing)
 
 (comment Second "The base unit of duration.")
 (dimensionOf Second Duration)
@@ -146,8 +146,8 @@
          "(tallerThan ?object1 ?object2) means that ?object1 stands higher than ?object2. Derived by comparing two heightOf measures, the same shape heavierThan has over weights, and asymmetric for the same reason.")
 (binaryPredicate tallerThan)
 (instanceRelationPredicate tallerThan)
-(argIsa tallerThan 1 physical_object)
-(argIsa tallerThan 2 physical_object)
+(arg tallerThan 1 physical_object)
+(arg tallerThan 2 physical_object)
 (asymmetric tallerThan)
 
 (comment Tonne "A thousand kilograms.")
@@ -162,6 +162,6 @@
          "(weightOf ?object ?measure) means that ?object weighs ?measure. A measure of Mass, exact as (QuantityFn 20 Kilogram) or bounded as (QuantityIntervalFn 18 22 Kilogram). Declared functional: one object, one weight, since nothing here says at what time — and two measures are compounds rather than symbols, so a second one is refused outright instead of merging the way two names for one thing would.")
 (binaryPredicate weightOf)
 (instanceRelationPredicate weightOf)
-(argIsa weightOf 1 physical_object)
-(argIsa weightOf 2 thing)
+(arg weightOf 1 physical_object)
+(arg weightOf 2 thing)
 (functional weightOf)

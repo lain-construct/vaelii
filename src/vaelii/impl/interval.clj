@@ -51,7 +51,7 @@
   **Soundness.** Path consistency is sound but not in general complete: it decides the
   maximal tractable subclass of the interval algebra and no more, so an entailment
   reported here is real while a *non*-entailment means \"not provable\", never \"provably
-  false\" — the same open-world reading `argIsa` and `exceptWhen` take.
+  false\" — the same open-world reading `arg` and `exceptWhen` take.
 
   The vocabulary ships as `kb/upper/CxTime.txt`, an *upper* context rather than the
   vocabulary head: these twenty predicates are *about* time, so CxCore keeps only the

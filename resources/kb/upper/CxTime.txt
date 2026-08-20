@@ -66,222 +66,222 @@
          "(after ?interval1 ?interval2) means that ?interval1 begins strictly after ?interval2 ends. They share no time and do not touch, so some gap separates them. The converse of before.")
 (binaryPredicate after)
 (instanceRelationPredicate after)
-(argIsa after 1 temporal_thing)
-(argIsa after 2 temporal_thing)
+(arg after 1 temporal_thing)
+(arg after 2 temporal_thing)
 
 (comment before
          "(before ?interval1 ?interval2) means that ?interval1 ends strictly before ?interval2 begins. They share no time and do not touch, so some gap separates them. One of Allen's thirteen base relations, with after as its converse.")
 (binaryPredicate before)
 (instanceRelationPredicate before)
-(argIsa before 1 temporal_thing)
-(argIsa before 2 temporal_thing)
+(arg before 1 temporal_thing)
+(arg before 2 temporal_thing)
 
 (comment contains
          "(contains ?interval1 ?interval2) means that ?interval1 begins strictly before ?interval2 and ends strictly after it. So ?interval2 falls wholly inside ?interval1 with room either side. The converse of during.")
 (binaryPredicate contains)
 (instanceRelationPredicate contains)
-(argIsa contains 1 temporal_thing)
-(argIsa contains 2 temporal_thing)
+(arg contains 1 temporal_thing)
+(arg contains 2 temporal_thing)
 
 (comment during
          "(during ?interval1 ?interval2) means that ?interval1 falls wholly inside ?interval2, beginning strictly after it and ending strictly before it. The converse of contains.")
 (binaryPredicate during)
 (instanceRelationPredicate during)
-(argIsa during 1 temporal_thing)
-(argIsa during 2 temporal_thing)
+(arg during 1 temporal_thing)
+(arg during 2 temporal_thing)
 
 (comment endOf
          "(endOf ?interval ?instant) means that ?instant is the moment ?interval ends. One of the interval's two bounding instants, the other being its startOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants: one interval before another is exactly its end instant before the other's start.")
 (binaryPredicate endOf)
 (instanceRelationPredicate endOf)
-(argIsa endOf 1 temporal_thing)
-(argIsa endOf 2 time_point)
+(arg endOf 1 temporal_thing)
+(arg endOf 2 time_point)
 
 (comment finishedBy
          "(finishedBy ?interval1 ?interval2) means that ?interval1 and ?interval2 end together, and ?interval1 began first. So ?interval2 is a closing part of ?interval1. The converse of finishes.")
 (binaryPredicate finishedBy)
 (instanceRelationPredicate finishedBy)
-(argIsa finishedBy 1 temporal_thing)
-(argIsa finishedBy 2 temporal_thing)
+(arg finishedBy 1 temporal_thing)
+(arg finishedBy 2 temporal_thing)
 
 (comment finishes
          "(finishes ?interval1 ?interval2) means that ?interval1 and ?interval2 end together, and ?interval1 began later. So ?interval1 is a closing part of ?interval2. The converse of finishedBy.")
 (binaryPredicate finishes)
 (instanceRelationPredicate finishes)
-(argIsa finishes 1 temporal_thing)
-(argIsa finishes 2 temporal_thing)
+(arg finishes 1 temporal_thing)
+(arg finishes 2 temporal_thing)
 
 (comment hasSubinterval
          "(hasSubinterval ?interval1 ?interval2) means that ?interval2 falls within ?interval1, sharing an end, a start, or neither. Any of contains, startedBy, finishedBy or intervalEqual. The converse of subintervalOf.")
 (binaryPredicate hasSubinterval)
 (instanceRelationPredicate hasSubinterval)
-(argIsa hasSubinterval 1 temporal_thing)
-(argIsa hasSubinterval 2 temporal_thing)
+(arg hasSubinterval 1 temporal_thing)
+(arg hasSubinterval 2 temporal_thing)
 
 (comment instantAfter
          "(instantAfter ?instant1 ?instant2) means that ?instant1 falls strictly later in time than ?instant2. A claim about moments rather than about intervals, which is why it is spelled apart from Allen's after. The converse of instantBefore.")
 (binaryPredicate instantAfter)
 (instanceRelationPredicate instantAfter)
-(argIsa instantAfter 1 time_point)
-(argIsa instantAfter 2 time_point)
+(arg instantAfter 1 time_point)
+(arg instantAfter 2 time_point)
 
 (comment instantBefore
          "(instantBefore ?instant1 ?instant2) means that ?instant1 falls strictly earlier in time than ?instant2. A claim about moments rather than about intervals, which is why it is spelled apart from Allen's before. The converse of instantAfter.")
 (binaryPredicate instantBefore)
 (instanceRelationPredicate instantBefore)
-(argIsa instantBefore 1 time_point)
-(argIsa instantBefore 2 time_point)
+(arg instantBefore 1 time_point)
+(arg instantBefore 2 time_point)
 
 (comment instantEqual
          "(instantEqual ?instant1 ?instant2) means that ?instant1 and ?instant2 are the same moment. The identity of the point algebra, and a claim about time rather than about the identity of the two terms, so it is not the equality closure's equals.")
 (binaryPredicate instantEqual)
 (instanceRelationPredicate instantEqual)
-(argIsa instantEqual 1 time_point)
-(argIsa instantEqual 2 time_point)
+(arg instantEqual 1 time_point)
+(arg instantEqual 2 time_point)
 
 (comment instantNotAfter
          "(instantNotAfter ?instant1 ?instant2) means that ?instant1 falls at or before ?instant2. Either instantBefore or instantEqual, the ≤ of time. The complement of instantAfter, which over three jointly exhaustive relations is exactly its negation.")
 (binaryPredicate instantNotAfter)
 (instanceRelationPredicate instantNotAfter)
-(argIsa instantNotAfter 1 time_point)
-(argIsa instantNotAfter 2 time_point)
+(arg instantNotAfter 1 time_point)
+(arg instantNotAfter 2 time_point)
 
 (comment instantNotBefore
          "(instantNotBefore ?instant1 ?instant2) means that ?instant1 falls at or after ?instant2. Either instantAfter or instantEqual, the ≥ of time. The complement of instantBefore, which over three jointly exhaustive relations is exactly its negation.")
 (binaryPredicate instantNotBefore)
 (instanceRelationPredicate instantNotBefore)
-(argIsa instantNotBefore 1 time_point)
-(argIsa instantNotBefore 2 time_point)
+(arg instantNotBefore 1 time_point)
+(arg instantNotBefore 2 time_point)
 
 (comment instantNotEqual
          "(instantNotEqual ?instant1 ?instant2) means that ?instant1 and ?instant2 are different moments, one before the other. Either instantBefore or instantAfter, and the complement of instantEqual.")
 (binaryPredicate instantNotEqual)
 (instanceRelationPredicate instantNotEqual)
-(argIsa instantNotEqual 1 time_point)
-(argIsa instantNotEqual 2 time_point)
+(arg instantNotEqual 1 time_point)
+(arg instantNotEqual 2 time_point)
 
 (comment intervalEqual
          "(intervalEqual ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together and end together. The identity of the interval algebra, and a claim about extent in time rather than about the identity of the two terms, so it is not the equality closure's equals.")
 (binaryPredicate intervalEqual)
 (instanceRelationPredicate intervalEqual)
-(argIsa intervalEqual 1 temporal_thing)
-(argIsa intervalEqual 2 temporal_thing)
+(arg intervalEqual 1 temporal_thing)
+(arg intervalEqual 2 temporal_thing)
 
 (comment length
          "(length ?interval ?measure) means that ?interval lasts ?measure. Exact as (QuantityFn 2 Hour), and bounded as (QuantityIntervalFn 1 2 Hour) when only bounds are known. An interval's one primitive duration and the only quantitative fact stated about it, since totalDuration and overlapDuration are both computed from these. A duration, not a spatial extent.")
 (binaryPredicate length)
 (instanceRelationPredicate length)
-(argIsa length 1 temporal_thing)
-(argIsa length 2 thing)
+(arg length 1 temporal_thing)
+(arg length 2 thing)
 
 (comment meets
          "(meets ?interval1 ?interval2) means that ?interval1 ends exactly where ?interval2 begins. No gap and no overlap, which is what separates it from before. The converse of metBy.")
 (binaryPredicate meets)
 (instanceRelationPredicate meets)
-(argIsa meets 1 temporal_thing)
-(argIsa meets 2 temporal_thing)
+(arg meets 1 temporal_thing)
+(arg meets 2 temporal_thing)
 
 (comment metBy
          "(metBy ?interval1 ?interval2) means that ?interval1 begins exactly where ?interval2 ends. The converse of meets.")
 (binaryPredicate metBy)
 (instanceRelationPredicate metBy)
-(argIsa metBy 1 temporal_thing)
-(argIsa metBy 2 temporal_thing)
+(arg metBy 1 temporal_thing)
+(arg metBy 2 temporal_thing)
 
 (comment overlapDuration
          "(overlapDuration ?interval1 ?interval2 ?duration) means that ?duration is how long ?interval1 and ?interval2 overlap. Computed from their lengths and the Allen relations still possible between them: zero when they are temporallyDisjoint, the contained length when one is a subintervalOf the other, and the bounded (QuantityIntervalFn 0 shorter unit) otherwise, so an over-approximation renders as an interval and says as much. Computed by a prover, never stored.")
 (ternaryPredicate overlapDuration)
-(argIsa overlapDuration 1 temporal_thing)
-(argIsa overlapDuration 2 temporal_thing)
-(argIsa overlapDuration 3 thing)
+(arg overlapDuration 1 temporal_thing)
+(arg overlapDuration 2 temporal_thing)
+(arg overlapDuration 3 thing)
 
 (comment overlappedBy
          "(overlappedBy ?interval1 ?interval2) means that ?interval2 begins first, and ?interval1 begins before ?interval2 ends and ends after it. So they share a middle stretch and each has time the other does not. The converse of overlaps.")
 (binaryPredicate overlappedBy)
 (instanceRelationPredicate overlappedBy)
-(argIsa overlappedBy 1 temporal_thing)
-(argIsa overlappedBy 2 temporal_thing)
+(arg overlappedBy 1 temporal_thing)
+(arg overlappedBy 2 temporal_thing)
 
 (comment overlaps
          "(overlaps ?interval1 ?interval2) means that ?interval1 begins first, and ?interval2 begins before ?interval1 ends and ends after it. So they share a middle stretch and each has time the other does not. The converse of overlappedBy.")
 (binaryPredicate overlaps)
 (instanceRelationPredicate overlaps)
-(argIsa overlaps 1 temporal_thing)
-(argIsa overlaps 2 temporal_thing)
+(arg overlaps 1 temporal_thing)
+(arg overlaps 2 temporal_thing)
 
 (comment precededBy
          "(precededBy ?interval1 ?interval2) means that ?interval1 begins at or after the moment ?interval2 ends. Either after or metBy. The converse of precedes.")
 (binaryPredicate precededBy)
 (instanceRelationPredicate precededBy)
-(argIsa precededBy 1 temporal_thing)
-(argIsa precededBy 2 temporal_thing)
+(arg precededBy 1 temporal_thing)
+(arg precededBy 2 temporal_thing)
 
 (comment precedes
          "(precedes ?interval1 ?interval2) means that ?interval1 ends at or before the moment ?interval2 begins. Either before or meets, so it is the ordering that does not care whether the two touch. Derived rather than base, and the converse of precededBy.")
 (binaryPredicate precedes)
 (instanceRelationPredicate precedes)
-(argIsa precedes 1 temporal_thing)
-(argIsa precedes 2 temporal_thing)
+(arg precedes 1 temporal_thing)
+(arg precedes 2 temporal_thing)
 
 (comment properSubintervalOf
          "(properSubintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2 and is not the whole of it. Any of during, starts or finishes. Irreflexive, unlike subintervalOf.")
 (binaryPredicate properSubintervalOf)
 (instanceRelationPredicate properSubintervalOf)
-(argIsa properSubintervalOf 1 temporal_thing)
-(argIsa properSubintervalOf 2 temporal_thing)
+(arg properSubintervalOf 1 temporal_thing)
+(arg properSubintervalOf 2 temporal_thing)
 
 (comment sharesTimeWith
          "(sharesTimeWith ?interval1 ?interval2) means that ?interval1 and ?interval2 have some time in common. Any relation but before, after, meets and metBy, so it is the complement of temporallyDisjoint.")
 (binaryPredicate sharesTimeWith)
 (instanceRelationPredicate sharesTimeWith)
-(argIsa sharesTimeWith 1 temporal_thing)
-(argIsa sharesTimeWith 2 temporal_thing)
+(arg sharesTimeWith 1 temporal_thing)
+(arg sharesTimeWith 2 temporal_thing)
 
 (comment startedBy
          "(startedBy ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together, and ?interval1 ends later. So ?interval2 is an opening part of ?interval1. The converse of starts.")
 (binaryPredicate startedBy)
 (instanceRelationPredicate startedBy)
-(argIsa startedBy 1 temporal_thing)
-(argIsa startedBy 2 temporal_thing)
+(arg startedBy 1 temporal_thing)
+(arg startedBy 2 temporal_thing)
 
 (comment startOf
          "(startOf ?interval ?instant) means that ?instant is the moment ?interval begins. One of the interval's two bounding instants, the other being its endOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants.")
 (binaryPredicate startOf)
 (instanceRelationPredicate startOf)
-(argIsa startOf 1 temporal_thing)
-(argIsa startOf 2 time_point)
+(arg startOf 1 temporal_thing)
+(arg startOf 2 time_point)
 
 (comment starts
          "(starts ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together, and ?interval1 ends earlier. So ?interval1 is an opening part of ?interval2. The converse of startedBy.")
 (binaryPredicate starts)
 (instanceRelationPredicate starts)
-(argIsa starts 1 temporal_thing)
-(argIsa starts 2 temporal_thing)
+(arg starts 1 temporal_thing)
+(arg starts 2 temporal_thing)
 
 (comment subintervalOf
          "(subintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2, sharing an end, a start, or neither. Any of during, starts, finishes or intervalEqual, so it is derived rather than base. Reflexive: every interval is a subinterval of itself.")
 (binaryPredicate subintervalOf)
 (instanceRelationPredicate subintervalOf)
-(argIsa subintervalOf 1 temporal_thing)
-(argIsa subintervalOf 2 temporal_thing)
+(arg subintervalOf 1 temporal_thing)
+(arg subintervalOf 2 temporal_thing)
 
 (comment temporalDistance
          "(temporalDistance ?instant1 ?instant2 ?measure) means that ?instant2 falls ?measure later than ?instant1. So a negative measure says ?instant2 comes first. Exact as (QuantityFn N Unit) and bounded as (QuantityIntervalFn Lo Hi Unit). A stated one is an ordinary fact; a prover closes every such constraint visible in a context by all-pairs shortest paths and answers the tightest separation they entail between any two instants, binding the measure when it is open and checking containment when it is ground.")
 (ternaryPredicate temporalDistance)
-(argIsa temporalDistance 1 time_point)
-(argIsa temporalDistance 2 time_point)
-(argIsa temporalDistance 3 thing)
+(arg temporalDistance 1 time_point)
+(arg temporalDistance 2 time_point)
+(arg temporalDistance 3 thing)
 
 (comment temporallyDisjoint
          "(temporallyDisjoint ?interval1 ?interval2) means that ?interval1 and ?interval2 have no time in common. Any of before, after, meets or metBy, so it is the complement of sharesTimeWith.")
 (binaryPredicate temporallyDisjoint)
 (instanceRelationPredicate temporallyDisjoint)
-(argIsa temporallyDisjoint 1 temporal_thing)
-(argIsa temporallyDisjoint 2 temporal_thing)
+(arg temporallyDisjoint 1 temporal_thing)
+(arg temporallyDisjoint 2 temporal_thing)
 
 (comment totalDuration
          "(totalDuration (list ?interval1 ?interval2 …) ?duration) means that ?duration is the sum of the listed intervals' lengths, which must all be of one dimension. Binary rather than ternary: the (list …) of components is one argument, which is also why the signature is read as a description instead of substituted into. Computed by a prover, never stored.")
 (binaryPredicate totalDuration)
 (instanceRelationPredicate totalDuration)
-(argIsa totalDuration 1 temporal_thing)
-(argIsa totalDuration 2 thing)
+(arg totalDuration 1 temporal_thing)
+(arg totalDuration 2 thing)

@@ -4,7 +4,7 @@
   "A constraint declared of a predicate binds the tuples of every predicate beneath it.
 
   `(genl fatherOf parentOf)` says every `fatherOf` tuple **is** a `parentOf` tuple, and a
-  tuple set only narrows going down — so `(argIsa parentOf 1 person)` is a claim about
+  tuple set only narrows going down — so `(arg parentOf 1 person)` is a claim about
   `fatherOf`'s first argument too.  Reading a declaration off the exact functor made the
   refusal *door-dependent*: the ill-typed claim was refused under the general spelling,
   admitted under the specialized one, and then answered every general-spelling query
@@ -68,7 +68,7 @@
     (a-type kb rock 'CxUniverse)
     (v/assert kb (list rock TheRock1) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
     (is (= :arg-type (ex-type #(v/assert kb (list parentOf TheRock1 Mary) 'CxUniverse)))
         "the declaration's own predicate")
     (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock1 Mary) 'CxUniverse)))
@@ -83,24 +83,24 @@
         (is (v/assert kb (list parentOf Fred Mary) 'CxUniverse))
         (is (v/assert kb (list fatherOf Fred Mary) 'CxUniverse))))))
 
-(tu/deftest-kb argGenl-descends-on-the-same-argument
+(tu/deftest-kb genlArg-descends-on-the-same-argument
   (tu/with-terms [machine_t vehicle_t partType subPartType Rex]
     (a-type kb machine_t 'CxUniverse)
     (a-type kb vehicle_t 'CxUniverse)
     (v/assert kb (list 'genl subPartType partType) 'CxUniverse)
-    (v/assert kb (list 'argGenl partType 1 machine_t) 'CxUniverse)
+    (v/assert kb (list 'genlArg partType 1 machine_t) 'CxUniverse)
     (is (= :arg-genl (ex-type #(v/assert kb (list partType vehicle_t Rex) 'CxUniverse)))
         "a kind outside the constraint's down-closure")
     (is (= :arg-genl (ex-type #(v/assert kb (list subPartType vehicle_t Rex) 'CxUniverse)))
         "and the same kind under the sub-predicate")))
 
-(tu/deftest-kb interArgIsa-descends-by-riding-the-same-reader
+(tu/deftest-kb interArg-descends-by-riding-the-same-reader
   (tu/with-terms [carnivore meat plant eats gnawsOn Rex Chunk]
     (a-type kb carnivore 'CxUniverse)
     (a-type kb meat 'CxUniverse)
     (a-type kb plant 'CxUniverse)
     (v/assert kb (list 'genl gnawsOn eats) 'CxUniverse)
-    (v/assert kb (list 'interArgIsa eats 1 carnivore 2 meat) 'CxUniverse)
+    (v/assert kb (list 'interArg eats 1 carnivore 2 meat) 'CxUniverse)
     (v/assert kb (list carnivore Rex) 'CxUniverse)
     (v/assert kb (list plant Chunk) 'CxUniverse)
     (is (= :inter-arg-type (ex-type #(v/assert kb (list eats Rex Chunk) 'CxUniverse))))
@@ -117,7 +117,7 @@
     (with-entailing
       (a-type kb person 'CxUniverse)
       (let [eh (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-            dh (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+            dh (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
             ph (v/assert kb (list parentOf Fred Mary) 'CxUniverse)
             fh (v/assert kb (list fatherOf Ann Mary) 'CxUniverse)]
         (is (believed? kb (list person Fred) 'CxUniverse) "the declaration's own predicate")
@@ -125,7 +125,7 @@
         (testing "the direct mint rests on the fact and the declaration"
           (let [sup (first (:support (v/why kb (v/handle-of kb (list person Fred)
                                                             'CxUniverse))))]
-            (is (= 'argIsa (:informant sup)))
+            (is (= 'arg (:informant sup)))
             (is (= #{ph dh} (set (map :handle (:because sup)))))))
         (testing "the descended one rests on the genl edge as well — or retraction strands it"
           (let [sup (first (:support (v/why kb (v/handle-of kb (list person Ann)
@@ -137,14 +137,14 @@
           (is (believed? kb (list person Fred) 'CxUniverse)))))))
 
 (tu/deftest-kb the-inference-reading-descends-with-the-constraint-reading
-  ;; `argIsa` reads two ways — a constraint when asserting, an inference when querying —
+  ;; `arg` reads two ways — a constraint when asserting, an inference when querying —
   ;; and the two must agree about *whose* declarations speak for a tuple.  A claim
   ;; refused for being ill-typed, under a declaration `ask` could not read, would be a
   ;; KB enforcing a constraint it cannot answer from.
   (tu/with-terms [person parentOf fatherOf Ann Mary]
     (a-type kb person 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
     (v/assert kb (list fatherOf Ann Mary) 'CxUniverse)
     (is (v/ask? kb (list person Ann) 'CxUniverse)
         "the super-predicate's declaration types the sub-predicate's argument")))
@@ -161,7 +161,7 @@
     (a-type kb person 'CxUniverse)
     (a-type kb rock 'CxUniverse)
     (v/assert kb (list rock TheRock1) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
     ;; the edge is asserted in a sibling context CxLeft cannot see
     (v/assert kb (list 'genl fatherOf parentOf) CxRight)
     (is (v/assert kb (list fatherOf TheRock1 Mary) CxLeft)
@@ -172,7 +172,7 @@
 ;; ---- the three arrival orders ------------------------------------------
 
 (tu/deftest-kb an-edge-arriving-after-the-facts-reports-and-refuses-nothing
-  ;; The `argIsa` family has no retroactive reach — the conviction rests on the
+  ;; The `arg` family has no retroactive reach — the conviction rests on the
   ;; *absence* of a path to the constraint type, so there is no second sentex to weigh
   ;; and a sweep would have to decide whether silence about a stored argument's type is
   ;; a violation or merely silence (docs/taxonomy.md, "What each constraint does in each
@@ -183,7 +183,7 @@
     (a-type kb person 'CxUniverse)
     (a-type kb rock 'CxUniverse)
     (v/assert kb (list rock TheRock1) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
     (let [fh (v/assert kb (list fatherOf TheRock1 Mary) 'CxUniverse)]
       (v/clear-violations! kb)
       (is (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
@@ -207,7 +207,7 @@
         (with-entailing
           (a-type kb person 'CxUniverse)
           (let [step {:fact #(v/assert kb (list fatherOf Ann Mary) 'CxUniverse)
-                      :decl #(v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+                      :decl #(v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
                       :edge #(v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)}]
             (doseq [s order] ((step s))))
           (is (believed? kb (list person Ann) 'CxUniverse)
@@ -310,7 +310,7 @@
 
 (tu/deftest-kb a-signature-on-the-sub-predicate-must-match-the-supers
   ;; **The boundary `vaelii/vaelii#23` drew has moved, and #23's own argument is what
-  ;; moves it.**  #23 preserves `argIsa`, `argGenl` and `interArgIsa` down the hierarchy
+  ;; moves it.**  #23 preserves `arg`, `genlArg` and `interArg` down the hierarchy
   ;; and excludes `arity` for one stated reason: the engine permitted a specialization to
   ;; carry a different signature from its parent, so preserving the parent's arity
   ;; downward could have made `(functional arity)` answer both the inherited and the
@@ -718,10 +718,10 @@
     (v/assert kb (list 'variableArity fatherOf) 'CxUniverse)
     (v/assert kb (list 'ternaryPredicate fatherOf) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-    (is (= :arg-position (ex-type #(v/assert kb (list 'argIsa parentOf 3 'thing)
+    (is (= :arg-position (ex-type #(v/assert kb (list 'arg parentOf 3 'thing)
                                              'CxUniverse)))
         "parentOf is binary, whatever its sub-predicates are")
-    (is (v/assert kb (list 'argIsa fatherOf 3 'thing) 'CxUniverse)
+    (is (v/assert kb (list 'arg fatherOf 3 'thing) 'CxUniverse)
         "and fatherOf is ternary, whatever its super-predicates are")))
 
 ;; ---- the retroactive report descends too --------------------------------

@@ -17,7 +17,7 @@ sentence, and that is the whole of what firing does.
 | in CLIPS or Drools | here | what changes |
 |---|---|---|
 | a fact | a sentex | a sentence *plus* the context it holds in |
-| `deftemplate` slot | an argument position, typed by `(argIsa P n T)` | positional rather than named → [argtypes.md](argtypes.md) |
+| `deftemplate` slot | an argument position, typed by `(arg P n T)` | positional rather than named → [argtypes.md](argtypes.md) |
 | `defrule` LHS | the antecedents | canonicalized, so written order is not recoverable |
 | `defrule` RHS | the **consequent sentence** | a conclusion, not a body of actions |
 | a `not` conditional element | `(unknown S)` | ground and closed → [naf.md](naf.md) |

@@ -64,7 +64,7 @@
 
   **Soundness.** Path consistency is sound but not in general complete, so an entailment
   reported here is real while a *non*-entailment means \"not provable\", never \"provably
-  false\" — the same open-world reading `argIsa` and `exceptWhen` take.
+  false\" — the same open-world reading `arg` and `exceptWhen` take.
 
   The vocabulary ships in `kb/upper/CxSpace.txt` beside the topology, the compass and
   the frames of reference — all of them are *about* space, so CxCore keeps only the

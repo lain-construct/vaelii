@@ -547,3 +547,33 @@
                        ordering-sample))
       "a derived edge has to seed what an asserted one seeds, over a sample of orderings")
   (tu/clear-kb! (tu/test-kb)))
+
+;; ---- belief projection reads its answer from current state, in any order ----
+
+(deftest belief-projection-is-order-independent
+  ;; The modal projector answers `(believes Agent P)` by running `P` through the whole
+  ;; registry in the agent's own context, so its answers must not depend on the order the
+  ;; grant, the belief facts, and a genl edge a belief rests on arrived — nor on the order
+  ;; two agents' contradictory beliefs landed: the two share no context, so the pair must
+  ;; never surface as a contradiction under any ordering.  5 assertions, 120 orderings.
+  (let [alice (v/context-of-agent 'Alice)
+        bob   (v/context-of-agent 'Bob)
+        ops [#(v/assert % '(modalPredicate believes) 'CxUniverse)  ; the grant
+             #(v/assert % '(flies Tweety) alice)                   ; Alice believes it
+             #(v/assert % '(not (flies Tweety)) bob)               ; Bob believes the opposite
+             #(v/assert % '(genl finch7 bird7) alice)              ; a taxonomy edge in Alice's ctx
+             #(v/assert % '(finch7 Jack) alice)]                   ; so Alice believes (bird7 Jack)
+        observe (fn [kb]
+                  {:alice-flies    (v/ask? kb '(believes Alice (flies Tweety)) 'CxUniverse)
+                   :bob-notflies   (v/ask? kb '(believes Bob (not (flies Tweety))) 'CxUniverse)
+                   :alice-notflies (v/ask? kb '(believes Alice (not (flies Tweety))) 'CxUniverse)
+                   :alice-bird     (v/ask? kb '(believes Alice (bird7 Jack)) 'CxUniverse)
+                   :contradictions (count (v/contradictions kb))})
+        result (one-outcome! "belief projection" ops observe)]
+    (testing "and the one outcome is the intended reading"
+      (is (true? (:alice-flies result)))
+      (is (true? (:bob-notflies result)))
+      (is (false? (:alice-notflies result)) "no cross-agent leakage, in any order")
+      (is (true? (:alice-bird result)) "the projection reaches the genl closure")
+      (is (zero? (:contradictions result)) "isolated agents raise no contradiction")))
+  (tu/clear-kb! (tu/test-kb)))

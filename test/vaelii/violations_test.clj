@@ -14,7 +14,7 @@
     (tu/with-terms [person rock parentOf looksLike unrelated Boulder Muffet Spot]
       (v/assert kb (list 'genl person 'thing) 'CxUniverse)
       (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-      (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+      (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
       (v/assert kb (list rock Boulder) 'CxUniverse)
       (v/clear-violations! kb)
       ;; the rule derives (parentOf Boulder Muffet) for the stored (rock Boulder) — an

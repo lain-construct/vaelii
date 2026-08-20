@@ -146,7 +146,7 @@ spellings can otherwise reason with only that one.
 - **term → value.** When no value is known, the mint proceeds and the constant is
   **projected** back onto the predicate: `(motherOf Muffet K)`, asserted with the rest of
   `K`'s bookkeeping and *after* the result types, since the projected literal is
-  argIsa-checked and `K`'s types are what it is checked against. So the placeholder
+  arg-checked and `K`'s types are what it is checked against. So the placeholder
   answers `motherOf`'s questions instead of being a term nothing says anything about.
   The alternative — minting the constant and leaving the predicate unstated — makes the
   placeholder invisible to every question the predicate answers.

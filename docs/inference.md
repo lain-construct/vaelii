@@ -1475,8 +1475,8 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   is no `x` such that S". One answer or none, ground/closed only. `:compute`, 100. See
   [naf.md](naf.md).
 - **ArgTypeProver** — infers an individual's type from *how it is used*: if a
-  believed relation puts `x` in a position that `(argIsa P n T')` constrains, then
-  `x` is a `T'` (and, by genl, every supertype). So `argIsa` reads two ways — a
+  believed relation puts `x` in a position that `(arg P n T')` constrains, then
+  `x` is a `T'` (and, by genl, every supertype). So `arg` reads two ways — a
   **constraint** when asserting, and an **inference** when querying (Muffet eats
   Bone1 and eat's 2nd argument is food ⇒ Bone1 is food). On-demand, never
   materialized. Partial (50).

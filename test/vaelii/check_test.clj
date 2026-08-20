@@ -284,12 +284,12 @@
     (testing "an add admissible only *after* an earlier one landed is still reported"
       ;; sequentially the genl edge lands first and puts the kind under the constraint
       ;; type; as it stands the kind reaches `thing` and not the constraint, which is
-      ;; the visible-evidence-in-the-wrong-place case argGenl convicts
+      ;; the visible-evidence-in-the-wrong-place case genlArg convicts
       (tu/with-terms [relOf a_kind an_animal Rex CxThe]
         (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
         (v/assert kb (list 'genl an_animal 'thing) 'CxCore)
         (v/assert kb (list 'genl a_kind 'thing) 'CxCore)
-        (v/assert kb (list 'argGenl relOf 1 an_animal) 'CxCore)
+        (v/assert kb (list 'genlArg relOf 1 an_animal) 'CxCore)
         (let [ps (v/check-edit kb {:add [[(list 'genl a_kind an_animal) CxThe]
                                          [(list relOf a_kind Rex) CxThe]]})]
           (is (= [{:in :add :index 1 :type :arg-genl}]
@@ -306,13 +306,13 @@
               "the declaration in the same batch was read as though it had landed"))))
     (testing "and the open-world floor still holds: an untyped argument violates nothing"
       (tu/with-terms [newPred Thing CxThe]
-        (is (= [] (v/check-edit kb {:add [[(list 'argIsa newPred 1 'animal) CxThe]
+        (is (= [] (v/check-edit kb {:add [[(list 'arg newPred 1 'animal) CxThe]
                                           [(list newPred Thing) CxThe]]})))))))
 
 ;; ---- which declaration a violation names: content, not arrival ----------
 
 (deftest ^:slow an-arg-type-violation-names-the-content-sorted-declaration
-  ;; two visible argIsa declarations convict the same sentence, one per argument;
+  ;; two visible arg declarations convict the same sentence, one per argument;
   ;; the single reported violation must name the content-sort winner in every
   ;; assertion order — `res/matches-visible` promises the answer *set*, so
   ;; enumeration order may not pick the declaration a refusal is about
@@ -322,8 +322,8 @@
         (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
         (doseq [t [t_first t_second t_plain]]
           (v/assert kb (list 'genl t 'thing) 'CxCore))
-        (let [d1     (list 'argIsa relOf 1 t_first)
-              d2     (list 'argIsa relOf 2 t_second)
+        (let [d1     (list 'arg relOf 1 t_first)
+              d2     (list 'arg relOf 2 t_second)
               winner (first (sort-by pr-str [d1 d2]))]
           (doseq [d (if flip? [d2 d1] [d1 d2])]
             (v/assert kb d 'CxCore))

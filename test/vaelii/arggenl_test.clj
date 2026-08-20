@@ -1,12 +1,12 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.arggenl-test
-  "`argGenl` — the argument constraint one level up.  Where `argIsa` asks an argument
-  to be an *instance* of a type, `argGenl` asks it to be a *subtype*, which is what a
+  "`genlArg` — the argument constraint one level up.  Where `arg` asks an argument
+  to be an *instance* of a type, `genlArg` asks it to be a *subtype*, which is what a
   `typeRelationPredicate` wants: its arguments name kinds, not things.
 
   Plus the checks over the declarations themselves — arity, and the two ways an
-  `argIsa` / `argGenl` can contradict what the KB already says about its predicate.
+  `arg` / `genlArg` can contradict what the KB already says about its predicate.
   Declaring *both* of them on one position is not one of those ways: they ask
   different questions about the slot and a type answers both."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -22,7 +22,7 @@
   The paths below throw five distinguishable types — `:arg-genl` for the subtype
   constraint, `:arg-type` for the instance one, `:arity` and `:arg-position` for the
   declarations, `:functional` for a second arity value — and a bare
-  `(thrown? ExceptionInfo …)` passes for every one of them alike.  An `argGenl` check
+  `(thrown? ExceptionInfo …)` passes for every one of them alike.  An `genlArg` check
   collapsing into a naming refusal is exactly the regression a file full of those would
   stay green through, so each refusal here names the one it expects."
   [f]
@@ -36,10 +36,10 @@
     (v/assert kb (list 'genl root 'thing) 'CxUniverse)
     (v/assert kb (list 'genl sub root) 'CxUniverse)
     (v/assert kb (list 'genl other 'thing) 'CxUniverse)   ; a type, but not under root
-    (v/assert kb (list 'argGenl rel 1 root) 'CxUniverse)
+    (v/assert kb (list 'genlArg rel 1 root) 'CxUniverse)
     [rel sub other root]))
 
-(tu/deftest-kb a-subtype-satisfies-argGenl-and-a-sibling-does-not
+(tu/deftest-kb a-subtype-satisfies-genlArg-and-a-sibling-does-not
   (let [[rel sub other root] (type-relation kb)]
     (testing "a subtype of the constraint type is what the position wants"
       (is (v/assert kb (list rel sub (tu/tmp-type)) 'CxUniverse)))
@@ -48,25 +48,25 @@
     (testing "a type outside the constraint's down-closure does not"
       (is (= :arg-genl (ex-type #(v/assert kb (list rel other (tu/tmp-type)) 'CxUniverse)))))))
 
-(tu/deftest-kb argGenl-wants-a-subtype-where-argIsa-wants-an-instance
+(tu/deftest-kb genlArg-wants-a-subtype-where-arg-wants-an-instance
   ;; the whole point of having both: the same type symbol passes one and fails the other
   (let [[rel sub] (type-relation kb)
         instRel (tu/tmp-pred) root2 (tu/tmp-type)]
     (v/assert kb (list 'genl root2 'thing) 'CxUniverse)
     (v/assert kb (list 'genl sub root2) 'CxUniverse)
-    (v/assert kb (list 'argIsa instRel 1 root2) 'CxUniverse)
-    ;; a type symbol comes within argIsa's reach only once it carries a membership of
+    (v/assert kb (list 'arg instRel 1 root2) 'CxUniverse)
+    ;; a type symbol comes within arg's reach only once it carries a membership of
     ;; its own reaching `thing` — which is what the starter's (unaryPredicate t) batch
     ;; does for every type.  Without one the open-world exemption applies and there is
     ;; nothing to convict, so the test states it rather than assuming a loaded KB.
     (let [meta (tu/tmp-type)]
       (v/assert kb (list 'genl meta 'thing) 'CxUniverse)
       (v/assert kb (list meta sub) 'CxUniverse))
-    (testing "the kind satisfies argGenl"
+    (testing "the kind satisfies genlArg"
       (is (v/assert kb (list rel sub (tu/tmp-type)) 'CxUniverse)))
-    (testing "and fails argIsa, which wants one of its instances"
+    (testing "and fails arg, which wants one of its instances"
       (is (= :arg-type (ex-type #(v/assert kb (list instRel sub (tu/tmp-ind)) 'CxUniverse)))))
-    (testing "an instance of the kind is what argIsa wanted"
+    (testing "an instance of the kind is what arg wanted"
       (let [x (tu/tmp-ind)]
         (v/assert kb (list sub x) 'CxUniverse)
         (is (v/assert kb (list instRel x (tu/tmp-ind)) 'CxUniverse))))))
@@ -78,18 +78,18 @@
     (testing "an individual can never acquire genl edges, so it is convicted not excused"
       (is (= :arg-genl (ex-type #(v/assert kb (list rel (tu/tmp-ind) (tu/tmp-type)) 'CxUniverse)))))))
 
-(tu/deftest-kb argGenl-is-well-formedness-checked-like-argIsa
+(tu/deftest-kb genlArg-is-well-formedness-checked-like-arg
   (let [rel (tu/tmp-pred)]
     (testing "the type slot is a type, not an individual"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'argGenl rel 1 (tu/tmp-ind)) 'CxUniverse)))))
+      (is (= :not-well-formed (ex-type #(v/assert kb (list 'genlArg rel 1 (tu/tmp-ind)) 'CxUniverse)))))
     (testing "the position is a positive integer"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'argGenl rel 0 'thing) 'CxUniverse)))))
-    (testing "the message names argGenl, not argIsa"
-      (is (re-find #"argGenl"
-                   (:message (first (v/check kb (list 'argGenl rel 0 'thing)
+      (is (= :not-well-formed (ex-type #(v/assert kb (list 'genlArg rel 0 'thing) 'CxUniverse)))))
+    (testing "the message names genlArg, not arg"
+      (is (re-find #"genlArg"
+                   (:message (first (v/check kb (list 'genlArg rel 0 'thing)
                                              'CxUniverse))))))))
 
-(tu/deftest-kb a-derived-argGenl-violation-is-recorded-not-thrown
+(tu/deftest-kb a-derived-genlArg-violation-is-recorded-not-thrown
   ;; the derivation path must not abort a fixpoint, so it drops and ledgers instead
   (let [[rel _ other] (type-relation kb)
         trigger (tu/tmp-pred)]
@@ -107,12 +107,12 @@
   (let [rel (tu/tmp-pred)]
     (v/assert kb (list 'binaryPredicate rel) 'CxUniverse)
     (testing "a declared position is fine"
-      (is (v/assert kb (list 'argIsa rel 2 'thing) 'CxUniverse)))
+      (is (v/assert kb (list 'arg rel 2 'thing) 'CxUniverse)))
     (testing "one past the declared arity would never fire, so it is refused"
-      (is (= :arg-position (ex-type #(v/assert kb (list 'argIsa rel 5 'thing) 'CxUniverse))))
-      (is (= :arg-position (ex-type #(v/assert kb (list 'argGenl rel 5 'thing) 'CxUniverse)))))
+      (is (= :arg-position (ex-type #(v/assert kb (list 'arg rel 5 'thing) 'CxUniverse))))
+      (is (= :arg-position (ex-type #(v/assert kb (list 'genlArg rel 5 'thing) 'CxUniverse)))))
     (testing "open-world: an undeclared predicate takes any position"
-      (is (v/assert kb (list 'argIsa (tu/tmp-pred) 9 'thing) 'CxUniverse)))))
+      (is (v/assert kb (list 'arg (tu/tmp-pred) 9 'thing) 'CxUniverse)))))
 
 (tu/deftest-kb both-constraints-on-one-position-narrow-it-rather-than-emptying-it
   ;; The two constraints ask different questions about the same slot — one *what kind
@@ -127,8 +127,8 @@
     (v/assert kb (list a_collection a_dog) 'CxUniverse)  ; a_dog *is* a collection
 
     (testing "both may be declared of one position"
-      (is (v/assert kb (list 'argIsa rel 1 a_collection) 'CxUniverse))
-      (is (v/assert kb (list 'argGenl rel 1 an_animal) 'CxUniverse)))
+      (is (v/assert kb (list 'arg rel 1 a_collection) 'CxUniverse))
+      (is (v/assert kb (list 'genlArg rel 1 an_animal) 'CxUniverse)))
 
     (testing "and a term satisfying both is admitted — an instance of the one, a subtype of the other"
       (is (v/assert kb (list rel a_dog (tu/tmp-ind)) 'CxUniverse)))
@@ -138,7 +138,7 @@
         (v/assert kb (list 'genl a_plant 'thing) 'CxUniverse)
         (v/assert kb (list a_collection a_plant) 'CxUniverse)
         (is (= :arg-genl (ex-type #(v/assert kb (list rel a_plant (tu/tmp-ind)) 'CxUniverse)))
-            "a collection, but not a kind of animal — argGenl convicts"))
+            "a collection, but not a kind of animal — genlArg convicts"))
       (is (= :arg-genl (ex-type #(v/assert kb (list rel Rex (tu/tmp-ind)) 'CxUniverse)))
           "an individual can never be a subtype, so it is convicted rather than excused"))))
 
@@ -146,16 +146,16 @@
   (let [instRel (tu/tmp-pred) typeRel (tu/tmp-pred)]
     (v/assert kb (list 'instanceRelationPredicate instRel) 'CxUniverse)
     (v/assert kb (list 'typeRelationPredicate typeRel) 'CxUniverse)
-    (testing "an instance-level relation takes argIsa"
-      (is (v/assert kb (list 'argIsa instRel 1 'thing) 'CxUniverse))
-      (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'argGenl instRel 2 'thing) 'CxUniverse)))))
-    (testing "a type-level relation takes argGenl"
-      (is (v/assert kb (list 'argGenl typeRel 1 'thing) 'CxUniverse))
-      (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'argIsa typeRel 2 'thing) 'CxUniverse)))))
+    (testing "an instance-level relation takes arg"
+      (is (v/assert kb (list 'arg instRel 1 'thing) 'CxUniverse))
+      (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'genlArg instRel 2 'thing) 'CxUniverse)))))
+    (testing "a type-level relation takes genlArg"
+      (is (v/assert kb (list 'genlArg typeRel 1 'thing) 'CxUniverse))
+      (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'arg typeRel 2 'thing) 'CxUniverse)))))
     (testing "an unclassified relation takes either"
       (let [rel (tu/tmp-pred)]
-        (is (v/assert kb (list 'argIsa rel 1 'thing) 'CxUniverse))
-        (is (v/assert kb (list 'argGenl rel 2 'thing) 'CxUniverse))))))
+        (is (v/assert kb (list 'arg rel 1 'thing) 'CxUniverse))
+        (is (v/assert kb (list 'genlArg rel 2 'thing) 'CxUniverse))))))
 
 (tu/deftest-kb arity-is-functional-so-a-second-value-is-refused
   ;; the declaration ships in CxCore; this KB is empty, so it states it — that
@@ -293,14 +293,14 @@
     (v/assert kb (list 'genl b_type 'thing) 'CxUniverse)
     (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
     (is (= :arg-position
-           (ex-type #(v/assert kb (list 'argIsa chainOf 3 a_type) 'CxUniverse)))
+           (ex-type #(v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)))
         "binary and nothing else, so there is no third argument to constrain")
     (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
     (testing "the mark releases the declaration exactly as it releases the tuple"
-      (is (v/assert kb (list 'argIsa chainOf 3 a_type) 'CxUniverse))
-      (is (v/assert kb (list 'argGenl chainOf 4 'thing) 'CxUniverse)))
-    (testing "both of interArgIsa's positions are released, not only the first"
-      (is (v/assert kb (list 'interArgIsa chainOf 1 a_type 5 a_type) 'CxUniverse)))
+      (is (v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse))
+      (is (v/assert kb (list 'genlArg chainOf 4 'thing) 'CxUniverse)))
+    (testing "both of interArg's positions are released, not only the first"
+      (is (v/assert kb (list 'interArg chainOf 1 a_type 5 a_type) 'CxUniverse)))
     (testing "and the constraint is live on the tuple that reaches the position"
       (v/assert kb (list a_type C) 'CxUniverse)
       (v/assert kb (list b_type Odd) 'CxUniverse)          ; placed, but not an a_type
@@ -319,17 +319,17 @@
     (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
     (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
     (is (= :arg-position
-           (ex-type #(v/assert kb (list 'argIsa subChainOf 3 a_type) 'CxUniverse)))
+           (ex-type #(v/assert kb (list 'arg subChainOf 3 a_type) 'CxUniverse)))
         "subChainOf declares no length, so it takes two arguments through chainOf")
     (v/assert kb (list 'variableArity subChainOf) 'CxUniverse)
     (testing "the mark on the sub releases what the super bound it to"
-      (is (v/assert kb (list 'argIsa subChainOf 3 a_type) 'CxUniverse))
+      (is (v/assert kb (list 'arg subChainOf 3 a_type) 'CxUniverse))
       (v/assert kb (list a_type C) 'CxUniverse)
       (is (v/assert kb (list subChainOf A B C) 'CxUniverse)
           "the same release the tuple already had"))
     (testing "and the super it inherits from keeps its own length"
       (is (= :arg-position
-             (ex-type #(v/assert kb (list 'argIsa chainOf 3 a_type) 'CxUniverse)))
+             (ex-type #(v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)))
           "chainOf is binary, whatever mark its sub-predicates carry"))))
 
 ;; ---- the global/scoped split in the conviction ---------------------------
@@ -346,7 +346,7 @@
         ctx (tu/tmp-ctx)]
     ;; ctx is deliberately unwired: it cannot see CxUniverse
     (v/assert kb (list 'genl root 'thing) ctx)
-    (v/assert kb (list 'argGenl rel 1 root) ctx)
+    (v/assert kb (list 'genlArg rel 1 root) ctx)
     ;; a reified NAT-shaped constant minted with real genl edges into CxUniverse —
     ;; the raw writer stands in for nat/mint-nat!, whose edges are exactly this
     (tax/add-genl (:taxonomy kb) reified root 999901 'CxUniverse)

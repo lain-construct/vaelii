@@ -21,7 +21,7 @@ fix. The mechanism stays in the subsystem's own page and is linked, never restat
 | [Facts I never asserted](#facts-i-never-asserted-or-facts-i-did-and-cannot-find) | two KBs on one in-RAM space |
 | [Both `P` and `not P` are believed](#both-p-and-not-p-are-believed) | `:default` strength on something known true |
 | [`assert` refused it](#assert-refused-it) | a naming invariant — the `:type` says which |
-| [An `argIsa` constraint never convicts](#an-argisa-constraint-never-convicts) | the argument's type is outside the hierarchy |
+| [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | the argument's type is outside the hierarchy |
 | [`prove` returns more than I count](#prove-returns-more-solutions-than-there-are-answers) | one solution per derivation, not per answer |
 | [A foreign KB will not load](#a-foreign-kb-will-not-load) | no reader on the classpath |
 | [`open-kb` refuses an unknown backend](#open-kb-refuses-an-unknown-backend) | a `:backend`, `:records`, `:index` or `:tms` opt names something the storage layer doesn't implement |
@@ -150,7 +150,7 @@ without storing anything, and answers with the identical problem.
 | `:shape` | not an s-expression at all — a string, `nil`, a map, a bare symbol — or a **vector**, which is a query's conjunction.  Refused at the read doors as well as the write ones, carrying `:goal` or `:conjunct` ([api.md](api.md)) |
 | `:not-well-formed` | a malformed connective frame, such as a bare `(implies)` |
 | `:not-range-restricted` | a rule variable in the consequent that no antecedent binds |
-| `:arg-type` / `:arg-genl` | an `argIsa` / `argGenl` constraint convicted it — [argtypes.md](argtypes.md) |
+| `:arg-type` / `:arg-genl` | an `arg` / `genlArg` constraint convicted it — [argtypes.md](argtypes.md) |
 | `:disjoint` / `:functional` / `:asymmetric` | a definitional clash — [exceptions.md](exceptions.md) |
 | `:unknown-option` | an option key nothing reads, or a non-map `opts` |
 
@@ -159,9 +159,9 @@ names a type, and a type is a one-place predicate, so `(lives_in ?x cold_place)`
 — write `livesIn`. The full roster of checks, with the regexes, is
 [naming.md](naming.md).
 
-## An `argIsa` constraint never convicts
+## An `arg` constraint never convicts
 
-`(argIsa parentOf 1 person)` plus `(disjoint dog person)` plus `(dog Muffet)` accepts
+`(arg parentOf 1 person)` plus `(disjoint dog person)` plus `(dog Muffet)` accepts
 `(parentOf Muffet Bob)` without complaint. That is open-world and deliberate: the check
 convicts only when the argument's own type closure reaches `thing`, and `dog` reaches it
 only once something says so. Add the edge and the identical assertion throws `:arg-type`:

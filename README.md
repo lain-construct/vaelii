@@ -22,8 +22,8 @@ with forward/backward inference and JTMS truth maintenance.
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.9.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.9.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.10.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.10.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
@@ -157,7 +157,9 @@ lein serve 4200 /var/lib/vaelii
 you meant — an empty query, a rule that will not fire, a KB holding facts nobody asserted
 — [troubleshooting.md](docs/troubleshooting.md) is indexed by symptom. If you already
 think in Cyc, answer set programming, Prolog or a production rule engine,
-[arriving.md](docs/arriving.md) maps that vocabulary onto this one.
+[arriving.md](docs/arriving.md) maps that vocabulary onto this one, a page each:
+[Cyc](docs/from-cyc.md), [ASP](docs/from-asp.md), [Prolog](docs/from-prolog.md),
+[production rules](docs/from-production-rules.md).
 
 ## Contributing
 

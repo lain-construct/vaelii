@@ -11,7 +11,7 @@
 
 | Role | Convention | Regex (on the symbol name) | Examples |
 |------|-----------|----------------------------|----------|
-| predicate | camelCase, lowercase-initial, no `_` | `[a-z][a-zA-Z0-9]*` | `parentOf`, `genl`, `argIsa` |
+| predicate | camelCase, lowercase-initial, no `_` | `[a-z][a-zA-Z0-9]*` | `parentOf`, `genl`, `arg` |
 | individual | CapitalCamelCase | `[A-Z][A-Za-z0-9]*` (not a context) | `Muffet`, `Tom` |
 | type | snake_case, a **unary** predicate | `[a-z][a-z0-9_]*` | `dog`, `physical_object` |
 | **sense** | a type, plus the disambiguator saying *which* sense | `[a-z._][…]*-[a-z0-9][…]*` | `abrasive-grit`, `abandonment-romantic` |
@@ -81,7 +81,7 @@ It reports, in order: the context's own name, then **every literal's** functor, 
 every literal's atomic symbol **arguments**, then any `ist` context slot, then a dotted
 rest marker where one cannot appear. That argument step is lexical — is this spelling an
 individual, a type or a predicate at all — and not a type check; whether the argument is
-of the *right* type is `argIsa`'s job.
+of the *right* type is `arg`'s job.
 
 ### Literals, frames, and arguments
 

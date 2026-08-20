@@ -438,14 +438,14 @@
           "the release is a re-derivation, and it happens"))))
 
 (deftest an-argisa-inferred-type-still-withdraws-the-conclusion
-  (testing "a fact on an argIsa-constrained predicate satisfies an exception on the
+  (testing "a fact on an arg-constrained predicate satisfies an exception on the
             declared type"
-    ;; `argIsa` read as an inference rather than as a constraint (`ArgTypeProver`): a
-    ;; believed `(motherOf X …)` beside `(argIsa motherOf 1 mammal)` makes X a mammal,
+    ;; `arg` read as an inference rather than as a constraint (`ArgTypeProver`): a
+    ;; believed `(motherOf X …)` beside `(arg motherOf 1 mammal)` makes X a mammal,
     ;; with nothing on `mammal` written and no genl path from `motherOf` to it — so the
     ;; index's own keying cannot reach the rule.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      (v/assert kb '(argIsa amotherOf 1 amammal) ctx)
+      (v/assert kb '(arg amotherOf 1 amammal) ctx)
       (v/assert kb '(exceptWhen (amammal AMuffet)
                                 (set/defaultRule (implies (and (amark ?x)) (aseen ?x))))
                 ctx)
@@ -468,7 +468,7 @@
       (v/assert kb '(amark AM1) ctx)
       (is (seq (v/sentexes-matching kb '(aseen AM1) '?ctx))
           "nothing types AMuffet yet")
-      (v/assert kb '(argIsa amotherOf 1 amammal) ctx)
+      (v/assert kb '(arg amotherOf 1 amammal) ctx)
       (is (v/ask? kb '(amammal AMuffet) ctx))
       (is (empty? (v/sentexes-matching kb '(aseen AM1) '?ctx))
           "the declaration reaches the fact that was already stored"))))
@@ -476,7 +476,7 @@
 (deftest an-argisa-inferred-type-still-releases-the-conclusion
   (testing "and retracting the typing fact releases the exception"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      (v/assert kb '(argIsa amotherOf 1 amammal) ctx)
+      (v/assert kb '(arg amotherOf 1 amammal) ctx)
       (v/assert kb '(exceptWhen (amammal AMuffet)
                                 (set/defaultRule (implies (and (amark ?x)) (aseen ?x))))
                 ctx)
@@ -649,7 +649,7 @@
 
 (deftest a-declaration-does-not-re-check-a-kb-that-declares-no-exception
   (testing "the declaration channel is gated on some rule carrying an exceptWhen"
-    ;; Same shape as the argIsa gate below it: the trigger has to be free for the KB
+    ;; Same shape as the arg gate below it: the trigger has to be free for the KB
     ;; that does not use it.  Declarations arriving beside n standing firings of an
     ;; *unexcepted* rule must cost no level-6 evaluations at all.
     (let [cost (fn [n]
@@ -762,9 +762,9 @@
           "and the edge arriving last reaches the same belief"))))
 
 (deftest an-exception-on-an-undeclared-type-is-not-re-checked-by-every-fact
-  (testing "the argIsa channel is keyed on the declaration, not on every fact there is"
+  (testing "the arg channel is keyed on the declaration, not on every fact there is"
     ;; The trigger has to be free for the KB that does not use it, or it is a per-assert
-    ;; tax on every load.  n facts of a predicate nothing declares an argIsa for must
+    ;; tax on every load.  n facts of a predicate nothing declares an arg for must
     ;; cost no exception evaluations at all, however many firings are standing.
     (let [cost (fn [n]
                  (tu/with-cleared-kb [kb tu/isolated-fresh]

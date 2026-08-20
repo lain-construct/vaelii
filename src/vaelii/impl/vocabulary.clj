@@ -63,13 +63,14 @@
     genl        {:enforced "taxonomy/add-genl — the cached closure every membership, match and placement reads"}
     genlCx {:enforced "taxonomy/add-genlCx — the visibility closure a context read walks"}
     thing       {:enforced "checks — the hierarchy root the open-world floors test against by name"}
-    predicate   {:enforced "generic: the argIsa target CxCore constrains its own meta-level with"}
-    function    {:enforced "generic: the argIsa target the function-valued positions of resultIsa, resultGenl and functionCorrespondingPredicate name"}
+    predicate   {:enforced "generic: the arg target CxCore constrains its own meta-level with"}
+    function    {:enforced "generic: the arg target the function-valued positions of resultIsa, resultGenl and functionCorrespondingPredicate name"}
 
     ;; ---- the definitional constraints -------------------------------------
-    argIsa      {:enforced "checks/args-problem — refuses on the way in, and entails under *assertive-arg-types?*"}
-    argGenl     {:enforced "checks/genls-problem — the same, one level up"}
-    interArgIsa {:enforced "checks/inter-args-problem — the conditional form, same two paths"}
+    arg      {:enforced "checks/args-problem — refuses on the way in, and entails under *assertive-arg-types?*"}
+    genlArg     {:enforced "checks/genls-problem — the same, one level up"}
+    quotedArg   {:enforced "checks/args-quoted-problem — the mention twin: types the argument as a term by its literal kind"}
+    interArg {:enforced "checks/inter-args-problem — the conditional form, same two paths"}
     arity       {:enforced "checks/arity-problem at the door, settle/report-arity-reach! over content stored before it"}
     disjoint    {:enforced "taxonomy/add-disjoint, read by checks/disjoint-problems and arbitrated by settle"}
     disjointMetatype {:enforced "taxonomy/mark-disjoint-metatype — the clique consulted, never stored"}
@@ -81,8 +82,8 @@
     equivalenceRelation {:enforced "generic forward chaining: the three CxCore rules derive (symmetric P), (transitive P) and (reflexive P), each enforced in turn; also a binaryPredicate type"}
     variableArity {:enforced "checks/arity-problem — the one exemption from the arity check"}
     relationKind  {:enforced "generic: a disjointMetatype, so its two members separate each other"}
-    instanceRelationPredicate {:enforced "checks/declaration-problem — an argGenl on one is refused"}
-    typeRelationPredicate     {:enforced "checks/declaration-problem — an argIsa on one is refused"}
+    instanceRelationPredicate {:enforced "checks/declaration-problem — an genlArg on one is refused"}
+    typeRelationPredicate     {:enforced "checks/declaration-problem — an arg on one is refused"}
     unaryPredicate   {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
     binaryPredicate  {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
     ternaryPredicate {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
@@ -99,11 +100,14 @@
     transitiveInArg        {:enforced "inherit — the argument reach along a declared transitive relation"}
     transitiveInArgInverse {:enforced "inherit — the same, read backwards"}
     abduciblePredicate   {:enforced "taxonomy prop :abducible — the gate on what abduce may hypothesize"}
+    modalPredicate       {:enforced "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide which predicates project their sentence into the agent's context"}
+    targetFollowingPredicate {:enforced "taxonomy prop :target-following — the mark core/retract-following-metas! reads to tear down a meta-sentex when the sentex it names by handle is retracted"}
 
     ;; ---- placement and lifting --------------------------------------------
     decontextualizedPredicate       {:enforced "special — the CxUniverse lift, retroactive over the extent"}
     forcedDecontextualizedPredicate {:enforced "special — storage straight into CxUniverse"}
     ist  {:enforced "assert and rule placement — never stored, it names where the sentence goes"}
+    believes {:enforced "BeliefProjectionProver — (believes a p) is answered by proving p in a's CxAgent<a> context; also a plain binaryPredicate, assertible and stored like any relation, so the projector augments the fact prover rather than replacing it"}
 
     ;; ---- the connectives and rule wrappers, read by the canonicalizer -----
     implies {:enforced "sentex canonicalization — becomes the antecedent/consequent slots of a RuleSentex"}
@@ -127,6 +131,9 @@
     ;; ---- reified terms ----------------------------------------------------
     reifiableFunction   {:enforced "taxonomy prop :reifiable — the gate that turns the nat reify pass on"}
     unreifiableFunction {:enforced "taxonomy prop :unreifiable — kept structural for a prover to compute"}
+    quotingFunction     {:enforced "taxonomy prop :quoting — its arguments are a mention, held opaque to identity congruence (res/representative-term spelling mode)"}
+    contextDenotingFunction {:enforced "taxonomy prop :context-denoting — a Cx*Fn whose applications reify to a cx/ context constant (docs/context-nat.md)"}
+    contextArgSubrelation   {:enforced "context-nat producer — sibling F-contexts differing at one arg are ordered by the sub-relation on that arg, materializing genlCx"}
     termOfUnit  {:enforced "nat — the constant-to-expression half of the reified-term map"}
     rewriteOf   {:enforced "nat for a compound right side, the equality partition for a symbol"}
     resultIsa   {:enforced "nat — materialized as a membership on each minted constant"}

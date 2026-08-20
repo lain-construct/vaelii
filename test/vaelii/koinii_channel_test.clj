@@ -1,0 +1,326 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
+(ns vaelii.koinii-channel-test
+  "Koinii's coordination library: join / subscribe / reply over the change
+  feed, with the KB as the medium.  One `Medium` protocol, two shapes — an in-process KB
+  (`local`, the fast tests here) and a daemon connection (`wire`, the one `^:slow` test
+  against a real daemon, where the properties that NEED a process boundary live:
+  decoupled-in-time catch-up, the off-thread poll loop, and the writer never blocked by a
+  slow subscriber).
+
+  The reply loop's load-bearing claims: a reply is a meta-sentex in the replier's own
+  context (D1), idempotent by sentence identity (so an at-least-once feed is safe), and
+  torn down with its target (D7, no dangling edges).  Belief is never special-cased — every
+  move is an ordinary assert / retract, which the full suite staying green is the check on."
+  (:require [clojure.test :refer [is testing use-fixtures]]
+            [vaelii.client :as vc]
+            [vaelii.core :as v]
+            [vaelii.impl.core-context :as core-context]
+            [vaelii.impl.koinii.channel :as ch]
+            [vaelii.impl.koinii.speech-acts :as sa]
+            [vaelii.impl.sentex :as sx]
+            [vaelii.impl.serve :as serve]
+            [vaelii.test-util :as tu])
+  (:import [org.eclipse.jetty.server Server]))
+
+(defn- channel-kb
+  "A fresh CxCore KB with the koinii speech-act vocabulary loaded — the deployment's
+  substrate: the reply verbs' `targetFollowingPredicate` marks must be in force for a
+  reply to cascade."
+  []
+  (doto (tu/fresh) (core-context/load-into) (sa/load-speech-acts)))
+
+(use-fixtures :each (tu/neutral-fresh channel-kb))
+
+(defn- join!
+  "Join `agent` to a `local` medium over `kb` on channel `CxDeploy`."
+  [kb agent]
+  (ch/join (ch/local kb) 'CxDeploy agent))
+
+;; ---- join / assert: the per-agent context and write boundary (D8) --------
+
+(tu/deftest-kb join-lifts-the-agents-own-context-under-the-channel
+  (let [atlas (join! kb 'AgentAtlas)]
+    (is (= 'CxAtlas (:context atlas)) "the agent's own context is a function of its id")
+    (is (= 'CxDeploy (:channel atlas)))
+    (is (v/sees? kb 'CxDeploy 'CxAtlas) "lifted under the channel, so the channel sees it")
+    (is (v/sees? kb 'CxAtlas 'CxSpeechActs) "and rooted so it speaks the reply vocabulary")
+    (testing "assert writes into the agent's OWN context, creator stamped"
+      (let [h (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))]
+        (is (= 'CxAtlas (:context (v/sentex kb h))))
+        (is (= 'AgentAtlas (:creator (v/provenance kb h))))))
+    (testing "re-joining is idempotent topology, no second edge"
+      (let [again (join! kb 'AgentAtlas)]
+        (is (= (:context atlas) (:context again)))))))
+
+;; ---- reply: a meta-sentex in the replier's own context (D1) --------------
+
+(tu/deftest-kb answer-is-a-meta-sentex-recoverable-as-knowledge
+  (let [atlas (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        qh (ch/pose-query atlas 'WhichDbProdClusterUses)
+        ah (ch/answer boreas 'PostgreSQL14 qh)]
+    (testing "the query node is Atlas's, in Atlas's own context"
+      (is (= 'CxAtlas (:context (v/sentex kb qh)))))
+    (testing "the answer is Boreas's meta-sentex ON the query, in Boreas's own context"
+      (is (= 'CxBoreas (:context (v/sentex kb ah))))
+      (is (= (list 'answers 'AgentBoreas 'PostgreSQL14 (sx/sentex-handle qh))
+             (:sentence (v/sentex kb ah)))))
+    (testing "recover 'what answered the query, and who said it' — off the ANSWER"
+      (let [as (ch/answers-to atlas qh)
+            a  (first as)]
+        (is (= 1 (count as)))
+        (is (= 'AgentBoreas (ch/speaker-of a)) "the answerer, from the reply's own sentence")
+        (is (= 'PostgreSQL14 (ch/answer-content a)))
+        (is (= 'CxBoreas (:context a)) "and where from")))))
+
+(tu/deftest-kb a-reply-is-idempotent-by-sentence-identity
+  ;; Why an at-least-once feed is safe to act on: replaying a reply changes nothing.
+  (let [atlas (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        qh (ch/pose-query atlas 'WhichDb)
+        a1 (ch/answer boreas 'PostgreSQL14 qh)
+        a2 (ch/answer boreas 'PostgreSQL14 qh)]
+    (is (= a1 a2) "the same answer asserted twice is one sentex, one handle")
+    (is (= 1 (count (ch/answers-to atlas qh))) "no duplicate in the KB")))
+
+(tu/deftest-kb endorsement-survives-first-writer-wins
+  (let [atlas (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        ciel (join! kb 'AgentCiel)
+        ph (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))
+        e1 (ch/endorse boreas ph)
+        e2 (ch/endorse ciel ph)]
+    (is (not= e1 e2) "two endorsers are two distinct meta-sentexes, two creators")
+    (is (= #{'AgentBoreas 'AgentCiel}
+           (set (map ch/speaker-of (ch/endorsements-of atlas ph))))
+        "both recover as data — two distinct sources for the claim")))
+
+(tu/deftest-kb dispute-rebuts-and-surfaces-in-contradictions
+  (let [atlas (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        ph (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))
+        dh (ch/dispute boreas ph)]
+    (testing "the rebuttal makes the pair a contradiction, both sides believed"
+      (is (= 1 (count (v/contradictions kb)))))
+    (testing "and the disputes edge is Boreas's meta on the claim"
+      (is (= 'CxBoreas (:context (v/sentex kb dh))))
+      (is (= (list 'disputes 'AgentBoreas (sx/sentex-handle ph))
+             (:sentence (v/sentex kb dh)))))))
+
+(tu/deftest-kb vote-is-a-ballot-meta-sentex-idempotent-by-identity
+  (let [atlas  (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        ph (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))
+        v1 (ch/vote boreas :against ph)
+        v2 (ch/vote boreas :against ph)]
+    (is (= (list 'votesAgainst 'AgentBoreas (sx/sentex-handle ph)) (:sentence (v/sentex kb v1)))
+        "the ballot names the claim by handle")
+    (is (= 'CxBoreas (:context (v/sentex kb v1))) "in the voter's own context")
+    (is (= v1 v2) "one ballot per agent per stance — idempotent by sentence identity")
+    (is (= (list 'votesFor 'AgentAtlas (sx/sentex-handle ph))
+           (:sentence (v/sentex kb (ch/vote atlas :for ph))))
+        "and the :for stance is the other predicate")))
+
+(tu/deftest-kb justify-offers-a-ground-as-a-meta-sentex
+  (let [atlas (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        ph (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))
+        jh (ch/justify boreas 'MigratedInQ2 ph)]
+    (is (= (list 'justifies 'AgentBoreas 'MigratedInQ2 (sx/sentex-handle ph))
+           (:sentence (v/sentex kb jh))))
+    (is (= 'CxBoreas (:context (v/sentex kb jh))) "in the justifier's own context")))
+
+(tu/deftest-kb retracting-the-target-tears-down-the-reply-no-dangling-edge
+  ;; D7: the reply lives ON the target, so the target's teardown takes it.
+  (let [atlas (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        qh (ch/pose-query atlas 'WhichDb)
+        ah (ch/answer boreas 'PostgreSQL14 qh)
+        eh (ch/endorse boreas qh)]
+    (is (some? (v/sentex kb ah)))
+    (is (some? (v/sentex kb eh)))
+    (v/retract! kb qh)
+    (is (nil? (v/sentex kb qh)) "the target query is gone")
+    (is (nil? (v/sentex kb ah)) "its answer cascaded")
+    (is (nil? (v/sentex kb eh)) "and its endorsement — no dangling edges")))
+
+;; ---- reply-many: validate before commit (item 4) -------------------------
+
+(tu/deftest-kb a-multi-claim-reply-validates-before-it-commits
+  (let [atlas (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        qh (ch/pose-query atlas 'WhichStack)
+        claim  (list 'usesDatabase 'ProdCluster 'PostgreSQL14)
+        answer (list 'answers 'AgentBoreas 'PostgreSQL14 (sx/sentex-handle qh))]
+    (testing "an admissible batch commits both linked claims in one settle"
+      (let [r (ch/reply-many boreas [claim answer])]
+        (is (= 2 (count (:added r))) "both linked claims landed in the one edit")
+        (is (seq (v/sentexes-matching kb claim 'CxBoreas)))
+        (is (seq (v/sentexes-matching kb answer 'CxBoreas)))))
+    (testing "an inadmissible batch is refused whole — no HALF-reply lands"
+      (let [good  (list 'usesCache 'ProdCluster 'Redis)
+            e (is (thrown? clojure.lang.ExceptionInfo
+                           (ch/reply-many boreas [good :not-a-sentence])))]
+        (is (= :koinii/reply-inadmissible (:type (ex-data e))))
+        (is (seq (:problems (ex-data e))) "carrying the check-edit problems")
+        (is (empty? (v/sentexes-matching kb good 'CxBoreas))
+            "and the admissible half never landed — edit! never ran")))))
+
+;; ---- subscribe: the async reply trigger, in-process ----------------------
+
+(tu/deftest-kb subscribe-fires-on-a-matching-write-and-stops-when-dropped
+  ;; The single-process path: a plain `core/watch` listener, callback on the writer's
+  ;; thread.  Watch the CHANNEL and a write in an agent's own context is delivered up the
+  ;; genlCx cone.
+  (let [atlas (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        seen (atom [])
+        sub  (ch/subscribe boreas (list 'queries '?a '?q) 'CxDeploy
+                           (fn [e] (swap! seen conj e)))]
+    (ch/pose-query atlas 'WhichDb)
+    (is (= 1 (count @seen)) "the subscriber saw Atlas's query, posed in CxAtlas")
+    (is (= [(list 'queries 'AgentAtlas 'WhichDb)]
+           (map :sentence (mapcat :believed-added @seen))))
+    (testing "dropping the subscription stops delivery, and is idempotent"
+      (ch/unsubscribe sub)
+      (ch/pose-query atlas 'WhichCache)
+      (is (= 1 (count @seen)) "no further events after unsubscribe")
+      (ch/unsubscribe sub)                                  ; a second drop must not throw
+      (ch/pose-query atlas 'WhichMore)
+      (is (= 1 (count @seen)) "still stopped after a double unsubscribe"))))
+
+(tu/deftest-kb local-subscribe-with-a-nil-goal-sees-every-change
+  ;; the goal-less branch: a plain listener, not a standing query
+  (let [atlas (join! kb 'AgentAtlas)
+        seen  (atom 0)
+        sub   (ch/subscribe atlas nil nil (fn [_] (swap! seen inc)))]
+    (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))
+    (is (pos? @seen) "a nil-goal listener fires on any belief change")
+    (ch/unsubscribe sub)))
+
+(tu/deftest-kb a-goal-core-watch-refuses-is-refused-here-too
+  (let [boreas (join! kb 'AgentBoreas)]
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (ch/subscribe boreas (list 'agg/count (list 'queries '?a '?q)) 'CxDeploy
+                               (fn [_])))
+        "an aggregate goal is not watchable — the same check as in process")))
+
+;; ---- the wire shape: the properties that need a process boundary ----------
+
+(tu/deftest-kb ^:slow the-wire-shape-decoupled-in-time-off-thread-and-nonblocking
+  ;; One daemon, several agents on their own connections.  Everything a single process
+  ;; cannot demonstrate: agents decoupled in time, the poll loop off the agent's thread,
+  ;; and a slow subscriber that does not stall the writer.
+  (let [^Server server (serve/start kb {:port 0 :token nil})
+        port (serve/port server)
+        conn (fn [] (vc/client "localhost" port {:token nil :timeout-ms 3000}))]
+    (try
+      (testing "decoupled in time: A asks and disconnects; B connects LATER, reads the
+                query off the durable KB, answers; A reconnects and reads its answer"
+        (let [qh (let [a-conn (conn)                         ; A connects
+                       atlas  (ch/join (ch/wire a-conn) 'CxDeploy 'AgentAtlas)
+                       qh     (ch/pose-query atlas 'WhichDbProdClusterUses)]
+                   qh)]                                       ; A's conn goes out of scope — "disconnected"
+          (let [b-conn (conn)                                ; B connects later
+                boreas (ch/join (ch/wire b-conn) 'CxDeploy 'AgentBoreas)
+                open   (ch/open-queries boreas)]             ; catch-up is a KB read, not a cursor replay
+            (is (some #(= (list 'queries 'AgentAtlas 'WhichDbProdClusterUses) (:sentence %)) open)
+                "B sees A's query though A is gone — the KB is the medium")
+            (let [ah (ch/answer boreas 'PostgreSQL14 qh)]
+              (is (= 'AgentBoreas (:creator (v/provenance kb ah)))
+                  "the daemon stamped the creator from the wire opts, not from the connection")))
+          (let [a2     (conn)                                ; A reconnects
+                atlas2 (ch/join (ch/wire a2) 'CxDeploy 'AgentAtlas)
+                as     (ch/answers-to atlas2 qh)]
+            (is (= 1 (count as)))
+            (is (= 'AgentBoreas (ch/speaker-of (first as))) "who answered, from the reply itself")
+            (is (= 'PostgreSQL14 (ch/answer-content (first as))))
+            (testing "a reply is recoverable and reversible: retract the query, answer goes"
+              (vc/retract! a2 qh)
+              (is (empty? (ch/answers-to atlas2 qh)) "no dangling edge across the wire")))))
+
+      (testing "the poll loop runs OFF the agent's thread, and a matching write is delivered"
+        (let [b-conn (conn)
+              boreas (ch/join (ch/wire b-conn) 'CxDeploy 'AgentBoreas)
+              a-conn (conn)
+              atlas  (ch/join (ch/wire a-conn) 'CxDeploy 'AgentAtlas)
+              got    (promise)
+              sub    (ch/subscribe boreas (list 'queries '?a '?q) 'CxDeploy
+                                   (fn [e] (deliver got e)) {:wait-ms 8000})]
+          (try
+            (ch/pose-query atlas 'WhichCacheProdClusterUses)
+            (let [e (deref got 8000 :timed-out)]
+              (is (not= :timed-out e) "the off-thread poll delivered the event")
+              (is (= [(list 'queries 'AgentAtlas 'WhichCacheProdClusterUses)]
+                     (map :sentence (:believed-added e)))))
+            (finally (ch/unsubscribe sub)))))
+
+      (testing "a slow subscriber does not block the writer — the wire feed was the right
+                primitive (an in-process callback would run on the writer's thread)"
+        (let [b-conn (conn)
+              boreas (ch/join (ch/wire b-conn) 'CxDeploy 'AgentBoreas)
+              a-conn (conn)
+              atlas  (ch/join (ch/wire a-conn) 'CxDeploy 'AgentAtlas)
+              slow-started (promise)
+              sub (ch/subscribe boreas (list 'queries '?a '?q) 'CxDeploy
+                                (fn [_] (deliver slow-started true) (Thread/sleep 4000))
+                                {:wait-ms 8000})]
+          (try
+            (ch/pose-query atlas 'FirstQuery)                ; triggers the slow callback
+            (is (true? (deref slow-started 8000 false)) "the slow callback is running")
+            ;; while B's callback sleeps 4s on its OWN thread, A's next write must return fast
+            (let [began (System/currentTimeMillis)
+                  _     (ch/pose-query atlas 'SecondQuery)
+                  took  (- (System/currentTimeMillis) began)]
+              ;; a real block would take ~4s (the callback's sleep); 3s cleanly distinguishes
+              ;; that from a fast write while tolerating GC / load jitter on the threshold
+              (is (< took 3000)
+                  (str "A's write took " took "ms — a slow subscriber must not stall the writer")))
+            (finally (ch/unsubscribe sub)))))
+
+      (testing "a callback that throws loses its own event and nothing else — the wire
+                subscription survives and keeps delivering (the engine's listener contract)"
+        (let [b-conn (conn)
+              boreas (ch/join (ch/wire b-conn) 'CxDeploy 'AgentBoreas)
+              a-conn (conn)
+              atlas  (ch/join (ch/wire a-conn) 'CxDeploy 'AgentAtlas)
+              n      (atom 0)
+              errs   (atom [])
+              second-seen (promise)
+              sub (ch/subscribe boreas (list 'queries '?a '?q) 'CxDeploy
+                                (fn [_] (if (= 1 (swap! n inc))
+                                          (throw (ex-info "boom on the first event" {}))
+                                          (deliver second-seen true)))
+                                {:wait-ms 8000 :on-error (fn [e] (swap! errs conj e))})]
+          (try
+            (ch/pose-query atlas 'ThrowsHere)                ; callback throws
+            (ch/pose-query atlas 'DeliveredAnyway)           ; must still arrive
+            (is (true? (deref second-seen 8000 false))
+                "the second event was delivered though the first threw")
+            (is (seq @errs) ":on-error was told about the throw")
+            (finally (ch/unsubscribe sub)))))
+
+      (testing "at-least-once is safe: the same reply asserted twice over the wire is one
+                sentex"
+        (let [a-conn (conn)
+              atlas  (ch/join (ch/wire a-conn) 'CxDeploy 'AgentAtlas)
+              b-conn (conn)
+              boreas (ch/join (ch/wire b-conn) 'CxDeploy 'AgentBoreas)
+              qh (ch/pose-query atlas 'WhichQueue)
+              a1 (ch/answer boreas 'Kafka qh)
+              a2 (ch/answer boreas 'Kafka qh)]
+          (is (= a1 a2) "idempotent by sentence identity across the wire")
+          (is (= 1 (count (ch/answers-to atlas qh))))))
+      (finally (.stop server)))))
+
+;; ---- a local medium has no cursor feed: catch-up is wire-only -------------
+
+(tu/deftest-kb a-local-medium-has-no-cursor-feed
+  (testing "the ring / cursor / lag live only on the wire feed, so a local medium refuses
+            the raw feed primitives rather than pretend to resume"
+    (let [m (ch/local kb)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no cursor feed"
+                            (ch/-feed-open m nil 'CxDeploy)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no cursor feed"
+                            (ch/-feed-poll m nil nil nil))))))

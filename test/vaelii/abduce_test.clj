@@ -83,7 +83,7 @@
     (v/assert kb (list 'genl cat_ 'thing) CxTheory)
     (v/assert kb (list 'disjoint dog_ cat_) CxTheory)
     (v/assert kb (list cat_ N) CxTheory)
-    (v/assert kb (list 'argIsa wabPremise 1 dog_) CxTheory)
+    (v/assert kb (list 'arg wabPremise 1 dog_) CxTheory)
     (grant kb wabPremise CxTheory)
     (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
     (testing "the hypothesis would put a cat in a dog-only slot, so it is refused"

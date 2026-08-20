@@ -24,7 +24,7 @@ means very nearly the opposite of what it means to you.
 | compound term | a NAT — reified to a constant, or kept structural → [nat.md](nat.md) |
 | `\+ G` | `(unknown G)` | ground and closed only |
 | `dif/2` | `(different A B)` | a prover, never assertible; the unique-name assumption is kept |
-| `p/2` | — | arity is not part of the name; `(arity p 2)` or `argIsa` declares it |
+| `p/2` | — | arity is not part of the name; `(arity p 2)` or `arg` declares it |
 | module | context | and a read sees up the `genlCx` cone |
 | EDB versus IDB | premise versus derived | both are sentexes; `premise?` tells them apart |
 | `findall/3` | `prove`, then `distinct` | one binding map per **derivation**, so equal maps repeat |

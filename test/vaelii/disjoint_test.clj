@@ -70,13 +70,13 @@
       (is (v/assert kb (list typeKind other) 'CxUniverse)))))
 
 (tu/deftest-kb argisa-constrains-a-predicate-valued-position
-  ;; (argIsa typeToInstancePred 1 typeRelationPredicate) is only enforceable because
+  ;; (arg typeToInstancePred 1 typeRelationPredicate) is only enforceable because
   ;; the argument check reaches past CapitalCamelCase individuals
   (let [typeKind (tu/tmp-type) otherKind (tu/tmp-type) link (tu/tmp-pred)
         typeLevel (tu/tmp-pred) instanceLevel (tu/tmp-pred) unclassified (tu/tmp-pred)]
     (v/assert kb (list 'genl typeKind 'thing) 'CxUniverse)
     (v/assert kb (list 'genl otherKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa link 1 typeKind) 'CxUniverse)
+    (v/assert kb (list 'arg link 1 typeKind) 'CxUniverse)
     (v/assert kb (list typeKind typeLevel) 'CxUniverse)
     (v/assert kb (list otherKind unclassified) 'CxUniverse)
     (testing "a correctly classified predicate satisfies the constraint"

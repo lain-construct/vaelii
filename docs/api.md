@@ -203,6 +203,8 @@ default-chain-opts                              ; the bounds a chain run takes w
 (genl? kb sub super [context])                          ; subtype test, scoped the same way
 (types kb) / (contexts kb)                              ; the nodes of each hierarchy
 (context-up kb c) / (context-down kb c) / (sees? kb k y); genlCx closures + visibility test
+(context-of-agent agent) / (agent-of-context ctx)       ; the Alice <-> CxAgentAlice agent
+                                                        ; context bijection (docs/belief.md)
 (has-prop? kb kind pred [context]) / (props kb kind)              ; :transitive :symmetric :asymmetric :reflexive
                                                         ; :functional :decontextualized
                                                         ; :forced-decontextualized :abducible
@@ -253,6 +255,15 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; winning over the argument (query family, above)
 (handle-of kb sentence context)                 ; find WITHOUT creating -> handle or nil (ist's counterpart)
 (contexts-of kb sentence)                       ; contexts a sentence is asserted in
+(handles kb)                                     ; every live sentex handle — the whole-KB
+                                                ; enumeration a content/audit pass folds over
+(canonical-sentex kb sentence context)          ; the canonical sentex for a sentence WITHOUT
+                                                ; storing it — same map shape as `sentex`, no
+                                                ; `:id`; a stable content key / address
+;; the meta-sentex handle term: `(sentexHandle H)` names a stored sentex so a meta can
+;; predicate about it — `except` / `exceptWhen` and a `targetFollowingPredicate` reply
+(sentex-handle n)                               ; the (sentexHandle n) term naming handle n
+(sentex-handle? form) / (handle-id form)        ; is it one? / the id it names, or nil
 (provenance kb handle)                          ; the per-handle bookkeeping map, or nil
 (add-provenance kb handle m)                     ; merge application fields into it
 (retract! kb handle)                            ; teardown -> {:removed-sentexes n :removed-justifications n}
@@ -318,7 +329,7 @@ expansion each will do**.  Pick by what you are asking, not by habit:
 | Reach for | When you want | Machinery | Returns |
 |-----------|---------------|-----------|---------|
 | **`query` / `query?`** | **the default** — one door, one dial: how deep to expand rules | no `:max-depth` and the registry answers alone; a `:max-depth` and the node engine expands rules that deep.  Either way a **conjunctive** join (vector goal) | binding maps `{?x v}` |
-| `ask` / `ask?` | an answer from what the KB stores or has cached, at a cost that does not depend on the rule graph | the prover registry (facts, transitivity, disjointness, inverse/symmetric metadata, evaluable arithmetic, NAF, argIsa) — **no rule expansion** | binding maps `{?x v}` |
+| `ask` / `ask?` | an answer from what the KB stores or has cached, at a cost that does not depend on the rule graph | the prover registry (facts, transitivity, disjointness, inverse/symmetric metadata, evaluable arithmetic, NAF, arg) — **no rule expansion** | binding maps `{?x v}` |
 | `sentexes-matching` | *stored, believed* literals matching a pattern — retrieval, not reasoning | belief-filtered index read; no inference, no subtype expansion | **sentex maps** |
 | `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, facts + rules only; a **conjunctive** join (vector goal) | a vector of binding maps, **one per derivation** — equal maps repeat, so `distinct` for an answer set |
 | `lookup` / `escalate` / `explain-levels` | *diagnostics* — which level of machinery reaches this, and how dear | one explicit level of the 8-level stack | level maps |
@@ -359,7 +370,7 @@ the way out, since nothing else would ever repair it and every later reachabilit
 would pay for that.
 
 **`bulk-assert-facts!`** is `assert-many` with the machinery a *trusted* corpus does not
-need turned off as well: the per-fact definitional checks (the `argIsa` store query
+need turned off as well: the per-fact definitional checks (the `arg` store query
 above all), the dedup trie-walk, provenance, and forward chaining. What is left is the
 write path itself, and the door reports what it costs — `:on-progress` is handed
 `{:phase :loading :done n :elapsed-ms ms :facts-per-sec r}` every 100,000 facts and
@@ -402,7 +413,7 @@ map with the `:type` keyword `assert` would have thrown — `:naming`, `:not-gro
 `:not-assertible`, `:exception-not-closed`, `:arg-type`, `:arg-genl`, `:arg-position`, `:inter-arg-type`,
 `:arg-constraint-kind`, `:arity`, `:disjoint`, `:functional`, `:asymmetric` — a readable
 `:message`, and whatever else that check knows (`:arg` / `:expected` / `:position` for an
-argIsa breach, plus `:trigger` and `:trigger-position` for the `interArgIsa` form, which
+arg breach, plus `:trigger` and `:trigger-position` for the `interArg` form, which
 names the argument whose type made the constraint fire; `:cycle` for a stratification
 one).  Three further types are about the *request* rather than the
 knowledge: `:shape` (the context is not a symbol, the sentence is not an
@@ -568,7 +579,7 @@ Assert known-true facts with `{:strength :monotonic}`; the default is `:default`
 
 `opts` on assert: `{:chain? false}` skips forward chaining, `{:max-depth n}`
 bounds it. `vaelii.impl.core-context/load-into` asserts the CxCore vocabulary — every special
-predicate the engine interprets (types/contexts, argIsa/argGenl/interArgIsa,
+predicate the engine interprets (types/contexts, arg/genlArg/interArg,
 disjoint/disjointMetatype,
 implies + the `set/*Rule` wrappers, the transitive/symmetric/reflexive/functional/
 inverse/decontextualizedPredicate metadata, `not`, `contradicts`, `ist`, and the
@@ -618,7 +629,7 @@ sides agree; `resultIsa` and `resultGenl` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
 relates one animal to a capability kind). The mark is not decoration: it decides which
 argument-check family the predicate may use, one for **every** position, which is why a
-mixed predicate cannot carry one — `argIsa` on a `typeRelationPredicate` and `argGenl` on
+mixed predicate cannot carry one — `arg` on a `typeRelationPredicate` and `genlArg` on
 an `instanceRelationPredicate` are both refused `:arg-constraint-kind`. The distinction is
 what `typeToInstancePred` is stated over, and it is the difference between `(largerThan
 dog cat)` — dogs are bigger than cats — and a claim about two particular animals.
@@ -632,7 +643,7 @@ fables as contexts under `CxStories` (`CxLionMouse`, `CxTortoiseHare`,
 inference; `test/vaelii/world_narrative.clj` layers a **story-understanding ontology**
 (types agent/event/action/goal/mental_state and relations
 wants/does/brings/achieves/causes/beforeEvent/afterEvent with metadata — `causes`,
-`beforeEvent` transitive; `beforeEvent`/`afterEvent` inverse — and argIsa, plus a forward
+`beforeEvent` transitive; `beforeEvent`/`afterEvent` inverse — and arg, plus a forward
 goal-achievement rule `wants + brings + achieves ⇒ achievesGoal`) on a new fable
 `CxFoxCrow` and retrofitted onto `CxTortoiseHare`. Because `sentexes-matching` is
 exact-context and a middle theory is seen by every CxWell descendant, a rule firing

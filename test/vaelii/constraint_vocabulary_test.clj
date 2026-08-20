@@ -15,7 +15,7 @@
     pair with is the vocabulary entry the conviction is read through, so a nogood over the
     pair would defeat its own premise.
 
-  * **`interArgIsa` exists.**  It was a plausible-looking declaration that stored fine and
+  * **`interArg` exists.**  It was a plausible-looking declaration that stored fine and
     did nothing.  The conditional argument constraint reads open-world *twice, in opposite
     directions*, which is what these tests are mostly about: silence about the trigger
     argument's type leaves it dormant, silence about the target's is what convicts.
@@ -193,10 +193,10 @@
       (is (v/ask? kb (list relOf A B C) 'CxUniverse))
       (is (seq (arity-entries kb)) "the finding is reported instead"))))
 
-;;; ── interArgIsa: the conditional argument constraint ───────────────────
+;;; ── interArg: the conditional argument constraint ───────────────────
 
 (defn- eats-world
-  "`(interArgIsa eats 1 carnivore 2 meat)` over a hierarchy deep enough to test
+  "`(interArg eats 1 carnivore 2 meat)` over a hierarchy deep enough to test
   transitivity, with the four terms a caller needs back."
   [kb]
   (let [carnivore (tu/tmp-type "carnivore")
@@ -208,7 +208,7 @@
                (list 'genl meat 'thing)
                (list 'genl beef meat)
                (list 'genl grass 'thing)
-               (list 'interArgIsa eats 1 carnivore 2 meat)]]
+               (list 'interArg eats 1 carnivore 2 meat)]]
       (v/assert kb s 'CxUniverse))
     {:carnivore carnivore :meat meat :beef beef :grass grass :eats eats}))
 
@@ -226,7 +226,7 @@
         (is (= 2 (:position e)))))))
 
 (tu/deftest-kb the-target-type-is-reached-transitively
-  ;; `argIsa` reads the genl closure and so does this: beef is a meat, so a carnivore
+  ;; `arg` reads the genl closure and so does this: beef is a meat, so a carnivore
   ;; eating beef conforms.  Without the closure the constraint would only ever admit the
   ;; exact type named, which is not what a type hierarchy is for.
   (let [{:keys [carnivore beef eats]} (eats-world kb)]
@@ -262,13 +262,13 @@
       (v/assert kb s 'CxUniverse))
     (v/assert kb (list 'genlCx CxSide 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxOther 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t) CxOther)
+    (v/assert kb (list 'interArg eatsOf 1 carnivore_t 2 meat_t) CxOther)
     (v/assert kb (list carnivore_t Rex) CxSide)
     (v/assert kb (list grass_t Hay) CxSide)
     (is (v/assert kb (list eatsOf Rex Hay) CxSide))))
 
 (tu/deftest-kb a-conditional-constraint-does-not-reach-back-over-stored-content
-  ;; Deliberate, and the argument is `argIsa`'s verbatim: the conviction rests on the
+  ;; Deliberate, and the argument is `arg`'s verbatim: the conviction rests on the
   ;; absence of a path to the target type, so there is nothing to weigh and no policy
   ;; question anybody has answered about whether pre-existing silence is a violation.
   ;; Answering it inside a sweep would turn an open-world check into a closed-world one.
@@ -276,21 +276,21 @@
     (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)
                (list 'genl grass_t 'thing)
                (list carnivore_t Rex) (list grass_t Hay) (list eatsOf Rex Hay)
-               (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t)]]
+               (list 'interArg eatsOf 1 carnivore_t 2 meat_t)]]
       (v/assert kb s 'CxUniverse))
     (is (v/ask? kb (list eatsOf Rex Hay) 'CxUniverse))
     (is (empty? (v/violations kb)))
     (is (empty? (v/contradictions kb)))))
 
 (tu/deftest-kb a-position-the-predicate-does-not-have-is-refused
-  ;; Both positions, since `interArgIsa` names two and each is the same mistake: a
+  ;; Both positions, since `interArg` names two and each is the same mistake: a
   ;; constraint that can never fire reads as enforced while enforcing nothing.
   (tu/with-terms [carnivore_t meat_t biteOf]
     (v/assert kb (list 'genl carnivore_t 'thing) 'CxUniverse)
     (v/assert kb (list 'genl meat_t 'thing) 'CxUniverse)
     (v/assert kb (list 'arity biteOf 2) 'CxUniverse)
-    (doseq [bad [(list 'interArgIsa biteOf 1 carnivore_t 5 meat_t)
-                 (list 'interArgIsa biteOf 5 carnivore_t 1 meat_t)]]
+    (doseq [bad [(list 'interArg biteOf 1 carnivore_t 5 meat_t)
+                 (list 'interArg biteOf 5 carnivore_t 1 meat_t)]]
       (is (= :arg-position
              (:type (try (v/assert kb bad 'CxUniverse) nil
                          (catch clojure.lang.ExceptionInfo x (ex-data x)))))
@@ -300,10 +300,10 @@
   (tu/with-terms [carnivore_t meat_t someOf Muffet]
     (v/assert kb (list 'genl carnivore_t 'thing) 'CxUniverse)
     (v/assert kb (list 'genl meat_t 'thing) 'CxUniverse)
-    (doseq [bad [(list 'interArgIsa someOf 1 carnivore_t)               ; four arguments
-                 (list 'interArgIsa someOf 0 carnivore_t 2 meat_t)      ; position 0
-                 (list 'interArgIsa someOf 1 carnivore_t 0 meat_t)
-                 (list 'interArgIsa someOf 1 carnivore_t 2 Muffet)]]      ; an individual
+    (doseq [bad [(list 'interArg someOf 1 carnivore_t)               ; four arguments
+                 (list 'interArg someOf 0 carnivore_t 2 meat_t)      ; position 0
+                 (list 'interArg someOf 1 carnivore_t 0 meat_t)
+                 (list 'interArg someOf 1 carnivore_t 2 Muffet)]]      ; an individual
       (is (= :not-well-formed
              (:type (try (v/assert kb bad 'CxUniverse) nil
                          (catch clojure.lang.ExceptionInfo x (ex-data x)))))
@@ -311,7 +311,7 @@
 
 (tu/deftest-kb the-conditional-declaration-entails-the-target-type
   ;; Under `*assertive-arg-types?*` the constraint reads as an entailment as well, exactly
-  ;; as strong as `argIsa`'s and drawn under the same condition it convicts on — so a
+  ;; as strong as `arg`'s and drawn under the same condition it convicts on — so a
   ;; dormant declaration entails nothing.
   (binding [checks/*assertive-arg-types?* true]
     (let [{:keys [carnivore meat eats]} (eats-world kb)]
@@ -322,9 +322,9 @@
         (let [w (v/why kb (v/handle-of kb (list meat Chunk) 'CxUniverse))
               j (first (:support w))]
           (is (= 1 (count (:support w))) "one justification, not one per settle")
-          (is (= 'interArgIsa (:informant j)))
+          (is (= 'interArg (:informant j)))
           (is (= #{(list eats Rex Chunk)
-                   (list 'interArgIsa eats 1 carnivore 2 meat)}
+                   (list 'interArg eats 1 carnivore 2 meat)}
                  (set (map :sentence (:because j))))
               "justified by the fact and the declaration, so retracting either takes it back"))
         (v/assert kb (list eats Nobody Other) 'CxUniverse)
@@ -346,7 +346,7 @@
         (v/assert kb s 'CxUniverse))
       (is (not (v/ask? kb (list meat_t Chunk) 'CxUniverse))
           "nothing to entail from yet")
-      (v/assert kb (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t) 'CxUniverse)
+      (v/assert kb (list 'interArg eatsOf 1 carnivore_t 2 meat_t) 'CxUniverse)
       (is (v/ask? kb (list meat_t Chunk) 'CxUniverse)
           "the declaration reaches back over the fact already stored"))))
 
@@ -358,11 +358,11 @@
     (tu/with-terms [carnivore_t meat_t eatsOf Rex Chunk]
       (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)
                  (list carnivore_t Rex)
-                 (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t)
+                 (list 'interArg eatsOf 1 carnivore_t 2 meat_t)
                  (list eatsOf Rex Chunk)]]
         (v/assert kb s 'CxUniverse))
       (is (v/ask? kb (list meat_t Chunk) 'CxUniverse))
-      (v/retract! kb (v/handle-of kb (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t)
+      (v/retract! kb (v/handle-of kb (list 'interArg eatsOf 1 carnivore_t 2 meat_t)
                                   'CxUniverse))
       (is (not (v/ask? kb (list meat_t Chunk) 'CxUniverse))
           "retracting the declaration withdraws what it entailed"))))
@@ -370,12 +370,12 @@
 (tu/deftest-kb a-derived-conclusion-violating-a-conditional-constraint-is-dropped
   ;; The derivation path cannot throw — a fixpoint that aborted mid-run would make belief
   ;; depend on firing order — so an argument-constraint violation there is dropped and
-  ;; reported, exactly as `argIsa`'s is.  `interArgIsa` joins that path or a rule becomes
+  ;; reported, exactly as `arg`'s is.  `interArg` joins that path or a rule becomes
   ;; a way around the check.
   (tu/with-terms [carnivore_t meat_t grass_t eatsOf feedsOf Rex Hay]
     (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)
                (list 'genl grass_t 'thing)
-               (list 'interArgIsa eatsOf 1 carnivore_t 2 meat_t)
+               (list 'interArg eatsOf 1 carnivore_t 2 meat_t)
                (list carnivore_t Rex) (list grass_t Hay)
                (list 'set/forwardRule (vr/rule-sentence [(list feedsOf '?a '?b)]
                                                         (list eatsOf '?a '?b)))]]

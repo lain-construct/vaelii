@@ -46,7 +46,7 @@
   (testing "binary and ternary"
     (is (v/isa? kb 'parentOf 'binaryPredicate))
     (is (v/isa? kb 'genl 'binaryPredicate))
-    (is (v/isa? kb 'argIsa 'ternaryPredicate)))
+    (is (v/isa? kb 'arg 'ternaryPredicate)))
   (testing "everything classified is a predicate, hence a thing"
     (is (v/isa? kb 'parentOf 'predicate))
     (is (v/isa? kb 'dog 'predicate))
@@ -65,7 +65,7 @@
     (is (seq (v/sentexes-matching kb '(arity awake 1) 'CxLife)))      ; a one-place property
     (is (seq (v/sentexes-matching kb '(arity parentOf 2) 'CxLife)))
     (is (seq (v/sentexes-matching kb '(arity siblingOf 2) 'CxLife)))  ; symmetric -> binary -> arity 2
-    (is (seq (v/sentexes-matching kb '(arity argIsa 3) 'CxCore))))
+    (is (seq (v/sentexes-matching kb '(arity arg 3) 'CxCore))))
   (testing "the derived arity is a claim of the context that declared the predicate,
             not of the vocabulary head — a private declaration stays private"
     (is (empty? (v/sentexes-matching kb '(arity parentOf 2) 'CxCore)))

@@ -166,12 +166,12 @@
 ;; ---- 5. the derivation path's own refusals -------------------------------
 
 (tu/deftest-kb a-conclusion-the-derivation-path-would-drop-is-reported-as-a-violation
-  ;; an `argIsa` conviction has no opposing sentex to weigh against, so the derivation
+  ;; an `arg` conviction has no opposing sentex to weigh against, so the derivation
   ;; path drops it — and a preview says so before the write happens
   (tu/with-terms [person rock parentOf looksLike Boulder Muffet CxStory]
     (v/assert kb (list 'genl person 'thing) CxStory)
     (v/assert kb (list 'genl rock 'thing) CxStory)
-    (v/assert kb (list 'argIsa parentOf 1 person) CxStory)
+    (v/assert kb (list 'arg parentOf 1 person) CxStory)
     (v/assert kb (list rock Boulder) CxStory)
     (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory)
     (let [before (content kb)

@@ -64,11 +64,11 @@ lazy answer stream under a budget (`:max-ms` / `:max-results` / `:max-cost` /
 `:max-depth`) and report whether it ran to `:complete` or was cut short. The
 unrealized tail is the resumable continuation. See [anytime.md](anytime.md).
 
-**`argIsa`** ![kb](../.github/badges/cat-kb.svg): An argument-type constraint.
-`(argIsa pred n type)` requires the *n*-th argument of every `pred` fact to have
+**`arg`** ![kb](../.github/badges/cat-kb.svg): An argument-type constraint.
+`(arg pred n type)` requires the *n*-th argument of every `pred` fact to have
 a type whose genl closure reaches `type`. Open-world and context-scoped. See
-[taxonomy.md](taxonomy.md). `interArgIsa` is the **conditional** form —
-`(interArgIsa pred n T m U)` requires argument *m* to be a `U` only when argument *n* is
+[taxonomy.md](taxonomy.md). `interArg` is the **conditional** form —
+`(interArg pred n T m U)` requires argument *m* to be a `U` only when argument *n* is
 a `T` — and it reads open-world in *both* directions at once: an unestablished trigger
 leaves it dormant, an unreachable target convicts. See [argtypes.md](argtypes.md).
 
@@ -498,6 +498,12 @@ variables) at any depth. The believed-literal *match* is `sentexes-matching`, wh
 different question and returns sentexes. See [api.md](api.md),
 [inference.md](inference.md).
 
+**`quotedArg`** ![kb](../.github/badges/cat-kb.svg): An argument-type constraint on the
+argument **as a term** — its EDN kind (`string`, `number` with `integer` below it,
+`symbol`) checked against a syntactic type, the mention twin of `arg`. `(quotedArg
+nameOfGuy 1 string)` refuses `(nameOfGuy 5)`; checked, never entailed. See
+[argtypes.md](argtypes.md).
+
 ## R
 
 **Range restriction** ![kb](../.github/badges/cat-kb.svg): The rule
@@ -694,7 +700,7 @@ none. See [canonicalization.md](canonicalization.md).
 
 **`violations`** ![inference](../.github/badges/cat-inference.svg): The
 accumulating ledger of conclusions *dropped* on the derivation path — a failed
-argIsa / disjoint / functional check, a placement-less firing, or a derived
+arg / disjoint / functional check, a placement-less firing, or a derived
 cycle through negation — recorded rather than thrown. Four groups drop nothing
 and report: the **cross-context** clashes neither writer could see (`:disjoint`,
 `:functional` and `:asymmetric`, each carrying `:visible-from`, and the latter two
@@ -721,7 +727,7 @@ scoped. See [contexts.md](contexts.md).
 
 **WFF (well-formedness)** ![kb](../.github/badges/cat-kb.svg): The structural
 checks `assert` runs before storing — that `genl`/`genlCx`, `disjoint`,
-`argIsa`, and the equality relations are shaped right and acyclic, plus rule
+`arg`, and the equality relations are shaped right and acyclic, plus rule
 stratification. See [naming.md](naming.md).
 
 **`why` / `why-not`** ![tms](../.github/badges/cat-tms.svg): Introspection.

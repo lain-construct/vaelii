@@ -129,7 +129,7 @@ for?* (`vaelii.impl.provers/cost-tiers`):
 - `:lookup` — a bounded single-step retrieval: an O(1) ground test (reflexive,
   `evaluate`, `different`, the evaluable and quantity comparisons), a cached closure /
   metadata read (genl/genlCx transitivity, disjointness, predicate-type,
-  argIsa-type), or one index hit (facts, symmetric, inverse). All three are one bounded
+  arg-type), or one index hit (facts, symmetric, inverse). All three are one bounded
   step, lazy to the first result, and no decision turns on which of the three it is, so
   they fold into one tier. Twelve of the shipped provers sit here.
 - `:compute` — work over stored facts before the first answer, and five provers claim

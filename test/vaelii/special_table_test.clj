@@ -39,7 +39,7 @@
   (let [f (fn [_ _ _])]
     (testing "the full cache triple passes"
       (is (special/check-entries [['okPred {:integrate f :disintegrate f :rebuild f}]])))
-    (testing "a wff-only entry passes — argIsa and different maintain no cache"
+    (testing "a wff-only entry passes — arg and different maintain no cache"
       (is (special/check-entries [['okPred {:wff f}]])))))
 
 (deftest the-live-table-passes-its-own-check
@@ -59,7 +59,7 @@
     (doseq [f '[rewriteOf sameAs equals]]
       (is (contains? special/table f) (str f " missing from the table"))))
   (testing "the wff-only vocabulary is dispatched through the same table"
-    (doseq [f '[argIsa different]]
+    (doseq [f '[arg different]]
       (is (contains? special/table f) (str f " missing from the table")))))
 
 (deftest the-property-kinds-marked-and-the-ones-specced-are-the-same-set

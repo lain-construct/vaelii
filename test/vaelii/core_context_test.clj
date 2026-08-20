@@ -11,7 +11,7 @@
 
 (tu/deftest-kb core-predicates-are-documented
   (testing "every core predicate has a comment sentex in CxCore"
-    (doseq [term '[thing genl genlCx argIsa comment implies]]
+    (doseq [term '[thing genl genlCx arg comment implies]]
       (is (= 1 (count (core-context/comment-of kb term))) (str "comment for " term))
       (is (string? (first (core-context/comment-of kb term))))))
   (testing "comments are ordinary sentexes living in CxCore"
@@ -28,8 +28,8 @@
       (is (string? (first (core-context/comment-of kb term)))))))
 
 (tu/deftest-kb argisa-constraints-are-enforced-on-assert
-  ;; argIsa is a core predicate the engine interprets, so a constraint on it is checked
-  ;; on assert.  (The starter's domain argIsa live in the upper CxRelation now, not
+  ;; arg is a core predicate the engine interprets, so a constraint on it is checked
+  ;; on assert.  (The starter's domain arg live in the upper CxRelation now, not
   ;; the vocabulary head, so this defines its own vocabulary — wiring a data context to
   ;; see CxCore directly, since a CxCore-only KB has no spindle bands.)
   (let [animal (tu/tmp-type) rock (tu/tmp-type) kin (tu/tmp-pred)
@@ -37,10 +37,10 @@
     (v/assert kb '(genlCx CxData CxCore) 'CxUniverse)   ; a data context that sees core
     (v/assert kb (list 'genl animal 'thing) 'CxCore)
     (v/assert kb (list 'genl rock   'thing) 'CxCore)
-    (v/assert kb (list 'argIsa kin 1 animal) 'CxCore)                  ; the constraint
+    (v/assert kb (list 'arg kin 1 animal) 'CxCore)                  ; the constraint
     (v/assert kb (list animal tom)    'CxData)
     (v/assert kb (list rock   boulder) 'CxData)
-    (testing "the argIsa constraint applies on assert"
+    (testing "the arg constraint applies on assert"
       (is (v/assert kb (list kin tom tom) 'CxData))                    ; tom is an animal: OK
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list kin boulder tom) 'CxData))))))   ; a rock is not an animal

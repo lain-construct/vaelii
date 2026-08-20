@@ -19,7 +19,7 @@
   declaration over anything else is refused at assert
   (`wff/arg-preserving-problems`): the reach is walked to a fixpoint, so a relation
   that was never said to compose would have transitivity *manufactured* for it, and
-  `(argIsa transitiveInArg 3 transitive)` cannot say so — argIsa is
+  `(arg transitiveInArg 3 transitive)` cannot say so — arg is
   open-world, and an untyped relation cannot violate it.  Naming the relation is what
   keeps this from being a `genl` special case: an argument can equally be preserved
   along `partOf`, `connectedTo`, or anything else transitive.  The inverse form exists
@@ -128,8 +128,8 @@
   tax/closure-relations)
 
 ;; ---- the declared positions ---------------------------------------------
-;; Read as ordinary stored sentexes through `matches-visible`, exactly as `argIsa` and
-;; `argGenl` are — so they are context-scoped and belief-following with no cache of
+;; Read as ordinary stored sentexes through `matches-visible`, exactly as `arg` and
+;; `genlArg` are — so they are context-scoped and belief-following with no cache of
 ;; their own, and a retracted declaration stops applying the moment it stops being
 ;; believed.
 

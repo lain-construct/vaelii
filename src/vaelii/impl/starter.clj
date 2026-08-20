@@ -11,7 +11,7 @@
                                 their kinds) + the structural relations partOf/locatedIn.
         - CxOrganism.txt — the biological taxonomy + its disjointness.
         - CxLife.txt     — the organism relations (parentOf, siblingOf, flies,
-                                mortal, birthYearOf, olderThan, …) with argIsa + metadata.
+                                mortal, birthYearOf, olderThan, …) with arg + metadata.
         - CxSociety.txt  — the social relations (marriedTo, likes, owns).
         - CxMeasure.txt  — the theory of measurement: the two measure terms, the
                                 dimensionOf/conversionFactor table with the units that

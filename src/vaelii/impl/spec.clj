@@ -26,12 +26,13 @@
   (`genls`, `context-up`, …) are specced too, since a wrong-arity call to one of
   them is exactly the kind of mistake instrumentation should surface early.
 
-  **Thirteen publics that take an option map are outside it**, and instrumenting says
+  **Fourteen publics that take an option map are outside it**, and instrumenting says
   nothing about their arguments: the batch writes (`assert-many`,
   `bulk-assert-facts!`), the fork and the two consequence readers over it (`fork`,
   `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`),
-  the two search-back reads (`search-tree`, `compare-tacticians`), and `check`,
-  `abduce`, `kb-quality`, `clear-caches`.  A roster test in
+  the two search-back reads (`search-tree`, `compare-tacticians`), the four-valued
+  epistemic-status read (`argue`), and `check`, `abduce`, `kb-quality`, `clear-caches`.
+  A roster test in
   `vaelii.spec-test` holds that list against `vaelii.core`'s own arglists, so the
   gap is a set somebody has to edit rather than a claim that goes stale in silence:
   a public that grows an option map, or arrives with one, fails that test until it
@@ -103,16 +104,18 @@
 
 ;; Every kind the special table marks, and `special-table-test` holds the two together:
 ;; a kind the engine records and this set omits is a legal `has-prop?` call that
-;; instrumentation refuses.  `:reifiable` / `:unreifiable` are a *function*'s kind rather
-;; than a predicate's, which `::term` admits either way; the three `:declares-*` say that
-;; a predicate is the **subject** of an argument constraint rather than that it carries a
-;; property, which is what lets the descension ask whose declarations bind a tuple
-;; without an index probe per super-predicate (`taxonomy/arg-declaration-props`).
+;; instrumentation refuses.  `:reifiable` / `:unreifiable` / `:quoting` / `:context-denoting`
+;; are a *function*'s kind rather than a predicate's, which `::term` admits either way; the
+;; four `:declares-*` say that a predicate is the **subject** of an argument constraint
+;; rather than that it carries a property, which is what lets the descension ask whose
+;; declarations bind a tuple without an index probe per super-predicate
+;; (`taxonomy/arg-declaration-props`).
 (s/def ::prop-kind #{:transitive :symmetric :asymmetric :reflexive :functional
                      :irreflexive :anti-symmetric
-                     :decontextualized :forced-decontextualized
-                     :abducible :reifiable :unreifiable
-                     :declares-arg-isa :declares-arg-genl :declares-inter-arg-isa})
+                     :decontextualized :forced-decontextualized :target-following
+                     :abducible :reifiable :unreifiable :quoting :context-denoting :modal
+                     :declares-arg-isa :declares-arg-genl :declares-quoted-arg
+                     :declares-inter-arg-isa})
 
 ;; ---- the sentex-map return contract -------------------------------------
 ;; `query` / `sentex` / the extent readers return sentex records, which are maps.
@@ -354,7 +357,7 @@
   `clojure.spec.test.alpha/instrument` / `unstrument`.  This is the single-item
   shape-carrying surface: everything that takes a handle, context, level, strength
   or direction, the option and budget maps those carry, plus the taxonomy and
-  equality reads.  The thirteen opts-taking publics it does **not** reach are named in
+  equality reads.  The fourteen opts-taking publics it does **not** reach are named in
   this namespace's docstring and pinned by `vaelii.spec-test`."
   '[vaelii.core/open-kb
     vaelii.core/assert

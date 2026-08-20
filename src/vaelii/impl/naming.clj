@@ -4,7 +4,7 @@
   "KB naming invariants, as predicates over symbols — and the walk that applies them to
   every **literal** of a sentence rather than to its outermost functor alone.
 
-    predicate    camelCase, lowercase-initial, no underscore   parentOf, genl, argIsa
+    predicate    camelCase, lowercase-initial, no underscore   parentOf, genl, arg
     individual   CapitalCamelCase                               Muffet, Tom
     type         snake_case, lowercase, unary predicate         dog, physical_object
     sense        a type, plus which sense of it is meant        abrasive-grit
@@ -58,8 +58,23 @@
   [x]
   (and (symbol? x) (= lexeme-namespace (namespace x))))
 
-(defn context?    [x] (and (symbol? x) (not (lexeme? x))
-                           (some? (re-matches #"Cx[A-Z][A-Za-z0-9]*" (nm x)))))
+(def context-namespace
+  "Reserved namespace of a reified **context** constant (`vaelii.impl.nat`,
+  docs/context-nat.md) — a `cx/` symbol is a context by the same spelling-only rule as a
+  `Cx…` name.  Duplicated here as a literal rather than required from `vaelii.impl.nat`
+  (which requires *this* namespace) so the role predicates stay dependency-free."
+  "cx")
+
+(defn context?
+  "A context: a `Cx…` CapitalCamelCase name, or a reified context constant in the `cx/`
+  namespace.  Both decided by spelling alone — role-reading never consults belief
+  (docs/naming.md), which is why a reified *context* NAT carries its own namespace rather
+  than a `(context K)` mark a `context?` would have to look up."
+  [x]
+  (and (symbol? x) (not (lexeme? x))
+       (or (= context-namespace (namespace x))
+           (some? (re-matches #"Cx[A-Z][A-Za-z0-9]*" (nm x))))))
+
 (defn individual? [x] (and (symbol? x) (not (lexeme? x))
                            (some? (re-matches #"[A-Z][A-Za-z0-9]*" (nm x)))
                            (not (context? x))))
@@ -440,7 +455,7 @@
 
       :functor
       (str "functor " (pr-str symbol) " in " where " matches no naming convention: a"
-           " predicate is camelCase (parentOf, argIsa), a type is snake_case"
+           " predicate is camelCase (parentOf, arg), a type is snake_case"
            " (physical_object) or a sense (abrasive-grit), and a type is only unary")
 
       :lexeme-functor

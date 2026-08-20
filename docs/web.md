@@ -176,7 +176,7 @@ says nothing about contexts, so the three type lines there are empty and the pic
 only thing on the page that shows the lattice at all.
 
 **What is and is not an edge**, stated rather than left to fall out of the code. Binary
-facts only — a ternary `(argIsa parentOf 1 person)` relates three things and an arrow
+facts only — a ternary `(arg parentOf 1 person)` relates three things and an arrow
 between two of them drops the position it was about. Positive only — `(not (P a b))` says
 the relation does not hold and an arrow says the opposite. **Believed** only, like the `/`
 trees, which is why a defeated edge leaves the picture while its row stays in the list
@@ -402,7 +402,7 @@ the one that lasts:
 **And the second condition is read-only.** The banner explains an *answer*; a write into
 the same state is a different matter, because an answer can be re-asked and a record the
 store keeps cannot be taken back. Every definitional check the assert door runs — arity,
-argIsa, argGenl, interArgIsa, declaration consistency, disjointness, functionality,
+arg, genlArg, interArg, declaration consistency, disjointness, functionality,
 asymmetry — reads `jtms/in?`, so over an empty network all of them match nothing and pass
 vacuously, and nothing re-runs them afterwards: `recover` does not, and its closing settle
 binds `settle/*rebuilding?*`, which turns the exposure pass off. So a KB in this state

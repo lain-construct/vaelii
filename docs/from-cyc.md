@@ -24,7 +24,7 @@ third column is the one to read.
 | collection | a type, which is a **unary predicate** | `(dog Muffet)`, never `(isa Muffet Dog)` |
 | `genls` | `genl` | |
 | `genlPreds` | `genl` | one relation for both, because a type *is* a predicate here |
-| `arg1Isa` / `arg2Isa` | `(argIsa P 1 T)` | the position is an argument, so there is no per-position predicate to learn |
+| `arg1Isa` / `arg2Isa` | `(arg P 1 T)` | the position is an argument, so there is no per-position predicate to learn |
 | don't-care variable `??` | a head existential `(exists ?y C)` | syntactic rather than a naming convention, and skolemized to a deterministic NAT on firing → [skolem.md](skolem.md) |
 | `wff?` | `check` | returns a vector of problem maps rather than a verdict, so it says *what* is wrong |
 | rename | — | no equivalent. `sameAs` / `rewriteOf` **merge** two terms onto an elected representative and mark the displaced spelling superseded, which is a different act → [equality.md](equality.md) |
@@ -36,7 +36,7 @@ decides which; an underscore commits the name to arity 1.
 
 ## What a Cyclist's habits do here
 
-**`argIsa` is a gate first.** `(argIsa parentOf 1 animal)` — the shipped ontology's own
+**`arg` is a gate first.** `(arg parentOf 1 animal)` — the shipped ontology's own
 declaration — refuses `(parentOf Fern Mary)` where `Fern` is a `plant`: `ex-info` with
 `:type :arg-type`, exactly as Cyc's constraint would refuse it. What convicts is that the
 hierarchy **places** `Fern` and the place it puts him does not reach `animal`. The
@@ -58,7 +58,7 @@ sentex that retracts like any conclusion. See [argtypes.md](argtypes.md).
 **Undeclared is unconstrained — which is not the same as unchecked.** No predicate has to
 be declared before use, so `(fghgwgads 212)` stores and a typo is the same bug class as a
 predicate nobody has gotten to yet. But as soon as declarations exist they bind: `assert`
-refuses on arity, `argIsa`, `argGenl`, `interArgIsa`, disjointness, asymmetry and
+refuses on arity, `arg`, `genlArg`, `interArg`, disjointness, asymmetry and
 functionality, on top of the naming, groundness, structural and stratification checks it
 always runs. `check` reports the lot without storing → [api.md](api.md).
 
@@ -109,7 +109,7 @@ Cyc's three modes, and what each maps to:
 
 One naming collision to hold: `vaelii.impl.wff` is narrower than Cyc's "WFF". It is the
 **structural** check on the special predicates — `genl` and `genlCx` acyclicity, the
-shape of `disjoint`, `argIsa`, `argGenl` and `inverse` — and throws `:not-well-formed`.
+shape of `disjoint`, `arg`, `genlArg` and `inverse` — and throws `:not-well-formed`.
 The content constraints above are a separate stage. `check` runs both.
 
 ## The contexts you already have names for
@@ -192,7 +192,7 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - Anytime inference on a budget: `ask-within`, `prove-within`, `resume` → [anytime.md](anytime.md)
 - Reactive queries: `(v/watch kb goal context f)` → [feed.md](feed.md)
 - Abduction: `(v/abduce kb goal context opts)`, hypotheses minted as defeasible premises in a scratch context → [abduction.md](abduction.md)
-- `argIsa` and `interArgIsa` → [argtypes.md](argtypes.md)
+- `arg` and `interArg` → [argtypes.md](argtypes.md)
 - One equality partition behind `rewriteOf` / `sameAs` / `equals` → [equality.md](equality.md)
 - Defeasible defaults with exceptions → [exceptions.md](exceptions.md)
 - Polycanonicalization, so a conjunctive consequent becomes one rule per conjunct

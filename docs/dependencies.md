@@ -2,6 +2,6 @@
 # Dependency status
 
 Outdated `project.clj` dependencies as reported by `lein antq`. Last
-checked **2026-08-14**; regenerate with `scripts/update-badges.sh --deps`.
+checked **2026-08-20**; regenerate with `scripts/update-badges.sh --deps`.
 
 All dependencies are up to date. ✅

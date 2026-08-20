@@ -1,10 +1,10 @@
 # Taxonomy: types, genl, and disjointness
 
 - **Covers:** how the `genl` type hierarchy is cached and queried, how `disjoint` /
-  `disjointMetatype` are enforced, and how `argIsa` / `argGenl` constrain arguments as a
+  `disjointMetatype` are enforced, and how `arg` / `genlArg` constrain arguments as a
   rejection check.
 - **Not here:** `genlCx`, the sibling closure over contexts rather than types →
-  [contexts.md](contexts.md); `argIsa` / `argGenl` read as an entailment that mints a
+  [contexts.md](contexts.md); `arg` / `genlArg` read as an entailment that mints a
   stored, justified fact → [argtypes.md](argtypes.md).
 - **Assumes:** sentex, context, belief, justification → [glossary.md](glossary.md).
 
@@ -34,7 +34,7 @@ at `thing`. We cache the reflexive-transitive closure both ways:
 
 ### Three uses of genl
 
-1. **Arg constraints.** `(argIsa pred n type)` sentexes constrain arguments;
+1. **Arg constraints.** `(arg pred n type)` sentexes constrain arguments;
    `assert` checks arg *n* with `isa?` (does the arg have a type whose `genls`
    reaches the constraint). Open-world: an untyped arg can't violate.
 2. **Specificity.** Matching a unary type predicate fans out over `specs`, so an
@@ -114,7 +114,7 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 | `arity` `inverse` | the arity and inverse caches | `:derived?` |
 | `transitive` `symmetric` `asymmetric` `reflexive` `functional` `forcedDecontextualizedPredicate` `abduciblePredicate` `reifiableFunction` `unreifiableFunction` | the predicate-metadata marks | `:derived?` |
 | `rewriteOf` `sameAs` `equals` | the equality partition, and migration | by name — the arm's return value is the twins and the violations, which `:derived?` would discard ([equality.md](equality.md)) |
-| `argIsa` `argGenl` `interArgIsa` | the roster of predicates some declaration of that kind names (`:declares-arg-isa` / `:declares-arg-genl` / `:declares-inter-arg-isa`), and the declarations themselves read back through the index per query | `:derived?` — the roster is what lets the descension ask *whose* declarations bind a tuple without an index probe per super-predicate |
+| `arg` `genlArg` `interArg` | the roster of predicates some declaration of that kind names (`:declares-arg-isa` / `:declares-arg-genl` / `:declares-inter-arg-isa`), and the declarations themselves read back through the index per query | `:derived?` — the roster is what lets the descension ask *whose* declarations bind a tuple without an index probe per super-predicate |
 | `transitiveInArg` `transitiveInArgInverse` `functionCorrespondingPredicate` | none — read back through the index per query | nothing to reach |
 | `different` `unknown` `thereExists`, the five aggregates | none — never stored | nothing to reach: `wff` refuses the conclusion on the derivation path exactly as it refuses the assertion |
 
@@ -554,7 +554,7 @@ admits every non-variable symbol, so the predicate meta-ontology is enforced the
 way the domain is: `(relationKind …)` is a `disjointMetatype` over
 `instanceRelationPredicate` and `typeRelationPredicate`, and a predicate declared both
 is refused exactly as `Muffet` being both a `dog` and a `cat` is. The same widening makes
-`argIsa` constrain predicate-valued positions — `(argIsa typeToInstancePred 1
+`arg` constrain predicate-valued positions — `(arg typeToInstancePred 1
 typeRelationPredicate)` refuses a link whose first argument is not classified
 type-level. Numbers, strings and compounds stay outside both checks, since no type
 membership can be asserted of one (a NAT reifies to its constant first, so a reified
@@ -1016,7 +1016,7 @@ Predicates are **reified** and classified in the genl hierarchy under `predicate
 (itself a `thing`):
 
 - by arity — `unaryPredicate` (every type, plus one-place properties like `flies`),
-  `binaryPredicate` (relations like `parentOf`), `ternaryPredicate` (`argIsa`);
+  `binaryPredicate` (relations like `parentOf`), `ternaryPredicate` (`arg`);
 - by algebra — `symmetric` / `asymmetric` / `transitive` / `reflexive` / `functional`,
   each a subtype of `binaryPredicate`.
 
@@ -1029,7 +1029,7 @@ seen KB-wide (the definitional reads and the structural ones agree), while a bar
 it in its declaring context. Arity memberships are likewise direct (every genl type is
 looped into `unaryPredicate`). So `isa? siblingOf symmetric`, `isa? siblingOf
 binaryPredicate`, and `isa? siblingOf predicate` all hold, and `isa? dog unaryPredicate` /
-`isa? argIsa ternaryPredicate`.
+`isa? arg ternaryPredicate`.
 
 Because the mark is a stored fact, `ask (symmetric ?p)` enumerates the declared predicates
 by ordinary retrieval — the same answer `isa?` reads, from the same store, with no separate
@@ -1046,25 +1046,25 @@ Before storing, `assert` checks the special predicates are structurally sound:
   equal, and don't create a cycle (the reverse relation must not already hold).
 - `disjoint` / `disjointMetatype` — arguments are types; two genl-related types can't
   be declared disjoint (one contains the other, so they overlap).
-- `argIsa` / `argGenl` — a predicate, a positive-integer position, and a type. One
+- `arg` / `genlArg` — a predicate, a positive-integer position, and a type. One
   check serves both (`wff/arg-constraint-problems`): they are structurally identical
   and differ only in what they demand of the argument, which is `checks`' business.
 
 These are structural checks; the *content* check that an argument actually reaches its
-`argIsa` type is `checks/constraint-checks`.
+`arg` type is `checks/constraint-checks`.
 
 ## Two argument constraints
 
-`(argIsa P n T)` asks argument *n* to be an **instance** of T; `(argGenl P n T)` asks
-it to be a **subtype** — `argIsa` one level up. An `instanceRelationPredicate` takes
+`(arg P n T)` asks argument *n* to be an **instance** of T; `(genlArg P n T)` asks
+it to be a **subtype** — `arg` one level up. An `instanceRelationPredicate` takes
 the first, a `typeRelationPredicate` the second, and the same symbol answers them
-differently: `penguin` satisfies `(argGenl partType 1 physical_object)` and fails
-`(argIsa partOf 1 physical_object)`, which is exactly the distinction between a claim
+differently: `penguin` satisfies `(genlArg partType 1 physical_object)` and fails
+`(arg partOf 1 physical_object)`, which is exactly the distinction between a claim
 about a kind and a claim about a thing.
 
 **A constraint on a predicate binds its sub-predicates' tuples.** `(genl fatherOf
 parentOf)` says every `fatherOf` tuple *is* a `parentOf` tuple, and a tuple set only
-narrows going down — so `(argIsa parentOf 1 person)` refuses `(fatherOf TheRock1 Mary)`
+narrows going down — so `(arg parentOf 1 person)` refuses `(fatherOf TheRock1 Mary)`
 exactly as it refuses the same claim spelled `parentOf`. It has to: the matcher fans a
 goal's functor over its subtypes, so a stored sub-predicate fact answers every
 super-predicate query, and a refusal readable through only one of the two spellings
@@ -1099,7 +1099,7 @@ convict harder the less a context sees.
 `checks/arity-problem` holds a sentence to the arity its predicate is **bound** to —
 from `(arity P N)` or from a `unaryPredicate` / `binaryPredicate` / `ternaryPredicate`
 membership, which the CxCore rules derive from each other, so either spelling binds, and
-from a super-predicate's where the predicate declares nothing of its own (below). The **top literal only**, exactly like `argIsa`: a rule reaches the check as its
+from a super-predicate's where the predicate declares nothing of its own (below). The **top literal only**, exactly like `arg`: a rule reaches the check as its
 `implies` form, whose own arity is 2 and is checked as such, and its antecedents are
 not. Open-world in the same shape — a predicate the KB has never declared can be used
 at any arity, since the declaration may simply not have arrived.
@@ -1136,7 +1136,7 @@ message names both predicates, both lengths, and the two ways out:
 
 A specialization therefore does not carry a signature of its own. This is the one point
 where an arity constraint is stricter than the argument constraints beside it, and the
-reason is that a length cannot be narrowed: `argIsa` on a sub-predicate *adds* to what
+reason is that a length cannot be narrowed: `arg` on a sub-predicate *adds* to what
 the super demands of a tuple, while a second length says the two tuple sets are one set
 and are shaped differently, which is not a stricter claim but an unmeanable one. Own
 declarations only, on both sides — what a predicate inherits is what the descension is
@@ -1151,11 +1151,11 @@ downward can never make a child answer both an inherited and an explicit value.
 
 ### The declarations are checked against each other
 
-`checks/declaration-problem` runs on an `argIsa` / `argGenl` sentence itself, not on
+`checks/declaration-problem` runs on an `arg` / `genlArg` sentence itself, not on
 the content it constrains, and refuses two ways one can contradict what the KB
 already says about its predicate:
 
-- **A position the predicate does not have** — `(argIsa parentOf 5 animal)` where
+- **A position the predicate does not have** — `(arg parentOf 5 animal)` where
   `parentOf` is declared binary. The constraint would never fire, so it reads as
   enforced while enforcing nothing. The arity comes from `(arity P N)` or from a
   `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` membership; the CxCore
@@ -1167,13 +1167,13 @@ already says about its predicate:
   while the same KB admits those very facts is the reading no arrival order makes
   coherent. The release is read off the predicate's **own** memberships, since
   `checks/inherited-arity` already declines to bind when a super carries the mark.
-- **A constraint disagreeing with the predicate's `relationKind`** — `argGenl` on an
-  `instanceRelationPredicate`, or `argIsa` on a `typeRelationPredicate`.
+- **A constraint disagreeing with the predicate's `relationKind`** — `genlArg` on an
+  `instanceRelationPredicate`, or `arg` on a `typeRelationPredicate`.
 
 **Both constraints on one position is not one of them**, and it is the case worth naming
 because the opposite reads plausible: one asks the argument to be an instance of a type
-and the other a subtype of a type, and a *type* is routinely both. `(argIsa P 2
-collection)` beside `(argGenl P 2 animal)` says the slot holds a kind of animal, and
+and the other a subtype of a type, and a *type* is routinely both. `(arg P 2
+collection)` beside `(genlArg P 2 animal)` says the slot holds a kind of animal, and
 `dog` satisfies it — an instance of `collection`, a subtype of `animal`, which is how a
 converted ontology ordinarily declares a type-valued position. The two checks are
 independent and each is open-world on its own, so declaring both narrows the slot rather
@@ -1185,10 +1185,10 @@ declarations themselves: a second, different arity for one predicate is a clash 
 than a second belief, and since two numbers can never merge it is the hard rejection
 rather than an inferred equality.
 
-`argIsa` reads **two ways**: as a *constraint* when asserting (`checks/args-problem`
+`arg` reads **two ways**: as a *constraint* when asserting (`checks/args-problem`
 rejects a wrongly-typed argument), and as an *inference* when querying — the
 `ArgTypeProver` (see [inference.md](inference.md)) concludes an individual's type
-from the argIsa-constrained position it fills, so a thing's type can follow from
+from the arg-constrained position it fills, so a thing's type can follow from
 how it is used, not only from a stored membership.
 
 ## What is cached, what is not, and why
@@ -1262,7 +1262,7 @@ stored and always will until somebody decides a wrong-arity fact may be admitted
 | `functional` | refuses, or arbitrates | reaches back as a nogood under `:arbitrate`, over the spec subtree of the predicate it names and not that predicate alone | two values to weigh |
 | `asymmetric` | refuses `:monotonic`, arbitrates `:default` | same | the converse is the second side |
 | `arity` | **refuses, under either policy** | **reaches back and reports** — one `:arity` entry per convicted predicate of the swept subtree, carrying `:count`, a `:sample`, `:via` and the declaration in `:declared-after`, and at most **8** of them for one pass, past which an `:arity-report-truncated` entry counts the rest | names a second sentex, but it is the *vocabulary* one |
-| `argIsa` / `argGenl` / `interArgIsa` | refuses | **nothing** | convicted by an absence; no second sentex at all |
+| `arg` / `genlArg` / `interArg` | refuses | **nothing** | convicted by an absence; no second sentex at all |
 | a predicate-level `genl` edge, under an *argument* constraint above it | refuses what follows | **nothing** — the entailment reaches back, the refusal does not | the family's non-reach, one ingredient further out |
 | a predicate-level `genl` edge, under a `functional` / `asymmetric` mark above it | refuses what follows, on the marked predicate's terms — `tax/props-over` reads the mark at every predicate above the sentence's own functor | the edge is admitted, neither mark refusing one, and it reaches back over the sub's stored facts: a nogood under `:arbitrate`, a cross-context exposure entry under `:refuse`, and the merges a `functional` mark now licenses (`special/equate-under-edge`) | the sub's tuples *are* the super's, so a clash among them is the super's |
 | a predicate-level `genl` edge, under an **arity** above it | refuses what follows | **reports** — the edge binds the sub-predicate's length, so it files the same `:arity` entry a declaration would, `:via` naming the super | a binding is a binding whichever of the three ingredients supplied it |
@@ -1281,7 +1281,7 @@ predicate carrying its own declaration, *takes 2 arguments through `parentOf`* f
 whose length descends, since crediting a predicate with a declaration nobody wrote sends
 an author looking for it.
 
-**`argIsa` and its family have no retroactive reach.** A constraint arriving after a fact
+**`arg` and its family have no retroactive reach.** A constraint arriving after a fact
 whose argument is the wrong type does not reach back over it. It is the one family that
 **cannot** become a nogood — the conviction rests on the *absence* of a path to the
 constraint type, which is open-world negation as failure, so there is no second sentex to
@@ -1291,7 +1291,7 @@ merely silence. That is a policy question nobody has answered, and answering it 
 accident in a sweep would quietly turn an open-world check into a closed-world one.
 
 **The descension makes it a third ingredient rather than a second**, and the non-reach
-covers that one too. `(fatherOf TheRock1 Mary)` stored, `(argIsa parentOf 1 person)`
+covers that one too. `(fatherOf TheRock1 Mary)` stored, `(arg parentOf 1 person)`
 stored, then `(genl fatherOf parentOf)`: the edge is admitted, the fact it now convicts
 stays stored and believed, nothing is reported, and the next such claim is refused. That
 is the same reading the row above it takes, one ingredient further out — the conviction
@@ -1300,7 +1300,7 @@ the entailment, which is a different question and answered in
 [argtypes.md](argtypes.md): a minted type is justified content, so it has to exist in
 every arrival order or belief would depend on which.
 
-**A declaration the arity strands is a census finding, not a ledger one.** `(argIsa
+**A declaration the arity strands is a census finding, not a ledger one.** `(arg
 parentOf 3 person)` is admitted while `parentOf` has no declared length, because the
 highest position a declaration names is a lower bound on the arity rather than a claim
 about it. When a length arrives — declared of the predicate, or inherited through a
@@ -1320,11 +1320,11 @@ reading names them. Cheaper there, too: the census enumerates the declarations, 
 vocabulary and therefore few, where a settle-side sweep would probe every predicate of a
 subtree per write.
 
-`interArgIsa` inherits that argument verbatim, and shows the other side of the same gap. A
+`interArg` inherits that argument verbatim, and shows the other side of the same gap. A
 conditional constraint has **three** ingredients, not two — the fact, the declaration, and
 the trigger argument's type — and it is the *third* arriving last that nothing reaches:
-`(eats Rex Chunk)` and `(interArgIsa eats 1 carnivore 2 meat)` both stored, then
-`(carnivore Rex)`, and the violation `Chunk` now commits goes unreported. `argIsa` has
+`(eats Rex Chunk)` and `(interArg eats 1 carnivore 2 meat)` both stored, then
+`(carnivore Rex)`, and the violation `Chunk` now commits goes unreported. `arg` has
 exactly this, less visibly: an argument that acquires its first type after the fact was
 admitted was excused by open-world when it was written and is not re-examined. Both are the
 same non-reach, and closing either means answering the policy question above.
@@ -1348,7 +1348,7 @@ vocabulary read independent of the belief the nogood moves.
 **And it reaches back through the hierarchy and through visibility, because that is where
 the binding comes from.** A length binds a predicate through its own declaration *or*
 through a super-predicate's, and every one of those is read *from a context* — so `arity`
-has **four** ingredients where `interArgIsa` has three: the fact, the declaration, the
+has **four** ingredients where `interArg` has three: the fact, the declaration, the
 `genl` edge that inherits one, and the `genlCx` edge that lets a vantage see either. The
 report fires on whichever arrives last. Three of the four name a predicate, and there the
 sweep reads the **spec subtree** of what it triggered on rather than one predicate's

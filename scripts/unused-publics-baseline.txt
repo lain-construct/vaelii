@@ -25,6 +25,7 @@ vaelii.impl.asp.label/label-dilemmas  # REACHED quoted-symbol registry, impl/imp
 vaelii.impl.asp.label/program-of-dilemma  # UNCALLED the test defines its own private one
 vaelii.impl.asp.solve-context/classify  # REACHED quoted-symbol registry, impl/imperative.clj
 vaelii.impl.disk.durability/stop!  # UNCALLED
+vaelii.impl.koinii.channel/writer-order  # REACHED doc affordance — a docstring-only def of koinii's D7 consistency model (value unread), discoverable via (doc)
 vaelii.impl.sentex/ist  # UNCALLED
 vaelii.impl.web/dev-repl  # REACHED requiring-resolve in project.clj's :browser :init
 vaelii.test-util/with-fresh  # UNCALLED

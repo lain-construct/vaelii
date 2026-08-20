@@ -217,7 +217,7 @@
     (is (empty? (nm/problems '(inverse parentOf childOf) 'CxWell))))
   (testing "what names nothing is not judged: numbers, strings, variables"
     (is (empty? (nm/problems '(arity penguin 1) 'CxWell)))
-    (is (empty? (nm/problems '(argIsa eats 1 animal) 'CxWell)))
+    (is (empty? (nm/problems '(arg eats 1 animal) 'CxWell)))
     (is (empty? (nm/problems '(comment penguin "A flightless bird.") 'CxWell)))
     (is (empty? (nm/problems '(implies (bird ?x) (flies ?x)) 'CxWell))))
   (testing "a compound argument is a term, so its head is a function and not a name"
@@ -408,7 +408,7 @@
   (testing "nothing legitimate draws it"
     (doseq [s ['(dog Muffet)
                '(genl dog thing)
-               '(argIsa parentOf 1 dog)          ; a different predicate entirely
+               '(arg parentOf 1 dog)          ; a different predicate entirely
                '(likes Tom Ann)
                '(isa Muffet)                        ; not the two-place shape
                '(isa Muffet Dog Extra)]]

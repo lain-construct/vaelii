@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.wff
   "Well-formedness checks for the special predicates: genl / genlCx (the type and
-  context hierarchies), disjoint / disjointMetatype, and argIsa (argument types).
+  context hierarchies), disjoint / disjointMetatype, and arg (argument types).
   Each returns a seq of problem strings; `assert` throws if any are present.
   Ordinary sentences are checked for argument *types* by checks/constraint-checks.
 
@@ -76,14 +76,14 @@
     (nm/individual? m) (conj (str m " is an individual; disjointMetatype marks a metatype"))))
 
 (defn arg-constraint-problems
-  "`argIsa` and `argGenl` — the two argument constraints — are structurally identical:
+  "`arg` and `genlArg` — the two argument constraints — are structurally identical:
   a predicate, a positive-integer position, and a type.  They differ only in what
   they *demand* of the argument sitting there, which is `checks`' business, not this
   one's, so one check serves both and reads the functor out of the sentence for its
   messages.  Stating it twice would let the two drift.
 
   **The constrained relation is not held to a spelling.**  A *function* has argument
-  positions exactly as a predicate does — `(argIsa Milli 1 unit_of_measure_no_prefix)`
+  positions exactly as a predicate does — `(arg Milli 1 unit_of_measure_no_prefix)`
   says what the argument of a NAT `(Milli Meter)` must be, which is the same kind of
   claim `resultIsa` makes about its result — and a function is CapitalCamelCase, which
   is also how an individual is spelled.  So no spelling test can separate the relation
@@ -93,7 +93,7 @@
   A constraint on a term that never heads a sentence is inert, which is the cheaper
   side of the open-world trade this project takes everywhere else.
 
-  A relation may also be **denoted rather than named** — `(argIsa (TypeCapableFn
+  A relation may also be **denoted rather than named** — `(arg (TypeCapableFn
   skillCapableOf) 1 intelligent_agent)` constrains the relation that NAT denotes — so a
   non-atomic term is a first argument too.  What is left to refuse is a first argument
   that is no kind of term at all: a number, a string, a keyword."
@@ -107,15 +107,15 @@
     (nm/individual? type) (conj (str type " is an individual; " f " expects a type"))))
 
 (defn inter-arg-constraint-problems
-  "`interArgIsa` — the conditional argument constraint: a predicate, a trigger position
-  and type, and a target position and type.  `(interArgIsa eats 1 carnivore 2 meat)`.
+  "`interArg` — the conditional argument constraint: a predicate, a trigger position
+  and type, and a target position and type.  `(interArg eats 1 carnivore 2 meat)`.
 
   The same latitude on the constrained relation `arg-constraint-problems` argues for, and
   for the same reasons: a function has argument positions too, and a relation may be
   denoted by a non-atomic term rather than named.  Both positions and both types are
   checked, since those are decidable from the sentence.
 
-  **The two positions may be the same.**  `(interArgIsa P 1 dog 1 mammal)` says a first
+  **The two positions may be the same.**  `(interArg P 1 dog 1 mammal)` says a first
   argument that is a dog is also a mammal — the awkward spelling of a `genl` edge, but a
   true claim the check will enforce, so there is nothing here to refuse.  What the
   positions may not be is absent or non-positive."
@@ -140,8 +140,8 @@
 
   `vaelii.impl.inherit` walks the named relation to a fixpoint, so a declaration over
   a relation nobody said composes gets transitivity manufactured for it — two hops of
-  `begat` licensing a claim that only one hop was ever evidence for.  An `argIsa` on
-  argument 3 cannot express that: argIsa is open-world, so it bites only for a
+  `begat` licensing a claim that only one hop was ever evidence for.  An `arg` on
+  argument 3 cannot express that: arg is open-world, so it bites only for a
   relation that happens to carry some *other* type and waves through the one that
   carries none, which is the common authoring order (name the relation, type it
   later).  So it is refused here, where the other special predicates' structural
@@ -251,6 +251,27 @@
   (cond-> []
     (not= 2 (count s))    (conj (str f " takes one argument"))
     (not (symbol? fname)) (conj (str f " expects a function name (a symbol)"))))
+
+(defn context-arg-subrelation-problems
+  "`(contextArgSubrelation F pos R)` declares the structural genlCx ordering for a
+  context-denoting function `F` (docs/context-nat.md): two `F`-contexts identical except
+  at argument `pos` are ordered by the sub-relation `R` on that argument — the more
+  specific one (its arg `pos` `R`-below the other's) `genlCx` the more general.
+
+  `F` is a function name (a `Cx*Fn`-shaped constant, an individual by the naming
+  invariants), `pos` a 1-based positive integer over `F`'s arguments, and `R` a predicate
+  name.  Whether `pos` is in `F`'s arity is not knowable here — no declaration states an
+  application's arity — so it is left to the producer, which simply finds no sibling pair
+  to order when `pos` is out of range."
+  [_ [f fname pos rel :as s]]
+  (cond-> []
+    (not= 4 (count s))    (conj (str f " takes a function, an argument position, and a sub-relation"))
+    (not (symbol? fname)) (conj (str f " expects a function name (a symbol)"))
+    (not (and (integer? pos) (pos? pos)))
+    (conj (str f "'s argument position must be a positive integer"))
+    (not (symbol? rel))   (conj (str f " expects a sub-relation name (a symbol)"))
+    (and (symbol? rel) (nm/individual? rel))
+    (conj (str rel " is an individual; " f " names the sub-relation ordering " fname "'s contexts"))))
 
 (defn correspondence-problems
   "`(functionCorrespondingPredicate F P N)` says the function `F` and the predicate `P`

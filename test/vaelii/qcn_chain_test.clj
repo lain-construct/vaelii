@@ -49,7 +49,7 @@
     (with-spatial kb
       (v/assert kb (list 'genlCx CxChainSpace 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa contained 1 'thing) 'CxCore {:strength :monotonic})
+      (v/assert kb (list 'arg contained 1 'thing) 'CxCore {:strength :monotonic})
       ;; a rule over a DERIVED spatial predicate: partOfRegion denotes a disjunction, so
       ;; nothing stores it — it is only ever entailed
       (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
@@ -69,7 +69,7 @@
     (with-spatial kb
       (v/assert kb (list 'genlCx CxChainWhy 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa deepIn 1 'thing) 'CxCore {:strength :monotonic})
+      (v/assert kb (list 'arg deepIn 1 'thing) 'CxCore {:strength :monotonic})
       ;; the antecedent pins A to C specifically, so the only way to satisfy it is the
       ;; two-step entailment
       (v/assert-rule kb [(list 'properPartOfRegion RegA RegC)] (list deepIn RegA)
@@ -90,7 +90,7 @@
     (with-spatial kb
       (v/assert kb (list 'genlCx CxRetractSpace 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa deepIn 1 'thing) 'CxCore {:strength :monotonic})
+      (v/assert kb (list 'arg deepIn 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'properPartOfRegion RegA RegC)] (list deepIn RegA)
                      CxRetractSpace)
       (let [[_ h-bc] (nest! kb CxRetractSpace [RegA RegB RegC])]
@@ -113,7 +113,7 @@
   (tu/with-terms [RegA RegB RegC contained CxInertSpace]
     (v/assert kb (list 'genlCx CxInertSpace 'CxWell) 'CxUniverse
               {:strength :monotonic})
-    (v/assert kb (list 'argIsa contained 1 'thing) 'CxCore {:strength :monotonic})
+    (v/assert kb (list 'arg contained 1 'thing) 'CxCore {:strength :monotonic})
     (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
                    CxInertSpace)
     (nest! kb CxInertSpace [RegA RegB RegC])
@@ -127,7 +127,7 @@
     (with-spatial kb
       (v/assert kb (list 'genlCx CxAssertedSpace 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa touching 1 'thing) 'CxCore {:strength :monotonic})
+      (v/assert kb (list 'arg touching 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'externallyConnected '?x '?y)] (list touching '?x)
                      CxAssertedSpace)
       (v/assert kb (list 'externallyConnected RegA RegB) CxAssertedSpace
@@ -141,7 +141,7 @@
     (with-spatial kb
       (v/assert kb (list 'genlCx CxDiagonalSpace 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa reflexive 1 'thing) 'CxCore {:strength :monotonic})
+      (v/assert kb (list 'arg reflexive 1 'thing) 'CxCore {:strength :monotonic})
       ;; partOfRegion contains the identity, so (partOfRegion ?x ?x) is entailed of every
       ;; region by the algebra alone — with no stored fact behind it
       (v/assert-rule kb [(list 'partOfRegion '?x '?x)] (list reflexive '?x)
@@ -159,7 +159,7 @@
     (with-spatial kb
       (v/assert kb (list 'genlCx CxClashChain 'CxWell) 'CxUniverse
                 {:strength :monotonic})
-      (v/assert kb (list 'argIsa contained 1 'thing) 'CxCore {:strength :monotonic})
+      (v/assert kb (list 'arg contained 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
                      CxClashChain)
       (nest! kb CxClashChain [RegA RegB RegC])

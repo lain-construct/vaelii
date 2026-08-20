@@ -259,8 +259,8 @@
 (deftest ^:slow a-user-defined-sibling-upper-context-supplies-universal-vocabulary
   ;; The spindle design lets a user add a sibling upper context — one that sees
   ;; CxCore and is seen by CxUniverse — to hold their own *universal* domain
-  ;; terms.  Vocabulary put there (a type, an argIsa, an individual) is visible from
-  ;; every data context below Well, and its argIsa constraints are enforced there.
+  ;; terms.  Vocabulary put there (a type, an arg, an individual) is visible from
+  ;; every data context below Well, and its arg constraints are enforced there.
   (tu/with-neutral-kb [kb starter-world-kb]
     (let [widgets (tu/tmp-ctx) widget (tu/tmp-type) priceOf (tu/tmp-pred)
           gadget (tu/tmp-ind) bad (tu/tmp-ind)]
@@ -271,7 +271,7 @@
       (v/assert kb (list 'genlCx 'CxUniverse widgets) 'CxUniverse)
       ;; universal domain vocabulary defined once, in the sibling context
       (v/assert kb (list 'genl widget 'artifact)  widgets)
-      (v/assert kb (list 'argIsa priceOf 1 widget) widgets)
+      (v/assert kb (list 'arg priceOf 1 widget) widgets)
       (v/assert kb (list widget gadget)            widgets)
       (testing "the sibling sits in the spindle's upper band"
         (is (tax/sees? (:taxonomy kb) widgets 'CxCore))
@@ -283,7 +283,7 @@
       (testing "a fact using the sibling's term is allowed from the data context"
         (v/assert kb (list priceOf gadget 10) 'CxNaturalWorld)      ; gadget is a widget: OK
         (is (seq (v/sentexes-matching kb (list priceOf gadget 10) 'CxNaturalWorld))))
-      (testing "and the sibling's argIsa constraint is enforced from the data context"
+      (testing "and the sibling's arg constraint is enforced from the data context"
         (v/assert kb (list 'dog bad) 'CxNaturalWorld)               ; bad is-a (real) dog ⇒ is-a thing, but not a widget
         (is (thrown? clojure.lang.ExceptionInfo
                      (v/assert kb (list priceOf bad 5) 'CxNaturalWorld)))))))

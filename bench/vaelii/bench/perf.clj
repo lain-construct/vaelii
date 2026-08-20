@@ -818,7 +818,7 @@
   "`kb-quality` over n argument constraints on **one** predicate, under a fixed hierarchy.
 
   The census takes five readings and `quality-report-scaling` above drives four of them:
-  its KB declares no `argIsa`, `argGenl` or `interArgIsa`, so `quality/stranded-declarations`
+  its KB declares no `arg`, `genlArg` or `interArg`, so `quality/stranded-declarations`
   walks an empty list at 4,000 sentexes and at 32,000 alike.  This is the workload that
   drives the fifth, and it is built the other way round from that one on purpose — the
   vocabulary is one predicate, one type and `census-supers` supers at **both** sizes, so
@@ -849,7 +849,7 @@
         (v/assert kb (list 'genl (symbol (str "qdcB" i)) (symbol (str "qdcB" (inc i))))
                   'CxPerf {:strength :monotonic}))
       (doseq [i (range 1 (inc n))]
-        (v/assert kb (list 'argIsa 'qdcPred i 'qdc_t) 'CxPerf {:strength :monotonic})))
+        (v/assert kb (list 'arg 'qdcPred i 'qdc_t) 'CxPerf {:strength :monotonic})))
     (doall (for [_ (range 60)] (nanos (v/kb-quality kb))))))
 
 (def ^:private depth-declarations
@@ -888,7 +888,7 @@
         (v/assert kb (list 'genl (symbol (str "qddB" i)) (symbol (str "qddB" (inc i))))
                   'CxPerf {:strength :monotonic}))
       (doseq [i (range 1 (inc depth-declarations))]
-        (v/assert kb (list 'argIsa 'qddPred i 'qdd_t) 'CxPerf {:strength :monotonic})))
+        (v/assert kb (list 'arg 'qddPred i 'qdd_t) 'CxPerf {:strength :monotonic})))
     (doall (for [_ (range 20)] (nanos (v/kb-quality kb))))))
 
 (defn- pctx [prefix i] (symbol (str "Cx" prefix i)))
@@ -1545,7 +1545,7 @@
    ;; room on both sides.
    ;;
    ;; **Four of the census's five readings**, and the claim says so.  This KB declares no
-   ;; `argIsa`, `argGenl` or `interArgIsa`, so the declarations reading walks an empty list
+   ;; `arg`, `genlArg` or `interArg`, so the declarations reading walks an empty list
    ;; at both sizes and nothing here is a claim about it — the two checks below are.
    {:name      :quality-report-scaling
     :claim     "the rules, extents, chains and taxonomy readings of kb-quality grow with the vocabulary, not with what the KB stores"

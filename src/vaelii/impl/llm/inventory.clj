@@ -19,7 +19,7 @@
 
   **The check chain cannot catch it.**  A unary snake_case functor is a well-formed type
   name by the naming invariants, so `(has_black_and_white_feathers ?x)` passes naming,
-  groundness, well-formedness, argIsa, disjointness and functionality alike — and it
+  groundness, well-formedness, arg, disjointness and functionality alike — and it
   should, since coining a type is a legitimate thing to do.  So there are exactly two
   guards, and they are both here:
 
@@ -35,9 +35,9 @@
   **Selection is by relevance, bounded by tokens.**  Nothing enumerates the KB: the
   inventory is seeded from the page's term, walks its `genl` neighbourhood (supertypes
   nearest first, subtypes, siblings), and takes the predicates that neighbourhood
-  *licenses* — the `argIsa`-declared ones whose argument types the term satisfies, plus
+  *licenses* — the `arg`-declared ones whose argument types the term satisfies, plus
   the ones already used in facts with those terms.  Every read is pinned by a term
-  (a cached closure lookup, an `argIsa` query on a fixed argument, a bounded argument-root
+  (a cached closure lookup, an `arg` query on a fixed argument, a bounded argument-root
   walk), so the cost tracks the neighbourhood rather than the knowledge base."
   (:require [clojure.string :as str]
             [vaelii.core :as v]
@@ -84,7 +84,7 @@
   "Is `term` reachable from one of the index's O(1) secondary roots — used as a fact's
   functor, or standing in one of the first three argument positions?  The cheap half of
   `known-term?`: a predicate that is *declared* and never used still sits at argument 1
-  of its own `(argIsa P …)` / `(arity P …)` / `(binaryPredicate P)` sentexes, and a type
+  of its own `(arg P …)` / `(arity P …)` / `(binaryPredicate P)` sentexes, and a type
   sits at either end of a `genl` edge, so this answers yes for almost everything the KB
   knows without touching the term roster."
   [kb term]
@@ -171,10 +171,10 @@
   sentexes and its `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships,
   which derive each other, so either spelling is enough.
 
-  **Arity is never inferred from `argIsa`.**  `argIsa` constrains an argument to a *type*
+  **Arity is never inferred from `arg`.**  `arg` constrains an argument to a *type*
   and is deliberately partial: a second argument may be unconstrained by design (you may
   `likes` anything) or not a type at all (a year, an integer).  Measured on the shipped
-  schema, the highest `argIsa` position disagrees with the declared arity for 8 of the 42
+  schema, the highest `arg` position disagrees with the declared arity for 8 of the 42
   constrained relations — `likes`, `birthYearOf` and `arity` all read as unary — so an
   inventory built that way would print `likes/1` and *cause* the arity errors it exists to
   prevent.  A predicate the KB never declared gets no arity rather than a guessed one.
@@ -204,7 +204,7 @@
   The naming invariants leave one genuine ambiguity, and say so: a single lowercase word
   (`dog`, `flies`) satisfies both the predicate and the type spelling, and role is decided
   by position and arity rather than by the symbol.  So the **KB** decides — a term with
-  `genl` edges is a type, one with `argIsa` constraints is a relation, and a bare unary is
+  `genl` edges is a type, one with `arg` constraints is a relation, and a bare unary is
   a type.  Which way it goes decides what the inventory is drawn from, so guessing off the
   spelling alone would give a page about `dog` the vocabulary of a relation."
   [kb term]
@@ -213,7 +213,7 @@
       role
       (cond
         (or (> (count (v/genls kb term)) 1) (> (count (v/specs kb term)) 1)) :type
-        (seq (v/sentexes-matching kb (list 'argIsa term '?n '?t) '?ctx)) :predicate
+        (seq (v/sentexes-matching kb (list 'arg term '?n '?t) '?ctx)) :predicate
         (seq (v/sentexes-matching kb (list 'unaryPredicate term) '?ctx)) :type
         :else :predicate))))
 
@@ -224,7 +224,7 @@
     a type        the type itself, its supertypes, its subtypes, and its siblings
                   (the other subtypes of its nearest supertype)
     an individual the types it is asserted to have, and their supertypes
-    a predicate   the types its `argIsa` constraints name, so what it can be said *of*
+    a predicate   the types its `arg` constraints name, so what it can be said *of*
                   is on the card
 
   `opts`: `:max-genls` (8), `:max-specs` (12), `:max-siblings` (12).  Each closure is a
@@ -255,12 +255,12 @@
           :genls (vec (take max-genls (remove (set ts) up)))})
 
        :predicate
-       ;; by argument position, and **specificity** breaks a position two `argIsa` sentexes
+       ;; by argument position, and **specificity** breaks a position two `arg` sentexes
        ;; both constrain: `sentexes-matching` promises the set and not an order, so ranking
        ;; on what came back would put the card's arg types in arrival order.  Narrowest
        ;; first, which is `predicate-shape`'s ranking too — the two describe one position
        ;; and must agree about which declaration speaks for it
-       (let [args (vec (for [{:keys [sentence]} (v/sentexes-matching kb (list 'argIsa term '?n '?t) '?ctx)]
+       (let [args (vec (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg term '?n '?t) '?ctx)]
                          [(nth sentence 2) (nth sentence 3)]))
              up   (order (disj (set (v/genls kb term)) term))
              down (order (disj (set (v/specs kb term)) term))]
@@ -303,7 +303,7 @@
   invitation to misuse something it half-recognizes at worst, so the structural block is an
   allowlist rather than a dump.  The connectives (`implies`, `and`, `not`, `exceptWhen`) are
   not here because they are *frame*: the prompt states the sentence shapes directly."
-  '[genl disjoint comment argIsa])
+  '[genl disjoint comment arg])
 
 (defn structural-terms
   "Every term the vocabulary head documents, from its `comment` sentexes in that context —
@@ -316,24 +316,24 @@
 ;; ---- the predicates that neighbourhood licenses -------------------------
 
 (defn- argisa-predicates
-  "The predicates an `argIsa` declares to take a `t` somewhere — `(argIsa P n t)` read as
-  inference rather than as constraint.  The query pins `argIsa` and the *type*, so it is
+  "The predicates an `arg` declares to take a `t` somewhere — `(arg P n t)` read as
+  inference rather than as constraint.  The query pins `arg` and the *type*, so it is
   one narrow index read whatever the KB's size."
   [kb t]
-  (distinct (for [{:keys [sentence]} (v/sentexes-matching kb (list 'argIsa '?p '?n t) '?ctx)]
+  (distinct (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg '?p '?n t) '?ctx)]
               (nth sentence 1))))
 
 (defn- used-with
   "The functors of stored facts holding `t` in one of the first three argument positions
   — the predicates the KB has actually said something with about this term, including the
-  ones no `argIsa` constrains — as `{:predicates […] :unscanned n}`.  Walked lazily and
+  ones no `arg` constrains — as `{:predicates […] :unscanned n}`.  Walked lazily and
   capped, so a term sitting in a million facts costs `max-scan` record reads per position,
   not a million.
 
   **What the cap cuts is cut from the card, not demoted on it.**  The tiers after this one
   are `argisa-predicates` and the declared roster, so a predicate that *is* declared or
   constrained is offered under a later tier whether or not the scan reached it — but a
-  predicate used with the term and never declared and never `argIsa`'d is on the card
+  predicate used with the term and never declared and never `arg`'d is on the card
   because this found it, and nothing else looks for it.  That is the class this tier exists
   for, and a term common enough to exceed `max-scan` at a position is exactly where it goes
   missing.
@@ -368,7 +368,7 @@
   "One predicate's inventory entry:
   `{:predicate :arity :args [[position type] …] :props […] :inverse :doc}`.
 
-  `:args` is every `argIsa` constraint on it, sorted by position and then **narrowest
+  `:args` is every `arg` constraint on it, sorted by position and then **narrowest
   first**, and `:arity` comes from the KB's declarations — never from the constraints.
   Together they are the part that stops the model folding an argument into the predicate's
   name: seeing `locatedIn/2 : physical_object × physical_object` makes reuse the obvious
@@ -376,7 +376,7 @@
   `Antarctica`.
 
   Specificity is the tie-break rather than a nicety, and it decides two things.  Two
-  `argIsa` sentexes constraining one position — the usual shape when two contexts each
+  `arg` sentexes constraining one position — the usual shape when two contexts each
   declare it — are returned as a set, so ranking on position alone leaves the signature
   reading in whichever order the index answered; and `signature` prints the **first** of a
   position's constraints, so the ranking chooses which one the card states.  A term has to
@@ -387,7 +387,7 @@
   {:predicate p
    :arity (or arity (observed-arity kb p))
    :args (vec (sort-by (juxt first (comp (partial specificity kb) second))
-                       (for [{:keys [sentence]} (v/sentexes-matching kb (list 'argIsa p '?n '?t) '?ctx)]
+                       (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg p '?n '?t) '?ctx)]
                          [(nth sentence 2) (nth sentence 3)])))
    :props (props-of kb p)
    :inverse (v/inverse-of kb p)
@@ -405,18 +405,18 @@
 
   **Two blocks, because they are two different things.**  The domain relations are what the
   reader's knowledge is *made of*; the structural handful is how a claim about a kind is
-  *stated* (`genl`, `disjoint`, `comment`, `argIsa`).  A term the vocabulary head documents
+  *stated* (`genl`, `disjoint`, `comment`, `arg`).  A term the vocabulary head documents
   is structural and is left out of the domain block unless the page is about that band.
 
   **The source is the KB's declarations, not its facts.**  Types come from `vaelii.core/types`
   and relations from the `unaryPredicate` / `binaryPredicate` / `ternaryPredicate`
   memberships, because a schema-only KB has no facts: enumerating functors that actually
   appear in fact position on the shipped schema yields 20 names, every one of them an engine
-  meta-predicate and not one of them a domain relation.  `argIsa` then supplies argument
+  meta-predicate and not one of them a domain relation.  `arg` then supplies argument
   *types* for the 42 relations that declare them.
 
   Ordering is by **relevance tier** — predicates already used in facts with the page's term,
-  then those an `argIsa` licenses for the term itself, then for each supertype in turn
+  then those an `arg` licenses for the term itself, then for each supertype in turn
   (nearest first), then subtypes and siblings, then everything else declared, alphabetically.
   On a vocabulary the size of the shipped schema everything fits and the order is cosmetic;
   ordering is what makes the *cut* meaningful when it does not.
@@ -424,7 +424,7 @@
   `opts`: `:max-relations` (120), `:max-types` (80), `:max-scan` (200 facts per argument
   position), plus `seed-types`' bounds.  The reads are all vocabulary-sized — four extent
   reads for the arities, the taxonomy's own node set, one pinned `comment` read — plus a
-  per-rendered-predicate `argIsa` query, so the cost tracks the vocabulary and never the
+  per-rendered-predicate `arg` query, so the cost tracks the vocabulary and never the
   number of facts.
 
   **`:dropped` counts all three cuts**, because a card that cuts silently reads as the

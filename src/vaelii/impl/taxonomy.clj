@@ -1721,6 +1721,50 @@
                       (get (:support rel) e {}))))
             (get (:edge-idx rel) term #{}))))))
 
+(defn- edge-pref-claims
+  "The `[preferred dispreferred]` rewriteOf claims on edge `e` — all of them unscoped,
+  only the believed and visible ones under `visible?`.  A `sameAs` / `equals`-only edge
+  yields none, since its supporters name no preference (`pref-pair` returns nil)."
+  [rel e visible?]
+  (if-not visible?
+    (get (:edge-prefs rel) e #{})
+    (into #{}
+          (keep (fn [[h p]]
+                  (when (and (not (contains? (:out rel #{}) h)) (visible? h))
+                    (pref-pair e p))))
+          (get (:support rel) e {}))))
+
+(defn spelling-representative
+  "`term`'s representative considering only `rewriteOf` (spelling) edges — a `sameAs` /
+  `equals` identity merge is **not** followed.  This is the mention read: a quoted term
+  tracks a *spelling* rename of its symbol but not a *coreference* merge of its referent,
+  so `res/representative-term` uses it inside a `quotingFunction`'s arguments.
+
+  The rewriteOf edges form their own sub-partition; the answer is the representative of
+  `term`'s rewriteOf-connected component, elected by the same rule `class-rep` uses — a
+  preferred term nothing deprecates, else the lexicographically smallest.  A term no
+  rewriteOf touches — including one merged only by `sameAs` — is its own representative,
+  returned unchanged.  With `visible?`, only the believed edges that reader inherits
+  count, the scoping `deprecated?` / `representative` take.  Recomputed per call: a class
+  is a handful of terms, and the caller's `merged?` gate skips it entirely for an
+  unmerged one."
+  ([tax term] (spelling-representative tax term nil))
+  ([tax term visible?]
+   (let [rel (:equality @tax)]
+     (loop [seen #{term} frontier [term] claims #{}]
+       (if-let [t (peek frontier)]
+         (let [cs  (into #{}
+                         (mapcat #(edge-pref-claims rel % visible?))
+                         (get (:edge-idx rel) t #{}))
+               nxt (into #{} (comp (mapcat (fn [[p d]] [p d])) (remove seen)) cs)]
+           (recur (into seen nxt) (into (pop frontier) nxt) (into claims cs)))
+         (let [preferred  (into #{} (map first) claims)
+               deprecated (into #{} (map second) claims)
+               heads      (set/difference preferred deprecated)]
+           (cond (seq heads)     (term-min heads)
+                 (seq preferred) (term-min preferred)
+                 :else           term)))))))
+
 (defn equality-edges [tax] (get-in @tax [:equality :edges] #{}))
 
 (defn equality-prefs
@@ -2844,6 +2888,19 @@
                              (closure-of tax :genlCx :fwd context)))))))
 (defn props "The set of predicates carrying property `kind`." [tax kind] (get-in @tax [:props kind] #{}))
 
+(defn quoting-function?
+  "Is `head` declared a `quotingFunction`?  Its arguments are a **mention**, held opaque
+  to identity congruence (`res/representative-term` spelling mode)."
+  [tax head]
+  (and (symbol? head) (has-prop? tax :quoting head)))
+
+(defn any-quoting-functions?
+  "Cheap gate: does the KB declare any `quotingFunction`?  False ⇒ no mention position
+  exists, so `res/representative-term` takes the ordinary full-representative walk with no
+  per-node check.  An in-memory taxonomy-prop read, mirroring `nat/any-reifiable-functions?`."
+  [tax]
+  (boolean (seq (props tax :quoting))))
+
 (defn props-over
   "`p` and every **super-predicate** of it carrying property `kind` — anywhere, or (with
   `context`) declared from a context the reader can see, walking only the `genl` edges
@@ -2893,7 +2950,7 @@
 
 (def arg-declaration-props
   "Per argument-constraint kind, the `:props` roster its **subject** is marked under —
-  `(argIsa parentOf 1 person)` marks `parentOf` as declaring `argIsa`.
+  `(arg parentOf 1 person)` marks `parentOf` as declaring `arg`.
 
   A declaration constrains the tuples of every predicate beneath the one it names, so
   reading it means asking, per super-predicate of the sentence's own functor, whether it
@@ -2906,7 +2963,8 @@
   The roster is the **global** one, so a filter built on it is a superset of what any
   context can see; the scoped retrieval it gates is what decides which declarations
   actually speak for a reader."
-  '{argIsa :declares-arg-isa, argGenl :declares-arg-genl, interArgIsa :declares-inter-arg-isa})
+  '{arg :declares-arg-isa, genlArg :declares-arg-genl, quotedArg :declares-quoted-arg,
+    interArg :declares-inter-arg-isa})
 
 ;; The supporters behind a flat-cache entry, read back.  A consumer that *justifies*
 ;; something on a declaration needs the declaring sentexes as antecedents, and reading

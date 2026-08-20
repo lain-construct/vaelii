@@ -1,0 +1,112 @@
+;; CxSpeechActs — koinii's speech-act vocabulary: the small set of moves agents make,
+;; as sentexes in the KB rather than an out-of-band message format (koinii design D5,
+;; prompt 02).  A move is knowledge: queryable, retractable, and auditable like any
+;; other fact.  Two shapes, told apart by whether the move stands on its own or answers
+;; another:
+;;
+;;   - ORIGINATION (asserts, queries) — a plain assertion in the acting agent's own
+;;     context.  The claim (or the query node) plus its provenance IS the act; nothing
+;;     wraps it, because provenance already records who spoke (first-writer-wins,
+;;     storage.md).  `asserts` is therefore documentary vocabulary, never minted — an
+;;     assertion in koinii is just an assertion.  `queries` IS minted, as the query
+;;     NODE a responder later names by handle, because a question must be told apart
+;;     from a claim.
+;;   - RESPONSE (answers, disputes, endorses, justifies) — a META-SENTEX on the sentex
+;;     it responds to, naming the target by handle `(sentexHandle H)`.  Each carries
+;;     `targetFollowingPredicate`, so retracting the target sweeps its replies with it
+;;     (core/retract-following-metas!) — the cascade a message bus cannot give (D1,
+;;     Resolution).  Two independent facts force this shape: the cascade needs BOTH a
+;;     meta-sentex AND the mark (an unmarked meta merely orphans), and first-writer-wins
+;;     forces each act to be its own object with its own creator.
+;;
+;; Error acts (notUnderstood, refuse) reference the received edge they could not parse
+;; or will not act on, in the refusing agent's context — deliberately UNMARKED, so a
+;; parse failure outlives what provoked it.  `retracts` is the engine's retract! on a
+;; handle.  Adjudication is NOT here (prompts 08 / 11): this layer only represents the
+;; moves.  The action dimension (request / propose / accept) maps onto A2A, not this
+;; vocabulary (D5).
+;;
+;; Sees CxCore for its vocabulary.  Actor ids are the individuals registered in
+;; CxRegistry (prompt 03); the arg to `agent` documents that, and is inert here
+;; (open-world) until a context that also sees the registry activates it.
+
+(genlCx CxSpeechActs CxCore)      ; CxSpeechActs speaks CxCore's vocabulary
+
+;; ---- origination: the claim (or query node) plus provenance IS the act ----
+
+(comment asserts
+         "(asserts ?agent ?proposition) names the move of ?agent putting ?proposition forward as true. DOCUMENTARY vocabulary, deliberately never minted as a sentex: origination is the plain assertion of ?proposition in ?agent's own context, and its provenance already records ?agent as creator (first-writer-wins). Wrapping the claim would duplicate what provenance holds, so an assertion in koinii is just an assertion — see speech_acts/assert-claim!.")
+(binaryPredicate asserts)
+(instanceRelationPredicate asserts)
+(arg asserts 1 agent)
+
+(comment queries
+         "(queries ?agent ?question) is the query NODE ?agent asserts in its own context — the thing a responder answers by handle. Minted (unlike asserts) because a question must be distinguishable from a claim: ?agent is not asserting ?question true, it is asking. ?question is a ground term naming what is asked, left untyped since it carries no fixed type. See speech_acts/pose-query!.")
+(binaryPredicate queries)
+(instanceRelationPredicate queries)
+(arg queries 1 agent)
+
+;; ---- response acts: meta-sentexes on their target, targetFollowingPredicate ----
+
+(comment answers
+         "(answers ?agent ?content (sentexHandle ?target)) is ?agent's answer ?content to the query sentex ?target, a META-SENTEX naming ?target by handle. Declared targetFollowingPredicate: retract ?target and this answer is torn down with it. The answerer's identity comes from THIS sentex's context and provenance, not from the query it answers. ?content is the answer term, left untyped; the handle arg is left untyped since the target can be any sentex.")
+(ternaryPredicate answers)
+(instanceRelationPredicate answers)
+(arg answers 1 agent)
+(targetFollowingPredicate answers)
+
+(comment disputes
+         "(disputes ?agent (sentexHandle ?target)) records that ?agent challenges the claim ?target, a META-SENTEX naming it by handle. Declared targetFollowingPredicate, so it does not outlive its target. The disputing agent also asserts the rebutting claim (the negation of ?target) in its own context, so the pair surfaces in (contradictions kb) with both sides' :context / :defeat-class / :kind — ready for prompt 05 to scope and 08 to resolve. This layer represents the challenge; it does not adjudicate it. See speech_acts/dispute!.")
+(binaryPredicate disputes)
+(instanceRelationPredicate disputes)
+(arg disputes 1 agent)
+(targetFollowingPredicate disputes)
+
+(comment endorses
+         "(endorses ?agent (sentexHandle ?target)) records that ?agent stands behind the claim ?target, a META-SENTEX naming it by handle. Declared targetFollowingPredicate. Because provenance is first-writer-wins, an endorsement CANNOT be ?agent re-asserting ?target (that writes no new provenance) — it must be its own sentex with its own creator, which is why two endorsers of one claim are two distinct endorses sentexes. An endorsement of a claim that is disbelieved-but-still-stored is arguably nonsense, so it is a candidate to also be belief-following; the mark itself only sweeps on retraction.")
+(binaryPredicate endorses)
+(instanceRelationPredicate endorses)
+(arg endorses 1 agent)
+(targetFollowingPredicate endorses)
+
+(comment justifies
+         "(justifies ?agent ?ground (sentexHandle ?target)) records that ?agent offers ?ground as a reason for the claim ?target, a META-SENTEX naming ?target by handle. Declared targetFollowingPredicate. ?ground is the reason (a term or another sentex handle), left untyped. Represents the move only; the argumentative force of a justification is prompt 11's job.")
+(ternaryPredicate justifies)
+(instanceRelationPredicate justifies)
+(arg justifies 1 agent)
+(targetFollowingPredicate justifies)
+
+;; ---- retraction: the engine operation, named for completeness ----
+
+(comment retracts
+         "(retracts ?agent ?target) names the move of ?agent withdrawing the claim ?target. DOCUMENTARY vocabulary: it is realized as the engine's retract! on the target handle (speech_acts/retract-move), not asserted as a sentex — retracting a claim is a real teardown, and it is exactly this teardown that the targetFollowingPredicate response acts cascade with.")
+(binaryPredicate retracts)
+(instanceRelationPredicate retracts)
+(arg retracts 1 agent)
+
+;; ---- error acts: reference the received edge, in the refuser's context, UNMARKED ----
+
+(comment notUnderstood
+         "(notUnderstood ?agent (sentexHandle ?received)) records that ?agent could not parse the received edge ?received — the error act an at-least-once, decoupled path needs (D5). A META-SENTEX naming ?received by handle, in ?agent's own context. Deliberately NOT targetFollowingPredicate: a parse failure is a fact about the exchange that should outlive whatever provoked it. Its meaning as a commitment is prompt 10's job. Spelled camelCase because a KB predicate admits no hyphen.")
+(binaryPredicate notUnderstood)
+(instanceRelationPredicate notUnderstood)
+(arg notUnderstood 1 agent)
+
+(comment refuse
+         "(refuse ?agent (sentexHandle ?received)) records that ?agent will not act on the received edge ?received. Same shape and placement as notUnderstood, and also UNMARKED, for the same reason. Its meaning as a commitment is prompt 10's job.")
+(binaryPredicate refuse)
+(instanceRelationPredicate refuse)
+(arg refuse 1 agent)
+
+;; ---- the one rule that earns its place: disputed claims are queryable ----
+;; A disputes edge marks its target as contested, so 'which claims are under dispute'
+;; is a plain read rather than a meta-sentex walk — the scope prompts 05 / 08 read.
+;; It only REPRESENTS (it does not adjudicate).  Belief-following by construction: the
+;; conclusion is JTMS-supported by the disputes edge, so retracting the target (which
+;; cascades the edge) removes `contested` too, with no mark of its own.
+
+(comment contested
+         "(contested (sentexHandle ?target)) means the sentex ?target is under dispute — derived from a disputes edge, never asserted directly. Lets a reader query the disputed claims without walking the disputes meta-sentexes. The handle arg is left untyped.")
+(unaryPredicate contested)
+
+(implies (and (disputes ?agent ?target)) (contested ?target))

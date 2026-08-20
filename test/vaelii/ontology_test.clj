@@ -91,7 +91,7 @@
 
 (tu/deftest-kb the-two-capability-readings-are-two-predicates-and-say-so
   ;; One symbol read at both levels has to pick one argument check for both, and whichever
-  ;; it picks convicts the half it was not written for: `argIsa … 1 animal` is right for
+  ;; it picks convicts the half it was not written for: `arg … 1 animal` is right for
   ;; `(… Tweety flying)` and wrong for `(… bird flying)`, since a kind is not a member of
   ;; the type it lies under.  So: two predicates, the kind-level one marked, and the pair
   ;; named in prose because the predicate that names pairs cannot take a mixed half.
@@ -101,8 +101,8 @@
             carries no relationKind, and its two positions take different checks"
     (is (not (v/ask? kb '(instanceRelationPredicate hasCapability))))
     (is (not (v/ask? kb '(typeRelationPredicate hasCapability))))
-    (is (v/ask? kb '(argIsa hasCapability 1 animal)))
-    (is (v/ask? kb '(argGenl hasCapability 2 capability))))
+    (is (v/ask? kb '(arg hasCapability 1 animal)))
+    (is (v/ask? kb '(genlArg hasCapability 2 capability))))
   (testing "so the pairing cannot be declared — typeToInstancePred constrains its second
             argument to a marked instance half, and this one is mixed"
     (is (thrown? clojure.lang.ExceptionInfo

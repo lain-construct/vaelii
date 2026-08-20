@@ -123,7 +123,7 @@
   Which position: the subject is argument 1 throughout, and `inverse` names two
   predicates because either one's goals are answered from the other's facts.
   `functional` is absent because it is read by the definitional checks and answers no
-  goal; `arity` and the decontextualization marks likewise.  `argIsa` / `argGenl` are
+  goal; `arity` and the decontextualization marks likewise.  `arg` / `genlArg` are
   absent for the opposite reason — a membership they infer is *stored*, so it arrives
   through the ordinary fact trigger."
   '{transitive           [1]
@@ -167,8 +167,8 @@
           (when (= 'transitive (nm/functor sentence))
             (recheck-preserving-along kb pred)))))))
 
-(defn- argisa-declared-types
-  "The types some `(argIsa pred n T)` declares of `pred`'s argument positions — read off
+(defn- arg-declared-types
+  "The types some `(arg pred n T)` declares of `pred`'s argument positions — read off
   the roots rather than through `matches-visible`, and globally rather than per context,
   because a trigger has to be conservative in the direction the answer is and a
   declaration this context cannot see still qualifies a rule in one that can.
@@ -179,19 +179,19 @@
   exactly the channel the descension opened."
   [kb pred]
   (let [idx (:index kb)]
-    (when (pos? (p/count-with-functor idx 'argIsa))
+    (when (pos? (p/count-with-functor idx 'arg))
       (into #{}
-            (comp (mapcat #(p/sentexes-with-args idx 'argIsa {1 %}))
+            (comp (mapcat #(p/sentexes-with-args idx 'arg {1 %}))
                   (keep #(p/get-sentex (:records kb) %))
                   (map :sentence)
-                  (filter #(and (= 'argIsa (nm/functor %)) (= 4 (count %))))
+                  (filter #(and (= 'arg (nm/functor %)) (= 4 (count %))))
                   (map #(nth % 3))
                   (filter symbol?))
             (tax/genls (:taxonomy kb) pred)))))
 
-(defn- recheck-argisa-inferred
-  "`argIsa` read as an **inference** rather than as a constraint: a believed `(P … x@n …)`
-  beside `(argIsa P n T)` makes `x` a `T`, and every supertype of `T`
+(defn- recheck-arg-inferred
+  "`arg` read as an **inference** rather than as a constraint: a believed `(P … x@n …)`
+  beside `(arg P n T)` makes `x` a `T`, and every supertype of `T`
   (`provers/inferred-types`, behind `ArgTypeProver`).  So a fact on `P` flips an
   exception stated on `T` with nothing on `T` having been written and no relationship
   between the two predicates for the genls walk below to follow — the same shape of blind
@@ -200,23 +200,23 @@
   it correctly drop, so which you get depends on when the fact arrived.
 
   Both arrival orders come here, and `sen` says which: a fact on `P`, whose declared
-  argument types are read; or the `(argIsa P n T)` declaration itself, which does the
+  argument types are read; or the `(arg P n T)` declaration itself, which does the
   same to every fact of `P` already stored.
 
   `:all`, for `recheck-preserving-along`'s reason: what moved is a fact about `P` (or a
   declaration about `P`'s argument positions), and the exception is about `T`, so the
   sentence could not narrow the right firings anyway.
 
-  Free for a KB that declares no `argIsa` — one cardinality read, and
-  `argisa-declared-types` stops there.  A KB that declares plenty pays before the roster
-  is probed at all: the seed walks `genls(pred)`, reads the `argIsa` postings on each and
+  Free for a KB that declares no `arg` — one cardinality read, and
+  `arg-declared-types` stops there.  A KB that declares plenty pays before the roster
+  is probed at all: the seed walks `genls(pred)`, reads the `arg` postings on each and
   fetches a record per posting.  What a KB stating no exception over a declared type saves
   is only the tail — the probe per supertype answers empty and nothing is queued."
   [kb pred sen]
   (let [idx (:index kb)]
-    (when-let [ts (seq (if (= 'argIsa pred)
+    (when-let [ts (seq (if (= 'arg pred)
                          (when (= 4 (count sen)) (filter symbol? [(nth sen 3)]))
-                         (argisa-declared-types kb pred)))]
+                         (arg-declared-types kb pred)))]
       (doseq [t  ts
               t' (tax/genls (:taxonomy kb) t)]
         (mark-recheck kb (p/rules-with-exception-on idx t') :all)))))
@@ -239,8 +239,8 @@
   A fact can also move an exception's answer without being on the exception's
   predicate at all, and along two channels the genls walk cannot see: `pred` is the
   relation some `transitiveInArg` declaration inherits along
-  (`recheck-preserving-along`), or `pred` has an `argIsa`-declared argument type, which
-  makes the fact evidence of a membership nobody wrote (`recheck-argisa-inferred`)."
+  (`recheck-preserving-along`), or `pred` has an `arg`-declared argument type, which
+  makes the fact evidence of a membership nobody wrote (`recheck-arg-inferred`)."
   [kb pred trigger]
   (when (symbol? pred)
     ;; No excepted rule anywhere ⇒ nothing to re-check, and walking `genls(pred)` just
@@ -255,7 +255,7 @@
         (doseq [p (tax/genls (:taxonomy kb) pred)]
           (mark-recheck kb (p/rules-with-exception-on idx p) trigger))
         (recheck-preserving-along kb pred)
-        (recheck-argisa-inferred kb pred trigger)))))
+        (recheck-arg-inferred kb pred trigger)))))
 
 (defn- recheck-on-qualitative
   "A fact of a registered calculus arrived or left, so the **whole network** moved:
@@ -381,7 +381,7 @@
   below.
 
   Everything else the level-6 stack can reach a `genl` edge reaches *through the
-  spec closure of the registered predicate* — the fact fan-out, the argIsa type
+  spec closure of the registered predicate* — the fact fan-out, the arg type
   inference, a declared-transitive relation's own facts — and those are exactly
   what the genls walk covers.  With one exception, and it is why this set is not the
   whole story: argument-position preservation reads the closure of the **arguments**,
@@ -863,7 +863,7 @@
 ;; in code because that dotted rule would match every fact in the store.
 ;;
 ;; **CxUniverse, and not a target the declaration names.**  The definitional
-;; checks — disjointness, functionality, argIsa — are context-scoped: they run where
+;; checks — disjointness, functionality, arg — are context-scoped: they run where
 ;; the fact is stated, against what is visible from there.  Lifting into a context the
 ;; stating context cannot see moves the fact somewhere those checks never looked, so
 ;; two facts that are each admissible where they were stated can meet in the target as
@@ -988,7 +988,7 @@
           (vec (kb/find-sentexes kb pred))))
 
 ;; ---- the argument constraints, drawn as entailments ----------------------
-;; `checks/constraint-entailments` reads what the visible `argIsa` / `argGenl`
+;; `checks/constraint-entailments` reads what the visible `arg` / `genlArg`
 ;; declarations *say* about a sentence's arguments; this materializes it, and does so
 ;; the way the lift above does — as a derived sentex justified by `[the triggering
 ;; fact, the declaration]`.  That is the whole point: the type is **held** by its
@@ -1047,7 +1047,7 @@
   `:monotonic` conferred, because the entailment adds no defeasibility of its own —
   `conferred-class` caps it at the weaker of the fact and the declaration, so a default
   fact yields a default type.  The informant is the declaring predicate, so `why` names
-  `argIsa` beside the two sentexes rather than an anonymous derivation.
+  `arg` beside the two sentexes rather than an anonymous derivation.
 
   **A minted type draws its own entailments**, and must: the retroactive direction
   cascades whether or not this one does — a declaration arriving over a stored `(t1 x)`
@@ -1134,7 +1134,7 @@
   "The argument-constraint declarations that entail, with the arity each is written at —
   the roster `entail-existing` dispatches on, so a fourth kind is one line rather than a
   widened `and`."
-  '{argIsa 3, argGenl 3, interArgIsa 5})
+  '{arg 3, genlArg 3, interArg 5})
 
 (defn- subtree-sentexes
   "Every **stored** sentex whose functor is `pred` or any spec of it — the extent a
@@ -1176,17 +1176,17 @@
     (boolean (some #(pos? (p/count-with-functor idx %)) functors))))
 
 (defn entail-existing
-  "When an `(argIsa P n T)` / `(argGenl P n T)` / `(interArgIsa P n T m U)` declaration
+  "When an `(arg P n T)` / `(genlArg P n T)` / `(interArg P n T m U)` declaration
   arrives, draw what it now says about the `(P …)` sentexes **already stored** — so a
   declaration arriving after the facts reaches them exactly as one arriving before
   reaches the facts that follow.  Same `{:new :violations}` result, so the types it mints
   are chaining seeds like any other new content.  nil when `sentence` is not an argument
   constraint.
 
-  Two of `interArgIsa`'s three arrival orders are covered here and at the door; the third
+  Two of `interArg`'s three arrival orders are covered here and at the door; the third
   — the *trigger's* type arriving after both the fact and the declaration — is the
   family's documented open-world non-reach (docs/taxonomy.md, \"What each constraint does
-  in each arrival order\"), and `argIsa` has it too from the other side.
+  in each arrival order\"), and `arg` has it too from the other side.
 
   Sweeps what is **stored**, not what is believed, for `lift-existing`'s reason: a type
   minted off a defeated fact is justified by that fact and so is defeated too — the
@@ -2643,6 +2643,18 @@
                                  (tax/mark-prop (:taxonomy kb) :decontextualized pred h (:context sx))
                                  (lift-existing kb pred h)))))]
       ['forcedDecontextualizedPredicate (prop-entry :forced-decontextualized)]
+      ;; `(targetFollowingPredicate P)` marks P as forming a **target-following
+      ;; meta-sentex**: a `(P … (sentexHandle H) …)` names sentex H and must not outlive
+      ;; it, so a teardown that removes H removes the meta with it
+      ;; (`core/retract-following-metas!`).  Belief-following and recover-safe like the
+      ;; marks above.  koinii's reply acts (`answers` / `disputes` / `endorses` /
+      ;; `justifies`) declare it, so retracting a claim cascades to the replies about it —
+      ;; the property a message bus cannot give.  The engine's own meta-sentexes
+      ;; (`except` / `exceptWhen`) deliberately do **not** carry it: a rule's exception
+      ;; orphans harmlessly when the rule is retracted (`meta_sentex_test`), is
+      ;; roster-managed at the removal choke point, and that amend-in-place behavior is
+      ;; correct as is — the mark is opt-in precisely to leave it untouched.
+      ['targetFollowingPredicate (prop-entry :target-following)]
       ;; `(abduciblePredicate P)` is what lets abduction hypothesize a `(P …)` when a
       ;; proof dead-ends on one (docs/abduction.md).  Deliberately **not**
       ;; decontextualized, unlike the marks above it: `transitive` / `symmetric` are
@@ -2652,6 +2664,13 @@
       ;; scoped `has-prop?` arity is what reads it, so the grant reaches exactly the
       ;; contexts that see the grantor.
       ['abduciblePredicate (prop-entry :abducible)]
+      ;; `(modalPredicate P)` is what makes `(P agent sentence)` project into the agent's
+      ;; context (docs/belief.md) — `BeliefProjectionProver` reads it.  Not
+      ;; decontextualized, and for `abduciblePredicate`'s reason: which predicates a
+      ;; theory reads modally is a *policy* of the context that grants it, so the scoped
+      ;; `has-prop?` arity reaches exactly the contexts that see the grant.  `believes`
+      ;; ships granted in CxCore; `knows` / `desires` / `intends` are one assertion away.
+      ['modalPredicate (prop-entry :modal)]
       ;; a NAT function's kind is predicate metadata like the marks above —
       ;; `(reifiableFunction F)` marks `:reifiable`, `(unreifiableFunction F)`
       ;; `:unreifiable`, belief-following through the same prop cache.  The reify
@@ -2661,6 +2680,26 @@
       ;; refuses an individual — is replaced by `function-decl-problems`.
       ['reifiableFunction   (assoc (prop-entry :reifiable)   :wff wff/function-decl-problems)]
       ['unreifiableFunction (assoc (prop-entry :unreifiable) :wff wff/function-decl-problems)]
+      ;; `(quotingFunction F)` marks `:quoting`: F's arguments are a **mention**, held
+      ;; opaque to *identity* congruence — `res/representative-term` rewrites them by
+      ;; spelling (`rewriteOf`) only, never by a `sameAs`/`equals` merge — so a quoted
+      ;; term does not fold onto its referent's class.  Orthogonal to `:reifiable` /
+      ;; `:unreifiable` (it governs argument opacity, not whether the application is
+      ;; minted): `Quote` is reifiable + quoting, `Quasiquote` is unreifiable + quoting.
+      ['quotingFunction     (assoc (prop-entry :quoting)     :wff wff/function-decl-problems)]
+      ;; `(contextDenotingFunction F)` marks `:context-denoting`: a `Cx*Fn` whose ground
+      ;; applications reify to a `cx/` **context** constant (rather than a `nat/` object
+      ;; constant), so `(CxTimeFn CxMonad (DatetimeFn "2000"))` becomes a context a sentex
+      ;; can be stored in and a `genlCx` node (docs/context-nat.md).  A reify-kind like
+      ;; `:reifiable` — the nat gate turns on for it and the mint picks `cx/` by it — with
+      ;; the same `function-decl-problems` wff, its argument being a function name.
+      ['contextDenotingFunction (assoc (prop-entry :context-denoting) :wff wff/function-decl-problems)]
+      ;; `(contextArgSubrelation F pos R)` declares the structural genlCx ordering: two
+      ;; `F`-contexts identical except at argument `pos` are ordered by sub-relation `R`
+      ;; on that arg, so the producer materializes `(genlCx sub super)` when `R` holds
+      ;; (docs/context-nat.md).  Read back through the index per producer run like the
+      ;; correspondence declaration, so the entry is the wff arm alone.
+      ['contextArgSubrelation {:wff wff/context-arg-subrelation-problems}]
       ;; `(functionCorrespondingPredicate F P N)` is read by the reify (both ways —
       ;; docs/nat.md), which reaches it through the index rather than a cache: the
       ;; declaration is consulted once per NAT, where the reify is already probing for
@@ -2678,18 +2717,20 @@
      ;; asks that question per super-predicate on every assert
      ;; (`tax/arg-declaration-props`, `res/constraining-predicates`).  The two
      ;; preservation declarations really are wff-only — read back per query, with the
-     ;; transitivity of the relation they name checked here because `argIsa`'s open-world
+     ;; transitivity of the relation they name checked here because `arg`'s open-world
      ;; reading cannot (docs/inherit.md).  `different` is never stored at all — its wff
      ;; arm *is* the refusal
      ;; ...and the query operators, never stored either — their wff arm is the
      ;; refusal: negation as failure (docs/naf.md) and the five aggregates, which are
      ;; the same family and take the same arm (docs/aggregate.md)
-     (into [['argIsa               (assoc (prop-entry (tax/arg-declaration-props 'argIsa))
+     (into [['arg               (assoc (prop-entry (tax/arg-declaration-props 'arg))
+                                       :wff wff/arg-constraint-problems)]
+            ['genlArg              (assoc (prop-entry (tax/arg-declaration-props 'genlArg))
                                           :wff wff/arg-constraint-problems)]
-            ['argGenl              (assoc (prop-entry (tax/arg-declaration-props 'argGenl))
+            ['quotedArg            (assoc (prop-entry (tax/arg-declaration-props 'quotedArg))
                                           :wff wff/arg-constraint-problems)]
-            ['interArgIsa          (assoc (prop-entry (tax/arg-declaration-props 'interArgIsa))
-                                          :wff wff/inter-arg-constraint-problems)]
+            ['interArg          (assoc (prop-entry (tax/arg-declaration-props 'interArg))
+                                       :wff wff/inter-arg-constraint-problems)]
             ['transitiveInArg        {:wff wff/arg-preserving-problems}]
             ['transitiveInArgInverse {:wff wff/arg-preserving-problems}]
             ['different            {:wff wff/different-problems}]
@@ -2708,7 +2749,7 @@
   "Structural well-formedness problems for `sentence` (empty if OK) — the `:wff`
   column of the table, walked.  A sentence whose functor has no entry (or no `:wff`
   arm) is structurally unconstrained here; its argument *types* are still checked
-  by the argIsa constraints."
+  by the arg constraints."
   [tax sentence]
   (if-let [wf (:wff (get table (and (sequential? sentence) (first sentence))))]
     (wf tax sentence)

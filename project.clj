@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.9.0"
+(defproject com.vaelii/vaelii "0.10.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -108,7 +108,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.9.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.10.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -269,6 +269,10 @@
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
             "gate"            ["shell" "bash" "scripts/gate.sh"]
+            ;; the release gate: `gate` (lint + test) plus the perf stage, for a tag
+            ;; or a perf-sensitive land.  The fast `gate` drops perf and only asks
+            ;; for it; this always runs it.  See scripts/gate.sh's PERF header.
+            "release-gate"    ["shell" "bash" "scripts/gate.sh" "--release"]
             ;; rewrite the three goldens — the published API surface, the extension
             ;; seams, the config surface — from the live tree.  `test` is already on a
             ;; plain `run`'s classpath here, so no profile is needed.  Read

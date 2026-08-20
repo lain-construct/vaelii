@@ -654,6 +654,17 @@ matches nothing (`kv_backend_test` and `index_edge_test` guard exactly this).
   is rebuilt from the WAL frames the same way. nippy freeze is a pure function of its
   value, so equal values freeze to equal bytes.
 
+Because in-memory serializes nothing, a value nippy **cannot** freeze and thaw — a
+function, an atom, a non-serializable object — would store in memory and then throw at
+write time on the first on-disk backend: the same assert would succeed or fail by
+backend. `assert` (hence `assert-rule` / `assert-many`), `assert-inert`, and `check`
+refuse it up front (`:type` `:not-encodable`, `checks/check-encodable`), so a stored
+sentence's values round-trip in every backend or the sentence is refused in all of
+them. The vocabulary and literals — symbols, keywords, strings, numbers, chars,
+booleans, `nil` — and any vector/map/set of them are always storable; a leaf outside
+that set is put through the freeze/thaw pair the disk backends run, and refused if
+either throws (`encodable_test` pins the boundary).
+
 ## The canon gotcha
 
 `LazySeq`, `PersistentList`, and vector can be `=` yet freeze to **different**
@@ -777,7 +788,7 @@ write.
 ## What a bulk load costs
 
 `bulk-assert-facts!` is the write path with everything a *trusted* corpus does not need
-already off — the definitional checks (the `argIsa` store query above all), the dedup
+already off — the definitional checks (the `arg` store query above all), the dedup
 trie-walk, provenance, forward chaining, and N−1 settles. What remains is storing,
 indexing and believing, and this is where that time goes.
 

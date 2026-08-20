@@ -1,14 +1,14 @@
-# Assertive argument types: `argIsa` as an entailment
+# Assertive argument types: `arg` as an entailment
 
-- **Covers:** how, with the opt-in toggle on, an `argIsa` / `argGenl` / `interArgIsa`
+- **Covers:** how, with the opt-in toggle on, an `arg` / `genlArg` / `interArg`
   declaration also mints the type it constrains as a derived, justified, retractable sentex.
-- **Not here:** `argIsa` / `argGenl` read as a constraint that rejects a wrongly-typed
+- **Not here:** `arg` / `genlArg` read as a constraint that rejects a wrongly-typed
   argument (the default, toggle-off reading) → [taxonomy.md](taxonomy.md); `transitiveInArg`,
   which carries a stated claim rather than a declared type across an argument →
   [inherit.md](inherit.md).
 - **Assumes:** sentex, justification, context, `genl` → [glossary.md](glossary.md).
 
-`(argIsa parentOf 1 animal)` says the first argument of `parentOf` is an animal. Assert
+`(arg parentOf 1 animal)` says the first argument of `parentOf` is an animal. Assert
 `(parentOf Fred Mary)` and the KB checks that claim against what it knows about `Fred` —
 and when it knows nothing, **passes and stores nothing**. The declaration is read as a
 constraint to test, never as a fact to derive.
@@ -20,15 +20,15 @@ entailment is a derived, justified, retractable sentex under truth maintenance.
 (v/assert kb '(genl animal thing) 'CxUniverse)   ; the declared type has to be one
                                                       ; the hierarchy holds — see below
 (binding [checks/*assertive-arg-types?* true]
-  (v/assert kb '(argIsa parentOf 1 animal) 'CxWorld)
+  (v/assert kb '(arg parentOf 1 animal) 'CxWorld)
   (v/assert kb '(parentOf Fred Mary) 'CxWorld))
 
 (v/isa? kb 'Fred 'animal 'CxWorld)          ; => true
 (v/why kb (v/handle-of kb '(animal Fred) 'CxWorld))
 ;; {:premise? false
-;;  :support [{:informant argIsa
+;;  :support [{:informant arg
 ;;             :because [{:sentence (parentOf Fred Mary) :premise? true}
-;;                       {:sentence (argIsa parentOf 1 animal) :premise? true}]}]}
+;;                       {:sentence (arg parentOf 1 animal) :premise? true}]}]}
 ```
 
 **Off by default** (`vaelii.impl.checks/*assertive-arg-types?*`; the root value reads
@@ -38,11 +38,11 @@ changes what a KB *contains*, not only what it answers, so it is opt-in.
 ## What this is not
 
 `provers/ArgTypeProver` already answers a ground `(animal Fred)` goal from exactly this
-declaration — argIsa read as an inference is not new. What is new is that the type
+declaration — arg read as an inference is not new. What is new is that the type
 becomes a **record**: a handle, a justification naming what it rests on, a place in the
 taxonomy that `isa?` / `types-of` and the definitional checks read, and a datum the
 agenda fires rules on. A prover's answer is none of those, and it is confined to a
-CapitalCamelCase individual; `argGenl` entails a `genl` edge, which no prover can.
+CapitalCamelCase individual; `genlArg` entails a `genl` edge, which no prover can.
 
 ## Where it lives
 
@@ -87,7 +87,7 @@ goes, through machinery that already exists; defeat the fact and the type goes O
 it, because it is an ordinary derived node.
 
 The edge handles are there because a constraint **descends the predicate hierarchy**
-([taxonomy.md](taxonomy.md)): `(argIsa parentOf 1 animal)` entails `(animal Ann)` from
+([taxonomy.md](taxonomy.md)): `(arg parentOf 1 animal)` entails `(animal Ann)` from
 `(fatherOf Ann Mary)` under `(genl fatherOf parentOf)`, and that type is entailed only
 while the subsumption is. Naming the fact and the declaration alone would leave it
 standing after the edge was retracted — a derived record supported by content that no
@@ -99,7 +99,7 @@ the same witness rule everything else depending on a reachability takes.
 
 A declaration has to reach back over content already stored, or belief depends on which
 of the ingredients arrived first. `decontextualizedPredicate` lifts the facts already
-present when it arrives, so `argIsa` has to as well — and with the descension the
+present when it arrives, so `arg` has to as well — and with the descension the
 ingredients are three rather than two, so there are three entry points:
 
 * **fact meets declaration** — `deduce-arg-types`, on `assert` *and* on
@@ -145,11 +145,11 @@ So only a declaration written in the context being checked, or in `CxUniverse`
 (which speaks for every context by construction), draws the entailment. Pure can express
 this because every supporter records the context it asserts from.
 
-This is also what keeps the **cast** quiet: the starter's `(argIsa parentOf 1 animal)`
+This is also what keeps the **cast** quiet: the starter's `(arg parentOf 1 animal)`
 lives in `CxLife` while the individuals live in `CxNaturalWorld`, so nothing is
 minted over them however the toggle is set. The schema's own contexts are the other case
 and mint freely, because there a declaration and the facts it constrains are written side
-by side — `(genl animal thing)` sits in `CxCore` beside `(argGenl genl 1 thing)`.
+by side — `(genl animal thing)` sits in `CxCore` beside `(genlArg genl 1 thing)`.
 Every argument position in the shipped ontology is declared, so the toggle-on starter load
 mints 222 memberships against 1571 stored (the table under [Cost](#cost)). The root's own
 `genl` supertype position is the single undeclared one, and `CxCore` says why beside
@@ -210,7 +210,7 @@ a finite set that never shrinks.
 | case | what happens instead |
 |---|---|
 | the argument is disjoint with the declared type | the existing `:arg-type` refusal — no type is minted on the way to it |
-| an **individual** in an `argGenl` position | `genls-problem` convicts; an individual can never acquire `genl` edges |
+| an **individual** in an `genlArg` position | `genls-problem` convicts; an individual can never acquire `genl` edges |
 | the declared type is not one the hierarchy holds | nothing — a name that does not reach `thing` is not a type we invent a membership in. This is where a structural constraint lands without needing a list of exemptions to keep in step |
 | a genuine negation, or a rule | not argument-checked, so not entailed from either |
 | a **query** | nothing, ever. The entailment is on the store path alone |
@@ -232,10 +232,10 @@ untouched. With it **on** and nothing to do, on/off straddles parity, which is a
 as this bench gets; the shared `declaration-reader` is what bought that. Where it mints,
 the run stores twice as many sentexes, so the ~1.9× is the minting, not the gate.
 
-**`interArgIsa` is read behind an O(1) gate where the other two are unconditional**, and
-the asymmetry is deliberate. `argIsa` is what a typed ontology is mostly made of, so its
+**`interArg` is read behind an O(1) gate where the other two are unconditional**, and
+the asymmetry is deliberate. `arg` is what a typed ontology is mostly made of, so its
 declaration read pays for itself on the facts it constrains. The shipped ontology declares
-no `interArgIsa` at all, and the check runs on *every* assert — measured at **~11% per
+no `interArg` at all, and the check runs on *every* assert — measured at **~11% per
 assert** of a declaration-carrying predicate for a retrieval that found nothing, against a
 `count-with-functor` that answers "is one stored at all" for free. Add a fourth
 argument-constraint kind the same way: gate it until something declares it. A ratio-based
@@ -264,23 +264,23 @@ doing less; it is evidence the feature is putting content in the KB.
 
 `backend_parity_test` pins the toggle off inside its scripted session. That namespace's
 question is whether eight storage backends answer hand-written expectations alike, and
-the entailment would change the script itself: `(argIsa ownerOf 2 animal)` and
+the entailment would change the script itself: `(arg ownerOf 2 animal)` and
 `(ownerOf Ann Rex)` both sit in `CxParity`, so Rex would carry a second, independent
 `animal` membership and retracting `(dog Rex)` would no longer take his type with it.
 That is the feature working, tested where it belongs.
 
 ## The conditional form
 
-`(interArgIsa P n T m U)` says that when argument `n` is a `T`, argument `m` must be a
-`U` — the claim `argIsa` cannot make, since `(argIsa eats 2 meat)` demands meat of every
-eater where `(interArgIsa eats 1 carnivore 2 meat)` demands it only of carnivores. It
+`(interArg P n T m U)` says that when argument `n` is a `T`, argument `m` must be a
+`U` — the claim `arg` cannot make, since `(arg eats 2 meat)` demands meat of every
+eater where `(interArg eats 1 carnivore 2 meat)` demands it only of carnivores. It
 entails the same way and just as strongly: `(meat Chunk)` from `(eats Rex Chunk)` and the
 declaration, justified by both, once `Rex` is known to be a carnivore.
 
 It reads open-world **twice, in opposite directions**, and that is the whole of it. The
 trigger side must be *positively established* — silence about argument `n`'s type is not
 evidence that it is a `T`, so an unknown trigger leaves the constraint dormant rather than
-firing it. The target side is convicted by *absence*, exactly as `argIsa`'s is. Getting
+firing it. The target side is convicted by *absence*, exactly as `arg`'s is. Getting
 either backwards inverts the constraint: demand the trigger's absence and every untyped
 argument fires it, excuse the target's absence and it never convicts anybody.
 
@@ -289,15 +289,28 @@ fact and the declaration each reach the other (at the door, and through
 `special/entail-existing`), but the *trigger's type* arriving third does not reach back:
 `(eats Rex Chunk)` and the declaration both stored, then `(carnivore Rex)`, and the
 entailment is not drawn — nor is the violation reported, had `Chunk` been a `grass`.
-`argIsa` has the same gap from the other side (an argument that acquires its first type
+`arg` has the same gap from the other side (an argument that acquires its first type
 after the fact was admitted), and it is the same open-world non-reach
 [taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order) records for the
 whole family: a retroactive pass over it would have to decide whether pre-existing silence
 about a type is a violation, which is the policy question nobody has answered.
 
+## The quoted twin
+
+`(quotedArg P n T)` types argument `n` **as a term** rather than by what it denotes: its
+EDN kind — a `string`, a `number` (with `integer` below it), a `symbol` — checked through
+`genl` against a syntactic type. `(quotedArg nameOfGuy 1 string)` refuses `(nameOfGuy 5)`,
+5 being a number and not a string, and admits `(nameOfGuy "Bob")`. It is the mention twin
+of `arg`: where `arg` reads the referent's type, `quotedArg` reads the argument's own
+syntax, which is decidable from the literal — so it is **checked, never entailed**, there
+being nothing to mint about a term that already is what it is. Open-world about a kind it
+does not type (a compound, a keyword) and about a declared type outside the syntactic
+lattice, so an imported constraint on a domain collection never convicts a literal it
+cannot judge. `checks/args-quoted-problem`, behind the same O(1) gate as `interArg`.
+
 ## Scope
 
-**In:** `argIsa`, `argGenl` and `interArgIsa`, both directions, justified and retractable;
+**In:** `arg`, `genlArg` and `interArg`, both directions, justified and retractable;
 the local/inherited rule; the toggle.
 
 **Out:** `argQuoted` / `argOneOf` (pure does not have the constraints, and adding them is

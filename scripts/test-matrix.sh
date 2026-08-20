@@ -37,7 +37,7 @@
 # be the shortest thing there is: the durable four take ~10-12 minutes under a full box
 # against ~4-5 for the rest, and a 4-minute sweep starting at minute nine outlasts a
 # 12-minute disk run that started at zero.  Order comes from the previous run's measured
-# seconds (`target/test-matrix/config-timings.tsv`, per checkout), and from a
+# seconds (`logs/test-matrix/config-timings.tsv`, per checkout), and from a
 # durable-is-slower prior before anything has been measured.
 #
 # WHAT FAILED, AND WHETHER IT IS THE SUITE'S ANSWER.  A red run names the failing TESTS
@@ -77,7 +77,10 @@
 #   ./scripts/test-matrix.sh --fail-fast      # launch nothing new once one has failed
 #
 # Env:
-#   TEST_MATRIX_OUT   log directory (default target/test-matrix/run-<pid>)
+#   TEST_MATRIX_OUT   log directory (default logs/test-matrix/run-<pid>, outside target/
+#                     so a concurrent build's clean cannot delete a live run)
+#   MATRIX_KEEP_RUNS  past run dirs to keep (default 20); a run touched in the last 24h is
+#                     never pruned regardless, so a parallel run is never a candidate
 #   MATRIX_JOBS       how many at a time (default: scripts/lib/slots.sh)
 #   MATRIX_JVM_OPTS   extra JVM_OPTS for every run.  Empty by default.  On a loaded box
 #                     `-XX:ActiveProcessorCount=2` is the one worth trying — each JVM
@@ -171,7 +174,13 @@ fi
 # slower, which is a fact about the configuration rather than about the machine, so it is
 # safe to assume before anything has been measured.  `test-parallel.sh` bin-packs from
 # measurement for the same reason and with the same fallback.
-MATRIX_TIMINGS="target/test-matrix/config-timings.tsv"
+# Run logs live under logs/, NOT target/.  A concurrent `lein clean` — or the auto-clean
+# lein runs before a compile/uberjar/coverage task — wipes all of target/, and a live
+# matrix run's per-configuration logs and disk scratch sit inside its run directory.  logs/
+# is gitignored and no lein task touches it, so a run in one checkout survives a build in
+# another.  `prune_old_runs` (below) is the only thing that deletes a run dir now.
+MATRIX_ROOT="logs/test-matrix"
+MATRIX_TIMINGS="$MATRIX_ROOT/config-timings.tsv"
 order_longest_first() {
   local c w
   for c in "${CONFIGS[@]}"; do
@@ -195,12 +204,31 @@ CONFIGS=("${ORDERED[@]}")
 [[ -z "$JOBS" ]] && JOBS=$(default_slots)
 [[ $JOBS -gt ${#CONFIGS[@]} ]] && JOBS=${#CONFIGS[@]}
 
+# Keep a generous tail of past run directories and never delete a recent one.  Nothing
+# pruned before — a stray `lein clean` did the deleting instead, and took live runs with it
+# (their logs live under target/ no longer, see MATRIX_ROOT above).  Delete only a run dir
+# that is BOTH beyond the newest `keep` AND untouched for over a day: a run still in progress
+# — in this checkout or a parallel one — is touched within the day, so it is never a
+# candidate.  Newest-first by mtime; bash 3.2 ships as /bin/bash, so no `mapfile`.
+prune_old_runs() {
+  local root="$1" keep="$2" d i=0
+  [[ -d "$root" ]] || return 0
+  while IFS= read -r d; do
+    i=$((i + 1))
+    (( i <= keep )) && continue
+    [[ -n "$(find "$d" -maxdepth 0 -mmin -1440 2>/dev/null)" ]] && continue
+    rm -rf "$d"
+  done < <(ls -dt "$root"/run-* 2>/dev/null)
+}
+
 # A run owns its directory — `gate.sh` and `test-backends.sh`, same reason: two matrices
 # in one checkout must not interleave a log or delete each other's live disk scratch.
-MATRIX_ROOT="target/test-matrix"
+# MATRIX_ROOT is set above (under logs/, so no lein clean can reach a live run).
+mkdir -p "$MATRIX_ROOT"                        # a fresh checkout has no logs/ yet
 if [[ -n "${TEST_MATRIX_OUT:-}" ]]; then
   OUT_DIR="$TEST_MATRIX_OUT"; mkdir -p "$OUT_DIR"
 else
+  prune_old_runs "$MATRIX_ROOT" "${MATRIX_KEEP_RUNS:-20}"
   OUT_DIR="$MATRIX_ROOT/run-$$"; mkdir -p "$OUT_DIR"
   ln -sfn "$(basename "$OUT_DIR")" "$MATRIX_ROOT/latest" 2>/dev/null || true
 fi

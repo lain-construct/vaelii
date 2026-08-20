@@ -11,7 +11,7 @@
 
     disjoint-problem  a type membership against the types the term already holds,
                       closed under genl and scoped to the asserting context
-    args-problem      a sentence against the `argIsa` constraints on its predicate,
+    args-problem      a sentence against the `arg` constraints on its predicate,
                       each argument tested with `isa?`
 
   Both are driven by *hierarchy* rather than by KB size, so the knobs that matter are
@@ -57,7 +57,7 @@
   "A KB shaped like the hierarchy the checks walk: a deep genl tree, individuals
   holding several types apiece from their own ancestor chain (so nothing is disjoint
   and every sample does the full walk rather than short-circuiting on a refusal), and
-  binary predicates with `argIsa` on both positions."
+  binary predicates with `arg` on both positions."
   [kb {:keys [types branching individuals memberships predicates disjoints]}]
   (let [ctx 'CxBench]
     (v/assert kb (list 'genlCx ctx 'CxCore) 'CxCore {:chain? false})
@@ -71,8 +71,8 @@
           (when (and (< a types) (< b types))
             (v/assert kb (list 'disjoint (type-name a) (type-name b)) ctx {:chain? false}))))
       (doseq [i (range predicates)]
-        (v/assert kb (list 'argIsa (pred-name i) 1 (type-name 0)) ctx {:chain? false})
-        (v/assert kb (list 'argIsa (pred-name i) 2 (type-name 0)) ctx {:chain? false}))
+        (v/assert kb (list 'arg (pred-name i) 1 (type-name 0)) ctx {:chain? false})
+        (v/assert kb (list 'arg (pred-name i) 2 (type-name 0)) ctx {:chain? false}))
       ;; every individual sits on one leaf's ancestor chain and holds `memberships` of
       ;; the types on it — a term with one type exercises none of the walk
       (doseq [i (range individuals)]
@@ -149,8 +149,8 @@
         (run-arm "constraint-problem" (fn [s c] (#'checks/constraint-problem kb s c)) u))
       (println "\nargIsa arm — a binary fact against its predicate's constraints")
       (let [b (binary-samples opts ctx)]
-        (run-arm "  the argIsa lookup" (fn [s c] (seq (res/matches-visible
-                                                       kb (list 'argIsa (first s) '?n '?type) c))) b)
+        (run-arm "  the arg lookup" (fn [s c] (seq (res/matches-visible
+                                                       kb (list 'arg (first s) '?n '?type) c))) b)
         (run-arm "  memberships x1" (fn [s c] (seq (:types (kb/memberships kb (second s) c)))) b)
         (run-arm "arity-problem" (fn [s c] (#'checks/arity-problem kb s c (types c))) b)
         (run-arm "args-problem" (fn [s c] (#'checks/args-problem kb s c (types c))) b)

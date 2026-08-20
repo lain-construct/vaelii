@@ -1199,7 +1199,7 @@
   `x` holds reach `t`\", and reachability is the *same* edge set read either way — `t' ∈
   specs(t)` iff `t ∈ genls(t')` — so the two directions differ only in what they cost
   here.  `specs(t)` is unbounded in the wrong direction: with `t` = `thing`, the floor
-  every `argIsa` check tests first, it is every type in the KB.  The up-closure of a
+  every `arg` check tests first, it is every type in the KB.  The up-closure of a
   type a term actually holds is one chain, cached, and once read every constraint on
   that term is one set membership."
   [kb x context]
@@ -1253,8 +1253,8 @@
   The definitional checks ask about a handful of terms — the sentence's arguments, and
   its predicate — but ask about each several times over: the arity arm reads the
   predicate's memberships for three spellings of the declaration and again for
-  `variableArity`, `argIsa` reads an argument's twice per constraint on its position,
-  and for a unary sentence the disjointness arm wants the very memberships `argIsa`
+  `variableArity`, `arg` reads an argument's twice per constraint on its position,
+  and for a unary sentence the disjointness arm wants the very memberships `arg`
   just read.  Each is a posting read plus a record fetch and a belief test per entry,
   and none of it can change underneath one `assert`."
   [kb context]
@@ -1798,14 +1798,13 @@
 
 (defn displaced-terms*
   "The `{old-term representative}` rewrites a sentence undergoes, given the visibility
-  predicate already built — empty when nothing in it has merged."
+  predicate already built — empty when nothing in it has merged.  Mention-aware: a term
+  quoted inside a `quotingFunction` is recorded displaced only by a spelling rename, never
+  by a `sameAs` merge of its referent, matching what `rewrite-term*` actually rewrites (so
+  `why-not` does not over-report a held-opaque mention).  Delegates to `res/displaced-terms-in`,
+  which is the flat walk when no `quotingFunction` is declared."
   [kb sentence visible?]
-  (into {}
-        (keep (fn [t]
-                (when (and (symbol? t) (not (sx/variable? t)))
-                  (let [r (res/representative-in kb visible? t)]
-                    (when (not= r t) [t r])))))
-        (tree-seq sequential? seq sentence)))
+  (res/displaced-terms-in kb visible? sentence))
 
 (defn displaced-terms
   "The `{old-term representative}` rewrites a sentence undergoes — empty when nothing

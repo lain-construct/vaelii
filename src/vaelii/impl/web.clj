@@ -1049,6 +1049,7 @@
    :arg-type             "arg type"
    :arg-genl             "arg type"
    :inter-arg-type       "arg type"
+   :quoted-arg-type      "quoted arg"
    :arg-position         "arg slot"
    :arg-constraint-kind  "arg kind"
    :arity                "arity"
@@ -1058,6 +1059,7 @@
    :irreflexive          "self tuple"
    :anti-symmetric       "forces equal"
    :shape                "shape"
+   :not-encodable        "unstorable"
    :unknown-option       "opts"
    :unknown-handle       "no handle"
    :bad-handle           "bad handle"
@@ -2632,7 +2634,7 @@
 
   What is and is not an edge, stated rather than left to fall out of the code:
 
-    · **binary facts only** — a ternary `(argIsa parentOf 1 person)` relates three things,
+    · **binary facts only** — a ternary `(arg parentOf 1 person)` relates three things,
       and an arrow between two of them drops the position it was about;
     · **positive only** — `(not (P a b))` says the relation does *not* hold, and an arrow
       says the opposite;

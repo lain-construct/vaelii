@@ -187,20 +187,6 @@
   reason to prefer the looser fallback."
   true)
 
-(defn- all-fact-handles
-  "Every stored **fact** handle, both polarities — the sound candidate superset for a
-  pattern with nothing indexable to lead with (a fully-open dotted `(?pred . ?args)`,
-  which matches its functor at every arity).  The functor roots span both polarities and
-  hold only facts — a rule contributes only its context — so a union over the top-level
-  functors is exactly the fact extent, never a rule, which an open positive trie walk
-  would not surface either.  `match-one`'s `unify` and truth check filter it to the
-  believed positive facts."
-  [ix]
-  (into #{}
-        (comp (filter symbol?)                 ; a functor, not the :false / :rule tag
-              (mapcat #(p/sentexes-with-functor ix %)))
-        (p/children ix [])))
-
 (defn- candidate-handles
   "The stored handles to unify `pat` against — always a superset of the positional
   trie hits (so `match-one`'s `unify` filters it to the identical set), chosen to
@@ -241,7 +227,7 @@
   Zero-regression by construction — the diverted case is the one the trie answers
   with a full fan-out.
 
-  **The decision is named before it is taken.**  The `cond` below yields one of eight
+  **The decision is named before it is taken.**  The `cond` below yields one of six
   keywords and the `case` under it does the read, so the access path a shape chose is a
   value: `vaelii.impl.profile` tallies it, and a reader has a word for each branch rather
   than a position in a `cond`."
@@ -257,16 +243,6 @@
             var-fn? (and (symbol? f) (sx/variable? f))
             var-idx (first (keep-indexed (fn [i a] (when-not (sx/ground-term? a) i)) args))
             ground  (keep-indexed (fn [i a] (when (sx/indexable-term? a) [(inc i) a])) args)
-            ;; a dotted-rest pattern (`(pred . ?args)` / `(?pred . ?args)`) binds a
-            ;; trailing rest-variable, so it matches its functor at *any* arity; its
-            ;; canonical path carries the `.` marker as a level no stored fact has, so
-            ;; the trie finds nothing and the arity-spanning roots source it instead.
-            ;; `dot-ground` are the indexable arguments *before* the marker — the only
-            ;; real positional args a dotted pattern has.
-            dotted?    (sx/dotted? body)
-            dot-ground (when dotted?
-                         (keep-indexed (fn [i a] (when (sx/indexable-term? a) [(inc i) a]))
-                                       (take-while #(not= sx/dot-marker %) args)))
             ;; something is still open and a ground root sits past it — the functor
             ;; being open (`(?type Muffet)`) puts *every* argument behind it, and with
             ;; nothing indexable to lead with there is no root to read, so the trie
@@ -297,20 +273,6 @@
               (and (= :false (:truth pat)) (not (sx/ground-term? body)))
               (if (or pred (seq ground)) :negative-roots :negative-fan)
 
-              ;; **A dotted-rest pattern** matches its functor at every arity, but its
-              ;; canonical path holds the `.` marker as a token no stored fact does, so
-              ;; `p/lookup` finds nothing and no branch below diverts it (the `.` is a
-              ;; non-indexable-*shaped* symbol that would otherwise read as a stuck
-              ;; ground argument).  The secondary roots span every arity: a concrete
-              ;; functor (with any leading ground argument) reads its functor-scoped
-              ;; roots, an open functor with a leading ground argument the
-              ;; predicate-agnostic slot roster — both a superset `unify` filters exact.
-              ;; A fully-open `(?pred . ?args)` pins nothing indexable, so it takes the
-              ;; whole positive-and-negative fact extent, filtered to the exact
-              ;; positive-fact set the same way.
-              (and (= :true (:truth pat)) dotted?)
-              (if (or pred (seq dot-ground)) :dotted-roots :dotted-fan)
-
               ;; A ground argument sitting **after** a variable, which the trie can reach
               ;; only by fanning out over the intervening variable.  This wins over the
               ;; structural walk below even when the stuck argument is a compound: the
@@ -334,8 +296,6 @@
                             (into #{} (mapcat #(p/lookup ix (assoc pth 1 %)))
                                   (p/children ix [:false])))
           :arg-roots      (p/sentexes-with-args ix pred ground)  ; intersect the scoped arg roots
-          :dotted-roots   (p/sentexes-with-args ix pred dot-ground)  ; functor / leading-arg roots, any arity
-          :dotted-fan     (all-fact-handles ix)                      ; open functor, nothing to lead with
           :structural     (p/lookup ix (sx/path pat))
           :functor-extent (p/sentexes-with-functor ix pred)
           :trie           (p/lookup ix (sx/path pat)))))))
@@ -520,6 +480,48 @@
     (= (representative-in kb visible? a)
        (representative-in kb visible? b))))
 
+(defn- spelling-representative-in
+  "`term`'s spelling-only representative as `visible?` sees the rewriteOf renames — used
+  inside a quoting function's arguments, where a mention tracks a spelling rename but not
+  an identity merge (`tax/spelling-representative`).  Gated by `merged?`, so an unmerged
+  symbol is one map miss."
+  [kb visible? term]
+  (let [tax (:taxonomy kb)]
+    (if (tax/merged? tax term)
+      (tax/spelling-representative tax term visible?)
+      term)))
+
+(defn- representative-term-plain
+  "The ordinary congruence walk — every non-variable symbol to its class representative,
+  recursively.  The path every KB with no `quotingFunction` takes."
+  [kb visible? term]
+  (cond
+    (sequential? term) (apply list (map #(representative-term-plain kb visible? %) term))
+    (symbol? term)     (if (sx/variable? term) term (representative-in kb visible? term))
+    :else              term))
+
+(defn- representative-term-mention
+  "The mention-aware walk.  Inside a `quotingFunction`'s arguments, symbols are rewritten
+  by spelling (`rewriteOf`) only, so a quoted term does not fold onto a `sameAs` / `equals`
+  referent.  `spelling?` turns on at a quoting function's arguments and stays on all the way
+  down — the whole quoted expression is syntax.  The quoting function's *head* is rewritten
+  normally, since opacity is about what it mentions, not the operator itself."
+  [kb visible? term spelling?]
+  (cond
+    (sequential? term)
+    (if (and (not spelling?) (tax/quoting-function? (:taxonomy kb) (first term)))
+      (apply list
+             (representative-term-mention kb visible? (first term) false)
+             (map #(representative-term-mention kb visible? % true) (rest term)))
+      (apply list (map #(representative-term-mention kb visible? % spelling?) term)))
+    (symbol? term)
+    (if (sx/variable? term)
+      term
+      (if spelling?
+        (spelling-representative-in kb visible? term)
+        (representative-in kb visible? term)))
+    :else term))
+
 (defn representative-term
   "`term` with every non-variable symbol replaced by its class representative
   (`representative-in`), **recursively** — so a merged symbol nested inside a compound is
@@ -529,12 +531,58 @@
   it a compound returns that compound unchanged and the caller silently compares
   unnormalized forms.  Every caller that may see a compound wants this one, and the
   difference is congruence — with `(sameAs Kilogram Kg)` believed, `(QuantityFn 5
-  Kilogram)` and `(QuantityFn 5 Kg)` normalize to one term here and to two there."
+  Kilogram)` and `(QuantityFn 5 Kg)` normalize to one term here and to two there.
+
+  **Mention opacity.** When the KB declares a `quotingFunction` (`Quote`, `Quasiquote`),
+  that function's arguments are a *mention* — a term named as syntax — rewritten by
+  *spelling* (`rewriteOf`) only, never by a `sameAs` / `equals` identity merge, so a quoted
+  term does not fold onto its referent's class.  Gated on `any-quoting-functions?`: a KB
+  declaring none takes the plain walk unchanged, one prop read at entry."
   [kb visible? term]
+  (if (tax/any-quoting-functions? (:taxonomy kb))
+    (representative-term-mention kb visible? term false)
+    (representative-term-plain kb visible? term)))
+
+(defn- displacements-plain
+  "Flat: every non-variable symbol of `sentence` mapped to its class representative when
+  that differs — the `{old rep}` a plain congruence rewrite records."
+  [kb visible? sentence]
+  (into {}
+        (keep (fn [t]
+                (when (and (symbol? t) (not (sx/variable? t)))
+                  (let [r (representative-in kb visible? t)]
+                    (when (not= r t) [t r])))))
+        (tree-seq sequential? seq sentence)))
+
+(defn- displacements-mention
+  "Mention-aware collector, the traversal `representative-term-mention` rewrites by: inside
+  a `quotingFunction`'s arguments a symbol moves by *spelling* (`rewriteOf`) only, so a
+  quoted term whose referent merged under a `sameAs` is **not** recorded displaced — the
+  `why-not` map then names only the terms the rewrite actually moved."
+  [kb visible? term spelling? acc]
   (cond
-    (sequential? term) (apply list (map #(representative-term kb visible? %) term))
-    (symbol? term)     (if (sx/variable? term) term (representative-in kb visible? term))
-    :else              term))
+    (sequential? term)
+    (if (and (not spelling?) (tax/quoting-function? (:taxonomy kb) (first term)))
+      (reduce #(displacements-mention kb visible? %2 true %1)
+              (displacements-mention kb visible? (first term) false acc)
+              (rest term))
+      (reduce #(displacements-mention kb visible? %2 spelling? %1) acc term))
+    (and (symbol? term) (not (sx/variable? term)))
+    (let [r (if spelling?
+              (spelling-representative-in kb visible? term)
+              (representative-in kb visible? term))]
+      (if (not= r term) (assoc acc term r) acc))
+    :else acc))
+
+(defn displaced-terms-in
+  "The `{old-term representative}` rewrites `sentence` undergoes under `visible?`, computed
+  the way `representative-term` actually rewrites it — so a quoted mention held opaque to a
+  `sameAs` is not reported displaced by `why-not`.  Gated on `any-quoting-functions?`: a KB
+  declaring none takes the flat walk unchanged, one prop read at entry."
+  [kb visible? sentence]
+  (if (tax/any-quoting-functions? (:taxonomy kb))
+    (displacements-mention kb visible? sentence false {})
+    (displacements-plain kb visible? sentence)))
 
 (defn kb-sentex
   "Build a sentex canonicalized against this KB's taxonomy: a symmetric predicate's
@@ -1106,10 +1154,15 @@
   whose match shape `without-retired` cannot take — `qcn-kb/refuted-pairs` yields
   `[handle a b]` triples with no sentex at index 2, so it filters with this directly."
   [kb visible merged? sentence]
-  (sx/some-symbol? (fn [t]
-                     (and (merged? t) (not (sx/variable? t))
-                          (not= t (representative-in kb @visible t))))
-                   sentence))
+  (if (tax/any-quoting-functions? (:taxonomy kb))
+    ;; mention-aware: a symbol inside a quoting function's arguments is retired only by a
+    ;; *spelling* rename, not by a `sameAs` / `equals` identity merge, so the flat
+    ;; per-symbol shortcut is unsound — compare the mention-aware normal form instead.
+    (not= (representative-term-mention kb @visible sentence false) sentence)
+    (sx/some-symbol? (fn [t]
+                       (and (merged? t) (not (sx/variable? t))
+                            (not= t (representative-in kb @visible t))))
+                     sentence)))
 
 (defn without-retired
   "Drop the matches whose stored spelling `view-context` has **retired** — the
@@ -1188,7 +1241,7 @@
   sentence declares `kind` of.
 
   `(genl fatherOf parentOf)` says every `fatherOf` tuple **is** a `parentOf` tuple, and
-  a tuple set only narrows going down, so `(argIsa parentOf 1 person)` constrains every
+  a tuple set only narrows going down, so `(arg parentOf 1 person)` constrains every
   `fatherOf` tuple exactly as it constrains every `parentOf` one.  Reading the
   declarations off the exact functor makes the refusal *door-dependent*: the same
   ill-typed claim is refused under the general spelling, admitted under the specialized

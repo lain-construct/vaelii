@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.wff-test
-  "Well-formedness checking of genl, genlCx, disjoint, disjointMetatype, argIsa."
+  "Well-formedness checking of genl, genlCx, disjoint, disjointMetatype, arg."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -39,18 +39,18 @@
       (v/assert kb (list 'genl dog mammal) 'CxUniverse)
       (is (ill-formed? (list 'disjoint dog mammal) 'CxUniverse)))))
 
-(tu/deftest-kb argIsa-and-genlCx-well-formedness
+(tu/deftest-kb arg-and-genlCx-well-formedness
   (let [parentOf (tu/tmp-pred) animal (tu/tmp-type) muffet (tu/tmp-ind) a-ctx (tu/tmp-ctx)]
-    (testing "argIsa needs a predicate, a positive integer, and a type"
-      (is (v/assert kb (list 'argIsa parentOf 1 animal) 'CxUniverse))
-      (is (ill-formed? (list 'argIsa parentOf 0 animal) 'CxUniverse))    ; position must be positive
-      (is (ill-formed? (list 'argIsa parentOf 1 muffet) 'CxUniverse)))     ; type is an individual
+    (testing "arg needs a predicate, a positive integer, and a type"
+      (is (v/assert kb (list 'arg parentOf 1 animal) 'CxUniverse))
+      (is (ill-formed? (list 'arg parentOf 0 animal) 'CxUniverse))    ; position must be positive
+      (is (ill-formed? (list 'arg parentOf 1 muffet) 'CxUniverse)))     ; type is an individual
     (testing "genlCx relates contexts"
       (is (v/assert kb (list 'genlCx a-ctx 'CxUniverse) 'CxUniverse))
       (is (ill-formed? (list 'genlCx animal 'CxUniverse) 'CxUniverse)))))  ; not a context
 
 (tu/deftest-kb an-argument-constraint-may-be-about-a-function
-  ;; A function has argument positions exactly as a predicate does — `(argIsa Milli 1
+  ;; A function has argument positions exactly as a predicate does — `(arg Milli 1
   ;; unit_of_measure)` says what the argument of a NAT `(Milli Meter)` must be, the same
   ;; kind of claim `resultIsa` makes about its result — and a function is spelled
   ;; CapitalCamelCase, which is also how an individual is spelled.  So the constrained
@@ -59,9 +59,9 @@
   (tu/with-terms [Milli a_unit]
     (v/assert kb (list 'genl a_unit 'thing) 'CxUniverse)
     (v/assert kb (list 'unreifiableFunction Milli) 'CxUniverse)
-    (is (v/assert kb (list 'argIsa Milli 1 a_unit) 'CxUniverse))
+    (is (v/assert kb (list 'arg Milli 1 a_unit) 'CxUniverse))
     (testing "and both constraints may be about it, since they ask different questions"
-      (is (v/assert kb (list 'argGenl Milli 1 a_unit) 'CxUniverse)))
+      (is (v/assert kb (list 'genlArg Milli 1 a_unit) 'CxUniverse)))
     (testing "what is decidable from the sentence is still checked"
-      (is (ill-formed? (list 'argIsa Milli 1 (tu/tmp-ind)) 'CxUniverse))   ; type is an individual
-      (is (ill-formed? (list 'argIsa Milli 0 a_unit) 'CxUniverse)))))      ; position not positive
+      (is (ill-formed? (list 'arg Milli 1 (tu/tmp-ind)) 'CxUniverse))   ; type is an individual
+      (is (ill-formed? (list 'arg Milli 0 a_unit) 'CxUniverse)))))      ; position not positive

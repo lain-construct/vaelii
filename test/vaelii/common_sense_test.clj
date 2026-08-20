@@ -90,11 +90,11 @@
 
 (tu/deftest-kb type-inferred-from-how-a-thing-is-used
   ;; Bone1 is never given a type; it is only ever eaten by Muffet. Because
-  ;; (argIsa eats 2 food), we can infer Bone1 is food — and, by genl, a
+  ;; (arg eats 2 food), we can infer Bone1 is food — and, by genl, a
   ;; physical_object and a thing — without ever storing those memberships.
   (testing "the type is not stored, only inferable"
     (is (empty? (v/sentexes-matching kb '(food Bone1) '?ctx))))
-  (testing "the individual's type follows from the relation's argIsa"
+  (testing "the individual's type follows from the relation's arg"
     (is (v/ask? kb '(food Bone1)))
     (is (v/ask? kb '(physical_object Bone1)))            ; a supertype of food
     (is (not (v/ask? kb '(vehicle Bone1)))))            ; but only what actually follows

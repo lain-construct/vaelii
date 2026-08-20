@@ -267,8 +267,8 @@ does today. So an optimization fails this gate too, which is the intended behavi
 commit that re-pins the number carries the improvement as data.
 
 **The worked case is a regression that really shipped.** `inter-args-problem` once ran its
-`interArgIsa` declaration retrieval unconditionally, on every assert of every KB, though
-nothing declares `interArgIsa`; it cost ~11% per assert and was found by hand against a
+`interArg` declaration retrieval unconditionally, on every assert of every KB, though
+nothing declares `interArg`; it cost ~11% per assert and was found by hand against a
 worktree at the parent commit ([argtypes.md](argtypes.md)). Restoring it:
 
 | | with the regression |

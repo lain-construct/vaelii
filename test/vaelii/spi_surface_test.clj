@@ -85,9 +85,10 @@
    'vaelii.impl.dense-kv/IPostings
    "how the dense KvBackend packs a handle set. A new backend supplies a KvBackend
     (which IS pinned) and never this."
-   'vaelii.impl.jtms/Tms
-   "the sparse/dense JTMS swap (docs/density.md). Both implementations ship here and
-    `VAELII_TEST_TMS` picks between them; it is an internal axis, not an invitation."
+   'vaelii.impl.jtms-protocol/Tms
+   "the sparse/dense JTMS swap (docs/density.md); the protocol has its own file so the
+    rest of jtms.clj stays instrumentable (scripts/coverage.sh). Both implementations
+    ship here and `VAELII_TEST_TMS` picks between them; an internal axis, not an invitation."
    'vaelii.impl.kv/ArgColumns
    "the argument-root family's read shape — the counted pos→term trie behind
     `sentexes-with-arg`/`count-with-arg`. MemoryKvBackend implements it and DenseRoots
@@ -181,7 +182,14 @@
 (defn declared-protocols
   "`#{ns/Protocol …}` — every protocol declared under `src/`.  Read from the sources
   rather than from loaded namespaces, so a protocol in a namespace nothing has required
-  still counts."
+  still counts.
+
+  The `koinii/` subtree is excluded: koinii is a coordination **library layered on the
+  public API** (`docs/koinii.md`), not part of the engine, so its extension points
+  (`CursorStore`, `Medium`) are koinii's own surface documented in koinii's own page —
+  this roster pins the *engine's* seams.  koinii is free to grow protocols without
+  reshaping the engine's pinned set; when it is extracted to its own module the exclusion
+  becomes the module boundary."
   []
   (into #{}
         (mapcat (fn [^File f]
@@ -191,6 +199,7 @@
         (->> (file-seq (io/file "src"))
              (filter #(.isFile ^File %))
              (filter #(str/ends-with? (.getPath ^File %) ".clj"))
+             (remove #(str/includes? (.getPath ^File %) "/koinii/"))
              (remove #(= self-file (.getPath ^File %))))))
 
 (deftest every-protocol-in-the-tree-is-classified

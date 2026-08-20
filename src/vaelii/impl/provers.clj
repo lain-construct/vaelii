@@ -40,6 +40,7 @@
   (:require [vaelii.impl.caches :as caches]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.modal :as modal]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
@@ -90,7 +91,7 @@
 ;; `solve-goal-with` over the whole `registry`; `parse-rule` builds the `exceptWhen`
 ;; guard that a rule read carries; `solve-inverted` composes the metadata provers minus
 ;; itself.
-(declare parse-rule solve-inverted solve-mirrored registry solve-goal-with)
+(declare parse-rule solve-inverted solve-mirrored registry solve-goal-with est-goal)
 
 (defn- pvar? [x] (sx/variable? x))
 (defn- has-var? [form] (boolean (some pvar? (tree-seq sequential? seq form))))
@@ -137,7 +138,7 @@
     equality reaches a computed prover already applied;
   * `symmetric` / `transitive` / `reflexive` over a predicate a calculus owns are the
     algebra's own composition and converse;
-  * `argIsa` type inference and the metadata provers answer goal shapes no computed
+  * `arg` type inference and the metadata provers answer goal shapes no computed
     prover claims, so they are never shadowed in the first place.
 
   Cheap by construction on two of the three: `inherit/positions` is behind a
@@ -1282,7 +1283,60 @@
         (and (number? n) (number? result)) (if (== n result) [{}] [])
         :else                              (if (= n result) [{}] [])))))
 
-;; ---- type inference from argIsa-constrained usage -----------------------
+;; ---- modal belief projection --------------------------------------------
+;; `(believes Agent P)` is answered by proving `P` inside `Agent`'s own context
+;; (`CxAgent<Agent>`) rather than in the asker's — the dual projection
+;; `(believes a p) ↔ p-holds-in-CxAgent<a>`.  Nothing here is belief machinery: an
+;; agent context is an ordinary context, `P` is an ordinary goal, and the projection is
+;; the ordinary registry run with the context swapped.  Two agents believing opposite
+;; things raise no contradiction because their contexts share no genlCx ancestor, which
+;; is the property the context lattice was built to give.  See `vaelii.impl.modal` and
+;; docs/belief.md.  This is a projector, not a modal logic — no K/T/4/5 schema, and a
+;; nested `(believes A (believes B P))` gets only what the marker's visibility gives it.
+
+(defrecord BeliefProjectionProver []
+  Prover
+  ;; Claimed only for a **registered modal predicate** (`(modalPredicate P)` believed
+  ;; where the query is asked — read scoped, like `abduciblePredicate`), of **arity 2**,
+  ;; whose **agent argument is ground** and yields a legal context name, over a
+  ;; **sentence-shaped proposition**.  An unbound agent is excluded deliberately: it
+  ;; would mean "search every agent's context", a different and far costlier operation
+  ;; than a projection into one — `projectable-agent?` is the gate, and it refuses a
+  ;; `?variable` because the minted context name would carry a `?` no context name may.
+  (applicable? [_ kb goal context]
+    (and (sequential? goal)
+         (= 2 (count (rest goal)))
+         (tax/has-prop? (:taxonomy kb) :modal (nm/functor goal) context)
+         (modal/projectable-agent? (second goal))
+         (sequential? (nth goal 2))))
+  ;; The planner should order a belief query by what the *inner* query actually costs,
+  ;; so delegate to the inner goal's own estimate in the agent context — a complete
+  ;; prover's count when one owns the inner shape, else the index model the inner
+  ;; functor would get asked directly.
+  (est-bindings [_ kb goal _]
+    (let [inner (nth goal 2)
+          actx  (modal/context-of-agent (second goal))]
+      (or (est-goal kb inner actx) (est-by-functor kb inner))))
+  ;; A projection is a sub-query, not a lookup: it runs the inner goal through the whole
+  ;; registry before it can answer, which is the `:compute` tier.  The registry expands
+  ;; no rule, so the inner query never reaches `:search` — `:compute` is both the floor
+  ;; a projection deserves and the ceiling the sub-query can hit.
+  (cost         [_ _ _ _] :compute)
+  ;; Augments, never replaces.  `(believes A P)` can *also* be a plain stored fact, and
+  ;; `believes` is a real relation someone may want to assert — so 50 keeps `FactProver`
+  ;; in the union (invariant: `believes` stays assertible), and `distinct` folds the two
+  ;; witnesses when both a stored belief and a projected one hold.
+  (completeness [_ _ _ _] 50)
+  ;; Answer `P` in the agent's context — **the agent's, never the asker's** (`context`
+  ;; is discarded here on purpose: the whole point is that a belief is read from where
+  ;; the belief lives).  The inner bindings are over `P`'s variables, which are exactly
+  ;; the outer goal's arg-2 variables, so they project straight back out.
+  (solve [_ kb goal _context]
+    (let [inner (nth goal 2)
+          actx  (modal/context-of-agent (second goal))]
+      (solve-goal-with kb (registry kb) (sx/canon inner) actx))))
+
+;; ---- type inference from arg-constrained usage -----------------------
 
 (defn- believed-sentexes-with [kb term]
   (->> (p/sentexes-with-term (:index kb) term)
@@ -1290,9 +1344,9 @@
        (filter #(jtms/in? (:tms kb) (:id %)))))
 
 (defn- inferred-types
-  "Types an individual `x` must have because it fills an argIsa-constrained argument
-  of a believed relation: for each believed `(P .. x@n ..)` with `(argIsa P n T')`,
-  `x` is a `T'` and, by genl, every supertype of `T'`.  This is argIsa read the
+  "Types an individual `x` must have because it fills an arg-constrained argument
+  of a believed relation: for each believed `(P .. x@n ..)` with `(arg P n T')`,
+  `x` is a `T'` and, by genl, every supertype of `T'`.  This is arg read the
   other way — as an inference, not only a constraint (e.g. Muffet eats Bone1 and eat's
   2nd argument is food, so Bone1 is food).
 
@@ -1315,11 +1369,11 @@
          ;; above `n`, since whose declarations bind a tuple is a fact about the
          ;; predicate and not about which of its positions is being read — bound
          ;; inside, the `genls` closure and its sort run once per argument position
-         :let [ps (res/constraining-predicates kb 'argIsa pred context)]
+         :let [ps (res/constraining-predicates kb 'arg pred context)]
          n (range 1 (inc (count as)))
          :when (= x (nth as (dec n)))
          p ps
-         [_ b] (res/matches-visible kb (list 'argIsa p n '?t) context)
+         [_ b] (res/matches-visible kb (list 'arg p n '?t) context)
          :let [t' (get b '?t)]
          :when (symbol? t')
          super (tax/genls (:taxonomy kb) t' context)]
@@ -1343,35 +1397,48 @@
 
 ;; ---- the argument-type meta-predicates, answered up genl ----------------
 ;;
-;; `(argIsa petMammal 1 animal)` succeeds off a stored `(argIsa petMammal 1 mammal)`
+;; `(arg petMammal 1 animal)` succeeds off a stored `(arg petMammal 1 mammal)`
 ;; when `(genl mammal animal)` — the same generalization `check` walks internally, so
 ;; `assert` and `ask` agree (issue #20).  Answered HERE, a bounded closure walk, rather
 ;; than by declaring the meta-predicates `transitiveInArg`: that routes every one of the
-;; KB's very many `argIsa`/`argGenl` lookups through the general preservation prover and
+;; KB's very many `arg`/`genlArg` lookups through the general preservation prover and
 ;; its chaining sweeps — a per-query tax the whole subsystem is gated to avoid, since
-;; almost no predicate is preserved.  A stored `(transitiveInArg argIsa …)` breaks that
+;; almost no predicate is preserved.  A stored `(transitiveInArg arg …)` breaks that
 ;; gate for the most-queried predicates there are.
 ;;
 ;; The predicate position reaches DOWN (a constraint on a super binds its
 ;; specializations — `constraining-predicates` is the super-predicate up-walk `check`
-;; uses), each type position reaches UP (a stored subtype constraint answers its
-;; supertypes — `genl?`).  On-demand and non-materializing, so it follows belief with no
-;; cache and `sentexes-matching` still shows only what was stored.  `arity` is NOT here:
-;; a sub-predicate may carry a signature of its own, and the answer would need the
-;; forward `arity`⇒type cycle a backward prover cannot fire; `check`'s `inherited-arity`
-;; still holds a silent sub-predicate to its supers.
+;; uses).  A type position's direction is its variance.  An *unconditional* type reaches
+;; UP (a stored subtype constraint answers its supertypes — `genl?`): `arg`/`genlArg`
+;; position 3 and `interArg`'s target position 5.  `interArg`'s *trigger* position
+;; 3 is the antecedent of a conditional, so it is contravariant and reaches DOWN: a
+;; stored `(interArg P n animal m U)` already convicts every `mammal`-trigger fact (a
+;; mammal is an animal), so it answers the narrower `(interArg P n mammal m U)` but
+;; never the wider `(… n thing m U)`, which would convict the non-animals `check` never
+;; touches.  Getting the trigger backwards is both unsound (the widening) and incomplete
+;; (the narrowing) against what `check` enforces — the same `assert`/`ask` agreement #20
+;; is about.  On-demand and non-materializing, so it follows belief with no cache and
+;; `sentexes-matching` still shows only what was stored.  `arity` is NOT here: a
+;; sub-predicate may carry a signature of its own, and the answer would need the forward
+;; `arity`⇒type cycle a backward prover cannot fire; `check`'s `inherited-arity` still
+;; holds a silent sub-predicate to its supers.
 (def ^:private meta-constraint-shape
   "By functor: the goal-list index of the predicate, the position-number indices that
-  must match a stored declaration exactly, and the type indices that reach up `genl`."
-  '{argIsa      {:pred 1 :fixed [2] :types [3]}
-    argGenl     {:pred 1 :fixed [2] :types [3]}
-    interArgIsa {:pred 1 :fixed [2 4] :types [3 5]}})
+  must match a stored declaration exactly, the type indices that reach UP `genl`
+  (covariant — a stored subtype answers its supertypes) and those that reach DOWN
+  (contravariant — a stored supertype answers its subtypes).  Only `interArg`'s
+  trigger is contravariant; its target and the unconditional `arg`/`genlArg` type are
+  covariant."
+  '{arg      {:pred 1 :fixed [2] :types-up [3]}
+    genlArg     {:pred 1 :fixed [2] :types-up [3]}
+    interArg {:pred 1 :fixed [2 4] :types-up [5] :types-down [3]}})
 
 (defn- meta-generalizes?
   "Does a stored declaration on `goal`'s predicate or a super-predicate answer `goal`
-  once its type positions are read up the `genl` closure?"
+  once each type position is read the way its variance allows — covariant positions up
+  the `genl` closure, the contravariant trigger down it?"
   [kb goal context]
-  (when-let [{:keys [pred fixed types]} (meta-constraint-shape (nm/functor goal))]
+  (when-let [{:keys [pred fixed types-up types-down]} (meta-constraint-shape (nm/functor goal))]
     (let [tax  (:taxonomy kb)
           k    (nm/functor goal)
           gvec (vec goal)
@@ -1385,11 +1452,14 @@
              (fn [[_h b]]
                (let [sval (fn [i] (if (= i pred) p' (get b (symbol (str "?g" i)))))]
                  (and (every? #(= (sval %) (nth gvec %)) fixed)
-                      (every? #(tax/genl? tax (sval %) (nth gvec %) context) types))))
+                      ;; covariant: the stored type sits at or below the queried one
+                      (every? #(tax/genl? tax (sval %) (nth gvec %) context) types-up)
+                      ;; contravariant: the queried type sits at or below the stored one
+                      (every? #(tax/genl? tax (nth gvec %) (sval %) context) types-down))))
              (res/matches-visible kb probe context))))
         (res/constraining-predicates kb k qp context))))))
 
-(defrecord MetaConstraintProver []   ; (argIsa/argGenl/interArgIsa P n T …) up the genl closure
+(defrecord MetaConstraintProver []   ; (arg/genlArg/interArg P n T …) up the genl closure
   Prover
   (applicable? [_ _ goal _]
     (and (sequential? goal)
@@ -1434,7 +1504,7 @@
   [(->TransitivityProver) (->DisjointnessProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
    (->EvaluableProver) (->DifferentProver) (->EvaluateProver) (->QuantityProver)
-   (->UnknownProver) (->ThereExistsProver) (->AggregateProver)
+   (->UnknownProver) (->ThereExistsProver) (->AggregateProver) (->BeliefProjectionProver)
    ;; FactProver before ArgTypeProver: both are :lookup / completeness 50, so vector
    ;; order breaks the stable-sort tie in the union path (`solve-goal-with`).  A stored
    ;; fact is the cheaper witness for a ground `(Type Individual)`, and the union is
@@ -1619,7 +1689,7 @@
     proof search from inside the relabel loop.
 
   **An unanswerable exception does not hold**, and the rule fires.  That is the
-  open-world reading, and it matches `argIsa`, where an argument whose type is unknown
+  open-world reading, and it matches `arg`, where an argument whose type is unknown
   cannot violate a constraint: blocking on \"cannot tell\" would let a missing fact
   silently suppress knowledge.  An empty or absent exception never holds, so an ordinary
   rule pays nothing here.  See docs/exceptions.md."

@@ -73,7 +73,7 @@
   [kb]
   (v/assert kb '(genl dog animal) 'CxParity {:strength :monotonic})
   (v/assert kb '(genl animal thing) 'CxParity {:strength :monotonic})
-  (v/assert kb '(argIsa ownerOf 2 animal) 'CxParity {:strength :monotonic})
+  (v/assert kb '(arg ownerOf 2 animal) 'CxParity {:strength :monotonic})
   (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxParity)
   (v/assert kb '(dog Rex) 'CxParity {:strength :monotonic})
   (v/assert kb '(dog Muffet) 'CxParity {:strength :monotonic})
@@ -136,7 +136,7 @@
     (tu/clear-kb! kb)
     ;; The script's expectations are hand-written, and this namespace's question is
     ;; whether eight storage backends answer them alike — not what the engine derives.
-    ;; Assertive argument types would change the script itself: `(argIsa ownerOf 2
+    ;; Assertive argument types would change the script itself: `(arg ownerOf 2
     ;; animal)` and `(ownerOf Ann Rex)` both sit in CxParity, so Rex would carry a
     ;; second, independent `animal` membership and retracting `(dog Rex)` would no
     ;; longer take his type with it.  That is the feature working, and it is tested

@@ -14,14 +14,14 @@
     super's grounds;
   * the `genl` edge arrives by **derivation** rather than by assertion, and the
     conclusion path owes the same two descents the assert path makes;
-  * an `exceptWhen` guard turns on a type only a **super**-predicate's `argIsa` mints, so
+  * an `exceptWhen` guard turns on a type only a **super**-predicate's `arg` mints, so
     the re-check trigger has to fan up the hierarchy the way the inference does;
   * one stored filler under **two** stacked marks is one clash, not one per mark;
   * and a clash convicted through the hierarchy names the **marked** predicate, which is
     what a report has to print and what nothing read.
 
   House rules as everywhere: gensym'd temporaries via `tu/with-terms`, engine vocabulary
-  (`genl`, `argIsa`, `functional`, `asymmetric`, `exceptWhen`, `set/defaultRule`,
+  (`genl`, `arg`, `functional`, `asymmetric`, `exceptWhen`, `set/defaultRule`,
   contexts) literal."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
@@ -72,7 +72,7 @@
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (testing "the position the inherited length does not have is refused"
       (is (= :arg-position
-             (ex-type #(v/assert kb (list 'argIsa fatherOf 3 'thing) 'CxUniverse)))
+             (ex-type #(v/assert kb (list 'arg fatherOf 3 'thing) 'CxUniverse)))
           "fatherOf declares no length of its own, so a fatherOf tuple is a binary
            parentOf tuple and has no third argument to constrain"))
     (testing "and the message names the length it was held to, and where it came from"
@@ -83,11 +83,11 @@
       ;; inherited route takes — "declared with 2 arguments" is false of fatherOf, which
       ;; declares nothing, and would send an author looking for a declaration on it that
       ;; does not exist
-      (let [m (:message (first (v/check kb (list 'argIsa fatherOf 3 'thing) 'CxUniverse)))]
+      (let [m (:message (first (v/check kb (list 'arg fatherOf 3 'thing) 'CxUniverse)))]
         (is (re-find (re-pattern (str "takes 2 arguments through " parentOf)) m))
         (is (not (re-find #"declared with" m)))))
     (testing "a position the inherited length does have is admitted"
-      (is (v/assert kb (list 'argIsa fatherOf 2 'thing) 'CxUniverse)))))
+      (is (v/assert kb (list 'arg fatherOf 2 'thing) 'CxUniverse)))))
 
 ;; ---- the edge arrives by derivation -------------------------------------
 ;;
@@ -116,11 +116,11 @@
 
 (tu/deftest-kb a-derived-genl-edge-entails-the-argument-types-above-it
   ;; `entail-under-edge` on the same path, and the same three ingredients in the same
-  ;; order: the fact and the `argIsa` declaration first, the edge concluded last.
+  ;; order: the fact and the `arg` declaration first, the edge concluded last.
   (tu/with-terms [person parentOf fatherOf relates Ann Mary]
     (binding [checks/*assertive-arg-types?* true]
       (v/assert kb (list 'genl person 'thing) 'CxUniverse)
-      (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+      (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
       (v/assert kb (list fatherOf Ann Mary) 'CxUniverse)
       (is (false? (believed? kb (list person Ann) 'CxUniverse))
           "nothing connects fatherOf to the declaration yet")
@@ -133,17 +133,17 @@
 
 ;; ---- the exception trigger fans up the predicate hierarchy --------------
 ;;
-;; `argIsa` read as an inference makes a fact evidence of a membership nobody wrote, so a
+;; `arg` read as an inference makes a fact evidence of a membership nobody wrote, so a
 ;; fact can flip an `exceptWhen` with nothing on the excepted type having been asserted.
 ;; `except-recheck-test` pins that channel where the declaration is on the fact's own
 ;; functor.  The declaration descends too — a `fatherOf` tuple is a `parentOf` tuple and
 ;; is typed by `parentOf`'s declarations — so the trigger has to look up the hierarchy or
 ;; the channel is blind again for exactly the facts the descension opened.
 
-(tu/deftest-kb an-exception-on-a-type-a-super-predicates-argIsa-mints-is-rechecked
+(tu/deftest-kb an-exception-on-a-type-a-super-predicates-arg-mints-is-rechecked
   (tu/with-terms [person parentOf fatherOf mark seen Ann Rex M1 CxStory]
     (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 person) CxStory)
+    (v/assert kb (list 'arg parentOf 1 person) CxStory)
     (v/assert kb (list 'genl fatherOf parentOf) CxStory)
     (v/assert kb (list 'exceptWhen (list person Ann)
                        (list 'set/defaultRule (vr/rule-sentence [(list mark '?x)]

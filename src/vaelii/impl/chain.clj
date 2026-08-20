@@ -21,6 +21,7 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn-kb :as qkb]
+            [vaelii.impl.quasiquote :as quasiquote]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
@@ -136,7 +137,7 @@
   * **One answer suffices.**  The levels stack is lazy throughout, so `first` stops
     the query at its first result rather than enumerating an extent.
   * **An unanswerable exception does not hold**, and the rule fires.  That is the
-    open-world reading, and it matches `argIsa`, where an argument whose type is
+    open-world reading, and it matches `arg`, where an argument whose type is
     unknown cannot violate a constraint: blocking on \"cannot tell\" would let a
     missing fact silently suppress knowledge.
 
@@ -892,7 +893,7 @@
   enqueueing) — the conclusion itself, plus a copy in each context its predicate is
   declared to lift into.
 
-  The definitional constraints — argIsa types, disjointness, functionality — hold of
+  The definitional constraints — arg types, disjointness, functionality — hold of
   *derived* content as much as of asserted content; a rule that concludes
   `(cat Rex)` where `(dog Rex)` is believed and the two are declared disjoint has
   concluded something the KB says cannot be.  They are checked here, on the
@@ -1521,6 +1522,9 @@
                             (seq (remove (into #{} (mapcat sx/deferred-output-vars) post) f))
                             f)))
             raw       (if free (skolem/skolemize-conclusion kb rule raw0 bindings free) raw0)
+            ;; a ground `(Quasiquote T)` in the fired head constructs and reifies its
+            ;; mention here (docs plan) — a no-op unless quasiquotation is declared
+            raw       (quasiquote/reduce-in-conclusion kb raw)
             ;; a conjunctive skolemized head shares one witness across its conjuncts
             ;; (only a head existential stores a conjunctive consequent — an ordinary
             ;; one is split by `expand-consequent` before storage)

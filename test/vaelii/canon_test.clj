@@ -57,7 +57,7 @@
         birthYearOf (tu/tmp-pred) mortal (tu/tmp-pred)
         immortal (tu/tmp-pred) likes (tu/tmp-pred)]
     (v/assert kb (list 'genl person animal) 'CxU)
-    (v/assert kb (list 'argIsa birthYearOf 1 person) 'CxU)
+    (v/assert kb (list 'arg birthYearOf 1 person) 'CxU)
     (v/assert kb (list person tom) 'CxU)
     (v/assert kb (list birthYearOf tom 1970) 'CxU)
     (v/assert kb (list 'comment tom "a fine fellow") 'CxU)

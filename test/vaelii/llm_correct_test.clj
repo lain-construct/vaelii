@@ -10,7 +10,7 @@
             [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
-;; the corrections read the shipped schema — argIsa constraints, declared arities, the
+;; the corrections read the shipped schema — arg constraints, declared arities, the
 ;; genl edges that decide what is a type — so the starter is the fixture
 (use-fixtures :once (tu/loaded starter/load-into))
 (use-fixtures :each (tu/neutral))
@@ -48,7 +48,7 @@
       (is (re-find #"infers nothing on its own" (:why c))))))
 
 (tu/deftest-kb an-ambiguous-argument-order-is-flagged-rather-than-guessed
-  ;; partOf is physical_object x physical_object, so the argIsa constrains nothing
+  ;; partOf is physical_object x physical_object, so the arg constrains nothing
   ;; about direction and `(partOf penguin wing)` reads as "a penguin is part of a wing"
   (let [c (for-sentence kb '(partOf penguin wing))]
     (is (= :low (:confidence c)) "the direction cannot be inferred, so confidence drops")
@@ -69,9 +69,9 @@
     (v/assert kb (list 'genlCx CxOne 'CxCore) 'CxUniverse)
     (v/assert kb (list 'genlCx CxTwo 'CxCore) 'CxUniverse)
     (v/assert kb (list 'binaryPredicate chases) CxOne)
-    (v/assert kb (list 'argIsa chases 1 'thing) CxOne)
-    (v/assert kb (list 'argIsa chases 1 'animal) CxTwo)
-    (v/assert kb (list 'argIsa chases 2 'animal) CxOne)
+    (v/assert kb (list 'arg chases 1 'thing) CxOne)
+    (v/assert kb (list 'arg chases 1 'animal) CxTwo)
+    (v/assert kb (list 'arg chases 2 'animal) CxOne)
     (let [c    (for-sentence kb (list chases 'penguin 'fish))
           lift (symbol (str chases "Type"))]
       (is (= :relation-on-types (:rule c)))
@@ -101,12 +101,12 @@
       (is (= :low (:confidence c))))))
 
 (tu/deftest-kb structural-vocabulary-is-left-alone
-  ;; genl, disjoint, comment and argIsa talk about types by design — a type in their
+  ;; genl, disjoint, comment and arg talk about types by design — a type in their
   ;; arguments is correct, and rewriting it would be the bug
   (doseq [s '[(genl penguin bird)
               (disjoint penguin fish)
               (comment penguin "A flightless bird.")
-              (argIsa eats 1 animal)]]
+              (arg eats 1 animal)]]
     (is (nil? (for-sentence kb s)) (str "should not correct " (pr-str s)))))
 
 (tu/deftest-kb instance-level-content-is-left-alone

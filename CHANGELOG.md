@@ -1,5 +1,117 @@
 # Changelog
 
+## 0.10.0 — 2026-08-20 — "more than one agent over one knowledge base"
+
+- **Koinii: several agents coordinate over one shared knowledge base.** A new layer,
+  `vaelii.impl.koinii.*`, lets independent agents assert, reply, dispute and resolve over a
+  **common** store — agents *are* contexts, moves *are* sentexes, and the change feed is the
+  medium, so coordination is a small vocabulary in the KB itself rather than a transport
+  bolted on the side. It runs in two shapes: one single-writer daemon several clients share,
+  or independently-replicated seats that reconcile through content-addressed moves. The
+  modules divide the work — `identity` (a SHA-256 / multihash content locator, a canonical
+  encoder and a Merkle commit tree), `channel` (subscribe / reply over the change feed),
+  `dispute` (context-scoped dispute reads and lifecycle), `adjudication` (a default
+  notify-plus-arbiter policy with majority-vote resolution and honest ties), `catchup` (a
+  CDC snapshot-and-tail), plus `deref`, `belief` and `speech_acts`. It is **additive**:
+  nothing in `vaelii.core` loads it, every module rests on the public core API and
+  `vaelii.client` exactly as `vaelii.impl.argue` does, and the starter never walks it — a KB
+  pays for koinii only when a deployment loads a koinii context (`identity/load-registry`,
+  `speech-acts/load-speech-acts`). *Class:* **Additive** — a new optional layer and two
+  shipped contexts (`resources/kb/koinii/`); no existing behaviour changes.
+  [docs/koinii.md](docs/koinii.md), [docs/feed.md](docs/feed.md)
+
+- **Belief projection: what an agent holds true.** `(believes Agent P)` is answered by
+  proving `P` inside `Agent`'s own context rather than the asker's, so two agents may hold
+  contradictory beliefs without the KB contradicting itself — the context lattice already
+  does the work, and this adds one convention and one prover over it, with no new belief
+  primitive and no change to the JTMS, taxonomy or index. An agent symbol names its context
+  by a fixed bijection (`Alice ↦ CxAgentAlice`), now public as `context-of-agent` /
+  `agent-of-context`. `modalPredicate` and `register-modal-predicate!` open the same
+  projection to `knows` / `desires` / `intends`. It is deliberately not a modal *logic*:
+  no K/T/4/5 schema, and a nested `(believes A (believes B P))` projects only where the
+  grant is visible. *Class:* **Additive** — new vocabulary and two public reads; nothing
+  existing changes. [docs/belief.md](docs/belief.md)
+
+- **A context can be a reified function application, and its `genlCx` edges compute
+  themselves.** A `Cx*Fn` application reifies to a `cx/` **context** — a constant a sentex
+  is stored in and a `genlCx` node — where an object-denoting NAT still reifies to a `nat/`
+  *term* refused as a context. `(contextDenotingFunction CxTimeFn)` declares the family, and
+  a declared argument ordering makes one such context a computed **spec** of another with
+  nobody asserting the edge: `(CxTimeFn CxMonad (DatetimeFn "2000-01"))` is inside
+  `(CxTimeFn CxMonad (DatetimeFn "2000"))`, so a fact in the year is visible from the month.
+  The first dimension is `DatetimeFn`, a structural (unreifiable) ISO-8601 interval whose
+  containment is field nesting, computed by a pure bounded comparison the structural-`genlCx`
+  producer runs inside the settle/relabel loop. *Class:* **Additive** — a new context shape
+  and vocabulary; object NATs are refused as contexts exactly as before.
+  [docs/context-nat.md](docs/context-nat.md), [docs/nat.md](docs/nat.md)
+
+- **Mention-opacity: a quoting function reads its argument by spelling.** A
+  `quotingFunction` carries a `:quoting` property, and inside such a term an argument is a
+  **mention**, not a use: it is opaque to rewrite, reification and reduction, and congruent
+  only up to spelling — two mentions are the same iff they are spelled the same, never
+  because equality or a rewrite would fold them. The `why-not` displacement map is
+  mention-aware to match. A companion `Unquote` / `Quasiquote` metalinguistic constructor
+  (`vaelii.impl.quasiquote`) marks the holes a quasiquoted term splices back in.
+  *Class:* **Additive** — a new predicate property and constructor; a term naming neither
+  reads exactly as before. [docs/glossary.md](docs/glossary.md), [docs/argtypes.md](docs/argtypes.md)
+
+- **`quotedArg` types an argument as a term against a syntactic type.** The mention twin of
+  `arg`: where `arg` types what an argument *denotes*, `(quotedArg pred n type)` types the
+  argument **as a term** — its EDN kind (`string`, `number` with `integer` below it,
+  `symbol`) checked through `genl` against a syntactic type. `(quotedArg nameOfGuy 1 string)`
+  refuses `(nameOfGuy 5)` and admits `(nameOfGuy "Bob")` with `:type :quoted-arg-type`. It is
+  checked, never entailed, and open-world about an untypeable kind and about a declared type
+  outside the syntactic lattice, so an imported Cyc quoted-type never false-convicts. The new
+  syntactic types `string` / `number` / `integer` / `symbol` join the `genl` lattice, and the
+  check sits behind the same O(1) count gate as `interArg` (+1 functor-root read per assert).
+  *Class:* **Additive** — one new refusal `:type` a caller may now meet and inert vocabulary
+  now read; no existing declaration changes behaviour.
+  [docs/argtypes.md](docs/argtypes.md), [docs/glossary.md](docs/glossary.md)
+
+- **The argument-constraint family is renamed to a shorter, regular scheme.** `argIsa →
+  arg`, `argGenl → genlArg`, `interArgIsa → interArg`. `arg` is core grammar — self-
+  referential (`(arg arg 1 predicate)`) and the predicate every typed relation declares its
+  argument types with — so the rename sweeps the engine, the shipped ontology, the docs and
+  the tests together. The tokens are case-distinct camelCase, so internal kebab-case helpers
+  are untouched, and the semantics are identical. *Class:* **Breaking** — three shipped KB
+  predicate names changed, so a KB text, rule or `isa?` naming an old spelling answers
+  nothing. *Breaks:* `argIsa`, `argGenl`, `interArgIsa`. *Migration:* rename all three in
+  your KB text — `argIsa → arg`, `argGenl → genlArg`, `interArgIsa → interArg`; nothing else
+  changes. [docs/argtypes.md](docs/argtypes.md), [docs/inherit.md](docs/inherit.md)
+
+- **A sentence carrying a non-serializable value is refused at every door.** A value nippy
+  cannot freeze and thaw — a function, an atom, a non-serializable object — used to store in
+  the `:memory` backend and then throw at write time on the first `:disk` backend, so the
+  same assert succeeded or failed by backend. `checks/check-encodable` now refuses it up
+  front at every persisting door (`assert`, hence `assert-rule` / `assert-many` /
+  `bulk-assert-facts!`, and `assert-inert`) with `:type :not-encodable`, and `check` predicts
+  it — so a stored sentence's values round-trip in every backend or the sentence is refused
+  in all of them. The vocabulary and literals — symbols, keywords, strings, numbers, chars,
+  booleans, `nil`, and any vector/map/set of them — clear without a freeze (~56 ns/assert,
+  zero index reads); a leaf outside that set goes through the freeze/thaw pair the disk
+  backends run and is refused if either throws. *Class:* **Refusal** — accepting the value
+  stored a sentence no `:disk` KB could recover, so no working caller is broken.
+  *Breaks:* `:not-encodable`. *Migration:* none — replace the non-serializable leaf with
+  data; a value the `:memory` backend used to take never survived a dump-and-load.
+  [docs/storage.md](docs/storage.md)
+
+- **New public reads for handles and un-stored canonical form, and `argue` is public.**
+  `handles` returns every live sentex handle in the KB — the whole-KB counterpart to the
+  context- and query-scoped readers. `sentex-handle` / `sentex-handle?` / `handle-id` build
+  and read the `(sentexHandle <id>)` term a meta-sentex predicates about another sentex with,
+  and round-trip. `canonical-sentex` returns the canonical sentex for a sentence in a context
+  **without storing it** — the un-stored counterpart of `sentex`, built through the store's
+  own constructor so symmetric arguments sort and comparisons fold. And `argue`, the four-
+  valued epistemic status of a ground assertion, is now a `vaelii.core` public rather than an
+  `impl` read. *Class:* **Additive** — five public reads; nothing existing changes.
+  [docs/api.md](docs/api.md)
+
+- **The fast gate drops perf; `release-gate` keeps it.** `lein gate` is now lint + test
+  only — fast enough before every commit — and prints "perf owed" when a hot-path change
+  lands without a perf run. `lein release-gate` is lint + test + perf (~5m), for a tag or a
+  perf-sensitive land; CI and `assert_cost_test` also cover the perf floor.
+  *Class:* **Additive** — a build-command split; no engine behaviour changes.
+
 ## 0.9.0 — 2026-08-17 — "the truth-maintenance network defaults to dense"
 
 - **The dense truth-maintenance network is the default.** `open-kb`'s `:tms` now defaults

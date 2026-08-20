@@ -1,0 +1,547 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
+(ns vaelii.impl.koinii.deref
+  "Koinii cross-seat dereference: the DISTRIBUTED topology, where
+  independent *seats* — separate processes, each holding its own copy of the KB — stay
+  in sync by **content-addressed commits** rather than by sharing one live daemon.  A
+  seat asserts a sentence and commits; another seat pulls the same commit and resolves
+  the same sentence **from its own KB**.  The locator travels over a transport; the
+  proof comes from the KB, and neither seat trusts the marker.
+
+  A different deployment shape from koinii's default (N agents funnelling writes through
+  one single-writer daemon — `docs/koinii.md`, *The deployment shape*).  There the
+  daemon IS the shared KB and dereference is a plain read; here each seat is its own
+  reader with its own store, and the shared reference point is a commit, not a socket.
+  Complements, not rivals: the daemon for live co-writing, this for disconnected or
+  independently-replicated seats.
+
+  The spike's vocabulary, mapped to real primitives:
+
+  - **seat** — an independent KB-holding process.  In this layer a seat is just a `kb`;
+    every function takes one, exactly as the other koinii modules do.
+  - **locator / marker** — a content-addressed reference to a canonical assertion (the
+    `locator`), plus the untrusted transport payload that carries it (the `marker`).
+  - **transport** — any byte-faithful channel that carries a marker.  A marker is a
+    plain Clojure map, so any transport that ships EDN ships one.
+  - **the KB** — the sole authority for *meaning*.  A marker is never trusted, only
+    resolved: `dereference` finds the sentence in the seat's own store, reads its
+    provenance, and hands off to `why` for the proof.
+
+  Three ideas, each grounded on a primitive that ships:
+
+  - **The locator is content-addressed, not handle-addressed.**  A handle is a number
+    one store minted and does not travel; a locator is a **self-describing** digest — the
+    literal `\"sha256:\"` followed by 64 lowercase hex chars — over a sentex's **canonical
+    identity** (its context, truth polarity, and canonicalized sentence,
+    `docs/canonicalization.md`).  Three best-practice commitments live in that one string:
+      * **SHA-256, not SHA-1.**  A locator is a tamper-detection boundary — `dereference`
+        rehashes the *resolved* form and compares — and SHA-1 has practical chosen-prefix
+        collisions, so it is the wrong primitive for this job.
+      * **Self-describing.**  The `\"sha256:\"` multihash-style tag names the algorithm in
+        the value itself, so a later migration to another primitive is unambiguous rather
+        than a silent reinterpretation of 64 anonymous hex chars.
+      * **A spec'd canonical encoding, not `pr-str`.**  The digest input is the explicit,
+        type-tagged, self-delimiting byte encoding of `canonical-bytes` — independent of
+        ambient `*print-*` vars and injective across the value space a sentence holds, so
+        a symbol never digests as the like-spelled string and `(a b)` never as `(a (b))`.
+    Two seats holding the same assertion compute the **same** locator, because `v/import!`
+    re-canonicalizes every record through the reading build's own constructor.
+  - **The commit is a Merkle function of state.**  `commit-id` is the RFC-6962-style
+    **Merkle root** over the seat's *sorted* per-sentex leaf digests — leaf hashing
+    domain-separated with a `0x00` byte and internal-node hashing with `0x01`, so a leaf
+    can never be forged as an internal node — prefixed `\"sha256:\"`.  Order- and
+    handle-independent by construction, so two seats that reached the same set of
+    assertions by different routes compute the same commit id (belief and storage are
+    order-independent — `docs/nmtms.md`), and a KB exported, pulled and recovered on
+    another seat carries the id across.  The Merkle shape (over the old flat re-hash) buys
+    pure auditability: `inclusion-proof` yields an audit path and `verify-inclusion`
+    recomputes the root from just a `(locator, proof)` pair — no KB — which a flat digest
+    cannot.  `commit-id` fingerprints **knowledge** (what two seats compare to agree they
+    hold the same thing); `state-root` is a second root whose leaves fold each record's
+    provenance (`:creator` + `:created` + identity), a full **snapshot** identity like a
+    git commit (covers who/when), so it moves when provenance moves even when content does
+    not.  `publish!` / `pull!` move the bytes (via `v/export!` / `v/import!`); the roots
+    are what say two seats hold the same knowledge (and the same snapshot).
+  - **The marker is untrusted.**  `dereference` finds the sentence in the seat's own KB
+    and rehashes what it found; a stale or tampered marker fails that check and is
+    rejected, and a marker the seat cannot resolve means the commit was not received —
+    never that the marker's payload should be believed.  Attribution is trustworthy only
+    as far as the identity model makes it: a distributed KB inherits the same
+    cooperative-vs-proof-tier question.
+
+  Additive, like the other koinii modules: only the public core API plus `protocols`
+  (to walk the record store) and `resolution` (to canonicalize a sentence the store's
+  own way) — nothing in core loads it."
+  (:require [vaelii.core :as v])
+  (:import (java.io ByteArrayOutputStream DataOutputStream)
+           (java.math BigDecimal BigInteger)
+           (java.security MessageDigest)))
+
+;; ---- the canonical wire format: a deterministic, injective byte encoding ---
+
+;; NOTE: sentences reaching here are already engine-canonicalized (canonical variables,
+;; sorted symmetric arguments, folded comparisons — `docs/canonicalization.md`), so this
+;; encoder only needs DETERMINISM and INJECTIVITY, not a canonicalization of its own.  It
+;; must not, however, lean on `pr-str`: a printed form depends on ambient `*print-*` vars
+;; and cannot type-tag, so two distinct values could print (and thus digest) alike.
+
+(defn- write-len-bytes!
+  "Write a length-prefixed byte payload — a 4-byte big-endian count then the bytes — so a
+  variable-width field is self-delimiting and cannot run into its neighbour."
+  [^DataOutputStream out ^bytes b]
+  (.writeInt out (alength b))
+  (.write out b 0 (alength b)))
+
+(defn- write-str!
+  "Write a string as its length-prefixed UTF-8 bytes.  Fixed encoding (UTF-8) so the
+  bytes never depend on a platform default charset."
+  [^DataOutputStream out ^String s]
+  (write-len-bytes! out (.getBytes s "UTF-8")))
+
+(defn- write-optstr!
+  "Write an *optional* string (a symbol/keyword namespace, absent for an unqualified
+  name): a presence byte then, if present, the string.  Distinguishes a nil namespace
+  from the empty-string one, so `(symbol nil \"a\")` and `(symbol \"\" \"a\")` cannot collide."
+  [^DataOutputStream out s]
+  (if (nil? s)
+    (.writeByte out 0)
+    (do (.writeByte out 1) (write-str! out s))))
+
+(defn- write-bigint!
+  "Write a `BigInteger` as its length-prefixed minimal two's-complement big-endian bytes
+  (`.toByteArray`) — a bijection with the integer, so distinct values never share bytes."
+  [^DataOutputStream out ^BigInteger bi]
+  (write-len-bytes! out (.toByteArray bi)))
+
+(defn- encode!
+  "Emit the canonical bytes of `x` onto `out`.  **The wire-format spec:** every value is
+  one type-tag byte then a self-delimiting payload —
+
+      nil      0x00
+      boolean  0x01 (false) | 0x02 (true)
+      integer  0x03  int64 big-endian                          ; Long/Integer/Short/Byte
+      bignum   0x04  len:int32  two's-complement bytes          ; BigInteger / clojure BigInt
+      double   0x05  int64 big-endian of (Double/doubleToLongBits d)
+      ratio    0x06  <bignum numerator> <bignum denominator>
+      bigdec   0x07  <bignum unscaled> scale:int32
+      string   0x08  len:int32  UTF-8 bytes
+      keyword  0x09  <optstr namespace> <str name>
+      symbol   0x0A  <optstr namespace> <str name>
+      sequence 0x0B  count:int32  then each element encoded
+      char     0x0C  int32 codepoint                          ; legal sentence content (naming/form-rank)
+
+  The tag makes each type its own space (a symbol, a string and a keyword with the same
+  characters take tags 0x0A / 0x08 / 0x09 and so differ); the length/count prefixes make
+  every composite self-delimiting (so `(a b)` — count 2 — and `(a (b))` — count 2 with a
+  nested count-1 sequence — differ); and a double is fixed by its IEEE-754 bits, never by
+  a textual form, so `-0.0`, `1.0` and `1.0000000000000002` stay distinct and stable.  An
+  unrecognised type throws rather than fall through to a lossy default — a silent
+  collision is exactly what a content address must never permit."
+  [^DataOutputStream out x]
+  (cond
+    (nil? x)              (.writeByte out 0x00)
+    (instance? Boolean x) (.writeByte out (if x 0x02 0x01))
+    (instance? clojure.lang.Ratio x)
+    (do (.writeByte out 0x06)
+        (write-bigint! out (.numerator ^clojure.lang.Ratio x))
+        (write-bigint! out (.denominator ^clojure.lang.Ratio x)))
+    (instance? BigDecimal x)
+    (let [bd ^BigDecimal x]
+      (.writeByte out 0x07)
+      (write-bigint! out (.unscaledValue bd))
+      (.writeInt out (.scale bd)))
+    (float? x)   (do (.writeByte out 0x05) (.writeLong out (Double/doubleToLongBits (double x))))
+    (instance? clojure.lang.BigInt x)
+    (do (.writeByte out 0x04) (write-bigint! out (.toBigInteger ^clojure.lang.BigInt x)))
+    (instance? BigInteger x)
+    (do (.writeByte out 0x04) (write-bigint! out ^BigInteger x))
+    (integer? x) (do (.writeByte out 0x03) (.writeLong out (long x)))
+    (string? x)  (do (.writeByte out 0x08) (write-str! out x))
+    (keyword? x) (do (.writeByte out 0x09)
+                     (write-optstr! out (namespace x))
+                     (write-str! out (name x)))
+    (symbol? x)  (do (.writeByte out 0x0A)
+                     (write-optstr! out (namespace x))
+                     (write-str! out (name x)))
+    ;; a char is legal sentence content (`naming/form-rank` ranks it), so it must encode
+    ;; rather than reach the `:else` throw — one poison record would otherwise disable
+    ;; commit-id/locate for the WHOLE seat, since commit-id folds every sentex.
+    (char? x)    (do (.writeByte out 0x0C) (.writeInt out (int ^Character x)))
+    (sequential? x) (do (.writeByte out 0x0B)
+                        (.writeInt out (count x))
+                        (doseq [e x] (encode! out e)))
+    :else (throw (ex-info (str "koinii: non-canonical value in sentence identity: "
+                               (pr-str (class x)))
+                          {:type :koinii/uncanonical-value :value x :class (class x)}))))
+
+(defn- canonical-bytes
+  "The canonical byte encoding of `x` per `encode!`'s spec — the digest input, computed
+  with no reliance on ambient print vars or platform charset."
+  ^bytes [x]
+  (let [bos (ByteArrayOutputStream.)
+        out (DataOutputStream. bos)]
+    (encode! out x)
+    (.flush out)
+    (.toByteArray bos)))
+
+;; ---- SHA-256, hex, and the self-describing locator prefix -----------------
+
+(def ^:private locator-prefix
+  "The multihash-style algorithm tag every locator/root string carries, so the primitive
+  is explicit in the value and a future migration is unambiguous."
+  "sha256:")
+
+(defn- sha256
+  "The raw 32-byte SHA-256 of `data`.  SHA-256, not SHA-1: the locator is a
+  tamper-detection boundary and SHA-1's chosen-prefix collisions make it unfit here."
+  ^bytes [^bytes data]
+  (.digest (MessageDigest/getInstance "SHA-256") data))
+
+(defn- hex
+  "Lowercase hex of a byte array."
+  [^bytes b]
+  (apply str (map #(format "%02x" %) b)))
+
+(defn- unhex
+  "The inverse of `hex`: a lowercase-hex string back to its byte array.  For
+  `verify-inclusion`, which must rebuild sibling digests from a transported proof."
+  ^bytes [^String s]
+  (let [n (quot (count s) 2)
+        b (byte-array n)]
+    (dotimes [i n]
+      (aset-byte b i (unchecked-byte (Integer/parseInt (subs s (* 2 i) (+ 2 (* 2 i))) 16))))
+    b))
+
+(defn- content-locator
+  "The self-describing locator of value `x`: `\"sha256:\"` + hex SHA-256 of its canonical
+  bytes.  The one place the format is minted, so every locator-producing function agrees."
+  [x]
+  (str locator-prefix (hex (sha256 (canonical-bytes x)))))
+
+;; ---- the locator: a content hash of a sentex's canonical identity --------
+
+(defn- identity-of
+  "A sentex's canonical **identity** as a value: its context, truth polarity, and
+  canonicalized sentence — everything the store keys a sentex on EXCEPT the per-store
+  handle.  The three fields come off the constructor already canonical (canonical
+  variables, sorted symmetric arguments, folded comparisons), so digesting them is
+  digesting the same form on every seat."
+  [sx]
+  [(:context sx) (:truth sx) (:sentence sx)])
+
+(defn locator-of
+  "The locator of the stored sentex at `handle` — `\"sha256:\"` + hex SHA-256 of its
+  canonical identity.  Independent of the handle, so it is reproducible on any seat that
+  holds the same assertion.  nil if the handle names no record."
+  [kb handle]
+  (when-let [sx (v/sentex kb handle)]
+    (content-locator (identity-of sx))))
+
+(defn locate
+  "The locator `sentence` in `context` **would** have, computed without requiring it be
+  stored: `sentence` is canonicalized through the store's own constructor
+  (`v/canonical-sentex`, which sorts a symmetric predicate's arguments against this KB's
+  taxonomy) and its identity digested.  So `(locate kb S C)` equals `(locator-of kb h)`
+  for the handle `h` that `S`/`C` resolves to — the content-address is a function of the
+  assertion, not of whether or where it was stored, and not of the number it landed on."
+  [kb sentence context]
+  (content-locator (identity-of (v/canonical-sentex kb sentence context))))
+
+;; ---- the Merkle commit: an auditable, domain-separated tree over the state -
+
+;; RFC-6962-style hashing: a leaf digest is over `0x00 || data` and an internal node over
+;; `0x01 || left || right`.  The domain-separating prefix is what stops a leaf digest from
+;; being replayed as an internal node (or vice versa) — the classic Merkle second-preimage
+;; hole — so an inclusion proof cannot be forged by presenting a leaf as a subtree.
+
+(defn- leaf-hash
+  "The RFC-6962 leaf digest of a locator string: SHA-256(0x00 || utf8(locator)).  Keyed on
+  the locator alone (not the sentex), so `verify-inclusion` can rebuild it without the KB."
+  ^bytes [^String locator]
+  (let [lb  (.getBytes locator "UTF-8")
+        buf (byte-array (inc (alength lb)))]
+    (aset-byte buf 0 0)                         ; 0x00 — leaf domain
+    (System/arraycopy lb 0 buf 1 (alength lb))
+    (sha256 buf)))
+
+(defn- internal-hash
+  "The RFC-6962 internal-node digest: SHA-256(0x01 || left || right)."
+  ^bytes [^bytes l ^bytes r]
+  (let [buf (byte-array (+ 1 (alength l) (alength r)))]
+    (aset-byte buf 0 1)                          ; 0x01 — internal domain
+    (System/arraycopy l 0 buf 1 (alength l))
+    (System/arraycopy r 0 buf (inc (alength l)) (alength r))
+    (sha256 buf)))
+
+(def ^:private empty-tree-root
+  "The explicit empty-tree root: MTH({}) = SHA-256 of the empty input, prefixed.  A KB
+  with no records has this `commit-id`, a defined value rather than an accident of the
+  fold."
+  (str locator-prefix (hex (sha256 (byte-array 0)))))
+
+(defn- sorted-leaves
+  "The sorted vector of leaf digests for `locators` — leaf-hash each, then order by hex
+  (equal-width, so hex order is unsigned lexicographic byte order).  Sorting is what makes
+  the root a function of the *set*: two seats at the same state build the identical tree."
+  [locators]
+  (->> locators (map leaf-hash) (sort-by hex) vec))
+
+(defn- largest-pow2-below
+  "The largest power of two strictly less than `n` (`n` > 1) — RFC-6962's split point."
+  [n]
+  (loop [k 1] (if (< (* 2 k) n) (recur (* 2 k)) k)))
+
+(defn- merkle-node
+  "The RFC-6962 Merkle Tree Hash of a non-empty vector of leaf digests: a single leaf is
+  itself; otherwise SHA-256(0x01 || MTH(left) || MTH(right)) over the largest-power-of-two
+  split.  Rebuilt from scratch each call, O(n log n) in the leaf count."
+  ^bytes [leaves]
+  (case (count leaves)
+    1 (nth leaves 0)
+    (let [n (count leaves)
+          k (largest-pow2-below n)]
+      (internal-hash (merkle-node (subvec leaves 0 k))
+                     (merkle-node (subvec leaves k n))))))
+
+(defn- merkle-root
+  "The self-describing Merkle root over `locators` — `\"sha256:\"` + hex of the tree hash,
+  or the empty-tree root for none."
+  [locators]
+  (let [leaves (sorted-leaves locators)]
+    (if (empty? leaves)
+      empty-tree-root
+      (str locator-prefix (hex (merkle-node leaves))))))
+
+(defn- audit-path
+  "The RFC-6962 audit path for the leaf at index `m` in `leaves`: a vector of
+  `{:hash <sibling-hex> :side :left|:right}` ordered leaf→root, `:side` naming which side
+  the sibling sits on.  Folding these into the leaf digest reproduces the root."
+  [m leaves]
+  (if (= 1 (count leaves))
+    []
+    (let [n (count leaves)
+          k (largest-pow2-below n)]
+      (if (< m k)
+        (conj (audit-path m (subvec leaves 0 k))
+              {:hash (hex (merkle-node (subvec leaves k n))) :side :right})
+        (conj (audit-path (- m k) (subvec leaves k n))
+              {:hash (hex (merkle-node (subvec leaves 0 k))) :side :left})))))
+
+(defn commit-id
+  "A content-addressed fingerprint of the seat's **materialized knowledge** — the RFC-6962
+  Merkle root over its sorted per-sentex content locators, prefixed `\"sha256:\"`.
+  Order-independent and handle-independent by construction, so two seats holding the same
+  stored records compute the same commit id whatever order they were built in, and a KB
+  exported, pulled and recovered on another seat carries it across — the flow the
+  distributed topology uses: 'pull the same commit' is a git operation, 'agree on the
+  commit id' is this.
+
+  Scope is every STORED sentex — premises AND anything forward-derived — read as CONTENT
+  (context/truth/sentence, not provenance).  So it fingerprints the materialized *state*,
+  not the bare assertions: two seats agree exactly when their stored sets match, which the
+  pull flow guarantees (pull replicates the store) but which independently-built seats meet
+  only if they also derived to the same extent (same rules, same `*max-depth*`).  For
+  attribution-sensitive snapshot identity, see `state-root`."
+  [kb]
+  (merkle-root (map #(locator-of kb %) (v/handles kb))))
+
+(defn- record-locator
+  "The provenance-scoped locator of the record at `handle`: content-locator of
+  `[creator created identity]`.  A `state-root` leaf — identity as `commit-id`'s leaf sees
+  it, plus who asserted it and when."
+  [kb handle]
+  (let [sx   (v/sentex kb handle)
+        prov (v/provenance kb handle)]
+    (content-locator [(:creator prov) (:created prov) (identity-of sx)])))
+
+(defn state-root
+  "A content-addressed **snapshot** identity of the seat's exported records — the same
+  Merkle construction as `commit-id`, but over leaves that fold each record's provenance
+  (`:creator` + `:created`) in with its identity.  Git-commit-like: it covers who and
+  when, so it moves when provenance moves even if the content (and thus `commit-id`) does
+  not.  Two seats compare `commit-id` to agree they hold the same *knowledge*; they
+  compare `state-root` to agree they hold the same *snapshot* — a clone that pulled and
+  recovered identical provenance matches here too."
+  [kb]
+  (merkle-root (map #(record-locator kb %) (v/handles kb))))
+
+(defn inclusion-proof
+  "The audit path proving `locator` is a leaf of this seat's `commit-id` tree — a vector of
+  `{:hash <sibling-hex> :side :left|:right}` ordered leaf→root, or nil if the seat holds no
+  record with that locator.  The point of the Merkle shape: a verifier fed this path plus
+  the leaf `locator` and the published root can confirm inclusion via `verify-inclusion`
+  **without** the KB — which the old flat re-hash could not offer."
+  [kb locator]
+  (let [leaves (sorted-leaves (map #(locator-of kb %) (v/handles kb)))
+        target (hex (leaf-hash locator))
+        m      (first (keep-indexed (fn [i l] (when (= target (hex l)) i)) leaves))]
+    (when m (audit-path m leaves))))
+
+(defn- valid-sibling?
+  "A well-formed audit-path step: a 64-hex sibling digest (a SHA-256, so exactly 64
+  lowercase hex) and a `:left`/`:right` side.  A proof arrives over the UNTRUSTED
+  transport, so `verify-inclusion` checks each step and fails closed — a malformed
+  `:hash` must make verification return false, not throw out of `unhex`."
+  [step]
+  (and (map? step)
+       (string? (:hash step))
+       (re-matches #"[0-9a-f]{64}" (:hash step))
+       (contains? #{:left :right} (:side step))))
+
+(defn verify-inclusion
+  "PURE verification that `locator` is included under `root` given `proof` — recompute the
+  Merkle root from the leaf digest of `locator` and the audit path's sibling hashes, and
+  compare to `root`.  Takes no KB: `(root, proof, locator)` is all a verifier needs, which
+  is the whole reason `commit-id` is a tree and not a flat digest.  Domain separation
+  (`0x00` leaf / `0x01` node) is enforced on both sides, so a sibling cannot be forged
+  across leaf/internal roles.
+
+  **Fails closed on a malformed proof.**  The proof is untrusted transport data, so a
+  non-hex sibling, a missing `:hash`/`:side`, or a non-sequential proof returns `false`
+  rather than throwing — an unverifiable proof is not a valid one."
+  [locator proof root]
+  (and (string? locator)
+       (sequential? proof)
+       (every? valid-sibling? proof)
+       (let [node (reduce (fn [^bytes acc {:keys [hash side]}]
+                            (let [sib (unhex hash)]
+                              (if (= :right side)
+                                (internal-hash acc sib)
+                                (internal-hash sib acc))))
+                          (leaf-hash locator)
+                          proof)]
+         (= root (str locator-prefix (hex node))))))
+
+;; ---- publish / pull: the git-distributable serialization -----------------
+
+(defn publish!
+  "Write the seat's KB out as a portable export dump in `dir`, the form a git host
+  carries: `v/export!` with `:compression :none` so the record streams are a
+  byte-stable function of the KB — gzip stamps a header timestamp, which would make the
+  same state export to different bytes.  `dir` must be absent or empty.  Returns
+  `export!`'s summary; the commit the other seats pull is this directory."
+  ([kb dir] (publish! kb dir {}))
+  ([kb dir opts] (v/export! kb dir (merge {:compression :none} opts))))
+
+(defn pull!
+  "Open a pulled commit into the (empty) seat `kb`: `v/import!` the dump at `dir`, which
+  re-canonicalizes every record through this build's constructor and recovers belief —
+  the property that makes this seat compute the same locators as the seat that published.
+  Returns `import!`'s summary."
+  ([kb dir] (pull! kb dir {}))
+  ([kb dir opts] (v/import! kb dir opts)))
+
+;; ---- the marker: the untrusted transport payload -------------------------
+
+(defn marker
+  "The transportable marker for the assertion at `handle` — what a seat sends over a
+  transport so another seat can dereference it:
+
+      {:locator <sha256:hex>  :sentence <asserted form>  :context <ctx>  :seat <claimed>}
+
+  The `:locator` is the load-bearing part; `:sentence` / `:context` are a lookup payload
+  the receiver does NOT trust for meaning (it resolves against its own KB and rehashes
+  what it finds), and `:seat` is the *claimed* asserter — the real one comes off the
+  resolved sentex's provenance.  Throws if `handle` names no record."
+  [kb handle]
+  (let [sx (v/sentex kb handle)]
+    (when (nil? sx)
+      (throw (ex-info (str "koinii: no sentex at handle " (pr-str handle))
+                      {:type :koinii/no-such-handle :handle handle})))
+    {:locator  (locator-of kb handle)
+     ;; the stored `:sentence` IS the asserted form for BOTH polarities — a `:false`
+     ;; sentex keeps its `(not …)` in `:sentence` (docs/storage.md; verified), with
+     ;; `:truth` a separate flag — so `handle-of` finds it by this field unchanged.  The
+     ;; field travels raw: it is not re-wrapped in `not`, which would double-negate a
+     ;; negative fact into a positive one that resolves to nothing (`:not-received`).
+     :sentence (:sentence sx)
+     :context  (:context sx)
+     :seat     (:creator (v/provenance kb handle))}))
+
+;; ---- dereference: resolve a marker against the seat's OWN KB --------------
+
+(defn dereference
+  "Resolve `marker` against the seat's OWN KB — the whole point of the distributed
+  model, and where the marker's untrustedness is enforced.  Returns, on success:
+
+      {:resolved? true  :handle h  :locator <sha256:hex>  :sentence S  :context C
+       :truth t  :seat <asserter>  :provenance <map>}
+
+  and on failure `{:resolved? false :reason … :locator <sha256:hex>}`:
+
+  - `:not-received` — the marker's sentence is not in this seat's store.  The seat has
+    not pulled the commit that carries it; it does **not** fall back to trusting the
+    marker's payload.
+  - `:locator-mismatch` — the sentence IS stored, but the locator this seat computes for
+    it does not match the marker's.  The marker is stale or tampered: the locator is
+    self-verifying (rehash the *resolved* canonical form and compare), and it is the
+    marker's payload, not the KB, that is rejected.
+
+  So the marker is never load-bearing: meaning, attribution and (via `why-marker`) proof
+  all come from what this seat's KB actually holds."
+  [kb marker]
+  (let [h (v/handle-of kb (:sentence marker) (:context marker))]
+    (cond
+      (nil? h)
+      {:resolved? false :reason :not-received :locator (:locator marker)}
+
+      (not= (:locator marker) (locator-of kb h))
+      {:resolved? false :reason :locator-mismatch
+       :locator (:locator marker) :actual (locator-of kb h) :handle h}
+
+      :else
+      (let [sx   (v/sentex kb h)
+            prov (v/provenance kb h)]
+        {:resolved?  true
+         :handle     h
+         :locator    (locator-of kb h)
+         :sentence   (:sentence sx)
+         :context    (:context sx)
+         :truth      (:truth sx)
+         :seat       (:creator prov)
+         :provenance prov}))))
+
+(defn why-marker
+  "Dereference `marker` and, when it resolves, attach the proof `v/why` builds for it —
+  the seam a cross-seat proof-identity layer grows into.  The marker names WHAT to
+  prove by content; the proof itself is the seat's own, drawn from its own justification
+  graph.  Returns the `dereference` map, with `:why` added on success."
+  [kb marker]
+  (let [r (dereference kb marker)]
+    (if (:resolved? r)
+      (assoc r :why (v/why kb (:handle r)))
+      r)))
+
+;; ---- the pure content-addressed path: resolve a bare locator -------------
+
+(defn locator-index
+  "A `{locator → handle}` index over the seat's own KB — the reverse of `locator-of`,
+  built by one walk of the record store.  Injective: two sentexes share a locator only
+  if they share a canonical identity, which the store already deduped to one handle.
+  This is what lets a **bare** locator (a marker with no payload) resolve at all, so it
+  witnesses that the payload `marker` carries is a convenience, not a trust anchor.  Keyed
+  on the full `\"sha256:\"`-prefixed locator string."
+  [kb]
+  (persistent!
+   (reduce (fn [m h] (assoc! m (locator-of kb h) h))
+           (transient {}) (v/handles kb))))
+
+(defn resolve-by-locator
+  "Resolve a bare `locator` string against the seat's own KB via `index` (default: a
+  freshly built `locator-index`) — the pure content-addressed dereference, with no payload
+  to distrust.  Same success/failure shape as `dereference`; a locator absent from the
+  index is `:not-received` (the seat does not hold the commit that carries it)."
+  ([kb locator] (resolve-by-locator kb locator (locator-index kb)))
+  ([kb locator index]
+   (if-let [h (get index locator)]
+     (let [sx   (v/sentex kb h)
+           prov (v/provenance kb h)]
+       {:resolved?  true
+        :handle     h
+        :locator    locator
+        :sentence   (:sentence sx)
+        :context    (:context sx)
+        :truth      (:truth sx)
+        :seat       (:creator prov)
+        :provenance prov})
+     {:resolved? false :reason :not-received :locator locator})))

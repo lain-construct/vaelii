@@ -9,7 +9,7 @@
   `context-up`, the type hierarchy from `types` / `genls`, the predicate
   documentation from the `(comment <term> \"…\")` sentexes the vocabulary documents
   itself with (`vaelii.impl.core-context/comment-of`), the argument types from the stored
-  `argIsa` sentexes, the disjointness from `disjoint` / `disjointMetatype`, and the
+  `arg` sentexes, the disjointness from `disjoint` / `disjointMetatype`, and the
   algebraic metadata from `props`.  The naming invariants are the one static section,
   because they are mechanical rules rather than content.
 
@@ -24,7 +24,7 @@
 (def ^:private naming-rules
   "| role | convention | example |
 |------|-----------|---------|
-| predicate | camelCase, lowercase-initial | `parentOf`, `genl`, `argIsa` |
+| predicate | camelCase, lowercase-initial | `parentOf`, `genl`, `arg` |
 | individual | CapitalCamelCase | `Muffet`, `Tom` |
 | type | snake_case, a **unary** predicate | `dog`, `physical_object` |
 | context | `Cx` prefix, then CapitalCamelCase | `CxWell`, `CxCore` |
@@ -62,7 +62,7 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
 
 1. **Look before you write.** Use the read tools to check whether a term already
    exists (`kb_find_terms`), what a predicate's arguments must be (`kb_sentexes_matching` on
-   `(argIsa ?p ?n ?t)`), what an individual already is (`kb_types_of`), and whether
+   `(arg ?p ?n ?t)`), what an individual already is (`kb_types_of`), and whether
    two types are disjoint (`kb_disjoint_p`). Reuse existing vocabulary rather than
    inventing a synonym.
 2. **Assert facts, not universals.** Every `:add` sentence must be ground. Write a
@@ -106,13 +106,13 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
            (str "\n- … and " (- (count ts) max-types) " more (`kb_types`)")))))
 
 (defn- argisa-index
-  "predicate -> sorted [[position type] …], from the stored `argIsa` sentexes."
+  "predicate -> sorted [[position type] …], from the stored `arg` sentexes."
   [kb]
   (reduce (fn [m {:keys [sentence]}]
             (let [[_ pred n t] sentence]
               (update m pred (fnil conj []) [n t])))
           {}
-          (v/sentexes-matching kb (list 'argIsa '?p '?n '?t) '?ctx)))
+          (v/sentexes-matching kb (list 'arg '?p '?n '?t) '?ctx)))
 
 (defn- predicate-section [kb {:keys [max-predicates] :or {max-predicates 60}}]
   (let [argisa (argisa-index kb)
@@ -120,7 +120,7 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
                                   (filter #(= :predicate (v/term-role %)) (v/terms kb)))))
         shown  (take max-predicates preds)]
     (str "## Predicates (" (count preds) ")\n\n"
-         "`argIsa` gives the type each argument position must satisfy — an argument\n"
+         "`arg` gives the type each argument position must satisfy — an argument\n"
          "carrying a type that cannot reach it is refused.\n\n"
          (str/join "\n"
                    (for [p shown]

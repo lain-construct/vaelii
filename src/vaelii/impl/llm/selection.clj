@@ -15,12 +15,12 @@
 
   1. the selected sentexes as the editor's own `[sentence context]` lines,
   2. a vocabulary card computed *only* from the terms those lines mention — each
-     term's `comment`, its `argIsa` constraints, its place in the genl hierarchy, and
+     term's `comment`, its `arg` constraints, its place in the genl hierarchy, and
      its metadata,
   3. the reader's instruction.
 
   Every read is pinned by a term the selection actually contains (`comment-of`, an
-  `argIsa` query on a fixed predicate, a genl closure lookup), so the prompt's **size**
+  `arg` query on a fixed predicate, a genl closure lookup), so the prompt's **size**
   is O(selection): ten sentexes yield the same card in a KB of ten as in a KB of a
   hundred million.  Its **cost** is not flat in KB size, and the difference is
   `relatives` — the card shows the first `max-relatives` neighbours by name, which means
@@ -140,11 +140,11 @@
   (clip (first (core-context/comment-of kb term)) max-doc-chars))
 
 (defn- argisa-of
-  "The `argIsa` constraints on a predicate, as `[[position type] …]`.  The query pins
+  "The `arg` constraints on a predicate, as `[[position type] …]`.  The query pins
   the predicate, so this is a narrow read whatever the KB's size."
   [kb pred]
   (sort-by first
-           (for [{:keys [sentence]} (v/sentexes-matching kb (list 'argIsa pred '?n '?t) '?ctx)]
+           (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg pred '?n '?t) '?ctx)]
              [(nth sentence 2) (nth sentence 3)])))
 
 (defn- disjoint-with
@@ -217,7 +217,7 @@
   "The vocabulary the selection actually uses, as markdown.
 
   Terms are grouped by naming role and each is described from the KB: a
-  predicate or type by its `argIsa` constraints, supertypes, **sub-predicates**,
+  predicate or type by its `arg` constraints, supertypes, **sub-predicates**,
   disjointness, metadata and documentation; an individual by its types; a context by
   what it sees.  Types share the predicate section because they *are* unary predicates
   and `term-role` reads a one-word `dog` as either.  `opts`: `:max-terms` (60),

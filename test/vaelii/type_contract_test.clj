@@ -164,9 +164,10 @@
     :naf-not-closed
     :naming :no-base :no-depth-bound :no-destination
     :no-dump :no-foreign-reader :not-a-directory :not-assertible
-    :not-checkable :not-defeasible :not-edn :not-empty :not-indexable
+    :not-checkable :not-defeasible :not-edn :not-empty :not-encodable :not-indexable
     :not-a-report :not-found :not-ground :not-in-process :not-range-restricted :not-stratified
     :not-watchable :not-well-formed :quantified-conjunction :quantifier-not-local
+    :quoted-arg-type
     :report-only
     :reserved-family :reset :shape :solver-failed :solver-unavailable
     :stacked-fork :stale-index-layout :still-exporting :still-loading :still-stopping
@@ -193,15 +194,28 @@
   every keyword it can hold is in `roster` by way of the throw it came from."
   #{"cancelled" "ty"})
 
+(defn- source-files
+  "Every engine source file to scan for the `:type` roster — every `.clj` under `src/`
+  **except the `koinii/` subtree**.  koinii is a coordination library layered on the
+  public API (`docs/koinii.md`), not the engine, and it namespaces its own refusals
+  (`:koinii/…`) as a deliberate subsystem vocabulary rather than adding to this flat
+  caller-visible one; those are koinii's contract, tracked in koinii's own tests, and a
+  scan that folded them in would both churn this roster on koinii's active development and
+  collapse every `:koinii/x` to a bare `:koinii` (the regex stops at `/`).  When koinii is
+  extracted to its own module the exclusion becomes the module boundary."
+  []
+  (->> (file-seq (io/file "src"))
+       (filter #(.isFile ^java.io.File %))
+       (map #(.getPath ^java.io.File %))
+       (filter #(str/ends-with? % ".clj"))
+       (remove #(str/includes? % "/koinii/"))
+       sort))
+
 (deftest a-symbol-valued-type-is-named-rather-than-read-past
   ;; The one shape a source scan cannot answer: the keyword sits behind a var, so the
   ;; roster comparison below would drop it in silence — present in neither `found` nor
   ;; `roster`, both differences empty, green forever while the vocabulary moved.
-  (let [files (->> (file-seq (io/file "src"))
-                   (filter #(.isFile ^java.io.File %))
-                   (map #(.getPath ^java.io.File %))
-                   (filter #(str/ends-with? % ".clj"))
-                   sort)
+  (let [files (source-files)
         found (transduce (map (comp symbol-valued slurp)) into #{} files)]
     (is (= symbol-valued-types found)
         (str "a `:type` behind a var is one this scan reports and cannot resolve — name "
@@ -211,11 +225,7 @@
              (pr-str (sort (set/difference symbol-valued-types found)))))))
 
 (deftest the-type-vocabulary-is-the-roster
-  (let [files (->> (file-seq (io/file "src"))
-                   (filter #(.isFile ^java.io.File %))
-                   (map #(.getPath ^java.io.File %))
-                   (filter #(str/ends-with? % ".clj"))
-                   sort)
+  (let [files (source-files)
         found (transduce (map (comp refusal-types slurp)) into #{} files)]
     (is (seq files) "the scan found the sources")
     (is (< 50 (count found))

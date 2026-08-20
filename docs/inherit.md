@@ -4,7 +4,7 @@
   about one argument across a transitive relation, and how a specific claim undercuts
   rather than defeats a general one.
 - **Not here:** matching a unary type antecedent against a subtype's stored fact —
-  automatic, undeclared → [taxonomy.md](taxonomy.md); `argIsa` / `argGenl` minted as a
+  automatic, undeclared → [taxonomy.md](taxonomy.md); `arg` / `genlArg` minted as a
   justified fact from a type declaration → [argtypes.md](argtypes.md).
 - **Assumes:** `genl`, transitive predicates, defeat-class, justification →
   [glossary.md](glossary.md).
@@ -44,7 +44,7 @@ be preserved along `partOf` just as readily:
 
 The inverse form exists so the other direction never requires declaring an inverse
 predicate that has no other purpose. Both are ordinary stored sentexes read through
-`matches-visible`, exactly as `argIsa` and `argGenl` are — context-scoped and
+`matches-visible`, exactly as `arg` and `genlArg` are — context-scoped and
 belief-following, with no cache of their own. Several declarations may name **one**
 position; their reaches union, since each independently licenses the claim.
 
@@ -101,8 +101,8 @@ ever evidence for. `assert` refuses the declaration:
 ;;     genl / genlCx"
 ```
 
-The refusal lives in `wff` rather than in `(argIsa transitiveInArg 3 transitive)`
-because `argIsa` is **open-world**: an argument with no type cannot violate it, so the
+The refusal lives in `wff` rather than in `(arg transitiveInArg 3 transitive)`
+because `arg` is **open-world**: an argument with no type cannot violate it, so the
 constraint bites for a relation that happens to carry some other type and waves through
 the one that carries none — and naming the relation before typing it is the common
 authoring order. The check is also read at *use*, not only at assert, so retracting
@@ -150,9 +150,9 @@ engine infers nothing from it, because the quantifier reading is exactly the thi
 nothing here fixes.
 
 **It cannot state a pair whose instance half is mixed**, and the shipped ontology holds
-one. `(argIsa typeToInstancePred 2 instanceRelationPredicate)` requires the second
+one. `(arg typeToInstancePred 2 instanceRelationPredicate)` requires the second
 argument to be marked, and a marked predicate takes one argument-check family for *every*
-position — `argIsa` throughout for an instance relation, `argGenl` throughout for a type
+position — `arg` throughout for an instance relation, `genlArg` throughout for a type
 one. A predicate relating one individual to a *kind* satisfies neither and is left
 unmarked, which `relationKind`'s own comment says of `resultIsa` and
 `functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one capability

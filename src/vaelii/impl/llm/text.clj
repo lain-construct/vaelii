@@ -258,7 +258,7 @@
 
   1. what the document's **own words** resolved to — the vocabulary the text demonstrably
      wants, and the reason resolution runs before the model is asked anything;
-  2. what an `argIsa` **licenses** for a resolved type, so a document about a mouse is
+  2. what an `arg` **licenses** for a resolved type, so a document about a mouse is
      offered the relations a mouse can stand in;
   3. everything else `context` **declares**, nearest context first (`declared-in`) —
      the vocabulary of the theory the candidates land in.  Last because it is the least
@@ -271,7 +271,7 @@
 
   **Cost is the vocabulary's, not the document's and not the KB's** — the same shape
   `vaelii.impl.llm.inventory/inventory` has, and the same reason: the taxonomy's node set,
-  the arity declarations, one `comment` read per rendered term, and one narrow `argIsa`
+  the arity declarations, one `comment` read per rendered term, and one narrow `arg`
   query per resolved type and per rendered predicate.  Nothing here walks facts.  The
   *card* tracks the document (tiers 1 and 2 are seeded by what resolved); the *reads* track
   how much vocabulary the KB has.
@@ -297,7 +297,7 @@
          domain?   #(and (not (all-types %)) (not (head-only? %))
                          (not (inventory/structural-functor? %)))
          licensed  (for [t types
-                         {:keys [sentence]} (v/sentexes-matching kb (list 'argIsa '?p '?n t) '?ctx)
+                         {:keys [sentence]} (v/sentexes-matching kb (list 'arg '?p '?n t) '?ctx)
                          :let [p (nth sentence 1)]
                          :when (domain? p)]
                      p)

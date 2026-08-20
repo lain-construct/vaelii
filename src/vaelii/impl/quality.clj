@@ -375,7 +375,7 @@
 
 ;; ---- declarations that constrain nothing ---------------------------------
 ;;
-;; `(argIsa parentOf 3 person)` is admitted while `parentOf` has no declared length —
+;; `(arg parentOf 3 person)` is admitted while `parentOf` has no declared length —
 ;; open-world, and the highest position a declaration names is a lower bound on the arity
 ;; rather than a claim about it.  Then a length arrives, by any of the three routes
 ;; `checks/declared-arity` reads, and the declaration is left constraining a position the
@@ -402,7 +402,7 @@
 (def ^:private declaration-functors
   "The argument constraints, in the order this walks them.  A vector rather than the
   roster in `checks`, because this is a walk order and that is a membership test."
-  '[argIsa argGenl interArgIsa])
+  '[arg genlArg interArg])
 
 (defn- stranded-declarations
   "Which argument constraints name a position their predicate does not have.

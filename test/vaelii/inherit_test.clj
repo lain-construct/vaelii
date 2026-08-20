@@ -330,8 +330,8 @@
 (tu/deftest-kb a-relation-nobody-declared-transitive-is-refused
   ;; The declaration's reach is walked to a **fixpoint**, so naming a relation that was
   ;; never said to compose would manufacture transitivity for it: two hops of `begat`
-  ;; licensing a claim only one hop was ever evidence for.  `(argIsa transitiveInArg 3
-  ;; transitive)` cannot say so — argIsa is open-world, so it bites for a
+  ;; licensing a claim only one hop was ever evidence for.  `(arg transitiveInArg 3
+  ;; transitive)` cannot say so — arg is open-world, so it bites for a
   ;; relation carrying some other type and waves through the one carrying none — and the
   ;; second is the common authoring order.  Both spellings must reach the same outcome.
   (tu/with-terms [cursed begat sired A B D]
@@ -357,15 +357,15 @@
       (is (v/ask? kb (list cursed A) 'CxUniverse) "two"))))
 
 (tu/deftest-kb the-declaration-is-about-a-relation-however-that-relation-is-written
-  ;; The inheriting relation is held to what `argIsa`'s first argument is held to, and
+  ;; The inheriting relation is held to what `arg`'s first argument is held to, and
   ;; for the same reasons: a function is spelled like an individual, and a relation can
   ;; be *denoted* by a NAT rather than named.  A `nm/individual?` test gets this exactly
   ;; backwards — a compound is not an individual, so it refuses the conventional
   ;; CapitalCamelCase spelling and waves the exotic one through.
   (tu/with-terms [Milli inheritsAlong chases]
     (v/assert kb (list 'transitive inheritsAlong) 'CxUniverse)
-    (testing "a CapitalCamelCase relation — a function name — is admitted, as argIsa's is"
-      (is (integer? (v/assert kb (list 'argIsa Milli 1 'thing) 'CxUniverse)))
+    (testing "a CapitalCamelCase relation — a function name — is admitted, as arg's is"
+      (is (integer? (v/assert kb (list 'arg Milli 1 'thing) 'CxUniverse)))
       (is (integer? (v/assert kb (list 'transitiveInArg Milli 1 inheritsAlong)
                               'CxUniverse))))
     (testing "and so is a relation a NAT denotes"

@@ -111,7 +111,7 @@ read back out of the KB it describes:
 | contexts, and what each sees | `contexts`, `context-up` |
 | the type hierarchy | `types`, `genls` |
 | predicate documentation | the `(comment <term> "…")` sentexes, via `vaelii.impl.core-context/comment-of` |
-| argument types | the stored `argIsa` sentexes |
+| argument types | the stored `arg` sentexes |
 | disjointness | `disjoint` sentexes, `disjoint-metatypes`, `metatype-members` |
 | algebraic metadata | `props`, `inverse-of` |
 | scale | `term-count`, `contexts` |
@@ -175,12 +175,12 @@ nothing is indexed, the taxonomy is not touched:
 | groundness | `vaelii.impl.checks/check-ground` | `:not-ground` |
 | structural well-formedness | `vaelii.impl.special/wff-problems` | `:not-well-formed` |
 | edge stratification | `vaelii.impl.checks/check-edge-stratified` | `:not-stratified` |
-| argIsa / disjointness / functionality | `vaelii.impl.checks/constraint-checks` | `:arg-type` `:disjoint` `:functional` |
+| arg / disjointness / functionality | `vaelii.impl.checks/constraint-checks` | `:arg-type` `:disjoint` `:functional` |
 | **the entry lands where it says it does** | `session/placement-problem` | `:context-escape` |
 
 Batch shape and unknown removal handles add `:shape` and `:unknown-handle`. Calling
 the engine's own predicates rather than reimplementing them is deliberate: a
-second copy of disjointness or argIsa logic would drift, and every one of these
+second copy of disjointness or arg logic would drift, and every one of these
 returns or throws a value without writing.
 
 `:context-escape` is the one row the chain cannot supply, because it is not a fact about
@@ -222,7 +222,7 @@ model produces the *most* of it, because it produces the most output.
 **Naming catches only the n-ary case.** `(lives_in ?x cold_place)` is a snake_case functor
 at arity 2 and is rejected. `(has_black_and_white_feathers ?x)` is *unary*, which makes it
 a legal type name under the naming invariants, so it is accepted — correctly, and
-permanently. Groundness, well-formedness, argIsa, disjointness and functionality have
+permanently. Groundness, well-formedness, arg, disjointness and functionality have
 nothing to say about it either. A three-line fragmentation case scores 3/3 admissible and
 3/3 applied.
 
@@ -239,7 +239,7 @@ carries it: `inventory/inventory` builds it and `render` writes it as **three bl
   put `Antarctica` puts it there instead of spelling it into a name.
 - **The type names**, each with its nearest supertype (`penguin < bird`), so the block *is*
   the hierarchy.
-- **A small structural set** — `genl`, `disjoint`, `comment`, `argIsa` — how a claim about a
+- **A small structural set** — `genl`, `disjoint`, `comment`, `arg` — how a claim about a
   kind is stated. An allowlist, not the whole head: offering a model asked about penguins
   `quantityGreaterThanOrEqual` and `termOfUnit` is irrelevant at best and an invitation to
   misuse something it half-recognizes at worst. A term the vocabulary head documents is
@@ -249,17 +249,17 @@ Two things about where it comes from, both measured and both counter-intuitive:
 
 - **Sourced from declarations, not facts.** Enumerating functors that actually appear in
   fact position on the shipped schema yields 20 names, every one an engine
-  meta-predicate (`genl`, `argIsa`, `comment`, `disjoint`, …) and not one a domain relation.
+  meta-predicate (`genl`, `arg`, `comment`, `disjoint`, …) and not one a domain relation.
   The schema is schema-only: `bird`, `parentOf` and `flies` appear only as *arguments* of
   declarations and inside rules. So types come from `types` and relations from the
   `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships, which covers 127
-  domain relations — and `argIsa` then supplies argument *types* for 118 of the 120 a page
+  domain relations — and `arg` then supplies argument *types* for 118 of the 120 a page
   renders.
-- **Arity is never inferred from `argIsa`.** `argIsa` constrains an argument to a *type* and
+- **Arity is never inferred from `arg`.** `arg` constrains an argument to a *type* and
   is deliberately partial: `hasCapability/2` and `resultIsa/2` each constrain only their
-  first argument, and `interArgIsa/5` constrains one position of five. Its highest declared
+  first argument, and `interArg/5` constrains one position of five. Its highest declared
   position disagrees with the declared arity for 6 of the 145 predicates it constrains, so
-  an inventory built that way would print `interArgIsa/1` and *cause* the arity errors it
+  an inventory built that way would print `interArg/1` and *cause* the arity errors it
   exists to prevent. Arity comes from the declarations, else from a stored fact, else it is
   not printed.
 
@@ -271,7 +271,7 @@ number left out (`:relations` 7 here, `:types` 0), and `:unscanned` is the third
 read N further facts about this term; a relation used only there is not listed above."*
 That cut is the one that loses rather than demotes. A predicate the KB has *declared* is
 offered under a later tier whether or not the scan reached it, but a predicate used with
-the term and never declared and never `argIsa`'d is on the card because the scan found it,
+the term and never declared and never `arg`'d is on the card because the scan found it,
 and nothing else looks for it.
 
 Both blocks are vocabulary-sized rather than term-sized, so what differs between two pages
@@ -440,10 +440,10 @@ has no tools section and it cannot emit a tool call at all.
    textarea is seeded with, so the reader reviews a diff in the format they were
    already reading.
 2. **A vocabulary card computed only from terms the selection mentions.** Each
-   predicate or type gets its `argIsa` constraints, its supertypes, its
+   predicate or type gets its `arg` constraints, its supertypes, its
    **sub-predicates**, its disjointness, its algebraic metadata and its `comment`; each
    individual its types; each context what it sees. Every read is pinned by a term the
-   selection contains — a `comment-of` query, an `argIsa` query on a fixed predicate, a
+   selection contains — a `comment-of` query, an `arg` query on a fixed predicate, a
    cached genl closure lookup — so the card is **O(selection)** and flat in KB size. A
    test asserts exactly that: add a hundred unrelated sentexes and the card is
    byte-identical.

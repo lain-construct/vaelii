@@ -4,7 +4,7 @@
   "Probes for the seams where `assert`'s checks and `assert`'s *storage* can
   disagree.
 
-  Every definitional check — naming, well-formedness, argIsa, disjointness,
+  Every definitional check — naming, well-formedness, arg, disjointness,
   functionality — runs on the sentence the caller handed in.  What gets stored is
   the sentence the `sentex` constructor canonicalizes out of it.  Wherever those two
   forms differ, there is a seam, and a check that runs on one side while the other
@@ -109,7 +109,7 @@
 
 ;; ---- seam 3: the derivation path ----------------------------------------
 ;;
-;; `place-conclusion` runs the three *constraint* checks (argIsa, disjointness,
+;; `place-conclusion` runs the three *constraint* checks (arg, disjointness,
 ;; functionality) so derived content is held to the same standard as asserted
 ;; content.  Well-formedness of the special predicates is a different check, and a
 ;; rule may conclude one: `(implies (foo ?x ?y) (genl ?x ?y))` derives taxonomy

@@ -1,0 +1,401 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
+(ns vaelii.impl.koinii.channel
+  "Koinii's core coordination library: the async assert / reply loop an
+  agent runs over a shared channel, with the KB as the medium.  An agent JOINS its own
+  context, SUBSCRIBES to the channel over the change feed, and REPLIES to what it sees —
+  all decoupled in time, nothing requiring two agents online at once.
+
+  The mechanism is already in the engine (the change feed, docs/feed.md); this layer is
+  ergonomics and correctness over it, not a new transport.  It commits three pieces of
+  `koinii.md`'s *deployment shape* to code:
+
+  - **D8, the per-agent context.**  An agent writes only its OWN context (`CxAtlas`),
+    lifted under the channel (`(genlCx CxDeploy CxAtlas)`) so the channel sees the union
+    of every agent's assertions.  Identity fixes the write destination (`identity`).
+  - **D1, reply-as-meta-sentex.**  A reply is a META-SENTEX on its target (`speech_acts`'
+    `answers` / `disputes` / `endorses` / `justifies`), so it lives ON the target rather
+    than merely naming it: retract the target and its replies are torn down with it
+    (`targetFollowingPredicate`), no dangling edges.
+  - **D7, the single-writer total order.**  See the docstring on `*writer-order*` below.
+
+  **Two deployment shapes, one surface.**  The `Medium` protocol has two
+  implementations, and which one an agent joins is the whole single-process /
+  cross-process decision (`koinii.md`, *When to stop*):
+
+  - **`wire`** — a daemon connection (`vaelii.client`).  The inter-agent case: agents are
+    separate processes funnelling every write through the one daemon (the single writer),
+    and `subscribe` runs the feed's `poll` loop OFF the agent's own thread.  This is the
+    mandatory shape the moment agents are separate processes, and the reason is the
+    writer's thread: an in-process feed callback runs ON the single writer's thread
+    (docs/feed.md), so one slow agent would stall the writer for everyone.  Polling off
+    the agent's thread is what removes that coupling.
+  - **`local`** — an in-process KB.  Simpler, and correct when every agent lives in one
+    process: `subscribe` is a plain `core/watch` listener, no cursor apparatus.  The
+    callback runs on the writing thread, so a slow one still slows the writer — fine
+    single-process, wrong across agents, which is why `wire` exists.
+
+  `reply` / `assert` / `reply-many` and the recovery reads are shape-agnostic — they run
+  the same over either medium; only `subscribe` differs, because only the feed does.
+
+  Additive, like the sibling koinii modules: the public core API, `vaelii.client`,
+  `sentex`, and koinii `identity`.  Every write goes through the provenance-stamping
+  `assert` path — never `bulk-assert-facts!`."
+  (:refer-clojure :exclude [assert])
+  (:require [vaelii.client :as c]
+            [vaelii.core :as v]
+            [vaelii.impl.koinii.identity :as id]))
+
+;; ---- D7: the single-writer total order -----------------------------------
+
+(def ^{:doc
+       "**Documentation of the consistency model, not a runtime value** (koinii design D7).
+
+  The daemon serializes every write through one monitor (docs/operations.md) — it is the
+  single writer.  So the change-feed cursor delivers a TOTAL ORDER: every agent reads the
+  same events in the same sequence, and an agent can only reply to a claim it has already
+  seen (its reply is a later write than the claim, in the one order).  The happy path is
+  therefore causally sound BY CONSTRUCTION — a reply never precedes its target in the
+  order any agent observes.
+
+  **Logical clocks (Lamport / vector) are redundant here, and that is deliberate.**  They
+  exist to reconstruct a causal order across CONCURRENT writers; with one writer the store
+  order already IS the causal order, so a timestamp would add a field nothing reads.  A
+  future reader reaching for one should first ask whether koinii has gone multi-writer —
+  if it has not, the total order is already the guarantee the clock would rebuild.  If it
+  ever does (multiple daemons over sharded KBs), THAT is when causal metadata becomes load
+  bearing; until then it is ceremony."}
+  writer-order
+  :single-writer-total-order)
+
+;; ---- the medium: the transport an agent coordinates over -----------------
+
+(defprotocol Medium
+  "The transport a channel runs over — a daemon connection (`wire`, cross-process) or an
+  in-process KB (`local`, single-process).  Everything above this protocol is written
+  once and runs over either; the two implementations differ only where the engine does —
+  in how a subscription is delivered."
+  (-assert [medium sentence context opts]
+    "Assert `sentence` in `context` with `opts` (carrying `:creator`), returning the
+    handle.  The daemon stamps `:creator` from the opts — the cooperative identity
+    annotation crossing the wire (`identity`), since `*creator*` is a var in the daemon's
+    process, not the client's.")
+  (-sentex [medium handle] "The stored sentex `handle` names, as a map (`:sentence` …).")
+  (-matching [medium sentence context]
+    "The believed sentexes matching `sentence` in `context` (a `?ctx` matches anywhere).")
+  (-check-edit [medium batch]
+    "`check-edit` over an `{:add […] :remove […]}` batch — the dry run, storing nothing.
+    A vector of problems, empty when admissible.")
+  (-edit [medium batch] "Apply an `{:add […] :remove […]}` batch in one settle.")
+  (-subscribe [medium goal context callback opts]
+    "Register `callback` for events matching `goal` in `context` (nil `goal` = every
+    change).  Returns `{:token … :stop (fn []) …}`.  Where the two media genuinely
+    diverge — a wire poll loop off the agent's thread, vs an in-process listener.")
+  (-query [medium goal context]
+    "Solutions for `goal` in `context` as binding maps — the CONE-AWARE read (walks the
+    genlCx cone, unlike `-matching`, so a channel read sees its agents' own-context
+    sentexes).  The snapshot half of catch-up (`catchup`) reads through this.")
+  (-feed-open [medium goal context]
+    "Open a raw change-feed subscription with a cursor — `{:token :cursor :max-events}`.
+    The wire feed's cursor primitive that catch-up (`catchup`) resumes from; `-subscribe`
+    wraps it for the happy path, this exposes it for the durable-cursor / lag case.  A
+    local (in-process) medium THROWS: `core/watch` is callback-based with no ring or
+    cursor, so there is nothing to fall off and nothing to resume.")
+  (-feed-poll [medium token cursor opts]
+    "Read a raw subscription forward — `{:events :cursor :lagged}`.  `:lagged` non-zero is
+    the whole point of catch-up: the cursor fell off the ring.  Local THROWS, as above."))
+
+;; ---- wire: the cross-process shape, the poll loop off the agent's thread --
+
+(defn- wire-subscribe
+  "Open a wire subscription and drive its `poll` loop on a fresh DAEMON thread — never
+  the writer's.  Long-polls with `:wait-ms` (default 20s), hands each event to
+  `callback`, and reads `:lagged` on every reply (the one field a feed reader must not
+  ignore, docs/feed.md): non-zero, the ring dropped events and `:on-lagged` is told the
+  count so the agent can resync from the KB.  A `callback` that throws loses its own event
+  and nothing else (`:on-error`, then carry on), mirroring the engine's own listener
+  contract.  When the subscription is dropped (`stop`, or an idle reap) the parked poll
+  wakes refused, and the loop exits quietly."
+  [conn goal context callback opts]
+  (let [{:keys [token cursor]} (if goal (c/watch conn goal context) (c/watch conn))
+        wait-ms (:wait-ms opts 20000)
+        on-lag  (:on-lagged opts)
+        on-err  (:on-error opts)
+        running (atom true)
+        thr (Thread.
+             (fn []
+               (loop [cur cursor]
+                 (when @running
+                   (let [step (try {:ok (c/poll conn token cur {:wait-ms wait-ms})}
+                                   (catch clojure.lang.ExceptionInfo e {:err e})
+                                   (catch Exception e {:err e}))]
+                     (if-let [e (:err step)]
+                       ;; subscription gone (unwatch / reap / bad-cursor) -> stop quietly;
+                       ;; anything else -> surface once, then stop rather than hot-loop
+                       (let [ty (:type (ex-data e))]
+                         (when (and @running
+                                    (not (#{:unknown-subscription :bad-cursor} ty))
+                                    on-err)
+                           (on-err e)))
+                       (let [{:keys [events lagged cursor]} (:ok step)]
+                         (when (and on-lag (pos? (long (or lagged 0)))) (on-lag lagged))
+                         (doseq [ev events :while @running]
+                           (try (callback ev)
+                                (catch Exception e (when on-err (on-err e)))))
+                         (recur cursor))))))))]
+    (.setName thr (str "koinii-subscribe-" token))
+    (.setDaemon thr true)
+    (.start thr)
+    {:token token :medium :wire :thread thr
+     :stop (fn []
+             (reset! running false)
+             (try (c/unwatch conn token) (catch Exception _ nil)))}))
+
+(defrecord WireMedium [conn]
+  Medium
+  (-assert     [_ s ctx opts] (c/assert conn s ctx opts))
+  (-sentex     [_ h]          (c/sentex conn h))
+  (-matching   [_ s ctx]      (c/sentexes-matching conn s ctx))
+  (-check-edit [_ batch]      (c/call conn :check-edit [batch]))
+  (-edit       [_ batch]      (c/call conn :edit [batch]))
+  (-subscribe  [_ goal ctx cb opts] (wire-subscribe conn goal ctx cb opts))
+  (-query      [_ goal ctx]   (c/query conn goal ctx))
+  (-feed-open  [_ goal ctx]   (if goal (c/watch conn goal ctx) (c/watch conn)))
+  (-feed-poll  [_ token cursor opts]
+    (if opts (c/poll conn token cursor opts) (c/poll conn token cursor))))
+
+;; ---- local: the single-process shape, a plain in-process listener --------
+
+(defrecord LocalMedium [kb]
+  Medium
+  (-assert     [_ s ctx opts] (v/assert kb s ctx opts))
+  (-sentex     [_ h]          (v/sentex kb h))
+  (-matching   [_ s ctx]      (v/sentexes-matching kb s ctx))
+  (-check-edit [_ batch]      (v/check-edit kb batch))
+  (-edit       [_ batch]      (v/edit! kb batch))
+  (-subscribe  [_ goal ctx cb _opts]
+    ;; `core/watch` IS the in-process feed; the callback runs on the writing thread
+    ;; (docs/feed.md), so a slow one slows the writer — acceptable single-process, and
+    ;; the reason `wire` exists for the cross-process case.  No cursor / lag / wait: the
+    ;; in-process feed has no ring, so the wire-only opts are ignored.
+    (let [tok (if goal (v/watch kb goal ctx cb) (v/watch kb cb))]
+      {:token tok :medium :local :stop (fn [] (v/unwatch kb tok))}))
+  (-query      [_ goal ctx]   (v/query kb goal ctx))
+  (-feed-open  [_ _goal _ctx]
+    (throw (ex-info "koinii: an in-process medium has no cursor feed — catch-up is a
+                    wire-only concern; there is no ring to fall off and nothing to resume"
+                    {:type :koinii/no-wire-feed})))
+  (-feed-poll  [_ _token _cursor _opts]
+    (throw (ex-info "koinii: an in-process medium has no cursor feed"
+                    {:type :koinii/no-wire-feed}))))
+
+(defn wire
+  "A channel medium over a daemon connection `conn` (from `vaelii.client/client`) — the
+  cross-process shape.  Every write funnels through the daemon (the single writer) and
+  `subscribe` polls the wire feed off the agent's thread."
+  [conn]
+  (->WireMedium conn))
+
+(defn local
+  "A channel medium over an in-process KB — the single-process shape.  `subscribe` is a
+  plain `core/watch` listener; simpler, and correct when every agent is in one process."
+  [kb]
+  (->LocalMedium kb))
+
+;; ---- join: an agent bound to its identity, context, and the channel ------
+
+(defn join
+  "Bind `agent-id` to `medium` and the coordination `channel` (koinii design D8).  The
+  agent's own context (`id/context-for` — `AgentAtlas` -> `CxAtlas`) is lifted under the
+  channel so the channel sees its moves (`(genlCx channel CxAtlas)`) and rooted so it
+  speaks the reply vocabulary (`(genlCx CxAtlas CxSpeechActs)`, override with
+  `:speaks`).  Both edges are monotonic topology, idempotent, so re-joining is a no-op.
+  Returns the agent handle — `{:medium :agent :context :channel}` — threaded first into
+  every call below, the network mirror of core's explicit-`kb` API.
+
+  Requires the `channel` and `CxSpeechActs` already loaded — the deployment's
+  job — so the `targetFollowingPredicate` marks that make a reply cascade are in force."
+  ([medium channel agent-id] (join medium channel agent-id nil))
+  ([medium channel agent-id opts]
+   (let [actx   (id/context-for agent-id)
+         speaks (:speaks opts 'CxSpeechActs)]
+     (-assert medium (list 'genlCx channel actx)  'CxUniverse {:strength :monotonic})
+     (-assert medium (list 'genlCx actx speaks)   'CxUniverse {:strength :monotonic})
+     {:medium medium :agent agent-id :context actx :channel channel})))
+
+(defn assert
+  "Originate a claim: assert `sentence` into the agent's OWN context, stamped `:creator`
+  the agent (merged over any `opts`), through the medium — for a `wire` handle that is
+  through the daemon, the single writer.  The agent CANNOT write another agent's context
+  from here: the destination is fixed by identity.  Returns the handle."
+  ([handle sentence] (assert handle sentence nil))
+  ([handle sentence opts]
+   (-assert (:medium handle) sentence (:context handle)
+            (merge {:creator (:agent handle)} opts))))
+
+(defn pose-query
+  "Originate a query NODE `(queries agent question)` in the agent's own context — the
+  thing a responder later `answer`s by handle.  Minted (unlike a plain
+  `assert`) because a question must be told apart from a claim.  Returns its handle."
+  [handle question]
+  (assert handle (list 'queries (:agent handle) question)))
+
+;; ---- reply: the response act as a meta-sentex on its target --------------
+;;
+;; The sugar that turns "respond to target T" into asserting a speech-act response
+;; meta-sentex ON T, in the replying agent's own context, stamped creator.  Two
+;; properties fall out of the shape and are why it is a meta-sentex rather than a bare
+;; assertion (koinii.md, *Reply is an assertion*):
+;;
+;;   - **Idempotent by sentence identity.**  Re-asserting the same meta-sentex in the
+;;     same context is a no-op (one sentex, one handle, no belief moved) — first-writer-
+;;     wins.  That is what makes an at-least-once feed safe to act on: replay a reply and
+;;     the KB is unchanged.
+;;   - **No dangling edges (D7).**  The reply lives ON its target (`(sentexHandle T)`, a
+;;     `targetFollowingPredicate`), so retracting T tears its replies down with it
+;;     (docs/storage.md).  A bare assertion that merely NAMED T would outlive it.
+
+(defn answer
+  "`answers`: reply to the query at `target-handle` with `content`.  A ternary meta-sentex
+  `(answers agent content (sentexHandle T))` in the agent's own context, creator stamped.
+  The answerer's identity is read off THIS sentex, never off the query.  Returns the
+  answer's handle; a re-answer with the same content returns that same handle."
+  [handle content target-handle]
+  (assert handle (list 'answers (:agent handle) content (v/sentex-handle target-handle))))
+
+(defn endorse
+  "`endorses`: stand behind the claim at `target-handle`.  A binary meta-sentex
+  `(endorses agent (sentexHandle T))`.  Two endorsers of one claim are two distinct
+  sentexes with two creators — the case a bare re-assert would collapse to one.  Returns
+  the endorsement's handle."
+  [handle target-handle]
+  (assert handle (list 'endorses (:agent handle) (v/sentex-handle target-handle))))
+
+(defn justify
+  "`justifies`: offer `ground` as a reason for the claim at `target-handle`.  A ternary
+  meta-sentex `(justifies agent ground (sentexHandle T))`.  Returns its handle."
+  [handle ground target-handle]
+  (assert handle (list 'justifies (:agent handle) ground (v/sentex-handle target-handle))))
+
+(defn dispute
+  "`disputes`: challenge the claim at `target-handle`.  Two writes in the agent's own
+  context, both creator-stamped: the REBUTTING claim — the negation of the target's
+  sentence, so the pair surfaces in `(contradictions kb)` for the dispute reads to scope —
+  and a `disputes` meta-sentex naming the target.  Represents the challenge only;
+  adjudication is a separate policy layer.  Returns the dispute edge's handle (write 2)."
+  [handle target-handle]
+  (let [s (:sentence (-sentex (:medium handle) target-handle))]
+    (assert handle (list 'not s))
+    (assert handle (list 'disputes (:agent handle) (v/sentex-handle target-handle)))))
+
+(defn vote
+  "Cast a ballot on the claim at `target-handle`: `stance` `:for` -> `(votesFor agent
+  (sentexHandle T))`, `:against` -> `(votesAgainst agent (sentexHandle T))`.  A meta-sentex
+  in the agent's own context, creator stamped — a coordination move like `endorse`, but
+  one a resolution policy COUNTS rather than merely records: `adjudication/resolve-by-
+  majority!` tallies these ballots and upholds the side with strictly more, leaving a tie
+  honestly OPEN (a split house decides nobody).  Idempotent by sentence identity — one
+  ballot per agent per stance; to change a vote, retract the old ballot first.  Returns the
+  ballot's handle."
+  [handle stance target-handle]
+  (let [pred (case stance :for 'votesFor :against 'votesAgainst)]
+    (assert handle (list pred (:agent handle) (v/sentex-handle target-handle)))))
+
+;; ---- reply-many: a multi-claim reply that validates before it commits ----
+
+(defn reply-many
+  "Assert MORE THAN ONE linked claim as one reply — VALIDATE the whole batch with
+  `check-edit` first, then commit it with `edit!` in one settle.  `edit!` is not atomic
+  on a throw (docs/feed.md), so a mid-batch failure would leave a HALF-reply in the shared
+  truth; the dry run refuses an inadmissible batch before anything lands.  Each of
+  `sentences` is asserted into the agent's own context, creator stamped.
+
+  Throws `:koinii/reply-inadmissible` (carrying the `check-edit` `:problems`) if the batch
+  is not admissible.  Returns `edit!`'s result on success."
+  [handle sentences]
+  (let [ctx   (:context handle)
+        opts  {:creator (:agent handle)}
+        batch {:add (mapv (fn [s] [s ctx opts]) sentences)}
+        probs (-check-edit (:medium handle) batch)]
+    (if (seq probs)
+      (throw (ex-info "koinii: multi-claim reply refused — batch inadmissible"
+                      {:type :koinii/reply-inadmissible :problems probs}))
+      (-edit (:medium handle) batch))))
+
+;; ---- subscribe: the async reply trigger ----------------------------------
+
+(defn subscribe
+  "Call `callback` when a claim matching `goal` appears or changes in `context` — the
+  async reply trigger.  `goal` nil watches every change; a `goal` refused by `core/watch`
+  (an aggregate, `unknown`, an evaluable, …) is refused identically here, since it is the
+  same check.  Watch the CHANNEL context to see every agent's moves (the feed is scoped up
+  the `genlCx` cone, so a channel watch delivers a write made in an agent's own context).
+
+  For a `wire` handle the poll loop runs OFF the agent's own thread — the whole reason the
+  design uses the wire feed rather than in-process `watch`, since an in-process callback
+  runs on the single writer's thread and one slow agent would otherwise stall every
+  writer.  `opts`: `:wait-ms` (long-poll, wire only), `:on-lagged` (fn of the dropped
+  count — resync from the KB), `:on-error` (fn of a throwable).
+
+  Returns a subscription `{:token … :stop (fn []) …}`; call `:stop` to drop it (wire: it
+  also wakes the parked poll).  Decoupled in time: a subscription is FORWARD-ONLY — it
+  never retroactively receives a write made before it registered.  History that predates
+  it is recovered by READING the KB (`answers-to` / `sentexes-matching`), the durable half
+  of the channel; the feed is the live half."
+  ([handle goal context callback] (subscribe handle goal context callback nil))
+  ([handle goal context callback opts]
+   (-subscribe (:medium handle) goal context callback opts)))
+
+(defn unsubscribe
+  "Drop a `subscription` (from `subscribe`).  Idempotent."
+  [subscription]
+  ((:stop subscription)))
+
+;; ---- reads: recover the conversation as knowledge ------------------------
+;;
+;; Decoupled-in-time catch-up: the KB persists every move, so an agent that connects
+;; later reads the conversation whether or not its author is still online.  These match
+;; with `?ctx` (anywhere) rather than a channel context, because `sentexes-matching`
+;; scopes to a context's OWN sentexes — the target handle is globally unique, so a reply
+;; naming it anywhere is a reply to it.
+
+(defn answers-to
+  "Every believed answer to the query `query-handle` — `(answers ?agent ?content
+  (sentexHandle query-handle))`, matched anywhere.  'What answered the query, and who said
+  it' is a plain read: pair each with `speaker-of` for who, and `answer-content` for what."
+  [handle query-handle]
+  (-matching (:medium handle) (list 'answers '?a '?c (v/sentex-handle query-handle)) '?ctx))
+
+(defn endorsements-of
+  "Every believed endorsement naming `target-handle` — `(endorses ?agent (sentexHandle
+  target-handle))`, matched anywhere.  Distinct endorsers are distinct sentexes."
+  [handle target-handle]
+  (-matching (:medium handle) (list 'endorses '?a (v/sentex-handle target-handle)) '?ctx))
+
+(defn open-queries
+  "Every query node on the channel — `(queries ?agent ?question)`, matched anywhere.  The
+  catch-up read: an agent connecting LATER reads the open questions from the durable KB,
+  decoupled in time from whoever asked and whether they are still online."
+  [handle]
+  (-matching (:medium handle) (list 'queries '?a '?q) '?ctx))
+
+(defn query
+  "CONE-AWARE solutions for `goal` in `context`, as binding maps — the read that sees a
+  channel's agents' own-context sentexes up the genlCx cone (unlike the direct
+  `sentexes-matching` the reads above use).  It answers the channel's whole current view of
+  `goal`, which is what catch-up (`catchup`) snapshots the state from."
+  [handle goal context]
+  (-query (:medium handle) goal context))
+
+(defn speaker-of
+  "Who made the response move `sentex` — its `?agent`, the FIRST argument of the
+  meta-sentex.  Read off the reply's own sentence (so it crosses the wire without a
+  provenance op) and equal to the `:creator` provenance the daemon stamped: the
+  conversation is in the graph, not in the client."
+  [sentex]
+  (second (:sentence sentex)))
+
+(defn answer-content
+  "The `?content` of an `answers` move `sentex` — its third argument."
+  [sentex]
+  (nth (:sentence sentex) 2 nil))

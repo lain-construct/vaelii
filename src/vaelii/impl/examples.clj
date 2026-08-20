@@ -34,7 +34,7 @@
   "Every worked example, in the order the page shows them.  `:rests-on` is
   `[sentence context]` pairs — real stored sentexes, linked on the page and looked up
   to decide availability.  `:premises` are sentences written into the sandbox, types
-  first so the `argIsa` checks bind."
+  first so the `arg` checks bind."
   [;; ---- taxonomy: what a closure answers that no sentex says ----------
    {:id "genl-chain" :group "Taxonomy"
     :title "A chain nobody stored"
@@ -244,7 +244,7 @@
             constraint is open-world — an argument whose type is unknown cannot violate
             it — so this is refused for what the KB knows the garage to be, not for
             what it has not been told."
-    :rests-on [['(argIsa eats 2 food) 'CxLife]
+    :rests-on [['(arg eats 2 food) 'CxLife]
                ['(genl building artifact) 'CxAbstract]]
     :premises '[(dog RexEx) (building GarageEx)]
     :kind :refusal

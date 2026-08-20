@@ -130,12 +130,12 @@
 (tu/deftest-kb system-prompt-carries-argisa-and-disjointness
   (tu/with-terms [dog cat parentOf Muffet]
     (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 dog) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 dog) 'CxUniverse)
     (let [p (prompt/system-prompt kb)]
       (is (str/includes? p "Disjointness"))
       (is (str/includes? p (str dog)))
       (is (str/includes? p (str parentOf)))
-      (is (str/includes? p (str "1:`" dog "`")) "argIsa reaches the predicate line"))))
+      (is (str/includes? p (str "1:`" dog "`")) "arg reaches the predicate line"))))
 
 ;; ---- parsing a proposed batch -------------------------------------------
 
@@ -196,7 +196,7 @@
     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
     (v/assert kb (list 'genl cat 'thing) 'CxUniverse)
     (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
-    (v/assert kb (list 'argIsa likes 1 dog) 'CxUniverse)
+    (v/assert kb (list 'arg likes 1 dog) 'CxUniverse)
     (v/assert kb (list cat Whiskers) 'CxUniverse)
     (let [rs (session/check-batch kb {:add [[(list likes Whiskers Muffet) 'CxUniverse]]
                                       :remove []})]

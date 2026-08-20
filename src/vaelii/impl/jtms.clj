@@ -106,6 +106,18 @@
   only it holds the stores."
   (:require [clojure.set :as set]
             [vaelii.impl.caches :as caches]
+            [vaelii.impl.jtms-protocol :refer [Tms
+                                               -believed? -believed -node? -datums
+                                               -any-node? -any-belief? -depth -premise?
+                                               -premise-strength -defeat-class -defeated
+                                               -blocked -superseded -touched -touched-in
+                                               -touched-new -reset-touched -supports
+                                               -dependents -justification -justifications
+                                               -ensure-node -add-premise -suspend-premise
+                                               -add-justification -restrength-informant
+                                               -relabel -defeat -clear-defeats -set-blocked
+                                               -update-blocked -supersede -retract -sweep
+                                               -snapshot]]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols]
             [vaelii.impl.strength :as strength]))
@@ -629,66 +641,10 @@
         (recur)))))
 
 ;; ---- the representation seam --------------------------------------------
-
-(defprotocol Tms
-  "What a truth-maintenance network must answer, independent of how it stores the
-  graph.  Two implementations ship: `RefTms` here — an atom over one persistent map,
-  the reference — and `vaelii.impl.dense-jtms`, which holds the same graph in
-  bitmaps and primitive-keyed maps.  Selected per KB (`open-kb`'s `:tms` opt),
-  dense by default since 0.9.0, and proven to answer identically by `jtms_dense_oracle_test`.
-
-  The seam is at the *representation*, not at the algorithm: both implementations
-  run the same least-fixpoint relabel over the same affected region, because that is
-  the semantics, not an implementation detail.  What differs is where a node's
-  premise flag, depth and adjacency live.
-
-  Every method is named with a leading `-`; the plain names (`in?`, `add-premise`, …)
-  are the public functions below, which dispatch here.  Callers use those."
-  (-believed?        [tms datum] "Is `datum` believed (IN, minus supersession)?")
-  (-believed         [tms]       "Seq of the believed datums, or nil when none.")
-  (-node?            [tms datum] "Is there a node for `datum`?")
-  (-datums           [tms]       "Seq of every datum with a node.")
-  (-any-node?        [tms]       "Is there any node at all?  A boolean that must not
-    materialize the datum seq — `(first (-datums …))` drains the whole dense bitmap
-    into boxed Longs, so callers on a render/poll path use this instead.")
-  (-any-belief?      [tms]       "Is any datum believed (IN, minus supersession)?  Like
-    `-any-node?`, terminates at the first believed datum rather than draining `-believed`.")
-  (-depth            [tms datum] "Derivation depth, 0 when unknown.")
-  (-premise?         [tms datum] "Is `datum` a premise?")
-  (-premise-strength [tms datum] "Its assumption strength, or nil.")
-  (-defeat-class     [tms datum] "Defeat-class of an IN datum, nil when OUT.")
-  (-defeated         [tms]       "The forced-OUT set.")
-  (-blocked          [tms]       "The blocked justification-id set.")
-  (-superseded       [tms]       "The `datum -> reason` supersession map.")
-  (-touched          [tms]       "Datums whose region was relabelled since the reset.")
-  (-touched-in       [tms]       "Of those, the ones already believed when first relabelled.")
-  (-touched-new      [tms]       "Datums whose node this window created.")
-  (-reset-touched    [tms]       "Clear the touched sets.")
-  (-supports         [tms datum] "Justification ids concluding `datum`.")
-  (-dependents       [tms datum] "Justification ids using `datum` as an antecedent.")
-  (-justification    [tms jid]   "The graph justification (`graph-just` — no bindings), or nil.")
-  (-justifications   [tms]       "Every live graph justification.")
-  (-ensure-node      [tms datum depth] "Create the node if absent; lower its depth.")
-  (-add-premise      [tms datum strength] "Mark `datum` a premise at `strength`.")
-  (-suspend-premise  [tms datum] "Drop `datum`'s premise mark and relabel — no sweep.")
-  (-add-justification [tms just] "Record `just` and relabel what it moves.")
-  (-restrength-informant [tms informant strength]
-    "Set `strength` as the rule-contribution slot of every justification whose
-    informant is `informant`, and relabel the region their consequences span.")
-  (-relabel          [tms]       "Whole-graph relabel (recover only).")
-  (-defeat           [tms datums] "Force `datums` OUT and relabel their region.")
-  (-clear-defeats    [tms]       "Empty the defeated set and relabel.")
-  (-set-blocked      [tms jids]  "Replace the blocked set and relabel what moved.")
-  (-update-blocked   [tms f]     "Apply `f` to the blocked set as one atomic step.")
-  (-supersede        [tms m]     "Replace the supersession map (no relabel).")
-  (-retract          [tms datum] "Drop the premise, relabel, sweep; return the removals.")
-  (-sweep            [tms seeds] "Sweep the consequence closure of `seeds`.")
-  (-snapshot         [tms]
-    "The whole network as one canonical persistent map — `:nodes :justs :in
-    :groundable :defeated :blocked :superseded :classes`.  This is the *comparison*
-    shape the differential oracle checks and the shape `RefTms` happens to store; a
-    dense implementation materializes it, so it is a debugging and testing surface,
-    never something an engine path calls."))
+;; The `Tms` protocol lives in `vaelii.impl.jtms-protocol` — both this reference
+;; network and `vaelii.impl.dense-jtms` sit behind it, and it is too large to
+;; instrument (scripts/coverage.sh).  Its methods are `:refer`red above; the
+;; public façade over them is at the foot of this file.
 
 ;; ---- the reference implementation: one atom, one persistent map ---------
 

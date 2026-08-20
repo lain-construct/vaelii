@@ -64,7 +64,7 @@
     (testing "every rostered term is a symbol — a ground compound is a fragment, not a name"
       (is (every? symbol? (v/terms kb))))
     (testing "known vocabulary is in there"
-      (is (every? (set (v/terms kb)) '[genl thing CxCore argIsa])))))
+      (is (every? (set (v/terms kb)) '[genl thing CxCore arg])))))
 
 ;; ---- maintenance: a name arrives with the first mention, leaves with the last ----
 

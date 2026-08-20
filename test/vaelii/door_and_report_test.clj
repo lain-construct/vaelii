@@ -332,22 +332,22 @@
     (let [ground [(list 'genl person_t 'thing) (list 'genl rock_t 'thing)
                   (list rock_t Rock) (list person_t Mary) (list rock_t Pebble)]
           rows
-          [{:row     "argIsa, the declaration arriving last"
+          [{:row     "arg, the declaration arriving last"
             :fact    (list parentOf Rock Mary)
-            :closing (list 'argIsa parentOf 1 person_t)
+            :closing (list 'arg parentOf 1 person_t)
             :next    (list parentOf Pebble Mary)
             :type    :arg-type}
-           {:row     "argGenl, the declaration arriving last"
+           {:row     "genlArg, the declaration arriving last"
             :fact    (list parentOf Rock Mary)
-            :closing (list 'argGenl parentOf 1 person_t)
+            :closing (list 'genlArg parentOf 1 person_t)
             :next    (list parentOf Pebble Mary)
             :type    :arg-genl}
            ;; the conditional constraint has *three* ingredients, and it is the third that
            ;; nothing reaches: the fact and the declaration are stored, and the membership
            ;; arming the trigger arrives afterwards
-           {:row     "interArgIsa, the trigger's type arriving last"
+           {:row     "interArg, the trigger's type arriving last"
             :fact    (list eats Rock Mary)
-            :extra   [(list 'interArgIsa eats 1 person_t 2 person_t)]
+            :extra   [(list 'interArg eats 1 person_t 2 person_t)]
             :closing (list person_t Rock)
             :next    (list eats Rock Pebble)
             :type    :inter-arg-type}
@@ -355,7 +355,7 @@
            ;; fact it now convicts stays stored and believed, and the next claim is refused
            {:row     "a predicate-level genl edge under an argument constraint"
             :fact    (list fatherOf Rock Mary)
-            :extra   [(list 'argIsa parentOf 1 person_t)]
+            :extra   [(list 'arg parentOf 1 person_t)]
             :closing (list 'genl fatherOf parentOf)
             :next    (list fatherOf Pebble Mary)
             :type    :arg-type}]]
@@ -374,7 +374,7 @@
 
 (deftest a-stranded-declaration-is-a-census-finding-and-the-census-says-what-the-door-says
   ;; The other documented absence, and the one whose retroactive half lives somewhere else
-  ;; entirely.  `(argIsa fatherOf 3 person)` is admitted while nothing binds `fatherOf`'s
+  ;; entirely.  `(arg fatherOf 3 person)` is admitted while nothing binds `fatherOf`'s
   ;; length; when a length arrives the declaration constrains a position the predicate
   ;; provably lacks, and the door refuses the identical sentence one line later.  It is not
   ;; refused retroactively — that would make the binding's arrival order decide — and not
@@ -384,13 +384,13 @@
   (tu/with-terms [parentOf fatherOf a_type]
     (tu/with-cleared-kb [kb tu/fresh]
       (doseq [s [(list 'genl a_type 'thing)
-                 (list 'argIsa fatherOf 3 a_type)
+                 (list 'arg fatherOf 3 a_type)
                  (list 'binaryPredicate parentOf)
                  (list 'genl fatherOf parentOf)]]
         (v/assert kb s 'CxUniverse))
       (is (empty? (v/violations kb)) "the settle files nothing")
       (let [e (first (:stranded (:declarations (v/kb-quality kb))))
-            d (first (v/check kb (list 'argIsa fatherOf 3 a_type) 'CxUniverse))]
+            d (first (v/check kb (list 'arg fatherOf 3 a_type) 'CxUniverse))]
         (is (= :arg-position (:type d)) "the door refuses the identical sentence")
         (testing "and the census names the same predicate, position and binding"
           (is (= fatherOf (:predicate e) (:predicate d)))
@@ -455,7 +455,7 @@
       (testing "and the census, which carries the door's message unaltered"
         (tu/with-cleared-kb [kb tu/fresh]
           (doseq [s [(list 'genl a_type 'thing)
-                     (list 'argIsa fatherOf 3 a_type)
+                     (list 'arg fatherOf 3 a_type)
                      (list 'binaryPredicate parentOf)
                      (list 'genl fatherOf parentOf)]]
             (v/assert kb s 'CxUniverse))

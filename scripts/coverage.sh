@@ -84,9 +84,13 @@ CLOVERAGE_ARGS=(--no-colorize --selector "$SELECTOR")
 # Namespaces cloverage cannot handle, in two failure classes:
 #
 #   1. "Method code too large!" — a top-level form (a big defprotocol /
-#      native-interop block / huge hiccup-rendering defn), once cloverage wraps
-#      it for tracking, macroexpands into a single method that overflows the
-#      JVM's 64 KB per-method bytecode limit:  kv, asp.clingo, browser.browser.
+#      native-interop block / huge hiccup-rendering defn) whose eval (cloverage
+#      re-evals every form of a namespace one at a time to instrument it)
+#      compiles a single method past the JVM's 64 KB per-method bytecode limit:
+#      kv, asp.clingo, jtms-protocol (the 40-method `Tms` protocol, split out of
+#      vaelii.impl.jtms into its own file precisely so the rest of the JTMS —
+#      the whole algorithm — stays instrumented; the protocol carries no code to
+#      cover, so excluding only it loses nothing).
 #   2. Broken protocol dispatch — a defrecord/deftype that inline-implements a
 #      protocol defined in the SAME file loses its method table under cloverage's
 #      per-form eval, so calls throw "No implementation of method ... found for
@@ -103,7 +107,7 @@ CLOVERAGE_ARGS=(--no-colorize --selector "$SELECTOR")
 # while whatever actually trips the limits today went uninstrumented-and-uncovered
 # or failed the run outright. Keep this list discovered, not remembered: when a run
 # dies on "Method code too large!", add the namespace it names and say so here.
-DEFAULT_EXCLUDE='^vaelii\.impl\.kv$ ^vaelii\.impl\.asp\.clingo$'
+DEFAULT_EXCLUDE='^vaelii\.impl\.kv$ ^vaelii\.impl\.asp\.clingo$ ^vaelii\.impl\.jtms-protocol$'
 for ns in ${COVERAGE_EXCLUDE-$DEFAULT_EXCLUDE}; do
   CLOVERAGE_ARGS+=(-e "$ns")
 done

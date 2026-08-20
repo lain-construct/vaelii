@@ -166,7 +166,7 @@ bigger finding than either.
 
 ## Argument constraints that constrain nothing
 
-`(argIsa parentOf 3 person)` is admitted while `parentOf` has no declared length, because
+`(arg parentOf 3 person)` is admitted while `parentOf` has no declared length, because
 the highest position a declaration names is a lower bound on the arity rather than a claim
 about it. When a length does arrive — declared of the predicate, or inherited through a
 `genl` edge from a super-predicate — the declaration is left constraining a position the
@@ -177,7 +177,7 @@ and one that enforces nothing look exactly alike.
 It is the **door's own arm, re-asked** of content already stored, so what the census lists
 and what an `assert` refuses cannot drift apart: whatever binds a predicate's length for
 the door binds it here, and a predicate the KB has bound to no length strands nothing.
-`interArgIsa` names two positions and each is asked, since both are the same mistake.
+`interArg` names two positions and each is asked, since both are the same mistake.
 
 A **`variableArity`** predicate strands nothing either, however high the position: it reads
 a tuple of any length from its declared arity upward, so a position past that length is one

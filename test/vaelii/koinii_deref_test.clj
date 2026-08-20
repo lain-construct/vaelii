@@ -1,0 +1,361 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
+(ns vaelii.koinii-deref-test
+  "Koinii cross-seat dereference: independent seats, each holding its own KB,
+  kept in sync by content-addressed commits.  A locator is a hash over a sentex's
+  canonical identity, so two seats holding the same assertion compute the same one; a
+  commit id is a hash over a seat's whole locator set, so it is a function of state; and a
+  marker is untrusted — a seat resolves it against its OWN KB and rehashes what it finds.
+
+  One deftest per 'How to verify' bullet: two seats resolving one commit's sentence to the
+  byte-identical canonical form and the same provenance, byte-stable export, tamper caught
+  — plus the locator and commit-id invariants the design rests on.  The seats are separate
+  KBs (memory on distinct spaces, and a genuinely disk-backed one for the git case)."
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.core :as v]
+            [vaelii.impl.disk.backend :as backend]
+            [vaelii.impl.koinii.deref :as d]
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.rules :as vr]
+            [vaelii.test-util :as tu])
+  (:import (java.io File)
+           (java.nio.file Files)
+           (java.nio.file.attribute FileAttribute)
+           (java.util Arrays)))
+
+;;; ── seats and dumps ───────────────────────────────────────────────────
+
+(defn- fresh-seat
+  "An independent in-RAM seat — a cleared `:memory` KB on its own derived space, so it
+  shares a store with no other seat (or with `*kb*`).  Clear it in a `finally`."
+  [tag]
+  (doto (v/open-kb (assoc tu/plain-memory-space :space [::seat (name tag)]))
+    (tu/clear-kb!)))
+
+(defn- disk-seat
+  "A durable seat: a `:disk` KB over `dir`, opened unrecovered so an `import!` lands into
+  an empty store (the pulled-commit case).  Close it with `backend/close-dir!`."
+  [^File dir]
+  (v/open-kb {:backend :disk :dir (.getPath dir) :recover? false}))
+
+(defn- temp-dir ^File [nm]
+  (.toFile (Files/createTempDirectory (str "koinii-deref-" nm "-")
+                                      (into-array FileAttribute []))))
+
+(defn- rm-rf! [^File d]
+  (doseq [^File f (reverse (file-seq d))] (.delete f)))
+
+;; Atlas and Boreas each on their own seat's context, provenance pinned so the export is a
+;; byte-stable function of state and every seat computes the same content.
+(def ^:private atlas-fact  '(usesDatabase ProdCluster PostgreSQL14))
+(def ^:private boreas-fact '(usesDatabase StageCluster RedisCache))
+
+(defn- atlas-writes!
+  "Atlas asserts its claim into its own context, stamped as its creator."
+  [kb]
+  (binding [v/*clock* (constantly 1750000000000)]
+    (v/assert kb atlas-fact 'CxAtlas {:creator 'AgentAtlas})))
+
+(defn- boreas-writes! [kb]
+  (binding [v/*clock* (constantly 1750000000000)]
+    (v/assert kb boreas-fact 'CxBoreas {:creator 'AgentBoreas})))
+
+(defn- stream-bytes [^File dir nm]
+  (with-open [in (io/input-stream (io/file dir nm))] (.readAllBytes in)))
+
+;;; ── the locator: content-addressed, handle-independent ────────────────
+
+(deftest a-locator-is-a-function-of-the-assertion-not-the-handle
+  (let [a (fresh-seat :loc-a)
+        b (fresh-seat :loc-b)]
+    (try
+      ;; two seats reach the fact among different other assertions, so the handles differ
+      (v/assert a '(colour Sky Blue) 'CxAtlas)
+      (let [ha (atlas-writes! a)]
+        (boreas-writes! b)
+        (v/assert b '(colour Grass Green) 'CxBoreas)
+        (let [hb (atlas-writes! b)]
+          (testing "same assertion, different seats and different handles, one locator"
+            (is (not= ha hb) "the fixture put the fact at different handles")
+            (is (= (d/locator-of a ha) (d/locator-of b hb))))
+          (testing "and `locate` computes it without the fact being at any particular handle"
+            (is (= (d/locator-of a ha) (d/locate a atlas-fact 'CxAtlas)))
+            (is (= (d/locator-of b hb) (d/locate b atlas-fact 'CxAtlas))))
+          (testing "context, truth polarity and sentence each change the locator"
+            (is (not= (d/locate a atlas-fact 'CxAtlas)
+                      (d/locate a atlas-fact 'CxBoreas)) "context is part of identity")
+            (is (not= (d/locate a atlas-fact 'CxAtlas)
+                      (d/locate a (list 'not atlas-fact) 'CxAtlas)) "truth polarity is")
+            (is (not= (d/locate a atlas-fact 'CxAtlas)
+                      (d/locate a boreas-fact 'CxAtlas)) "and the sentence is")))
+        (is (re-matches #"sha256:[0-9a-f]{64}" (d/locator-of a ha)) "a self-describing sha256 locator"))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
+;;; ── locators fold what the engine folds (the cross-seat guarantee) ────
+;;; The whole distributed story rests on two seats computing ONE locator for one
+;;; assertion even when they spell it differently — so a locator must fold exactly what
+;;; the engine canonicalizes: a symmetric predicate's argument order and a comparison's
+;;; direction.  `locate` / `locator-of` route through `res/kb-sentex`, which is why they
+;;; do.  (This is the guarantee the adversarial review probed; here it as a committed
+;;; regression test, since a locator that stopped folding would silently split one
+;;; assertion into two across seats and break dereference without failing anything else.)
+
+(deftest locators-fold-mirror-spellings-so-seats-agree
+  (let [a (fresh-seat :canon-a)
+        b (fresh-seat :canon-b)]
+    (try
+      (doseq [seat [a b]] (v/assert seat '(symmetric siblingOf) 'CxKin))
+      (let [ha (v/assert a '(siblingOf Ann Bob) 'CxKin)          ; seat A's spelling
+            hb (v/assert b '(siblingOf Bob Ann) 'CxKin)]         ; seat B's mirror spelling
+        (testing "a symmetric predicate: both argument orders are one locator"
+          (is (= (d/locator-of a ha) (d/locator-of b hb))
+              "the mirror spelling on another seat computes the same locator")
+          (is (= (d/locate a '(siblingOf Ann Bob) 'CxKin)
+                 (d/locate a '(siblingOf Bob Ann) 'CxKin))
+              "and `locate` folds the order the way storage does"))
+        (testing "so a marker minted from one spelling dereferences the mirror-stored sentex"
+          (let [r (d/dereference b (d/marker a ha))]             ; A's marker, resolved on B
+            (is (:resolved? r) "resolves across the spelling difference")
+            (is (= hb (:handle r)) "to B's own record, stored under the mirror")))
+        (testing "comparison direction folds too — greaterThan stores as lessThan"
+          (is (= (d/locate a '(greaterThan 5 3) 'CxKin)
+                 (d/locate a '(lessThan 3 5) 'CxKin)))))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
+;;; ── the commit id: a function of state, not of assertion order ─────────
+
+(deftest a-commit-id-is-a-function-of-state
+  (let [a (fresh-seat :commit-a)
+        b (fresh-seat :commit-b)
+        facts [['(a1 X Y) 'CxOne] ['(a2 Y Z) 'CxOne] ['(b1 P Q) 'CxTwo] ['(b2 Q R) 'CxTwo]]]
+    (try
+      (doseq [[s c] facts] (v/assert a s c))
+      (doseq [[s c] (reverse facts)] (v/assert b s c))   ; the same state, reached backwards
+      (testing "two seats at the same state agree on the commit id, whatever the order"
+        (is (= (d/commit-id a) (d/commit-id b))))
+      (testing "and it really depended on the order being irrelevant, not on emptiness"
+        (is (re-matches #"sha256:[0-9a-f]{64}" (d/commit-id a)))
+        (is (= 4 (count (p/sentex-ids (:records a))))))
+      (testing "an extra assertion moves the commit id — it is a fingerprint of content"
+        (v/assert b '(a3 Z W) 'CxOne)
+        (is (not= (d/commit-id a) (d/commit-id b))))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
+;;; ── byte-stable export: the same state exports to the same bytes ──────
+
+(deftest publishing-the-same-state-twice-yields-byte-identical-record-streams
+  (let [a  (fresh-seat :bytes)
+        d1 (temp-dir "b1")
+        d2 (temp-dir "b2")]
+    (rm-rf! d1) (rm-rf! d2)                               ; export! makes its own dir
+    (try
+      (atlas-writes! a)
+      (boreas-writes! a)
+      (d/publish! a d1)
+      (d/publish! a d2)
+      (testing "the record streams are a byte-stable function of the KB state"
+        (doseq [nm ["sentexes.nippy.stream" "provenance.nippy.stream"]]
+          (is (Arrays/equals ^bytes (stream-bytes d1 nm) ^bytes (stream-bytes d2 nm))
+              (str nm " differs between two exports of one state"))))
+      (finally (tu/clear-kb! a) (rm-rf! d1) (rm-rf! d2)))))
+
+;;; ── two seats, one commit, the same sentence ─────────────────────────
+
+(deftest two-seats-pull-one-commit-and-resolve-the-same-sentence
+  (let [source (fresh-seat :src)
+        mem    (fresh-seat :seat-mem)
+        dir    (temp-dir "disk-seat")
+        dump   (temp-dir "commit")]
+    (rm-rf! dump)
+    (let [disk (disk-seat dir)]
+      (try
+        (let [ha (atlas-writes! source)]
+          (boreas-writes! source)
+          (d/publish! source dump)                       ; seat A commits
+          (d/pull! mem dump)                             ; a second in-RAM clone pulls it
+          (d/pull! disk dump)                            ; and a genuinely durable seat pulls it
+          (let [mk (d/marker source ha)]                 ; a marker for Atlas's claim
+            (testing "every seat agrees on the commit id — the same knowledge, three stores"
+              (is (= (d/commit-id source) (d/commit-id mem) (d/commit-id disk))))
+            (testing "and on the state root — a clone that recovered identical provenance is the same snapshot"
+              (is (= (d/state-root source) (d/state-root mem) (d/state-root disk))))
+            (doseq [[label seat] [["memory clone" mem] ["disk clone" disk]]]
+              (testing (str "the " label " resolves the marker from its OWN KB")
+                (let [r (d/dereference seat mk)]
+                  (is (:resolved? r) (str label " resolved"))
+                  (is (= atlas-fact (:sentence r)) "to the byte-identical canonical sentence")
+                  (is (= 'CxAtlas (:context r)))
+                  (is (= :true (:truth r)))
+                  (testing "and the same provenance — who asserted it, recovered after the pull"
+                    (is (= 'AgentAtlas (:seat r)))
+                    (is (= 'AgentAtlas (:creator (:provenance r)))))
+                  (testing "the locator this seat computes is the marker's — resolved from the KB"
+                    (is (= (:locator mk) (:locator r)))
+                    (is (= (:locator mk) (d/locator-of seat (:handle r))))))))
+            (testing "a bare locator resolves too — the payload was never load-bearing"
+              (let [r (d/resolve-by-locator disk (:locator mk))]
+                (is (:resolved? r))
+                (is (= atlas-fact (:sentence r)))
+                (is (= 'AgentAtlas (:seat r)))))))
+        (finally
+          (tu/clear-kb! source) (tu/clear-kb! mem)
+          (backend/close-dir! (.getPath dir)) (rm-rf! dir) (rm-rf! dump))))))
+
+;;; ── the marker is untrusted: tamper and non-receipt are caught ────────
+
+(deftest a-tampered-or-unreceived-marker-is-rejected-and-the-kb-is-the-authority
+  (let [source (fresh-seat :tamper-src)
+        seat   (fresh-seat :tamper-seat)
+        dump   (temp-dir "tamper-commit")]
+    (rm-rf! dump)
+    (try
+      (let [ha (atlas-writes! source)]
+        (boreas-writes! source)
+        (d/publish! source dump)
+        (d/pull! seat dump)
+        (let [mk (d/marker source ha)]
+          (testing "the honest marker resolves"
+            (is (:resolved? (d/dereference seat mk))))
+          (testing "a tampered locator fails the rehash — the marker's payload is rejected, not the KB"
+            (let [bad (assoc mk :locator (apply str (reverse (:locator mk))))
+                  r   (d/dereference seat bad)]
+              (is (not (:resolved? r)))
+              (is (= :locator-mismatch (:reason r)))
+              (is (= (:locator mk) (:actual r)) "the KB's own locator is what it compared against")))
+          (testing "a payload naming a sentence this seat never received does not fall back to trust"
+            (let [r (d/dereference seat (assoc mk :sentence '(usesDatabase ProdCluster Mango9)))]
+              (is (not (:resolved? r)))
+              (is (= :not-received (:reason r)))))
+          (testing "and a marker for Boreas's fact resolves — the seat DID pull that one"
+            (let [rb (d/dereference seat (d/marker source (v/handle-of source boreas-fact 'CxBoreas)))]
+              (is (:resolved? rb))
+              (is (= 'AgentBoreas (:seat rb)))))
+          (testing "a bare locator that names nothing in this store is likewise not-received"
+            (let [r (d/resolve-by-locator seat (str "sha256:" (apply str (repeat 64 "0"))))]
+              (is (not (:resolved? r)))
+              (is (= :not-received (:reason r)))))))
+      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
+
+;;; ── the why handoff: the proof comes from the seat's own KB ───────────
+
+(deftest why-marker-hands-off-to-the-seats-own-proof
+  (let [source (fresh-seat :why-src)
+        seat   (fresh-seat :why-seat)
+        dump   (temp-dir "why-commit")]
+    (rm-rf! dump)
+    (try
+      (let [ha (atlas-writes! source)]
+        (d/publish! source dump)
+        (d/pull! seat dump)
+        (let [r (d/why-marker seat (d/marker source ha))]
+          (testing "the marker names WHAT to prove; the proof is the seat's own"
+            (is (:resolved? r))
+            (is (map? (:why r)))
+            (is (true? (:believed? (:why r))) "resolved and believed on this seat")
+            (is (= atlas-fact (:sentence (:why r))))
+            (is (true? (:premise? (:why r))) "an asserted fact rests on nothing below it"))))
+      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
+
+;;; ── a NEGATIVE fact round-trips (a `:false` sentex keeps its `not`) ────
+;;; Regression: a stored `(not S)` keeps the `not` in its `:sentence` with `:truth :false`
+;;; (docs/storage.md).  A marker must carry that field UNCHANGED — an earlier `assertable`
+;;; re-wrapped it, double-negating the sentence into a positive one that resolved to
+;;; nothing, and it failed as `:not-received` — indistinguishable from "not pulled yet".
+
+(deftest a-negative-fact-round-trips-and-dereferences
+  (let [source (fresh-seat :neg-src)
+        seat   (fresh-seat :neg-seat)
+        dump   (temp-dir "neg-commit")]
+    (rm-rf! dump)
+    (try
+      (let [nh (v/assert source '(not (happy Rex)) 'CxAtlas {:creator 'AgentAtlas})]
+        (testing "the store keeps the `not` in :sentence, with :truth :false"
+          (is (= '(not (happy Rex)) (:sentence (v/sentex source nh))))
+          (is (= :false (:truth (v/sentex source nh)))))
+        (d/publish! source dump)
+        (d/pull! seat dump)
+        (let [mk (d/marker source nh)]
+          (testing "the marker carries the asserted negative form verbatim"
+            (is (= '(not (happy Rex)) (:sentence mk))))
+          (testing "and it dereferences on the seat that pulled it — not a false :not-received"
+            (let [r (d/dereference seat mk)]
+              (is (:resolved? r) "the negative fact resolves across seats")
+              (is (= :false (:truth r)))
+              (is (= '(not (happy Rex)) (:sentence r)))
+              (is (= 'AgentAtlas (:seat r)))))))
+      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
+
+;;; ── the encoder covers what a sentence can hold: chars, doubles ───────
+;;; Regression: a `char` is legal sentence content (naming/form-rank), and commit-id folds
+;;; EVERY stored sentex — so a char the encoder could not handle would throw and disable
+;;; commit-id / locate / state-root for the whole seat, not just that record.
+
+(deftest the-encoder-handles-chars-and-doubles-without-poisoning-the-commit
+  (let [a (fresh-seat :enc-a)
+        b (fresh-seat :enc-b)]
+    (try
+      (doseq [seat [a b]]
+        (v/assert seat '(grade Essay \A) 'CxS)                 ; a char argument
+        (v/assert seat '(ratioOf Circle 3.14159) 'CxS))        ; a double argument
+      (testing "commit-id / locate compute over char- and double-bearing sentences"
+        (is (re-matches #"sha256:[0-9a-f]{64}" (d/commit-id a)) "no throw on the char/double records")
+        (is (re-matches #"sha256:[0-9a-f]{64}" (d/locate a '(grade Essay \A) 'CxS))))
+      (testing "and two seats agree on them — the values are content-addressed stably"
+        (is (= (d/commit-id a) (d/commit-id b)))
+        (is (= (d/locate a '(grade Essay \A) 'CxS)
+               (d/locate b '(grade Essay \A) 'CxS)))
+        (is (not= (d/locate a '(grade Essay \A) 'CxS)
+                  (d/locate a '(grade Essay \B) 'CxS)) "distinct chars, distinct locators"))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
+;;; ── commit-id folds derived sentexes; state-root survives nil provenance ──
+
+(deftest commit-id-covers-derived-records-and-state-root-tolerates-nil-provenance
+  (let [a (fresh-seat :derive)]
+    (try
+      (v/assert a (list 'set/forwardRule (vr/rule-sentence [(list 'bird '?x)]
+                                                           (list 'flies '?x))) 'CxS)
+      (v/assert a '(bird Tweety) 'CxS)
+      (let [derived (first (filter #(= '(flies Tweety) (:sentence (v/sentex a %)))
+                                   (p/sentex-ids (:records a))))]
+        (testing "the forward-derived fact is stored with no provenance"
+          (is (some? derived) "the rule fired")
+          (is (nil? (v/provenance a derived)) "a derived record carries no creator"))
+        (testing "commit-id folds it in and does not throw"
+          (is (re-matches #"sha256:[0-9a-f]{64}" (d/commit-id a)))
+          (is (some? (d/inclusion-proof a (d/locator-of a derived)))
+              "the derived leaf is in the commit tree"))
+        (testing "state-root tolerates the nil provenance (leaf is [nil nil identity])"
+          (is (re-matches #"sha256:[0-9a-f]{64}" (d/state-root a)))))
+      (finally (tu/clear-kb! a)))))
+
+;;; ── verify-inclusion fails closed on a malformed (untrusted) proof ────
+
+(deftest verify-inclusion-rejects-malformed-proofs-without-throwing
+  (let [a (fresh-seat :vi)]
+    (try
+      (v/assert a '(likes Alpha Beta) 'CxS)
+      (v/assert a '(likes Beta Gamma) 'CxS)
+      (let [loc  (d/locate a '(likes Alpha Beta) 'CxS)
+            root (d/commit-id a)
+            good (d/inclusion-proof a loc)]
+        (testing "the honest proof verifies"
+          (is (true? (d/verify-inclusion loc good root))))
+        (testing "a malformed proof returns false, never throws — it is untrusted transport data"
+          (is (false? (d/verify-inclusion loc [{:hash "zzzz" :side :right}] root)) "non-hex sibling")
+          (is (false? (d/verify-inclusion loc [{:side :right}] root)) "missing :hash")
+          (is (false? (d/verify-inclusion loc [{:hash (-> good first :hash) :side :up}] root)) "bad :side")
+          (is (false? (d/verify-inclusion loc "not-a-proof" root)) "non-sequential proof")
+          (is (false? (d/verify-inclusion loc good "sha256:deadbeef")) "wrong root")))
+      (finally (tu/clear-kb! a)))))
+
+;; ── a marker over a handle that names no record ───────────────────────────
+
+(deftest marker-refuses-a-handle-that-names-no-record
+  (let [a (fresh-seat :nomark)]
+    (try
+      (testing "a marker can only be minted for an assertion the seat actually holds"
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no sentex at handle"
+                              (d/marker a 999999))))
+      (finally (tu/clear-kb! a)))))

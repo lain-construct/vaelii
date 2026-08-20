@@ -16,7 +16,7 @@
     * goal reasoning — an agent that wants a goal and brings about an event that
       achieves it is deduced to *achieve its goal* (a joined forward rule); an agent
       is *responsible for* what its action directly causes;
-    * argIsa type inference — an untyped individual's role is inferred from the
+    * arg type inference — an untyped individual's role is inferred from the
       relation slot it fills (`CheeseFalls` is never typed, yet `ask?` finds it an
       event, because `causes` constrains both its arguments to be events).
 
@@ -61,13 +61,13 @@
     (comment responsibleFor "(responsibleFor ?agent ?event) means that ?agent's action directly caused ?event. Derived from does and causes.")])
 
 (def predicate-constraints
-  '[(argIsa wants   1 agent) (argIsa wants   2 goal)
-    (argIsa does    1 agent) (argIsa does    2 action)
-    (argIsa brings  1 agent) (argIsa brings  2 event)
-    (argIsa achieves 1 event) (argIsa achieves 2 goal)
-    (argIsa causes  1 event) (argIsa causes  2 event)
-    (argIsa beforeEvent 1 event) (argIsa beforeEvent 2 event)
-    (argIsa responsibleFor 1 agent) (argIsa responsibleFor 2 event)])
+  '[(arg wants   1 agent) (arg wants   2 goal)
+    (arg does    1 agent) (arg does    2 action)
+    (arg brings  1 agent) (arg brings  2 event)
+    (arg achieves 1 event) (arg achieves 2 goal)
+    (arg causes  1 event) (arg causes  2 event)
+    (arg beforeEvent 1 event) (arg beforeEvent 2 event)
+    (arg responsibleFor 1 agent) (arg responsibleFor 2 event)])
 
 (def predicate-types
   '[(binaryPredicate wants)   (binaryPredicate does)        (binaryPredicate brings)
@@ -78,12 +78,12 @@
 
 (def fox-and-crow
   "The fox flatters the crow; flattery makes the crow sing; singing drops the cheese;
-  the fox gets it.  Types first (so the argIsa checks bind), then the facts."
+  the fox gets it.  Types first (so the arg checks bind), then the facts."
   '[(agent FoxF) (agent CrowF)
     (goal HasCheese)
     (action Flatter1)
     (event CrowSings) (event FoxGetsCheese)      ; CheeseFalls is left untyped — its
-                                                 ; eventhood is inferred from causes' argIsa
+                                                 ; eventhood is inferred from causes' arg
     (wants FoxF HasCheese)
     (does FoxF Flatter1)
     (causes Flatter1 CrowSings)          ; the causal chain, link by link

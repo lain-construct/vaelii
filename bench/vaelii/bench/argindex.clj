@@ -379,8 +379,8 @@
           (when (and (< a types) (< b types))
             (v/assert kb (list 'disjoint (type-name a) (type-name b)) ctx {:chain? false}))))
       (doseq [i (range predicates)]
-        (v/assert kb (list 'argIsa (pred-name i) 1 (type-name 0)) ctx {:chain? false})
-        (v/assert kb (list 'argIsa (pred-name i) 2 (type-name 0)) ctx {:chain? false}))
+        (v/assert kb (list 'arg (pred-name i) 1 (type-name 0)) ctx {:chain? false})
+        (v/assert kb (list 'arg (pred-name i) 2 (type-name 0)) ctx {:chain? false}))
       ;; every individual holds `memberships` types off one leaf's ancestor chain —
       ;; comparable types, nothing disjoint, so the sweep does the full could-clash read
       ;; and the disjointness test admits

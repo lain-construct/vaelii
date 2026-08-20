@@ -26,7 +26,7 @@ program for it. Read the two structural sections before the tables.
 | `-a` | `(not S)` | a **stored** negative sentex with its own handle, not an absence |
 | an answer set | a labeling context | materialized, inert, one per optimal answer set |
 | `X` | `?x` | |
-| `p/2` | — | arity is not part of a name; declare it with `(arity p 2)` or `argIsa` |
+| `p/2` | — | arity is not part of a name; declare it with `(arity p 2)` or `arg` |
 | `#show` | — | reads are queries; nothing is projected at solve time |
 | cautious consequence | `forced` | |
 | brave consequence | `supportable` | |

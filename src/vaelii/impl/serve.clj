@@ -271,8 +271,8 @@
   error — still reads as one; a *new* refusal type belongs in this set the day it is
   born, and `wire_contract_test` pins the pairing."
   #{:naming :not-well-formed :not-ground :not-range-restricted :not-indexable
-    :shape
-    :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind :arity
+    :shape :not-encodable
+    :arg-type :inter-arg-type :arg-genl :quoted-arg-type :arg-position :arg-constraint-kind :arity
     :disjoint :functional :asymmetric :unknown-option :bad-handle
     :unknown-handle :bad-level :exception-not-closed :not-stratified :naf-not-closed
     :quantifier-not-local :quantified-conjunction

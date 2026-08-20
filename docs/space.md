@@ -277,7 +277,7 @@ calculi are *about* space: CxCore holds only the grammar they are stated in
 a KB built from CxCore plus the layers it wants carries regions only if it reasons
 about them (the starter, which loads every upper context it finds, takes them). Regions,
 places, and the things a frame or a distance is about are all **ordinary individuals**:
-every argument position is declared `(argIsa … spatial_thing)`, the type a location is
+every argument position is declared `(arg … spatial_thing)`, the type a location is
 what makes something an instance of. `physical_object` sits under it, so every animal,
 artifact and substance qualifies without a further declaration, while a region or a frame
 of reference — which occupy space without being made of anything — is declared into it

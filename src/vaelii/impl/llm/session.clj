@@ -189,7 +189,7 @@
        (str/join "\n" (map rejection-line rejections))
        "\n\nFix every one of them and answer with a corrected batch in a single fenced "
        "`edn` block. Use the read tools to check anything you are unsure of — a type's "
-       "supertypes, a predicate's argIsa constraints, an individual's existing types. "
+       "supertypes, a predicate's arg constraints, an individual's existing types. "
        "Drop an entry you cannot make well-formed rather than guessing at it."))
 
 ;; ---- the loop -----------------------------------------------------------

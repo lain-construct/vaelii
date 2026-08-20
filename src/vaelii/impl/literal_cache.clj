@@ -30,7 +30,7 @@
   **What is cached, and why there.**  The unit is one literal's *visible matches*
   (`res/matches-visible`), not one literal's *solutions* (`provers/solve-goal`).  That
   is where the repetition measurably is — a rule-heavy query re-asks a handful of
-  metadata literals (`(argIsa P n ?t)`, read per believed sentex per argument position
+  metadata literals (`(arg P n ?t)`, read per believed sentex per argument position
   by `provers/inferred-types`) hundreds of times, while its rule subgoals arrive
   already substituted and so are mostly distinct.  It is also the only layer at which
   the answer is a function of the KB alone.  `solve-goal` is **tier**-dependent, because

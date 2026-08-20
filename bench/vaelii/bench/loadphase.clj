@@ -4,7 +4,7 @@
   "Where a bulk load's wall clock goes, phase by phase.
 
   `bulk-assert-facts!` already turns four things off — the definitional checks, the
-  `argIsa` store query, the dedup trie-walk and provenance — plus `{:chain? false}` and
+  `arg` store query, the dedup trie-walk and provenance — plus `{:chain? false}` and
   one deferred settle.  What is left is the write path itself, and nothing said which
   part of it costs what.  This is the instrument that says.
 

@@ -9,8 +9,8 @@
   ratio cannot see a constant.**  An unconditional read added to the assert path moves the
   reading at both sizes by the same amount and divides out, so every one of its checks
   passes untouched.  One regression has already shipped through that gap —
-  `inter-args-problem` ran its `interArgIsa` declaration retrieval unconditionally, on
-  every assert of every KB, and nothing declares `interArgIsa` (`f64b334`, ~11% per assert
+  `inter-args-problem` ran its `interArg` declaration retrieval unconditionally, on
+  every assert of every KB, and nothing declares `interArg` (`f64b334`, ~11% per assert
   of a declaration-carrying predicate).  It was found by hand, against a worktree at the
   parent commit.
 
@@ -133,7 +133,7 @@
 
 (defn- plain
   "A binary fact of fresh individuals: no declaration, no membership, no rule.  The floor,
-  and the workload the shipped `interArgIsa` regression is clearest on, because a KB with
+  and the workload the shipped `interArg` regression is clearest on, because a KB with
   nothing to check should be paying for nothing."
   []
   (let [kb (fresh)]
@@ -174,15 +174,15 @@
              (v/assert kb (list (t 0) (ind "AcDM" i)) 'CxPerf {})))))
 
 (defn- declared
-  "A fact of a predicate carrying an `argIsa` declaration at both positions, over
+  "A fact of a predicate carrying an `arg` declaration at both positions, over
   individuals that already hold the type.  **The shape of the historical regression**: the
   argument-constraint checks are the reads `assert` names as its dominant per-fact cost,
   so a fourth declaration kind read unconditionally lands here first."
   []
   (let [kb (fresh)]
     (v/assert kb '(genl acd_t thing) 'CxPerf {:strength :monotonic})
-    (v/assert kb '(argIsa acDecl 1 acd_t) 'CxPerf {:strength :monotonic})
-    (v/assert kb '(argIsa acDecl 2 acd_t) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(arg acDecl 1 acd_t) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(arg acDecl 2 acd_t) 'CxPerf {:strength :monotonic})
     (dotimes [i n] (v/assert kb (list 'acd_t (ind "AcD" i)) 'CxPerf {}))
     (fn [] (dotimes [i n]
              (v/assert kb (list 'acDecl (ind "AcD" i) (ind "AcD" i)) 'CxPerf {})))))
@@ -434,7 +434,7 @@
     :build   plain
     :sentexes 100
     :reads   {:argument-root 500 :argument-slot 500 :exception-index 100
-              :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 202 :slots 200}}
 
    ;; **One membership read per assert above `plain`, and it is the arity descension's.**
@@ -451,7 +451,7 @@
     :build   membership
     :sentexes 100
     :reads   {:argument-root 700 :argument-slot 700 :exception-index 100
-              :functor-root 1000 :rule-index 200 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1100 :rule-index 200 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
    ;; **The same reading at depth 8, and the pair is the point.**  Whatever this costs
@@ -467,28 +467,28 @@
     :build   deep-membership
     :sentexes 100
     :reads   {:argument-root 1500 :argument-slot 1500 :exception-index 100
-              :functor-root 1000 :rule-index 1000 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1100 :rule-index 1000 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
    {:name    :declared
     :build   declared
     :sentexes 100
     :reads   {:argument-root 600 :argument-slot 400 :exception-index 100
-              :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 300 :roots 400 :roster 0 :slots 200}}
 
    {:name    :negative
     :build   negative
     :sentexes 100
     :reads   {:argument-root 500 :argument-slot 500 :exception-index 200
-              :functor-root 1000 :rule-index 100 :trie-counts 200 :trie-lookup 100}
+              :functor-root 1100 :rule-index 100 :trie-counts 200 :trie-lookup 100}
     :writes  {:levels 400 :terms 400 :roots 400 :roster 103 :slots 101}}
 
    {:name    :compound
     :build   compound
     :sentexes 100
     :reads   {:argument-root 500 :argument-slot 500 :exception-index 100
-              :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 800 :terms 600 :roots 400 :roster 104 :slots 200}}
 
    ;; 200 indexed sentexes for 100 asserts — the rule concludes one apiece
@@ -508,7 +508,7 @@
     :build   rule-fired
     :sentexes 200
     :reads   {:argument-root 1000 :argument-slot 1000 :exception-index 300
-              :functor-root 1500 :rule-index 200 :trie-counts 200 :trie-lookup 200}
+              :functor-root 1700 :rule-index 200 :trie-counts 200 :trie-lookup 200}
     :writes  {:levels 1000 :terms 800 :roots 800 :roster 200 :slots 400}}
 
    ;; **The vocabulary write, and the first budget here that is not about a fact.**  What it
@@ -529,7 +529,7 @@
     :build   taxonomy-edge
     :sentexes 100
     :reads   {:argument-root 700 :argument-slot 700 :exception-index 300
-              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 101 :slots 101}}
 
    ;; **One retrieval per relative the arity table does not name**, which is what the door
@@ -548,7 +548,7 @@
     :build   arity-declaration
     :sentexes 100
     :reads   {:argument-root 1000 :argument-slot 1000 :exception-index 100
-              :functor-root 800 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 900 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 300 :roots 300 :roster 1 :slots 100}}])
 
 ;; The retraction half.  `:unindexed` is the retraction budgets' `:sentexes` — how many

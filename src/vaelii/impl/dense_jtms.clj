@@ -49,7 +49,7 @@
   whose all-or-nothing mutation `jtms_atomicity_test` pins.  A mutable bitmap inside
   that value would break `swap!`'s retry semantics and let a reader observe a
   half-applied relabel — so the dense structures cannot be dropped into the reference,
-  and the two ship side by side behind `vaelii.impl.jtms/Tms`.  That is the same shape
+  and the two ship side by side behind `vaelii.impl.jtms-protocol/Tms`.  That is the same shape
   the index took (`:memory-columnar` is a whole second trie beside `KvIndexStore`),
   and it carries the same obligation: the algorithms are duplicated here against the
   dense structures, so `jtms_dense_oracle_test` proves the two answer identically
@@ -92,6 +92,7 @@
   such ceiling.  This is measured in density.md."
   (:require [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.jtms-protocol :refer [Tms]]
             [vaelii.impl.strength :as strength])
   (:import [it.unimi.dsi.fastutil.ints Int2IntOpenHashMap Int2ObjectOpenHashMap]
            [java.util.concurrent.locks StampedLock]
@@ -255,7 +256,7 @@
   clojure.lang.IDeref
   (deref [this] (with-read lock (snapshot this)))
 
-  jtms/Tms
+  Tms
   (-believed? [_ datum]
     (opt-read lock (and (rb-has? in datum) (not (contains? @superseded datum)))))
   (-believed [_] (with-read lock (seq (remove @superseded (rb-longs in)))))

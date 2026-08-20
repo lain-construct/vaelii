@@ -47,13 +47,13 @@
     (v/assert kb (list 'genl peng bird) ctx)
     (v/assert kb (list 'comment peng "A flightless bird.") ctx)
     (v/assert kb (list 'binaryPredicate eats) ctx)
-    (v/assert kb (list 'argIsa eats 1 animal) ctx)
-    (v/assert kb (list 'argIsa eats 2 food) ctx)
+    (v/assert kb (list 'arg eats 1 animal) ctx)
+    (v/assert kb (list 'arg eats 2 food) ctx)
     (v/assert kb (list 'unaryPredicate flies) ctx)
-    (v/assert kb (list 'argIsa flies 1 animal) ctx)
-    ;; declared binary, but argIsa constrains only argument 1 — the arity trap
+    (v/assert kb (list 'arg flies 1 animal) ctx)
+    ;; declared binary, but arg constrains only argument 1 — the arity trap
     (v/assert kb (list 'binaryPredicate likes) ctx)
-    (v/assert kb (list 'argIsa likes 1 animal) ctx)
+    (v/assert kb (list 'arg likes 1 animal) ctx)
     {:animal animal :bird bird :penguin peng :food food
      :eats eats :flies flies :likes likes :ctx ctx
      :rule (v/assert kb (list 'implies (list 'and (list peng '?x))
@@ -65,9 +65,9 @@
 (tu/deftest-kb arity-comes-from-the-declarations-never-from-argisa
   (let [{:keys [likes eats flies]} (world kb)
         arities (inv/declared-arities kb)]
-    (testing "a relation whose argIsa constrains only argument 1 is still binary"
+    (testing "a relation whose arg constrains only argument 1 is still binary"
       (is (= 2 (arities likes))
-          "argIsa is deliberately partial — its highest position is a lower bound on arity")
+          "arg is deliberately partial — its highest position is a lower bound on arity")
       (is (= 2 (arities eats)))
       (is (= 1 (arities flies))))
     (testing "and the rendered signature says 2, with ? for the unconstrained position"
@@ -80,7 +80,7 @@
         ctx (tu/fresh-term :context :Story)
         t (tu/fresh-term :type :animal)]
     (v/assert kb (list 'genlCx ctx 'CxCore) 'CxUniverse)
-    (v/assert kb (list 'argIsa p 1 t) ctx)
+    (v/assert kb (list 'arg p 1 t) ctx)
     (is (nil? (get (inv/declared-arities kb) p)))
     (testing "the shape falls back to a stored fact's arity, which is ground truth"
       (is (nil? (:arity (inv/predicate-shape kb p nil))))
@@ -108,7 +108,7 @@
         domain (set (map :predicate (:relations i)))
         structural (map :predicate (:structural i))]
     (testing "the type-level structural predicates are offered"
-      (is (= '[genl disjoint comment argIsa] (vec structural))))
+      (is (= '[genl disjoint comment arg] (vec structural))))
     (testing "and the rest of the head's vocabulary is not — a penguin page has no use for it"
       (is (not-any? domain '#{genlCx lessThan evaluate rewriteOf forcedDecontextualizedPredicate}))
       (is (not-any? (set structural) '#{genlCx lessThan evaluate})))
@@ -119,7 +119,7 @@
   (let [{:keys [penguin eats flies]} (world kb)]
     (testing "genl edges make it a type, whatever the spelling admits"
       (is (= :type (inv/term-kind kb penguin))))
-    (testing "argIsa constraints make it a relation"
+    (testing "arg constraints make it a relation"
       (is (= :predicate (inv/term-kind kb eats)))
       (is (= :predicate (inv/term-kind kb flies))))
     (is (= :individual (inv/term-kind kb 'Muffet)))
@@ -149,7 +149,7 @@
       (testing "unscanned, it is offered nowhere else — and the card says how much it did not read"
         (let [i (inv/inventory kb Tux {:max-scan 0})]
           (is (not-any? #(= fedBy (:predicate %)) (:relations i))
-              "never declared and never argIsa'd, so the later tiers cannot demote it")
+              "never declared and never arg'd, so the later tiers cannot demote it")
           (is (= 5 (:unscanned (:dropped i))))
           (is (str/includes? (inv/render i) "did not read 5 further facts")))))))
 
@@ -161,9 +161,9 @@
     (tu/with-terms [chases CxOther]
       (v/assert kb (list 'genlCx CxOther 'CxCore) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate chases) ctx)
-      (v/assert kb (list 'argIsa chases 1 animal) ctx)
-      (v/assert kb (list 'argIsa chases 1 bird) CxOther)
-      (v/assert kb (list 'argIsa chases 2 animal) ctx)
+      (v/assert kb (list 'arg chases 1 animal) ctx)
+      (v/assert kb (list 'arg chases 1 bird) CxOther)
+      (v/assert kb (list 'arg chases 2 animal) ctx)
       (let [shape (inv/predicate-shape kb chases 2)]
         (is (= [[1 bird] [1 animal] [2 animal]] (:args shape)) "narrowest first, within a position")
         (is (= (str "2 : `" bird "` × `" animal "`") (inv/signature shape))

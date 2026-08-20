@@ -59,7 +59,7 @@ mirror the stored fact set, which is a storage question. Belief is not, so the f
 
 **Only a stored sentex can be reported.** A TMS datum is a stored sentex, so only a
 stored sentex enters or leaves belief. An answer that exists solely while a prover is
-computing it — an evaluable, an aggregate, `unknown`, an `argIsa` type inference, a
+computing it — an evaluable, an aggregate, `unknown`, an `arg` type inference, a
 `set/backwardRule`'s conclusion — is nobody's belief and no relabel carries it. That is
 the same limit `preview` and `edit-with-consequences!` have, and it is why `watch` refuses
 a goal of that shape rather than watching it silently for nothing (below).

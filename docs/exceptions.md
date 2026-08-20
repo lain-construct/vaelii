@@ -97,7 +97,7 @@ does not hold. This bounds the cost and keeps an exception from silently invokin
 an unbounded proof search inside the relabel loop.
 
 **An unanswerable exception does not hold**, and the rule fires. This is the
-open-world reading, and it matches `argIsa`, where an argument whose type is
+open-world reading, and it matches `arg`, where an argument whose type is
 unknown cannot violate a constraint. Blocking on "cannot tell" would let a
 missing fact silently suppress knowledge.
 
@@ -496,11 +496,11 @@ another, so the sentence could not narrow the right firings anyway.
   [inherit.md](inherit.md) has the whole argument. (From `P`'s *own* side the index is
   already right — the fact is on the exception's predicate — and what has to give way
   there is the argument-agreement filter above.)
-- **`argIsa` read as an inference.** A believed `(motherOf X …)` beside
-  `(argIsa motherOf 1 mammal)` makes `X` a `mammal` and every supertype of it
+- **`arg` read as an inference.** A believed `(motherOf X …)` beside
+  `(arg motherOf 1 mammal)` makes `X` a `mammal` and every supertype of it
   (`ArgTypeProver`, [inference.md](inference.md)), so a fact on `motherOf` satisfies an
   exception on `mammal` with nothing on `mammal` ever written and no genl path between
-  the two predicates. `special/recheck-argisa-inferred` closes it, from both arrival
+  the two predicates. `special/recheck-arg-inferred` closes it, from both arrival
   orders — a fact of a declared predicate, and the declaration itself arriving over
   facts already stored.
 - **A declaration, where no fact moved at all.** The extent of every predicate is

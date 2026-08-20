@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.semantics-test
-  "The transitivity uses: isa? via genl, argIsa constraint checking, specificity
+  "The transitivity uses: isa? via genl, arg constraint checking, specificity
   in matching, genlCx context placement, and rule-as-sentex retraction."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -38,7 +38,7 @@
         likesPet (tu/tmp-pred) tom (tu/tmp-ind) muffet (tu/tmp-ind)]
     (type-hierarchy kb {:animal animal :thing thing :physical-object physical-object
                         :person person :dog dog})
-    (v/assert kb (list 'argIsa likesPet 1 person) 'CxUniverse)
+    (v/assert kb (list 'arg likesPet 1 person) 'CxUniverse)
     (v/assert kb (list person tom) 'CxNaturalWorld)
     (v/assert kb (list dog muffet) 'CxNaturalWorld)
     (testing "a person satisfies the arg-1 person constraint"

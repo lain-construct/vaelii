@@ -66,7 +66,7 @@ and a bottom anchor. Data hangs below the bottom.
     their kinds) plus the structural relations `partOf`/`locatedIn`.
   - `CxOrganism` — the biological taxonomy and its disjointness.
   - `CxLife` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
-    `birthYearOf`, `olderThan`, …) with their argIsa and metadata.
+    `birthYearOf`, `olderThan`, …) with their arg and metadata.
   - `CxSociety` — the social relations (`marriedTo`, `likes`, `owns`).
   - `CxMeasure` — the theory of measurement: the two measure terms, the
     `dimensionOf`/`conversionFactor` table, the five comparisons ([quantity.md](quantity.md)).
@@ -343,7 +343,7 @@ the mark belongs in a schema context, not a contingent one.
 ### Why CxUniverse, and not a target the declaration names
 
 A lift into a context the declaration picks out is the obvious generalization, and it
-is unsound. The definitional checks — disjointness, functionality, `argIsa` — are
+is unsound. The definitional checks — disjointness, functionality, `arg` — are
 **context-scoped**: they run where the fact is stated, against what is visible from
 there. Lifting into a context the stating context cannot see moves the fact somewhere
 those checks never looked, and two facts that are each admissible where they were
@@ -448,11 +448,11 @@ predicate like they are.
 
 ## Context-scoped constraint checks
 
-`argIsa` arg checks and disjointness checks are **not global**: when asserting in
+`arg` arg checks and disjointness checks are **not global**: when asserting in
 context K they consider only constraints and type memberships *visible from* K
 (its `context-up` closure). So shared vocabulary must live in a context K sees — in the
 starter, the CxCore vocabulary and the upper definitional contexts sit at the top
-of the spindle (every data context reaches them through the axis), so their `argIsa`
+of the spindle (every data context reaches them through the axis), so their `arg`
 constraints, comments, and type memberships are visible everywhere.
 
 The `genl` closure reads are scoped the same way (docs/taxonomy.md): `genls` /

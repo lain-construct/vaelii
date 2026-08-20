@@ -3,7 +3,7 @@
 (ns vaelii.impl.core-context
   "The CxCore ontology — Vaelii's vocabulary context.  It defines and
   documents the core predicates the engine interprets, as sentexes in CxCore:
-  the special-predicate surface (types/contexts, argIsa, disjoint, the `set/*Rule`
+  the special-predicate surface (types/contexts, arg, disjoint, the `set/*Rule`
   wrappers, the predicate metadata, negation, `ist`, the evaluables) and the
   predicate meta-ontology.  Documentation rides on `comment` sentexes,
   `(comment <term> \"...\")` — ordinary sentexes (stored, indexed, queryable) — so the

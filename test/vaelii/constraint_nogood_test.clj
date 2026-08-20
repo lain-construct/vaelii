@@ -16,7 +16,7 @@
   * A violation **against known-true content** still refuses on the assert path,
     because admitting it and then defeating it stores something the KB will never
     believe.
-  * An **argument constraint** (`argIsa` / `argGenl` / `interArgIsa`) is convicted by the
+  * An **argument constraint** (`arg` / `genlArg` / `interArg`) is convicted by the
     *absence* of a path from the argument's types to the constraint type — an
     open-world judgement with no opposing sentex — so it stays a refusal and, on the
     derivation path, a drop.
@@ -142,7 +142,7 @@
       (tu/with-terms [person_t rock_t parentOf Boulder Muffet]
         (v/assert kb (list 'genl person_t 'thing) 'CxUniverse)
         (v/assert kb (list 'genl rock_t 'thing) 'CxUniverse)
-        (v/assert kb (list 'argIsa parentOf 1 person_t) 'CxUniverse)
+        (v/assert kb (list 'arg parentOf 1 person_t) 'CxUniverse)
         (v/assert kb (list rock_t Boulder) 'CxUniverse)
         (is (thrown? clojure.lang.ExceptionInfo
                      (v/assert kb (list parentOf Boulder Muffet) 'CxUniverse))

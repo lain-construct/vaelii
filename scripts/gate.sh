@@ -1,32 +1,34 @@
 #!/usr/bin/env bash
-# scripts/gate.sh — everything that can say "no", behind `lein gate`.
+# scripts/gate.sh — the checks that can say "no" before you land.
 #
-#   lint   static analysis           (scripts/lint.sh — glossary, links, drift,
-#                                     clj-kondo, cljfmt, shellcheck)
-#   test   the suite                 (`lein test`, `:default` selector, memory stores)
-#   perf   the scaling claims        (`lein perf` — growth ratios, not milliseconds)
+# TWO gates, and the split is the point — a fast one to run before every commit,
+# a full one to run before a tag or a perf-sensitive land:
 #
-# The `:default` selector, so the gate is a check you actually run before every
-# landing rather than one you skip because it costs ten minutes.  Two things that
-# buys back are **yours to run**, not the gate's:
+#   lein gate           FAST — lint + test:
+#     lint   static analysis  (scripts/lint.sh — glossary, links, drift, kondo, cljfmt, shellcheck)
+#     test   the suite        (`lein test`, `:default` selector, memory stores; incl. assert_cost_test)
 #
-#   - `lein test :all` — the `^:slow` tests, which carry more than half the
-#     assertions (project.clj).  Worth a run when a change touches inference,
-#     indexing or the TMS, and worth one occasionally regardless: a mark defers a
-#     test and the deferral is only honest if somebody eventually runs it.
+#   lein release-gate   FULL — lint + test + perf:
+#     perf   the scaling claims (`lein perf` — growth ratios, not milliseconds)
+#
+# PERF — why it is not in the fast gate.  It is ~5 minutes and wants an idle box, so
+# a gate that always ran it is one people skip, and a skipped gate catches nothing.
+# Two things buy the drop back:
+#   - the CONSTANT-cost class (a fixed op added to every write) is a COUNT, not a
+#     duration, and `assert_cost_test` pins it in the fast test stage — every gate.
+#   - the SUPER-LINEAR class (a cost that turns quadratic) is what the perf ratios
+#     uniquely catch; CI's `deep.yml` perf job runs them, and `lein release-gate`
+#     runs them here.  When the pending diff touches the retrieval / inference /
+#     index / TMS core and this gate did not run perf, it prints "perf owed" at the
+#     end and names the command — the ask the split leans on (non-blocking).
+#
+# The `:default` selector on the test stage — the `^:slow` half is yours to run:
+#   - `lein test :all` — the deferred tests, more than half the assertions
+#     (project.clj). `lein gate --all` / `lein release-gate --all` runs it here.
 #   - `./scripts/test-backends.sh` — the eight record×index pairs plus the overlay
 #     decorator.  **Anything touching storage, the index, records, or recovery must
 #     run this**; the suite must be failing-set-identical across all eight, and the
 #     memory-store run the gate does is one of the eight.
-#
-# `lein gate --all` runs the test stage at `:all` when you want the long version
-# from here.
-#
-# Three checks that answer three different questions — is it well-formed, is it
-# right, is it still fast — and a change can break any one of them without
-# touching the others.  Running them together is the point: the one that has
-# historically gone unnoticed is `perf`, because nothing fails when a cost
-# quietly turns quadratic.
 #
 # NOT fail-fast by default, and that is the main decision here.  The suite takes
 # minutes; stopping at the first failure means fixing lint, waiting out the
@@ -35,11 +37,13 @@
 # each one's output is captured, and the report at the end names all of them.
 # `--fail-fast` when you would rather stop.
 #
-#   lein gate                  # all three, full report
+#   lein gate                  # fast: lint + test
+#   lein release-gate          # full: lint + test + perf  (`gate.sh --release`)
+#   lein gate --perf           # a fast gate plus perf, without the release framing
 #   lein gate --fail-fast      # stop at the first failure
-#   lein gate --quick          # perf: one attempt, widened bound (a pre-commit read)
+#   lein gate --quick          # add perf as a coarse read: one attempt, widened bound
 #   lein gate --skip test      # drop a stage; repeatable
-#   lein gate --only perf      # run one; repeatable
+#   lein gate --only perf      # run one; repeatable  (names perf, so it runs)
 #   lein gate --all            # test stage at `:all` — the ^:slow tests too
 #   lein gate --jobs 4         # test shards (default: scripts/lib/slots.sh; 1 = one JVM)
 #   lein gate --sequential     # the old shape: one test JVM, one stage at a time
@@ -123,11 +127,16 @@ export VAELII_GATE_OUT="$OUT"
 export VAELII_GATE_TIMINGS="${VAELII_GATE_TIMINGS:-$GATE_ROOT/test-timings.tsv}"
 TAIL_LINES=40
 
-fail_fast=0; quick=0; all=0; sequential=0; brief=0; jobs="${GATE_JOBS:-}"; skip=(); only=()
+fail_fast=0; quick=0; all=0; sequential=0; brief=0; release=0; with_perf=0
+jobs="${GATE_JOBS:-}"; skip=(); only=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fail-fast) fail_fast=1; shift ;;
     --quick)     quick=1; shift ;;
+    # perf is opt-in: `--release` is the full gate (lint + test + perf), `--perf`
+    # adds perf to a fast run without the release framing.  See PERF, below.
+    --release)   release=1; shift ;;
+    --perf)      with_perf=1; shift ;;
     --all)       all=1; shift ;;
     --brief)     brief=1; shift ;;
     --sequential) sequential=1; shift ;;
@@ -147,6 +156,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "gate: unknown argument $1" >&2; exit 2 ;;
   esac
 done
+
+# What this run calls itself, in the banner and the verdict: the release gate is the
+# same script with perf on, so it says so rather than reading like a plain gate.
+gate_cmd="lein gate"; gate_label="gate"
+[[ $release -eq 1 ]] && { gate_cmd="lein release-gate"; gate_label="release gate"; }
 
 # Colour: VAELII_COLOR=always|never forces; otherwise on for a capable terminal.
 # `lein gate` pipes our stdout, so key off TERM as well as `-t 1` — TERM survives
@@ -288,8 +302,8 @@ gate_rev=$(revision_hash)
 # shell comment.  No `==>`/label gutter before the command — that would break the
 # paste.  The gate affords this where the matrix cannot: three short stages, not a
 # thirteen-wide column of `-Dvaelii.disk.dir=…` launches (test-matrix.sh says why).
-printf '%slein gate%s  %s# %s — logs in %s%s\n' \
-  "$BOLD" "$RST" "$DIM" "$(revision_line)" "$OUT" "$RST"
+printf '%s%s%s  %s# %s — logs in %s%s\n' \
+  "$BOLD" "$gate_cmd" "$RST" "$DIM" "$(revision_line)" "$OUT" "$RST"
 
 announce () {                  # announce <name> <blurb> <cmd...>
   local name="$1" blurb="$2"; shift 2
@@ -486,12 +500,22 @@ perf_args=(perf)
 [[ $quick -eq 1 ]] && perf_args+=(--quick)
 [[ -n "${PERF_TOLERANCE:-}" ]] && perf_args+=(--tolerance "$PERF_TOLERANCE")
 
+# perf is opt-in — the fast gate is lint + test.  It runs when the release gate
+# asks for it (`--release`), when `--perf`/`--quick` name it, or when `--only perf`
+# does.  `wanted perf` still applies on top, so `--skip perf` and a non-perf
+# `--only` both keep it off.
+perf_opted=0
+[[ $release -eq 1 || $with_perf -eq 1 || $quick -eq 1 ]] && perf_opted=1
+if [[ ${#only[@]} -gt 0 ]]; then
+  for x in "${only[@]}"; do [[ "$x" == perf ]] && perf_opted=1; done
+fi
+
 if [[ $sequential -eq 1 ]]; then
   # Cheapest first, so `--fail-fast` gets you the fast answer first.
   run_stage lint "static analysis" lein lint || true
   [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage test "$test_blurb" "${test_cmd[@]}" || true
   check_test_reflection
-  [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage perf "the scaling claims" lein "${perf_args[@]}" || true
+  [[ $perf_opted -eq 1 ]] && { [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage perf "the scaling claims" lein "${perf_args[@]}" || true; }
 else
   # lint ‖ test, then perf alone — see SHAPE at the top.  Both start silently; each
   # one's header prints WITH its verdict and detail as a single chunk when it
@@ -534,13 +558,52 @@ else
   fi
   check_test_reflection
 
-  run_stage perf "the scaling claims" lein "${perf_args[@]}" || true
+  [[ $perf_opted -eq 1 ]] && { run_stage perf "the scaling claims" lein "${perf_args[@]}" || true; }
 fi
 
 echo
 if [[ ${#skipped[@]} -gt 0 ]]; then
   printf '%sskipped: %s%s\n' "$DIM" "${skipped[*]}" "$RST"
 fi
+
+# ---- perf advisory: name it when a hot-path change lands without a perf run ----
+#
+# The fast gate drops perf, and two things buy that back (see PERF in the header):
+# `assert_cost_test` pins the CONSTANT-cost class in the test stage, and CI runs the
+# ratios.  What neither the fast gate nor a glance catches is a change to the
+# retrieval / inference / index / TMS core that turns a cost SUPER-LINEAR.  So when
+# this gate did not run perf and the diff about to land touches one of those files,
+# say so, with the command that checks it.  Non-blocking: a reminder, not a refusal —
+# a gate you run ten times while developing must not fail on every hot-path edit.
+#
+# The set is the hot core `perf.clj` + `assert_cost_test` actually measure, not every
+# source (the interface, io, and domain-reasoner namespaces are left out on purpose).
+# Edit it here when the hot surface moves.
+PERF_SENSITIVE_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(provers|resolution|inherit|chain|settle|jtms|dense_jtms|caches|taxonomy|nat|context_nat|solve|plan|tactics|rules|rete|strength|levels|special|wiring|checks|violations|abduce|sentex|wff|kb|memory|observe|reindex|literal_cache|tokens|columnar|kv|dense_kv|dense_roots|rewrite)\.clj$|^src/vaelii/impl/disk/'
+
+perf_advisory () {
+  command -v git >/dev/null 2>&1 || return 0
+  git rev-parse --git-dir >/dev/null 2>&1 || return 0
+  # What is about to land: committed-since-upstream ∪ staged ∪ unstaged.  Fall back
+  # to origin/main, then to the uncommitted diff alone, when no upstream is tracked.
+  local base changed hot n
+  base=$(git merge-base '@{upstream}' HEAD 2>/dev/null) \
+    || base=$(git merge-base origin/main HEAD 2>/dev/null) || base=""
+  changed=$( { [[ -n "$base" ]] && git diff --name-only "$base" HEAD
+               git diff --name-only HEAD
+               git diff --cached --name-only; } 2>/dev/null | sort -u )
+  hot=$(printf '%s\n' "$changed" | grep -E "$PERF_SENSITIVE_RE" || true)
+  [[ -n "$hot" ]] || return 0
+  n=$(printf '%s\n' "$hot" | grep -c .)
+  printf '%s⚠ perf owed%s — %d hot-path file(s) about to land, and this gate did not run perf:\n' \
+    "$BOLD" "$RST" "$n"
+  printf '%s\n' "$hot" | head -8 | sed 's/^/    /'
+  [[ $n -gt 8 ]] && printf '    … and %d more\n' "$((n - 8))"
+  printf '  a change here can turn a cost super-linear — the test stage cannot see that.\n'
+  printf '  run %slein release-gate%s (lint + test + perf), or %slein perf%s alone, before landing.\n\n' \
+    "$BOLD" "$RST" "$BOLD" "$RST"
+}
+[[ $perf_opted -eq 0 ]] && perf_advisory
 
 # The revision on the verdict line, since that is the line that gets reported.  A
 # gate is minutes long and this tree has several writers, so a commit landing
@@ -554,9 +617,9 @@ else
 fi
 
 if [[ $fail -eq 0 ]]; then
-  printf '%s✓ gate passed%s %s — %d stage(s), logs in %s\n' "$GREEN" "$RST" "$at" "$pass" "$OUT"
+  printf '%s✓ %s passed%s %s — %d stage(s), logs in %s\n' "$GREEN" "$gate_label" "$RST" "$at" "$pass" "$OUT"
   exit 0
 fi
-printf '%s✗ gate failed%s %s — %s (%d of %d) — full output in %s\n' \
-  "$RED" "$RST" "$at" "${failed[*]}" "$fail" "$((pass + fail))" "$OUT"
+printf '%s✗ %s failed%s %s — %s (%d of %d) — full output in %s\n' \
+  "$RED" "$gate_label" "$RST" "$at" "${failed[*]}" "$fail" "$((pass + fail))" "$OUT"
 exit 1

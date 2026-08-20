@@ -42,7 +42,7 @@
   tractable subclass; on the full language it can leave a network path-consistent yet
   globally unsatisfiable.  So an entailment this prover reports is real, but a
   *non*-entailment means \"not provable\", never \"provably false\".  That is the same
-  open-world reading `argIsa` and `exceptWhen` take, and it is what story-scale
+  open-world reading `arg` and `exceptWhen` take, and it is what story-scale
   networks need.
 
   The vocabulary ships as `kb/upper/CxSpace.txt`, an *upper* context rather than

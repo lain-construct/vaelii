@@ -25,7 +25,7 @@
 (tu/deftest-kb every-term-the-grammar-declares-is-classified
   ;; The durable half.  A functor added to CxCore without anybody deciding whether
   ;; the engine reads it lands in `:unclassified`, and this fails — which is the whole
-  ;; point: `interArgIsa` sat in the design notes as a plausible declaration for as long
+  ;; point: `interArg` sat in the design notes as a plausible declaration for as long
   ;; as nothing was checking.
   (let [a (v/vocabulary-audit kb)]
     (is (empty? (:unclassified a))
@@ -59,7 +59,7 @@
 (tu/deftest-kb the-two-new-constraints-are-on-the-enforced-side
   ;; Ties the implementations in `constraint-vocabulary-test` to the roster, so removing
   ;; one and leaving the claim is a failing test rather than a stale sentence.
-  (is (:enforced (v/interpreted 'interArgIsa)))
+  (is (:enforced (v/interpreted 'interArg)))
   (is (:enforced (v/interpreted 'arity)))
   (is (nil? (v/interpreted 'maxCardinality))
       "a term the grammar does not declare is out of scope, not answered")

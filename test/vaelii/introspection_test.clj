@@ -25,7 +25,7 @@
 (tu/deftest-kb a-derived-conclusion-that-breaks-an-argument-constraint-is-dropped
   ;; The argument constraints hold of derived content too, but the derivation path
   ;; cannot throw — a fixpoint that aborted mid-run would make belief depend on firing
-  ;; order.  An `argIsa` conviction rests on the *absence* of a path from the
+  ;; order.  An `arg` conviction rests on the *absence* of a path from the
   ;; argument's types to the constraint type, so there is no second believed sentex to
   ;; weigh it against and nothing for `settle` to arbitrate: the conclusion is dropped
   ;; and lands here.  (Disjointness, functionality and asymmetry each *do* name an
@@ -33,7 +33,7 @@
   (tu/with-terms [person rock parentOf looksLike Boulder Muffet]
     (v/assert kb (list 'genl person 'thing) 'CxUniverse)
     (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
     (v/assert kb (list rock Boulder) 'CxUniverse)
     (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
     (v/assert kb (list looksLike Boulder) 'CxUniverse)
@@ -58,7 +58,7 @@
   (tu/with-terms [person rock parentOf looksLike Boulder Muffet Other]
     (v/assert kb (list 'genl person 'thing) 'CxUniverse)
     (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
     (v/assert kb (list rock Boulder) 'CxUniverse)
     (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
     (v/assert kb (list looksLike Boulder) 'CxUniverse)
@@ -78,10 +78,10 @@
   ;; throws, because a fixpoint cannot abort halfway through one.  Only `:disjoint`
   ;; was covered; a check that stopped reporting (or reported under the wrong key)
   ;; would be invisible, since the conclusion is absent either way.
-  (testing "an argIsa violation"
+  (testing "an arg violation"
     (tu/with-terms [parentOf person rock looksLike Boulder Muffet]
       (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-      (v/assert kb (list 'argIsa parentOf 1 person) 'CxUniverse)
+      (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
       (v/assert kb (list rock Boulder) 'CxUniverse)
       (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
       (v/assert kb (list looksLike Boulder) 'CxUniverse)

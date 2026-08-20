@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.checks
-  "The definitional checks — argIsa argument types, disjointness, functionality —
+  "The definitional checks — arg argument types, disjointness, functionality —
   plus ground-ness and the stratification glue over the rule index.
 
   Second layer of the engine stack (kb <- checks <- special <- integrate <- chain
@@ -10,7 +10,8 @@
   or throws — nothing here writes.  Both mutation paths consume these: `assert`
   (vaelii.core) throws the value, the derivation path (vaelii.impl.chain) records
   it in the violations ledger."
-  (:require [vaelii.impl.config :as config]
+  (:require [taoensso.nippy :as nippy]
+            [vaelii.impl.config :as config]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
@@ -43,28 +44,58 @@
   predicate is as much a thing as `Muffet` is: the meta-ontology types predicates
   (`unaryPredicate`, `instanceRelationPredicate`, …), separates those types with
   `disjointMetatype`, and constrains predicate-valued argument positions with
-  `argIsa` — so restricting the checks to CapitalCamelCase individuals would leave
+  `arg` — so restricting the checks to CapitalCamelCase individuals would leave
   the whole meta-level declared and unenforced.  Numbers, strings and compounds are
   excluded because a type membership cannot be asserted of one (a NAT reifies to its
   constant first, so a reified term is checked under that constant)."
   [x]
   (and (symbol? x) (not (sx/variable? x))))
 
+(def ^:private syntactic-roots
+  "The syntactic types a literal is classified into — the roots of the kind lattice
+  `quotedArg` types against.  A `quotedArg` whose declared type is neither one of these
+  nor below one is out of the feature's domain (an imported constraint typing an argument
+  as some domain collection), and the check reads it open-world rather than convicting."
+  '#{string number integer symbol})
+
+(defn- literal-type
+  "The syntactic type of an argument taken as a **term** — its EDN kind, mapped to the
+  type `quotedArg` constrains against: a string is `string`, an integer `integer` (a
+  `number` below), any other number `number`, a non-variable symbol `symbol` (a name,
+  however its role spells it).  `nil` for a kind quotedArg does not type — a compound, a
+  keyword, a boolean, a variable — which the check reads open-world, exactly as
+  `args-problem` exempts an argument outside the hierarchy."
+  [x]
+  (cond
+    (string? x)                              'string
+    (integer? x)                             'integer
+    (number? x)                              'number
+    (and (symbol? x) (not (sx/variable? x))) 'symbol
+    :else                                    nil))
+
+(defn- syntactic-type?
+  "Is `t` a type `quotedArg` can judge a literal against — a syntactic root or a subtype
+  of one?  A declared type outside this lattice leaves the constraint open-world."
+  [tax t context]
+  (or (contains? syntactic-roots t)
+      (some #(tax/genl? tax t % context) syntactic-roots)))
+
 (def ^:private declaration-queries
   "Per declaration kind, the sentence `declaration-reader` queries: the functor, then the
   argument tail that follows the predicate being asked about.  A table rather than a cond
-  chain, because the kinds differ in *arity* as well as in functor — `interArgIsa` names
+  chain, because the kinds differ in *arity* as well as in functor — `interArg` names
   two positions and two types — and a chain would put that difference in the caller."
-  '{argIsa      (argIsa ?n ?type)
-    argGenl     (argGenl ?n ?type)
-    interArgIsa (interArgIsa ?n ?type ?m ?utype)})
+  '{arg      (arg ?n ?type)
+    genlArg     (genlArg ?n ?type)
+    quotedArg   (quotedArg ?n ?type)
+    interArg (interArg ?n ?type ?m ?utype)})
 
 (defn- declaration-reader
   "A `kind -> [[handle bindings sentex] …]` reader for the argument constraints binding
   one predicate's tuples, memoized for the life of one caller.
 
   `args-problem`, `genls-problem` and the entailments all ask the same two questions —
-  what does `argIsa` say about this predicate's positions, and what does `argGenl` —
+  what does `arg` say about this predicate's positions, and what does `genlArg` —
   and `assert` names that read the dominant per-fact cost of a store.  Asking it once
   is what lets the entailment ride along on a walk the check was making anyway instead
   of doubling it.  Realized rather than lazy: a predicate carries a handful of
@@ -153,7 +184,7 @@
   (nm/sort-by-content-key #(pr-str (:sentence (nth % 2))) compare ds))
 
 (defn- args-problem
-  "First (argIsa pred n type) violation for a sentence, or nil.  Uses genl
+  "First (arg pred n type) violation for a sentence, or nil.  Uses genl
   transitivity; only constraints and type memberships visible from `context`
   count.  Open-world: an untyped term can't violate anything.
 
@@ -162,7 +193,7 @@
   declaration on `pred` and on the super-predicates `context` can see
   (`res/constraining-predicates`), because a `genl` edge between predicates says the
   sub-predicate's tuples are the super's, and a tuple set only narrows going down.  So
-  `(argIsa parentOf 1 person)` refuses `(fatherOf TheRock1 Mary)` as surely as it
+  `(arg parentOf 1 person)` refuses `(fatherOf TheRock1 Mary)` as surely as it
   refuses the same claim spelled `parentOf` — which it has to, since the stored
   sub-predicate fact answers every super-predicate query through the matcher's fan.
 
@@ -176,7 +207,7 @@
         as   (vec (nm/args sentence))]
     (when (symbol? pred)
       (first
-       (for [m     (in-content-order (decls 'argIsa))
+       (for [m     (in-content-order (decls 'arg))
              :let  [b   (nth m 1)
                     n   (get b '?n)
                     t   (get b '?type)
@@ -190,11 +221,11 @@
                         " (arg " n " of " pred (via-clause (declared-of m) pred) ")")})))))
 
 (defn- inter-args-problem
-  "First `(interArgIsa pred n T m U)` violation for a sentence, or nil.
+  "First `(interArg pred n T m U)` violation for a sentence, or nil.
 
   The **conditional** argument constraint: if argument `n` is a `T`, argument `m` must be
-  a `U`.  `(interArgIsa eats 1 carnivore 2 meat)` says a carnivore eats meat — a claim
-  `argIsa` cannot make, since `(argIsa eats 2 meat)` would demand it of every eater.
+  a `U`.  `(interArg eats 1 carnivore 2 meat)` says a carnivore eats meat — a claim
+  `arg` cannot make, since `(arg eats 2 meat)` would demand it of every eater.
 
   Open-world **twice, in opposite directions**, and that is the whole of the reading:
 
@@ -218,9 +249,9 @@
   every predicate beneath it.
 
   **Behind an O(1) gate, unlike its two unconditional neighbours.**  `args-problem` and
-  `genls-problem` run their declaration read unconditionally because `argIsa` is what a
+  `genls-problem` run their declaration read unconditionally because `arg` is what a
   typed ontology is mostly made of, so the read pays for itself.  Nothing declares
-  `interArgIsa` yet, and this check runs on *every* assert — the read `assert` names its
+  `interArg` yet, and this check runs on *every* assert — the read `assert` names its
   dominant per-fact cost — so a third retrieval that finds nothing is a tax on every write
   in every KB.  One `count-with-functor` says whether any such declaration is stored at
   all; zero means no scoped read can find one, so there is nothing to look for."
@@ -228,9 +259,9 @@
   (let [pred (nm/functor sentence)
         as   (vec (nm/args sentence))]
     (when (and (symbol? pred)
-               (pos? (p/count-with-functor (:index kb) 'interArgIsa)))
+               (pos? (p/count-with-functor (:index kb) 'interArg)))
       (first
-       (for [d       (in-content-order (decls 'interArgIsa))
+       (for [d       (in-content-order (decls 'interArg))
              :let  [b       (nth d 1)
                     n       (get b '?n)
                     t       (get b '?type)
@@ -253,20 +284,20 @@
                         ", because arg " n " is a " t ")")})))))
 
 (defn- genls-problem
-  "First `(argGenl pred n type)` violation for a sentence, or nil.
+  "First `(genlArg pred n type)` violation for a sentence, or nil.
 
-  `argGenl` is `argIsa` one level up: it constrains the argument to be a **subtype**
+  `genlArg` is `arg` one level up: it constrains the argument to be a **subtype**
   of the named type rather than an instance of it, which is what a type-level relation
-  wants — `(argGenl partType 1 physical_object)` says the first argument names a kind
-  of physical object, where `(argIsa partOf 1 physical_object)` says it names one.
+  wants — `(genlArg partType 1 physical_object)` says the first argument names a kind
+  of physical object, where `(arg partOf 1 physical_object)` says it names one.
 
-  Which constraints apply is context-scoped exactly as `argIsa` is, and so is the
+  Which constraints apply is context-scoped exactly as `arg` is, and so is the
   subtype test itself: absence of a *visible* path to the constraint type is what
   convicts, the NAF reading judged from the writer's own vantage.  Which constraints
-  apply also descends the predicate hierarchy exactly as `argIsa`'s do, by riding the
+  apply also descends the predicate hierarchy exactly as `arg`'s do, by riding the
   same reader.
 
-  Open-world has a floor here that `argIsa` does not have.  An argument outside the
+  Open-world has a floor here that `arg` does not have.  An argument outside the
   hierarchy is normally exempt, since the edges placing it may not have arrived yet —
   but an **individual** can never acquire them (`wff/genl-problems` refuses `genl` of
   one), so a type-level position holding one is convicted rather than excused.  The
@@ -289,7 +320,7 @@
         tax  (:taxonomy kb)]
     (when (symbol? pred)
       (first
-       (for [d     (in-content-order (decls 'argGenl))
+       (for [d     (in-content-order (decls 'genlArg))
              :let  [b   (nth d 1)
                     n   (get b '?n)
                     t   (get b '?type)
@@ -310,6 +341,41 @@
           :message (str "arg constraint: " why " (arg " n " of " pred
                         (via-clause (declared-of d) pred) ")")})))))
 
+(defn- args-quoted-problem
+  "First `(quotedArg pred n type)` violation for a sentence, or nil.
+
+  The **mention** twin of `args-problem`: where that types what an argument *denotes*,
+  this types the argument *as a term* — its EDN kind (`literal-type`), checked through
+  genl against the declared syntactic type.  `(quotedArg nameOfGuy 1 string)` refuses
+  `(nameOfGuy 5)` because `5` is a `number`, not a `string`, and admits `(nameOfGuy
+  \"Bob\")`.  Closed about a decidable literal, open-world about a kind it does not type
+  (a compound, a keyword) — those are exempt, the same floor `args-problem` gives an
+  argument outside the hierarchy.
+
+  Behind the same O(1) gate as `inter-args-problem`, and for the same reason: nothing
+  declares `quotedArg` in a bare KB, and this runs on every assert, so a
+  `count-with-functor` says whether any is stored before a scoped read looks."
+  [kb sentence context _types decls]
+  (let [pred (nm/functor sentence)
+        as   (vec (nm/args sentence))
+        tax  (:taxonomy kb)]
+    (when (and (symbol? pred)
+               (pos? (p/count-with-functor (:index kb) 'quotedArg)))
+      (first
+       (for [d     (in-content-order (decls 'quotedArg))
+             :let  [b   (nth d 1)
+                    n   (get b '?n)
+                    t   (get b '?type)
+                    arg (arg-at as n)
+                    lit (literal-type arg)]
+             :when (and (some? arg) lit (symbol? t)
+                        (not= lit t)
+                        (syntactic-type? tax t context)
+                        (not (tax/genl? tax lit t context)))]
+         {:type :quoted-arg-type :sentence sentence :arg arg :expected t :position n
+          :message (str "quoted-arg constraint: " arg " must be a " t " as a term — it is a "
+                        lit " (arg " n " of " pred (via-clause (declared-of d) pred) ")")})))))
+
 ;; ---- the argument constraints, checked against each other ----------------
 
 (def ^:private arg-constraint-kinds
@@ -317,10 +383,10 @@
   the counterpart a declaration is checked against, and membership is what
   `declaration-problem` reads to recognize one.
 
-  `interArgIsa` is not here and has its own arm.  It is written at a different arity and
+  `interArg` is not here and has its own arm.  It is written at a different arity and
   names two positions, so it fits neither the pairing nor the `(= 3 (nm/arity …))` test —
   forcing it in would put that difference inside every reader of this map."
-  '{argIsa argGenl, argGenl argIsa})
+  '{arg genlArg, genlArg arg})
 
 (def predicate-type-arities
   "What each predicate-type membership says the arity is.  The `arity` sentexes and
@@ -350,7 +416,7 @@
 (defn- membered-arity
   "The arity `pred`'s own predicate-type membership gives it, or nil — the second
   spelling, read off the predicate's types (`types`, the shared per-assert reader), so it
-  costs the retrieval `argIsa` already needs for its arguments rather than one of its
+  costs the retrieval `arg` already needs for its arguments rather than one of its
   own.  A retrieval where `tabled-arity` is a map read, which is the whole of why the two
   are separate functions rather than one `or`: a caller asking about several predicates
   wants the cheap half of the question asked of all of them first."
@@ -536,7 +602,7 @@
   not.  That is the existing line between what `assert` checks and what a rule is
   trusted to contain, and arity does not move it.
 
-  Open-world in the same shape as `argIsa`: a predicate the KB has never declared can
+  Open-world in the same shape as `arg`: a predicate the KB has never declared can
   be used at any arity, since the declaration may simply not have arrived.  A
   `variableArity` predicate is exempt outright — `lessThan` is declared binary *and*
   reads a chain of any length, and the declaration is what says so.
@@ -681,7 +747,7 @@
   membership spelling wherever the `(arity P n)` table has no entry, and an undeclared
   collection is exactly the term the table does not name, so the ordinary edge pays the
   table read *and* the sub's memberships retrieval — cold here, since this arm runs ahead
-  of the argument checks and a `genl` sentence gives them no `argIsa` position to read the
+  of the argument checks and a `genl` sentence gives them no `arg` position to read the
   same term through.  Both spellings are read on each side (`own-arity`), because a KB loaded
   without CxCore's derivation rules has only what somebody typed and a rule that saw one
   spelling and not the other would refuse by which one that was.
@@ -812,11 +878,11 @@
                                        q m context)))))))
 
 (defn- arg-position-problem
-  "A declaration constraining a position `pred` does not have — `(argIsa parentOf 5
+  "A declaration constraining a position `pred` does not have — `(arg parentOf 5
   animal)` where `parentOf` is declared binary.  The constraint would never fire, so it
   reads as enforced while enforcing nothing.
 
-  Shared by every declaration kind, because `interArgIsa` names **two** positions and both
+  Shared by every declaration kind, because `interArg` names **two** positions and both
   are the same mistake.  Open-world: a predicate whose arity the KB has never stated is
   unconstrained — and the arity read is `declared-arity`'s, so a predicate that inherits
   its length from a super-predicate has the position it lacks refused on the same
@@ -853,20 +919,20 @@
                        (arity-binding-clause pred via declared))}))))
 
 (defn- declaration-problem
-  "A problem with an `argIsa` / `argGenl` / `interArgIsa` **declaration** itself, rather
+  "A problem with an `arg` / `genlArg` / `interArg` **declaration** itself, rather
   than with a sentence it constrains — two ways one can contradict what the KB already
   says about the predicate it is about:
 
-  * a position the predicate does not have (`arg-position-problem`).  `interArgIsa` names
+  * a position the predicate does not have (`arg-position-problem`).  `interArg` names
     two, and each is checked.
-  * a constraint disagreeing with the predicate's own `relationKind` — `argGenl` on
-    an `instanceRelationPredicate`, or `argIsa` on a `typeRelationPredicate`.
-    `interArgIsa` reads its types as memberships, so it takes `argIsa`'s side of that.
+  * a constraint disagreeing with the predicate's own `relationKind` — `genlArg` on
+    an `instanceRelationPredicate`, or `arg` on a `typeRelationPredicate`.
+    `interArg` reads its types as memberships, so it takes `arg`'s side of that.
 
   **Both constraints on one position is not a problem**, and this is the case worth
   naming because the opposite reads plausible: one asks the argument to be an instance
   of a type, the other to be a subtype of a type, and a *type* is routinely both.
-  `(argIsa P 2 collection)` with `(argGenl P 2 animal)` says the slot holds a kind of
+  `(arg P 2 collection)` with `(genlArg P 2 animal)` says the slot holds a kind of
   animal, and `dog` satisfies it — an instance of `collection`, a subtype of `animal`.
   The two checks are independent and each is open-world on its own, so declaring both
   narrows the slot rather than emptying it.
@@ -876,13 +942,13 @@
   [kb sentence context types]
   (let [[f pred n _ m] sentence]
     (cond
-      (and (= 'interArgIsa f) (= 5 (nm/arity sentence)) (symbol? pred))
+      (and (= 'interArg f) (= 5 (nm/arity sentence)) (symbol? pred))
       (some-> (or (arg-position-problem kb f pred n context types)
                   (arg-position-problem kb f pred m context types)
                   (when (seq (res/matches-visible kb (list 'typeRelationPredicate pred) context))
                     {:type :arg-constraint-kind :predicate pred
                      :message (str pred " is declared typeRelationPredicate, so its"
-                                   " arguments are constrained with argGenl, not " f)}))
+                                   " arguments are constrained with genlArg, not " f)}))
               (assoc :sentence sentence))
 
       (and (contains? arg-constraint-kinds f) (= 3 (nm/arity sentence))
@@ -890,7 +956,7 @@
       (let [other (arg-constraint-kinds f)]
         (or (some-> (arg-position-problem kb f pred n context types)
                     (assoc :sentence sentence))
-            (let [clash (if (= f 'argIsa) 'typeRelationPredicate 'instanceRelationPredicate)]
+            (let [clash (if (= f 'arg) 'typeRelationPredicate 'instanceRelationPredicate)]
               (when (seq (res/matches-visible kb (list clash pred) context))
                 {:type :arg-constraint-kind :sentence sentence :predicate pred
                  :message (str pred " is declared " clash ", so its arguments are"
@@ -909,7 +975,7 @@
 ;; **Two families do not join them, for two different reasons.**
 ;;
 ;; The argument constraints cannot form a pair at all.  `(parentOf Fred Mary)` violating
-;; `(argIsa parentOf 1 animal)` is convicted by the *absence* of a path from Fred's types
+;; `(arg parentOf 1 animal)` is convicted by the *absence* of a path from Fred's types
 ;; to `animal` — an open-world negation-as-failure judgement, not a stored sentex to weigh
 ;; against — so there is no second member to make a pair of, and nothing for a defeat
 ;; class to compare.  Those stay refusals.
@@ -1489,9 +1555,9 @@
   `types` is the shared membership reader (`kb/membership-reader`).  The arms that ask
   what types a term holds ask about the same few terms — the sentence's arguments and
   its predicate — and between them ask several times each: the arity arm reads the
-  predicate's memberships for three spellings and again for `variableArity`, `argIsa`
+  predicate's memberships for three spellings and again for `variableArity`, `arg`
   reads an argument's twice per constraint, and for a unary sentence the disjointness
-  arm wants the very memberships `argIsa` just read.
+  arm wants the very memberships `arg` just read.
 
   The answer is stamped with the opposing sentex's defeat class where it names one, so
   the two callers decide refusal-versus-nogood from the value alone rather than each
@@ -1505,6 +1571,7 @@
         (args-problem kb chk context types decls)
         (inter-args-problem kb chk context types decls)
         (genls-problem kb chk context decls)
+        (args-quoted-problem kb chk context types decls)
         (declaration-problem kb chk context types)
         (disjoint-problem kb chk context types)
         (asymmetry-problem kb chk context)
@@ -1513,7 +1580,7 @@
         (antisymmetry-problem kb chk context))))
 
 ;; ---- what the argument constraints *entail* ------------------------------
-;; `args-problem` and `genls-problem` read `argIsa` / `argGenl` as constraints to test,
+;; `args-problem` and `genls-problem` read `arg` / `genlArg` as constraints to test,
 ;; and their open-world floor is the same in both: an argument with no visible place in
 ;; the genl hierarchy cannot violate anything, so it passes and nothing is learned.  But
 ;; the declaration says what the argument *is*, and a KB told twice over that Fred fills
@@ -1621,7 +1688,7 @@
 (defn- arg-entailments
   "The entailments one argument-constraint kind draws over `sentence`'s arguments in
   `context` — a seq of `{:assert <sentence> :because [decl-handle edge-handle …]
-  :position n :kind argIsa|argGenl}`.
+  :position n :kind arg|genlArg}`.
 
   `eligible?` is the kind's reading of \"this argument is the sort of term the
   entailment can be about\", and it is a property of the **term** alone, never of what
@@ -1650,9 +1717,9 @@
          :position n :kind kind}))))
 
 (defn- inter-arg-entailments
-  "The entailments `interArgIsa` draws over `sentence`'s arguments in `context`.
+  "The entailments `interArg` draws over `sentence`'s arguments in `context`.
 
-  Exactly as strong as `argIsa`'s, and drawn under the same condition the check convicts
+  Exactly as strong as `arg`'s, and drawn under the same condition the check convicts
   on: the trigger argument must *already* be established as a `T`, so the entailment is
   what the declaration says once its antecedent holds.  A dormant constraint entails
   nothing, which is the same asymmetry `inter-args-problem` reads.
@@ -1665,8 +1732,8 @@
         as   (vec (nm/args sentence))
         tax  (:taxonomy kb)]
     (when (and (symbol? pred) (some checkable-term? as)
-               (pos? (p/count-with-functor (:index kb) 'interArgIsa)))
-      (for [d     (decls 'interArgIsa)
+               (pos? (p/count-with-functor (:index kb) 'interArg)))
+      (for [d     (decls 'interArg)
             :let  [dh      (nth d 0)
                    b       (nth d 1)
                    n       (get b '?n)
@@ -1683,19 +1750,19 @@
                        (declares-locally? kb dh context))]
         {:assert  (list u target)
          :because (into [dh] (edge-support kb pred (declared-of d) context))
-         :position m :kind 'interArgIsa}))))
+         :position m :kind 'interArg}))))
 
 (defn constraint-entailments
   "What `sentence`'s visible argument declarations entail about its arguments in
   `context` — a vec of `{:assert <sentence> :because [decl-handle edge-handle …]
-  :position n :kind argIsa|argGenl|interArgIsa}`, empty when they entail nothing.
+  :position n :kind arg|genlArg|interArg}`, empty when they entail nothing.
 
-  `(argIsa parentOf 1 animal)` over `(parentOf Fred Mary)` entails `(animal Fred)`;
-  `(argGenl partType 1 physical_object)` over `(partType wheel_kind axle_kind)` entails
-  `(genl wheel_kind physical_object)`; `(interArgIsa eats 1 carnivore 2 meat)` over
+  `(arg parentOf 1 animal)` over `(parentOf Fred Mary)` entails `(animal Fred)`;
+  `(genlArg partType 1 physical_object)` over `(partType wheel_kind axle_kind)` entails
+  `(genl wheel_kind physical_object)`; `(interArg eats 1 carnivore 2 meat)` over
   `(eats Rex Chunk)` entails `(meat Chunk)` — but only once `Rex` is known to be a
   carnivore, which is the condition the declaration is *about*.  An **individual** in an
-  `argGenl` position is convicted by `genls-problem` rather than given an edge, so it is
+  `genlArg` position is convicted by `genls-problem` rather than given an edge, so it is
   ineligible here — said at the point it matters rather than relying on the check having
   run first.
 
@@ -1712,10 +1779,10 @@
                            (declaration-reader kb (nm/functor sentence) context)))
   ([kb sentence context types decls]
    (when *assertive-arg-types?*
-     (vec (concat (arg-entailments kb sentence context decls 'argIsa
+     (vec (concat (arg-entailments kb sentence context decls 'arg
                                    checkable-term?
                                    (fn [arg t] (list t arg)))
-                  (arg-entailments kb sentence context decls 'argGenl
+                  (arg-entailments kb sentence context decls 'genlArg
                                    #(and (checkable-term? %) (not (nm/individual? %)))
                                    (fn [arg t] (list 'genl arg t)))
                   (inter-arg-entailments kb sentence context types decls))))))
@@ -1836,7 +1903,7 @@
   with its predicate's `relationKind`, and an arity arriving is not what makes that true,
   so asking it here would report a second finding under the first one's trigger.
 
-  Both of `interArgIsa`'s positions are asked, as at the door, and the first that
+  Both of `interArg`'s positions are asked, as at the door, and the first that
   convicts is the answer.
 
   Through `checked-sentence`, like the twin and like the door: a doubly negated
@@ -1852,7 +1919,7 @@
          [f pred n _ m] chk]
      (when (symbol? pred)
        (cond
-         (and (= 'interArgIsa f) (= 5 (nm/arity chk)))
+         (and (= 'interArg f) (= 5 (nm/arity chk)))
          (some-> (or (arg-position-problem kb f pred n context types)
                      (arg-position-problem kb f pred m context types))
                  (assoc :sentence chk))
@@ -1918,6 +1985,77 @@
                            " contains a variable — a fact must be ground"
                            " (write a universal claim as a rule)")
                       {:type :not-ground :sentence sentence :context context})))))
+
+;; ---- storable values ----------------------------------------------------
+;; A sentence's leaves must survive the durable log.  Symbols and keywords (the
+;; vocabulary), strings/numbers/chars (the literals), and booleans/nil — everything a
+;; sentence is built from — always do, and are cleared without a freeze so the assert
+;; hot path pays one type-check per leaf and no serialization.  Anything else (a
+;; function, an atom/ref, an open stream, a Serializable object off nippy's thaw
+;; allowlist) is put through the freeze/thaw pair the on-disk backends run, and refused
+;; if either throws — so a value stores in every backend or none, rather than in memory
+;; and then throwing at write time on the first disk backend.
+
+(defn- storable-scalar?
+  "A leaf nippy always round-trips, recognised without a freeze.  Ordered by how often
+  a sentence's leaves are each — the vocabulary (symbols, keywords) and literals
+  (strings, numbers) first, the rarer nil/boolean/char last."
+  [v]
+  (or (symbol? v) (keyword? v) (string? v) (number? v)
+      (nil? v) (boolean? v) (char? v)))
+
+(def ^:private ^java.util.concurrent.ConcurrentHashMap storable-class-cache
+  "Storability memoized by class.  Every value that reaches the freeze probe is a leaf
+  that is neither a scalar nor a collection, and for those it is a property of the
+  *class* — a `Date` always freezes and thaws, a function never does, and nippy's own
+  thaw allowlist is class-keyed — so the probe runs once per class, not once per value.
+  A bulk load of dated or id-stamped facts then pays one freeze/thaw for the type, not
+  one per fact.  Bounded by the distinct non-scalar leaf classes a process ever asserts,
+  which is a handful."
+  (java.util.concurrent.ConcurrentHashMap.))
+
+(defn- nippy-storable?
+  "Does a value of `v`'s class survive a nippy freeze *and* thaw without throwing — the
+  pair the durable log runs on write and read?  Not a `=` round-trip (a byte array and
+  other identity-compared values store fine yet would fail it) and not freeze alone (a
+  Serializable value off the thaw allowlist freezes and then throws on read); both must
+  succeed.  Memoized by class (see `storable-class-cache`): the first value of a class
+  runs the probe, the rest read the boolean it cached."
+  [v]
+  (let [c      (class v)
+        cached (.get storable-class-cache c)]
+    (cond
+      (identical? Boolean/TRUE cached)  true
+      (identical? Boolean/FALSE cached) false
+      :else (let [ok (try (nippy/thaw (nippy/freeze v)) true
+                          (catch Throwable _ false))]
+              (.put storable-class-cache c (if ok Boolean/TRUE Boolean/FALSE))
+              ok))))
+
+(defn- first-unstorable
+  "The first leaf value anywhere in `x` the durable log cannot store, or nil.
+  Collections are descended (a map by its keys then its vals); a scalar is cleared
+  without a freeze."
+  [x]
+  (cond
+    (storable-scalar? x) nil
+    (map? x)             (or (some first-unstorable (keys x))
+                             (some first-unstorable (vals x)))
+    (coll? x)            (some first-unstorable x)
+    :else                (when-not (nippy-storable? x) x)))
+
+(defn check-encodable
+  "Reject a sentence carrying a value no durable backend can store.  A function, an
+  atom/ref, an open stream — anything nippy cannot freeze and thaw — stores in the
+  in-memory backend and then throws at write time on the first on-disk backend, so the
+  same assert would succeed or fail by backend.  Refusing it here makes the backends
+  agree: a stored sentence's values round-trip."
+  [sentence]
+  (when-let [v (first-unstorable sentence)]
+    (throw (ex-info (str "value cannot be stored: " (pr-str v) " of type "
+                         (.getName (class v)) " does not round-trip through the durable"
+                         " log (nippy) — a sentence's values must be serializable")
+                    {:type :not-encodable :sentence sentence :value v}))))
 
 ;; ---- stratification -----------------------------------------------------
 ;; The rule-set half of well-formedness: a rule whose `exceptWhen` exception closes

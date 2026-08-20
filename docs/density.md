@@ -450,7 +450,7 @@ representation chosen for how it *holds* data has to be re-checked against how t
 This one is a **parallel implementation** rather than a swap, and the reason is
 atomicity, not caution: `RoaringBitmap` is mutable while the reference is an atom over a
 persistent map whose all-or-nothing mutation `jtms_atomicity_test` pins. So both sit
-behind a `vaelii.impl.jtms/Tms` protocol, and the dense one coordinates through a
+behind a `vaelii.impl.jtms-protocol/Tms` protocol, and the dense one coordinates through a
 `StampedLock`: writers take the exclusive stamp — serializing exactly as the reference's
 `swap!` retry does — while point reads (`in?`, one per candidate on the match path) run
 **optimistically**, lock-free in the steady state and validated after the fact, and the

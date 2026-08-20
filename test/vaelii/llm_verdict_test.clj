@@ -12,7 +12,7 @@
             [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
-;; the corrections read the shipped schema — argIsa constraints, declared arities, the
+;; the corrections read the shipped schema — arg constraints, declared arities, the
 ;; genl edges that decide what is a type — so the starter is the fixture
 (use-fixtures :once (tu/loaded starter/load-into))
 (use-fixtures :each (tu/neutral))

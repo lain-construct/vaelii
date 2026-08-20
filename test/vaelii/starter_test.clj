@@ -33,7 +33,7 @@
   ;; ontology can go wrong quietly.  `seed/load-sentences` asserts in file order and
   ;; retries, so a sentence is judged against whatever had arrived when its turn came —
   ;; and the argument checks are open-world, abstaining on a term the KB cannot yet place.
-  ;; `(hasCapability bird flying)` was admitted exactly that way: `argIsa … 1 animal` had
+  ;; `(hasCapability bird flying)` was admitted exactly that way: `arg … 1 animal` had
   ;; nothing to say about `bird` before `(genl bird animal)` landed, and once it landed
   ;; nothing went back to look.  There is no retroactive `:arg-type` report, so
   ;; `violations` stayed empty and the KB shipped seven facts its own checker convicts.

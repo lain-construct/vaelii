@@ -304,7 +304,7 @@
 
 (defn- level-6
   "The whole prover registry: closures, disjointness, the predicate-metadata
-  reasoners, evaluables, argIsa type inference and the fact prover — everything that
+  reasoners, evaluables, arg type inference and the fact prover — everything that
   answers from what is stored or cached, nothing that derives through rules.  No
   member of the registry expands a rule, so this is `ask`'s own dispatch and level 6
   answers whatever `ask` answers — the goal prepared the way `ask` prepares it

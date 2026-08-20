@@ -288,7 +288,7 @@
 
 ;; ---- argument constraints that constrain nothing -------------------------
 ;;
-;; `(argIsa parentOf 3 person)` is admitted while `parentOf` has no declared length, and
+;; `(arg parentOf 3 person)` is admitted while `parentOf` has no declared length, and
 ;; goes inert when one arrives.  The door refuses the identical sentence a line later, so
 ;; without this reading an author gets the silence `constraint-vocabulary-test` opens on:
 ;; a declaration that is enforced and one that enforces nothing look the same.
@@ -303,17 +303,17 @@
 (tu/deftest-kb a-constraint-past-the-arity-is-listed-and-one-within-it-is-not
   (tu/with-terms [parentOf a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 3 a_type) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 3 a_type) 'CxUniverse)
     (is (zero? (:stranded-count (stranded kb)))
         "nothing binds parentOf yet, so the position is a lower bound and not a mistake")
-    (v/assert kb (list 'argIsa parentOf 1 a_type) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 a_type) 'CxUniverse)
     (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
     (let [d (stranded kb)]
       (is (= 2 (:total d))
-          "the two argIsa declarations — the arity spelling is not an argument constraint")
+          "the two arg declarations — the arity spelling is not an argument constraint")
       (is (= 1 (:stranded-count d)) "only the one naming a position parentOf lacks")
       (let [e (first (:stranded d))]
-        (is (= (list 'argIsa parentOf 3 a_type) (:sentence e)))
+        (is (= (list 'arg parentOf 3 a_type) (:sentence e)))
         (is (= parentOf (:predicate e)))
         (is (= 3 (:position e)))
         (is (= 2 (:arity e)))
@@ -326,7 +326,7 @@
   ;; declaration nobody wrote
   (tu/with-terms [parentOf fatherOf a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa fatherOf 3 a_type) 'CxUniverse)
+    (v/assert kb (list 'arg fatherOf 3 a_type) 'CxUniverse)
     (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
     (is (zero? (:stranded-count (stranded kb))) "no edge yet, so fatherOf binds nothing")
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
@@ -343,8 +343,8 @@
   ;; arguments about a predicate whose three-argument fact is admitted a line later.
   (tu/with-terms [chainOf a_type A B C]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa chainOf 3 a_type) 'CxUniverse)
-    (v/assert kb (list 'interArgIsa chainOf 1 a_type 5 a_type) 'CxUniverse)
+    (v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)
+    (v/assert kb (list 'interArg chainOf 1 a_type 5 a_type) 'CxUniverse)
     (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
     (is (= 2 (:stranded-count (stranded kb)))
         "binary and nothing else, so both declarations reach past the length")
@@ -365,7 +365,7 @@
   ;; the entry.
   (tu/with-terms [chainOf subChainOf a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa subChainOf 3 a_type) 'CxUniverse)
+    (v/assert kb (list 'arg subChainOf 3 a_type) 'CxUniverse)
     (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
     (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
     (let [e (first (:stranded (stranded kb)))]
@@ -376,11 +376,11 @@
         "the mark on the sub releases what the super bound it to")))
 
 (tu/deftest-kb both-of-a-conditional-constraints-positions-are-asked
-  ;; `interArgIsa` names two, and the target position is the one a single-position check
+  ;; `interArg` names two, and the target position is the one a single-position check
   ;; would miss
   (tu/with-terms [eats a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'interArgIsa eats 1 a_type 4 a_type) 'CxUniverse)
+    (v/assert kb (list 'interArg eats 1 a_type 4 a_type) 'CxUniverse)
     (v/assert kb (list 'binaryPredicate eats) 'CxUniverse)
     (is (= 1 (:stranded-count (stranded kb))))
     (is (= 4 (:position (first (:stranded (stranded kb))))))))
@@ -390,10 +390,10 @@
   ;; nothing to do with its position, and naming it here would report the wrong defect
   (tu/with-terms [parentOf a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'argIsa parentOf 3 a_type) 'CxUniverse {:strength :default})
+    (v/assert kb (list 'arg parentOf 3 a_type) 'CxUniverse {:strength :default})
     (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
     (is (= 1 (:stranded-count (stranded kb))))
-    (v/assert kb (list 'not (list 'argIsa parentOf 3 a_type)) 'CxUniverse
+    (v/assert kb (list 'not (list 'arg parentOf 3 a_type)) 'CxUniverse
               {:strength :monotonic})
     (is (zero? (:stranded-count (stranded kb))) "out of belief, out of the census")))
 
@@ -402,7 +402,7 @@
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
     (doseq [i (range 5)
             :let [p (tu/tmp-pred (str "wide" i))]]
-      (v/assert kb (list 'argIsa p 3 a_type) 'CxUniverse)
+      (v/assert kb (list 'arg p 3 a_type) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) 'CxUniverse))
     (let [d (:declarations (v/kb-quality kb {:limit 2}))]
       (is (= 5 (:stranded-count d)))
@@ -420,16 +420,16 @@
         md   (v/quality-report
               (assoc base :declarations
                      {:total 4 :stranded-count 1 :truncated? false
-                      :stranded [{:handle 9 :sentence '(argIsa fatherOf 3 person)
+                      :stranded [{:handle 9 :sentence '(arg fatherOf 3 person)
                                   :context 'CxUniverse :predicate 'fatherOf
                                   :position 3 :arity 2 :via 'parentOf
-                                  :message (str "argIsa constrains argument 3 of fatherOf,"
+                                  :message (str "arg constrains argument 3 of fatherOf,"
                                                 " which takes 2 arguments through"
                                                 " parentOf")}]}))]
     (is (str/includes? md "4 argument declarations — **1 names a position its predicate"))
-    (is (str/includes? md "(argIsa fatherOf 3 person)"))
+    (is (str/includes? md "(arg fatherOf 3 person)"))
     (is (str/includes? md
-                       (str "- `(argIsa fatherOf 3 person)` in `CxUniverse` — argIsa"
+                       (str "- `(arg fatherOf 3 person)` in `CxUniverse` — arg"
                             " constrains argument 3 of fatherOf, which takes 2 arguments"
                             " through parentOf"))
         "the reason is the message the census carried, printed rather than re-derived —

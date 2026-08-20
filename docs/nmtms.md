@@ -361,7 +361,7 @@ assert / retract / `forward-chain` / `recover`:
      reads, while a `genlCx` edge retires the whole carry. Why the memo, and how the
      carry stays sound: [why](defenses.md#the-settle-memoizes-standing-clashes).
 
-   The argument constraints (`argIsa` / `argGenl` / `interArgIsa`) are deliberately
+   The argument constraints (`arg` / `genlArg` / `interArg`) are deliberately
    *not* here. One is convicted by the **absence** of a path from the argument's types to
    the constraint type — an open-world negation-as-failure judgement — so there is no
    second sentex to weigh it against and nothing for a defeat class to compare. Those
@@ -605,7 +605,7 @@ it](defenses.md#there-is-no-second-axis).
 
 ### Definitional constraints on the derivation path
 
-argIsa types, disjointness and functionality hold of *derived* content as much as of
+arg types, disjointness and functionality hold of *derived* content as much as of
 asserted content. A rule that concludes `(cat Rex)` where `(dog Rex)` is believed and
 the two are declared disjoint has concluded something the KB says cannot be, so a check
 that runs on only one path lets a rule quietly produce what `assert` refuses.

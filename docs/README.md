@@ -36,6 +36,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | build a type hierarchy that behaves | [taxonomy.md](taxonomy.md) | [argtypes.md](argtypes.md), [inherit.md](inherit.md) |
 | reason about time, space or distance | [qcn.md](qcn.md) | [time.md](time.md), [space.md](space.md), [stp.md](stp.md) |
 | drive a KB from a shell or over a network | [operations.md](operations.md) | [api.md](api.md) |
+| coordinate several agents over one KB | [koinii.md](koinii.md) | [feed.md](feed.md), [belief.md](belief.md) |
 | judge whether a KB's knowledge is any good | [quality.md](quality.md) | [taxonomy.md](taxonomy.md), [inference.md](inference.md) |
 | read another system's KB in | [foreign.md](foreign.md) | [kbs.md](kbs.md) |
 | write for this engine when I already think in another one | [arriving.md](arriving.md) | [from-cyc.md](from-cyc.md), [from-asp.md](from-asp.md), [from-prolog.md](from-prolog.md), [from-production-rules.md](from-production-rules.md) |
@@ -80,7 +81,7 @@ rather than a compatibility claim.
 - [contexts.md](contexts.md) — contexts, the `genlCx` spindle (head / mantle / collector), `ist` reification, justification placement.
 - [taxonomy.md](taxonomy.md) — the `genl` type hierarchy, `isa?`, `disjoint` / `disjointMetatype`.
 - [inherit.md](inherit.md) — argument-position preservation: `(transitiveInArg P n R)` / `(transitiveInArgInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, the `(asymmetric P)` that lets a strict one conflict instead, and how a forward rule fires on an inherited claim by naming what the claim was read from.
-- [argtypes.md](argtypes.md) — `argIsa` / `argGenl` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. Off by default.
+- [argtypes.md](argtypes.md) — `arg` / `genlArg` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. Off by default.
 
 ## Inference & belief
 
@@ -92,12 +93,14 @@ rather than a compatibility claim.
 - [exceptions.md](exceptions.md) — `exceptWhen`: how a rule states its own exception, and why the exception is never stored.
 - [naf.md](naf.md) — negation as failure: `unknown` / `thereExists`, evaluated at level 6, storing nothing (and why the JTMS `out` slot stays reserved).
 - [aggregate.md](aggregate.md) — aggregation as a query operator: the five reductions over a query's solutions, where GROUP BY comes from, and how a firing that rests on a count is maintained.
+- [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modalPredicate` / `register-modal-predicate!` to open the same machinery to `knows` / `desires` / `intends`, and why contradictory agents coexist without a contradiction.
 - [nmtms.md](nmtms.md) — the non-monotonic TMS: assumption strengths, soft prioritized contradictions, the solver seam.
 - [defenses.md](defenses.md) — the design defenses: why a non-obvious decision across the engine is shaped the way it is and why the tempting alternative is worse, collected out of the subsystem docs so each states the mechanism and links the argument.
 - [preview.md](preview.md) — `preview`: the belief a batch would add and take away, read off and then rolled back at the same handles.
 - [equality.md](equality.md) — `rewriteOf` / `sameAs` / `equals` over one belief-following partition, and the `different` that keeps the unique-name assumption.
 - [equational.md](equational.md) — symbolic (schematic) equational reasoning: oriented term rewriting by a Knuth-Bendix order, normalizing store and query to one belief-following normal form.
 - [nat.md](nat.md) — non-atomic terms: reifiable functions reified to opaque constants before the index, unreifiable applications kept structural.
+- [context-nat.md](context-nat.md) — reified-NAT contexts: a `Cx*Fn` reifies to a `cx/` context, and a declared argument ordering computes the `genlCx` edge between sibling contexts (a month context a spec of its year).
 - [quantity.md](quantity.md) — the measure-evaluating quantity prover: measure comparison over a `dimensionOf` / `conversionFactor` table, with an epsilon float policy.
 - [skolem.md](skolem.md) — head existentials `(exists ?y C)` skolemized to deterministic NAT constants on forward firing, and the occurs-check in `unify`.
 
@@ -120,6 +123,7 @@ rather than a compatibility claim.
 
 - [feed.md](feed.md) — `watch`: an application told that belief moved instead of asking again, off the settle that already computed it — one settle one event, standing queries as a filter over the moved region rather than a re-run, and what is refused because the region cannot answer it.
 - [operations.md](operations.md) — the operational surface: the `cli` driver, the headless EDN-over-HTTP daemon that is the single writer, and the zero-dep client threading an explicit connection.
+- [koinii.md](koinii.md) — multi-agent coordination over one KB: agents as contexts, moves as sentexes, the change feed as medium; the single-writer deployment shape, identity and the write boundary, speech acts, disputes and the split-by-policy adjudication, belief projection, CDC catch-up, and the content-addressed independent-seat topology.
 - [quality.md](quality.md) — `kb-quality`: five readings about the knowledge rather than the engine — which rules never fire, how skewed the predicate extents are, how deep the rule graph's chains reach, how much of the taxonomy reaches a root, which argument declarations name a position their predicate does not have — each off state that already exists, and none of them a gate.
 - [profile.md](profile.md) — the workload instrument: which shapes of question a KB is asked, which index families answer them, what a trie walk costs in node probes, and what one assert or one retraction costs each family — off by default and a deref when off. Also the count-based gate built on it, which fails the suite when a change adds an index operation to either write path, the class `lein perf`'s ratios cannot see.
 - [web.md](web.md) — the reitit-ring browser for terms, sentexes, and justifications;

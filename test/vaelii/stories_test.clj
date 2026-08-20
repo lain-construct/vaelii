@@ -40,7 +40,7 @@
     (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) 'CxNaturalWorld)))))
 
 (tu/deftest-kb joined-antecedents-infer-a-part-type
-  ;; partOf now carries argIsa (partOf 2 physical_object), so an untyped part is
+  ;; partOf now carries arg (partOf 2 physical_object), so an untyped part is
   ;; inferred to be a physical_object from how it is used.
   (testing "Roof1 is never typed, but its physical_object-hood is inferable"
     (is (empty? (v/sentexes-matching kb '(physical_object Roof1) '?ctx)))
@@ -173,8 +173,8 @@
             answering direct links only"
     (is (v/ask? kb '(afterEvent FoxGetsCheese Flatter1)))))
 
-(tu/deftest-kb a-role-is-inferred-from-a-schema-position-via-argIsa
-  (testing "CheeseFalls is never typed, yet its eventhood is inferred from causes' argIsa"
+(tu/deftest-kb a-role-is-inferred-from-a-schema-position-via-arg
+  (testing "CheeseFalls is never typed, yet its eventhood is inferred from causes' arg"
     (is (empty? (v/sentexes-matching kb '(event CheeseFalls) '?ctx)))   ; not stored
     (is (v/ask? kb '(event CheeseFalls))))                  ; but inferred
   (testing "explicit types still compose through genl (an action is an event)"
