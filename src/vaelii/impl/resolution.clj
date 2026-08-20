@@ -25,7 +25,7 @@
 
 ;; unify and unify-var are mutually recursive (a bound variable is chased back
 ;; through unify), so one forward declaration is genuinely required here.
-(declare unify-var)
+(declare unify-var excepted? excepted-anywhere?)
 
 (defn- dot-tail
   "The remaining sequence a dotted rest-variable binds to, as a canonical list."
@@ -441,19 +441,40 @@
     (or (not (jtms/known-datum? tms handle))
         (jtms/in? tms handle))))
 
+(defn supporter-believed?
+  "Is stored supporter `handle` believed and not excepted from `context`?
+
+  Assertion-context inheritance is deliberately not answered here: taxonomy's scoped
+  edge/cache readers already apply it, and genlCx declarations are forced universal.
+  Keeping this callback about belief force alone also prevents context reachability
+  from recursively asking itself whether its own supporters are reachable."
+  [kb handle context]
+  (boolean
+   (and (jtms/in? (:tms kb) handle)
+        ;; The whole-KB roster is the cheap gate. Only a handle targeted somewhere
+        ;; pays the context-sensitive cascade walk.
+        (or (not (excepted-anywhere? kb handle))
+            (not (excepted? kb handle context))))))
+
+(defn supporter-visible?
+  "Is stored supporter `handle` believed, inherited, and not excepted from `context`?"
+  [kb handle context]
+  (boolean
+   (and (supporter-believed? kb handle context)
+        (when-let [sentex (p/get-sentex (:records kb) handle)]
+          (tax/sees? (:taxonomy kb) context (:context sentex))))))
+
 (defn visible-supporter-fn
-  "`handle -> boolean`, memoized: does `context` see the context the sentex `handle`
-  was asserted from?  nil when `context` is nil or a `?var` — the unscoped path, which
-  every caller reads as *no filter* rather than as *nothing visible*.
+  "`handle -> boolean`, memoized: is the sentex `handle` believed, inherited by
+  `context`, and not hidden there by a visibility exception? nil when `context` is nil
+  or a `?var` — the unscoped path, which every caller reads as *no filter* rather than
+  as *nothing visible*.
 
   The seam a **context-scoped equality** read hangs on: the equality partition records
   its supporters as handles, and only the record store knows where each was asserted."
   [kb context]
   (when (and (symbol? context) (not (sx/variable? context)))
-    (let [tax (:taxonomy kb) recs (:records kb)]
-      (memoize (fn [h]
-                 (boolean (when-let [sx (p/get-sentex recs h)]
-                            (tax/sees? tax context (:context sx)))))))))
+    (memoize #(supporter-visible? kb % context))))
 
 (defn representative-in
   "`term`'s equality-class representative as `visible?` sees the merges — the global
@@ -1040,6 +1061,25 @@
             v)
           out)))))
 
+(defn- except-in-force?
+  "Is except-handle `eh` believed **and** not itself hidden by a cascading meta-except?
+  Recursive with a `seen` set as cycle guard (unreachable with well-formed input, since
+  stratification forbids the cycle, but defensive).
+
+  The cascade semantics: `(except H)` hides H.  `(except E)` where E is the except that
+  hides H suppresses E's effect, restoring H.  `(except M)` where M is the meta-except
+  suppresses M, restoring E's effect, re-hiding H — and so on, toggling at each depth."
+  [tms target->ehs eh seen]
+  (and (jtms/in? tms eh)
+       (if (contains? seen eh)
+         false
+         (let [meta-ehs (get target->ehs eh)]
+           (if meta-ehs
+             ;; eh is itself a target; active only if none of its meta-excepts are active
+             (not (some #(except-in-force? tms target->ehs % (conj seen eh)) meta-ehs))
+             ;; eh is not a target; it is active
+             true)))))
+
 (defn excepted-handles
   "The handles hidden from `view-context` by believed `(except (sentexHandle H))`
   facts: an `except` asserted in a context `view-context` sees (its genlCx
@@ -1056,6 +1096,11 @@
   and re-derive its target from its sentence — which on a chaining run is per placement
   and per candidate justification, and was 89% of the run's wall clock at 1,000 excepts
   (`lein bench-hotreads`).
+
+  **Meta-exception cascade.**  An except whose handle is itself hidden by another
+  believed except does not suppress its target — the cascade is evaluated at read time by
+  `except-in-force?`, which walks the roster's own entries rather than the index.
+  Most KBs store zero meta-exceptions, so the cascade adds no cost to the common path.
 
   **The O(1) gate is the empty roster**, which is where the functor-root count used to
   be and is both cheaper and tighter: a KB storing only `(not (except H))` roots under
@@ -1079,17 +1124,29 @@
   (let [by-ctx @(:excepted kb)]
     (if (or (empty? by-ctx) (sx/variable? view-context))
       #{}
-      (let [up  (tax/context-up (:taxonomy kb) view-context)
-            tms (:tms kb)]
+      (let [up  (tax/raw-context-up (:taxonomy kb) view-context)
+            tms (:tms kb)
+            ;; flatten the visible roster into a single target->ehs map for cascade
+            target->ehs (reduce-kv
+                         (fn [m ctx entries]
+                           (if-not (contains? up ctx)
+                             m
+                             (reduce-kv (fn [m2 target ehs]
+                                          (update m2 target (fnil into #{}) ehs))
+                                        m entries)))
+                         {} by-ctx)
+            ;; Meta-except counter gate: when zero, no except targets another except,
+            ;; so every believed except is trivially in force — skip the cascade.
+            has-meta? (pos? @(:meta-except-count kb))]
         (persistent!
-         (reduce-kv (fn [acc ctx entries]
-                      (if-not (contains? up ctx)                 ; visible from view-context
-                        acc
-                        (reduce-kv (fn [a target ehs]
-                                     (if (some #(jtms/in? tms %) ehs) (conj! a target) a))
-                                   acc entries)))
+         (reduce-kv (fn [acc target ehs]
+                      (if (if has-meta?
+                            (some #(except-in-force? tms target->ehs % #{}) ehs)
+                            (some #(jtms/in? tms %) ehs))
+                        (conj! acc target)
+                        acc))
                     (transient #{})
-                    by-ctx))))))
+                    target->ehs))))))
 
 (defn hidden-fn
   "A predicate `(fn [handle]) -> boolean` answering, for **one** `view-context`, what
@@ -1118,22 +1175,42 @@
   [kb view-context]
   (let [by-ctx @(:excepted kb)]
     (when-not (or (empty? by-ctx) (sx/variable? view-context))
-      (let [up  (tax/context-up (:taxonomy kb) view-context)
+      (let [up  (tax/raw-context-up (:taxonomy kb) view-context)
             ;; only the contexts that both state an except and are visible from here —
             ;; computed once, so the predicate walks nothing it will always reject
             live (into [] (comp (filter #(contains? up (key %))) (map val)) by-ctx)
-            tms  (:tms kb)]
+            tms  (:tms kb)
+            ;; flatten into target->ehs for cascade check
+            target->ehs (reduce (fn [m entries]
+                                  (reduce-kv (fn [m2 target ehs]
+                                               (update m2 target (fnil into #{}) ehs))
+                                             m entries))
+                                {} live)]
         (when (seq live)
-          (fn [handle]
-            (boolean (some (fn [entries]
-                             (some #(jtms/in? tms %) (get entries handle)))
-                           live))))))))
+          (let [has-meta? (pos? @(:meta-except-count kb))]
+            (fn [handle]
+              (boolean
+               (when-let [ehs (get target->ehs handle)]
+                 (if has-meta?
+                   (some #(except-in-force? tms target->ehs % #{}) ehs)
+                   (some #(jtms/in? tms %) ehs)))))))))))
 
 (defn excepted?
   "Is the sentex at `handle` hidden from `view-context` by a believed `except`?  The
   one-shot form of `hidden-fn`, for a caller with a single handle to ask about."
   [kb handle view-context]
   (boolean (when-let [hidden? (hidden-fn kb view-context)] (hidden? handle))))
+
+(defn excepted-anywhere?
+  "Is `handle` hidden from at least one context by a believed visibility `except`?
+
+  This is the unscoped belief-transition question used by the derived-cache
+  reconcile. The roster is keyed by the contexts that state exceptions, and a
+  context always sees itself, so those keys are a complete set of witnesses.
+  `excepted?` still performs the meta-exception cascade, so an except suppressed in
+  its own context does not count here."
+  [kb handle]
+  (boolean (some #(excepted? kb handle %) (keys @(:excepted kb)))))
 
 (defn without-excepted
   "Drop the `[handle …]` matches whose handle is hidden from `view-context` by a

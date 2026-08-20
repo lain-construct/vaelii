@@ -505,7 +505,7 @@
   `touched` the same way: the next defeat round's nogoods and the preserving re-joins
   this round queued must read belief as it is now."
   [kb]
-  (tax/refresh-beliefs (:taxonomy kb) #(jtms/in? (:tms kb) %) (jtms/touched (:tms kb)))
+  (special/reconcile-belief-change! kb (jtms/touched (:tms kb)))
   (tax/restore-depths (:taxonomy kb)))
 
 (defn- preserved-rejoins-for
@@ -843,7 +843,7 @@
   "The shapes of a rule's queued triggers, or `:all` when the rule was queued
   unconditionally or any trigger has no readable shape."
   [triggers]
-  (if (= :all triggers)
+  (if (#{:all :all-rejoin} triggers)
     :all
     (let [ss (map literal-shape triggers)]
       (if (some nil? ss) :all (set ss)))))
@@ -1165,7 +1165,12 @@
   nothing says whether the move blocked or released, so the re-derivation has to be
   attempted either way."
   [queued]
-  (keep (fn [[rh triggers]] (when (= :all triggers) rh)) queued))
+  (keep (fn [[rh triggers]] (when (#{:all :all-rejoin} triggers) rh)) queued))
+
+(defn- forced-recheck-rules
+  "The unconditional rechecks that also owe a fresh join when blocking stayed still."
+  [queued]
+  (keep (fn [[rh triggers]] (when (= :all-rejoin triggers) rh)) queued))
 
 (defn- aggregate-recheck-rules
   "The queued rules carrying an **aggregate** antecedent, which need the join run again
@@ -3595,7 +3600,7 @@
   ;; relabelled region), so passing it lets `refresh-beliefs` skip a cache no moved
   ;; supporter touches instead of rescanning the whole vocabulary (perf-review #11).
   (when belief-moved?
-    (tax/refresh-beliefs (:taxonomy kb) #(jtms/in? (:tms kb) %) (jtms/touched (:tms kb)))
+    (special/reconcile-belief-change! kb (jtms/touched (:tms kb)))
     ;; ...and repair again, because the reconcile itself can surrender the potential: an
     ;; edge leaving a strongly connected component dissolves it, and a revived one can
     ;; close a new one.  Left to the *next* settle, `:scc` reads empty in between, and
@@ -3645,9 +3650,10 @@
       ;; supersession flip moves what pairs without moving a label
       (note-supersession-flips! kb before after)
       (when (or (seq before) (seq after))
-        (tax/refresh-beliefs (:taxonomy kb) #(jtms/in? (:tms kb) %)
-                             (into (jtms/touched (:tms kb))
-                                   (concat (keys before) (keys after)))))
+        (special/reconcile-belief-change!
+         kb
+         (into (jtms/touched (:tms kb))
+               (concat (keys before) (keys after)))))
       ;; ...and the spellings this reconcile gave *back*, which are revived datums by
       ;; every test but the one `jtms/revived` can apply: they gained belief, and no
       ;; relabel says so, so they are in none of the three window sets.  `settle` re-seeds
@@ -3771,8 +3777,7 @@
       ;; settle with nothing defeated pays nothing — which is nearly all of them, and the
       ;; same reasoning `settle-finish`'s own `belief-moved?` gate states.
       (let [revival-flips (when defeated-before?
-                            (tax/refresh-beliefs (:taxonomy kb) #(jtms/in? (:tms kb) %)
-                                                 (jtms/touched (:tms kb)))
+                            (special/reconcile-belief-change! kb (jtms/touched (:tms kb)))
                             (tax/restore-depths (:taxonomy kb))
                             ;; ...and an except among the revived is a visibility flip:
                             ;; what it hid is seeable again, and only this settle knows
@@ -3800,6 +3805,13 @@
                                    (concat (set/difference ex-before ex-after)
                                            (set/difference ex-after ex-before)))))
                 queued (drain-recheck! kb)
+                ;; A context-visibility transition carries `:all-rejoin` because there is no
+                ;; arriving sentence narrow enough to identify the one firing it may
+                ;; have released.  It therefore owes the coarse rule re-join even when
+                ;; the blocked set itself did not move.  Decide that before the
+                ;; unproductive-pass gate below; otherwise the gate drops precisely the
+                ;; work `blanket-recheck-rules` exists to preserve.
+                forced (vec (forced-recheck-rules queued))
                 ;; ...and the datums whose belief came *back*, which no trigger queues and
                 ;; no blocked set holds.  Read after the resolve above, so a datum this
                 ;; pass revived and defeated again is not one of them.  `jtms/touched`
@@ -3818,7 +3830,8 @@
                     ;; set is the wrong instrument for it and its own record is asked
                     ;; instead.  Decided before the sweep and re-decided after it.
                     {free :free over :overflow} (released-refusals kb queued)]
-                (if (and (= new was) (empty? aggs) (empty? free) (empty? over) (empty? flips)
+                (if (and (= new was) (empty? forced) (empty? aggs)
+                         (empty? free) (empty? over) (empty? flips)
                          (empty? revived) (empty? rejoin))
                   (settle-finish kb pass moved violated dilemmas (moved? moved) arbitrated)   ; unproductive pass: converged
                   ;; read before the sweep, which deletes justifications

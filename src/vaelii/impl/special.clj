@@ -66,24 +66,33 @@
 ;; sentences that arrived or left — what `exception-blocked-set` narrows the rule's
 ;; firings by before paying for a single level-6 query — or `:all` where no such
 ;; sentence exists (a taxonomy edge moved, a rule was just indexed) and every firing
-;; must be re-checked.
+;; must be re-checked. `:all-rejoin` is the stronger form used when the move can create
+;; a firing without changing any existing blocked justification; settle must then run
+;; the rule join even if the ordinary exception pass otherwise looks unproductive.
 
 (defn- mark-recheck
   "Queue `rule-handles` for exception re-evaluation at the next `settle`, recording
   `trigger` — the sentence whose arrival or departure could have flipped the exception
-  — or `:all` when there is no such sentence and every firing must be re-checked.
+  — `:all` when there is no such sentence and every firing must be re-checked, or
+  `:all-rejoin` when that unconditional check must also force a fresh join.
 
-  `:all` is absorbing: once a rule is queued unconditionally, adding a narrower
-  trigger to it must not narrow it back."
+  The unconditional markers are absorbing, and `:all-rejoin` is the stronger one:
+  once queued, adding a narrower trigger must not narrow it back."
   [kb rule-handles trigger]
   (when (seq rule-handles)
     (swap! (:recheck kb)
            (fn [m]
              (reduce (fn [m rh]
                        (let [cur (get m rh)]
-                         (assoc m rh (if (or (= :all cur) (= :all trigger))
-                                       :all
-                                       (conj (or cur #{}) trigger)))))
+                         (assoc m rh
+                                (cond
+                                  (or (= :all-rejoin cur) (= :all-rejoin trigger))
+                                  :all-rejoin
+
+                                  (or (= :all cur) (= :all trigger))
+                                  :all
+
+                                  :else (conj (or cur #{}) trigger)))))
                      m rule-handles)))))
 
 (defn- recheck-preserving-along
@@ -816,23 +825,24 @@
   Returns the rule handles it marked — the settle loop re-chains them when the
   trigger was a belief flip, which moves no blocked justification for the drain to
   notice on its own."
-  [kb except-sentex]
-  (when-let [h (sx/handle-id (second (:sentence except-sentex)))]
-    (let [tms      (:tms kb)
-          users    (keep (fn [jid]
-                           (let [inf (:informant (jtms/justification tms jid))]
-                             (when (integer? inf) inf)))
-                         (jtms/dependents tms h))
-          target   (p/get-sentex (:records kb) h)
-          pred     (some-> target :sentence nm/functor)
-          ;; the global closure on purpose: an under-selected re-check trigger is a
-          ;; missed sweep or a missed revival
-          firers   (when (symbol? pred)
-                     (mapcat #(p/rules-by-antecedent (:index kb) %)
-                             (tax/genls (:taxonomy kb) pred)))
-          marked   (vec (into (set users) firers))]
-      (mark-recheck kb marked :all)
-      marked)))
+  ([kb except-sentex] (recheck-except kb except-sentex :all))
+  ([kb except-sentex trigger]
+   (when-let [h (sx/handle-id (second (:sentence except-sentex)))]
+     (let [tms      (:tms kb)
+           users    (keep (fn [jid]
+                            (let [inf (:informant (jtms/justification tms jid))]
+                              (when (integer? inf) inf)))
+                          (jtms/dependents tms h))
+           target   (p/get-sentex (:records kb) h)
+           pred     (some-> target :sentence nm/functor)
+           ;; the global closure on purpose: an under-selected re-check trigger is a
+           ;; missed sweep or a missed revival
+           firers   (when (symbol? pred)
+                      (mapcat #(p/rules-by-antecedent (:index kb) %)
+                              (tax/genls (:taxonomy kb) pred)))
+           marked   (vec (into (set users) firers))]
+       (mark-recheck kb marked trigger)
+       marked))))
 
 (defn recheck-except-cone
   "A `genlCx` edge moved visibility for the contexts in `context-down(sub)`, which
@@ -848,7 +858,58 @@
       (doseq [eh (p/sentexes-with-functor idx sx/except-functor)
               :let [esx (p/get-sentex (:records kb) eh)]
               :when esx]
-        (recheck-except kb esx)))))
+        ;; A context edge can make two independently restored antecedents meet at a
+        ;; reader without releasing any already-blocked justification.  Preserve that
+        ;; distinction through the queue so settle forces the missing join exactly for
+        ;; this visibility-transition shape.
+        (recheck-except kb esx :all-rejoin)))))
+
+(defn- belief-change-region
+  "`moved` plus the targets of any visibility-excepts it names.
+
+  A relabel reports the except handle because that is the TMS datum whose belief
+  changed, while the derived cache is indexed by the declaration handle the except
+  hides. Expanding at this boundary lets callers report the event they observed
+  without knowing which cache supporter it invalidates."
+  [kb moved]
+  (into (set moved)
+        (keep (fn [h]
+                (some-> (p/get-sentex (:records kb) h)
+                        :sentence
+                        kb/except-target)))
+        moved))
+
+(defn reconcile-belief-change!
+  "Reconcile every belief-derived taxonomy cache after `moved` may have changed truth.
+
+  This is the engine-level choke point above `tax/refresh-beliefs`: ordinary JTMS
+  defeat/revival/supersession and visibility `except` both change whether a stored
+  declaration currently has force. `moved` may name either declaration handles or
+  except handles; the latter are expanded to their targets before the scoped refresh.
+
+  The three-argument form lets a removal path report a visibility change explicitly:
+  once the exception record has been deleted, its target alone cannot prove why the
+  effective-supporter generation changed."
+  ([kb] (reconcile-belief-change! kb nil))
+  ([kb moved]
+   (reconcile-belief-change!
+    kb
+    moved
+    (or (nil? moved)
+        (some (fn [h]
+                (some-> (p/get-sentex (:records kb) h)
+                        :sentence
+                        kb/except-target))
+              moved))))
+  ([kb moved visibility-moved?]
+   (let [region (when (some? moved) (belief-change-region kb moved))
+         tms    (:tms kb)]
+     (when visibility-moved?
+       (tax/note-supporter-visibility-change! (:taxonomy kb)))
+     (tax/refresh-beliefs
+      (:taxonomy kb)
+      #(jtms/in? tms %)
+      region))))
 
 ;; ---- the decontextualized predicate ---------------------------------------
 ;; `(decontextualizedPredicate P)` lifts every `(P ...)` out of the context it was
@@ -2789,7 +2850,8 @@
       (sx/exceptWhen-meta? sentence)  (index-exceptWhen-meta kb sentex)
       ;; a visibility `(except (sentexHandle H))` fact: queue the firings that use H
       ;; so settle sweeps any conclusion now resting on an invisible antecedent
-      (= sx/except-functor f)         (recheck-except kb sentex)
+      (= sx/except-functor f)         (do (recheck-except kb sentex)
+                                          (reconcile-belief-change! kb #{handle}))
       ;; a rule reaching the general path (e.g. rebuilt by recover, or a migrated
       ;; twin) is indexed from its own record, so it keeps the direction its wrapper
       ;; gave it

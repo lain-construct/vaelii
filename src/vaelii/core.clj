@@ -5590,6 +5590,10 @@
       ;; a fork would answer its base's excepts off a roster of its own that nothing filled.
       ;; Before the settle for the same reason too — `justification-excepted?` reads it.
       (kb/rebuild-excepted! kb)
+      ;; The first cache reconcile ran before the visibility roster existed, so it
+      ;; could narrow only against JTMS belief. Re-run through the common transition
+      ;; boundary now that recovery can also answer which declarations are excepted.
+      (special/reconcile-belief-change! kb)
       ;; ...and the settle that finishes the rebuild is told it *is* one, so the exposure
       ;; pass stays out of it: what it reports is what a change newly made jointly visible,
       ;; and a restore changes nothing (`settle/*rebuilding?*`).  On the certified fast path

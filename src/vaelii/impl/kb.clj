@@ -825,6 +825,11 @@
                      ;; points as `:opposed`, and rebuilt by `recover` for the same
                      ;; reason: it is derived from storage and no store holds it
                      :excepted  (atom {})
+                     ;; How many stored excepts target another except's handle.  When
+                     ;; zero, `except-in-force?` is trivially true for every except
+                     ;; and `excepted-handles` can skip the cascade entirely.  Maintained
+                     ;; at the same choke points as `:excepted` and rebuilt by `recover`.
+                     :meta-except-count (atom 0)
                      ;; `{pred -> how many rules take it as an antecedent}` — the roster
                      ;; `special/visibility-seeds` enumerates instead of walking a context
                      ;; cone.  Kept O(1) at the rule index/unindex choke points, exactly
@@ -876,6 +881,14 @@
                      ;; index half by this open — see `write-hazards`
                      :unrecovered (atom {})})
         snapshot? (snapshot-mode? rkind ikind)]
+    ;; Taxonomy owns derived structures; the KB owns whether one recorded supporter
+    ;; is believed and visible from a reader after context-scoped exceptions.  Install
+    ;; the seam only after the mutually-referential KB exists, and before recovery can
+    ;; ask any scoped cache question.
+    (tax/install-supporter-visibility!
+     (:taxonomy kb)
+     #(seq @(:excepted kb))
+     (partial res/supporter-believed? kb))
     (when snapshot? (register-index-snapshot! (disk/disk-dir opts) istore rstore))
     ;; The durable index is gated on its key-layout sentinel before anything reads
     ;; it: a log written under another `kv/index-layout-version` replays cleanly and
@@ -1506,7 +1519,13 @@
   "The handle a visibility `(except (sentexHandle H))` sentence hides, or nil for any
   other sentence — including `(not (except …))`, whose functor is `not`.  The one shape
   test the roster keys on, so a sentence that is not an `except` costs a `=` on its
-  functor at the store choke point and nothing else."
+  functor at the store choke point and nothing else.
+
+  A **meta-exception** — `(except (sentexHandle E))` where E is itself an `(except …)` —
+  cascades: hiding an except suppresses its effect, restoring visibility of the target
+  the inner except was hiding.  The cascade is evaluated at read time by
+  `resolution/excepted-handles`, which checks whether each except-handle is itself
+  hidden before counting it as active."
   [sentence]
   (when (and (sequential? sentence)
              (= sx/except-functor (first sentence))
@@ -1552,7 +1571,13 @@
   (when-let [target (except-target (:sentence sentex))]
     (let [ctx (:context sentex)
           eh  (:id sentex)]
-      (swap! (:excepted kb) (if add? roster-add roster-drop) ctx target eh))))
+      (swap! (:excepted kb) (if add? roster-add roster-drop) ctx target eh)
+      ;; Maintain the meta-except counter: a meta-except is an except whose target
+      ;; is itself an except-handle.  Check by looking up the target in records —
+      ;; if it resolves to an `(except ...)` sentence, this is a meta-except.
+      (when-let [target-sentex (p/get-sentex (:records kb) target)]
+        (when (except-target (:sentence target-sentex))
+          (swap! (:meta-except-count kb) (if add? inc dec)))))))
 
 (defn rebuild-excepted!
   "Recompute `:excepted` from storage — the scan `recover` needs, since the roster is
@@ -1563,16 +1588,29 @@
   Enumerates the stored `except` facts through the functor root, which spans both
   polarities — a `(not (except H))` roots there too and `except-target` drops it."
   [kb]
-  (let [recs (:records kb)]
-    (reset! (:excepted kb)
-            (reduce (fn [m h]
-                      (if-let [s (p/get-sentex recs h)]
-                        (if-let [target (except-target (:sentence s))]
-                          (roster-add m (:context s) target h)
-                          m)
-                        m))
-                    {}
-                    (p/sentexes-with-functor (:index kb) sx/except-functor)))))
+  (let [recs (:records kb)
+        roster (reduce (fn [m h]
+                         (if-let [s (p/get-sentex recs h)]
+                           (if-let [target (except-target (:sentence s))]
+                             (roster-add m (:context s) target h)
+                             m)
+                           m))
+                       {}
+                       (p/sentexes-with-functor (:index kb) sx/except-functor))
+        ;; Count meta-exceptions: excepts whose target is itself an except
+        meta-count (reduce (fn [n h]
+                             (if-let [s (p/get-sentex recs h)]
+                               (if-let [target (except-target (:sentence s))]
+                                 (if-let [ts (p/get-sentex recs target)]
+                                   (if (except-target (:sentence ts))
+                                     (inc n) n)
+                                   n)
+                                 n)
+                               n))
+                           0
+                           (p/sentexes-with-functor (:index kb) sx/except-functor))]
+    (reset! (:excepted kb) roster)
+    (reset! (:meta-except-count kb) meta-count)))
 
 (defn create-sentex
   "Store `sentence` in `context` as a new sentex, index it, and return `[handle sentex]`.
