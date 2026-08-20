@@ -92,29 +92,33 @@
   Records the sentex into `*removed-sink*` when one is bound, which is how a caller
   learns the region a teardown removed without every removal path having to report it."
   [kb sentex]
-  ;; the removal record, for a caller scoping its own follow-up work to what left
-  (when-let [sink *removed-sink*] (vswap! sink conj sentex))
-  (special/disintegrate-sentex! kb sentex)
-  (p/unindex-sentex! (:index kb) sentex (:id sentex))
-  (p/delete-sentex! (:records kb) (:id sentex))
-  ;; the remove-side seam for an incremental matcher's alpha memories, mirroring the
-  ;; add in `kb/create-sentex` — a no-op unless one is engaged
-  (observe/notify-remove kb sentex)
-  ;; and the change clock, mirroring the same line there
-  (observe/note-change)
-  ;; the handle cache holds "this sentence is stored at this handle", and this is the
-  ;; one event that falsifies it — so the invalidation belongs beside the removal
-  ;; itself, not in the caller that happens to have a cache bound
-  (observe/forget-handle! (:sentence sentex) (:context sentex))
-  ;; maintain the P/¬P coincidence set (this removal may have dissolved an opposing
-  ;; pair); read after `unindex-sentex!` so the departing fact is already gone
-  (kb/note-opposed! kb (:sentence sentex))
-  ;; ...and the visibility roster, the remove half of `kb/create-sentex`'s add.  Order
-  ;; does not matter to this one — it reads the departing sentex rather than the index
-  (kb/note-excepted! kb sentex false)
-  ;; An except's departure changes the effective belief of the declaration it hid.
-  ;; Run after the roster drop so the common reconcile reads the new visibility state;
-  ;; report the visibility move explicitly because the exception record is already gone.
-  (when-let [target (kb/except-target (:sentence sentex))]
-    (special/reconcile-belief-change! kb #{target} true))
-  (special/recheck-on-sentence kb (:sentence sentex)))
+  ;; Capture the except target *before* any mutation — the sentex record is about to be
+  ;; deleted, so extracting it afterward would depend on the local binding outliving
+  ;; storage.  Binding here makes the before/after contract structural.
+  (let [except-target (kb/except-target (:sentence sentex))]
+    ;; the removal record, for a caller scoping its own follow-up work to what left
+    (when-let [sink *removed-sink*] (vswap! sink conj sentex))
+    (special/disintegrate-sentex! kb sentex)
+    (p/unindex-sentex! (:index kb) sentex (:id sentex))
+    (p/delete-sentex! (:records kb) (:id sentex))
+    ;; the remove-side seam for an incremental matcher's alpha memories, mirroring the
+    ;; add in `kb/create-sentex` — a no-op unless one is engaged
+    (observe/notify-remove kb sentex)
+    ;; and the change clock, mirroring the same line there
+    (observe/note-change)
+    ;; the handle cache holds "this sentence is stored at this handle", and this is the
+    ;; one event that falsifies it — so the invalidation belongs beside the removal
+    ;; itself, not in the caller that happens to have a cache bound
+    (observe/forget-handle! (:sentence sentex) (:context sentex))
+    ;; maintain the P/¬P coincidence set (this removal may have dissolved an opposing
+    ;; pair); read after `unindex-sentex!` so the departing fact is already gone
+    (kb/note-opposed! kb (:sentence sentex))
+    ;; ...and the visibility roster, the remove half of `kb/create-sentex`'s add.  Order
+    ;; does not matter to this one — it reads the departing sentex rather than the index
+    (kb/note-excepted! kb sentex false)
+    ;; An except's departure changes the effective belief of the declaration it hid.
+    ;; Run after the roster drop so the common reconcile reads the new visibility state;
+    ;; report the visibility move explicitly because the exception record is already gone.
+    (when except-target
+      (special/reconcile-belief-change! kb #{except-target} true))
+    (special/recheck-on-sentence kb (:sentence sentex))))
