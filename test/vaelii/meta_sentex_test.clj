@@ -9,11 +9,14 @@
   it starts with the handle term primitives (`vaelii.impl.sentex`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.integrate :as integrate]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
+            [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
@@ -455,3 +458,40 @@
             (v/retract! kb m)
             (is (not (v/ask? kb (list shiny gold) ctx))
                 "E's effect is restored when M goes away")))))))
+
+;; ---- ordering contract: except-target extraction before mutation ----------
+
+(tu/deftest-kb except-target-is-captured-before-storage-deletion
+  ;; Structural contract: sentex-removed! must extract the except target handle
+  ;; BEFORE the first destructive mutation (disintegrate-sentex!, delete-sentex!).
+  ;; This pins the defensive binding introduced in 484b59f — the immutable local
+  ;; happens to survive deletion in Clojure, but the contract should not depend on
+  ;; that accident.
+  (let [ctx  (tu/tmp-ctx "Ord")
+        pred (tu/tmp-pred) ind (tu/tmp-ind)
+        log  (atom [])
+        real-except-target     kb/except-target
+        real-disintegrate      special/disintegrate-sentex!]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h  (v/assert kb (list pred ind) ctx {:strength :monotonic})
+          eh (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})]
+      ;; Verify the except is working before we retract
+      (is (not (v/ask? kb (list pred ind) ctx)) "except hides the fact")
+      ;; Instrument: record the order of except-target vs disintegrate-sentex!
+      (with-redefs [kb/except-target        (fn [sentence]
+                                              (swap! log conj :except-target)
+                                              (real-except-target sentence))
+                    special/disintegrate-sentex! (fn [kb sentex]
+                                                  (swap! log conj :disintegrate)
+                                                  (real-disintegrate kb sentex))]
+        (v/retract! kb eh))
+      ;; The fact should be visible again after retracting the except
+      (is (v/ask? kb (list pred ind) ctx) "retracting except restores visibility")
+      ;; The structural contract: except-target must appear before disintegrate
+      (let [events @log
+            target-idx      (.indexOf ^java.util.List events :except-target)
+            disintegrate-idx (.indexOf ^java.util.List events :disintegrate)]
+        (is (>= target-idx 0) "except-target was called during retraction")
+        (is (>= disintegrate-idx 0) "disintegrate-sentex! was called during retraction")
+        (is (< target-idx disintegrate-idx)
+            "except-target must be called before the first destructive mutation")))))
