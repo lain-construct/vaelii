@@ -6070,8 +6070,22 @@
          against-r (argue-results kb neg context opts)
          pos?      (boolean (seq for-r))
          neg?      (boolean (seq against-r))
+         ;; JTMS justification — stored beliefs only
          for-j     (argue-justification kb asent context)
          against-j (argue-justification kb neg context)
+         ;; Inference justification fallback (gate 2): when the JTMS has no
+         ;; stored justification but the query succeeded with rule expansion,
+         ;; re-query with :proof? true to get the inference tree.
+         for-j     (or for-j
+                       (when (and pos? (:max-depth opts))
+                         (when-let [p (:proof (first (query kb asent context
+                                                           (assoc opts :proof? true))))]
+                           {:kind :inference :tree p})))
+         against-j (or against-j
+                       (when (and neg? (:max-depth opts))
+                         (when-let [p (:proof (first (query kb neg context
+                                                           (assoc opts :proof? true))))]
+                           {:kind :inference :tree p})))
          base      (cond-> {}
                      pos?      (assoc :for for-r)
                      neg?      (assoc :against against-r)
