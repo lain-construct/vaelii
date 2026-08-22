@@ -6079,12 +6079,12 @@
          for-j     (or for-j
                        (when (and pos? (:max-depth opts))
                          (when-let [p (:proof (first (query kb asent context
-                                                           (assoc opts :proof? true))))]
+                                                            (assoc opts :proof? true))))]
                            {:kind :inference :tree p})))
          against-j (or against-j
                        (when (and neg? (:max-depth opts))
                          (when-let [p (:proof (first (query kb neg context
-                                                           (assoc opts :proof? true))))]
+                                                            (assoc opts :proof? true))))]
                            {:kind :inference :tree p})))
          base      (cond-> {}
                      pos?      (assoc :for for-r)
