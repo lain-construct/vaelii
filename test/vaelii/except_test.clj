@@ -21,6 +21,7 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.rules :as vr]
+            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -404,6 +405,49 @@
       (v/retract! kb exc)
       (testing "retract the exception and the one rule concludes again"
         (is (seq (v/sentexes-matching kb (list flies Opus) CxBird)))))))
+
+;; Two exceptions on one rule that differ only in **which rule variable** they name are
+;; two meta-sentexes.  Their trie keys coincide — the key α-renames every variable and
+;; the lookup reads one as a wildcard — so the dedup has to read the stored sentence
+;; (`kb/find-sentex-handle`), or the second exception resolves to the first and is
+;; silently never stored.
+
+(tu/deftest-kb two-exceptions-naming-different-rule-variables-are-two-exceptions
+  (tu/with-terms [bird parentOf flies sick Opus Pa CxBird]
+    (let [rule (v/assert kb (default-rule [(list bird '?y) (list parentOf '?x '?y)]
+                                          (list flies '?y))
+                         CxBird)
+          on-x (v/assert kb (list 'exceptWhen (list sick '?x) (sx/sentex-handle rule)) CxBird)
+          on-y (v/assert kb (list 'exceptWhen (list sick '?y) (sx/sentex-handle rule)) CxBird)]
+      (testing "an exception on the parent and one on the bird are distinct meta-sentexes"
+        (is (not= on-x on-y))
+        (is (= 2 (count (filter #(= 'exceptWhen (first (:sentence %)))
+                                (v/find-sentexes kb sick))))))
+      (testing "re-asserting either spelling resolves to its own handle"
+        (is (= on-x (v/assert kb (list 'exceptWhen (list sick '?x) (sx/sentex-handle rule)) CxBird)))
+        (is (= on-y (v/assert kb (list 'exceptWhen (list sick '?y) (sx/sentex-handle rule)) CxBird))))
+      ;; Opus is a sick bird with a healthy parent: the exception on the bird blocks,
+      ;; the one on the parent does not hold, and the rule must not fire
+      (v/assert kb (list bird Opus) CxBird)
+      (v/assert kb (list parentOf Pa Opus) CxBird)
+      (v/assert kb (list sick Opus) CxBird)
+      (testing "the exception naming the bird is the one that holds, so the sick bird does not fly"
+        (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
+      (v/retract! kb on-y)
+      (testing "with only the parent's exception left, the healthy parent's bird flies"
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird)))))))
+
+(tu/deftest-kb a-ground-exception-and-a-variable-one-are-two-exceptions
+  (tu/with-terms [bird flies sick Opus Tux CxBird]
+    (let [rule   (v/assert kb (default-rule [(list bird '?b)] (list flies '?b)) CxBird)
+          ground (v/assert kb (list 'exceptWhen (list sick Opus) (sx/sentex-handle rule)) CxBird)
+          open   (v/assert kb (list 'exceptWhen (list sick '?b) (sx/sentex-handle rule)) CxBird)]
+      (testing "the ground exception does not absorb the open one — its key is a wildcard's match"
+        (is (not= ground open)))
+      (v/assert kb (list bird Tux) CxBird)
+      (v/assert kb (list sick Tux) CxBird)
+      (testing "the open exception blocks a sick bird the ground one never named"
+        (is (empty? (v/sentexes-matching kb (list flies Tux) CxBird)))))))
 
 ;; DECISION (Stratification): "a rule set with a cycle through negation is
 ;; **rejected at assert time**, as a well-formedness check over the rule dependency

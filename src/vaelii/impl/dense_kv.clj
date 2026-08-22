@@ -272,7 +272,12 @@
   (kv-put  [_ k v] (swap! state assoc k v) nil)
   (kv-delete  [_ k]   (swap! state dissoc k) nil)
   (kv-increment [_ k]   (long (get (swap! state update k (fnil inc 0)) k)))
-  (kv-decrement [_ k]   (long (get (swap! state update k (fnil dec 0)) k)))
+  ;; floored at 0 — a counter is a cardinality, and the dense store answers a decrement
+  ;; as the flat one does or the oracles comparing them stop meaning anything
+  ;; (`kv/KvBackend`, `dense_kv_oracle_test`)
+  (kv-decrement [_ k]   (long (get (swap! state update k
+                                          (fn [v] (max 0 (dec (long (or v 0))))))
+                                   k)))
 
   (kv-add-to-set [_ k m]
     (if (handle-key? k)

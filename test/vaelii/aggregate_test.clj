@@ -92,9 +92,9 @@
     (v/assert kb (list knows Ada Turing) 'CxWell)
     (v/assert kb (list 'sameAs Alan Turing) CxLow)
     (let [g (list 'agg/count '?n '?v (list knows Ada '?v))]
-      (is (= 1 (get (first (v/ask kb g CxLow)) '?n))
+      (is (= 1 (get (tu/sole-answer (v/ask kb g CxLow)) '?n))
           "the context that was told of the merge counts one")
-      (is (= 2 (get (first (v/ask kb g 'CxWell)) '?n))
+      (is (= 2 (get (tu/sole-answer (v/ask kb g 'CxWell)) '?n))
           "and the one above it still counts two"))))
 
 (tu/deftest-kb the-check-arm-compares-instead-of-binding

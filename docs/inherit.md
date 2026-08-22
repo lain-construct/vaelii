@@ -354,7 +354,10 @@ the one tuple it is *stated* at, and the tuples it licenses are reached by joini
 than by matching. So such a datum **re-joins in full** every forward rule carrying an
 antecedent on a preserved predicate whose licensed set it moved, and those rules leave
 the trigger set so the work is done once (`inherit/rejoin-rules`,
-`chain/rejoin-preserving`). The sentences that move one are the declaration itself, a
+`chain/rejoin-in-full`). A `(symmetric P)` declaration takes the same route for a
+different reader — it moves what the *matcher* answers rather than what a prover does,
+and the facts it now pairs have already arrived (`chain/symmetric-rejoin-rules`). The
+sentences that move a preserved predicate are the declaration itself, a
 claim on the predicate, a fact on the relation — a `genl` or `genlCx` edge included
 — `(transitive R)`, and `(asymmetric P)`.
 

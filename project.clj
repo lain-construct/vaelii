@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.10.0"
+(defproject com.vaelii/vaelii "0.11.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -108,7 +108,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.10.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.11.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -122,7 +122,13 @@
              ;; (leiningen.core.project's default-profile-metadata), so `lein pom`/`lein
              ;; deploy` declare it but a consumer's tooling never resolves it
              ;; transitively — docs/operations.md, "Neither server logs a request".
-             :dev {:dependencies [[org.slf4j/slf4j-nop "2.0.18"]]
+             :dev {:dependencies [[org.slf4j/slf4j-nop "2.0.18"]
+                                   ;; dev-only hot reload: `wrap-reload` reloads changed
+                                   ;; source files from disk before each request, so an edit
+                                   ;; shows on refresh with no restart (web/hot-reloading,
+                                   ;; gated by :reload? / VAELII_DEV).  Never in the jar —
+                                   ;; like the profiler, a dev/repl-profile dependency.
+                                   [ring/ring-devel "1.15.5"]]
                    :plugins [[dev.weavejester/lein-cljfmt "0.16.5"]
                              [lein-shell "0.5.0"]
                              [lein-cloverage "1.2.4"]]}

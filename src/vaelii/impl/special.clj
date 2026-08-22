@@ -66,24 +66,33 @@
 ;; sentences that arrived or left — what `exception-blocked-set` narrows the rule's
 ;; firings by before paying for a single level-6 query — or `:all` where no such
 ;; sentence exists (a taxonomy edge moved, a rule was just indexed) and every firing
-;; must be re-checked.
+;; must be re-checked. `:all-rejoin` is the stronger form used when the move can create
+;; a firing without changing any existing blocked justification; settle must then run
+;; the rule join even if the ordinary exception pass otherwise looks unproductive.
 
 (defn- mark-recheck
   "Queue `rule-handles` for exception re-evaluation at the next `settle`, recording
   `trigger` — the sentence whose arrival or departure could have flipped the exception
-  — or `:all` when there is no such sentence and every firing must be re-checked.
+  — `:all` when there is no such sentence and every firing must be re-checked, or
+  `:all-rejoin` when that unconditional check must also force a fresh join.
 
-  `:all` is absorbing: once a rule is queued unconditionally, adding a narrower
-  trigger to it must not narrow it back."
+  The unconditional markers are absorbing, and `:all-rejoin` is the stronger one:
+  once queued, adding a narrower trigger must not narrow it back."
   [kb rule-handles trigger]
   (when (seq rule-handles)
     (swap! (:recheck kb)
            (fn [m]
              (reduce (fn [m rh]
                        (let [cur (get m rh)]
-                         (assoc m rh (if (or (= :all cur) (= :all trigger))
-                                       :all
-                                       (conj (or cur #{}) trigger)))))
+                         (assoc m rh
+                                (cond
+                                  (or (= :all-rejoin cur) (= :all-rejoin trigger))
+                                  :all-rejoin
+
+                                  (or (= :all cur) (= :all trigger))
+                                  :all
+
+                                  :else (conj (or cur #{}) trigger)))))
                      m rule-handles)))))
 
 (defn- recheck-preserving-along
@@ -816,23 +825,24 @@
   Returns the rule handles it marked — the settle loop re-chains them when the
   trigger was a belief flip, which moves no blocked justification for the drain to
   notice on its own."
-  [kb except-sentex]
-  (when-let [h (sx/handle-id (second (:sentence except-sentex)))]
-    (let [tms      (:tms kb)
-          users    (keep (fn [jid]
-                           (let [inf (:informant (jtms/justification tms jid))]
-                             (when (integer? inf) inf)))
-                         (jtms/dependents tms h))
-          target   (p/get-sentex (:records kb) h)
-          pred     (some-> target :sentence nm/functor)
-          ;; the global closure on purpose: an under-selected re-check trigger is a
-          ;; missed sweep or a missed revival
-          firers   (when (symbol? pred)
-                     (mapcat #(p/rules-by-antecedent (:index kb) %)
-                             (tax/genls (:taxonomy kb) pred)))
-          marked   (vec (into (set users) firers))]
-      (mark-recheck kb marked :all)
-      marked)))
+  ([kb except-sentex] (recheck-except kb except-sentex :all))
+  ([kb except-sentex trigger]
+   (when-let [h (sx/handle-id (second (:sentence except-sentex)))]
+     (let [tms      (:tms kb)
+           users    (keep (fn [jid]
+                            (let [inf (:informant (jtms/justification tms jid))]
+                              (when (integer? inf) inf)))
+                          (jtms/dependents tms h))
+           target   (p/get-sentex (:records kb) h)
+           pred     (some-> target :sentence nm/functor)
+           ;; the global closure on purpose: an under-selected re-check trigger is a
+           ;; missed sweep or a missed revival
+           firers   (when (symbol? pred)
+                      (mapcat #(p/rules-by-antecedent (:index kb) %)
+                              (rules/trigger-keys (:taxonomy kb) (:sentence target))))
+           marked   (vec (into (set users) firers))]
+       (mark-recheck kb marked trigger)
+       marked))))
 
 (defn recheck-except-cone
   "A `genlCx` edge moved visibility for the contexts in `context-down(sub)`, which
@@ -848,7 +858,71 @@
       (doseq [eh (p/sentexes-with-functor idx sx/except-functor)
               :let [esx (p/get-sentex (:records kb) eh)]
               :when esx]
-        (recheck-except kb esx)))))
+        ;; A context edge can make two independently restored antecedents meet at a
+        ;; reader without releasing any already-blocked justification.  Preserve that
+        ;; distinction through the queue so settle forces the missing join exactly for
+        ;; this visibility-transition shape.
+        (recheck-except kb esx :all-rejoin)))))
+
+(defn- belief-change-region
+  "`moved` plus the targets of any visibility-excepts it names.
+
+  A relabel reports the except handle because that is the TMS datum whose belief
+  changed, while the derived cache is indexed by the declaration handle the except
+  hides. Expanding at this boundary lets callers report the event they observed
+  without knowing which cache supporter it invalidates.
+
+  Gated on the `:excepted` roster, as the scan in `reconcile-belief-change!` is: the
+  roster holds every stored visibility except (`kb/note-excepted!`, at the store and
+  removal choke points), so while it is empty no handle in `moved` can name one and the
+  region is `moved` itself — without a record fetch per member, on a set that is the
+  whole KB when a rebuild's settle reads it."
+  [kb moved]
+  (if (empty? @(:excepted kb))
+    (set moved)
+    (into (set moved)
+          (keep (fn [h]
+                  (some-> (p/get-sentex (:records kb) h)
+                          :sentence
+                          kb/except-target)))
+          moved)))
+
+(defn reconcile-belief-change!
+  "Reconcile every belief-derived taxonomy cache after `moved` may have changed truth.
+
+  This is the engine-level choke point above `tax/refresh-beliefs`: ordinary JTMS
+  defeat/revival/supersession and visibility `except` both change whether a stored
+  declaration currently has force. `moved` may name either declaration handles or
+  except handles; the latter are expanded to their targets before the scoped refresh.
+
+  The three-argument form lets a removal path report a visibility change explicitly:
+  once the exception record has been deleted, its target alone cannot prove why the
+  effective-supporter generation changed.
+
+  The two-argument form decides `visibility-moved?` by reading `moved`'s records for an
+  except — behind the `:excepted` roster, so a KB storing no visibility except pays no
+  fetch per moved handle (`belief-change-region` says why the gate is exact)."
+  ([kb] (reconcile-belief-change! kb nil))
+  ([kb moved]
+   (reconcile-belief-change!
+    kb
+    moved
+    (or (nil? moved)
+        (and (seq @(:excepted kb))
+             (some (fn [h]
+                     (some-> (p/get-sentex (:records kb) h)
+                             :sentence
+                             kb/except-target))
+                   moved)))))
+  ([kb moved visibility-moved?]
+   (let [region (when (some? moved) (belief-change-region kb moved))
+         tms    (:tms kb)]
+     (when visibility-moved?
+       (tax/note-supporter-visibility-change! (:taxonomy kb)))
+     (tax/refresh-beliefs
+      (:taxonomy kb)
+      #(jtms/in? tms %)
+      region))))
 
 ;; ---- the decontextualized predicate ---------------------------------------
 ;; `(decontextualizedPredicate P)` lifts every `(P ...)` out of the context it was
@@ -1250,6 +1324,73 @@
                                    (:id sx) sctx)))))
                 empty-entailment-result
                 (subtree-sentexes kb sub))))))
+
+;; ---- definitional collection relations, expanded into forward rules -------
+;; `(defnNecessary Coll C)` / `(defnSufficient Coll C)` / `(defnIff Coll C)` tie a
+;; collection's membership to a condition on the member `?x` (docs/defns.md).  The
+;; `defn*` fact is stored like any other; what it *means* is materialized here the way
+;; `deduce-lift` materializes a decontextualized copy — as derived content justified by
+;; the fact, so it inherits belief, retraction and placement for free.  The derived
+;; content is a **rule** rather than a fact, so this is the mint path `chain/mint-rule`
+;; takes for a generator, minus the join bindings: index it, node it, justify it once.
+;;
+;; Open-world only.  `defnSufficient` concludes membership from the condition and
+;; `defnNecessary` the condition from membership; neither expands the collection's
+;; *complement* — nothing concludes a non-member from the condition's failure, which is
+;; closed-world membership completion and stated as an absence in docs/defns.md.
+
+(defn- materialize-defn-rule
+  "Store one companion rule `r` (a conjunctive necessary consequent split into one rule
+  per conjunct by `rules/expand-consequent`) as a derived rule sentex in `context`,
+  justified by `[defn-handle]` under `informant`.
+
+  The mint a generator makes, minus the bindings: index the rule
+  (`index-rule-sentex`), give it a node one past the `defn*` fact's, and add the
+  justification once (`has-justification?` keeps a re-assert of the same `defn*` from
+  duplicating it).  `{:new [handles] :violations [v]}` — the new handles the caller
+  seeds chaining with, and a rule that could not be admitted, reported rather than
+  thrown for the derivation path's reason."
+  [kb r defn-handle context informant]
+  (let [minted (rules/expand-consequent r)]
+    (if-let [v (some #(checks/rule-violation kb % context) minted)]
+      {:new [] :violations [(assoc v :sentence r :context context)]}
+      (reduce
+       (fn [acc one]
+         (let [[h s new?] (kb/find-or-create-sentex kb one context)]
+           (when new? (index-rule-sentex kb h s))
+           (let [depth (inc (long (jtms/depth (:tms kb) defn-handle)))]
+             (jtms/ensure-node (:tms kb) h depth)
+             (when-not (jtms/has-justification? (:tms kb) informant [defn-handle] h)
+               (let [jid  (p/next-id (:records kb))
+                     ;; :monotonic conferred, capped by the `defn*` fact's own class in
+                     ;; `conferred-class` — the rule adds no defeasibility of its own, so
+                     ;; a default `defn*` makes a default rule, exactly as the lift does
+                     just (jtms/->just jid informant [defn-handle] h {} :monotonic)]
+                 (p/put-justification (:records kb) just)
+                 (jtms/add-justification (:tms kb) just))))
+           (if new? (update acc :new conj h) acc)))
+       {:new [] :violations []}
+       minted))))
+
+(defn materialize-defn-rules
+  "Materialize the forward rule(s) a `defn*` fact stored at `defn-handle` in `context`
+  expands into (`sx/defn-companion-rules`), each a derived rule sentex justified by the
+  `defn*` fact alone.  `{:new [handles] :violations [v]}` — the new rule handles the
+  caller seeds chaining with (so a rule fires over the facts already stored), and any
+  rule that could not be admitted.
+
+  Called from `assert-one` once the `defn*` fact has a handle to be justified by.  A
+  non-`defn*` sentence returns the empty result, so the caller pays one `defn-sentence?`
+  read and stops — the gate that keeps every ordinary assert free of it."
+  [kb sentence defn-handle context]
+  (if-not (sx/defn-sentence? sentence)
+    empty-entailment-result
+    (let [informant (nm/functor sentence)]
+      (reduce (fn [acc r]
+                (merge-with into acc
+                            (materialize-defn-rule kb r defn-handle context informant)))
+              {:new [] :violations []}
+              (sx/defn-companion-rules sentence)))))
 
 (defn subsumption-seeds
   "The stored facts a new `(genl sub super)` edge newly makes matchable, as chaining
@@ -1989,13 +2130,19 @@
   "Reconcile the superseded set with the equality closure — the equality analogue of
   `tax/refresh-beliefs`, and called from the same place for the same reason.
 
-  It reads the moved region itself rather than being handed it, because it is called
-  from three places (an assert that merged, the end of a settle, and `recover`) and the
-  window each of them wants is the same one: everything the TMS has relabelled since the
-  last settle finished."
+  The window is the same for all three callers (an assert that merged, the end of a
+  settle, and `recover`): everything the TMS has relabelled since the last settle
+  finished.  Two of them let it read that window itself; **`settle-finish` hands over
+  the value it already holds**, because there the read is not free — the dense network
+  materializes the whole bitmap into a boxed set per read, which on a rebuild is the KB,
+  and the finish reads it once into a delay precisely so its consumers do not each pay
+  for it.  Taking the value rather than re-reading is safe for the same reason that
+  delay is: nothing between the finish's read and `reset-touched!` relabels, so the
+  region cannot grow underneath it."
   ([kb] (refresh-supersessions kb nil))
-  ([kb extra]
-   (jtms/supersede (:tms kb) (supersession-map kb extra (jtms/touched (:tms kb))))))
+  ([kb extra] (refresh-supersessions kb extra (jtms/touched (:tms kb))))
+  ([kb extra region]
+   (jtms/supersede (:tms kb) (supersession-map kb extra region))))
 
 (defn- derive-equality
   "Store `(equals x y)` in `context` as a **derivation** from `antes` and merge with
@@ -2484,6 +2631,12 @@
                         {:type :bad-table-entry :functor f})))))
   entries)
 
+(defn- defn-wff-problems
+  "The `:wff` arm for the three `defn*` collection definitions — the member-variable
+  check (`sx/defn-condition-problems`), read in the table's `[tax sentence]` shape."
+  [_tax sentence]
+  (sx/defn-condition-problems sentence))
+
 (def entries
   "The special-predicate dispatch table, as an **ordered** vector of
   `[functor spec]` pairs — ordered because `rebuild-taxonomy` replays it top to
@@ -2588,14 +2741,62 @@
         ;; rule concluded would separate the metatype's members only once a restart had
         ;; replayed it.  The arm returns nothing the derivation path needs — it marks and
         ;; records supporters — so the flag is the whole of what it takes to reach.
+        :derived?     true}]
+      ;; `(siblingDisjoint C)` is the metatype clique keyed off the genl closure: only
+      ;; the mark is stored, and `tax/disjoint?` reads C's specializations off `specs`.
+      ;; So there is no member sweep to run on integrate — unlike `disjointMetatype`,
+      ;; nothing was recorded to pick up — and the three arms are the plain mark/unmark,
+      ;; the shape `disjoint` itself has.
+      ['siblingDisjoint
+       {:integrate    (fn [kb sx h]
+                        (let [[_ c] (:sentence sx)]
+                          (tax/mark-sibling-disjoint (:taxonomy kb) c h (:context sx))))
+        :disintegrate (fn [kb sx]
+                        (let [[_ c] (:sentence sx)]
+                          (tax/unmark-sibling-disjoint! (:taxonomy kb) c (:id sx))))
+        :rebuild      (fn [tax {[_ c] :sentence id :id ctx :context}]
+                        (tax/mark-sibling-disjoint tax c id ctx))
+        :wff          wff/siblingDisjoint-problems
+        ;; `:derived?` for the reasons `disjoint` and `disjointMetatype` carry it: a mark
+        ;; a rule concludes must separate the specializations the moment it is believed,
+        ;; its own context is what a scoped `disjoint?` reads, and `:rebuild` replays
+        ;; every stored mark, so a restart must not be what first activates it.
+        :derived?     true}]
+      ;; `(siblingDisjointException x y)` exempts one pair the sibling clique or a
+      ;; `disjointMetatype` would separate — the plain add/drop `disjoint` has, keyed as
+      ;; the same unordered pair.  Its **retract** is the one thing the generic belief
+      ;; reconcile does not cover: if the exception was present ab initio, the pair it
+      ;; exempted was admitted and never entered the clash set, so its departure has no
+      ;; stored clash to re-derive.  The disintegrate arm posts the pair to `:sib-exc-dirty`,
+      ;; and the settle's re-arm sweep (`settle/clash-candidates` / `exposure-candidates`)
+      ;; drives `two-sided-reach` over it to convict the memberships it now separates.
+      ['siblingDisjointException
+       {:integrate    (fn [kb sx h]
+                        (let [[_ a b] (:sentence sx)]
+                          (tax/add-sib-exception (:taxonomy kb) a b h (:context sx))))
+        :disintegrate (fn [kb sx]
+                        (let [[_ a b] (:sentence sx)]
+                          (tax/del-sib-exception! (:taxonomy kb) a b (:id sx))
+                          (when-let [d (:sib-exc-dirty kb)] (swap! d conj #{a b}))))
+        :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
+                        (tax/add-sib-exception tax a b id ctx))
+        :wff          wff/siblingDisjointException-problems
+        ;; `:derived?` for the reasons the marks above carry it: a rule-concluded exception
+        ;; must spare the pair the moment it is believed, its own context is recorded for a
+        ;; scoped supporter read, and `:rebuild` replays every stored exception.
         :derived?     true}]]
      (map (fn [kind] [(symbol (name kind)) (prop-entry kind tax/closure-relations)])
           [:transitive :symmetric :asymmetric :reflexive :functional :irreflexive])
-     ;; `antiSymmetric` marks the same way but its keyword name would not spell the
-     ;; camelCase functor, so it takes an explicit pair like the two decontextualized
-     ;; marks below.  `(antiSymmetric P)` derives `(equals a b)` from a believed converse
-     ;; (`derive-antisymmetric-equalities`); the mark is what that reads.
-     [['antiSymmetric (prop-entry :anti-symmetric tax/closure-relations)]]
+     ;; `antiSymmetric` and `antiTransitive` mark the same way but their keyword names
+     ;; would not spell the camelCase functors, so each takes an explicit pair like the
+     ;; two decontextualized marks below.  `(antiSymmetric P)` derives `(equals a b)`
+     ;; from a believed converse (`derive-antisymmetric-equalities`); `(antiTransitive
+     ;; P)` convicts the two-step chain and the direct step together
+     ;; (`checks/antitransitivity-problems`).  The mark is what both of those read, and
+     ;; reading it up the predicate hierarchy (`tax/props-over`) is what makes a
+     ;; `parentOf` mark convict a `fatherOf` chain.
+     [['antiSymmetric  (prop-entry :anti-symmetric tax/closure-relations)]
+      ['antiTransitive (prop-entry :anti-transitive tax/closure-relations)]]
      [['arity
        ;; `(arity P n)` is read by the per-assert arity check, so it is cached like the
        ;; other declarations the engine interprets rather than re-queried per
@@ -2733,6 +2934,13 @@
                                        :wff wff/inter-arg-constraint-problems)]
             ['transitiveInArg        {:wff wff/arg-preserving-problems}]
             ['transitiveInArgInverse {:wff wff/arg-preserving-problems}]
+            ;; the three definitional collection relations: stored as ordinary facts
+            ;; and expanded into forward rules at assert (docs/defns.md), so the wff arm
+            ;; — the member-variable check — is the whole table entry, exactly as it is
+            ;; for `transitiveInArg`, which is likewise read back rather than integrated
+            ['defnNecessary        {:wff defn-wff-problems}]
+            ['defnSufficient       {:wff defn-wff-problems}]
+            ['defnIff              {:wff defn-wff-problems}]
             ['different            {:wff wff/different-problems}]
             ['unknown              {:wff wff/naf-problems}]
             ['thereExists          {:wff wff/naf-problems}]]
@@ -2777,30 +2985,45 @@
   sentence's *shape* instead: a rule (any functor can head an implication), an
   exceptWhen meta-sentex (its second argument is a `(sentexHandle H)`), a visibility
   `except`, and a disjoint metatype's member (the functor is the metatype itself,
-  known only at runtime).  Shared by `integrate-sentex` (the assert path) and
-  `integrate-twin` (migration), so a migrated rule / meta twin reaches exactly the
-  indexing an asserted one does."
-  [kb sentex handle]
-  (let [sentence (:sentence sentex)
-        f        (nm/functor sentence)]
-    (cond
-      ;; an exceptWhen meta-sentex names a rule it qualifies — register it in the
-      ;; re-check index under that rule
-      (sx/exceptWhen-meta? sentence)  (index-exceptWhen-meta kb sentex)
-      ;; a visibility `(except (sentexHandle H))` fact: queue the firings that use H
-      ;; so settle sweeps any conclusion now resting on an invisible antecedent
-      (= sx/except-functor f)         (recheck-except kb sentex)
-      ;; a rule reaching the general path (e.g. rebuilt by recover, or a migrated
-      ;; twin) is indexed from its own record, so it keeps the direction its wrapper
-      ;; gave it
-      (rules/rule-sentence? sentence) (index-rule-sentex kb handle sentex)
-      ;; a member (M T) of a disjoint metatype: record T's membership, which is what
-      ;; makes it disjoint from every other member.  Recording is O(1) and reversible;
-      ;; asserting a `(disjoint t o)` per existing member was O(n) sentexes per member
-      ;; — quadratic overall — and left premises no retraction could reach.
-      (and (= 1 (nm/arity sentence)) (tax/disjoint-metatype? (:taxonomy kb) f))
-      (tax/add-metatype-member (:taxonomy kb) f (first (nm/args sentence)) handle
-                               (:context sentex)))))
+  known only at runtime).  Shared by `integrate-sentex` (the assert path),
+  `integrate-twin` (migration) and `derived-sentex-added` (the derivation path), so a
+  migrated rule / meta twin and a rule-derived except reach exactly the indexing an
+  asserted one does.
+
+  `derived?` drops the **rule** arm and nothing else.  The derivation path's own caller
+  posts a stamped rule by name and before it justifies it (`chain/mint-rule` ->
+  `index-rule-sentex`), because a mint is dispatched as a rule rather than as a fact and
+  never reaches here; running the arm again would post the same rule twice and mark it
+  for a second blanket re-check.  Every other arm is content the derivation path can
+  reach only through this walk."
+  ([kb sentex handle] (structural-integrate kb sentex handle false))
+  ([kb sentex handle derived?]
+   (let [sentence (:sentence sentex)
+         f        (nm/functor sentence)]
+     (cond
+       ;; an exceptWhen meta-sentex names a rule it qualifies — register it in the
+       ;; re-check index under that rule
+       (sx/exceptWhen-meta? sentence)  (index-exceptWhen-meta kb sentex)
+       ;; a visibility `(except (sentexHandle H))` fact: queue the firings that use H
+       ;; so settle sweeps any conclusion now resting on an invisible antecedent
+       (= sx/except-functor f)         (do (recheck-except kb sentex)
+                                           (reconcile-belief-change! kb #{handle}))
+       ;; a rule reaching the general path (e.g. rebuilt by recover, or a migrated
+       ;; twin) is indexed from its own record, so it keeps the direction its wrapper
+       ;; gave it
+       (and (not derived?)
+            (rules/rule-sentence? sentence)) (index-rule-sentex kb handle sentex)
+       ;; a member (M T) of a disjoint metatype: record T's membership, which is what
+       ;; makes it disjoint from every other member.  Recording is O(1) and reversible;
+       ;; asserting a `(disjoint t o)` per existing member would be O(n) sentexes per
+       ;; member — quadratic overall — and premises no retraction could reach.
+       ;; Gated on the mark being **stored**, not believed: the membership is a
+       ;; supporter, and belief follows it through `refresh-cache-support` — a member
+       ;; stated while the mark is defeated is recorded now and separates the moment
+       ;; the mark revives, in either order of arrival.
+       (and (= 1 (nm/arity sentence)) (tax/stored-disjoint-metatype? (:taxonomy kb) f))
+       (tax/add-metatype-member (:taxonomy kb) f (first (nm/args sentence)) handle
+                                (:context sentex))))))
 
 (defn- run-integrate-arms
   "Run the one integrate arm that fits `sentex`: the table `:integrate` arm for a
@@ -2832,9 +3055,9 @@
   believed while the taxonomy never learns what it *declares*: a merged `(disjoint
   dog cat)` twin `(disjoint canine cat)` must reach `add-disjoint`, a `(transitive
   containedBy)` twin must reach `mark-prop`, and a migrated rule twin must reach the
-  rule index or it never fires.  So this runs the same arms `integrate-sentex` does —
-  the fuller integration `derived-sentex-added` (the forward-chaining conclusion path)
-  deliberately narrows to the genl closure edges.
+  rule index or it never fires.  So this runs the same arms `integrate-sentex` does,
+  where `derived-sentex-added` (the forward-chaining conclusion path) narrows the table
+  half to the `:derived?` entries and drops the rule arm its own caller posts by name.
 
   The **equality arm is skipped**: a twin is never an equality sentex (those are held
   back from migration, `kb/rewritable-sentex?`), and running `migrate-class` from
@@ -2891,22 +3114,24 @@
           ;; walked, and a departed rule is never queued again.
           (swap! (:refused kb) dissoc (:id sentex)))
       ;; a member leaving a disjoint metatype: it stops being disjoint from the rest.
-      ;; With the clique materialized this was unreachable — the `(disjoint t o)`
-      ;; sentexes were premises in their own right and outlived the membership.
-      (and (= 1 (nm/arity sentence)) (tax/disjoint-metatype? (:taxonomy kb) f))
+      ;; Gated on storage like the integrate arm, so a member retracted while the mark
+      ;; is defeated drops its support entry rather than leaving it behind for good.
+      (and (= 1 (nm/arity sentence)) (tax/stored-disjoint-metatype? (:taxonomy kb) f))
       (tax/del-metatype-member! (:taxonomy kb) f (first (nm/args sentence)) (:id sentex)))))
 
 (defn integrate-transitive
-  "The **derivation-path** subset of `integrate-sentex`: only the arms flagged
-  `:derived?` — the genl / genlCx closure edges — run for a rule-derived
-  conclusion, because the rest of integration either does not apply to a derived
-  sentex or would re-enter `assert` from inside forward chaining.  Without this on
-  the derivation path, a rule concluding `(genl a b)` stored and believed the sentex
-  while the taxonomy never learned the edge — and `recover`, which reads the store,
-  then disagreed with the running KB about what the KB entailed.  (A derived
-  *equality* is not reached from here: `chain/place-fact-conclusion` calls
-  `integrate-equality-sentex` by name, because this fn discards what an arm returns
-  and there the return value is the work — the twins and the violations.)"
+  "The **table** half of `derived-sentex-added`: for a functor the table keys, only the
+  arms flagged `:derived?` — the genl / genlCx closure edges, and the marks that carry
+  the flag for their own reasons — run for a rule-derived conclusion, because the rest
+  of integration either does not apply to a derived sentex or would re-enter `assert`
+  from inside forward chaining.  Without this on the derivation path, a rule concluding
+  `(genl a b)` stored and believed the sentex while the taxonomy never learned the edge
+  — and `recover`, which reads the store, then disagreed with the running KB about what
+  the KB entailed.  (A derived *equality* is not reached from here:
+  `chain/place-fact-conclusion` calls `integrate-equality-sentex` by name, because this
+  fn discards what an arm returns and there the return value is the work — the twins and
+  the violations.)  A functor the table does **not** key is the structural walk's, not
+  this one's."
   [kb sentex handle]
   (let [e (get table (nm/functor (:sentence sentex)))]
     (when (:derived? e)
@@ -2914,20 +3139,52 @@
 
 (defn derived-sentex-added
   "The derivation-path add choke point: everything that must happen because a
-  **derived** sentex landed in the store — the closure-reaching integration above,
-  and the exception re-check post, since a derived fact is a re-check trigger like
-  an asserted one (an exception may be stated over a predicate that only ever
+  **derived** sentex landed in the store — the integration arms a derived sentex may
+  reach, and the exception re-check post, since a derived fact is a re-check trigger
+  like an asserted one (an exception may be stated over a predicate that only ever
   arrives by inference — the cried-wolf case, where `liar` is concluded by another
   rule).
+
+  **The dispatch is `run-integrate-arms`'s, narrowed.**  A functor the table keys runs
+  its `:integrate` arm iff the entry is flagged `:derived?` (`integrate-transitive`);
+  a functor it does not key runs the structural walk, minus the rule arm the caller
+  posts by name (`structural-integrate`'s `derived?`).  Both halves have to be here or
+  the derivation path reaches a strictly smaller set of caches than `recover`'s rebuild
+  does, and the running KB and the restarted one then disagree about one store: a rule
+  concluding a disjoint metatype's member separated nothing until a restart replayed it,
+  and a rule-derived `(except (sentexHandle H))` hid its target from the *reads* — the
+  roster is written at the store primitive (`kb/note-excepted!`) — while no firing that
+  used H was ever queued for the sweep.
+
+  **The except arm's `reconcile-belief-change!` is called inline, mid-fixpoint, and
+  that is safe.**  Neither half of it re-enters chaining or settling:
+  `tax/note-supporter-visibility-change!` is one `swap!` bumping a generation, and
+  `tax/refresh-beliefs` is a `swap!` over the taxonomy that reads `jtms/in?` and writes
+  cache entries — no assert, no chain, no settle, and no relabel.  It is scoped to the
+  arriving except and the handle it hides, so it costs two handles' worth of edge
+  lookups rather than the vocabulary's.  `recheck-except` beside it only pushes rule
+  handles onto the re-check queue, which is what the settle around this drains; that is
+  exactly what the assert path does from inside its own `integrate-sentex`.
+
+  The one ordering difference from the assert path is that `mark-premise` runs *before*
+  `integrate/sentex-added`, where two of this fn's four callers run it before the
+  justification — so the except is stored, rostered and generation-bumped a few lines
+  ahead of being believed.  Nothing reads a scoped taxonomy answer in that window (the
+  callers write a justification and nothing else), and the JTMS labels the region as the
+  justification lands, so the first read after it recomputes against settled belief.
 
   Lives here rather than beside `sentex-added` in `vaelii.impl.integrate` because
   the equality arms are themselves derivation sites: a migrated twin and a
   functional-inferred `equals` are derived sentexes, and hand-rolling this pair at
   those sites is exactly the copy-paste the choke points exist to end.  Callers:
-  forward chaining's `place-conclusion`, `migrate-sentex`, `derive-equality`."
+  forward chaining's `place-conclusion`, the `decontextualizedPredicate` lift, the
+  argument-constraint entailment, and `derive-equality`."
   [kb sentex handle]
-  (integrate-transitive kb sentex handle)
-  (recheck-on-sentence kb (:sentence sentex)))
+  (let [sentence (:sentence sentex)]
+    (if (contains? table (nm/functor sentence))
+      (integrate-transitive kb sentex handle)
+      (structural-integrate kb sentex handle true))
+    (recheck-on-sentence kb sentence)))
 
 ;; ---- rebuild: recover's replay of the table ------------------------------
 
@@ -2948,7 +3205,8 @@
     ;; Members second, once the metatypes are known — membership is what separates
     ;; them, and nothing about it is stored beyond the `(M T)` sentexes themselves.
     ;; A second pass rather than a table entry, because the member functors are the
-    ;; metatypes: data, not vocabulary.
-    (doseq [m (tax/disjoint-metatypes tax)
+    ;; metatypes: data, not vocabulary.  Every *stored* mark, as the live member arm
+    ;; reads it, so the recovered members are the live KB's whatever the marks' labels.
+    (doseq [m (tax/stored-disjoint-metatypes tax)
             {[_ t] :sentence id :id ctx :context} (stored-declarations kb m)]
       (tax/add-metatype-member tax m t id ctx))))

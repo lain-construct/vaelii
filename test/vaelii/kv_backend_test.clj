@@ -11,10 +11,12 @@
   `VAELII_TEST_BACKEND=disk`), reached through a real KB so the clear teardown is
   handled for us.  Green on both is the proof both satisfy the contract."
   (:require [clojure.test :refer [deftest is testing]]
+            [vaelii.core :as v]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.memory :as mem]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
+            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (defn check-backend
@@ -39,7 +41,17 @@
     (is (= 1 (kv/kv-increment b [:c :n])) "first incr from absent is 1")
     (is (= 2 (kv/kv-increment b [:c :n])))
     (is (= 1 (kv/kv-decrement b [:c :n])) "decr returns the new value")
-    (is (= 0 (kv/kv-decrement b [:c :n]))))
+    (is (= 0 (kv/kv-decrement b [:c :n])))
+    ;; Every counter key this index writes is a cardinality — how many sentexes live
+    ;; under a trie prefix — and `plan/prefix-estimate` divides by them, so the floor is
+    ;; part of the contract rather than an accident of one adapter's arithmetic.  An
+    ;; adapter that lets one go negative passes every other line here and hands the
+    ;; planner a number that means nothing.
+    (testing "a decrement at zero holds the floor rather than going negative"
+      (is (= 0 (kv/kv-decrement b [:c :n])) "at zero it stays at zero")
+      (is (= 0 (kv/kv-decrement b [:c :never])) "and an absent counter decrements to zero")
+      (is (= 1 (kv/kv-increment b [:c :n])) "the floor is a floor, not a stuck key")
+      (kv/kv-delete b [:c :never])))
 
   (testing "sets — add/remove/members/card, every member type intact"
     (kv/kv-add-to-set b [:put 1] 1970)          ; a number, not "1970"
@@ -123,6 +135,38 @@
   ;; a dedicated db number, isolated from the KB registries the suite uses
   (check-backend (mem/memory-kv-backend {:space 991})))
 
+(deftest a-bulk-load-takes-only-its-own-backend-s-writes
+  ;; `with-bulk-writes` binds a transient for ONE backend on the current thread.  A
+  ;; write this thread makes to another MemoryKvBackend while the load runs — a second
+  ;; KB's index, a chaining callback asserting elsewhere — must land on that backend's
+  ;; own atom, visible at once, rather than on the loaded backend's transient, where it
+  ;; would be persisted into the wrong map at the end of the load.
+  (let [loaded (doto (mem/memory-kv-backend {:space 993}) (kv/kv-clear!))
+        other  (doto (mem/memory-kv-backend {:space 994}) (kv/kv-clear!))]
+    (try
+      (mem/with-bulk-writes loaded
+        (kv/kv-put loaded [:s :mine] 1)
+        (kv/kv-add-to-set loaded [:set :mine] 7)
+        (kv/kv-put other [:s :theirs] 2)
+        (kv/kv-add-to-set other [:set :theirs] 8)
+        (kv/kv-increment other [:c :theirs])
+        (testing "the other backend's writes are on its own atom, mid-load"
+          (is (= 2 (kv/kv-get other [:s :theirs])))
+          (is (= #{8} (kv/kv-members other [:set :theirs])))
+          (is (= 1 (kv/kv-get other [:c :theirs]))))
+        (testing "and none of them leaked into the loaded backend's reads"
+          (is (nil? (kv/kv-get loaded [:s :theirs])))))
+      (testing "after the load, each backend holds exactly what was written to it"
+        (is (= 1 (kv/kv-get loaded [:s :mine])))
+        (is (= #{7} (kv/kv-members loaded [:set :mine])))
+        (is (nil? (kv/kv-get loaded [:s :theirs])) "the other backend's scalar did not persist here")
+        (is (empty? (kv/kv-members loaded [:set :theirs])))
+        (is (= 2 (kv/kv-get other [:s :theirs])))
+        (is (nil? (kv/kv-get other [:s :mine]))))
+      (finally
+        (kv/kv-clear! loaded)
+        (kv/kv-clear! other)))))
+
 (deftest suite-backend-satisfies-the-contract
   ;; whatever the suite runs on — the in-memory backend by default, the on-disk WAL
   ;; under VAELII_TEST_BACKEND=disk — reached through a real KB so the clear teardown
@@ -177,3 +221,73 @@
           (testing "unindex-sentex — two batches (decrement pass, then the delete pass)"
             (p/unindex-sentex! store sx 42)
             (is (= 3 (:batch @counts)) "one index + two unindex batches")))))))
+
+;; ---- the exact leaf, and what asking for a match instead costs -----------
+
+(deftest leaf-at-reads-the-node-the-path-names-where-lookup-matches
+  ;; `lookup` reads a variable in the path as a wildcard, so an α-renamed key — which is
+  ;; what every non-ground sentex is stored under — matches the whole extent of its shape.
+  ;; `leaf-at` reads the one node instead.  The two agree exactly on a ground path, which
+  ;; is what lets `find-sentex-handle` take the cheap one unconditionally.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (tu/with-terms [rel A B C D CxCtx]
+      (let [idx  (:index kb)
+            sxs  (mapv #(res/kb-sentex kb (list rel (first %) (second %)) CxCtx)
+                       [[A B] [C D]])]
+        (doseq [[i sx] (map-indexed vector sxs)] (p/index-sentex idx sx (+ 900 i)))
+        (try
+          (testing "a ground path: the leaf is the match, handle for handle"
+            (let [pth (sx/path (first sxs))]
+              (is (= #{900} (p/leaf-at idx pth)))
+              (is (= (p/lookup idx pth) (p/leaf-at idx pth)))))
+          (testing "an open path: the match fans the shape, the leaf holds only its own"
+            (let [pth (sx/path (res/kb-sentex kb (list rel '?x '?y) CxCtx))]
+              (is (= #{900 901} (p/lookup idx pth)) "both facts match the pattern")
+              (is (= #{} (p/leaf-at idx pth))
+                  "and neither is stored at the pattern's own α-renamed key")))
+          (finally
+            (doseq [[i sx] (map-indexed vector sxs)]
+              (p/unindex-sentex! idx sx (+ 900 i)))))))))
+
+;; A RecordStore decorator counting the fetches a call makes.  The count is at the
+;; protocol seam, so it says the same thing on a RAM store and on a paged one — where
+;; each fetch is a positional read and a nippy thaw past the LRU.
+(defrecord CountingRecords [inner fetches]
+  p/RecordStore
+  (get-sentex [_ id] (swap! fetches inc) (p/get-sentex inner id))
+  (put-sentex [_ sx] (p/put-sentex inner sx))
+  (delete-sentex! [_ id] (p/delete-sentex! inner id))
+  (put-justification [_ d] (p/put-justification inner d))
+  (get-justification [_ id] (p/get-justification inner id))
+  (delete-justification! [_ id] (p/delete-justification! inner id))
+  (next-id [_] (p/next-id inner))
+  (put-provenance [_ id pv] (p/put-provenance inner id pv))
+  (get-provenance [_ id] (p/get-provenance inner id))
+  (delete-provenance! [_ id] (p/delete-provenance! inner id))
+  (sentex-ids [_] (p/sentex-ids inner))
+  (justification-ids [_] (p/justification-ids inner))
+  (mark-premise [_ id s] (p/mark-premise inner id s))
+  (unmark-premise! [_ id] (p/unmark-premise! inner id))
+  (premise-ids [_] (p/premise-ids inner))
+  (premise-strength [_ id] (p/premise-strength inner id))
+  (clear-records! [_] (p/clear-records! inner)))
+
+(deftest a-dedup-probe-costs-one-leaf-read-and-not-the-extent
+  ;; `handle-of` and `why-not` are public — and RPC ops and CLI commands — so the pattern
+  ;; is the caller's to choose.  Asking the trie for a *match* of an open one fans over
+  ;; every stored sentex of that shape and reads the record of each to tell them apart;
+  ;; asking for the leaf the key names reads the one node and nothing else.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (tu/with-terms [rel CxCtx]
+      (dotimes [i 40]
+        (v/assert kb (list rel (symbol (str "Tmpleft" i)) (symbol (str "Tmpright" i))) CxCtx))
+      (let [fetches (atom 0)
+            counted (assoc kb :records (->CountingRecords (:records kb) fetches))]
+        (testing "an open pattern nothing is stored under reads no records at all"
+          (reset! fetches 0)
+          (is (nil? (v/handle-of counted (list rel '?x '?y) CxCtx)))
+          (is (zero? @fetches)
+              "one leaf read answered it — a match would have read all forty"))
+        (testing "and a ground sentence is still found, off the same leaf"
+          (reset! fetches 0)
+          (is (some? (v/handle-of counted (list rel 'Tmpleft7 'Tmpright7) CxCtx))))))))

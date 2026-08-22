@@ -443,7 +443,9 @@ mocks — the in-memory stores by default, with no external dependency.
 - **`VAELII_TEST_BACKEND` takes a backend name**, spelled `<records>-<index>`
   (`memory-columnar`, `disk-dense`), with `memory` and `disk` naming the two pairs that
   are one store on both axes, plus `overlay` for the fork decorator. The suite must be
-  **failing-set-identical across all eight**, and so must the assertion count.
+  **failing-set-identical across all eight**, and so must the assertion count — which
+  the runners check against `config_expected_delta` rather than print for a reader to
+  compare, since a configuration that ran fewer assertions than the others is green.
 - **`lein gate` runs the memory pair and only that one**, so a change touching storage,
   the index, records, recovery or overlay owes `./scripts/test-backends.sh` a run
   before it lands. A durable-store bug is invisible to the one backend the gate
@@ -455,7 +457,9 @@ mocks — the in-memory stores by default, with no external dependency.
   the reference nested context retrieval — and each is a cost decision rather than a
   semantic one, so the five must be failing-set-identical with each other and with a
   plain `lein test`. Their assertion counts may differ where an assertion pins an
-  artifact of one implementation and stands aside under the switch that replaces it.
+  artifact of one implementation and stands aside under the switch that replaces it —
+  by the amount `config_expected_delta` records, and a new stand-aside belongs there
+  with its reason in the commit that adds it.
 - **Run both locally rather than asking CI for them.** The `deep` workflow runs the
   same sixteen configurations, and one run of it is 209 job-minutes — the local
   scripts cost wall time and nothing else, so they are the gate and CI is the
@@ -540,8 +544,8 @@ remote shell. See [`.github/SECURITY.md`](.github/SECURITY.md).
 - **Each commit's `author` is the person who signs it off.** A change someone else
   drafted is landed by re-authoring it, not by committing it under their name with a
   second sign-off appended: a `Signed-off-by:` line is a certification, so it may only
-  name someone who can make one. That rules out a tool, bot or agent account — for the
-  same reasons a co-author trailer may not name one, below.
+  name someone who can make one — a person who stands behind the account and answers
+  for the work. The same holds for the co-author trailers, below.
 - **Commit style** is Conventional Commits: `type(scope): subject`, with the scope
   optional. The types in use are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`,
   `style`, `build`, `bench`, `chore`, `deps`. Examples from `git log`:
@@ -549,20 +553,23 @@ remote shell. See [`.github/SECURITY.md`](.github/SECURITY.md).
   - `perf(checks): a declaration read nothing declares is a tax on every write`
   - `docs(kbs): the route from a fresh clone to each of the four loadable KBs`
 - **Sign off every commit** with `git commit -s`. This appends the `Signed-off-by:`
-  trailer required by the [DCO](DCO); the DCO bot blocks unsigned pull requests from
+  trailer required by the [DCO](DCO); the DCO app blocks unsigned pull requests from
   merging. See §9.4.
-- **Co-author trailers are human-only.** `Co-Authored-By: Alice <a@x.com>` and
-  `Co-developed-by:` are welcome for human collaborators, and are how a squashed merge
-  preserves credit for several contributors. Never add one for a tool, bot, or other
-  non-human author: it cannot sign the DCO (§9.4) or the CLA (§9.5), its output has no
-  copyright holder the trailer could name, and it skews the contributor statistics.
+- **Co-author trailers credit the other people who worked on the change.**
+  `Co-Authored-By: Alice <alice@example.com>` and `Co-developed-by:` are how a squashed
+  merge preserves that credit, so each names a person who shares authorship: someone who
+  can make the DCO (§9.4) and CLA (§9.5) certifications, whose contribution has a
+  copyright holder the trailer identifies, and who counts in the contributor statistics.
 - **The `committer` field is covered too.** A commit names three parties — who wrote it,
   who applied it, and whoever its trailers credit — and the rule above reaches all of
   them. `committer` differing from `author` is ordinary and welcome: a maintainer
-  rebasing your branch, a patch applied by hand, the merge button. What it may not name
-  is a tool, bot or agent, for the same reason the other two may not.
+  rebasing your branch, a patch applied by hand, the merge button. Like the author and
+  the trailers, it names a person who can stand behind the account.
 - **The `authorship` check is where that is decided**, beside `DCO` and `license/cla`.
-  Every author, committer and trailer on a pull request has to appear in
+  A green `license/cla` says the CLA is signed and a green `DCO` says each commit is
+  signed off; neither can say a person stands behind the account, and that is the one
+  thing this check adds. Every author, committer and trailer on a pull request has to
+  appear in
   [`.github/AUTHORS.roster`](.github/AUTHORS.roster), which a maintainer writes on
   `develop`. An account nobody has admitted fails closed, so the first pull request from
   a new contributor waits on being added — a one-line commit, and it carries to every

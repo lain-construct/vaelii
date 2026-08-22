@@ -10,6 +10,7 @@
             [vaelii.impl.catalog :as catalog]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.io.generate :as generate]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.web :as web]
             [vaelii.test-util :as tu]))
 
@@ -142,6 +143,65 @@
       ;; a POST-only route answers a GET with 405, the same as `/chain`: changing which
       ;; KB this process holds is a write, and a write is never a link
       (is (= 405 (:status (GET uri)))))))
+
+(deftest a-write-lands-on-the-kb-its-refusal-judged-not-on-one-activated-under-it
+  ;; `/kbs/activate` takes no monitor, and an entry still loading is activatable by
+  ;; design — so the holder can be re-pointed between a write door's refusal and its
+  ;; write.  The door derefs the holder once and hands that KB to both halves; this
+  ;; lands the switch exactly in the gap (the refusal's own `write-blocked?` read is
+  ;; where it fires) and asks which KB took the fact.  Written through the second deref,
+  ;; the fact lands on a KB the refusal never judged — one whose loader may be this
+  ;; process's writer.
+  (let [other (doto (tu/isolated-fresh) core-context/load-into)
+        ctx   (tu/tmp-ctx "Switch")
+        s     (list 'likes 'Tom 'Ann)]
+    (catalog/register! "other" "Other KB" other {:source (catalog/source "core")})
+    (try
+      (is (= "base" (catalog/active)))
+      (with-redefs [catalog/write-blocked? (fn [_] (catalog/activate "other") false)]
+        (is (= 200 (:status (POST "/assert" {"text" (pr-str s) "ctx" (str ctx)})))))
+      (is (= "other" (catalog/active)) "the switch landed between the refusal and the write")
+      (is (some? (v/handle-of tu/*kb* s ctx)) "the KB the refusal judged is the KB written")
+      (is (nil? (v/handle-of other s ctx)) "and the one activated under it took nothing")
+      (finally
+        (catalog/activate "base")
+        (tu/clear-kb! other)))))
+
+(deftest a-refusal-names-the-kb-it-judged-not-the-one-activated-under-it
+  ;; The same gap, one step later.  A door that resolves the holder once and then renders
+  ;; `(active-kb-name)` reports the refusal against whatever `/kbs/activate` pointed at
+  ;; while the page was being built — which, on this path, is by construction the one KB
+  ;; the refusal is not about.  Each arm lands the switch inside its own read.
+  (let [other (doto (tu/isolated-fresh) core-context/load-into)
+        ctx   (tu/tmp-ctx "Named")
+        s     (list 'likes 'Tom 'Ann)
+        POST! #(:body (POST "/assert" {"text" (pr-str s) "ctx" (str ctx)}))
+        switch (fn [answer] (fn [& _] (catalog/activate "other") answer))]
+    (catalog/register! "other" "Other KB" other {:source (catalog/source "core")})
+    (try
+      (doseq [[label redefs pattern]
+              [["a job holds the writer"
+                {#'catalog/write-blocked? (switch true)}
+                #"<b>Base KB</b> is being written by"]
+               ["an export is walking it"
+                {#'catalog/write-blocked? (constantly false)
+                 #'catalog/exporting-kb?  (switch true)}
+                #"<b>Base KB</b> is being exported"]
+               ["its belief was never rebuilt"
+                {#'catalog/write-blocked? (constantly false)
+                 #'catalog/exporting-kb?  (constantly false)
+                 #'kb/write-hazards       (switch {:no-index true})}
+                #"<b>Base KB</b> is stored but not built"]]]
+        (catalog/activate "base")
+        (let [body (with-redefs-fn redefs POST!)]
+          (is (= "other" (catalog/active))
+              (str label ": the switch landed while the refusal was being rendered"))
+          (is (re-find pattern body) (str label ": the refusal names the KB it judged"))
+          (is (not (re-find #"<b>Other KB</b> is (being|stored)" body))
+              (str label ": and not the one activated under it"))))
+      (finally
+        (catalog/activate "base")
+        (tu/clear-kb! other)))))
 
 (deftest an-unloaded-kb-cannot-be-reached-by-the-pages
   (testing "unloading the only KB leaves the holder's fallback, so the browser still

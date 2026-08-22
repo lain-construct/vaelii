@@ -291,6 +291,156 @@
             (is (not-any? #(= (list p Tom) %)
                           (concat (:forced c) (:supportable c) (:excluded c))))))))))
 
+(deftest a-users-sentex-about-a-solve-context-survives-the-sweep
+  ;; The sweep takes a context's own extent (and a marked labeling's placement edge),
+  ;; never everything that *mentions* it.  A classification context has no edge of
+  ;; the solve's at all, so an edge hanging `<Into>Class` somewhere is always a
+  ;; user's; and an empty `<Into>Class` passes the believed-extent guard, which reads
+  ;; the extent and cannot see the edge.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [about Tom]
+        (color-choices kb)
+        (v/assert kb '(do/label CxUniverse CxOwnPlan) 'CxUniverse)
+        ;; the user's edge, hanging the (still empty) class context under their own
+        ;; context, and a claim about a labeling context made from elsewhere
+        (let [edge  (v/assert kb '(genlCx CxOwnPlanClass CxUniverse) 'CxUniverse
+                              {:strength :monotonic})
+              claim (v/assert kb (list about Tom 'CxOwnPlan1) 'CxUniverse)]
+          (v/assert kb '(do/classify CxOwnPlan) 'CxUniverse)
+          (v/assert kb '(do/classify CxOwnPlan) 'CxUniverse)
+          (testing "two classifications later the user's edge stands"
+            (is (v/in? kb edge))
+            (is (seq (v/sentexes-matching kb '(genlCx CxOwnPlanClass CxUniverse) 'CxUniverse))))
+          (testing "and the classification was written beside it"
+            (is (= 2 (count (v/sentexes-in-context kb 'CxOwnPlanClass)))))
+          (v/assert kb '(do/label CxUniverse CxOwnPlan) 'CxUniverse)
+          (testing "a re-run replaces the labeling but leaves the claim about it"
+            (is (v/in? kb claim))
+            (is (= 3 (count (v/sentexes-in-context kb 'CxOwnPlan1)))
+                "two truth values plus the marker, freshly written")))))))
+
+(deftest a-users-genlcx-edge-off-a-labeling-context-survives-the-sweep
+  ;; The narrower half of the claim above, and the one where getting it wrong is data
+  ;; loss: the sweep takes the *one* edge that placed the labeling under this run's
+  ;; base, not every `(genlCx <labeling> _)` in the KB.  Hanging a solve's world under
+  ;; contexts of one's own is the ordinary way to read it beside other knowledge, and
+  ;; those edges are monotonic — asserted, believed, and nobody else's to retract.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (color-choices kb)
+      (v/assert kb '(do/label CxUniverse CxHangPlan) 'CxUniverse)
+      (let [users (mapv #(v/assert kb (list 'genlCx 'CxHangPlan1 %) 'CxUniverse
+                                   {:strength :monotonic})
+                        '[CxHangA CxHangB CxHangC])]
+        (is (every? #(v/in? kb %) users) "the user's three edges are believed")
+        (let [r (v/assert kb '(do/label CxUniverse CxHangPlan) 'CxUniverse)]
+          (testing "a re-run replaces the labeling and leaves the user's edges standing"
+            (is (every? #(v/in? kb %) users))
+            (is (= 3 (count (v/sentexes-matching kb '(genlCx CxHangPlan1 ?up)
+                                                 'CxUniverse)))))
+          (testing "while its own placement edge and truth values went with the run"
+            (is (empty? (v/sentexes-matching kb '(genlCx CxHangPlan1 CxUniverse)
+                                             'CxUniverse)))
+            (is (empty? (v/sentexes-in-context kb 'CxHangPlan1))))
+          (testing "and the fresh labelings were written into slots of their own"
+            (is (= 2 (:count r)))
+            (is (not-any? #(= 'CxHangPlan1 (:context %)) (:labelings r)))))))))
+
+(deftest a-labeling-with-believed-content-blocks-the-rerun-rather-than-being-skipped
+  ;; The sweep declines to touch a context holding a believed sentex, which is right —
+  ;; it must never destroy knowledge.  Carrying on afterwards is not: the untouched
+  ;; context keeps the marker naming it labeling 1 of this `Into`, the new run mints
+  ;; another labeling 1 beside it, and `classify` then aggregates two groundings into
+  ;; one classification — the accretion replace-on-rerun exists to prevent.  Refusing
+  ;; is what makes "replaced, never accreted" true rather than usually true.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [note Hello]
+        (color-choices kb)
+        (is (= 2 (:count (v/assert kb '(do/label CxUniverse CxBlockPlan) 'CxUniverse))))
+        (v/assert kb (list note Hello) 'CxBlockPlan1)
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (v/assert kb '(do/label CxUniverse CxBlockPlan) 'CxUniverse)))]
+          (is (= :labeling-run-blocked (:type (ex-data e))))
+          (is (= '[CxBlockPlan1] (:believed (ex-data e)))))
+        (testing "and it refused rather than writing a third slot"
+          (is (not (contains? (set (v/contexts kb)) 'CxBlockPlan3)))
+          (is (= 2 (:count (v/assert kb '(do/classify CxBlockPlan) 'CxUniverse)))
+              "one grounding's worth of labelings, as before"))
+        (testing "the user's fact is untouched, which is why the sweep declined"
+          (is (seq (v/sentexes-matching kb (list note Hello) 'CxBlockPlan1))))
+        (testing ":one and :sat are unaffected — they have nothing to replace"
+          (is (= 1 (:count (v/assert kb '(do/label CxUniverse CxBlockPlan :one) 'CxUniverse)))))
+        (testing "retracting the user's fact unblocks the run"
+          (run! #(v/retract! kb (:id %))
+                (v/sentexes-matching kb (list note Hello) 'CxBlockPlan1))
+          (is (= 2 (:count (v/assert kb '(do/label CxUniverse CxBlockPlan) 'CxUniverse)))))))))
+
+(deftest a-labeling-that-lost-its-marker-blocks-the-rerun
+  ;; The marker is an ordinary retractable sentex and rediscovery is the only path to a
+  ;; labeling context, so a retracted marker hides that context from the sweep forever
+  ;; — while its `genlCx` edge goes on holding it under the base.  Since the placement
+  ;; edge is taken off the marked context, a lost marker leaks a believed monotonic
+  ;; edge, and one more slot on every re-run.  Blocked, the leak cannot start.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (color-choices kb)
+      (v/assert kb '(do/label CxUniverse CxLostPlan) 'CxUniverse)
+      (let [marker (first (filter #(= 'labelingOf (first (:sentence %)))
+                                  (v/sentexes-in-context kb 'CxLostPlan1)))]
+        (v/retract! kb (:id marker))
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (v/assert kb '(do/label CxUniverse CxLostPlan) 'CxUniverse)))]
+          (is (= :labeling-run-blocked (:type (ex-data e))))
+          (is (= '[CxLostPlan1] (:orphaned (ex-data e)))))
+        (testing "no fresh slot was minted around it"
+          (is (not (contains? (set (v/contexts kb)) 'CxLostPlan3))))
+        (testing "retracting the orphan's extent and its placement edge unblocks the run"
+          (run! #(v/retract! kb (:id %)) (v/sentexes-in-context kb 'CxLostPlan1))
+          (run! #(v/retract! kb (:id %))
+                (v/sentexes-matching kb '(genlCx CxLostPlan1 CxUniverse) 'CxUniverse))
+          (is (= 2 (:count (v/assert kb '(do/label CxUniverse CxLostPlan) 'CxUniverse)))))))))
+
+(deftest a-classification-with-believed-content-blocks-its-own-rerun
+  ;; Same rule, the other artifact: a `<Into>Class` the sweep cannot clear would take a
+  ;; second classification beside the first, and two of those in one context describe
+  ;; no set of labelings.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [note Hello]
+        (color-choices kb)
+        (v/assert kb '(do/label CxUniverse CxClsPlan) 'CxUniverse)
+        (v/assert kb '(do/classify CxClsPlan) 'CxUniverse)
+        (let [before (count (v/sentexes-in-context kb 'CxClsPlanClass))]
+          (v/assert kb (list note Hello) 'CxClsPlanClass)
+          (let [e (is (thrown? clojure.lang.ExceptionInfo
+                               (v/assert kb '(do/classify CxClsPlan) 'CxUniverse)))]
+            (is (= :labeling-run-blocked (:type (ex-data e))))
+            (is (= '[CxClsPlanClass] (:believed (ex-data e)))))
+          (testing "a re-label refuses too, the class context being its to replace as well"
+            (is (thrown? clojure.lang.ExceptionInfo
+                         (v/assert kb '(do/label CxUniverse CxClsPlan) 'CxUniverse))))
+          (testing "and nothing was written beside the standing classification"
+            (is (= (inc before) (count (v/sentexes-in-context kb 'CxClsPlanClass)))
+                "the user's own sentex, and nothing else")))))))
+
+(deftest a-do-label-run-makes-exactly-one-solve-in-every-mode
+  ;; `VAELII_ASP_TIME_LIMIT` is a per-solve budget and a solve runs on the single
+  ;; writer, so what an operation holds the writer for is the budget times the solves
+  ;; it makes (docs/asp.md tabulates the multipliers).  `do/label` is the one at 1× in
+  ;; all three modes — `:all` enumerates once, `:one` and `:sat` solve once — and this
+  ;; is what keeps that row of the table honest.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (color-choices kb)
+      (doseq [[mode expected] [[:all :all-optima] [:one :label] [:sat :label]]]
+        (let [seen  (atom [])
+              solve solver/solve]
+          (with-redefs [solver/solve (fn [a m] (swap! seen conj m) (solve a m))]
+            (v/assert kb (list 'do/label 'CxUniverse 'CxOneSolvePlan mode) 'CxUniverse))
+          (is (= [expected] @seen) (str mode)))))))
+
 ;; ---- 4. do/classify: gather brave/cautious over the labelings -----------
 
 (deftest classify-gathers-brave-cautious-over-labelings

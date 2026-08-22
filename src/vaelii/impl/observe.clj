@@ -153,30 +153,63 @@
   with a `[sentence context]` key."
   ::stamp)
 
+(def ^:private generation-key
+  "Where the cache's **generation** lives: a counter stepped at every wholesale clear,
+  so a reader that recorded it can tell whether the entries it saw filled are still
+  the entries the map holds.  Beside the stamp for the same reason the stamp is there —
+  a keyword cannot collide with a `[sentence context]` key."
+  ::generation)
+
+(defn- current-under?
+  "Was the cache `c` filled under `stamp`?  `=`, not `identical?`: the stamp is a
+  composite (the KB's record store, then the symmetric-predicate set), rebuilt per call
+  — the store half compares by identity inside it, which is the isolation the composite
+  exists for."
+  [^java.util.Map c stamp]
+  (= stamp (.get c stamp-key)))
+
 (defn cached-handle
   "The cached handle for `sentence` in `context` under `stamp`, or nil — including
   whenever the cache was filled under a different stamp, which is a miss and not a
   wrong answer."
   [stamp sentence context]
   (when-let [^java.util.Map c *handle-cache*]
-    ;; `=`, not `identical?`: the stamp is a composite (the KB's record store, then
-    ;; the symmetric-predicate set), rebuilt per call — the store half compares by
-    ;; identity inside it, which is the isolation the composite exists for
-    (when (= stamp (.get c stamp-key))
+    (when (current-under? c stamp)
       (.get c [sentence context]))))
 
 (defn cache-handle!
   "Record that `sentence` in `context` is stored at `handle`, valid while `stamp`
   holds; returns `handle`.  A stamp the cache was not filled under empties it first —
-  everything in it was keyed on a canonicalization that has since moved.  A no-op when
-  no cache is bound."
+  everything in it was keyed on a canonicalization that has since moved — and steps
+  the generation (`cache-generation`).  A no-op when no cache is bound."
   [stamp sentence context handle]
   (when-let [^java.util.Map c *handle-cache*]
-    (when-not (= stamp (.get c stamp-key))
-      (.clear c)
-      (.put c stamp-key stamp))
+    (when-not (current-under? c stamp)
+      (let [gen (long (or (.get c generation-key) 0))]
+        (.clear c)
+        (.put c stamp-key stamp)
+        (.put c generation-key (inc gen))))
     (.put c [sentence context] handle))
   handle)
+
+(defn cache-generation
+  "Which filling of the handle cache is current under `stamp` — a counter that steps
+  at every wholesale clear — or nil when no cache is bound, or when the cache was
+  filled under another stamp (its entries answer nothing under this one, and the next
+  `cache-handle!` empties it).  A cache nothing has filled yet is claimed for `stamp`
+  here, at generation 1, so a reader can record the filling *before* the first store
+  lands in it.  For a reader whose claim rests on *every* store since some moment
+  being in the cache (`kb/find-sentex-handle`'s authority memo): a generation equal to
+  the one it recorded says no clear has happened since, and a different one — or nil
+  — says the entries it counted on are not there."
+  [stamp]
+  (when-let [^java.util.Map c *handle-cache*]
+    (cond
+      (current-under? c stamp)    (.get c generation-key)
+      (nil? (.get c stamp-key))   (do (.put c stamp-key stamp)
+                                      (.put c generation-key 1)
+                                      1)
+      :else                       nil)))
 
 (defn forget-handle!
   "Drop `sentence`/`context` from the cache — the removal choke point's half of the

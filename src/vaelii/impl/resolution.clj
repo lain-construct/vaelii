@@ -11,6 +11,7 @@
   (:require [clojure.walk :as walk]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.literal-cache :as lc]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.profile :as prof]
@@ -25,7 +26,7 @@
 
 ;; unify and unify-var are mutually recursive (a bound variable is chased back
 ;; through unify), so one forward declaration is genuinely required here.
-(declare unify-var)
+(declare unify-var excepted? excepted-anywhere?)
 
 (defn- dot-tail
   "The remaining sequence a dotted rest-variable binds to, as a canonical list."
@@ -371,7 +372,7 @@
   concluding a subtype answers a supertype goal, the backward dual of `fire-rules-for`
   fanning a new fact over its supertypes.  Computed as the intersection `specs(pred) ∩
   rules-by-consequent`: iterate the spec closure and probe the consequent index.  A
-  variable or non-symbol `pred` cannot be a type, so it degrades to the plain lookup.
+  non-symbol `pred` cannot be a type, so it degrades to the plain lookup.
 
   **Plus the variable-consequent catch-all.**  A rule concluding `(?p ?y ?x)` files its
   consequent under `p/var-consequent-key` rather than under any concrete predicate (see
@@ -379,6 +380,15 @@
   its bucket is unioned into every answer.  Without it a goal on `likes` never discovers
   a rule concluding `(?p …)`, and backward chaining is blind to exactly the rules the
   consequent-var-pred feature exists to make reachable.
+
+  **A variable `pred` is the dual**: the goal `(?p Tom ?y)` names no consequent bucket
+  and any rule may conclude it, `subsuming-unify` binding `?p` to the consequent's
+  functor.  So it answers **every** rule — enumerated off the antecedent roster
+  (`:rule-antecedents`) through the antecedent index, the `O(rules)` read
+  `chain/rule-firing-report` takes, since every rule carries an antecedent and the
+  consequent index has no roster of its own.  Paid only for a variable functor, which
+  fact matching already answers through the argument roots; without it the open functor
+  reached stored facts and silently no rule.
 
   **The answer is bounded by the concluding rules; the cost is bounded by the taxonomy.**
   One index probe per spec, so a goal on a type with 364 subtypes takes 364 probes to
@@ -391,12 +401,21 @@
   visible, mirroring the matching fan-out."
   ([kb pred] (concluding-rule-handles kb pred nil))
   ([kb pred context]
-   (let [var-conseq (set (p/rules-by-consequent (:index kb) p/var-consequent-key))]
-     (if (and (symbol? pred) (not (sx/variable? pred)))
+   (let [idx        (:index kb)
+         var-conseq (set (p/rules-by-consequent idx p/var-consequent-key))]
+     (cond
+       (sx/variable? pred)
        (into var-conseq
-             (mapcat #(p/rules-by-consequent (:index kb) %))
+             (mapcat #(p/rules-by-antecedent idx %))
+             (keys @(:rule-antecedents kb)))
+
+       (symbol? pred)
+       (into var-conseq
+             (mapcat #(p/rules-by-consequent idx %))
              (tax/specs (:taxonomy kb) pred context))
-       (into var-conseq (p/rules-by-consequent (:index kb) pred))))))
+
+       :else
+       (into var-conseq (p/rules-by-consequent idx pred))))))
 
 (defn rule-visible-from?
   "May a rule stored in `rule-ctx` answer a goal asked from `context`?
@@ -441,19 +460,40 @@
     (or (not (jtms/known-datum? tms handle))
         (jtms/in? tms handle))))
 
+(defn supporter-believed?
+  "Is stored supporter `handle` believed and not excepted from `context`?
+
+  Assertion-context inheritance is deliberately not answered here: taxonomy's scoped
+  edge/cache readers already apply it, and genlCx declarations are forced universal.
+  Keeping this callback about belief force alone also prevents context reachability
+  from recursively asking itself whether its own supporters are reachable."
+  [kb handle context]
+  (boolean
+   (and (jtms/in? (:tms kb) handle)
+        ;; The whole-KB roster is the cheap gate. Only a handle targeted somewhere
+        ;; pays the context-sensitive cascade walk.
+        (or (not (excepted-anywhere? kb handle))
+            (not (excepted? kb handle context))))))
+
+(defn supporter-visible?
+  "Is stored supporter `handle` believed, inherited, and not excepted from `context`?"
+  [kb handle context]
+  (boolean
+   (and (supporter-believed? kb handle context)
+        (when-let [sentex (p/get-sentex (:records kb) handle)]
+          (tax/sees? (:taxonomy kb) context (:context sentex))))))
+
 (defn visible-supporter-fn
-  "`handle -> boolean`, memoized: does `context` see the context the sentex `handle`
-  was asserted from?  nil when `context` is nil or a `?var` — the unscoped path, which
-  every caller reads as *no filter* rather than as *nothing visible*.
+  "`handle -> boolean`, memoized: is the sentex `handle` believed, inherited by
+  `context`, and not hidden there by a visibility exception? nil when `context` is nil
+  or a `?var` — the unscoped path, which every caller reads as *no filter* rather than
+  as *nothing visible*.
 
   The seam a **context-scoped equality** read hangs on: the equality partition records
   its supporters as handles, and only the record store knows where each was asserted."
   [kb context]
   (when (and (symbol? context) (not (sx/variable? context)))
-    (let [tax (:taxonomy kb) recs (:records kb)]
-      (memoize (fn [h]
-                 (boolean (when-let [sx (p/get-sentex recs h)]
-                            (tax/sees? tax context (:context sx)))))))))
+    (memoize #(supporter-visible? kb % context))))
 
 (defn representative-in
   "`term`'s equality-class representative as `visible?` sees the merges — the global
@@ -638,7 +678,17 @@
   mirrored probe is what makes lookup order-insensitive: it retrieves `(siblingOf
   Ann Carol)` from the pattern `(siblingOf ?x Carol)` or `(siblingOf Carol ?x)`
   alike, and keeps a fact reachable even if it was asserted before its `symmetric`
-  declaration.  Results are deduped by handle, so a palindrome matches once.
+  declaration.
+
+  **Deduped by handle *and bindings*, not by handle.**  A palindrome — `(sibOf Ann
+  Ann)`, or any pattern the mirror binds exactly as the direct probe did — is one
+  answer, and dropping the second is the whole point.  But a pattern whose arguments
+  are both variables matches one stored fact **twice, differently**: `(sibOf ?a ?b)`
+  over a stored `(sibOf Rex Tib)` binds `?a Rex, ?b Tib` directly and `?a Tib, ?b Rex`
+  through the mirror, and those are two answers about one handle.  Keying the dedup on
+  the handle alone dropped the second, so a join led by such a literal saw one
+  orientation — order-dependently, since which literal leads is a plan decision — and a
+  rule that reached the fact the other way derived nothing.
 
   Lazy through the mirror: `lazy-cat` defers the second probe *and* the `seen` set
   that dedupes it, so a consumer answered by the direct hits never pays for either."
@@ -648,8 +698,8 @@
     ;; exists because storage sorted the arguments, and storage does not vary by reader
     (if (sx/symmetric-literal? sentence #(tax/has-prop? (:taxonomy kb) :symmetric %))
       (lazy-cat hits
-                (let [seen (into #{} (map first) hits)]
-                  (remove (comp seen first)
+                (let [seen (into #{} (map (fn [[h b]] [h b])) hits)]
+                  (remove (fn [[h b]] (contains? seen [h b]))
                           (match-one kb (sx/mirror-literal sentence) context))))
       hits)))
 
@@ -748,6 +798,18 @@
        (not-any? #(= '. %) sentence)
        (or (not (sx/variable? (first sentence)))
            (some sx/indexable-term? (rest sentence)))))
+
+(defn lead-literal?
+  "A literal `matches-hierarchical` answers from an **argument lead** — a plain positive
+  literal (`hierarchical-literal?`) with an indexable argument to read the argument
+  roots by.  For such a literal the set-algebra path costs one slot read (or one scoped
+  read per spec, whichever is smaller — `*lead-side*`) where the nested fan-out costs a
+  trie walk per sub-predicate, and the two return the identical set.  The forward join
+  asks this of a substituted antecedent (`chain/join-antecedent`) to route a bound type
+  test past the `|specs|` fan."
+  [sentence]
+  (and (hierarchical-literal? sentence)
+       (boolean (some sx/indexable-term? (rest sentence)))))
 
 (defn- mirror-pos [pos] (if (= pos 1) 2 1))
 
@@ -1005,31 +1067,57 @@
             _    (when (prof/profiling?) (prof/record-literal sentence path))
             cands (lead-candidates kb specs args sym?)
             out
-            (keep (fn [h]
-                    (when (and (not (contains? @seen h)) (jtms/in? (:tms kb) h))
-                      (when-let [stored (p/get-sentex (:records kb) h)]
-                        (let [f' (some-> (sx/body stored) first)]
-                          ;; predicate-hierarchy filter (the sub-predicate closure) and
-                          ;; context-hierarchy filter (the genlCx up-closure), in memory;
-                          ;; an exceptWhen meta-sentex is internal bookkeeping and skipped, as
-                          ;; in `match-one` (the one non-ground stored Atomic)
-                          (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
-                                     (pred-ok? f') (ctx-ok? (:context stored)))
-                            (let [;; concrete view: bind no ?ctx (match at the fact's own
-                                  ;; context, which is in the up-closure); variable view:
-                                  ;; bind ?ctx, exactly as match-one does
-                                  pctx  (if up? (:context stored) '?ctx)
-                                  _     (when prof? (vswap! unifs inc))
-                                  order (fn [rev?]
-                                          (let [pat (pat-for f' pctx rev?)]
-                                            (when (= (:truth pat) (:truth stored))
-                                              (unify (:context pat) (:context stored)
-                                                     (unify (:sentence pat) (:sentence stored))))))
-                                  b (or (order false)
-                                        (when (and sym? (contains? sym-preds f'))
-                                          (order true)))]
-                              (when b (vswap! seen conj h) [h b stored])))))))
-                  cands)]
+            (lazy-mapcat
+             (fn [h]
+               ;; The `seen` guard is keyed on the handle alone while nothing can
+               ;; match twice, which is the cheap case and skips the record fetch
+               ;; for a candidate a second bucket names again.  Under `sym?` one
+               ;; candidate really can answer twice — an all-variable pattern binds
+               ;; a stored `(sibOf Rex Tib)` both ways round — so there the dedup
+               ;; moves to `[handle bindings]` below and this early exit goes,
+               ;; which is what makes the two retrieval paths return one set
+               ;; (`raw-match` says why the pair is the honest key).
+               (when (and (or sym? (not (contains? @seen h))) (jtms/in? (:tms kb) h))
+                 (when-let [stored (p/get-sentex (:records kb) h)]
+                   (let [f' (some-> (sx/body stored) first)]
+                     ;; predicate-hierarchy filter (the sub-predicate closure) and
+                     ;; context-hierarchy filter (the genlCx up-closure), in memory;
+                     ;; an exceptWhen meta-sentex is internal bookkeeping and skipped, as
+                     ;; in `match-one` (the one non-ground stored Atomic)
+                     (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
+                                (pred-ok? f') (ctx-ok? (:context stored)))
+                       (let [;; concrete view: bind no ?ctx (match at the fact's own
+                             ;; context, which is in the up-closure); variable view:
+                             ;; bind ?ctx, exactly as match-one does
+                             pctx  (if up? (:context stored) '?ctx)
+                             _     (when prof? (vswap! unifs inc))
+                             order (fn [rev?]
+                                     (let [pat (pat-for f' pctx rev?)]
+                                       (when (= (:truth pat) (:truth stored))
+                                         (unify (:context pat) (:context stored)
+                                                (unify (:sentence pat) (:sentence stored))))))
+                             mirror? (and sym? (contains? sym-preds f'))
+                             b0 (order false)
+                             ;; both orders, not the first that answers: a pattern
+                             ;; with two variable arguments binds one stored fact
+                             ;; twice and differently, and those are two answers
+                             ;; about one handle.  A palindrome, or any pattern the
+                             ;; mirror binds as the direct order did, is one — the
+                             ;; `not=` is what keeps it one.
+                             b1 (when mirror? (order true))
+                             bs (cond-> []
+                                  b0                     (conj b0)
+                                  (and b1 (not= b1 b0))  (conj b1))]
+                         (into []
+                               (comp (remove #(contains? @seen [h %]))
+                                     (map (fn [b]
+                                            ;; the key the guard above reads: the
+                                            ;; handle where it is the early exit,
+                                            ;; the pair where it is the dedup
+                                            (vswap! seen conj (if sym? [h b] h))
+                                            [h b stored])))
+                               bs)))))))
+             cands)]
         ;; returned-vs-matched, opt-in.  Realizing `out` walks the whole candidate seq,
         ;; so `(count cands)` then reads the returned count and `(count v)` the matched;
         ;; both only while the instrument is on, leaving the lazy short-circuit intact for
@@ -1039,6 +1127,109 @@
             (prof/record-sift sentence path (count cands) (count v) @unifs)
             v)
           out)))))
+
+(defn- except-in-force?
+  "Is except-handle `eh` believed **and** not itself hidden by a cascading meta-except?
+  Recursive with a `seen` set as cycle guard (unreachable with well-formed input, since
+  stratification forbids the cycle, but defensive).
+
+  The cascade semantics: `(except H)` hides H.  `(except E)` where E is the except that
+  hides H suppresses E's effect, restoring H.  `(except M)` where M is the meta-except
+  suppresses M, restoring E's effect, re-hiding H — and so on, toggling at each depth."
+  [tms target->ehs eh seen]
+  (and (jtms/in? tms eh)
+       (if (contains? seen eh)
+         false
+         (let [meta-ehs (get target->ehs eh)]
+           (if meta-ehs
+             ;; eh is itself a target; active only if none of its meta-excepts are active
+             (not (some #(except-in-force? tms target->ehs % (conj seen eh)) meta-ehs))
+             ;; eh is not a target; it is active
+             true)))))
+
+(defn- visible-exception-index
+  "The exception roster visible from `view-context`, flattened to
+  `{target-handle -> #{except-handle ...}}`, or nil when the ordinary no-exception
+  fast path applies.  Both the hot boolean reads and diagnostic exception forest use
+  this one index so they cannot disagree about scope."
+  [kb view-context]
+  (let [by-ctx @(:excepted kb)]
+    (when-not (or (empty? by-ctx) (sx/variable? view-context))
+      (let [up (tax/raw-context-up (:taxonomy kb) view-context)]
+        (not-empty
+         (reduce-kv
+          (fn [m ctx entries]
+            (if-not (contains? up ctx)
+              m
+              (reduce-kv (fn [m2 target ehs]
+                           (update m2 target (fnil into #{}) ehs))
+                         m entries)))
+          {} by-ctx))))))
+
+(defn- exception-states
+  "Evaluate the cascade once for every exception reachable from `roots`.
+
+  Returns `{handle {:in? bool :in-force? bool}}`.  Memoization keeps a linear chain
+  linear instead of re-walking every suffix while rendering the diagnostic forest.
+  `seen` retains the defensive cycle answer; valid graphs are stratified."
+  [tms target->ehs roots]
+  (let [states (atom {})]
+    (letfn [(active? [eh seen]
+              (if (contains? seen eh)
+                false
+                (if-some [state (get @states eh)]
+                  (:in-force? state)
+                  (let [in? (boolean (jtms/in? tms eh))
+                        ;; Eagerly evaluate every child: `not-any?` directly over the
+                        ;; recursive calls would short-circuit after one active child,
+                        ;; leaving its siblings absent from the diagnostic state map.
+                        child-active (mapv #(active? % (conj seen eh))
+                                           (get target->ehs eh))
+                        active (boolean (and in? (not-any? true? child-active)))]
+                    (swap! states assoc eh {:in? in? :in-force? active})
+                    active))))]
+      (doseq [eh roots] (active? eh #{}))
+      @states)))
+
+(defn- exception-node
+  "One deterministic diagnostic node in the exception forest.  `seen` is only the
+  defensive cycle witness; valid exception graphs are stratified and never take it."
+  [records states target->ehs eh seen]
+  (if (contains? seen eh)
+    {:handle eh :in? (get-in states [eh :in?] false) :in-force? false
+     :cycle? true :excepted-by []}
+    (let [seen' (conj seen eh)
+          {:keys [in? in-force?]} (get states eh)]
+      {:handle eh
+       :in? in?
+       :in-force? in-force?
+       :excepted-by (mapv #(exception-node records states target->ehs % seen')
+                          (nm/sort-by-content-key
+                           (fn [h]
+                             (let [s (p/get-sentex records h)]
+                               [(:context s) (:sentence s)]))
+                           (get target->ehs eh)))})))
+
+(defn exception-status
+  "Diagnostic exception forest for `handle` from `view-context`.
+
+  Returns `{:exceptions [...] :excepted? bool}`.  Roots are every visible exception
+  directly targeting `handle`, ordered by assertion context and content; nested
+  meta-exceptions live under `:excepted-by`."
+  [kb handle view-context]
+  (if-let [target->ehs (visible-exception-index kb view-context)]
+    (let [records (:records kb)
+          tms (:tms kb)
+          ordered-roots (nm/sort-by-content-key
+                         (fn [h]
+                           (let [s (p/get-sentex records h)]
+                             [(:context s) (:sentence s)]))
+                         (get target->ehs handle))
+          states (exception-states tms target->ehs ordered-roots)
+          roots (mapv #(exception-node records states target->ehs % #{}) ordered-roots)]
+      {:exceptions roots
+       :excepted? (boolean (some :in-force? roots))})
+    {:exceptions [] :excepted? false}))
 
 (defn excepted-handles
   "The handles hidden from `view-context` by believed `(except (sentexHandle H))`
@@ -1056,6 +1247,11 @@
   and re-derive its target from its sentence — which on a chaining run is per placement
   and per candidate justification, and was 89% of the run's wall clock at 1,000 excepts
   (`lein bench-hotreads`).
+
+  **Meta-exception cascade.**  An except whose handle is itself hidden by another
+  believed except does not suppress its target — the cascade is evaluated at read time by
+  `except-in-force?`, which walks the roster's own entries rather than the index.
+  Most KBs store zero meta-exceptions, so the cascade adds no cost to the common path.
 
   **The O(1) gate is the empty roster**, which is where the functor-root count used to
   be and is both cheaper and tighter: a KB storing only `(not (except H))` roots under
@@ -1076,20 +1272,19 @@
   **A caller asking about particular handles wants `excepted?`**, which answers the same
   question without materializing this set."
   [kb view-context]
-  (let [by-ctx @(:excepted kb)]
-    (if (or (empty? by-ctx) (sx/variable? view-context))
-      #{}
-      (let [up  (tax/context-up (:taxonomy kb) view-context)
-            tms (:tms kb)]
-        (persistent!
-         (reduce-kv (fn [acc ctx entries]
-                      (if-not (contains? up ctx)                 ; visible from view-context
-                        acc
-                        (reduce-kv (fn [a target ehs]
-                                     (if (some #(jtms/in? tms %) ehs) (conj! a target) a))
-                                   acc entries)))
-                    (transient #{})
-                    by-ctx))))))
+  (if-let [target->ehs (visible-exception-index kb view-context)]
+    (let [tms (:tms kb)
+          has-meta? (pos? @(:meta-except-count kb))]
+      (persistent!
+       (reduce-kv (fn [acc target ehs]
+                    (if (if has-meta?
+                          (some #(except-in-force? tms target->ehs % #{}) ehs)
+                          (some #(jtms/in? tms %) ehs))
+                      (conj! acc target)
+                      acc))
+                  (transient #{})
+                  target->ehs)))
+    #{}))
 
 (defn hidden-fn
   "A predicate `(fn [handle]) -> boolean` answering, for **one** `view-context`, what
@@ -1114,26 +1309,65 @@
   about a rule's two or three antecedents, or about matches one at a time.  Since a set
   is only cheaper once the questions outnumber the excepts, and the questions are bounded
   by the answer set while the excepts are not, the predicate is the right default and the
-  set is kept for the caller that genuinely wants every hidden handle."
+  set is kept for the caller that genuinely wants every hidden handle.
+
+  A cone that stores a **meta-exception** is the one exception: the cascade resolves an
+  except to its own targets anywhere in the cone, so there the predicate flattens the
+  visible roster once (`target->ehs`, one pass over every except in the cone).  Gated on
+  `:meta-except-count`, so the common no-meta read never builds it and stays O(what it
+  returns)."
   [kb view-context]
   (let [by-ctx @(:excepted kb)]
     (when-not (or (empty? by-ctx) (sx/variable? view-context))
-      (let [up  (tax/context-up (:taxonomy kb) view-context)
+      (let [up   (tax/raw-context-up (:taxonomy kb) view-context)
             ;; only the contexts that both state an except and are visible from here —
             ;; computed once, so the predicate walks nothing it will always reject
             live (into [] (comp (filter #(contains? up (key %))) (map val)) by-ctx)
             tms  (:tms kb)]
         (when (seq live)
-          (fn [handle]
-            (boolean (some (fn [entries]
-                             (some #(jtms/in? tms %) (get entries handle)))
-                           live))))))))
+          (if (pos? @(:meta-except-count kb))
+            ;; Meta-exceptions present: the cascade (`except-in-force?`) resolves an
+            ;; except-handle to *its own* targets anywhere in the cone, so it needs the
+            ;; whole roster in one map.  Flatten it once, here — O(excepts in the cone) —
+            ;; and pay it only on the KB that actually stores a meta-except, which is
+            ;; almost none.
+            (let [target->ehs (reduce (fn [m entries]
+                                        (reduce-kv (fn [m2 target ehs]
+                                                     (update m2 target (fnil into #{}) ehs))
+                                                   m entries))
+                                      {} live)]
+              (fn [handle]
+                (boolean
+                 (when-let [ehs (get target->ehs handle)]
+                   (some #(except-in-force? tms target->ehs % #{}) ehs)))))
+            ;; The common case — no meta-exception, so a believed except is in force.
+            ;; Ask the handle of each live context's own map directly, without flattening:
+            ;; the work is one lookup per context that states an except, bounded by the
+            ;; question, not by how many handles the cone hides.  This is what keeps a
+            ;; scoped read O(what it returns) rather than O(what the KB hides).
+            (fn [handle]
+              (boolean
+               (some (fn [entries]
+                       (when-let [ehs (get entries handle)]
+                         (some #(jtms/in? tms %) ehs)))
+                     live)))))))))
 
 (defn excepted?
   "Is the sentex at `handle` hidden from `view-context` by a believed `except`?  The
   one-shot form of `hidden-fn`, for a caller with a single handle to ask about."
   [kb handle view-context]
   (boolean (when-let [hidden? (hidden-fn kb view-context)] (hidden? handle))))
+
+(defn excepted-anywhere?
+  "Is `handle` hidden from at least one context by a believed visibility `except`?
+
+  This is the unscoped belief-transition question used by the derived-cache
+  reconcile. The roster is keyed by the contexts that state exceptions, and a
+  context always sees itself, so those keys are a complete set of witnesses.
+  `excepted?` still performs the meta-exception cascade, so an except suppressed in
+  its own context does not count here."
+  [kb handle]
+  (boolean (some #(excepted? kb handle %) (keys @(:excepted kb)))))
 
 (defn without-excepted
   "Drop the `[handle …]` matches whose handle is hidden from `view-context` by a
@@ -1294,6 +1528,54 @@
   differ only in variable names share a key."
   [g]
   (walk/postwalk (fn [x] (if (sx/variable? x) '? x)) g))
+
+(defn term-depth
+  "How deeply `form`'s arguments nest compound terms: 0 for a flat literal `(p A)`, 1
+  for `(p (SuccFn A))`, 2 for `(p (SuccFn (SuccFn A)))`.  The second half of the loop
+  guard (`default-max-term-growth`): a goal key keeps its ground arguments, so a rule
+  that wraps a function around a head variable mints a fresh key per expansion and the
+  key alone never repeats.  One pass over the arguments; a flat goal reads each once."
+  [form]
+  (if (sequential? form)
+    (reduce (fn [d x] (if (sequential? x) (max (long d) (inc (long (term-depth x)))) d))
+            0 (rest form))
+    0))
+
+(def default-max-term-growth
+  "How many levels of compound nesting a subgoal may add over the deepest term its own
+  derivation path has already met (`term-depth`) before `prove-from` cuts the branch as
+  it cuts a repeated goal key — the `:max-term-growth` bound, where a caller names none.
+
+  The per-path `seen` set cuts a goal re-asking *itself*; a rule whose antecedent
+  nests a function application around a head variable, `(implies (p (SuccFn ?x)) (p
+  ?x))`, never does: `(p A)` asks `(p (SuccFn A))`, which asks `(p (SuccFn (SuccFn
+  A)))`, each a goal nobody has asked.  What the ceiling has to refuse is **growth a
+  rule invented**, and only that: a term is deep for two quite different reasons, and
+  the bound must tell them apart or it cuts derivable answers.  So the basis it
+  measures against rises whenever a leaf match binds a deep *stored* term
+  (`grown-term-base`) and never when a rule expands, which leaves structural recursion
+  that *shrinks* a term — walking a list, counting a numeral down — untouched at any
+  depth, and leaves a conjunct that inherits a deep individual from the conjunct before
+  it measured from that individual's depth rather than from the query's.  Termination is
+  unaffected: the store holds finitely many terms and each has a finite depth, so the
+  basis a path can reach is bounded by the deepest thing stored.  Eight levels of growth
+  is room for a subgoal to nest an individual several layers deeper than anything it was
+  handed without being a term that grows without end."
+  8)
+
+(defn grown-term-base
+  "`base` raised to the nesting the extension bindings `b` bring in — the depth a term
+  bound to a variable contributes when it lands at a goal's top argument position, which
+  is `1 +` its own (`term-depth`).
+
+  A leaf match reads what is *stored*, so a deep value here is a fact about the KB and
+  not about a rule growing a term; measuring the conjuncts that inherit it against the
+  query's own depth is what cut answers a reordering of the same conjunction returned.
+  One `sequential?` test per bound value, so a flat KB — every value a symbol — pays a
+  scan and nothing else."
+  [base b]
+  (reduce-kv (fn [d _ v] (if (sequential? v) (max (long d) (inc (long (term-depth v)))) d))
+             (long (or base 0)) b))
 
 ;; ---- rule instances --------------------------------------------------------
 ;; A rule's variables belong to the rule, and a chainer that threads one binding map
@@ -1492,12 +1774,19 @@
 
 (defn initial-prove-stack
   "The one-frame DFS stack `prove` starts from: the (cost-ordered) conjunction, no
-  bindings, an empty loop guard, depth 0, and the **answer variables** — the query's own,
-  which every frame below inherits unchanged.
+  bindings, an empty loop guard, depth 0, the **answer variables** — the query's own,
+  which every frame below inherits unchanged — and the query's own **term depth**
+  (`term-depth`), the basis the term-growth cut starts measuring a subgoal against.  It
+  is a *starting* basis rather than a fixed one: a leaf match that binds a deeper stored
+  term raises it for the frames below (`grown-term-base`), so what the ceiling bounds is
+  the nesting a rule invented rather than the nesting the KB already held.
 
   The basis rides the *stack* rather than the bounds map because the stack is the
   continuation: a `resume` picks up frames it did not build, and a projection recomputed
-  from a budget could not know what the original question asked for.
+  from a budget could not know what the original question asked for.  The term base
+  rides it for the same reason, and for a second: it is per **path**, so a resumed
+  segment measures growth from what its own frames had already met rather than from
+  whatever subgoal it happened to stop on.
 
   Exposed so `prove-within` can seed a bounded run and hand its unfinished stack back to
   `resume`.
@@ -1513,7 +1802,8 @@
      :bindings    no-bindings
      :seen        #{}
      :depth       0
-     :answer-vars (form-variables (vec goals))}]))
+     :answer-vars (form-variables (vec goals))
+     :term-base   (reduce (fn [d g] (max (long d) (long (term-depth g)))) 0 goals)}]))
 
 (defn prove-from
   "The resumable core of `prove`: run the DFS from an explicit `stack` (and the
@@ -1522,6 +1812,13 @@
     :deadline     an absolute `System/nanoTime` instant; stop once reached
     :max-results  stop once this many solutions are in hand
     :max-depth    do not expand a rule past this rule-expansion depth
+    :max-term-growth
+                  do not expand a subgoal whose arguments nest compound terms this
+                  many levels deeper than the deepest term its own path has already
+                  met (`term-depth`, `grown-term-base`); default
+                  `default-max-term-growth`.  The half of the loop guard the `seen`
+                  set cannot be: a rule nesting a function around a head variable
+                  asks a fresh goal per expansion, and only the term's growth repeats
     :leaf-solver  how a goal is answered *without* expanding a rule — see
                   `leaf-solutions`.  nil is the stored facts, which is what `prove`
                   means by a leaf
@@ -1540,7 +1837,8 @@
   can stop between any two steps and the stack it leaves behind is a faithful
   continuation."
   [kb rules-fn context
-   {:keys [deadline max-results max-depth leaf-solver est-override]} stack solutions]
+   {:keys [deadline max-results max-depth max-term-growth leaf-solver est-override]}
+   stack solutions]
   ;; one search scope for this *segment*: the transitive closure walked once per node
   ;; rather than once per join binding, and the resident networks held still for its
   ;; length (`observe/with-search-scope`).  The loop is eager, which is the macro's
@@ -1562,8 +1860,15 @@
         {:solutions solutions :status :timeout :stack stack}
 
         :else
-        (let [{:keys [goals bindings seen depth answer-vars]} (peek stack)
-              stack (pop stack)]
+        (let [{:keys [goals bindings seen depth answer-vars term-base]} (peek stack)
+              stack (pop stack)
+              ;; the ceiling a subgoal's nesting may reach on this path: the deepest
+              ;; term the path has met — the query's own, raised by whatever a leaf
+              ;; match bound below it — plus the growth allowance.  Stacks carry the
+              ;; base, bounds the allowance, so a `resume` under a different bound
+              ;; measures the same path from the same base.
+              ceiling (+ (long (or term-base 0))
+                         (long (or max-term-growth default-max-term-growth)))]
           (cond
             (empty? goals)
             (recur stack (conj solutions (project-answer bindings answer-vars)))
@@ -1579,7 +1884,7 @@
             (recur (cond-> stack
                      ((marker-guard (first goals)) bindings)
                      (conj {:goals (rest goals) :bindings bindings :seen seen :depth depth
-                            :answer-vars answer-vars}))
+                            :answer-vars answer-vars :term-base term-base}))
                    solutions)
 
             ;; the expanded goal's subtree ends here: the conjuncts still queued behind
@@ -1587,7 +1892,7 @@
             (scope-marker? (first goals))
             (recur (conj stack {:goals (rest goals) :bindings bindings
                                 :seen (marker-seen (first goals)) :depth depth
-                                :answer-vars answer-vars})
+                                :answer-vars answer-vars :term-base term-base})
                    solutions)
 
             ;; A deferred goal (`different` / `evaluate` / `unknown`) is *computed* by the
@@ -1598,21 +1903,31 @@
                   rest-goals (rest goals)
                   frames     (for [b (solve-deferred kb g context)]
                                {:goals rest-goals :bindings (merge bindings b)
-                                :seen seen :depth depth :answer-vars answer-vars})]
+                                :seen seen :depth depth :answer-vars answer-vars
+                                :term-base term-base})]
               (recur (into stack frames) solutions))
 
             :else
             (let [g          (substitute (first goals) bindings)
                   rest-goals (rest goals)
                   k          (goal-key g)
+                  ;; a leaf match may hand the conjuncts behind it a deep *stored* term,
+                  ;; and nothing about that is a rule growing one — so the basis rises
+                  ;; with it (`grown-term-base`), and only a rule's own nesting is
+                  ;; measured against the allowance
                   fact-frames (for [b (leaf-solutions kb g context leaf-solver)]
                                 {:goals rest-goals :bindings (merge bindings b) :seen seen
-                                 :depth depth :answer-vars answer-vars})
+                                 :depth depth :answer-vars answer-vars
+                                 :term-base (grown-term-base term-base b)})
                   ;; expansion cut short rather than exhausted: the goal is re-entering
-                  ;; its own derivation path, or the depth bound bit.  Either way the
-                  ;; branch says nothing about what the KB is missing (see `*dead-end*`).
+                  ;; its own derivation path, the depth bound bit, or its arguments have
+                  ;; grown past the term ceiling (`default-max-term-growth`).  Either way
+                  ;; the branch says nothing about what the KB is missing (see
+                  ;; `*dead-end*`).  The facts above are still read: a goal at the
+                  ;; ceiling may be stored, and only its *expansion* is refused.
                   cut?        (or (contains? seen k)
-                                  (boolean (and max-depth (>= depth max-depth))))
+                                  (boolean (and max-depth (>= depth max-depth)))
+                                  (> (long (term-depth g)) ceiling))
                   ;; every name already in play on this path: what the bindings speak
                   ;; for, the goal's own variables, and the conjuncts still queued — the
                   ;; last of which are outer rules' unsolved antecedents, equally
@@ -1639,7 +1954,8 @@
                                    :bindings b
                                    :seen     (conj seen k)
                                    :depth    (inc depth)
-                                   :answer-vars answer-vars}))]
+                                   :answer-vars answer-vars
+                                   :term-base term-base}))]
               (when (and *dead-end* (not cut?)
                          (empty? fact-frames) (empty? rule-frames))
                 (*dead-end* g depth))
@@ -1650,9 +1966,14 @@
   stack.  Returns a vector of fully-resolved solution binding maps for proving the
   conjunction `goals` in `context`.  Type-aware (specificity) and context-aware
   (matches-visible); a per-path :seen set of goal-keys blocks a goal from
-  re-expanding itself through recursive rules, so recursion terminates.  Prefer
-  right-recursive rules — a left-recursive rule is pruned after its first
-  expansion.  `rules-fn` maps a subgoal to candidate parsed rules.
+  re-expanding itself through recursive rules, and a term-growth ceiling
+  (`default-max-term-growth`) blocks a subgoal whose arguments nest deeper than
+  anything its own path has met, by more than the allowance — the recursion a goal key
+  cannot see, since a rule wrapping a function around a head variable asks a fresh goal
+  per expansion.
+  Together the two make every search terminate on the data.  Prefer right-recursive
+  rules — a left-recursive rule is pruned after its first expansion.  `rules-fn`
+  maps a subgoal to candidate parsed rules.
 
   Runs to completion; `prove-from` is the bounded/resumable variant this delegates
   to (`vaelii.core/prove-within` builds the anytime contract on it), and `prove-seq`

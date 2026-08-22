@@ -318,6 +318,8 @@
                               "per base relation; a build decision, and the table is not "
                               "evicted")
    "disk-cache-capacity" "config.clj — the reader for the hot-record LRU, which has a row"
+   "asp-time-limit"      (str "config.clj — the seconds one ASP solve may run before the "
+                              "backend is interrupted; a time bound, nothing retained")
    "wrap-body-limit"     "guard.clj — the HTTP request-body ceiling"
    "graph-side-budget"   "web.clj — how many expansions a term page's picture may spend"
    "matrix-node-limit"   "web.clj — how many nodes the network page will draw"

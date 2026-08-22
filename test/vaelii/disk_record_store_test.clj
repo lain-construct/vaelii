@@ -439,8 +439,8 @@
 
 (deftest compaction-folds-in-concurrent-writes
   ;; The copy-on-write compactor does its O(live) rewrite without the kind lock, so
-  ;; stores/kills can land in the middle.  `append-record!` is called (lock-free) once
-  ;; per live frame during that rewrite, so a one-shot hook on it fires exactly there
+  ;; stores/kills can land in the middle.  `append-record-sized!` is called (lock-free)
+  ;; once per live frame during that rewrite, so a one-shot hook on it fires exactly there
   ;; — modelling a concurrent writer that interleaves mid-compaction — and those writes
   ;; must be folded into the compacted result, not lost or overwritten by stale frames.
   (with-tmp
@@ -449,12 +449,12 @@
         (try
           (dotimes [i 20] (p/put-sentex s {:sentence (list 'p (inc i)) :context 'C})) ; 1..20
           (doseq [id (range 2 21 2)] (p/delete-sentex! s id))                         ; evens gone
-          (let [real     f/append-record!
+          (let [real     f/append-record-sized!
                 fired    (atom false)
                 added    (atom nil)
                 before   (drs/dead-ratio s)]
-            (with-redefs [f/append-record!
-                          (fn ^long [raf v]
+            (with-redefs [f/append-record-sized!
+                          (fn [raf v]
                             (when (compare-and-set! fired false true)
                               (reset! added (p/put-sentex s {:sentence '(p 99) :context 'C}))
                               (p/delete-sentex! s 1)               ; kill a snapshotted-live id
@@ -494,10 +494,10 @@
         (try
           (dotimes [i 10] (p/put-sentex s {:sentence (list 'p i) :context 'C}))
           (doseq [id (range 2 11 2)] (p/delete-sentex! s id))
-          (let [real  f/append-record!
+          (let [real  f/append-record-sized!
                 fired (atom false)]
-            (with-redefs [f/append-record!
-                          (fn ^long [raf v]
+            (with-redefs [f/append-record-sized!
+                          (fn [raf v]
                             (when (compare-and-set! fired false true) (p/clear-records! s))
                             (real raf v))]
               (drs/compact! s)))
@@ -510,6 +510,73 @@
               (is (= #{} (p/sentex-ids s2)))
               (drs/close! s2)))
           (finally nil))))))
+
+;; ---- a failure past the commit marker ------------------------------------
+;; Once the marker is written the fsynced temps are the truth, and installing them over
+;; the live RAFs truncates before copying — so a failure there leaves the live files
+;; half-copied while the session keeps running.  The install is retried once; if the
+;; retry fails too, the kind refuses every read and write until an open finishes the
+;; install off the marker.  The failure is injected under `f/replay-temp-onto-raf!`, the
+;; one call that sits past the marker.
+
+(defn- failing-installs
+  "A stand-in for `f/replay-temp-onto-raf!` whose first `n` calls fail — the (n+1)th
+  and every later one is the real install."
+  [n]
+  (let [real  f/replay-temp-onto-raf!
+        calls (atom 0)]
+    (fn [raf tmp]
+      (if (< (long (swap! calls inc)) (inc (long n)))
+        (throw (java.io.IOException. "install failed"))
+        (real raf tmp)))))
+
+(deftest a-post-marker-install-failure-is-retried
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)]
+        (try
+          (dotimes [i 10] (p/put-sentex s {:sentence (list 'p i) :context 'C}))
+          (doseq [id (range 2 11 2)] (p/delete-sentex! s id))
+          (let [before (into {} (map (fn [id] [id (p/get-sentex s id)])) (p/sentex-ids s))]
+            (with-redefs [f/replay-temp-onto-raf! (failing-installs 1)]
+              (drs/compact! s))
+            (testing "the retry installed the compacted files and the session goes on"
+              (is (= before (into {} (map (fn [id] [id (p/get-sentex s id)])) (p/sentex-ids s))))
+              (is (< (drs/dead-ratio s) 1.0e-9) "the compaction took")
+              (let [{:keys [marker log-tmp idx-tmp]}
+                    (f/compact-temp-paths (str dir "/records/sentexes.log")
+                                          (str dir "/records/sentexes.idx"))]
+                (is (not-any? #(.exists (java.io.File. ^String %)) [marker log-tmp idx-tmp])
+                    "and the temps are gone")))
+            (testing "the store is still writable"
+              (is (= '(p 99) (:sentence (p/get-sentex s (p/put-sentex s {:sentence '(p 99) :context 'C})))))))
+          (finally (drs/close! s)))))))
+
+(deftest a-post-marker-install-that-keeps-failing-makes-the-kind-refuse
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)
+            a (p/put-sentex s {:sentence '(dog Muffet) :context 'C})
+            b (p/put-sentex s {:sentence '(cat Tom) :context 'C})]
+        (p/delete-sentex! s b)
+        (testing "the compaction fails out, and the kind refuses rather than answering off torn files"
+          (with-redefs [f/replay-temp-onto-raf! (failing-installs 4)]
+            (is (thrown? java.io.IOException (drs/compact! s))))
+          (is (= :compaction-failed
+                 (:type (try (p/get-sentex s a) (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+          (is (= :compaction-failed
+                 (:type (try (p/put-sentex s {:sentence '(dog Rex) :context 'C})
+                             (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+          (is (= :compaction-failed
+                 (:type (try (p/delete-sentex! s a) (catch clojure.lang.ExceptionInfo e (ex-data e)))))))
+        (drs/close! s)
+        (testing "the next open finishes the install off the marker, and the records are whole"
+          (let [s2 (drs/open-record-store dir)]
+            (try
+              (is (= '(dog Muffet) (:sentence (p/get-sentex s2 a))))
+              (is (= #{a} (p/sentex-ids s2)))
+              (is (< (drs/dead-ratio s2) 1.0e-9) "the compacted log is what opened")
+              (finally (drs/close! s2)))))))))
 
 (deftest torn-log-tail-recovers-on-reopen
   (with-tmp

@@ -87,7 +87,7 @@
     (v/assert kb (list 'parentOf Ann Tom) 'CxWell)
     (testing "holds when the body is witnessed, projecting the variable out"
       (is (v/ask? kb (list 'thereExists '?x (list 'parentOf '?x Tom))))
-      (is (empty? (get (first (v/ask kb (list 'thereExists '?x (list 'parentOf '?x Tom)))) '?x))
+      (is (empty? (get (tu/sole-answer (v/ask kb (list 'thereExists '?x (list 'parentOf '?x Tom)))) '?x))
           "the quantified variable does not leak into the answer"))
     (testing "fails when nothing witnesses it"
       (is (not (v/ask? kb (list 'thereExists '?x (list 'parentOf '?x Nemo))))))))

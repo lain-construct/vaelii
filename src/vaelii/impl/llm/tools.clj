@@ -24,7 +24,6 @@
   (:require [clojure.edn :as edn]
             [clojure.set :as set]
             [clojure.string :as str]
-            [clojure.walk :as walk]
             [vaelii.impl.serve :as serve]))
 
 ;; ---- which ops the model may reach --------------------------------------
@@ -194,11 +193,84 @@
 ;; ---- dispatch -----------------------------------------------------------
 
 (defn- wire-safe
-  "Project records to plain maps and realize lazy seqs, so a result `pr-str`s to
-  something the model can read (and a lazy answer stream is realized before it is
-  truncated)."
+  "Project records to plain maps, so a result prints as something the model can read.
+
+  **A lazy stream stays lazy wherever it sits** — projected element by element rather
+  than walked whole — because what prints it is bounded (`bounded-pr-str`):
+  `kb_sentexes_in_context` over an imported ontology answers a hundred thousand records,
+  and only the first few dozen ever reach the 4,000 characters the model is shown.
+  Realizing a stream here to project it would fetch and project every one of them to keep
+  that prefix.
+
+  Which is why this is a walk of its own rather than `clojure.walk/postwalk`, and why the
+  test is `seq?` rather than a `LazySeq` type test.  `postwalk` is depth-first and eager,
+  so a stream one level down — `{:rows …}`, or behind a `cons` — is realized whole before
+  the bounded writer ever runs; and `(cycle …)`, `(iterate …)` and `(repeat …)` are not
+  `LazySeq` at all, so under a type test the walker is handed a seq with no end and the
+  read dies of memory instead of answering its first few dozen elements.
+
+  A record is projected before the map branch can see it: a record is an
+  `IPersistentMap`, but `empty` on one throws."
   [x]
-  (walk/postwalk (fn [y] (if (record? y) (into {} y) y)) x))
+  (cond
+    (record? x) (reduce-kv (fn [m k v] (assoc m k (wire-safe v))) {} x)
+    (seq? x)    (map wire-safe x)
+    (map? x)    (reduce-kv (fn [m k v] (assoc m (wire-safe k) (wire-safe v))) (empty x) x)
+    (vector? x) (mapv wire-safe x)
+    (set? x)    (into (empty x) (map wire-safe) x)
+    :else       x))
+
+(defn- bounded-pr-str
+  "`pr-str` of `x`, written into a sink that stops at `limit` characters: `[s cut?]`,
+  where `s` holds exactly `limit` characters of the printing when `cut?` is true and all
+  of it otherwise.
+
+  The bound is on the *writer*, which is the only place it can be: `pr` realizes a lazy
+  answer as it prints, so a writer that refuses the character past the limit is what
+  stops a broad read from realizing — and printing — megabytes to keep four kilobytes.
+  The stop is a throw from inside `pr`, caught here; nothing else sees it.
+
+  **The clip is inside the write rather than a check after it.**  One `print-method` call
+  can hand over a whole string in one go — a symbol's name, an object's `str` — so a bound
+  tested afterwards is really `limit` plus the longest single write, which is the megabyte
+  the bound exists to refuse.  Each write appends the room that is left, and then stops."
+  [x limit]
+  (let [sb    (StringBuilder.)
+        lim   (long limit)
+        stop  (ex-info "over the result bound" {::over true})
+        room  (fn [] (- lim (.length sb)))
+        put-s (fn [^CharSequence s ^long off ^long len]
+                (let [r (long (room))]
+                  (if (<= len r)
+                    (.append sb s (int off) (int (+ off len)))
+                    (do (when (pos? r) (.append sb s (int off) (int (+ off r))))
+                        (throw stop)))))
+        put-a (fn [^chars c ^long off ^long len]
+                (let [r (long (room))]
+                  (if (<= len r)
+                    (.append sb c (int off) (int len))
+                    (do (when (pos? r) (.append sb c (int off) (int r)))
+                        (throw stop)))))
+        sink  (proxy [java.io.Writer] []
+                (write
+                  ([c] (if (string? c)
+                         (put-s c 0 (count c))
+                         (if (pos? (long (room)))
+                           (.append sb (char c))
+                           (throw stop))))
+                  ([c off len]
+                   (if (string? c)
+                     (put-s c off len)
+                     (put-a c off len))))
+                (flush [])
+                (close []))]
+    (try
+      (binding [*out* sink] (pr x))
+      [(str sb) false]
+      (catch clojure.lang.ExceptionInfo e
+        (if (identical? e stop)
+          [(str sb) true]
+          (throw e))))))
 
 (defn- coerce
   "JSON value -> the value `vaelii.core` wants.  A string argument is an EDN form
@@ -210,10 +282,16 @@
     (string? v)        (edn/read-string v)
     :else              v))
 
-(defn- truncate [s limit]
-  (if (<= (count s) limit)
-    s
-    (str (subs s 0 limit) "\n… [truncated at " limit " characters]")))
+(defn- render
+  "`x` as the string a `tool_result` carries: its printing, cut at `limit` characters and
+  marked as cut when there was more.  The cut happens in the writer, so a result the
+  model sees four kilobytes of was never printed — or realized — past them, and what
+  comes back cut is already exactly `limit` characters long."
+  [x limit]
+  (let [[s cut?] (bounded-pr-str x limit)]
+    (if cut?
+      (str s "\n… [truncated at " limit " characters]")
+      s)))
 
 (defn call
   "Run one tool call against `kb` and return `{:ok true :result \"…\"}` or
@@ -243,7 +321,7 @@
          (try
            (let [args (mapv (fn [p] (coerce p (get input (name p)))) sig)]
              {:ok true
-              :result (truncate (pr-str (wire-safe ((serve/ops op) kb args))) max-result-chars)})
+              :result (render (wire-safe ((serve/ops op) kb args)) max-result-chars)})
            ;; `Throwable`, as every other read of a model's output: `coerce` reads a
            ;; string argument as EDN, and a deeply nested form overflows the reader's
            ;; stack with a `StackOverflowError`, which an `Exception` catch lets escape

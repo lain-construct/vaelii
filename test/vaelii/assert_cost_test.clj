@@ -86,9 +86,7 @@
             [vaelii.core :as v]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.profile :as prof]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
-            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 ;; The instrument is process-wide, so a test that threw while collecting would hand the
@@ -652,7 +650,7 @@
 ;; ---- measuring -----------------------------------------------------------
 
 (defmacro ^:private with-shipped-retrieval
-  "Run `body` under the four switches that decide where a read goes, each bound to its
+  "Run `body` under every switch that decides where a read goes, each bound to its
   **shipped default** rather than to whatever the run inherited.
 
   A budget is a claim about one configuration, and these are the vars that change which
@@ -662,13 +660,15 @@
   and onto `:trie-lookup` — the trade the two paths exist to make, and a budget written for
   one of them is simply false about the other.  Pinning is the same argument that pins the
   backend, and it is preferred to standing aside, since a gate that skips under a sweep is
-  a gate that is not running on the configuration somebody is currently changing."
+  a gate that is not running on the configuration somebody is currently changing.
+
+  The set is `tu/shipped-defaults` and no longer four vars named here.  This gate went
+  four years' worth of switches without the matcher, and survived only because none of the
+  workloads below joins a second antecedent — `chain/*matcher*` is reached from
+  `join-matches` and nowhere else, so a single-antecedent rule never asks for it.  A roster
+  the sweeps and the gates share is what stops the next workload from finding that out."
   [& body]
-  `(binding [res/*hierarchical-retrieval* true
-             res/*arg-root-retrieval*     true
-             res/*structural-index*       true
-             sx/*min-indexed-depth*       1]
-     ~@body))
+  `(tu/with-shipped-config ~@body))
 
 (defn- by-family
   "One functor-keyed tally totalled across functors, with the operation count dropped.

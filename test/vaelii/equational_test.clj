@@ -179,6 +179,38 @@
                                    (v/sentexes-matching kb (list wrap '?t) 'CxUniverse)))))
         "the two equal-size-related facts collapse to one normal form")))
 
+(tu/deftest-kb schematic-rewrite-orients-a-pair-differing-at-a-constant
+  ;; `(equals (UnitFn Meter ?n) (UnitFn Metre ?n))`: same root, same weight, the first
+  ;; difference a constant.  KBO decides it on the constants' precedence, so the
+  ;; equation is admitted (not refused, and no throw) and both spellings of a fact
+  ;; normalize to the one the precedence elects.
+  (tu/with-terms [unitFn wrap]
+    (let [meter (tu/tmp-ind "Meter") metre (tu/tmp-ind "Metre")
+          h (v/assert kb (list 'equals (list unitFn meter '?n) (list unitFn metre '?n))
+                      'CxUniverse)]
+      (is (some? h) "a constant-differing schematic equation is admitted")
+      (v/assert kb (list wrap (list unitFn meter 5)) 'CxUniverse)
+      (v/assert kb (list wrap (list unitFn metre 5)) 'CxUniverse)
+      (is (= 1 (count (distinct (map :sentence
+                                     (v/sentexes-matching kb (list wrap '?t) 'CxUniverse)))))
+          "both spellings collapse to one normal form"))))
+
+(tu/deftest-kb schematic-rewrite-orients-a-pair-whose-root-is-itself-compound
+  ;; `((ff ?x) a)` is a legal term whose functor is a compound, so the precedence is
+  ;; asked to rank two compounds.  It must answer — an equation the order cannot decide
+  ;; is refused with a message (`permutative-schematic-equation-is-refused`), and a
+  ;; comparison that throws is not a refusal but a crash at the assert door.
+  (tu/with-terms [ff gg wrap]
+    (let [a (tu/tmp-ind "A")
+          h (v/assert kb (list 'equals (list (list ff '?x) a) (list (list gg '?x) a))
+                      'CxUniverse {:strength :monotonic})]
+      (is (some? h) "a compound-rooted schematic equation is admitted, not thrown at")
+      (v/assert kb (list wrap (list (list ff a) a)) 'CxUniverse)
+      (v/assert kb (list wrap (list (list gg a) a)) 'CxUniverse)
+      (is (= 1 (count (distinct (map :sentence
+                                     (v/sentexes-matching kb (list wrap '?t) 'CxUniverse)))))
+          "both spellings collapse to the one normal form the precedence elects"))))
+
 (tu/deftest-kb schematic-rewrite-composes-with-symbol-merge
   ;; rewrite-term is symbol congruence THEN schematic normalization, so a schematic
   ;; term containing a merged symbol normalizes both in one pass — congruence and

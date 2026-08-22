@@ -113,8 +113,8 @@
 
 (tu/deftest-kb evaluate-computes-symbolic-expressions
   (testing "binds the value of an arithmetic expression"
-    (is (= 3  (get (first (v/ask kb '(evaluate ?s (+ 1 2)) '?ctx)) '?s)))
-    (is (= 18 (get (first (v/ask kb '(evaluate ?r (* 3 (+ 2 4))) '?ctx)) '?r))))
+    (is (= 3  (get (tu/sole-answer (v/ask kb '(evaluate ?s (+ 1 2)) '?ctx)) '?s)))
+    (is (= 18 (get (tu/sole-answer (v/ask kb '(evaluate ?r (* 3 (+ 2 4))) '?ctx)) '?r))))
   (testing "checks a ground result"
     (is (v/ask? kb '(evaluate 7 (+ 3 4))))
     (is (not (v/ask? kb '(evaluate 8 (+ 3 4))))))
@@ -190,11 +190,11 @@
   ;; value under truth maintenance with nothing to invalidate it, so the aggregates are
   ;; query operators: they answer and leave nothing behind.
   (testing "how many children Bob has"
-    (is (= 2 (get (first (v/ask kb '(agg/count ?n ?c (parentOf Bob ?c)) N)) '?n))))
+    (is (= 2 (get (tu/sole-answer (v/ask kb '(agg/count ?n ?c (parentOf Bob ?c)) N)) '?n))))
   (testing "how many people there are"
-    (is (= 7 (get (first (v/ask kb '(agg/count ?n ?p (person ?p)) N)) '?n))))
+    (is (= 7 (get (tu/sole-answer (v/ask kb '(agg/count ?n ?p (person ?p)) N)) '?n))))
   (testing "a count over nothing is zero, where a maximum over nothing is no answer"
-    (is (= 0 (get (first (v/ask kb '(agg/count ?n ?p (parentOf ?p Tom)) N)) '?n)))
+    (is (= 0 (get (tu/sole-answer (v/ask kb '(agg/count ?n ?p (parentOf ?p Tom)) N)) '?n)))
     (is (empty? (v/ask kb '(agg/max ?m ?y (birthYearOf Dave ?y)) S))))
   (testing "and the answer is nowhere in the store"
     (is (empty? (v/sentexes-with-functor kb 'agg/count)))))
@@ -203,11 +203,11 @@
   ;; The point of computing it: retract a fact and the count moves, with nothing to
   ;; recompute and nothing that could be stale.
   (tu/with-terms [Pup]
-    (is (= 2 (get (first (v/ask kb '(agg/count ?n ?c (parentOf Bob ?c)) N)) '?n)))
+    (is (= 2 (get (tu/sole-answer (v/ask kb '(agg/count ?n ?c (parentOf Bob ?c)) N)) '?n)))
     (let [h (v/assert kb (list 'parentOf 'Bob Pup) N)]
-      (is (= 3 (get (first (v/ask kb '(agg/count ?n ?c (parentOf Bob ?c)) N)) '?n)))
+      (is (= 3 (get (tu/sole-answer (v/ask kb '(agg/count ?n ?c (parentOf Bob ?c)) N)) '?n)))
       (v/retract! kb h))
-    (is (= 2 (get (first (v/ask kb '(agg/count ?n ?c (parentOf Bob ?c)) N)) '?n)))))
+    (is (= 2 (get (tu/sole-answer (v/ask kb '(agg/count ?n ?c (parentOf Bob ?c)) N)) '?n)))))
 
 ;; ---- what is not known --------------------------------------------------
 

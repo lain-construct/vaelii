@@ -1361,6 +1361,62 @@
        (nanos (dotimes [_ reads-per-clash-reading]
                 (count (v/contradictions kb))))))))
 
+;; ---- the one check that writes to a disk ---------------------------------
+;;
+;; Every check above runs on `fresh-kb`, which is `:backend :memory`, so nothing in this
+;; file has ever priced the durable stores — and `assert_cost_test`, the counted gate
+;; beside it, is pinned to the memory backend for its own reason.  The write-ahead logs,
+;; the idx slots and the batching between them are gated by neither.
+
+(defn- delete-tree!
+  [^java.io.File file]
+  (when (.isDirectory file)
+    (doseq [child (.listFiles file)] (delete-tree! child)))
+  (.delete file))
+
+(defn- perf-disk-dir ^java.io.File []
+  (java.io.File. (str (System/getProperty "java.io.tmpdir") "/vaelii-perf-disk")))
+
+(defn- fresh-disk-kb
+  "An empty `:backend :disk` KB in a directory of its own — `fresh-kb`'s durable twin.
+  Wiped **before** the open as well as after the close, so a run interrupted part way
+  leaves nothing for the next one to measure against."
+  []
+  (let [dir (doto (perf-disk-dir) (delete-tree!) (.mkdirs))]
+    (v/open-kb {:backend :disk :dir (.getAbsolutePath dir) :recover? false})))
+
+(defn- durable-fact-append
+  "n facts of one predicate onto a disk-backed KB, timed per assert.
+
+  Every quantity the durable write path spends per record is fixed by construction — one
+  log frame and one idx slot per record, one packed WAL append for the whole batch of
+  index ops a sentex generates — so the reading should not move between the two sizes at
+  all.  What can move it is the **set** behind the predicate root, which grows to n: the
+  index WAL logs the op (`[:add-to-set k m]`, one member) rather than the resulting value,
+  and a frame carrying the grown set instead would make a linear load quadratic.
+  `vaelii.impl.disk.kv` records that shape as the reason for logical logging, and this is
+  the check that would notice it coming back.
+
+  One predicate throughout, so that root is the hot one; distinct subjects, so no
+  cross-context or partner pass has anything to reach for and what is measured is
+  storage.  `:chain? false` for the same reason — no rule exists to fire, and the KB is
+  built by the very operation being timed.
+
+  Closed on the way out, and the directory removed after it: the file lock and the
+  durability daemon's registration both belong to the directory, and a check that left
+  them would have every later check's wall-clock crossed by an fsync of a store nothing
+  is using — and the gate would leave a few megabytes of log behind every time it ran."
+  [n]
+  (let [kb (fresh-disk-kb)]
+    (try
+      (doall
+       (for [i (range n)]
+         (nanos (v/assert kb (list 'pdFact (symbol (str "PdA" i)) i) 'CxPerf
+                          {:chain? false}))))
+      (finally
+        (v/close! kb)
+        (delete-tree! (perf-disk-dir))))))
+
 (def checks
   ;; The one bound here that is not *flat*, and deliberately.  A settle republishes the
   ;; whole standing clash set, so its cost is Ω(standing) by construction and no memo
@@ -1864,7 +1920,40 @@
     :claim     "a scoped read costs what it returns, not what the KB hides"
     :sizes     [8 1024]
     :max-ratio 2.0
-    :run       visibility-reading}])
+    :run       visibility-reading}
+
+   ;; **The only check here that writes to a disk**, and the first thing in this file to
+   ;; measure the durable stores at all.  Flat, and calibrated from both ends.  Healthy it
+   ;; reads **1.06x** on a full run (0.113 ms/op against 0.120) and 0.94x, 0.97x, 0.82x,
+   ;; 0.87x and 1.00x across five isolated ones: the per-record cost is fixed by
+   ;; construction — one log frame and one idx slot per record, one packed append for a
+   ;; whole WAL batch — so nothing about it is entitled to grow with what the log already
+   ;; holds, and the header's warning about a warmer baseline in the full run barely
+   ;; applies to a reading with no n-dependent term in it.  Below it, the shape the check
+   ;; exists to catch: the index WAL logging the resulting **value** instead of the op, so
+   ;; an `:add-to-set` frame carries the grown set rather than the one added member and a
+   ;; linear load writes a quadratic number of bytes.  Implemented against this very
+   ;; workload rather than supposed for it, it reads **6.38x** (0.442 ms/op against
+   ;; 2.816).  2.0x is the flat claim's own bound, at twice the worst healthy reading and
+   ;; a third of the defect.
+   ;;
+   ;; **What the span does not separate**, since the readings are tenths of a millisecond
+   ;; and a green run should not be read as more than it is: an append that finds the
+   ;; log's end by walking the frame-length chain instead of asking the file its length
+   ;; reads **1.77x** over this 8x span — a real linear term, but one whose per-record
+   ;; share at 8,000 frames is still small next to the frame write, so it passes.  The
+   ;; span is 8x rather than 32x because 32,000 durable asserts is half a minute of the
+   ;; gate's five, which is a large price for widening one bound.
+   ;;
+   ;; The counted companion is `test/vaelii/disk_write_cost_test.clj`, and it is the half
+   ;; that holds the *constant* — how many file operations a record costs — for the reason
+   ;; the header gives about `assert_cost_test`: the syscall packing this path was built
+   ;; for is a constant, and a constant divides out of every ratio in this file.
+   {:name      :durable-fact-append
+    :claim     "a fact reaching the durable log is flat in what the log already holds — the index WAL logs the op, not the grown value"
+    :sizes     [1000 8000]
+    :max-ratio 2.0
+    :run       durable-fact-append}])
 
 ;; ---- the runner ---------------------------------------------------------
 

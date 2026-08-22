@@ -26,6 +26,7 @@
   and are lock-free.  Interleaved *writers* would not be serializable."
   (:require [clojure.set :as set]
             [vaelii.impl.kv :as kv]
+            [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]))
 
 ;; ---- per-space registries --------------------------------------------------
@@ -74,7 +75,13 @@
   (put-sentex [this sentex]
     (let [id (or (:id sentex) (p/next-id this))]
       (store-record state counter :sentexes id (assoc sentex :id id))))
-  (get-sentex [_ id] (get-in @state [:sentexes id]))
+  ;; Every fetch is tallied by kind (`vaelii.impl.profile`), which is the record-store
+  ;; half of the read tally the index keeps — a deref and a `nil?` check when nobody is
+  ;; asking.  It sits on the protocol method and not on the state read below it, so this
+  ;; store and the durable one count the same events (`mark-premise` reaches into the
+  ;; state map here and re-`fetch`es there, and a tally that counted both would be a
+  ;; reading of which backend is running).
+  (get-sentex [_ id] (prof/record-fetch :sentex) (get-in @state [:sentexes id]))
   (delete-sentex! [_ id]
     (swap! state (fn [st] (-> st
                               (update :sentexes dissoc id)
@@ -84,14 +91,14 @@
   (put-justification [this justification]
     (let [id (or (:id justification) (p/next-id this))]
       (store-record state counter :justifications id (assoc justification :id id))))
-  (get-justification [_ id] (get-in @state [:justifications id]))
+  (get-justification [_ id] (prof/record-fetch :justification) (get-in @state [:justifications id]))
   (delete-justification! [_ id]
     (swap! state (fn [st] (-> st
                               (update :justifications dissoc id)
                               (update :provenance dissoc id))))
     nil)
   (put-provenance    [_ id prov] (swap! state assoc-in [:provenance id] prov) prov)
-  (get-provenance    [_ id]      (get-in @state [:provenance id]))
+  (get-provenance    [_ id]      (prof/record-fetch :provenance) (get-in @state [:provenance id]))
   (delete-provenance! [_ id]     (swap! state update :provenance dissoc id) nil)
   (sentex-ids    [_] (set (keys (:sentexes @state))))
   (justification-ids [_] (set (keys (:justifications @state))))
@@ -141,19 +148,32 @@
 ;; and index logic; this only says how a scalar, a counter, and a set live in a map.
 
 (def ^:dynamic *bulk-txn*
-  "During a bulk load, a `volatile!` holding a **transient** of one MemoryKvBackend's
-  state map.  While bound, this backend's *writes* land on that transient (`assoc!` —
-  no per-op HAMT path copy) and the whole load is one `persistent!` at the end, instead
-  of a `swap!` per fact.  nil (the default) leaves every op on the persistent atom
-  exactly as before, so nothing outside a bulk load pays for it — and *reads* are left
-  untouched in both modes (they read the backing atom), so the query hot path is
-  unchanged.  The backing atom is therefore stale for the life of the load: correct only
-  because the sole mid-load reader (`note-opposed`'s `[:false b]` probe) reads the always
-  -empty negative side, and every real read happens after the closing `persistent!`.  Use
-  `with-bulk-writes` for a positive/monotonic, distinct load; a corpus with `(not …)`
-  facts must `rebuild-opposed!` after it (the atom the opposed set is derived from was
-  stale during the load)."
+  "During a bulk load, `{:state <the loaded backend's state atom> :txn <a volatile!
+  holding a transient of its map>}`.  While bound, **that** backend's *writes* land on
+  the transient (`assoc!` — no per-op HAMT path copy) and the whole load is one
+  `persistent!` at the end, instead of a `swap!` per fact.  nil (the default) leaves
+  every op on the persistent atom exactly as before, so nothing outside a bulk load pays
+  for it — and *reads* are left untouched in both modes (they read the backing atom), so
+  the query hot path is unchanged.  The backing atom is therefore stale for the life of
+  the load: correct only because the sole mid-load reader (`note-opposed`'s `[:false b]`
+  probe) reads the always -empty negative side, and every real read happens after the
+  closing `persistent!`.  Use `with-bulk-writes` for a positive/monotonic, distinct load;
+  a corpus with `(not …)` facts must `rebuild-opposed!` after it (the atom the opposed
+  set is derived from was stale during the load).
+
+  The binding names the backend it is for, because a dynamic binding is per *thread*,
+  not per backend: a write this thread makes to any other `MemoryKvBackend` while the
+  load runs — a second KB's index, a chaining callback asserting elsewhere — lands on
+  that backend's own atom (`txn-for`), never on the loaded one's transient."
   nil)
+
+(defn- txn-for
+  "The bulk transient for the backend whose state atom is `state`, or nil — nil too
+  when the bound load is over another backend, whose transient must not take this
+  backend's writes."
+  [state]
+  (when-let [b *bulk-txn*]
+    (when (identical? (:state b) state) (:txn b))))
 
 ;; ---- the argument-column trie --------------------------------------------
 ;; The predicate-scoped argument roots (`[:argument-root pred pos term]`) are the one
@@ -289,7 +309,9 @@
       :put  (assoc! t k a)
       :delete  (dissoc! t k)
       :increment (assoc! t k (inc (long (get t k 0))))
-      :decrement (assoc! t k (dec (long (get t k 0))))
+      ;; floored at 0, like `kv/apply-op`'s arm — the two folds may not disagree about
+      ;; what one op means, and a counter here is a cardinality (`kv/KvBackend`)
+      :decrement (assoc! t k (max 0 (dec (long (get t k 0)))))
       :add-to-set (assoc! t k (conj (get t k #{}) a))
       :remove-from-set (let [s (disj (get t k #{}) a)]
                          (if (empty? s) (dissoc! t k) (assoc! t k s)))
@@ -324,45 +346,49 @@
   (kv-put  [_ k v]
     (if (arg-root-key? k)
       (let [pred (nth k 1) pos (nth k 2) term (nth k 3)]
-        (if-let [tv *bulk-txn*]
+        (if-let [tv (txn-for state)]
           (vswap! tv assoc! arg-state-key (arg-tree-put (get @tv arg-state-key) pred pos term v))
           (swap! state update arg-state-key arg-tree-put pred pos term v)))
-      (if-let [tv *bulk-txn*] (vswap! tv assoc! k v) (swap! state assoc k v)))
+      (if-let [tv (txn-for state)] (vswap! tv assoc! k v) (swap! state assoc k v)))
     nil)
   (kv-delete  [_ k]
     (if (arg-root-key? k)
       (let [pred (nth k 1) pos (nth k 2) term (nth k 3)]
-        (if-let [tv *bulk-txn*]
+        (if-let [tv (txn-for state)]
           (vswap! tv assoc! arg-state-key (arg-tree-delete (get @tv arg-state-key) pred pos term))
           (swap! state update arg-state-key arg-tree-delete pred pos term)))
-      (if-let [tv *bulk-txn*] (vswap! tv dissoc! k) (swap! state dissoc k)))
+      (if-let [tv (txn-for state)] (vswap! tv dissoc! k) (swap! state dissoc k)))
     nil)
-  (kv-increment [_ k]   (if-let [tv *bulk-txn*]
+  (kv-increment [_ k]   (if-let [tv (txn-for state)]
                           (let [v (inc (long (get @tv k 0)))] (vswap! tv assoc! k v) v)
                           (long (get (swap! state update k (fnil inc 0)) k))))
-  (kv-decrement [_ k]   (if-let [tv *bulk-txn*]
-                          (let [v (dec (long (get @tv k 0)))] (vswap! tv assoc! k v) v)
-                          (long (get (swap! state update k (fnil dec 0)) k))))
+  ;; floored at 0 on both arms: a counter is a cardinality (`kv/KvBackend`), and the
+  ;; transient a bulk load writes through has to answer as the persistent one does
+  (kv-decrement [_ k]   (if-let [tv (txn-for state)]
+                          (let [v (max 0 (dec (long (get @tv k 0))))] (vswap! tv assoc! k v) v)
+                          (long (get (swap! state update k
+                                            (fn [v] (max 0 (dec (long (or v 0))))))
+                                     k))))
   ;; an argument-root write folds into the `::arg` trie; everything else lands at its flat
   ;; key exactly as before.  Both modes route, so the trie stays consistent whether a fact
   ;; arrives through the bulk transient or the ordinary swap.
   (kv-add-to-set [_ k m]
     (if (arg-root-key? k)
       (let [op [:add-to-set k m]]
-        (if-let [tv *bulk-txn*]
+        (if-let [tv (txn-for state)]
           (vswap! tv assoc! arg-state-key (arg-op (get @tv arg-state-key) op))
           (swap! state update arg-state-key arg-op op)))
-      (if-let [tv *bulk-txn*]
+      (if-let [tv (txn-for state)]
         (vswap! tv assoc! k (conj (get @tv k #{}) m))
         (swap! state update k (fnil conj #{}) m)))
     nil)
   (kv-remove-from-set [_ k m]
     (if (arg-root-key? k)
       (let [op [:remove-from-set k m]]
-        (if-let [tv *bulk-txn*]
+        (if-let [tv (txn-for state)]
           (vswap! tv assoc! arg-state-key (arg-op (get @tv arg-state-key) op))
           (swap! state update arg-state-key arg-op op)))
-      (if-let [tv *bulk-txn*]
+      (if-let [tv (txn-for state)]
         (vswap! tv (fn [t] (let [s (disj (get t k #{}) m)]
                              (if (empty? s) (dissoc! t k) (assoc! t k s)))))
         (swap! state (fn [st]
@@ -397,7 +423,7 @@
                         (get st k #{})))
                     ks)))))
   (kv-batch [_ ops]
-    (if-let [tv *bulk-txn*]
+    (if-let [tv (txn-for state)]
       ;; bulk load: fold every op into the transient (no per-op path copy, no swap!);
       ;; index-sentex ignores the replies, so return the aligned nil placeholders.
       (do (vswap! tv (fn [t] (reduce mem-op! t ops))) (mapv (fn [_#] nil) ops))
@@ -460,8 +486,8 @@
   [backend & body]
   `(let [bk# ~backend]
      (if (instance? vaelii.impl.memory.MemoryKvBackend bk#)
-       (binding [*bulk-txn* (volatile! (transient @(:state bk#)))]
-         (try ~@body (finally (reset! (:state bk#) (persistent! @*bulk-txn*)))))
+       (binding [*bulk-txn* {:state (:state bk#) :txn (volatile! (transient @(:state bk#)))}]
+         (try ~@body (finally (reset! (:state bk#) (persistent! @(:txn *bulk-txn*))))))
        (do ~@body))))
 
 (defn memory-kv-backend

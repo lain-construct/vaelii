@@ -195,7 +195,15 @@
                   (v/find-terms kb "^Cx" {:match :regex}))))
     (testing "an empty query matches everything, and :limit bounds it"
       (is (= (v/terms kb) (v/find-terms kb "")))
-      (is (= 10 (count (v/find-terms kb "" {:limit 10})))))))
+      (is (= 10 (count (v/find-terms kb "" {:limit 10})))))
+    (testing "a bounded answer is the unbounded one's prefix at every limit and match mode —
+              the bound is a selection, never a different order"
+      (doseq [[q opts] [["" nil] ["g" nil] ["Cx" nil] ["a" {:case-sensitive? true}]
+                        ["e" {:match :substring}] ["^[a-z]+Of$" {:match :regex}]]
+              n        [1 2 3 7 50 201 100000]]
+        (is (= (vec (take n (v/find-terms kb q opts)))
+               (v/find-terms kb q (assoc opts :limit n)))
+            (str (pr-str q) " " (pr-str opts) " at limit " n))))))
 
 (deftest find-terms-refuses-a-limit-that-is-not-a-positive-integer
   ;; `:limit` reaches `take`, so a string limit raises a bare cast error — over the
@@ -213,7 +221,25 @@
           (is (re-find #"positive integer" (ex-message e)))))
       (testing "a positive integer still bounds, and an explicit nil is no limit"
         (is (= 1 (count (v/find-terms kb (subs (str parentOf) 0 3) {:limit 1}))))
-        (is (= (v/find-terms kb "tmp") (v/find-terms kb "tmp" {:limit nil})))))))
+        (is (= (v/find-terms kb "tmp") (v/find-terms kb "tmp" {:limit nil}))))
+      (testing "a limit past Integer/MAX_VALUE allocates nothing and answers unbounded"
+        ;; the selection heap's initial capacity is a floor rather than the caller's
+        ;; `:limit`, so a bound nothing can reach is a bound and not an array
+        (doseq [huge [2147483648 4294967296 Long/MAX_VALUE]]
+          (is (= (v/find-terms kb "tmp") (v/find-terms kb "tmp" {:limit huge}))
+              (str (pr-str huge) " answers what no limit answers"))
+          (is (= (v/find-terms kb "tmp" {:match :substring})
+                 (v/find-terms kb "tmp" {:match :substring :limit huge})))))
+      (testing "a limit past Long/MAX_VALUE is the typed refusal, not a cast error"
+        ;; an arbitrary-precision integer satisfies `integer?` and would reach the `long`
+        ;; the selection narrows through — an untyped `ArithmeticException` no roster of
+        ;; refusal types can see, and over the daemon a 500 with nothing to key on
+        (doseq [bad [9223372036854775808N (biginteger 9223372036854775808N) (bigint 1e30)]]
+          (let [e (is (thrown? clojure.lang.ExceptionInfo
+                               (v/find-terms kb "tmp" {:limit bad}))
+                      (str (pr-str bad) " is refused"))]
+            (is (= :unknown-option (:type (ex-data e))))
+            (is (re-find #"positive integer" (ex-message e)))))))))
 
 (tu/deftest-kb a-find-terms-key-nothing-reads-is-refused
   ;; a misspelt `:mtch` silently ran the default prefix search, and a prefix answer

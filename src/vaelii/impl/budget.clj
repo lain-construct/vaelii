@@ -22,8 +22,13 @@
                   ignored *here*, since it selects *which* work runs, not how much
                   of a stream to realize.
     :max-depth    transformation (rule-expansion) depth — honored by `prove-within`
+    :max-term-growth
+                  how many levels of compound nesting a subgoal may add over what its
+                  own derivation path has already met (`res/default-max-term-growth`,
+                  8) — the DFS prover's other termination guard, honored by
+                  `prove-within` through `prove-bounds`
 
-  A key outside those four is refused (`:unknown-option`, `check-budget!`): every
+  A key outside those five is refused (`:unknown-option`, `check-budget!`): every
   bound is optional, so a misspelt one is not missing — the run is simply unbounded,
   in silence.
 
@@ -49,10 +54,11 @@
 (def budget-keys
   "Every bound a budget may carry.  `collect` reads `:max-ms` / `:max-results`;
   `:max-cost` is honored by `ask-within` (it selects which provers run, before the
-  stream is built) and `:max-depth` by `prove-within` — all four are budget
-  vocabulary, so all four pass `check-budget!`.  Public for the reason
-  `vaelii.core/assert-opt-keys` is: it is the answer to \"is this a real bound?\"."
-  #{:max-ms :max-results :max-cost :max-depth})
+  stream is built), and `:max-depth` / `:max-term-growth` by `prove-within`, which
+  reads them through `prove-bounds` — all five are budget vocabulary, so all five pass
+  `check-budget!`.  Public for the reason `vaelii.core/assert-opt-keys` is: it is the
+  answer to \"is this a real bound?\"."
+  #{:max-ms :max-results :max-cost :max-depth :max-term-growth})
 
 (defn check-budget!
   "Refuse a budget key nothing reads, and a non-nil non-map budget (`:unknown-option`
@@ -70,6 +76,26 @@
   [budget]
   (when-let [ms (:max-ms budget)]
     (+ (System/nanoTime) (long (* ms 1e6)))))
+
+(defn prove-bounds
+  "A budget as the DFS prover's `bounds` map (`res/prove-from`) — the deadline the
+  wall-clock bound resolves to, plus the caps it reads under their own names.
+
+  One translation, and it lives beside `budget-keys` on purpose: the roster and the
+  map that honours it are two halves of one claim, and a bound rostered there but not
+  built here is accepted and then ignored — precisely what `check-budget!` refuses a
+  misspelt key to prevent.  `:max-cost` is absent because it is an `ask` concept
+  (`prove` runs facts and rules, and no prover registry), and the node-engine arm of
+  `prove-within` takes the budget itself rather than this map.
+
+  A bound the caller did not name reads nil, which `prove-from` takes as unbounded —
+  except `:max-term-growth`, whose absence is `res/default-max-term-growth` rather than
+  no ceiling, since it is a termination guard and not a budget the caller may drop."
+  [budget]
+  {:deadline        (deadline budget)
+   :max-results     (:max-results budget)
+   :max-depth       (:max-depth budget)
+   :max-term-growth (:max-term-growth budget)})
 
 (defn ms-since
   "Milliseconds elapsed since a `System/nanoTime` instant, as a double."

@@ -205,6 +205,16 @@ firings are filtered before a single query is paid for:
   filter narrows *within* what the index selected and never past it.
 - Arguments are compared as a **multiset**, so a symmetric predicate's mirrored fact
   still matches — level 6 probes both orders, and so must this.
+- Both sides are read under the **equality-class representative** when the KB has merged
+  anything (`settle/merge-normalizer`). A justification records what matched when it
+  fired and a merge does not go back and edit it, while a rule's condition keeps the
+  constants it was written with — so the same content reaches the test under two
+  spellings and agrees on no argument at all. Collapsing both sides puts one class under
+  one symbol, which is the only reading on which argument agreement means what the test
+  takes it to mean. Read **unscoped**, like the `specs` closure beside it: the two sides
+  go through the same function, so a class the reader cannot see collapses on both or on
+  neither and the answer can only broaden. A KB that has merged nothing skips the
+  rewrite outright, one deref at the top of the pass.
 - Only the survivors run the level-6 query.
 
 **Every "cannot tell" answers keep.** A literal that is not flat and ground, a nested
@@ -557,10 +567,19 @@ A firing's **stored bindings** are the other half of that last channel, and they
 half a trigger cannot fix. A justification records what matched when it fired, and a
 merge does not go back and edit it — so a re-check substituting them asks about a term
 the KB no longer answers under, and gets the honest empty that reads as *not excepted*.
-`chain/settled-bindings` rewrites them to the representatives the conclusion's context
-now elects, in that context, before any condition is evaluated: the same scoping every
-other read of the partition takes, since a merge the conclusion cannot see must not
-rename what its own re-check asks about.
+The condition's own **written-in constants** are the same problem from the other side: a
+rule is held back from an individual-only rewrite migration, so `(exceptWhen (mskip
+MOne) …)` goes on naming `MOne` after the merge has retired it.
+
+The **question** carries the rewrite for both, and once: `provers/exception-holds?` puts
+each substituted conjunct in its context's normal form before evaluating it, which
+settles the firing's bindings and the condition's constants in one walk — so the
+derive-time check and the re-check ask one question of one firing however the merge is
+ordered against them. `chain/settled-bindings` rewrites the binding map itself, for the
+conditions that read a binding rather than a goal: an aggregate's recount and an
+inheritance re-check. Both scope to the conclusion's context, the scoping every other
+read of the partition takes, since a merge the conclusion cannot see must not rename
+what its own re-check asks about.
 
 The general rule these four are instances of: **a re-check trigger is sound only for the
 provers whose answer is addressed by the key it uses.** Keying on the exception's
@@ -801,8 +820,13 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
 - **Evaluation.** `provers/exception-holds?` substitutes the firing's bindings into a
   conjunction (from `provers/rule-exceptions`) and runs each conjunct as an independent
   ground existence check over the registry — level 6 of the lookup stack, reached here
-  without depending on `levels`. Nothing in the registry expands a rule, which is what
-  keeps the check bounded. `exceptions-block?` ORs this over a rule's exceptions.
+  without depending on `levels`. Each substituted conjunct is first put in the **normal
+  form its context answers under** (`condition-normalizer`), the preparation
+  `levels/engine-goal` gives a level-6 read and `kb/rewrite-goal` a query: a bound term
+  and a written-in constant alike may be a spelling an equality merge has retired, and a
+  conjunct asked as written gets the honest empty that reads as *not excepted*. Nothing
+  in the registry expands a rule, which is what keeps the check bounded.
+  `exceptions-block?` ORs this over a rule's exceptions.
 - **Blocking, in every chainer.** Forward chaining checks before placing
   (`derive-conclusion`), and `res/prove` and the node engine each
   carry a `:guards` entry on the parsed rule and drop the argument once it is complete. An

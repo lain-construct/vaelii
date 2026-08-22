@@ -451,7 +451,7 @@
   ;; claim is worth, and what is under test here is that the panel *reports* the flag
   ;; `preview` sets (`preview_test` pins that it sets it)
   (let [panel (fn [result]
-                (str (#'web/consequence-panel {:kb tu/*kb*} 1 result)))
+                (str (#'web/consequence-panel (web/view tu/*kb* {}) 1 result)))
         capped (panel {:believed-added [{:sentence '(dog Muffet) :context 'CxWell}]
                        :believed-removed [] :refused [] :violations []
                        :contradictions [] :bounded? true})

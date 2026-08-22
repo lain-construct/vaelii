@@ -10,10 +10,12 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
+            [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
@@ -415,3 +417,106 @@
         (is (roster-agrees? kb [gp pm 'CxWell]))
         (is (not (v/ask? kb (list shiny gold) pm)) "and the read still follows it")
         (is (v/ask? kb (list shiny gold) gp))))))
+
+;; ---- except strength converse: monotonic except defeats default not-except -
+
+(tu/deftest-kb a-monotonic-except-defeats-a-default-not-except
+  ;; The converse of `a-defeated-except-does-not-hide`: a default (not (except H))
+  ;; cannot override a monotonic (except H) — strength wins, so the target stays hidden.
+  (let [ctx (tu/tmp-ctx "Conv") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})]
+      (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})
+      (is (not (v/ask? kb (list shiny gold) ctx)) "the monotonic except hides it")
+      (v/assert kb (list 'not (list 'except (sx/sentex-handle h))) ctx {:strength :default})
+      (testing "the default negation cannot defeat the monotonic except; the target stays hidden"
+        (is (not (v/ask? kb (list shiny gold) ctx)))))))
+
+;; ---- meta-exception: excepting an except cascades -------------------------
+
+(tu/deftest-kb meta-exception-cascades-restoring-visibility
+  ;; A meta-exception — (except (sentexHandle E)) where E is itself an (except …) —
+  ;; cascades: hiding the except suppresses its effect and restores visibility of the
+  ;; target the inner except was hiding.
+  (let [ctx (tu/tmp-ctx "MetaEx") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})]
+      (testing "P is true after assertion"
+        (is (v/ask? kb (list shiny gold) ctx)))
+      (let [e (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})]
+        (testing "P is hidden after excepting"
+          (is (not (v/ask? kb (list shiny gold) ctx))))
+        (let [m (v/assert kb (list 'except (sx/sentex-handle e)) ctx {:strength :monotonic})]
+          (testing "excepting the except restores visibility — the cascade"
+            (is (v/ask? kb (list shiny gold) ctx)
+                "P should be visible again: E hides H, M hides E, so E's effect is suppressed"))
+          (testing "the inner except E is hidden"
+            (is (not (v/ask? kb (list 'except (sx/sentex-handle h)) ctx))
+                "the except itself is hidden by the meta-except"))
+          (testing "retracting the meta-except re-hides P"
+            (v/retract! kb m)
+            (is (not (v/ask? kb (list shiny gold) ctx))
+                "E's effect is restored when M goes away")))))))
+
+;; ---- meta-except counter: no leak when the inner except goes first --------
+
+(tu/deftest-kb meta-except-count-drops-when-inner-except-retracted-before-meta
+  ;; `:meta-except-count` gates the read-time cascade path (resolution/excepted-handles),
+  ;; so it must stay equal to what `rebuild-excepted!` recomputes: the number of stored
+  ;; excepts whose target is itself a stored except.  Retracting the inner except E before
+  ;; the meta-except M = (except E) strands M — its target no longer resolves — so the
+  ;; count must fall the moment E leaves, not over-count for the KB's lifetime.
+  (let [ctx (tu/tmp-ctx "MetaCount") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})
+          e (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})
+          m (v/assert kb (list 'except (sx/sentex-handle e)) ctx {:strength :monotonic})]
+      (testing "M is a meta-except: its target E is itself an except"
+        (is (= 1 @(:meta-except-count kb))))
+      (testing "retracting the inner except E strands M, so the count drops at once"
+        (v/retract! kb e)
+        (is (= 0 @(:meta-except-count kb))
+            "the count must not leak while M dangles over a deleted E"))
+      (testing "retracting the meta-except M leaves the count at zero"
+        (v/retract! kb m)
+        (is (= 0 @(:meta-except-count kb))))
+      (testing "the incremental count equals a fresh recomputation from storage"
+        (kb/rebuild-excepted! kb)
+        (is (= 0 @(:meta-except-count kb)))))))
+
+;; ---- ordering contract: except-target extraction before mutation ----------
+
+(tu/deftest-kb except-target-is-captured-before-storage-deletion
+  ;; Structural contract: sentex-removed! must extract the except target handle
+  ;; BEFORE the first destructive mutation (disintegrate-sentex!, delete-sentex!).
+  ;; This pins the defensive binding introduced in 484b59f — the immutable local
+  ;; happens to survive deletion in Clojure, but the contract should not depend on
+  ;; that accident.
+  (let [ctx  (tu/tmp-ctx "Ord")
+        pred (tu/tmp-pred) ind (tu/tmp-ind)
+        log  (atom [])
+        real-except-target     kb/except-target
+        real-disintegrate      special/disintegrate-sentex!]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h  (v/assert kb (list pred ind) ctx {:strength :monotonic})
+          eh (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})]
+      ;; Verify the except is working before we retract
+      (is (not (v/ask? kb (list pred ind) ctx)) "except hides the fact")
+      ;; Instrument: record the order of except-target vs disintegrate-sentex!
+      (with-redefs [kb/except-target        (fn [sentence]
+                                              (swap! log conj :except-target)
+                                              (real-except-target sentence))
+                    special/disintegrate-sentex! (fn [kb sentex]
+                                                   (swap! log conj :disintegrate)
+                                                   (real-disintegrate kb sentex))]
+        (v/retract! kb eh))
+      ;; The fact should be visible again after retracting the except
+      (is (v/ask? kb (list pred ind) ctx) "retracting except restores visibility")
+      ;; The structural contract: except-target must appear before disintegrate
+      (let [events @log
+            target-idx      (.indexOf ^java.util.List events :except-target)
+            disintegrate-idx (.indexOf ^java.util.List events :disintegrate)]
+        (is (>= target-idx 0) "except-target was called during retraction")
+        (is (>= disintegrate-idx 0) "disintegrate-sentex! was called during retraction")
+        (is (< target-idx disintegrate-idx)
+            "except-target must be called before the first destructive mutation")))))

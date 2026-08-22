@@ -313,6 +313,199 @@
     (is (= {:defeat #{} :violated []}
            (solve/solve edge/edge-solver (solve/program #{} [] {}))))))
 
+;; ---- a result that is not an answer ------------------------------------
+;;
+;; A backend that was interrupted (the time limit, a signal) hands back no witness.
+;; Every reader maps an atom's absence to *defeated* / *not kept*, so read as an
+;; answer an empty result defeats every contested assumption — the exact opposite
+;; of "decide nothing".  No backend is needed to pin this: `solver/solve` is the
+;; seam, and a stub answer in its shape is what arrives either way.
+
+(def ^:private two-choices
+  (solve/program #{1 2}
+                 [{:nogood #{1 2} :priority 1 :sentence '(contradicts a b)}]
+                 {1 {:sentence '(a) :context 'Cx} 2 {:sentence '(b) :context 'Cx}}))
+
+;; Two nogoods sharing a member, with the handles arranged so the stub's greedy
+;; per-nogood choice and the global optimum land on *different* sides: the stub
+;; defeats {1,3} and ASP defeats {2}.  This is the shape that makes degradation
+;; visible — on `two-choices` above the two solvers happen to agree.
+(def ^:private shared-member
+  (solve/program #{1 2 3}
+                 [{:nogood #{1 2} :priority 0 :sentence '(contradicts c a)}
+                  {:nogood #{2 3} :priority 0 :sentence '(contradicts a b)}]
+                 {1 {:sentence '(c) :context 'Cx}
+                  2 {:sentence '(a) :context 'Cx}
+                  3 {:sentence '(b) :context 'Cx}}))
+
+(defn- with-backend-answering
+  "Run `f` with a backend present whose every solve returns `result`."
+  [result f]
+  (with-redefs [solver/available?    (constantly true)
+                solver/solve         (fn [_ _] result)
+                solver/classify-both (fn [_] {:cautious result :brave result})]
+    (f)))
+
+(deftest an-interrupted-solve-is-not-read-as-defeat-everything
+  (doseq [status [:interrupted :unknown]]
+    (with-backend-answering {:status status :atoms [] :cost nil :raw nil}
+      (fn []
+        (testing (str "edge-solver on " status " decides nothing at all")
+          (let [r (solve/solve edge/edge-solver two-choices)]
+            (is (empty? (:defeat r)) "not one side, not both — none")
+            (is (= :solver-failed (:type (ex-data (:error r)))))
+            (is (= status (:status (ex-data (:error r)))))))
+        (testing (str "and the imperative readers refuse " status " as :solver-failed")
+          (doseq [f [#(edge/kept-of (edge/translate two-choices)
+                                    {:status status :atoms []})
+                     #(edge/enumerate-optima two-choices)
+                     #(edge/classify-program two-choices)]]
+            (let [e (is (thrown? clojure.lang.ExceptionInfo (f)))]
+              (is (= :solver-failed (:type (ex-data e))))
+              (is (= status (:status (ex-data e)))))))))))
+
+(deftest belief-does-not-depend-on-whether-the-solve-finished
+  ;; The reason `edge-solver` refuses instead of degrading whenever a backend is
+  ;; present.  The stub and ASP disagree on this program, so falling back would make
+  ;; the *answer* — not merely the latency — a function of the wall clock: a settle
+  ;; whose round 1 timed out and whose round 2 did not would end at a belief set
+  ;; neither solver would produce, on knowledge that never changed.
+  (when asp?
+    (let [decided (solve/solve edge/edge-solver shared-member)
+          stub    (solve/solve solve/local-solver shared-member)]
+      (testing "the two solvers really do disagree here, or this test proves nothing"
+        (is (= #{2} (:defeat decided)) "ASP spends one defeat on the shared member")
+        (is (= #{1 3} (:defeat stub)) "the stub spends two"))
+      (testing "an interrupted labeling solve yields the stub's answer from neither"
+        (let [real solver/solve
+              r (with-redefs [solver/solve (fn [aspif mode]
+                                             (if (= mode :label)
+                                               {:status :interrupted :atoms [] :cost nil :raw nil}
+                                               (real aspif mode)))]
+                  (solve/solve edge/edge-solver shared-member))]
+          (is (empty? (:defeat r)))
+          (is (not= (:defeat stub) (:defeat r))))))))
+
+(deftest a-decided-nothing-result-is-distinguishable-from-keeping-everything
+  ;; An empty `:defeat` is otherwise a perfectly good answer — *nothing had to give
+  ;; way* — so a caller that materializes what a solve kept cannot tell the two apart
+  ;; from the defeat set alone.  `:error` is the bit that tells them apart, and
+  ;; `asp.label` raises it rather than committing a world nobody computed.
+  (when asp?
+    (testing "a program with nothing to satisfy really does defeat nothing, and errs not"
+      (let [r (solve/solve edge/edge-solver
+                           (solve/program #{1 2} []
+                                          {1 {:sentence '(a) :context 'Cx}
+                                           2 {:sentence '(b) :context 'Cx}}))]
+        (is (empty? (:defeat r)))
+        (is (nil? (:error r)))))
+    (testing "an interrupted solve defeats nothing either, and says why"
+      (with-backend-answering {:status :interrupted :atoms [] :cost nil :raw nil}
+        (fn []
+          (let [r (solve/solve edge/edge-solver shared-member)]
+            (is (empty? (:defeat r)))
+            (is (= :solver-failed (:type (ex-data (:error r)))))))))))
+
+(deftest a-backend-that-throws-does-not-unwind-the-arbitration
+  ;; `resolve-contradictions` reaches the solver after an earlier round has already
+  ;; defeated things, so an exception escaping the seam leaves a half-arbitrated KB:
+  ;; round 1's defeats landed, `:conflicts` stale, `settle-finish` never reached.  The
+  ;; three currencies a backend fails in all read as one decided-nothing result.
+  (doseq [[what thrown expected-type]
+          [["clingo's chk!"      (ex-info "clingo solve failed: out of memory"
+                                          {:type :solver-failed :op "solve"})   :solver-failed]
+           ["a missing clasp"    (ex-info "clasp binary not found: clasp"
+                                          {:type :solver-unavailable :binary "clasp"}) :solver-unavailable]
+           ["a JNA link Error"   (UnsatisfiedLinkError. "clingo_control_new")   :solver-failed]]]
+    (with-redefs [solver/available? (constantly true)
+                  solver/solve      (fn [_ _] (throw thrown))]
+      (testing (str what " comes back as a result, not a throw")
+        (let [r (solve/solve edge/edge-solver two-choices)]
+          (is (empty? (:defeat r)) "nothing was decided")
+          (is (= expected-type (:type (ex-data (:error r)))))
+          (is (identical? thrown (ex-cause (:error r))) "the original failure is the cause"))))))
+
+(deftest an-unsat-result-keeps-its-documented-reading
+  ;; `:unsat` is a definite answer — no model — and each reader has its own word for
+  ;; it: the edge solver degrades, a labeling keeps nothing, an enumeration is empty.
+  (with-backend-answering {:status :unsat :atoms [] :cost nil :raw nil}
+    (fn []
+      (is (= (solve/solve solve/local-solver two-choices)
+             (solve/solve edge/edge-solver two-choices)))
+      (is (= #{} (edge/kept-of (edge/translate two-choices) {:status :unsat :atoms []})))
+      (is (= [] (edge/enumerate-optima two-choices))))))
+
+(deftest the-violated-reading-does-not-depend-on-nogood-arrival-order
+  ;; Two constraints over the same members at the same priority — a shape two constraint
+  ;; rules grounding to the same choice heads produce — differ only in their `:sentence`,
+  ;; which `translate`'s nogood key omits.  A stable sort then leaves the tie to arrival
+  ;; order, and the reading permutes with it.  Belief never does; the report is what the
+  ;; caller sees, and it owes the same content order everything else here owes.
+  ;;
+  ;; A hard at-least-one forces the single choice true, so all three soft nogoods
+  ;; forbidding it are violated at once — `:violated` comes back empty for anything the
+  ;; engine itself builds (every contradiction it sends has a contested member, and
+  ;; defeating that member satisfies it), so a caller's own program is what reaches it.
+  (let [force {:neg #{1} :hard true :sentence '(mustHold)}
+        ng1   {:nogood #{1} :priority 0 :sentence '(contradicts aaa)}
+        ng2   {:nogood #{1} :priority 0 :sentence '(contradicts bbb)}
+        hi    {:nogood #{1} :priority 9 :sentence '(contradicts zzz)}
+        prog (fn [ngs] (solve/program #{1} (conj (vec ngs) force)
+                                      {1 {:sentence '(live) :context 'Cx}}))
+        seen (fn [ngs] (mapv :sentence (:violated (solve/solve edge/edge-solver (prog ngs)))))]
+    (when asp?
+      (testing "the same three nogoods in either order read identically"
+        (is (= (seen [ng1 ng2 hi]) (seen [hi ng2 ng1]))))
+      (testing "highest caller priority first, then content — the Solver contract"
+        (is (= '[(contradicts zzz) (contradicts aaa) (contradicts bbb)]
+               (seen [ng2 ng1 hi])))))))
+
+;; ---- what the time limit bounds ----------------------------------------
+
+(defn- backend-solves
+  "The solve modes `f` runs through the backend, in order.  `classify-both` is two
+  enumerations over one control — one `control_new`, two searches — so it counts as the
+  two solves it is, which is what the budget is spent on."
+  [f]
+  (let [seen  (atom [])
+        solve solver/solve
+        both  solver/classify-both]
+    (with-redefs [solver/solve         (fn [a m] (swap! seen conj m) (solve a m))
+                  solver/classify-both (fn [a]
+                                         (swap! seen into [:classify-true :classify-supportable])
+                                         (both a))]
+      (f))
+    @seen))
+
+(deftest the-time-limit-bounds-one-solve-and-an-operation-makes-several
+  ;; `VAELII_ASP_TIME_LIMIT` is a per-solve budget, and a solve runs on the single
+  ;; writer — so what an operation actually holds the writer for is the budget times
+  ;; the number of solves it makes.  Measured at a 1-second budget on a program that
+  ;; finishes under neither: one solve returns after ~1015 ms and `classify-both` after
+  ;; 2049 ms, both of them correctly cancelled on time.
+  ;;
+  ;; docs/asp.md tabulates the multipliers.  This is what keeps the table honest: a
+  ;; second solve added to an operation is a doubling of the writer's exposure, and it
+  ;; should not be possible to add one without saying so.
+  (when asp?
+    (testing "one program, one solve"
+      (is (= [:label] (backend-solves #(solve/solve edge/edge-solver two-choices))))
+      (is (= [:all-optima] (backend-solves #(edge/enumerate-optima two-choices)))))
+    (testing "classification is two — cautious, then brave"
+      (is (= [:classify-true :classify-supportable]
+             (backend-solves #(edge/classify-program two-choices)))))
+    (testing "labeling a dilemma is three: the classification's two, then the labeling"
+      (tu/with-neutral-kb [kb tu/fresh]
+        (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
+              nixon (tu/tmp-ind)]
+          (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+          (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+          (v/assert kb (list quaker nixon)     'CxUniverse)
+          (v/assert kb (list republican nixon) 'CxUniverse)
+          (is (= [:classify-true :classify-supportable :label]
+                 (backend-solves
+                  #(v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling")) 'CxUniverse)))))))))
+
 (deftest an-irreducible-clash-still-bypasses-the-solver
   ;; Two monotonic claims that contradict cannot be arbitrated by defeating one —
   ;; `settle` classifies that as hard and reports it directly, so installing an ASP

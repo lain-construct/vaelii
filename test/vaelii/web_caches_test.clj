@@ -46,11 +46,7 @@
       (is (re-find #"symbols" body)))
     (testing "and the caches it cannot count are on the list rather than left off it"
       (is (re-find #"Justification dedup" body))
-      (is (re-find #"bound to one chaining run or one search step" body)))
-    (testing "the derived state that is not a cache is named rather than left implicit"
-      ;; A KB carries more than this, and a reader who knows that and sees no mention of
-      ;; it cannot tell an omission from a judgement.
-      (is (re-find #"because it is not a cache" body)))))
+      (is (re-find #"built and dropped inside a single chaining run or search step" body)))))
 
 (deftest a-per-process-counter-is-not-rendered-as-a-per-kb-one
   ;; The literal cache's entries belong to this KB and its hit counters are global across
@@ -62,9 +58,7 @@
 
 (deftest the-heap-strip-is-the-one-kbs-already-draws
   (let [body (:body (GET "/caches"))]
-    (is (re-find #"id=\"kb-memory\"" body) "reused, not redrawn")
-    (is (re-find #"an entry count is a count" body)
-        "and the measurement/estimate distinction it makes is pointed at explicitly")))
+    (is (re-find #"id=\"kb-memory\"" body) "reused, not redrawn")))
 
 (deftest the-panel-polls-only-while-something-is-running
   (testing "an idle process stops asking"

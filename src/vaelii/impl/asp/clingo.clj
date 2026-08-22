@@ -19,8 +19,17 @@
 
    Native lib: a system libclingo (brew install clingo) reachable via
    jna.library.path, or an absolute path in -Dvaelii.clingo.lib. Crash isolation
-   is lost vs the subprocess — every native return is checked and every Control
-   is freed in a finally; a malformed program throws rather than segfaults."
+   is lost vs the subprocess — every native return is checked, every solve handle
+   is closed in a finally and every Control is freed in one; a malformed program
+   throws rather than segfaults.
+
+   The time limit (`config/asp-time-limit`) is not a flag here — libclingo's
+   control takes solver options only and refuses `--time-limit` — so each solve runs
+   async and is drained through `clingo_solve_handle_wait` with what remains of the
+   budget; a solve still running when it runs out is cancelled and reports the
+   interrupted bit, read as `:interrupted`."
+  (:require [taoensso.trove :as trove]
+            [vaelii.impl.config :as config])
   (:import [com.sun.jna NativeLibrary Function Pointer Memory Native]
            [com.sun.jna.ptr PointerByReference IntByReference LongByReference]))
 
@@ -57,11 +66,15 @@
 
 (def ^:private show-shown   (Integer/valueOf 2))
 
-(def ^:private mode-yield   (Integer/valueOf 2))
+;; `clingo_solve_mode_async | clingo_solve_mode_yield`: models are pulled one at a
+;; time, and the search runs on clingo's own thread so a wait on it can time out.
+(def ^:private mode-async-yield (Integer/valueOf 3))
 
 (def ^:private result-sat   1)
 
 (def ^:private result-unsat 2)
+
+(def ^:private result-interrupted 8)
 
 (defn- symbol->string [s]
   (let [sz (LongByReference.)]
@@ -99,10 +112,90 @@
 (defn- read-model [m]
   {:atoms (model-symbols m) :cost (model-cost m) :optimal? (model-optimal? m)})
 
+(defn- keep-model
+  "Fold model `m` into `acc` (`{:models [..] :optimum cost-vec :any-optimal? bool}`)
+   under a `retain` policy.  `:optimum` (the lexicographically least cost vector seen)
+   and `:any-optimal?` (did any model come back optimality-proven) are tracked here
+   rather than derived from `:models` afterwards, so a model `retain` drops still
+   counts towards both.
+
+   * `:optimal` — every model whose cost has not since been beaten.  A strictly better
+     cost arriving discards what came before, because `finalize` keeps only the models
+     at the proven optimum anyway; a search streams improving models, so this is the
+     whole stream but the last plateau.
+   * `:last` — the newest, and only the newest.  The brave and cautious enumerations
+     stream converging approximations and `finalize` reads `(last models)`; every
+     earlier one is read for its cost and then discarded."
+  [{:keys [models optimum any-optimal?]} m retain]
+  (let [c       (:cost m)
+        better? (and (seq c) (or (nil? optimum) (neg? (compare (vec c) (vec optimum)))))]
+    {:optimum      (if better? c optimum)
+     :any-optimal? (or any-optimal? (boolean (:optimal? m)))
+     :models       (case retain
+                     :last    [m]
+                     :optimal (if better? [m] (conj models m)))}))
+
+(defn- drain-models
+  "The models solve handle `h` yields that `retain` keeps, in order, read as each
+   arrives — `{:models [..] :optimum cost-vec :any-optimal? bool}` (see `keep-model`).
+
+   `limit` is the solve's budget in seconds (`config/asp-time-limit`; 0 is none).
+   Each wait for the next model is bounded by what remains of it, and a search still
+   running when nothing remains is cancelled — `clingo_solve_handle_get` then carries
+   the interrupted bit, and the models read so far ride beside it for diagnostics.
+
+   Retention matters because a search streams: a 400-node colouring at a two-second
+   budget yields 618 models to a `:label` solve that reads one, and 184 to a cautious
+   enumeration that reads the last.  Every one of them is a map of freshly marshaled
+   atom-label strings, and holding all of them costs what none of them are worth."
+  [h limit retain]
+  (let [deadline (when (pos? limit) (+ (System/nanoTime) (long (* limit 1e9))))
+        ready    (Memory. 1)]
+    (loop [acc {:models [] :optimum nil :any-optimal? false}]
+      (chk! "resume" (ci "clingo_solve_handle_resume" h))
+      (let [remaining (if deadline (max 0.0 (/ (- deadline (System/nanoTime)) 1e9)) -1.0)]
+        (cv "clingo_solve_handle_wait" h (Double/valueOf (double remaining)) ready)
+        (if (zero? (.getByte ready 0))
+          (do (chk! "cancel" (ci "clingo_solve_handle_cancel" h)) acc)
+          (let [mr (PointerByReference.)]
+            (chk! "model" (ci "clingo_solve_handle_model" h mr))
+            (if-let [m (.getValue mr)]
+              (recur (keep-model acc (read-model m) retain))
+              acc)))))))
+
+(defn- drain-handle
+  "Drain and close the solve handle `hr` holds: `{:result <bitset> :models [...]
+   :optimum cost-vec :any-optimal? bool}`, the models being what `retain` kept
+   (see `drain-models`).
+
+   The close is in a `finally` — freeing a control with a handle still open is
+   undefined behaviour in libclingo, so a native failure inside the drain must not
+   skip it — and the close itself is guarded, because a `finally` that throws
+   *replaces* the exception on its way out.  The in-flight one is the informative
+   one: `chk!` names the native call that failed in `:op`, and that is the only
+   record of which one it was.  A close that fails on its own is logged and the
+   drain's answer stands; there is nothing left to do about the handle either way.
+   The sibling `delete-keep-temps!` guards its own cleanup for the same reason."
+  [^PointerByReference hr limit retain]
+  (let [h (.getValue hr)]
+    (try
+      (let [drained (drain-models h limit retain)
+            res     (IntByReference.)]
+        (chk! "get" (ci "clingo_solve_handle_get" h res))
+        (assoc drained :result (.getValue res)))
+      (finally
+        (try (ci "clingo_solve_handle_close" h)
+             (catch Throwable e
+               (trove/log! {:level :warn :id ::close-failed
+                            :msg  (str "closing the clingo solve handle failed: " (ex-message e))
+                            :data {:op "clingo_solve_handle_close"}})))))))
+
 (defn- run-solve
-  "Solve `aspif-text` with clingo `arg-strs` (clasp-style flags). Returns
-   {:result <bitset> :models [{:atoms [str] :cost [long] :optimal? bool} ...]}."
-  [arg-strs aspif-text]
+  "Solve `aspif-text` with clingo `arg-strs` (clasp-style flags), keeping the models
+   `retain` keeps. Returns
+   `{:result <bitset> :optimum [long] :any-optimal? bool
+     :models [{:atoms [str] :cost [long] :optimal? bool} ...]}`."
+  [arg-strs aspif-text retain]
   ;; the delete guards everything from creation on — a `spit` or `control_new` throw
   ;; must not leave the file behind — and no `deleteOnExit`, whose hook set retains
   ;; every path for the process's life; the finally below covers every exit
@@ -119,19 +212,11 @@
           (try
             (chk! "load_aspif" (ci "clingo_control_load_aspif" ctl files (Long/valueOf 1)))
             (let [hr (PointerByReference.)]
-              (chk! "solve" (ci "clingo_control_solve" ctl mode-yield Pointer/NULL (Long/valueOf 0)
-                                Pointer/NULL Pointer/NULL hr))
-              (let [h (.getValue hr)
-                    models (loop [acc []]
-                             (chk! "resume" (ci "clingo_solve_handle_resume" h))
-                             (let [mr (PointerByReference.)]
-                               (chk! "model" (ci "clingo_solve_handle_model" h mr))
-                               (if-let [m (.getValue mr)] (recur (conj acc (read-model m))) acc)))
-                    res (IntByReference.)]
-                (chk! "get" (ci "clingo_solve_handle_get" h res))
-                (ci "clingo_solve_handle_close" h)
+              (chk! "solve" (ci "clingo_control_solve" ctl mode-async-yield Pointer/NULL
+                                (Long/valueOf 0) Pointer/NULL Pointer/NULL hr))
+              (let [raw (drain-handle hr (config/asp-time-limit) retain)]
                 (when (seq argcs) argcs)                 ; keep arg strings alive past the call
-                {:result (.getValue res) :models models}))
+                raw))
             (finally
               (cv "clingo_control_free" ctl)))))
       (finally
@@ -143,13 +228,14 @@
    :classify-true        ["--opt-mode=optN" "--enum-mode=cautious" "--models=0"]
    :classify-supportable ["--opt-mode=optN" "--enum-mode=brave"    "--models=0"]})
 
-(defn- optimum-cost-vec
-  "The proven optimum cost vector across `models` (lexicographically least), or
-   nil when the program has no minimize statement (all cost vectors empty)."
-  [models]
-  (let [costs (remove empty? (map :cost models))]
-    (when (seq costs)
-      (first (sort (fn [a b] (compare (vec a) (vec b))) costs)))))
+(def ^:private mode-retention
+  "How many of a mode's streamed models `drain-models` has to keep.  `:label` and
+   `:all-optima` read the models at the optimum, so every model still on the best
+   cost is kept; the two classify modes read `(last models)` alone."
+  {:label                :optimal
+   :all-optima           :optimal
+   :classify-true        :last
+   :classify-supportable :last})
 
 (defn- optimal-models [models opt]
   (if (nil? opt) models (filter #(= opt (:cost %)) models)))
@@ -160,22 +246,29 @@
                       {:type :unknown-option :mode mode :valid (keys mode-args)}))))
 
 (defn- finalize
-  "Shared post-processing for the raw `{:result :models}` of either solve path —
-   one-shot `run-solve` or live-control `solve-control` — into the public contract
+  "Shared post-processing for the raw drain of either solve path — one-shot
+   `run-solve` or live-control `solve-control` — into the public contract
    (matches vaelii.impl.asp.clasp/solve):
-     :status    :optimum | :sat | :unsat | :unknown
+     :status    :optimum | :sat | :unsat | :interrupted | :unknown
      :atoms     vector of label strings
      :cost      optimum cost (nil if no minimize / unsat)
      :witnesses vector of value vectors (only for :all-optima)
-     :raw       {:result :models} (diagnostics)"
-  [{:keys [result models] :as raw} mode]
-  (let [opt   (optimum-cost-vec models)
-        cost  (first opt)
+     :raw       the drain (diagnostics)
+
+   `:optimum` and `:any-optimal?` come off the drain rather than out of `:models`,
+   which holds only what the mode's retention kept (`keep-model`) — a model dropped
+   for being off the best cost still had its say in both.
+
+   `:interrupted` is the cancelled search (the time limit ran out); whatever models
+   were yielded before it are not the answer the mode asked for."
+  [{:keys [result models any-optimal?] opt :optimum :as raw} mode]
+  (let [cost  (first opt)
         status (cond
-                 (pos? (bit-and result result-unsat)) :unsat
-                 (and opt (some :optimal? models))    :optimum
-                 (pos? (bit-and result result-sat))   :sat
-                 :else                                 :unknown)]
+                 (pos? (bit-and result result-interrupted)) :interrupted
+                 (pos? (bit-and result result-unsat))       :unsat
+                 (and opt any-optimal?)                     :optimum
+                 (pos? (bit-and result result-sat))         :sat
+                 :else                                       :unknown)]
     (case mode
       :label
       {:status status :atoms (vec (:atoms (first (optimal-models models opt)))) :cost cost :raw raw}
@@ -194,7 +287,7 @@
   "Run clingo in-process on `aspif-text` (via load_aspif) in one of the supported
    modes. See `finalize` for the return contract."
   [aspif-text mode]
-  (finalize (run-solve (mode-args-or-throw mode) aspif-text) mode))
+  (finalize (run-solve (mode-args-or-throw mode) aspif-text (mode-retention mode)) mode))
 
 (defn- int-array-mem ^Memory [ints]
   (let [m (Memory. (long (* 4 (max 1 (count ints)))))]
@@ -230,28 +323,21 @@
 
 (defn solve-control
   "Solve a live control under `assume-lits` (signed program literals assumed
-   for THIS solve only). Drains every model. Returns `{:result :models}` like
-   the one-shot path. The mode flags are fixed at `open-control` time; witness
-   symbols come off the output table, the same `show-shown` view `run-solve` reads."
-  [ctl assume-lits]
+   for THIS solve only), keeping the models `retain` keeps.  Returns the same drain
+   shape as the one-shot path.  The mode flags are fixed at `open-control` time;
+   witness symbols come off the output table, the same `show-shown` view `run-solve`
+   reads."
+  [ctl assume-lits retain]
   (let [amem (int-array-mem assume-lits)
         hr   (PointerByReference.)]
-    (chk! "solve" (ci "clingo_control_solve" ctl mode-yield
+    (chk! "solve" (ci "clingo_control_solve" ctl mode-async-yield
                       (if (seq assume-lits) amem Pointer/NULL)
                       (Long/valueOf (count assume-lits))
                       Pointer/NULL Pointer/NULL hr))
-    (let [h      (.getValue hr)
-          models (loop [acc []]
-                   (chk! "resume" (ci "clingo_solve_handle_resume" h))
-                   (let [mr (PointerByReference.)]
-                     (chk! "model" (ci "clingo_solve_handle_model" h mr))
-                     (if-let [m (.getValue mr)] (recur (conj acc (read-model m))) acc)))
-          res    (IntByReference.)]
-      (chk! "get" (ci "clingo_solve_handle_get" h res))
-      (ci "clingo_solve_handle_close" h)
+    (let [raw (drain-handle hr (config/asp-time-limit) retain)]
       #_{:clj-kondo/ignore [:unused-value]}
       (identity amem)                                   ; keep the buffer alive past the call
-      {:result (.getValue res) :models models})))
+      raw)))
 
 (defn free-control!
   "Free a live control and let its keep-alive buffers/temps be reclaimed. Freeing
@@ -304,8 +390,10 @@
     (try
       (let [run (fn [enum-mode]
                   (set-enum-mode! ctl enum-mode)
-                  ;; both classify modes share finalize's post-processing (last model)
-                  (finalize (solve-control ctl []) :classify-true))
+                  ;; both classify modes share finalize's post-processing (last model),
+                  ;; and its retention with it
+                  (finalize (solve-control ctl [] (mode-retention :classify-true))
+                            :classify-true))
             cautious (run "cautious")
             brave    (run "brave")]
         #_{:clj-kondo/ignore [:unused-value]}

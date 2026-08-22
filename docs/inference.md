@@ -142,6 +142,28 @@ intersection rather than a fan-out over every first-argument value
 ([indexing.md](indexing.md), "Argument-root retrieval", `res/*arg-root-retrieval*`,
 on by default), so that shape is flat in the extent on the reference path.
 
+The other cost the trie carries is the **sub-predicate fan**: `match-pattern` walks
+once per member of the functor's spec closure, so a bound type test — `(animal ?x)`
+with `?x` already bound by the trigger, the commonest non-trigger antecedent — is
+`|specs|` walks to confirm one membership, per firing attempt. A substituted
+antecedent with a bound indexable argument is therefore read through
+`res/matches-hierarchical` at `?ctx` (`chain/join-matches`, `res/lead-literal?`): one
+predicate-agnostic slot read narrowed to the closure in memory, or one scoped read per
+spec where that side is smaller (`res/*lead-side*`), the identical set under the same
+belief filter, polarity check and symmetric mirror. The route is taken only with the
+reference matcher bound and `res/*hierarchical-retrieval*` on, so a rete run keeps its
+seam and the reference-retrieval sweep keeps the trie everywhere.
+
+**And only where there is a fan to collapse.** A functor with no sub-predicates has a
+singleton spec closure, which is `match-pattern`'s own fast path — one cached set lookup
+and a single `raw-match`, whose `candidate-handles` already reads the argument roots for
+the shape the trie cannot narrow and the trie for the shapes it can. Nothing is saved
+there and the lead is not free, so `join-matches` asks the closure width first
+(2 index reads per firing on a binary join, measured over 2,000 firings: 52,003 reads
+against 48,003). That is the common case — every predicate nobody has written a `genl`
+under — and `join_lead_cost_test` measures at width 0 as well as at 4 and 16, since a cost
+that is wrong at every width is flat in the width and a shape gate rewards flat.
+
 `vaelii.impl.rete` is an opt-in **TREAT-style alpha network** over the same question.
 It keeps the stored facts in RAM — grouped by functor and indexed by argument value,
 the *alpha memories* — and answers a non-trigger antecedent by a hash lookup on its
@@ -349,6 +371,25 @@ from the roots".
   set of variable-collapsed goal keys so recursive rules terminate. A key keeps its
   *ground* arguments, so a recursion that walks a chain keeps expanding while one that
   re-asks the same open goal is cut. `provable?` is the boolean form.
+
+  The key alone cannot see one recursion: a rule that nests a function application
+  around a head variable — `(implies (p (SuccFn ?x)) (p ?x))`, range-restricted and
+  legal — asks `(p (SuccFn A))` of `(p A)`, then `(p (SuccFn (SuccFn A)))`, each a
+  goal nobody has asked. So the guard has a second half, a **term-growth ceiling**:
+  a subgoal whose arguments nest compound terms more than `:max-term-growth` levels
+  (`res/default-max-term-growth`, 8) deeper than the deepest term its own path has met
+  is cut exactly as a repeated key is — its stored matches still read, its expansion
+  refused. What the ceiling refuses is nesting a **rule invented**, and the basis it
+  measures against is what makes that distinction: the query's own depth to start with,
+  raised whenever a leaf match binds a deeper *stored* term (`res/grown-term-base`) and
+  never by a rule expansion. So structural recursion that *shrinks* a term (walking a
+  list, counting a numeral down) is never touched at any depth; a query over a deeply
+  nested term starts from that depth; and a conjunct handed a deep individual by the
+  conjunct before it measures from that individual rather than from the query — without
+  which reordering a conjunction could change the answer set, where
+  [planning](#conjunctive-query-planning-vaeliiimplplan) promises it changes only the
+  cost. The store holds finitely many terms and each is finitely deep, so the basis a
+  path can reach is bounded and the search still terminates on the data.
 - **the node engine** (`vaelii.impl.inference`) — a frontier of whole conjunctions
   ordered by cost, described below. `core/query` routes to it when given a
   `:max-depth`.
@@ -366,6 +407,14 @@ by a marker pushed behind the antecedents: one stack entry per firing, the same
 mechanism and the same cost as the `exceptWhen` guard. The guard stays a statement about
 descent, which is the only thing it is sound to be, and the order conjuncts are tried in
 is free — reordering them cannot change which one claims a key first.
+
+Both engines find a goal's candidate rules through `res/concluding-rule-handles` —
+the consequent index over the goal functor's spec closure, plus the variable-consequent
+catch-all. A goal whose **functor is a variable**, `(?p Tom ?y)`, names no bucket and
+any rule may conclude it, so there the candidates are every rule, enumerated off the
+antecedent roster, and `subsuming-unify` binds `?p` per rule to the consequent's
+functor ([indexing.md](indexing.md), "The rule index"). Fact matching already answers
+the open functor through the argument roots; rule expansion answers it the same way.
 
 `ask` is **not** a third. It is the prover registry, and no member of the registry
 expands a rule — which is what makes it the thing a closed-world reader can run from
@@ -394,7 +443,7 @@ almost everything else follows from that.
 | **leaf** | stored facts, or any `:leaf-solver` | stored facts, or any `:leaf-solver` |
 | **conjunctive query** | yes, a vector | yes, a vector |
 | **laziness** | the loop is eager; `prove-seq` drives it lazily a solution per pull, and `prove-within` bounds and resumes | lazy, one node per pull |
-| **termination** | per-path `seen` **+ optional `:max-depth`** | **the depth bound**, and nothing else |
+| **termination** | per-path `seen` + the term-growth ceiling **+ optional `:max-depth`** | **the depth bound**, and nothing else |
 | **deep chains** | 2000 fine | bounded by depth |
 | **variables** | one flat map + `freshen-rule` | a namespace per node |
 | **repeat work** | re-derives across branches | claimed keys, globally |
@@ -432,7 +481,9 @@ chaining and `assert` left behind, not what a query just computed.
 
 **Which to reach for.** `prove` terminates on the *data*: a chain of length n finishes
 after n steps whatever bound it was given, so it answers a derivation deeper than any
-number you would have guessed. It is also the bounded-and-resumable one, and the only
+number you would have guessed — the one ceiling it carries is on how far a subgoal's
+*terms* may grow past the query's, which no stored fact can answer past anyway. It is
+also the bounded-and-resumable one, and the only
 one that reports dead ends, which is what abduction listens on (`abduce`). The node
 engine trades a hard depth ceiling for set-at-a-time evaluation: its residual stays
 symbolic, so its node count is a function of the rule graph rather than of the data, and
@@ -805,7 +856,8 @@ engine refuses a query that names no depth rather than picking one. A residual g
 conjunct per rewrite, and the claimed-key set cannot stop that — each rewrite yields a
 longer conjunction and so a key nothing has claimed. The DFS terminates on the **data**
 (it substitutes as it goes, so a chain of length n ends after n steps whatever bound it
-was given); the node engine terminates on the **bound**. So a derivation deeper than the
+was given, and a term a rule grows past what the path has already met is cut by the
+term-growth ceiling); the node engine terminates on the **bound**. So a derivation deeper than the
 bound is found by one and not the other, and the depth a query needs is a property of the
 data, which is why there is no default to pick.
 
@@ -1496,6 +1548,43 @@ subtype answers a supertype goal, unified against the consequent by subsumption.
 returns the applicable provers with their `est-bindings`, `cost` tier, and
 `completeness`. This is where a specialized solver (arithmetic, a temporal
 reasoner, an external service) plugs in.
+
+### Wrapping a plain fn: `add-evaluatable`
+
+`EvaluableProver` and `EvaluateProver` are each a hand-written record for one built-in
+functor. **`add-evaluatable kb pred f opts`** is the same two shapes made generic — the
+one-liner for a *computed* relation, so a calculated predicate need not be a five-method
+`provers/Prover`. `f` is a plain Clojure fn the caller supplies as a **value** (never
+`clojure.core/eval` of KB data), in one of two shapes chosen by `opts`:
+
+- a **check** predicate (no `:result`) — `(add-evaluatable kb 'evenSum (fn [a b] (even?
+  (+ a b))))` makes `(evenSum 2 4)` hold and `(evenSum 1 2)` fail, like `lessThan`. Every
+  argument must be ground.
+- a **result-binding** function (`:result` names an output slot — `:first`, `:last`, or a
+  0-based index) — `(add-evaluatable kb 'sumOf + {:result :first})` binds `(sumOf ?r 2 3)`
+  to `?r = 5`, like `evaluate`; a ground output slot is checked against the value instead
+  of bound.
+
+The defaults suit a purely computed relation — `:lookup`, completeness **100** (the
+authoritative-computation claim, still guarded by `sole-prover`/`shadowing-channels` so an
+added rule or inverse over the same predicate moves it to the union), and an
+`est-bindings` of one. `:arity` pins the fn's input count when reflection cannot read it
+(a variadic fn); `:cost` and `:completeness` override the defaults — drop completeness to
+50 for a predicate a KB also stores facts under, so the computed answers augment the
+stored ones. `add-evaluatable` composes with `add-prover` and returns `kb`.
+
+A wrapped fn is an ordinary registry member, so it reaches further than a direct answer.
+Its `est-bindings` reports the goal as maximally unselective while its inputs are unbound,
+which is what lets the join planner (`vaelii.impl.plan`) run a generator that binds those
+inputs first: so a computed literal **joins** in a conjunctive `query`, and **discharges a
+rule antecedent** inside a `query` with a `:max-depth` — the node engine's leaf being the
+registry — where it reads as a `:leaf` of a `{:proof? true}` derivation and the derived
+conclusion follows the belief of the facts that fed it. Two paths do not reach a wrapped
+fn, both by the existing engine's design rather than the wrapper's: the DFS `prove`, whose
+leaf is the stored facts and not the registry, and forward materialization, which pins
+only the built-in `vaelii.impl.sentex/deferred-predicates` (a closed set) into the
+antecedent order — so a custom evaluatable is not a forward-chained deferred literal and
+holds no stored JTMS justification of its own.
 
 **The RCC-8 prover** (`vaelii.impl.space/spatial-prover`) is the worked example of that
 seam: qualitative spatial reasoning over the generic constraint-network engine in

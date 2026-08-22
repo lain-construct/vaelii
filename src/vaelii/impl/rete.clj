@@ -220,14 +220,22 @@
 
 (defn- raw-match-via-alpha
   "The RAM twin of `res/raw-match`: one literal context, both argument orders for a
-  symmetric predicate, deduped by handle."
+  symmetric predicate, **deduped by handle *and bindings***.  Keying on the handle
+  alone drops the second answer an all-variable pattern gets from one stored fact —
+  `(sibOf ?a ?b)` binds `(sibOf Rex Tib)` directly and again, differently, through
+  the mirror — and a join led by such a literal then sees one orientation.  See
+  `res/raw-match` for the whole of that reasoning; this must key it identically.
+
+  Lazy through the mirror, as the reference is: the second probe and its `seen` set
+  are deferred, so a consumer answered by the direct hits pays for neither."
   [kb by-functor sentence context]
   (let [hits (match-one-via-alpha kb by-functor sentence context)]
     (if (sx/symmetric-literal? sentence #(tax/has-prop? (:taxonomy kb) :symmetric %))
-      (let [seen (into #{} (map first) hits)]
-        (concat hits
-                (remove (comp seen first)
-                        (match-one-via-alpha kb by-functor (sx/mirror-literal sentence) context))))
+      (lazy-cat hits
+                (let [seen (into #{} (map (fn [[h b]] [h b])) hits)]
+                  (remove (fn [[h b]] (contains? seen [h b]))
+                          (match-one-via-alpha kb by-functor (sx/mirror-literal sentence)
+                                               context))))
       hits)))
 
 (defn- match-pattern-via-alpha

@@ -75,6 +75,8 @@ be decided → [solving.md](solving.md).
 | `negationPreds`, unary | `(disjoint P Q)` | native, because collections *are* predicates; closed under `genl` |
 | `negationPreds`, binary and up | a pair of implication rules | no declarative form — see below |
 | `disjoint` | `disjoint` | same reading, and `(disjointMetatype M)` makes every member pairwise disjoint without writing the pairs |
+| `SiblingDisjointCollectionType` | `siblingDisjoint` | a mark on the collection; its `genl`-specializations are pairwise disjoint unless one genls the other, the clique keyed off the genl closure rather than written |
+| `siblingDisjointExceptions` (plural) | `siblingDisjointException` (**singular**, house style) | exempts one pair the sibling mark or a `disjointMetatype` would force disjoint; read over the whole KB (no scoped variant, unlike Cyc's per-Mt exceptions), pair-local, and it does not leak to subtypes |
 | `SymmetricBinaryPredicate` | `(symmetric P)` | |
 | `AsymmetricBinaryPredicate` | `(asymmetric P)` | convicts a claim whose **converse** is believed; it does not make `P` irreflexive, and `(P a a)` is admitted |
 | `genlInverse` | a forward rule | `(inverse P Q)` exists but is the stronger biconditional |
@@ -195,6 +197,10 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - `arg` and `interArg` → [argtypes.md](argtypes.md)
 - One equality partition behind `rewriteOf` / `sameAs` / `equals` → [equality.md](equality.md)
 - Defeasible defaults with exceptions → [exceptions.md](exceptions.md)
+- The relation-property marks, enforced rather than recorded: `symmetric`, `asymmetric`,
+  `transitive`, `reflexive`, `functional`, `inverse`, `irreflexive`, `antiSymmetric`,
+  `antiTransitive`, `equivalenceRelation`, `arity` and `variableArity`
+  → [taxonomy.md](taxonomy.md)
 - Polycanonicalization, so a conjunctive consequent becomes one rule per conjunct
 
 ## What you lose
@@ -205,10 +211,6 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - `negationPreds` above arity 1 — the paired rules above are the translation
 - `arg1Isa` / `arg2Isa` sugar
 - Strict well-formedness mode
-- `irreflexive`, `antiTransitive`, `antiSymmetric`. The marks that exist are `symmetric`,
-  `asymmetric`, `transitive`, `reflexive`, `functional`, `inverse`, `arity` and
-  `variableArity`, and `asymmetric` is not a substitute for the first: it convicts
-  against a believed converse, and a self-tuple has none.
 
 `transitiveViaArg` is **not** on this list — it is spelled `transitiveInArg` here:
 `(transitiveInArg P n R)` and `(transitiveInArgInverse P n R)` carry a claim about argument

@@ -750,8 +750,9 @@ for path in repo_text_files():
 #   - an optional dependency whose entire point is not being loaded — the dense TMS
 #     (RoaringBitmap, fastutil), the clingo bridge (JNA, libclingo), the
 #     embedded-SQLite record store (the Apache-2.0 `com.vaelii/sqlite` sibling the
-#     SSPL engine does not depend on), and the sampling profiler, which ships in the
-#     `:repl` profile and is therefore absent from a served process by design.  A
+#     SSPL engine does not depend on), the sampling profiler, and ring-devel's
+#     `wrap-reload` for the hot-reload dev server — the last two shipping in the
+#     `:repl`/`:dev` profiles and therefore absent from a served process by design.  A
 #     require of one of those is not a layering cut this repo could straighten out:
 #     it is a namespace that is not on the classpath, so the require would fail the
 #     load rather than defer it.
@@ -770,7 +771,8 @@ E8_OK_TARGETS = {"vaelii.impl.dense-jtms/create-dense-tms",
                  "vaelii.impl.asp.clingo/solve",
                  "vaelii.impl.asp.clingo/classify-both",
                  "vaelii.impl.asp.clingo/available?",
-                 "clj-async-profiler.core/serve-ui"}
+                 "clj-async-profiler.core/serve-ui",
+                 "ring.middleware.reload/wrap-reload"}
 E8_LITERAL = re.compile(r"\(requiring-resolve\s+'([^\s()]+)")
 
 for path in clj_files():

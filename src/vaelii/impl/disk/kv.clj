@@ -32,11 +32,13 @@
             [vaelii.impl.kv :as kv]))
 
 (defn- apply-ops!
-  "Apply write ops: fold them into the RAM map, append one frame **per op** to the WAL,
-  publish the new map, and return the per-op replies.  Logical (op) logging, not
-  new-value logging: a `:add-to-set` frame carries the one added member, O(1), never the
-  grown set — so a bulk load of N members into one root writes O(N) WAL bytes, not
-  O(N²).
+  "Apply write ops: fold them into the RAM map, append one frame **per op** to the WAL
+  — every frame of the batch in **one write** (`f/append-records!`), so the batch is on
+  disk whole or not at all and the RAM map, published after the write, never holds ops
+  the log lost nor lacks ops the log kept — then publish the new map and return the
+  per-op replies.  Logical (op) logging, not new-value logging: a `:add-to-set` frame
+  carries the one added member, O(1), never the grown set — so a bulk load of N members
+  into one root writes O(N) WAL bytes, not O(N²).
 
   **The whole read-compute-publish is under the lock.**  Single-writer covers the other
   *writers*, and it is not what this lock is for: `compact!` snapshots `@data` inside the
@@ -56,7 +58,7 @@
                     (let [[m' r] (kv/apply-op m op)]
                       [m' (conj rs r)]))
                   [@data []] ops)]
-      (doseq [op ops] (f/append-record! log op))
+      (f/append-records! log ops)
       (vswap! frames + (count ops))
       (reset! data m1)
       replies)))

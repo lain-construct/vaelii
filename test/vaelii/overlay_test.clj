@@ -15,6 +15,7 @@
     over a fork-local fact, and retracting an inherited premise in the fork sweeps what
     it derived — in the fork only."
   (:require [clojure.test :refer [deftest is testing]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.kb :as kb]
@@ -605,6 +606,57 @@
           (is (= (pr-str {:index-layout kv/index-layout-version})
                  (slurp (str dir "/index/layout.edn")))
               "and the stamp is current")))
+      (finally
+        (disk/close-dir! dir)
+        (rm-rf! dir)
+        (v/clear! base)))))
+
+(deftest a-durable-fork-remount-keeps-its-removals-and-its-merged-counts
+  ;; The fork's own index half is its *delta* over the base — copy-on-write counters
+  ;; holding base+net, and removal records for the inherited postings it took out — so
+  ;; the coverage gate reads it through the merged mount, against the merged records:
+  ;; the own half's counters against the fork's own record count disagree on every
+  ;; healthy fork that has written anything, and an own-half rebuild would drop the
+  ;; removals and leave own-only counters shadowing the base's.  So a remount under
+  ;; `:recover? :auto` — the opts spelling, which runs the gate where `fork` passes
+  ;; `:recover? false` — rebuilds nothing, the inherited fact the fork retracted stays
+  ;; retracted, and the root count is the merged one.
+  (let [base   (fresh-base 10)
+        dir    (tmpdir)
+        owned  '(ownerOf Ann Muffet)
+        logged (atom [])
+        rebuilt #{::kb/fork-index-coverage-rebuilt ::kb/fork-index-layout-rebuilt}
+        remount! (fn []
+                   (reset! logged [])
+                   (binding [trove/*log-fn* (fn [_ _ _ id _] (swap! logged conj id))]
+                     (v/open-kb {:backend  :overlay
+                                 :base     (base-opts 10)
+                                 :overlay  {:backend :disk :dir dir}
+                                 :recover? :auto})))
+        check!  (fn [f]
+                  (is (nil? (v/handle-of f owned 'CxOverlay))
+                      "the inherited fact the fork retracted stays retracted")
+                  (is (= '#{(dog Muffet) (dog Rex)}
+                         (sentences (v/sentexes-matching f '(dog ?x) 'CxOverlay)))
+                      "the inherited and the fork-local fact are both served")
+                  (is (= (count (p/sentex-ids (:records f))) (v/sentex-count f))
+                      "the root count is the merged record count, not the own half's")
+                  (is (= (inc (v/sentex-count base)) (v/sentex-count f))
+                      "base, plus (dog Rex) and its mammal conclusion, minus the retracted owner")
+                  (is (not-any? rebuilt @logged)
+                      "a healthy own half is not rebuilt"))]
+    (try
+      (let [f (v/fork base {:backend :disk :dir dir})]
+        (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
+        (v/retract! f (v/handle-of f owned 'CxOverlay))
+        (is (nil? (v/handle-of f owned 'CxOverlay)) "the fork took the inherited fact out")
+        (is (some? (v/handle-of base owned 'CxOverlay)) "and the base still holds it"))
+      (disk/close-dir! dir)
+      (testing "the first remount"
+        (check! (remount!)))
+      (disk/close-dir! dir)
+      (testing "and the second — a remount writes nothing the gate would then misread"
+        (check! (remount!)))
       (finally
         (disk/close-dir! dir)
         (rm-rf! dir)

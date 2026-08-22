@@ -4,6 +4,7 @@
   "disjoint and disjointMetatype, and the contradiction detection they drive."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -50,6 +51,92 @@
     (testing "a member added after the declaration is also disjoint"
       (v/assert kb (list animalSpecies fish) 'CxUniverse)
       (is (v/disjoint? kb dog fish)))))
+
+(tu/deftest-kb a-membership-is-recorded-on-the-marks-storage-not-its-belief
+  ;; `(M T)` is a *supporter* of T's membership, so the member arm records it whenever
+  ;; the mark is stored, whatever the mark's label; belief follows through the flat-cache
+  ;; reconcile.  Gated on belief instead, the same four facts would separate the pair in
+  ;; one arrival order and not the other.
+  (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)
+        t (:taxonomy kb)]
+    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list species dog) 'CxUniverse)
+    (let [neg (v/assert kb (list 'not (list 'disjointMetatype species)) 'CxUniverse
+                        {:strength :monotonic})]
+      (is (not (tax/disjoint-metatype? t species)) "the mark is defeated")
+      (is (tax/stored-disjoint-metatype? t species) "but it is still stored")
+      (v/assert kb (list species cat) 'CxUniverse)
+      (is (= #{dog cat} (tax/metatype-members t species))
+          "a member stated while the mark is OUT is recorded")
+      (is (not (v/disjoint? kb dog cat)) "and separates nothing while the mark is OUT")
+      (v/retract! kb neg)
+      (is (tax/disjoint-metatype? t species) "the mark revives")
+      (is (v/disjoint? kb dog cat)
+          "and separates the member stated during the defeat — the same answer the
+           member-before-defeat order gives"))))
+
+(tu/deftest-kb a-member-retracted-while-the-mark-is-defeated-leaves-no-support
+  (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)
+        t (:taxonomy kb)]
+    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list species dog) 'CxUniverse)
+    (let [hcat (v/assert kb (list species cat) 'CxUniverse)
+          neg  (v/assert kb (list 'not (list 'disjointMetatype species)) 'CxUniverse
+                         {:strength :monotonic})]
+      (v/retract! kb hcat)
+      (is (nil? (get-in @t [:cache-support [:member species cat]]))
+          "the membership's support entry goes with the sentex")
+      (is (nil? (get-in @t [:cache-handle-keys hcat]))
+          "and the handle leaves the reverse index")
+      (v/retract! kb neg)
+      (is (= #{dog} (tax/metatype-members t species)))
+      (is (not (v/disjoint? kb dog cat))
+          "a retracted membership separates nothing once the mark revives"))))
+
+(tu/deftest-kb a-rebuild-records-the-members-the-live-kb-records
+  ;; `rebuild-taxonomy`'s member pass walks every stored mark, so a restart yields the
+  ;; members the live arm recorded — including one stated while the mark was defeated.
+  (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)
+        t (:taxonomy kb)]
+    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list species dog) 'CxUniverse)
+    (let [neg (v/assert kb (list 'not (list 'disjointMetatype species)) 'CxUniverse
+                        {:strength :monotonic})]
+      (v/assert kb (list species cat) 'CxUniverse)
+      (let [live (tax/metatype-members t species)]
+        (v/recover kb)
+        (is (= live (tax/metatype-members t species)) "same members after recover")
+        (is (not (tax/disjoint-metatype? t species)) "the defeat survives recover"))
+      (v/retract! kb neg)
+      (is (v/disjoint? kb dog cat)))))
+
+(tu/deftest-kb a-rule-concluded-membership-is-recorded-where-an-asserted-one-is
+  ;; The member arm keys on nothing a table can name — the functor *is* the metatype —
+  ;; so it is one of the structural integrate arms, and the derivation path has to reach
+  ;; it.  `rebuild-taxonomy`'s member pass walks every stored `(M T)` whatever put it
+  ;; there, so an arm the derivation path skipped would separate the pair only once a
+  ;; restart had replayed it: the running KB and the recovered one disagreeing about one
+  ;; store, which is the one thing a derivation-path integration exists to prevent.
+  (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type) seed (tu/tmp-pred)
+        Kim (tu/tmp-ind) t (:taxonomy kb)]
+    (v/assert kb (list 'genlCx 'CxNaturalWorld 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list species dog) 'CxUniverse)
+    ;; `cat` joins the metatype only by inference — nothing states `(species cat)`
+    (v/assert kb (list 'implies (list seed '?x) (list species '?x)) 'CxUniverse)
+    (v/assert kb (list seed cat) 'CxUniverse)
+    (is (seq (v/sentexes-matching kb (list species cat) '?c)) "the membership is derived")
+    (let [live (tax/metatype-members t species)]
+      (is (= #{dog cat} live) "and recorded, as a stated membership is")
+      (is (v/disjoint? kb dog cat) "so the two are separated at once")
+      (v/assert kb (list dog Kim) 'CxNaturalWorld)
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list cat Kim) 'CxNaturalWorld))
+          "and the separation constrains, having reached the same cache")
+      (testing "the restarted KB records exactly the same members"
+        (v/recover kb)
+        (is (= live (tax/metatype-members t species)))
+        (is (v/disjoint? kb dog cat))))))
 
 (tu/deftest-kb a-metatype-separates-predicates-not-only-individuals
   ;; the definitional checks admit any term, so the predicate meta-ontology is

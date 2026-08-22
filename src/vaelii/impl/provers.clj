@@ -45,6 +45,7 @@
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
+            [vaelii.impl.rewrite :as rewrite]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
@@ -839,6 +840,171 @@
         (= eval-fail v) []
         (pvar? result)  [{result v}]
         :else           (if (= result v) [{}] [])))))
+
+;; ---- user-registered evaluatable predicates / functions -----------------
+;; `EvaluableProver` and `EvaluateProver` above are the two shapes of a *computed*
+;; answer — a check over ground arguments, and a value bound into an output slot — each
+;; hand-written for one built-in functor.  `EvaluatableFn` is the same two shapes made
+;; generic: it wraps a plain Clojure fn the caller supplies, so registering a
+;; compute-a-truth predicate or a compute-a-value function is one call
+;; (`vaelii.core/add-evaluatable`) rather than a hand-written five-method record.  The
+;; wrapped fn is a real fn *value*, never `clojure.core/eval` of KB data — the same
+;; safe-evaluation posture `EvaluateProver` keeps.
+
+(defn- fn-arities
+  "The fixed `invoke` arities `f` declares, as a set of ints — empty for a purely
+  variadic fn, whose arity reflection cannot read.  An evaluatable dispatches on its
+  predicate's name **and** this arity (`applicable?`), so a wrapped fn answers only the
+  goal shape it can actually take, and a KB that also declares the same functor at some
+  other arity is left to the other provers.  A caller whose fn is variadic pins `:arity`
+  instead."
+  [f]
+  (into #{}
+        (comp (filter #(= "invoke" (.getName ^java.lang.reflect.Method %)))
+              (map #(.getParameterCount ^java.lang.reflect.Method %)))
+        (.getDeclaredMethods (class f))))
+
+(defn- out-index
+  "The 0-based position of the output slot among a goal's `n` arguments, from a `:result`
+  spec: `:first` → 0, `:last` → n-1, an integer → itself.  The result-binding shape reads
+  the slot here and passes the rest to the wrapped fn."
+  [result n]
+  (case result
+    :first 0
+    :last  (dec n)
+    (long result)))
+
+(def ^:private deferred-est
+  "The `est-bindings` an evaluatable reports while its inputs are unbound.  It computes
+  from ground inputs and enumerates nothing, so on unbound inputs it can neither answer
+  nor prune — the most *unselective* a literal can be, and reported as such so the join
+  planner (`vaelii.impl.plan`, through `est-goal`) runs a generator that binds those
+  inputs first and the computation lands with everything ground.  Deliberately below
+  `Long/MAX_VALUE`, which the planner's fan-out sums."
+  1000000000)
+
+(defrecord EvaluatableFn [pred f arities result cost-tier complete]
+  Prover
+  ;; Two shapes, one record, split on whether `result` names an output slot: a *check*
+  ;; predicate (no `result`, like `EvaluableProver`) and a *result-binding* function (an
+  ;; output slot the value binds, like `EvaluateProver`).  `applicable?` matches the
+  ;; functor and arity but **not** groundness — a join reaches an evaluatable with its
+  ;; inputs still unbound, and refusing it there would drop the literal from the plan
+  ;; rather than defer it; `est-bindings` is what carries the defer-me signal, and `solve`
+  ;; is what holds the answer back until the inputs are ground.
+  (applicable? [_ _ goal _]
+    (and (sequential? goal) (= pred (first goal))
+         (let [n (count (rest goal))]
+           (if result
+             (let [i (out-index result n)]
+               (and (<= 0 i) (< i n) (or (empty? arities) (contains? arities (dec n)))))
+             (or (empty? arities) (contains? arities n))))))
+  (est-bindings [_ _ goal _]
+    (let [args   (vec (rest goal))
+          inputs (if result
+                   (keep-indexed (fn [j a] (when (not= j (out-index result (count args))) a)) args)
+                   args)]
+      (if (every? ground? inputs) 1 deferred-est)))  ; a computed answer is one, or none
+  (cost         [_ _ _ _] cost-tier)
+  (completeness [_ _ _ _] complete)
+  (solve [_ _ goal _]
+    (let [args (vec (rest goal))]
+      (if result
+        (let [i      (out-index result (count args))
+              out    (nth args i)
+              inputs (keep-indexed (fn [j a] (when (not= j i) a)) args)]
+          (if-not (every? ground? inputs)
+            []                                    ; inputs not yet bound — nothing to compute
+            ;; A thrown fn — arity, type, div-by-zero — reads as no solution, never as a
+            ;; crash of the query, matching `EvaluateProver`'s `eval-fail` arm.
+            (let [v (try (apply f inputs) (catch Exception _ ::fail))]
+              (cond
+                (= ::fail v) []
+                (pvar? out)  [{out v}]
+                :else        (if (= out v) [{}] [])))))
+        (if (and (every? ground? args)
+                 (try (boolean (apply f args)) (catch Exception _ false)))
+          [{}] [])))))
+
+(defn evaluatable
+  "A `Prover` wrapping the plain Clojure fn `f` as the evaluatable predicate/function
+  `pred` — the value `vaelii.core/add-evaluatable` registers.  Answers a goal by
+  **computing**, never by looking one up, in one of two shapes:
+
+  * **check** (no `:result`) — `(pred a …)` holds when `f` applied to the ground
+    arguments returns truthy, like `lessThan`.  Every argument must be ground.
+  * **result-binding** (`:result` names an output slot) — `(pred … ?out …)` binds `?out`
+    to `(f <the other, ground arguments>)`, like `evaluate`.  A ground output slot is
+    checked against the computed value instead of bound.
+
+  `opts` (a map, or nil):
+
+  * `:result`       — `:first` (the `evaluate` convention), `:last`, or a 0-based index;
+                      its presence selects the result-binding shape.
+  * `:arity`        — the fn's **input** count (an int or a set of them), for `applicable?`
+                      to dispatch on; derived from `f` by reflection when omitted, which a
+                      variadic fn needs stated.
+  * `:cost`         — a `cost-tiers` keyword; `:lookup` by default.
+  * `:completeness` — 0..100; **100** by default, the authoritative-computation claim the
+                      built-in evaluables make (`sole-prover` still guards it against a
+                      shadowing rule/inverse the KB adds).  Drop it to 50 for a predicate a
+                      KB also stores facts under, so the computed answers *augment* the
+                      stored ones instead of standing alone.
+
+  Registered through `add-prover`, so a wrapped fn is an ordinary member of the registry:
+  it answers a direct `ask` / `query` goal, and — because the node engine's leaf **is**
+  the registry — it discharges a conjunct or a rule antecedent inside a `query` with a
+  `:max-depth`, appearing as a `:leaf` in a `{:proof? true}` derivation.  **Forward
+  materialization reaches it too**: `vaelii.impl.chain/deferred-antecedent?` treats a
+  registered evaluatable as a deferred antecedent, computing it through this registry the
+  way it computes the built-in `vaelii.impl.sentex/deferred-predicates`, so `ask` agrees
+  with `query` on a forward rule with an evaluatable antecedent.  One path does not reach
+  it, by the existing engine's design rather than this wrapper's: the DFS `prove`, whose
+  leaf is the stored facts.  See the query-engine section of docs/inference.md."
+  ([pred f] (evaluatable pred f nil))
+  ([pred f {:keys [result arity] cost-tier :cost complete :completeness
+            :or {cost-tier :lookup complete 100}}]
+   (->EvaluatableFn pred f
+                    (cond (integer? arity) #{(long arity)}
+                          (coll? arity)    (set (map long arity))
+                          :else            (fn-arities f))
+                    result cost-tier complete)))
+
+(defn evaluatable-preds
+  "The set of predicate functors a KB has registered as evaluatables through
+  `vaelii.core/add-evaluatable` — the `EvaluatableFn` provers in its registry.
+
+  Forward chaining reads this to treat a registered evaluatable the way it treats the
+  built-in `vaelii.impl.sentex/deferred-predicates`: **computed** from the bindings the
+  other antecedents produced, through the registry, never looked up as a stored fact.
+  The built-ins are a static set because they are always present; the evaluatables are
+  per-KB, so this set is read off the KB's live registry.  Empty for a KB with no
+  registered evaluatables — the default registry has none."
+  [kb]
+  (into #{} (comp (filter #(instance? EvaluatableFn %)) (map :pred)) (registry kb)))
+
+(defn evaluatable-est-override
+  "An `:est-override` for `vaelii.impl.plan/order` that costs only `preds` — a KB's
+  registered evaluatable functors (`evaluatable-preds`) — and returns nil for every
+  other goal so the index model ranks the rest.  A goal still carrying an unbound input
+  is reported as maximally unselective (`deferred-est`) and a fully ground one as the
+  single answer it computes, so the planner runs the generators that bind its inputs
+  first and the computation lands with everything ground.
+
+  Forward chaining (`vaelii.impl.chain/planned-join`) plans with this so a registered
+  evaluatable antecedent is pinned after its binders — the self-deferral the built-in
+  evaluables get for free from canonical antecedent order, which the static
+  `deferred-predicates` set drives and a per-KB evaluatable is not in.  Scoped to the
+  evaluatables on purpose: forward chaining's leaf is the stored facts (`*matcher*`),
+  for which the index model is the right cost, so every other goal is left to it.
+
+  Nil when `preds` is empty, so `planned-join` passes no override and plans exactly as
+  before."
+  [preds]
+  (when (seq preds)
+    (fn [goal _bound]
+      (when (and (sequential? goal) (seq goal) (contains? preds (first goal)))
+        (if (ground? goal) 1 deferred-est)))))
 
 ;; ---- quantity / measure comparison (measure-evaluating) --------------------
 ;; A measure is a structural NAT — `(QuantityFn N Unit)` (a point) or
@@ -1671,6 +1837,43 @@
 ;; (`vaelii.impl.levels`), expressed here so nothing has to depend on that namespace
 ;; to run the check.
 
+(defn- condition-normalizer
+  "A `ground-goal -> ground-goal` rewriting a block condition's substituted conjunct to
+  the normal form `context` answers under — every symbol to the representative that
+  context elects, then the schematic equations it can see — or nil when the KB holds no
+  merge and no equation and there is nothing to rewrite.
+  `vaelii.impl.levels/engine-goal` does this for a level-6 read and `kb/rewrite-goal`
+  for a query; a block condition is the same question and takes the same preparation.
+
+  Both halves of the condition need it, and for the same reason.  The **bindings** a
+  firing substitutes in are what it matched when it fired, and a merge does not go back
+  and edit a justification — so a firing that bound `?c` to `C3` still says `C3` after
+  `(sameAs C2 C3)` has retired that spelling, and the conjunct asks about a term the KB
+  no longer answers under.  The conjunct's **own constants** are stored as the rule was
+  written, and a rule is held back from an individual-only rewrite migration, so
+  `(exceptWhen (mskip MOne) …)` keeps naming `MOne` after the merge.  Either way what
+  comes back is the honest empty that reads as *not excepted* and *not derivable* — the
+  loudest way this can go wrong, since an unanswerable exception does not hold and the
+  rule fires, and an `unknown` about a term with an answer under its representative
+  reports absent.
+
+  Scoped to `context`, the scoping every other class read takes: a merge that context
+  cannot see must not rename what its own condition asks about.  One predicate for the
+  whole conjunction, since deciding visibility costs a record fetch per equality
+  supporter.  `different` is exempt exactly as it is in `kb/rewrite-goal` — mapping its
+  arguments onto one representative is the question it exists to answer, and the prover
+  normalizes them itself."
+  [kb context]
+  (let [tx (:taxonomy kb)]
+    (when-not (and (nil? (tax/merged-term-pred tx)) (empty? (tax/rewrite-rules tx)))
+      (let [visible? (res/visible-supporter-fn kb context)
+            rules    (cond->> (tax/rewrite-rules tx)
+                       visible? (filterv #(visible? (:handle %))))]
+        (fn [goal]
+          (if (and (sequential? goal) (= 'different (nm/functor goal)))
+            goal
+            (rewrite/normalize-sentence rules (res/representative-term kb visible? goal))))))))
+
 (defn exception-holds?
   "Does `except` — a rule's `exceptWhen` query, a vector of literals — hold under
   `bindings`, evaluated in `context`?
@@ -1696,11 +1899,13 @@
   [kb except bindings context]
   (boolean
    (and (seq except)
-        (let [pv (registry kb)]
+        (let [pv   (registry kb)
+              norm (condition-normalizer kb context)]
           (every? (fn [conjunct]
                     ;; `substitute` yields lazy seqs; the provers key on sentence
                     ;; content, so canonicalize before it travels (`sentex/canon`)
-                    (let [ground (sx/canon (res/substitute conjunct bindings))]
+                    (let [ground (sx/canon (res/substitute conjunct bindings))
+                          ground (if norm (sx/canon (norm ground)) ground)]
                       (seq (take 1 (solve-goal-with kb pv ground context)))))
                   except)))))
 

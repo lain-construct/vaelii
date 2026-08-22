@@ -557,6 +557,117 @@
       (finally
         (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
 
+(deftest an-unload-and-an-export-asked-for-at-once-do-not-both-take-the-kb
+  ;; The two checks read different registries — the unload asks the job registry whether a
+  ;; walk is running, the export asks the catalog whether a loader is — so nothing but the
+  ;; shared monitor orders them.  Both requests are held inside their own check until both
+  ;; have arrived; under the monitor that never happens, since the second cannot enter
+  ;; until the first has claimed.  Without it both pass, the release lands, and the walk
+  ;; then dumps a KB that was emptied under it and reports a clean export of nothing.
+  (let [root (io/file (System/getProperty "java.io.tmpdir")
+                      (str "vaelii-catalog-unload-race-" (System/nanoTime)))
+        dump (io/file root "a-dump")]
+    (try
+      (.mkdirs root)
+      (tu/with-cleared-kb [kb tu/fresh]
+        (v/assert kb '(genl tmp_race_type thing) 'CxUniverse)
+        (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
+        (let [before  (v/sentex-count kb)
+              arrived (java.util.concurrent.CountDownLatch. 2)
+              gate    (promise)
+              rendez  (fn [r]
+                        (.countDown arrived)
+                        (.await arrived 300 java.util.concurrent.TimeUnit/MILLISECONDS)
+                        r)
+              any?    cat/exporting?
+              this?   cat/exporting-kb?]
+          (is (pos? before))
+          (with-redefs [cat/exporting?    (fn [] (rendez (any?)))
+                        cat/exporting-kb? (fn [k] (rendez (this? k)))]
+            (let [unload (future (try (cat/unload! "mine")
+                                      (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+                  export (future (try (cat/export-entry! "mine" (.getPath dump)
+                                                         {:compression :none
+                                                          :run-in (fn [work] @gate (work))})
+                                      :started
+                                      (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+                  [u x]  [@unload @export]]
+              (is (or (and (true? u) (= :unknown-entry x))
+                      (and (= :still-exporting u) (= :started x)))
+                  (str "exactly one takes the KB — unload " (pr-str u) ", export " (pr-str x)))
+              (deliver gate true)
+              (is (wait-for-export))
+              (when (= :started x)
+                (testing "and the walk it let through dumped a KB that was still there"
+                  (is (= before (v/sentex-count kb)))
+                  (is (= :done (:status (jobs/latest :export))))
+                  (is (pos? (:sentexes (:summary (jobs/latest :export)) 0))
+                      "the dump is of the KB, not of what was left of it"))))))
+        (when (cat/entry "mine") (cat/unload! "mine")))
+      (finally
+        (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
+(deftest cancelling-an-export-that-already-finished-cancels-nothing-and-says-so
+  ;; The panel keeps the last export's report for an hour after it settles, so the newest
+  ;; export of *any* status is one that finished this morning — and `jobs/cancel!` answers
+  ;; true for any job the registry still holds.  Asked of the running set instead.
+  (let [root (io/file (System/getProperty "java.io.tmpdir")
+                      (str "vaelii-catalog-cancel-settled-" (System/nanoTime)))]
+    (try
+      (.mkdirs root)
+      (tu/with-cleared-kb [kb tu/fresh]
+        (v/assert kb '(genl tmp_settled_type thing) 'CxUniverse)
+        (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
+        (testing "with nothing ever exported there is nothing to cancel"
+          (is (false? (cat/cancel-export!))))
+        (cat/export-entry! "mine" (.getPath (io/file root "a-dump")) {:compression :none})
+        (is (wait-for-export))
+        (testing "and once the walk has settled its report stays, but cancelling it does not"
+          (is (some? (jobs/latest :export)) "the panel still has its report")
+          (is (= :done (:status (jobs/latest :export))))
+          (is (false? (cat/cancel-export!))))
+        (cat/unload! "mine"))
+      (finally
+        (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
+(deftest two-exports-asked-for-at-once-start-exactly-one
+  ;; the export claims no writer, so the registry's own claim cannot refuse a second one;
+  ;; the one-at-a-time check and the submit are one step under the catalog's monitor
+  ;; instead.  Both requests are held inside `exporting?` until both have arrived there —
+  ;; which under the monitor never happens, since the second cannot enter until the
+  ;; first has submitted: the first times out of the hold and starts, the second then
+  ;; finds it running.  Without the monitor both arrive, both read false, both start.
+  (let [root (io/file (System/getProperty "java.io.tmpdir")
+                      (str "vaelii-catalog-two-exports-" (System/nanoTime)))]
+    (try
+      (.mkdirs root)
+      (tu/with-cleared-kb [kb tu/fresh]
+        (v/assert kb '(genl tmp_twice_type thing) 'CxUniverse)
+        (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
+        (let [arrived (java.util.concurrent.CountDownLatch. 2)
+              gate    (promise)
+              asked   cat/exporting?
+              start   (fn [dir]
+                        (future
+                          (try (cat/export-entry! "mine" (.getPath (io/file root dir))
+                                                  {:compression :none
+                                                   :run-in (fn [work] @gate (work))})
+                               :started
+                               (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))]
+          (with-redefs [cat/exporting? (fn []
+                                         (let [r (asked)]
+                                           (.countDown arrived)
+                                           (.await arrived 300 java.util.concurrent.TimeUnit/MILLISECONDS)
+                                           r))]
+            (is (= #{:started :export-busy} (set (map deref [(start "a") (start "b")])))))
+          (is (= 1 (count (filter #(= :export (:kind %)) (jobs/running))))
+              "one walk is running, not two")
+          (deliver gate true)
+          (is (wait-for-export)))
+        (cat/unload! "mine"))
+      (finally
+        (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
 (deftest an-export-refuses-what-it-cannot-be-a-dump-of
   (tu/with-cleared-kb [kb tu/fresh]
     (cat/register! "mine" "My KB" kb {:where {:backend :memory}})

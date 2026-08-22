@@ -45,6 +45,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | understand what a query costs | [indexing.md](indexing.md) | [density.md](density.md), [anytime.md](anytime.md) |
 | find out what shape of question my KB is asked | [profile.md](profile.md) | [indexing.md](indexing.md) |
 | know what a change cost the index, per assert | [profile.md](profile.md) | [indexing.md](indexing.md) |
+| see what the process caches, and how big | [caches.md](caches.md) | [catalog.md](catalog.md) |
 | see what this KB is *for* | [commonsense.md](commonsense.md) | |
 
 Every page opens with three bullets — **Covers**, **Not here**, **Assumes** — so a wrong
@@ -82,6 +83,7 @@ rather than a compatibility claim.
 - [taxonomy.md](taxonomy.md) — the `genl` type hierarchy, `isa?`, `disjoint` / `disjointMetatype`.
 - [inherit.md](inherit.md) — argument-position preservation: `(transitiveInArg P n R)` / `(transitiveInArgInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, the `(asymmetric P)` that lets a strict one conflict instead, and how a forward rule fires on an inherited claim by naming what the claim was read from.
 - [argtypes.md](argtypes.md) — `arg` / `genlArg` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. Off by default.
+- [defns.md](defns.md) — `defnNecessary` / `defnSufficient` / `defnIff`: tying a collection's membership to a defining condition on the member `?x`, expanded into ordinary forward rules justified by the `defn*` fact so retraction and belief follow it, and the open-world boundary that draws no non-membership from the condition's absence.
 
 ## Inference & belief
 
@@ -129,6 +131,7 @@ rather than a compatibility claim.
 - [web.md](web.md) — the reitit-ring browser for terms, sentexes, and justifications;
   a term page opens with its shape drawn, server-side and inside a read budget.
 - [catalog.md](catalog.md) — the KB catalog: what a process can load (shipped, generated, corpus, dump, on-disk store), loading one in the background with progress and cancellation, and switching which one every page reads.
+- [caches.md](caches.md) — the cache register: the derived, droppable structures a process holds beside the stores, each self-declared with its scope, unit and bound; the wholesale-clear policy; `caches` / `clear-caches`; and a snapshot roster of all seventeen with their sizes.
 - [llm.md](llm.md) — the pluggable LLM that reads a KB through generated tools and *proposes* an edit batch, graded by the engine's own well-formedness checks.
 - [reading.md](reading.md) — English in: a candidate generator with a reviewer between it and the store, resolving the document's own words against the KB's vocabulary before anything is asked, carrying the span each candidate came from, reporting what it could not translate — and scored against the hand-written fables.
 - [foreign.md](foreign.md) — the formats we read and do not write: no reader ships here, and a bridge is a plugin that declares itself in one edn resource on the classpath.

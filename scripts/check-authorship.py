@@ -2,11 +2,11 @@
 """The authorship gate: every identity on a pull request is an admitted person.
 
 CONTRIBUTING.md §7 holds that a `Signed-off-by:` may only name someone who can
-make the certification, and that a co-author trailer is human-only. The other
-two gates cannot check that. cla-assistant confirms an account completed an
-OAuth flow; the DCO app matches a trailer string against the commit's author
-field. Both are string matchers, and neither can ask whether the named party is
-a person.
+make the certification, and that a co-author trailer names a human contributor.
+The other two gates cannot check that. cla-assistant confirms an account
+completed an OAuth flow; the DCO app matches a trailer string against the
+commit's author field. Both are string matchers, and neither can ask whether the
+named party is a person.
 
 So this check decides by roster, not by inspection. Every author, committer and
 trailer on the pull request must appear in `.github/AUTHORS.roster` on the base
@@ -501,7 +501,7 @@ def main():
 
     print("CONTRIBUTING.md §7: each commit's author is the person who signs it off, a")
     print("Signed-off-by: may only name someone who can make that certification, and a")
-    print("co-author trailer is human-only. That rules out a tool, bot or agent account.")
+    print("co-author trailer names a human contributor who stands behind the account.")
     print()
     print("If the work is good and the authorship line is not, it is a rebase, not a")
     print("rejection: re-author the commits under the person who signs them off, drop")

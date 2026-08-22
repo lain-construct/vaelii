@@ -232,6 +232,72 @@
               (is (not= (coloring a) (coloring b)) (str a "-" b)))
             (is (= 3 (count (set (map coloring '[N1 N2 N3])))))))))))
 
+(deftest a-negated-choice-literal-binds-its-own-variables
+  ;; The at-least-one idiom with nothing else in the body: `?k` is bound by the negated
+  ;; choice literal and by nothing else.  Negated literals come out of the body before
+  ;; the positive join, so nothing else can bind them — a bare substitution would find
+  ;; no head for an unbound `?k`, drop the binding, and leave the constraint
+  ;; contributing no nogood at all, which is a solve returning worlds it forbids.  The
+  ;; join is what grounds `?k` over every colour and forbids each one's absence.
+  ;;
+  ;; `functional` makes the two colours a *soft* clash, so both-true is a legal model
+  ;; that merely costs — which is what makes the hard constraint's effect visible:
+  ;; without it there are two optima (one colour each), with it exactly one (both).
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [colored cand Item]
+        (doseq [k '[k1 k2]]
+          (v/assert kb (list 'set/assumptionRule
+                             (list 'implies (list cand '?c) (list colored '?c k)))
+                    'CxNegJoin))
+        (v/assert kb (list 'functional colored) 'CxNegJoin)
+        (v/assert kb (list cand Item) 'CxNegJoin {:strength :monotonic})
+        (testing "without the at-least-one: two optima, one colour apiece"
+          (is (= 2 (:count (v/assert kb (list 'do/label 'CxNegJoin 'CxNegJoinPlan :all)
+                                     'CxNegJoin)))))
+        (v/assert kb (list 'set/hardConstraint
+                           (list 'implies (list 'not (list colored '?x '?k))
+                                 (list 'mustColor '?x '?k)))
+                  'CxNegJoin)
+        (testing "with it: no colour may be absent, so the one legal world keeps both"
+          (let [r (v/assert kb (list 'do/label 'CxNegJoin 'CxNegJoinPlan :all) 'CxNegJoin)]
+            (is (= 1 (:count r)))
+            (is (empty? (:false (first (:labelings r)))))
+            (is (= 2 (count (:true (first (:labelings r))))))))
+        (testing "and :sat, with no keep-belief objective pushing the atoms true, agrees"
+          (let [l (first (:labelings (v/assert kb (list 'do/label 'CxNegJoin 'CxNegJoinPlan :sat)
+                                               'CxNegJoin)))]
+            (is (empty? (:false l)) "the first model found still satisfies the constraint")))))))
+
+(deftest an-unsatisfiable-program-reports-no-labeling-rather-than-an-empty-one
+  ;; K4 under the all-hard encoding admits no model: at-least-one plus at-most-one
+  ;; plus no-monochrome-edge over four mutually adjacent nodes needs a fourth colour.
+  ;;
+  ;; `:one` / `:sat` read a single answer set, and an infeasible program keeps nothing
+  ;; — which has the same shape as the one perfectly ordinary world in which every
+  ;; choice happened to be false.  For *this* program that world violates both hard
+  ;; constraints it was built from, so reporting it as the labeling is reporting a
+  ;; world the solve just proved impossible.  `:all` gets this right by enumerating
+  ;; nothing, and the three modes have to agree.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [colored]
+        (install-allhard-3coloring! kb 'CxUnsat colored
+                                    '[Q1 Q2 Q3 Q4]
+                                    '[[Q1 Q2] [Q1 Q3] [Q1 Q4] [Q2 Q3] [Q2 Q4] [Q3 Q4]])
+        (doseq [mode [:one :sat]]
+          (let [r (v/assert kb (list 'do/label 'CxUnsat 'CxUnsatPlan mode) 'CxUnsat)]
+            (testing (str mode " reports no world, and says why")
+              (is (zero? (:count r)))
+              (is (= :unsatisfiable (:reason r)))
+              (is (empty? (:labelings r))))))
+        (testing ":all agrees, having enumerated nothing"
+          (is (zero? (:count (v/assert kb (list 'do/label 'CxUnsat 'CxUnsatPlan :all) 'CxUnsat)))))
+        (testing "and the menu of choices is still reported — grounding did happen"
+          (is (= 12 (count (:choices (v/assert kb (list 'do/label 'CxUnsat 'CxUnsatPlan :one)
+                                               'CxUnsat))))
+              "4 nodes × 3 colours"))))))
+
 ;; ---- 3. phase timings ride the :one result -------------------------------
 
 (deftest one-mode-carries-phase-timings

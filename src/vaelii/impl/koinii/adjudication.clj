@@ -118,6 +118,49 @@
 
 ;; ---- arbiter escalation: a reversible ruling that clears the clash -------
 
+(defn dispute-key
+  "A dispute id in the one spelling every reader here compares: the two handles sorted,
+  as `dispute/dispute-id` builds them.
+
+  A caller may hold the pair either way round — `dispute-id` sorts, but its docstring
+  accepts \"any two-handle seq\" and `disputes-in` hands them out — and a tag written
+  under `[479 478]` is invisible to a read for `[478 479]`, which is a standing ruling
+  the guard below cannot see."
+  [id]
+  (if (sequential? id) (vec (sort id)) id))
+
+(defn who-ruled
+  "Read a ruling off its handle: `{:arbiter :dispute-ids :at}` from the provenance `rule`
+  stamped, or nil if `ruling-handle` is not an adjudication assertion.  'Which disputes
+  this sentex is the standing ruling of, who ruled them, and when' as a provenance read.
+
+  `:dispute-ids` is a **set**, and it has to be.  Canonical dedup gives one sentex per
+  (sentence, context), so an arbiter who rules two disputes the same way — the same
+  claim upheld against two different opponents — is stamping one handle twice, and a
+  single-valued tag would keep only the later id.  The earlier dispute would then read
+  no standing ruling at all, skip the one-ruling-per-arbiter guard, and land a second
+  monotonic ruling beside the first: two known-true claims on one clash, a `:conflict`
+  no ruling can settle."
+  [kb ruling-handle]
+  (let [p (v/provenance kb ruling-handle)]
+    (when-let [dids (:adjudication p)]
+      {:arbiter (:creator p) :dispute-ids (set dids) :at (:created p)})))
+
+(defn standing-rulings
+  "The rulings `arbiter` currently holds on dispute `id`: the handles in the arbiter's own
+  context whose provenance `rule` tagged with `id`.  One provenance read per sentex in
+  that context — an arbiter's context holds its rulings and whatever else the agent
+  asserts, and the tag is what tells them apart.
+
+  Sorted, so the answer is content-ordered rather than an artifact of the extent's own
+  seq order, which is handle allocation."
+  [kb arbiter id]
+  (let [k (dispute-key id)]
+    (into [] (comp (map :id)
+                   (filter #(contains? (:dispute-ids (who-ruled kb %)) k))
+                   (distinct))
+          (sort-by :id (v/sentexes-in-context kb (id/context-for arbiter))))))
+
 (defn rule
   "Arbiter escalation: `arbiter` (an agent id, e.g. `AgentArbiter`) rules dispute `id`
   within `channel` in favour of `upheld` — which MUST be one of the dispute's two clashing
@@ -130,6 +173,11 @@
   `:resolved` and `argue` collapses to `:true`/`:false`.  `why` on `upheld` shows the
   adjudication and who ruled.
 
+  **One ruling per arbiter per dispute.**  A ruling this arbiter already holds on `id`
+  for the *other* side is retracted first — two monotonic rulings on one clash are a
+  `:conflict` no ruling can settle, and the later word is the arbiter's current one.
+  Ruling the same side again is a belief no-op that returns the standing handle.
+
   **Reversible.**  Retract the returned handle and the losing side is no longer defeated —
   the dispute reopens, cascading through the JTMS.  A ruling koinii could not undo would be
   a worse store than one that stays honestly disputed.  The dispute's open/notified/stale
@@ -138,22 +186,46 @@
 
   Resolves a `:default` coexisting dilemma only.  A `:monotonic` `:conflict` (two things
   asserted known-true) cannot be settled by a monotonic ruling — it needs a human to
-  retract a premise — so it is not this path's job."
+  retract a premise — so it is not this path's job.
+
+  **An arbiter who is a party to the dispute is refused** (`:arbiter-is-party`).  A ruling
+  is an assertion in the arbiter's own context, so for a party that context already holds
+  one of the two clashing sentences: ruling their own way would silently restamp their
+  claim as its own adjudication, and ruling the other way would *retract* it — the
+  disputed claim deleted rather than the dispute settled, which `dispute-state` then reads
+  as `:resolved` because there is no longer a clash to see.  Whether an arbiter may judge
+  their own case is not a question this can answer by guessing, so it does not."
   [kb arbiter id upheld channel]
-  (let [actx (id/context-for arbiter)]
+  (let [actx (id/context-for arbiter)
+        k    (dispute-key id)
+        held (set (keep #(v/sentex kb %) (if (sequential? k) k [k])))
+        ;; the arbiter's own *claims*, which is what makes them a party — a sentex their
+        ;; context holds that is not one of their own rulings.  A standing ruling is
+        ;; exactly what this call is entitled to supersede, so it is not evidence of
+        ;; anything, and re-ruling must not read it as taking a side.
+        mine (into #{} (comp (remove #(who-ruled kb (:id %))) (map :sentence))
+                   (v/sentexes-in-context kb actx))]
+    (when (some #(contains? mine (:sentence %)) held)
+      (throw (ex-info (str "koinii: " arbiter " is a party to dispute " (pr-str k)
+                           " — an arbiter's ruling lands in the arbiter's own context, so"
+                           " ruling a dispute they hold a side of would restamp or retract"
+                           " their own claim rather than settle the clash")
+                      {:type :arbiter-is-party :arbiter arbiter :dispute-id k})))
     (v/assert kb (list 'genlCx channel actx) 'CxUniverse {:strength :monotonic})
     (d/reopen! kb id)                                    ; end the lifecycle episode
-    (v/assert kb upheld actx {:strength :monotonic :creator arbiter
-                              :provenance {:adjudication id}})))
-
-(defn who-ruled
-  "Read a ruling off its handle: `{:arbiter :dispute-id :at}` from the provenance `rule`
-  stamped, or nil if `ruling-handle` is not an adjudication assertion.  'Who ruled this
-  dispute, and when' as a plain provenance read."
-  [kb ruling-handle]
-  (let [p (v/provenance kb ruling-handle)]
-    (when-let [did (:adjudication p)]
-      {:arbiter (:creator p) :dispute-id did :at (:created p)})))
+    (let [same    (v/handle-of kb upheld actx)
+          stale   (remove #{same} (standing-rulings kb arbiter id))
+          ;; the tag is a set, and this handle may already carry other disputes' ids —
+          ;; ruling one must not un-rule another that dedups onto the same sentex
+          carried (when same (:dispute-ids (who-ruled kb same)))
+          ;; one settle: the replacement lands before the displaced ruling goes, so a
+          ;; throw between them cannot leave the arbiter having retracted a ruling and
+          ;; asserted nothing (`edit!` adds first, then removes)
+          res     (v/edit! kb {:add    [[upheld actx {:strength :monotonic :creator arbiter
+                                                      :provenance {:adjudication
+                                                                   (conj (set carried) k)}}]]
+                               :remove (vec stale)})]
+      (first (:added res)))))
 
 ;; ---- a second resolution policy: majority vote ---------------------------
 ;;
@@ -200,18 +272,31 @@
   stays honestly disputed, the leave-open default holding rather than a winner picked by
   fiat — which is the whole reason to count instead of decree.
 
-  Returns `{:for n :against n :outcome :for/:against/:tie :ruling handle-or-nil}`.  Idempotent
-  in spirit: re-running after a resolution re-counts and re-rules (a fresh monotonic assert
-  of the same side, a no-op on belief), so a driver may poll it."
+  **The count is the authority, every time.**  The house can change its mind — ballots
+  are retracted and re-cast — and a ruling that no longer matches the count is withdrawn
+  before the new one lands: a majority that swings retracts the standing ruling and
+  rules the other side (`rule`'s one-ruling-per-arbiter contract), and a majority that
+  dissolves into a tie retracts it and leaves the dispute open.  Left standing, the old
+  ruling and the new would be two monotonic claims on one clash — a `:conflict`
+  reported as `:contradiction`, under a return value claiming the swing carried.
+
+  Returns `{:for n :against n :outcome :for/:against/:tie :ruling handle-or-nil
+  :withdrawn [handle …]}`, `:withdrawn` naming the rulings this count retired.
+  Idempotent: re-running on an unchanged count re-rules the same side (a belief no-op
+  returning the standing handle) and withdraws nothing, so a driver may poll it."
   [kb id claim-handle channel]
   (let [{yes :for no :against :as counts} (tally kb claim-handle)
-        claim (:sentence (v/sentex kb claim-handle))]
+        claim    (:sentence (v/sentex kb claim-handle))
+        standing (standing-rulings kb majority-arbiter id)
+        decide   (fn [outcome upheld]
+                   (let [h (rule kb majority-arbiter id upheld channel)]
+                     (assoc counts :outcome outcome :ruling h
+                            :withdrawn (filterv #(not= h %) standing))))]
     (cond
-      (> yes no) (assoc counts :outcome :for
-                        :ruling (rule kb majority-arbiter id claim channel))
-      (> no yes) (assoc counts :outcome :against
-                        :ruling (rule kb majority-arbiter id (list 'not claim) channel))
-      :else      (assoc counts :outcome :tie :ruling nil))))
+      (> yes no) (decide :for claim)
+      (> no yes) (decide :against (list 'not claim))
+      :else      (do (doseq [h standing] (v/retract! kb h))
+                     (assoc counts :outcome :tie :ruling nil :withdrawn standing)))))
 
 ;; ---- does an open dispute block dependent reasoning? no — but make it visible
 

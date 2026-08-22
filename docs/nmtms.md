@@ -514,23 +514,21 @@ content came in on:
 | where the clash arrives | opposing `:monotonic` | opposing `:default` |
 |---|---|---|
 | a **rule firing** (`place-conclusion`) | placed, then defeated — the loser has a `why-not` | placed; a represented dilemma |
-| an **`assert`**, asymmetry | refused | admitted; a represented dilemma |
+| an **`assert`**, asymmetry / anti-transitivity | refused | admitted; a represented dilemma |
 | an **`assert`**, disjointness / functionality | refused | refused, unless the KB arbitrates |
 | an **`assert`**, irreflexivity / non-mergeable antisymmetry | refused | refused — there is no opposing sentex, so no pair to arbitrate |
+
+Anti-transitivity opposes **two** claims rather than one, so the column it reads is the
+*weakest* of the two chain steps (`checks/opposing-class`): a chain that is known true
+throughout refuses the direct step, and a chain with one defeasible step is arbitrated —
+where that step, being the unique weakest member, is what the arbitration defeats.
 
 A self tuple `(P a a)` of an `irreflexive` `P`, and a converse no equality could
 reconcile under an `antiSymmetric` `P`, are the last row: neither names a second believed
 sentex to weigh, so neither is arbitrable and both refuse under every policy. A late
 `(irreflexive P)` over a stored self tuple is therefore the `arity` case rather than the
 `asymmetric` one — the tuple stands and the mark reports, since a lone-tuple conviction
-promoted to a nogood would make belief depend on how many settles had run. **The
-`antiTransitive` chain conviction is deferred for the neighbouring reason**: `(P a b) ∧
-(P b c) ⇒ ¬(P a c)` is a *three*-party clash, and every nogood here is a pair
-(`settle/decide-nogood` reads exactly two members), so forming it needs machinery the
-engine does not yet have; a partial door-only check would decide the same three facts
-differently in different arrival orders, which the order-independence invariant forbids.
-What `antiTransitive` does enforce is its classification and the disjointness `(disjoint
-transitive antiTransitive)` — no predicate is declared both ([taxonomy.md](taxonomy.md)).
+promoted to a nogood would make belief depend on how many settles had run.
 
 A firing has no caller to refuse, so there the choice is between dropping the
 conclusion — no sentex, no justification, and `why-not` reduced to `:not-stored` — and
@@ -569,6 +567,42 @@ Three paths that *mint* content keep refusing either way, because each has somew
 else to be and nothing to stand behind: the decontextualization lift's copy, the
 equality migration's twin, and the gate on what `abduce` may assume
 (`checks/constraint-violation`).
+
+### A nogood is a set, and `antiTransitive` is where that stops being academic
+
+`(antiTransitive P)` says a two-step chain forbids the direct step: `(P a b) ∧ (P b c) ⇒
+¬(P a c)`. The three cannot all hold, and **no two of them are the clash** — so the
+conviction is one nogood with three members rather than three pairs, and the machinery
+reads it as the set it is:
+
+- **Discovery** asks each member's own question (`checks/antitransitivity-problems`), and
+  a violation names the *other two* in `:opposing-handles` where the pairwise kinds name
+  one in `:opposing-handle`. Every member convicts the set — the tuple as the closing
+  step, as the first step, and as the second step, which is `chain-triples`' three roles —
+  because the discovery walks the sentexes a settle *moved*, and a triple only two of
+  whose members could convict it would be found or missed according to which arrived last.
+- **Decision** is `settle/decide-nogood`, unchanged in substance and read over the whole
+  member set: the **unique weakest** member is defeated, a minimum shared by several
+  defeasible members is a dilemma reported whole, and all-monotonic is the irreducible
+  conflict. Over two members that is the older reading term for term; over three it says
+  what a pairwise engine could not — three equal defaults are one three-sided dilemma,
+  and nothing here picks a loser among them.
+- **Reporting** follows: `contradictions` hands back one entry whose `:sides` are three,
+  and `(contradicts …)` names all three sentences in content order. A caller
+  destructuring `:handles` as a pair is reading a coincidence.
+
+The mark is read **up** the predicate hierarchy like every other constraint mark, so
+`(antiTransitive parentOf)` convicts a chain spelled in `fatherOf`; the steps are probed
+at the marked predicate, so a chain written half at each spelling is one chain. Two
+things it deliberately does not do: a step reachable **only** by argument preservation is
+not enumerated (that reading is one-sided — see below — and a triple only one of whose
+members convicts is one the discovery finds by arrival order), and a self tuple `(P a a)`
+— its own whole chain, naming no second sentex — is admitted, exactly as an `asymmetric`
+predicate's is. `antiTransitive` does not imply `irreflexive`; the KB that wants the self
+tuple refused declares the mark that refuses it.
+
+Its disjointness with `transitive` holds beside all that: no predicate is declared both
+([taxonomy.md](taxonomy.md)).
 
 ### Which contexts can contradict each other
 
@@ -633,9 +667,9 @@ until a later settle surfaces it, and `:arity-truncated` means wrong-length fact
 *unreported* — the `:arity` reach walks the whole spec subtree a binding descends to and
 the cone a `genlCx` edge opens, and past the budget the predicates it never reached, and
 the ones it never got as far as looking *for*, hold facts neither refused nor
-named. They do not cover the same triggers — a `functional` or `asymmetric`
-**declaration** reaches back over stored content on the deciding path and on no other,
-while a `genl` edge carrying one of those marks down reaches back on both — and each is
+named. They do not cover the same triggers — the disjointness sweeps are the
+type-separating declarations and the constraint sweeps the three tuple marks, and the
+`genl` edge that carries a mark down is read by both — and each is
 one entry per settle rather than one per trigger. What bounds those sweeps is
 `settle/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md)).
 
@@ -812,15 +846,15 @@ split across a visibility edge is exactly the clash neither writer could see, so
 contexts the pair is visible from, with belief untouched. Under `:arbitrate` every route
 agrees and the pair is weighed wherever it can be seen whole.
 
-**All three arbitrable kinds are reported there, each by its own entry kind.**
-Disjointness is the exposure pass (`:disjoint`, above); `functional` and `asymmetric`
-are a second pass beside it, and the two differ in what they have to look at rather
-than in what they say. A separation reaches back over every instance below the types it
-separates, so the disjointness pass sweeps every trigger; a `functional` or `asymmetric`
-clash needs **both halves stated**, so on an ordinary write its candidates are the moved
-region's own binary facts and it sweeps nothing.
+**Every arbitrable kind is reported there, each by its own entry kind.** Disjointness is
+the exposure pass (`:disjoint`, above); `functional`, `asymmetric` and `anti-transitive`
+are a second pass beside it, and the two differ in what they have to look at rather than
+in what they say. A separation reaches back over every instance below the types it
+separates, so the disjointness pass sweeps every trigger; a tuple-mark clash needs **both
+halves stated**, so on an ordinary write — a region holding facts and no declaration —
+its candidates are the moved region's own binary facts and it sweeps nothing.
 
-**One trigger reaches past the region, and it has to.** A `genlCx` edge moves
+**Three triggers reach past the region, and they have to.** A `genlCx` edge moves
 *visibility*, so a pair whose halves are already stored and already believed becomes
 jointly visible without either half being relabelled — neither is in the region, and
 reporting the same knowledge only when the edges happened to arrive before the facts is
@@ -828,13 +862,41 @@ precisely the arrival-order dependence the pass exists to remove. So an edge in 
 region reaches out over the cone it newly sees (`constraint-facts-in-cone`, the
 binary-fact parallel of the disjointness pass's `members-in-cone`) and spends the same
 `*exposure-instance-budget*` doing it. Past the cap the cost is the cap:
-`perf`'s `constraint-exposure-context-edge` holds it there.
+`perf`'s `constraint-exposure-context-edge` holds it there. A `genl` edge moves the
+**mark** instead, down to a subtree that carried none, and reaches the subtree's facts —
+gated on a mark actually being above it, since `genl` is the commonest edge in an
+ontology and one under nothing marked must cost a property read and no more.
 
-A late `(functional P)` or `(asymmetric P)` **declaration** is the arrival order that
-remains uncovered, and it is an absence rather than an oversight: that reach is
-`clash-candidates`' sweep, which runs only under `:arbitrate`, so under this policy
-nothing performs it — the same shape of absence `arity` has, recorded here rather than
-implied.
+**And the mark's own sentence is a trigger, for the same reason.** A late `(functional
+P)`, `(asymmetric P)` or `(antiTransitive P)` moves nothing but the mark, so both halves
+of every pair beneath `P` sit outside the region — the declaration's arrival order
+deciding whether the KB says anything at all. What it implicates is what a `genl` edge
+carrying the same mark down implicates, the spec subtree's facts, so the two share an
+arm: a mark stands above its own predicate, so the `marks-above?` gate that lets an edge
+through lets the declaration through too. Under `:arbitrate` that reach is
+`clash-candidates`' sweep and the pair is *weighed*; under `:refuse` it is this pass and
+the pair is *named*.
+
+The two answers are different things and the policy is what chooses between them, so
+what is order-independent is that the clash is **accounted for** — refused at the door,
+weighed into `contradictions`, or named here — and never that every arrival order picks
+the same account. A late declaration is not refused: turning away the sentence that says
+what the predicate *means* would leave every later use of `P` unconstrained on the
+strength of one fact written earlier, which is the failure recorded above
+`checks/arbitrable-kinds` for `arity`, one relation over. It is not arbitrated under
+`:refuse` either, since `:refuse` is precisely the policy that says a declaration does
+not move belief it was not asked to move. `(disjoint A B)` arriving over an
+already-clashing pair takes the same three decisions and takes them the same way
+(`exposure-candidates`, through `declaration-reach`); the KB owes one answer to "the
+declaration came last" whichever declaration it is.
+
+**A candidate a trigger reached is asked from its own context as well as from the
+vantages.** The vantages are the contexts *beyond* a sentex's own, which is right for a
+candidate the region holds — that one was asked from its own context at the door, and
+asking again every settle re-runs a check whose answer has not moved. A candidate a
+trigger reached is the opposite case: the mark over its predicate, or what its context
+sees, arrived after the door answered. Its own context is the vantage the door would use
+today, and for a same-context pair beneath a late mark it is the only vantage there is.
 
 The second pass is **`:refuse`-only**, gated before any root is read, and behind an O(1)
 check that the KB declares either property at all. Under `:arbitrate` the vantages are
@@ -856,7 +918,13 @@ converse are read beside it and merged on the handle.
 
 ### Where conviction is one-sided
 
-One shape convicts one way only, **through argument preservation**. `(outranks animal
+One shape convicts one way only, **through argument preservation**.  (A second was a
+defect rather than a shape and is gone: `asymmetry-problems` keyed *self* on the context
+it was asked from rather than on the sentence's own, so a stored `(P a a)` asked from a
+vantage threw away the twin **stored in that vantage** as though it were itself — and the
+pair was reported or not according to which of the two contexts was written last.  The
+check takes the sentence's `home` context now, and the door, where the two are one, is
+unchanged.) `(outranks animal
 cat)` denies the more specific `(outranks cat reptile)`, because preservation reads a
 goal's arguments upwards: the specific claim asks whether the general one denies it, and
 the general one never asks about the specific. Written specific-first, both stand and
@@ -875,6 +943,12 @@ at rather than a question nobody asked.
 
 `clash_oracle_test` excludes this shape and says so — no `transitiveInArg` declaration is
 made there — and covers the visibility one.
+
+`antiTransitive` stops at the same line rather than crossing it: its chain steps are the
+ones `matches-visible` finds over the marked predicate's spec closure, and a step that
+exists **only** because preservation reaches it is not enumerated. Reading it would buy a
+third one-sided shape — this time inside a nogood whose members have to convict each
+other symmetrically — where the fan the mark already needs is symmetric as it stands.
 
 ## The solver seam (`vaelii.impl.solve`)
 

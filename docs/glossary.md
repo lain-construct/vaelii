@@ -210,7 +210,7 @@ at the edges; monotonic content is not. See [nmtms.md](nmtms.md).
 
 **Defeat-class** ![tms](../.github/badges/cat-tms.svg): The strength tier an IN
 node sits at — exactly two, `:monotonic` > `:default`. A nogood is resolved by
-defeating the strictly weaker side. See [nmtms.md](nmtms.md).
+defeating its strictly weakest member. See [nmtms.md](nmtms.md).
 
 **Deferred literal** ![inference](../.github/badges/cat-inference.svg): A literal
 whose position is operational, not logical, so canonicalization holds it in the
@@ -218,6 +218,13 @@ author's order: the fifteen `sentex/deferred-predicates` (`evaluate`, `lessThan`
 `greaterThan`, `different`, `unknown`, the five quantity comparisons and the five
 aggregation operators) and a recursive rule's recursive literal. See
 [canonicalization.md](canonicalization.md).
+
+**`defnNecessary` / `defnSufficient` / `defnIff`** ![kb](../.github/badges/cat-kb.svg):
+Tie a collection's membership to a defining condition on the member `?x`, expanded into
+ordinary forward rules at assert. `defnNecessary` is member ⇒ condition, `defnSufficient`
+condition ⇒ member, `defnIff` both. The companion rule is derived — justified by the
+`defn*` fact alone — so retraction and belief follow it. Open-world: nothing concludes a
+non-member from the condition's absence. See [defns.md](defns.md).
 
 **`different`** ![kb](../.github/badges/cat-kb.svg): Provable exactly when no two
 arguments share an equivalence class — negation as failure over the equality
@@ -262,6 +269,15 @@ two spellings of a term reach the same answers without storing both. See
 (member → class, class → members and representative) that `rewriteOf`, `sameAs`,
 and `equals` all feed. Belief-following, content-keyed representative. See
 [equality.md](equality.md).
+
+**Evaluatable predicate** ![inference](../.github/badges/cat-inference.svg): A plain
+Clojure fn wrapped as a computed prover by `add-evaluatable` — a *check* (every
+argument ground, a truthy return is the predicate holding) or a *result-binding*
+function (`:result` names an output slot the value binds), the generic form of the
+built-in `lessThan` / `evaluate`. The fn is a value, never `eval` of KB data;
+completeness 100 by default and guarded by `sole-prover`. Answers a direct `ask` /
+`query` goal and, the node engine's leaf being the registry, joins and discharges a rule
+antecedent under a `:max-depth`. See [inference.md](inference.md).
 
 **`evaluate`** ![inference](../.github/badges/cat-inference.svg): Symbolic
 evaluation — `(evaluate ?sum (+ 1 2))` binds `?sum` to 3 via a safe whitelist,
@@ -427,9 +443,11 @@ Closed-world negation. `(unknown S)` holds iff `S` is not derivable;
 never stored, and a negative stratification edge in a rule body. See
 [naf.md](naf.md).
 
-**Nogood** ![tms](../.github/badges/cat-tms.svg): A believed `(not X)` alongside
-a believed `X` wherever some context sees both. Resolved softly by `settle` on
-defeat-class, never thrown. See [nmtms.md](nmtms.md).
+**Nogood** ![tms](../.github/badges/cat-tms.svg): A set of believed sentexes that
+cannot all hold — a believed `(not X)` alongside a believed `X` wherever some context
+sees both, a definitional clash, or the three claims an `antiTransitive` chain forbids.
+Resolved softly by `settle` on defeat-class, the weakest member defeated where one is
+weakest, never thrown. See [nmtms.md](nmtms.md).
 
 **`not`** ![kb](../.github/badges/cat-kb.svg): First-class negation. A `(not S)`
 becomes `S` stored at `:truth :false`, double negation eliminated; a negative
@@ -597,6 +615,19 @@ context; a rule is a sentex too. See [contexts.md](contexts.md).
 that relabels belief, resolves each nogood on defeat-class, and re-evaluates
 queued `exceptWhen` exceptions until the blocked set stops moving. See
 [nmtms.md](nmtms.md).
+
+**`siblingDisjoint`** ![kb](../.github/badges/cat-kb.svg): Marks a collection so its
+`genl`-specializations share no instance pairwise, unless one is a genl of the other —
+the `disjointMetatype` clique keyed off the genl closure, consulted not stored,
+belief-following, and raising contradictions through the same JTMS/ASP path as
+`disjoint`. Covering is out of scope. See [taxonomy.md](taxonomy.md).
+
+**`siblingDisjointException`** ![kb](../.github/badges/cat-kb.svg): Exempts the one pair
+of types it names from a disjointness a `siblingDisjoint` mark or a `disjointMetatype`
+would otherwise force — pair-local, so it does not disturb either type's disjointness from
+the parent's other specializations and does not leak to subtypes. Read over the whole KB,
+not the reader's context cone, because an exemption removes a clash. See
+[taxonomy.md](taxonomy.md).
 
 **Sideways information passing** ![inference](../.github/badges/cat-inference.svg):
 Costing each conjunct under the bindings the already-chosen literals will

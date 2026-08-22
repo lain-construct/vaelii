@@ -301,9 +301,44 @@
     (deref f ms ::timeout))
   (job id))
 
+(def ^:private reset-wait-ms
+  "How long `reset-registry!` gives a cancelled job to settle before giving up on it —
+  the same bound `unload!` gives a loader, for the same cooperative cancel."
+  30000)
+
 (defn reset-registry!
-  "Cancel every job and forget them all.  For a process shutting down and for tests;
-  nothing in the browser calls it."
+  "Cancel every job, **wait for each to settle**, and forget the ones that did.  For a
+  process shutting down and for tests; nothing in the browser calls it.
+
+  The wait is the point.  Forgetting a job releases its writer claim — `writer` and
+  `writes-kb?` are reads of this map — so a running job dropped here is a writer nobody
+  can see: the next writing job is admitted beside it, and a test fixture clears the KB
+  its thread is still forward-chaining into.  That is exactly the drop `sweep` refuses,
+  and this is held to the same rule.  Cancellation is cooperative, so every job gets up
+  to `reset-wait-ms` to reach a progress report; one that does not is **kept**, logged,
+  and goes on counting as the writer — a thread still running is still writing, and
+  saying so is better than a store two writers took turns on.  The id counter restarts
+  only when nothing is kept, so a kept job's id is never handed out twice.
+
+  The bound is **per job**, not a budget shared across them: one wedged job would spend a
+  shared deadline whole and leave every job behind it none, so a job that would have
+  settled in a millisecond is kept, keeps the writer claim, and refuses every later write
+  to that KB for the life of the process.  Cancel is issued to all of them first, so the
+  waits overlap and the wall time is the slowest job's, not the sum — except where jobs
+  genuinely do not settle, and there the reset is reporting a real leak per job."
   []
-  (doseq [id (:order @state)] (cancel! id))
-  (reset! state {:jobs {} :order [] :next-id 0}))
+  (let [ids (:order @state)]
+    (doseq [id ids] (cancel! id))
+    (doseq [id ids] (wait id reset-wait-ms))
+    (let [kept (:jobs (swap! state
+                             (fn [s]
+                               (let [kept (into {} (remove (comp settled? val)) (:jobs s))]
+                                 (if (empty? kept)
+                                   {:jobs {} :order [] :next-id 0}
+                                   (assoc s :jobs kept :order (filterv kept (:order s))))))))]
+      (doseq [j (vals kept)]
+        (trove/log! {:level :warn :id ::not-settled
+                     :msg (str "job " (:id j) " (" (:label j) ") did not stop within "
+                               reset-wait-ms " ms and is kept — its thread still holds "
+                               "whatever it holds")}))
+      nil)))

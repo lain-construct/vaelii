@@ -21,7 +21,8 @@
   assert layer via `sentex/check-exception-closed`)."
   (:require [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.sentex :as sx]))
+            [vaelii.impl.sentex :as sx]
+            [vaelii.impl.taxonomy :as tax]))
 
 ;; The rule *form* — its functor, its parts, its builder — has one owner:
 ;; `vaelii.impl.sentex`, whose constructor both parses and rebuilds it, so its
@@ -53,7 +54,64 @@
 (defn parse [sentence]
   {:antecedents (antecedents sentence) :consequent (consequent sentence)})
 
-(defn antecedent-predicates [sentence] (keep nm/functor (antecedents sentence)))
+(defn antecedent-key
+  "The antecedent-index key an antecedent `literal` files under: its functor, or
+  `[:not f]` for a negation whose body has functor `f`.
+
+  A negated antecedent is satisfied by a negative datum on the **same** predicate and
+  nothing else — `match1` unifies the two bodies whole, so `(not (animal ?x))` is not met
+  by `(not (dog Muffet))`, negation running against the subsumption the positive side
+  fans over.  Keyed under the bare `not` every negated antecedent of every rule shares one
+  bucket, and each arriving negation builds the view of, and tries to match, every one of
+  them; keyed by the body's predicate an arriving `(not (p a))` reaches the rules with a
+  negated antecedent on `p`.  A vector, so the key can never collide with a predicate,
+  which is always a symbol.  The same spelling on the index side
+  (`antecedent-predicates`, every writer) and the trigger side (`trigger-keys`)."
+  [literal]
+  (let [f (nm/functor literal)]
+    (if (and (= sx/not-functor f) (= 2 (count literal)))
+      (let [g (nm/functor (second literal))]
+        (if (symbol? g) [:not g] f))
+      f)))
+
+(defn antecedent-predicates
+  "The antecedent-index keys of a rule `sentence` — each antecedent's `antecedent-key`.
+  What `p/index-rule` files a rule under and what the `:rule-antecedents` roster counts;
+  a positive literal's key is its predicate, a negated one's is `[:not pred]`."
+  [sentence]
+  (keep antecedent-key (antecedents sentence)))
+
+(defn dependency-predicates
+  "The antecedent keys of a rule `sentence` as **`consequent-predicate` keys** — what a
+  rule reading those antecedents depends on, spelled the way the thing that could
+  satisfy it is filed.
+
+  The two spellings differ on one shape and only one: an `antecedent-key` distinguishes
+  negations by their body's predicate (`[:not flies]`, so an arriving `(not (p a))`
+  reaches the rules that read a negation on `p` and not every rule that reads any
+  negation), while a *conclusion* `(not (flies ?x))` is filed by its functor root, which
+  is `not`.  So a reader looking a dependency up among the concluders has to ask for
+  `not`; asking for `[:not flies]` reads an empty bucket, and an edge that is silently
+  not there is a negation cycle `checks/check-stratified` accepts instead of refusing.
+
+  Coarser than the index key, deliberately: every negated antecedent depends on every
+  negated conclusion here.  Over-approximating is the safe direction for the one caller
+  — refusing a stratified rule set is annoying, accepting an order-dependent one is a
+  correctness hole (`wff/rule-edges`)."
+  [sentence]
+  (map #(if (vector? %) sx/not-functor %) (antecedent-predicates sentence)))
+
+(defn trigger-keys
+  "The antecedent-index keys an arriving fact `sentence` triggers rules through: a
+  positive fact's predicate and its supertypes — a fact on a spec satisfies an antecedent
+  on its genl, `match1`'s subsumption — and, for a negative fact, the one `[:not pred]`
+  key its body's predicate names, since negation takes no subsumption fan.  The trigger
+  side of `antecedent-key`."
+  [tax sentence]
+  (let [f (nm/functor sentence)]
+    (if (= sx/not-functor f)
+      [(antecedent-key sentence)]
+      (tax/genls tax f))))
 
 (defn consequent-predicate
   "The predicate a rule concludes.  A consequent of the form `(ist Ctx S)` (place S

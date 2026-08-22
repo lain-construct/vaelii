@@ -227,3 +227,9 @@ failing_tests() {
   grep -aoE '^lein test :only [a-zA-Z0-9._-]+/[a-zA-Z0-9._?!*<>=+-]+' "$1" \
     | sed -E 's|^lein test :only ||' | sort -u
 }
+
+# The assertion count alone, for `assertion_deltas_ok` — empty for a run that never
+# printed one, which that function skips rather than reads as a zero.
+run_assertions() {
+  run_summary "$1" | sed -nE 's/^[0-9]+ tests, ([0-9]+) assertions$/\1/p'
+}

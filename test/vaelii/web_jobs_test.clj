@@ -14,13 +14,22 @@
 
 (def ^:dynamic *app* nil)
 
+;; `catalog/reset-registry!` cancels every job and waits for each to stop before it
+;; forgets them, so by the time `tu/clear-kb!` runs no chaining thread is still writing
+;; the KB it clears — a run that outlasted the fast path under load is drained here
+;; rather than orphaned into the next test's writer refusal.  The check after it is the
+;; claim made explicit: nothing is running when the KB is handed back.
 (use-fixtures :each
   (fn [f]
     (catalog/reset-registry!)
     (let [kb (doto (tu/fresh) core-context/load-into)]
       (catalog/register! "base" "Base KB" kb {:source (catalog/source "core")})
       (binding [tu/*kb* kb, *app* (web/app (catalog/holder kb))]
-        (try (f) (finally (catalog/reset-registry!) (tu/clear-kb! kb)))))))
+        (try (f)
+             (finally
+               (catalog/reset-registry!)
+               (is (empty? (jobs/running)) "the reset left no job running")
+               (tu/clear-kb! kb)))))))
 
 (defn- GET [uri & [qs]]
   (*app* (cond-> {:request-method :get :uri uri} qs (assoc :query-string qs))))
@@ -98,7 +107,7 @@
   ;; released by a promise this test holds, so which branch is taken is not a timing race
   (let [release (promise)
         answer  (#'web/job-answer
-                 {:kb tu/*kb* :types #{}}
+                 {:kb tu/*kb* :types (delay #{})}
                  #(jobs/submit {:label "Chain Base KB" :kind :chain :writes tu/*kb*}
                                (fn [_] @release {:derived 3}))
                  (fn [_] {:status 200 :body "the result page"}))]
@@ -173,7 +182,10 @@
   ;; holding a prefix of the run rather than a corrupt one
   (let [before (:runs (v/chain-stats tu/*kb*) 0)]
     (POST "/chain" {"max-derivations" "5000"})
-    (is (= :done (:status (first (jobs/jobs)))))
+    ;; the run is a job, and the request's only bounded promise is the fast path — under
+    ;; load it can still be going when the request returns, so wait for it: the claim
+    ;; here is what a run records, not how fast it settles
+    (is (= :done (:status (jobs/wait (:id (first (jobs/jobs))) 30000))))
     (is (= (inc before) (:runs (v/chain-stats tu/*kb*))))
     (testing "and the form says what a cancel would leave behind, since a reader who stops
               one needs to know what they are left with"

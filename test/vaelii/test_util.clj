@@ -34,6 +34,79 @@
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]))
 
+;; ---- the switches, and the pin that hands their defaults back -----------
+;;
+;; Every switch below installs its implementation by ALTERING A ROOT: a replacement no
+;; `binding` sees and no test undoes, which is exactly what a whole-suite sweep wants,
+;; since the claim it tests is that the alternative answers identically.
+;;
+;; A **counted** gate wants the opposite.  A budget or a cost shape is a claim about one
+;; configuration, so `assert_cost_test`, `lead_side_cost_test` and `join_lead_cost_test`
+;; have to measure the shipped reader whichever sweep is running.  `chain/join-matches` is
+;; the sharp edge: it takes its argument lead only under the reference matcher, so a gate
+;; inheriting `VAELII_RETE=1` measures a join nobody wrote it about — which is what
+;; `join_lead_cost_test` did until its fixture pinned the matcher.
+;;
+;; So the roots are READ here, before a single switch installs itself, and handed back by
+;; `with-shipped-config`.  Read rather than restated: a default written down a second time
+;; is a default that drifts, and a captured one cannot.
+
+(def sweeps
+  "The five configurations `scripts/test-sweeps.sh` runs, as data: the environment
+  variable that selects each, and the vars whose root it replaces.  `test_util_test`
+  holds the spellings against `scripts/lib/suite-configs.sh`, so a sweep added to that
+  table without a row here fails — and the row is where its vars are named, which is what
+  puts them in `shipped-defaults` for a counted gate to pin back.
+
+  `VAELII_TEST_TMS` names none, and that is not an omission: the TMS is a KB **option**,
+  chosen per `open-kb` rather than installed over a var, so a gate pins it by naming it in
+  its space (`assert_cost_test`'s `cost-space`) and no binding could."
+  [{:env "VAELII_TEST_TMS"       :vars []}
+   {:env "VAELII_RETE"           :vars ['vaelii.impl.chain/*matcher*]}
+   {:env "VAELII_HIER"           :vars ['vaelii.impl.resolution/*hierarchical-retrieval*]}
+   {:env "VAELII_QUERY_ENGINE"   :vars ['vaelii.core/*query-engine*
+                                        'vaelii.impl.inference/*max-depth*]}
+   {:env "VAELII_QUERY_STRATEGY" :vars ['vaelii.core/*query-options*]}])
+
+(def read-path-vars
+  "The switches that decide **which reader answers**, short of replacing the matcher.  No
+  sweep installs one — they are here because a counted gate is measured under them just
+  the same, and one pin is better than the three that drifted.
+
+  `*lead-side*` is the one measured to carry weight: `:scoped` leads a join from one
+  predicate-scoped bucket per spec, which takes `join_lead_cost_test`'s reading from flat
+  (32 at either width) to 27 against 39 — the shape that file exists to hold, inverted by
+  a var it does not name.  The rest are pinned because `assert_cost_test` prices exact
+  per-family budgets and each of them moves which family answers; both gates hold that
+  claim with a test rather than asserting it here."
+  ['vaelii.impl.resolution/*arg-root-retrieval*
+   'vaelii.impl.resolution/*structural-index*
+   'vaelii.impl.resolution/*lead-side*
+   'vaelii.impl.sentex/*min-indexed-depth*
+   'vaelii.impl.plan/*enabled*])
+
+(def shipped-defaults
+  "`{var -> root}` for every var the two rosters name, read before the switches below
+  install themselves — so this is what the engine ships and not a transcription of it."
+  (into {} (map (fn [sym] (let [vr (requiring-resolve sym)] [vr (var-get vr)])))
+        (concat (mapcat :vars sweeps) read-path-vars)))
+
+(defn with-shipped-config*
+  "Functional core of `with-shipped-config`."
+  [f]
+  (with-bindings* shipped-defaults f))
+
+(defmacro with-shipped-config
+  "Run `body` with every implementation switch bound to its shipped default, whatever the
+  run inherited.  What a counted gate measures inside, and preferred to standing aside
+  under the sweep: a gate that skips is a gate not running on the configuration somebody
+  is currently changing.
+
+  It **binds**, so a gate whose own axis is one of these binds it within and wins:
+  `(with-shipped-config (binding [res/*lead-side* :scoped] …))`."
+  [& body]
+  `(with-shipped-config* (fn [] ~@body)))
+
 ;; Run the *whole* suite through the incremental forward-chaining matcher
 ;; (`vaelii.impl.rete`) rather than the reference `chain` when `VAELII_RETE` is set.
 ;; A regression harness only — the default (unset) leaves the reference matcher in
@@ -260,6 +333,31 @@
   [s] (str/lower-case (str/replace (str s) #"[^A-Za-z0-9]+" "_")))
 
 (defn- cap [s] (if (seq s) (str (str/upper-case (subs s 0 1)) (subs s 1)) s))
+
+(defn sole-answer
+  "The one binding map `answers` holds, plus the assertion that there is exactly one.
+
+  `ask`, `query` and `prove` promise a **set** of answers and no order, so
+  `(first (v/ask …))` reads whichever answer the reader happened to produce first.  That
+  is a claim about the KB when the set is a singleton and a claim about the executor's
+  ordering when it is not, the two are indistinguishable at the call site, and the second
+  passes right up until a tactician reorders it or the fixture grows a second witness.
+  `VAELII_QUERY_STRATEGY` exists to reorder exactly this, and order independence is one
+  of the four properties the engine holds everywhere — so a test that quietly depends on
+  an order is worth failing where it is written rather than under a sweep.
+
+  `what` names the goal for the failure message.  The first answer comes back whatever
+  the count, so a fixture that grew a second one fails on this line rather than on a
+  `nil` three lines further down."
+  ([answers] (sole-answer answers nil))
+  ([answers what]
+   (let [as (vec answers)]
+     (is (= 1 (count as))
+         (str "expected exactly one answer"
+              (when what (str " for " (pr-str what)))
+              ", got " (count as) " — `first` on this would be an assertion about the "
+              "reader's order: " (pr-str as)))
+     (first as))))
 
 (defn fresh-term
   "A gensym'd temporary term of `role`, naming it after `base` so a failure reads

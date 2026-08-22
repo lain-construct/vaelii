@@ -86,6 +86,92 @@ in-process too — a slower solve is a cost regression, where routing to a binar
 machine does not have would be a refusal `available?` had promised away. The clasp probe
 forks a process to answer, so it is made once per JVM.
 
+### The time limit
+
+`VAELII_ASP_TIME_LIMIT` (default 60 seconds; 0 lifts it) bounds **one solve**, on both
+backends: clasp takes it as `--time-limit`, and in-process clingo — whose control accepts
+solver options only and refuses that flag — runs the search asynchronously and cancels
+the handle when the budget is spent.
+
+**One solve is not one operation, and the difference is a multiplier.** A solve runs on
+the single writer, so an operation that makes several holds every write behind the sum of
+their budgets, not behind one:
+
+| operation | solves | worst case |
+|---|---|---|
+| `do/label` (`:all`, `:one`, `:sat`) | 1 | 1 × budget |
+| `edge-solver` on one program | 1 | 1 × budget |
+| `classify` / `classify-program` | 2 (`classify-both` runs cautious then brave) | 2 × budget |
+| `do/labeling` (`label-dilemmas`) | 3 (classification's two, then the labeling) | 3 × budget |
+| one `settle` | one per defeat round | up to \|contested\| × budget |
+
+Measured at `VAELII_ASP_TIME_LIMIT=1` on a 78-atom program that finishes under neither:
+`classify-both` returns after **2049 ms**, a single `:label` or `:all-optima` solve after
+about **1015 ms**. Both are correct — every individual solve was cancelled on time.
+
+So size the variable against the *solve*, and read the table for what an operation then
+costs. `asp_edge_test` and `solve_context_test` pin the counts, because a doc that names
+them and code that changes them is worse than either alone.
+
+An interrupted solve reports `:interrupted`, and **that is not an answer**. A backend's
+result is an answer set only at `:optimum` or `:sat`; `:interrupted` and `:unknown`
+carry no witness, and every reader maps an atom's absence to *defeated* or *not kept* —
+read as an answer, an empty result would defeat every contested assumption and label
+every choice head false.
+
+### Refuse rather than degrade, whenever a backend is present
+
+`edge-solver` falls back to `local-solver` in exactly one case: **no backend at all**.
+There the two degrade together and stay consistent for free, because `classify-program`
+without a backend reports every contested assumption `:supportable` and claims nothing.
+
+With a backend present the fallback would be a different solver's answer, and the two
+solvers disagree. On two nogoods sharing a member the stub spends two defeats where the
+optimum spends one:
+
+```
+stub  defeats {1,3} -> labels {2}      ASP classification  {:true {1,3} :false {2}}
+ASP   defeats {2}   -> labels {1,3}
+```
+
+Pairing that stub labeling with an ASP classification is what `check-agrees` reports as
+`:labeling-inconsistent`, blaming the encoding for a disagreement the fallback
+introduced. Across a settle's defeat rounds it is worse: round 1 interrupted and round 2
+not gives a belief set neither solver would produce, differing run to run on identical
+knowledge — and the order-independence invariant in [nmtms.md](nmtms.md) is a claim about
+*knowledge*, which a wall clock is not.
+
+So with a backend present an unanswered solve **decides nothing**: `{:defeat #{}
+:violated [...] :error e}`, every contested assumption left standing, the failure logged
+at `:error` and named in `:error` for a caller that can act on it. The readers a caller
+invokes (`do/label` in every mode, and the brave/cautious classification behind `classify`
+and `label-dilemmas`) refuse with `:solver-failed` rather than return a world nobody
+computed — `label-dilemmas` by raising that same `:error`, since an empty defeat set is
+otherwise the perfectly good answer *keep everything*.
+
+`:unsat` keeps its own reading and is not this case: a definite *no model*, the same
+answer in every run, so it costs the invariant nothing. The edge solver degrades on it,
+`kept-of` keeps nothing, and an enumeration is empty. It should not arrive from a settle
+at all — every contradiction the engine sends is soft.
+
+### A backend that throws
+
+Same policy, same reason. The backends fail in several currencies — clingo's
+`:solver-failed` naming the native call that returned zero, clasp's
+`:solver-unavailable` when the binary is gone, a JNA `Error` against a missing or
+wrong-ABI libclingo — and `edge-solver` catches all of them at the seam, because the
+seam is where a native failure crosses into the engine.
+
+Left to propagate, such a throw unwinds whatever arbitration is in progress.
+`settle`'s `resolve-contradictions` reaches the solver *after* an earlier round has
+already mutated the TMS, so the exception would escape with round 1's defeats landed,
+`:conflicts` stale, `settle-finish` never reached and `reset-touched!` never run — a KB
+half-way through an arbitration nobody can finish. Deciding nothing leaves it exactly as
+the round found it, and the failure comes back as `:error` for a caller to rank.
+
+The imperative readers are not mid-arbitration, so they still throw: a refusal there
+costs nothing and says more than a result would.
+
 ## The encoding
 
 A contested assumption becomes a **choice atom**: true means believed, false means

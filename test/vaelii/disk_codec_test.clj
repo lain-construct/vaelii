@@ -175,6 +175,27 @@
         (let [s (sx/->AtomicSentex '(measured Rod 1042 "run-42") 'C 42 :true nil)]
           (is (= s (dec (nippy/thaw (nippy/freeze (enc s)))))))))))
 
+(deftest the-dictionary-keys-by-clojure-equality
+  ;; The index snapshot interns every trie token through this log — numbers and whole
+  ;; compound terms included — and the in-RAM dictionary it is reloaded into keys on
+  ;; `hasheq`/`equiv`, under which `2` and `(int 2)` are one token.  The log has to agree,
+  ;; or an integral pair mints a second durable id, and the reload then comes up one entry
+  ;; short of the log — `:torn-snapshot` on every later open.
+  (with-dict
+    (fn [d dir]
+      (let [as-long (dtok/intern! d (long 2))
+            as-int  (dtok/intern! d (int 2))
+            nested  (dtok/intern! d (list 'f (long 2)))
+            nested' (dtok/intern! d (list 'f (int 2)))
+            n       (dtok/token-count d)]
+        (is (= as-long as-int) "an integral pair is one durable id")
+        (is (= nested nested') "and so is a compound term differing only in boxing")
+        (dtok/close! d)
+        (let [d2 (dtok/open-token-log dir)]
+          (is (= n (dtok/token-count d2)) "the reload holds exactly what the log holds")
+          (is (= as-int (dtok/intern! d2 (int 2))) "the other boxing still resolves to the one id")
+          d2)))))
+
 (deftest the-dictionary-survives-a-restart
   ;; the one thing that can turn a tokenized frame into unreadable data
   (with-dict

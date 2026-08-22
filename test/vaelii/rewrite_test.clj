@@ -35,6 +35,51 @@
     ;; (g ?x ?x) -> (f ?y) would introduce an unbound ?y
     (is (nil? (rw/orient '(f ?y) '(g ?x ?x))))))
 
+(deftest orient-decides-an-equal-weight-pair-differing-at-a-constant
+  ;; Same root, same weight, first difference at a *constant* position: a constant is
+  ;; a nullary function symbol, so the precedence on the constants decides — without
+  ;; throwing, and in either written order.
+  (testing "two constants"
+    (is (= '[(g b ?x) (g a ?x)] (rw/orient '(g a ?x) '(g b ?x))))
+    (is (= '[(g b ?x) (g a ?x)] (rw/orient '(g b ?x) '(g a ?x))))
+    (is (= '[(UnitFn Metre ?n) (UnitFn Meter ?n)]
+           (rw/orient '(UnitFn Meter ?n) '(UnitFn Metre ?n))))
+    (is (= '[(UnitFn Metre ?n) (UnitFn Meter ?n)]
+           (rw/orient '(UnitFn Metre ?n) '(UnitFn Meter ?n)))))
+  (testing "a constant against a nullary compound of equal weight"
+    (is (= '[(g (f) ?x) (g c ?x)] (rw/orient '(g c ?x) '(g (f) ?x))))
+    (is (= '[(g (f) ?x) (g c ?x)] (rw/orient '(g (f) ?x) '(g c ?x))))
+    (is (nil? (rw/orient '(g c ?x) '(g (c) ?x)))
+        "the same symbol as constant and as nullary functor is incomparable"))
+  (testing "leaves of different classes order without throwing, and the same either way"
+    (let [one-way (rw/orient '(g 1 ?x) '(g a ?x))]
+      (is (some? one-way))
+      (is (= one-way (rw/orient '(g a ?x) '(g 1 ?x)))))
+    (is (= '[(g 2 ?x) (g 1 ?x)] (rw/orient '(g 1 ?x) '(g 2 ?x))))))
+
+(deftest the-precedence-is-total-over-every-term-shape
+  ;; `root` returns a *term*, not always a symbol — a functor may itself be compound —
+  ;; and an argument may be any encodable value.  So the precedence is asked about
+  ;; things `compare` refuses: a compound, a collection, a vector whose elements are of
+  ;; mixed classes.  It must answer all of them, because `orient` is reached from the
+  ;; assert door and a comparison that throws there refuses an equation by exception
+  ;; instead of by returning nil.
+  (testing "a compound root"
+    (is (= '[((g ?x) a) ((f ?x) a)] (rw/orient '((f ?x) a) '((g ?x) a))))
+    (is (= '[((g ?x) a) ((f ?x) a)] (rw/orient '((g ?x) a) '((f ?x) a)))
+        "content-derived, so the written order does not decide it")
+    (is (false? (rw/kbo> '((f ?x) a) '((g ?x) a))))
+    (is (true?  (rw/kbo> '((g ?x) a) '((f ?x) a)))))
+  (testing "a collection in argument position"
+    (doseq [[l r] [['(g #{1} ?x) '(g #{2} ?x)]
+                   ['(g {:a 1} ?x) '(g {:b 2} ?x)]
+                   ['(g [1 :a] ?x) '(g [1 "b"] ?x)]
+                   ['(g [:a] ?x) '(g [1] ?x)]]]
+      (let [one-way (rw/orient l r)]
+        (is (some? one-way) (str "no orientation for " (pr-str [l r])))
+        (is (= one-way (rw/orient r l))
+            (str "the two written orders disagree for " (pr-str [l r])))))))
+
 (deftest match-is-one-way
   (testing "a ground subject binds the pattern's variables"
     (is (= '{?x Tom} (rw/match '(fatherOf (fatherOf ?x)) '(fatherOf (fatherOf Tom))))))

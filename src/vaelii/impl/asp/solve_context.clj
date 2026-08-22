@@ -104,31 +104,146 @@
 
 ;; ---- replace-on-rerun ----------------------------------------------------
 
+(defn- believed-extent?
+  "Does `ctx` hold a **believed** sentex?  Everything a solve writes into its own
+  contexts is inert by construction, so one that answers true is not a solve artifact —
+  or is one somebody has since written into."
+  [kb ctx]
+  (boolean (some #(v/in? kb (:id %)) (v/sentexes-in-context kb ctx))))
+
+(defn- placed-under?
+  "Does `ctx` carry the one `(genlCx ctx base)` edge a solve writes to place a labeling
+  under `base`?  The signature of this run's own materialization: matched whole rather
+  than by functor, exactly as `clear-context!` matches the edge it retracts."
+  [kb ctx base]
+  (boolean (some #(= (:sentence %) (list 'genlCx ctx base)) (v/find-sentexes kb ctx))))
+
+(defn- marked-for?
+  "Does `ctx` carry a `labelingOf` ownership marker naming `into-cx`?"
+  [kb ctx into-cx]
+  (boolean (some (fn [{:keys [sentence]}]
+                   (and (marker? sentence)
+                        (= ctx (second sentence))
+                        (= into-cx (nth sentence 2 nil))))
+                 (v/sentexes-in-context kb ctx))))
+
+(defn- blocked-artifacts
+  "What stands between a re-run and the replace-on-rerun promise, as
+  `{:believed [ctx …] :orphaned [ctx …]}` — both empty when nothing does.
+
+  **`:believed`** is a context `clear-context!` would decline to touch.  Declining is
+  right — the sweep must never destroy knowledge — but *proceeding afterwards* is not:
+  the old marker survives beside the new run's, and `classify` then aggregates two
+  groundings into one classification, which is the accretion the ns docstring says must
+  never happen.
+
+  **`:orphaned`** is a labeling whose ownership marker is gone.  The marker is an
+  ordinary retractable sentex and `labeling-contexts` is the only discovery path, so
+  losing one makes the context invisible to the sweep forever while its `genlCx` edge
+  goes on holding it in the hierarchy — a believed monotonic edge nothing will ever
+  retract, and one more leaked slot per re-run.  It cannot be found by its marker, so it
+  is recognized by everything else a marker-less artifact still is: a name in the
+  `<Into><i>` series, a **non-empty** extent with nothing believed in it, this run's own
+  placement edge under `base`, and no marker.  The series is walked only as far as the
+  first free slot, since materialization never skips one.
+
+  All four together, because a name pattern here is used to *ask* and never to sweep —
+  the distinction the naming comment draws — and each condition is what keeps a
+  context of somebody's own out of the question.  Believed content is the ordinary mark
+  of one and is decisive: a user context occupying a slot, even one they hung under this
+  very base, holds what they asserted and is neither swept nor refused over.  So the two
+  categories are disjoint, and the residue — a marker retracted *and* believed content
+  written in — reads as the user's context, which is what it has become."
+  [kb base into-cx]
+  (let [existing (set (v/contexts kb))
+        taken?   (fn [c] (or (existing c) (pos? (v/count-in-context kb c))))
+        slots    (take-while taken? (map #(labeling-context into-cx %) (iterate inc 1)))
+        mine     (set (labeling-contexts kb into-cx))]
+    {:believed (filterv #(believed-extent? kb %)
+                        (conj (vec mine) (class-context into-cx)))
+     :orphaned (filterv #(and (not (mine %))
+                              (seq (v/sentexes-in-context kb %))
+                              (not (believed-extent? kb %))
+                              (placed-under? kb % base)
+                              (not (marked-for? kb % into-cx)))
+                        slots)}))
+
+(defn- refuse-blocked-run!
+  "Refuse the run when `blocked-artifacts` finds anything.  A solve replaces what the
+  previous one under this `Into` left, and a run that cannot do that must not write:
+  two groundings' truth values in one context assert nothing at all, and a labeling the
+  sweep can no longer see is a leak that grows by one context per re-run.
+
+  Asked twice, and both are worth their cost — a handful of index reads against a solve.
+  Once at the top of `label`, so a run that cannot land fails before the solve rather
+  than after it; once inside `clear-run!`, where the destruction actually happens, so
+  the guarantee is local to the thing that needs it."
+  [kb base into-cx]
+  (let [{:keys [believed orphaned]} (blocked-artifacts kb base into-cx)]
+    (when (or (seq believed) (seq orphaned))
+      (throw (ex-info (str "a previous solve's artifacts under " into-cx
+                           " cannot be replaced"
+                           (when (seq believed)
+                             (str "; believed sentexes in " (pr-str believed)))
+                           (when (seq orphaned)
+                             (str "; no labelingOf marker on " (pr-str orphaned))))
+                      {:type :labeling-run-blocked
+                       :into into-cx :base base
+                       :believed believed :orphaned orphaned})))))
+
 (defn- clear-context!
-  "Retract everything in or about `ctx`: its extent and any sentex that mentions it
-  — the labeling truth values and their marker, the `genlCx` edge that hangs it
-  under a base, a stale classification.  The term index makes that one lookup
-  (`find-sentexes`), and `retract!` tears an inert sentex down directly.
+  "Retract `ctx`'s own extent — the labeling truth values and their marker, or a stale
+  classification — and, with a `base`, the one `(genlCx ctx base)` edge a solve writes
+  to place a labeling under it.  `retract!` tears an inert sentex down directly.
 
   Guarded: if anything in the extent is *believed*, `ctx` is not a solve artifact —
   everything a solve writes into its contexts is inert by construction — and nothing
-  is touched.  The sweep must never destroy knowledge, whatever a context is named."
-  [kb ctx]
-  (when (not-any? #(v/in? kb (:id %)) (v/sentexes-in-context kb ctx))
-    (doseq [s (v/find-sentexes kb ctx)]
-      (v/retract! kb (:id s)))))
+  is touched.  The sweep must never destroy knowledge, whatever a context is named.
+
+  The extent, and not everything that *mentions* `ctx`: the term index would also
+  return a user's sentexes about the context, asserted from anywhere — a `genlCx` edge
+  hanging it under a base of their own, a claim naming it — and the guard reads the
+  extent, so it cannot tell those from the solve's.  So the edge is matched **whole**,
+  against the base the run is placing this labeling under, rather than by its functor:
+  a user is free to hang a labeling context under bases of their own, and those edges
+  are theirs.  A classification context has no solve edge at all — hence the nil `base`
+  — so every `(genlCx <Into>Class _)` in the KB is somebody else's, and an empty
+  `<Into>Class` passes the believed-extent guard, which reads the extent and cannot
+  see an edge.
+
+  The guard is the second reading of the same question: `refuse-blocked-run!` asks it
+  of every artifact before any of them is touched, so a run that would be blocked here
+  never reaches here.  This one keeps the promise local to the destruction."
+  [kb ctx base]
+  (let [extent (v/sentexes-in-context kb ctx)]
+    (when (not-any? #(v/in? kb (:id %)) extent)
+      (doseq [s extent]
+        (v/retract! kb (:id s)))
+      (when base
+        (doseq [{:keys [id sentence]} (v/find-sentexes kb ctx)
+                :when (= sentence (list 'genlCx ctx base))]
+          (v/retract! kb id))))))
 
 (defn- clear-run!
-  "Remove every artifact a previous `(do/label _ Into)` / `(do/classify Into)` left:
-  the numbered labeling contexts and the classification.
+  "Remove every artifact a previous `(do/label Base Into)` / `(do/classify Into)` left:
+  the numbered labeling contexts, each with the `genlCx` edge that placed it under
+  `base`, and the classification's extent.
   Replace-on-rerun is what keeps a run from accreting across groundings — an inert
   `(head)` beside an inert `(not head)` in one context asserts nothing — and
-  retracting the `genlCx` edges is what drops a surplus stale context (a run
+  retracting the placement edge is what drops a surplus stale context (a run
   that shrank from three labelings to two) out of the hierarchy, so `classify`
-  cannot sweep it back in."
-  [kb into-cx]
-  (doseq [ctx (concat (labeling-contexts kb into-cx) [(class-context into-cx)])]
-    (clear-context! kb ctx)))
+  cannot sweep it back in.  The labeling contexts are found by their ownership
+  marker, so the edge taken off each is one the solve minted.
+
+  Refuses rather than sweeps what it can: an artifact it cannot replace is one the
+  next `classify` would read beside the new run's, so a partial sweep is worse than
+  none (`refuse-blocked-run!`).  Nothing is retracted until every artifact has been
+  checked."
+  [kb base into-cx]
+  (refuse-blocked-run! kb base into-cx)
+  (doseq [ctx (labeling-contexts kb into-cx)]
+    (clear-context! kb ctx base))
+  (clear-context! kb (class-context into-cx) nil))
 
 ;; ---- grounding: assumptionRules × visible facts → choice heads -----------
 
@@ -299,7 +414,11 @@
 (defn- neg-choice-lit?
   "A `(not <choice-literal>)` body literal — a choice head required to be *absent*.  A
   conjunction of these is an at-least-one requirement: `(not c1) (not c2) (not c3)`
-  forbids a model in which all three are false, i.e. forces at least one true."
+  forbids a model in which all three are false, i.e. forces at least one true.
+
+  The literal may be partially ground: `ground-constraint-body` joins it against the
+  choice-head index like a positive one, so `(not (pick ?c))` on its own means *every*
+  pick, one nogood each."
   [choice-preds l]
   (and (seq? l) (= 'not (first l)) (sequential? (second l))
        (choice-preds (first (second l)))))
@@ -313,26 +432,36 @@
 
   Background literals are solved together through the ordinary conjunctive prover
   (`v/prove`, belief-filtered and cost-planned); each solution is extended across the
-  positive choice literals against the choice-head index, and the negated choice
-  literals are grounded and looked up.  Literals are classified by predicate — a body
-  predicate naming a choice head is a choice literal, everything else a background fact
-  — the modeling contract for a constraint body.  Negated *background* literals are out
-  of scope."
+  positive choice literals against the choice-head index, and then across the negated
+  ones the same way.  Literals are classified by predicate — a body predicate naming a
+  choice head is a choice literal, everything else a background fact — the modeling
+  contract for a constraint body.  Negated *background* literals are out of scope.
+
+  **The negated literals are joined, not merely substituted.**  They are removed from
+  `rest-body` before the positive join, so nothing else binds their variables: a
+  substitution-only lookup would find no head for `(not (pick ?c))`, drop the binding,
+  and contribute no nogood — the at-least-one idiom in `neg-choice-lit?`'s own
+  docstring, failing open and in silence.  Joining them against the same index the
+  positive literals use grounds `?c` over every head the predicate has, one nogood per
+  combination, which is what the idiom means.  A literal matching *no* head drops its
+  binding rather than constraining anything, which the join gives for free and is the
+  right answer regardless: an atom that does not exist is absent in every model, so it
+  can never be false-*together* and the requirement it guards is vacuous.
+
+  Order matters and is fixed here: positives first, so a variable shared with the
+  background or a positive literal is already bound when the negated ones are reached."
   [kb base body consequent choice-preds head->id idx]
   (let [neg?        #(neg-choice-lit? choice-preds %)
-        neg-chs     (filterv neg? body)
+        neg-lits    (mapv second (filter neg? body))
         rest-body   (remove neg? body)
         choice-lit? #(and (sequential? %) (choice-preds (first %)))
         bg  (remove choice-lit? rest-body)
         chs (filter choice-lit? rest-body)]
-    (for [bgb     (if (seq bg) (v/prove kb (vec bg) base) [{}])
-          [b ids] (join-choice-literals idx head->id chs bgb #{})
-          :let    [neg-ids (into #{} (keep #(head->id (res/substitute (second %) b))) neg-chs)]
-          ;; every negated choice literal must name a real choice head, else it can never
-          ;; be false-together and the requirement it guards is vacuous for this binding
-          :when   (and (= (count neg-ids) (count neg-chs))
-                       (or (seq ids) (seq neg-ids)))]
-      [ids neg-ids (res/substitute consequent b)])))
+    (for [bgb          (if (seq bg) (v/prove kb (vec bg) base) [{}])
+          [b ids]      (join-choice-literals idx head->id chs bgb #{})
+          [b2 neg-ids] (join-choice-literals idx head->id neg-lits b #{})
+          :when        (or (seq ids) (seq neg-ids))]
+      [ids neg-ids (res/substitute consequent b2)])))
 
 (defn- constraint-nogoods
   "Ground every constraint rule visible from `base` into nogoods, one per satisfying
@@ -391,7 +520,15 @@
   objective is its own scaling wall, and singling out one of many valid answers is not
   wanted; the content-keyed program is order-independent and clingo deterministic, so
   one solve is a stable answer regardless.  Returns `{:optima [#{ids}] :translate-ms t
-  :solve-ms t}`, or `{:optima nil}`."
+  :solve-ms t}`, or `{:optima nil}`.
+
+  **An `:unsat` program yields NO answer set — `[]`, not `[#{}]`.**  The two read
+  identically off `kept-of`, which correctly keeps nothing either way, and the
+  difference is everything: `[#{}]` is *one world, in which every choice is false*,
+  which for a program whose hard constraints admit no model is a world violating them.
+  Exactly what a hard at-least-one forbids, reported as the answer to it.
+  `enumerate-optima` makes the same distinction by construction, which is why `:all`
+  already reports nothing here."
   [program keep-belief?]
   (if-not (solver/available?)
     {:optima nil}
@@ -400,7 +537,7 @@
           tb         (System/nanoTime)
           result     (solver/solve (:aspif translated) :label)
           tc         (System/nanoTime)]
-      {:optima      [(edge/kept-of translated result)]
+      {:optima      (if (= :unsat (:status result)) [] [(edge/kept-of translated result)])
        :translate-ms (/ (- tb ta) 1e6)
        :solve-ms     (/ (- tc tb) 1e6)})))
 
@@ -438,15 +575,31 @@
   instead of accreting.  A run that grounds *no* choices clears too.  The one exception
   is `:no-backend` — nothing was computed, so the previous artifact is left standing.
 
+  **A run that cannot replace what is there refuses** (`:labeling-run-blocked`), before
+  the solve rather than after it.  Two things stop a sweep: a labeling context somebody
+  has asserted *believed* content into, which the sweep rightly declines to destroy, and
+  one whose `labelingOf` marker has been retracted, which the sweep can no longer find.
+  Proceeding past either leaves two groundings' artifacts under one `Into` — a
+  `classify` aggregating worlds from different solves, and a `genlCx` edge nothing will
+  ever retract.  `refuse-blocked-run!` names what is in the way; retracting that
+  context's extent, or naming a different `Into`, clears it.
+
   The grounding is never stored; `:choices` is the menu in content order (see `build`).
   Phase timings (`:ground-ms` = grounding the Program, `:translate-ms` = rendering ASPIF,
   `:solve-ms` = the solve) ride the result for a profiling caller.
 
   Returns `{:base :into :choices [..] :labelings [{:context :true [..] :false [..]}]
   :count n}` (`:context` nil in `:one` mode, which persists nothing).  `:count 0` with
-  `:reason` when there is nothing to solve or no ASP backend."
+  a `:reason` when there is no labeling to report: `:no-choices` (nothing was ground),
+  `:no-backend` (nothing could be solved), or `:unsatisfiable` — the hard constraints
+  admit no model, so there is no world to hand back.  Under `:all` an unsatisfiable
+  program simply enumerates nothing and reports `:count 0` without a reason, the
+  materialization loop having nothing to run."
   ([kb base into-cx] (label kb base into-cx :all))
   ([kb base into-cx mode]
+   ;; before the solve: only `:all` writes, so only `:all` has anything to replace
+   (when-not (contains? #{:one :sat} mode)
+     (refuse-blocked-run! kb base into-cx))
    (let [t0    (System/nanoTime)
          built (build kb base)
          t1    (System/nanoTime)]
@@ -470,6 +623,14 @@
            (merge {:base base :into into-cx :count 0 :choices choices
                    :reason :no-backend :labelings []} timing)
 
+           ;; no answer set at all: the hard constraints admit no model.  Under `:all`
+           ;; that falls out of enumerating nothing; under `:one` / `:sat` it has to be
+           ;; said, or the empty labeling reads as a world in which every choice is
+           ;; false — which is itself a world the constraints exclude.
+           (and single? (empty? optima))
+           (merge {:base base :into into-cx :count 0 :choices choices
+                   :reason :unsatisfiable :labelings []} timing)
+
            ;; :one / :sat — return the single labeling, persist nothing
            single?
            (merge {:base base :into into-cx :count 1 :choices choices
@@ -478,7 +639,7 @@
            ;; :all — materialize each optimum as its own inert labeling context
            :else
            (do
-             (clear-run! kb into-cx)
+             (clear-run! kb base into-cx)
              (let [ctxs (free-labeling-contexts kb into-cx (count optima))]
                (merge {:base base :into into-cx :count (count optima) :choices choices
                        :labelings
@@ -498,7 +659,7 @@
                                  (assoc l :context ctx)))
                              optima))}
                       timing)))))
-       (do (when-not (contains? #{:one :sat} mode) (clear-run! kb into-cx))
+       (do (when-not (contains? #{:one :sat} mode) (clear-run! kb base into-cx))
            {:base base :into into-cx :count 0 :choices []
             :reason :no-choices :labelings []})))))
 
@@ -533,16 +694,24 @@
   and **one extent read per labeling** (`polarity-table`), with everything after in
   memory.  Its own previous classification is cleared first (replace-on-rerun,
   same discipline as `label`): a stale classification describes labelings that no
-  longer exist.  Returns `{:class-context :forced [..] :supportable [..] :excluded [..]}`,
-  or `:count 0` `:reason :no-labelings` when `label` was never run for `Into`."
+  longer exist.  A `<Into>Class` holding *believed* content is one the sweep declines
+  to touch, so the run refuses (`:labeling-run-blocked`) rather than write a second
+  classification beside the first.  Returns
+  `{:class-context :forced [..] :supportable [..] :excluded [..]}`, or `:count 0`
+  `:reason :no-labelings` when `label` was never run for `Into`."
   [kb into-cx]
-  (let [labelings (labeling-contexts kb into-cx)]
+  (let [labelings (labeling-contexts kb into-cx)
+        klass     (class-context into-cx)]
+    (when (believed-extent? kb klass)
+      (throw (ex-info (str "the classification under " klass
+                           " cannot be replaced; believed sentexes in " klass)
+                      {:type :labeling-run-blocked :into into-cx
+                       :believed [klass] :orphaned []})))
     (if (empty? labelings)
       {:into into-cx :count 0 :reason :no-labelings
        :forced [] :supportable [] :excluded []}
       (let [tables (mapv #(polarity-table kb %) labelings)
             heads  (distinct (mapcat keys tables))
-            klass  (class-context into-cx)
             classify-one
             (fn [s]
               (let [ps (map #(get % s) tables)]
@@ -550,7 +719,7 @@
                       (every? #(= :false %) ps) :excluded
                       :else                     :supportable)))
             grouped (group-by classify-one heads)]
-        (clear-context! kb klass)
+        (clear-context! kb klass nil)
         (doseq [[k ss] grouped, s ss]
           (v/assert-inert kb (list (symbol (name k)) s) klass))
         {:into into-cx :class-context klass :count (count labelings)

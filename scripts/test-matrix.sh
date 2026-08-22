@@ -697,6 +697,46 @@ else
   fi
 fi
 
+# ---- did every run run the same suite? ---------------------------------------
+# The question a GREEN matrix asks, and the one nothing used to answer.  Thirteen runs
+# that all pass have still told you nothing if one of them ran four hundred fewer
+# assertions than the rest: a namespace that failed to load, a `deftest` that stood aside
+# without saying so, a gate that inherited a switch and measured nothing.  Every one of
+# those is green.  `config_expected_delta` carries the two stand-asides that are real and
+# says why; anything else is reported here.
+#
+# Only for a matrix that finished clean.  An error aborts the rest of its namespace, so a
+# red run is short by an amount that means nothing, and saying so beside the failure it
+# already reported is noise.  Only for one revision, too — counts taken either side of a
+# commit are not comparable, which is what the block below this one exists to say.
+deltas_bad=0
+if [[ ${#FAILED[@]} -eq 0 ]]; then
+  count_pairs=(); revs_agree=1; count_rev=""
+  for ((i = 0; i < n; i++)); do
+    [[ "${state[i]}" == passed ]] || continue
+    a=$(run_assertions "${logf[i]}"); [[ -n "$a" ]] || continue
+    count_pairs+=("${CONFIGS[i]}:$a")
+    if [[ -z "$count_rev" ]]; then count_rev="${rev[i]:-}"
+    elif [[ "${rev[i]:-}" != "$count_rev" ]]; then revs_agree=0; fi
+  done
+  if [[ ${#count_pairs[@]} -gt 1 ]]; then
+    if [[ $revs_agree -eq 1 ]]; then
+      if ! delta_report=$(assertion_deltas_ok "${count_pairs[@]}"); then
+        echo
+        echo "${BOLD}assertion counts: a run did not run what the others ran${OFF}"
+        echo "$delta_report"
+        echo "  ${DIM}Every run here passed, so this is not a failing test — it is a test that"
+        echo "  did not run.  Either find what the short run skipped, or, if a stand-aside was"
+        echo "  added on purpose, put it in config_expected_delta with its reason.${OFF}"
+        deltas_bad=1
+      fi
+    else
+      echo
+      echo "${DIM}assertion counts: not compared — the runs did not all compile one revision${OFF}"
+    fi
+  fi
+fi
+
 # ---- was the tree holding still? ---------------------------------------------
 # The question a red matrix on a shared checkout asks first, and the one nobody can
 # answer afterwards from the logs alone.
@@ -739,5 +779,5 @@ else
   echo "  matrix. Your own change is cleared by a green run at a revision that holds it.${OFF}"
 fi
 
-[[ ${#FAILED[@]} -eq 0 && $skipped -eq 0 ]] && exit 0
+[[ ${#FAILED[@]} -eq 0 && $skipped -eq 0 && $deltas_bad -eq 0 ]] && exit 0
 exit 1

@@ -56,6 +56,17 @@ half to ([indexing.md](indexing.md), §7) — and refused (`:type :stale-index-l
 rather than rebuilt, since rebuilding is a write and a base is mounted read-only. Open
 that directory as a KB once, which clears and rebuilds it, then mount the fork over it.
 
+The fork's own durable half is held to the same sentinel and, under `:recover? :auto`,
+to the coverage gate ([storage.md](storage.md)) — both read **through the merged
+mount**. The own half is the fork's delta, not an index of its own records: its
+counters hold base+net and its removal records say which inherited postings the fork
+took out, so its seal compared against the fork's own record count disagrees on every
+healthy fork that has written anything. Read through the mount, the seal and the root
+count are the merged index's and compare against the merged records, so a remount of a
+healthy fork rebuilds nothing. When either gate does trip, the repair is the one
+`reindex` makes on any fork (below): clear the merged index, which hides the base, and
+rebuild it from the merged records into the own half.
+
 ## Why one decorator forks the whole index
 
 `KvIndexStore` (`vaelii.impl.kv`) implements every index family over one substrate — the

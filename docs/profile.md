@@ -1,8 +1,8 @@
 # What shape of question this KB is asked
 
-- **Covers:** the workload instrument — the five tallies (`:goals`, `:reads`, `:fan`,
-  `:writes`, `:retracts`), the shape key each goal is counted under, the named access
-  paths a shape can take, and what the instrument costs on and off.
+- **Covers:** the workload instrument — the seven tallies (`:goals`, `:reads`, `:fan`,
+  `:sift`, `:fetches`, `:writes`, `:retracts`), the shape key each goal is counted under,
+  the named access paths a shape can take, and what the instrument costs on and off.
 - **Not here:** what the index *is*, and why the trie is ordered the way it is →
   [indexing.md](indexing.md); what a posting costs in bytes → [density.md](density.md);
   readings about the *knowledge* rather than the traffic → [quality.md](quality.md);
@@ -18,13 +18,15 @@ a ground first argument pays for three secondary root families nothing reads, an
 asking `(?type Muffet)` a thousand times a second lives on the argument-slot roster. This
 is the instrument that answers it from outside.
 
-## Five tallies
+## Seven tallies
 
 | tally | one entry per | the question it answers |
 |---|---|---|
 | `:goals` | retrieval decision, keyed by shape and access path | what distribution the index is asked to serve |
 | `:reads` | `IndexStore` read, keyed by family | which families are read at all |
 | `:fan` | trie walk, keyed by the path's first token | what a walk cost in node probes |
+| `:sift` | set-algebra retrieval, keyed like `:goals` | how wide a superset the probe handed the filter |
+| `:fetches` | `RecordStore` fetch, keyed by kind | how many records a question paged |
 | `:writes` | `index-sentex`, keyed by functor | what an assert costs each family |
 | `:retracts` | `unindex-sentex!`, keyed by functor | what a retraction costs each family |
 
@@ -35,6 +37,17 @@ those are the query planner's selectivity probes rather than a fetch, and a run 
 dominated by either. `:fan` is what turns a fan-out from an anecdote into a number: a walk
 that narrows visits one node per level, and a walk stuck behind a variable visits that
 level's whole child set.
+
+`:fetches` is the one tally that is **not** about the index, and it is here because no
+index number can stand in for it. A probe that narrows to a single `lookup` and then reads
+the record behind every handle it returned scores well on `:reads` and badly on what it
+cost: the worked case is `kb/find-sentex-handle`, where the exact-leaf read answers in
+13µs per call at 800 candidates and the wildcard match it replaces takes 2,779µs, at the
+identical `:reads` count ([storage.md](storage.md)). On the durable store a fetch is a
+positional slot read, a positional frame read and a nippy thaw past the LRU, so the two
+quantities are not even the same order. It counts the protocol call — `get-sentex`,
+`get-justification`, `get-provenance` — and not a backend's internal re-reads, so it reads
+the same on every store.
 
 `:retracts` is a tally of its own rather than `:writes` with a sign on it, and `:dead` is
 why. Every other quantity in either is decided by the sentex — its arity, its terms, its
@@ -287,6 +300,27 @@ operation, a more expensive version of the same operation, a non-`KvIndexStore` 
 anything that scales. `:dead` is the one budgeted number that is not a per-operation
 constant — it is exact for a fixed corpus torn down in a fixed order, which is what a
 workload is, and it is not a figure another corpus reproduces.
+
+### The other two counted gates
+
+That file prices the **assert** path. Two more read the same instrument at the two places
+an assert budget cannot reach, and each exists because a gap let a defect in.
+
+`test/vaelii/firing_cost_test.clj` prices one forward **firing** at the trigger position,
+over four rule shapes: no join at all, a join whose functor has no sub-predicates, one
+whose functor has four, and one whose trigger antecedent is symmetric and reached only
+through the datum's mirror. `assert_cost_test` reaches chaining through a single workload
+whose rule has one antecedent, so `chain/*matcher*` was never on its path — which is how
+the join went unpinned. The first two budgets are the pair: an argument lead taken over a
+functor with nothing under it costs two reads per firing and shows up as `:trie-lookup`
+going to zero while the argument families rise.
+
+`test/vaelii/record_fetch_cost_test.clj` prices the **records**, not the index —
+`:fetches` rather than `:reads` — for a ground assert, a ground and a non-ground
+`handle-of`, a retraction and a firing. The non-ground `handle-of` is the sharp one: it
+must fetch **no** records whatever the extent of the pattern's shape, which is what
+separates the exact-leaf read from the wildcard match that paged one record per candidate
+([storage.md](storage.md)).
 
 ## The bake-off built on it
 

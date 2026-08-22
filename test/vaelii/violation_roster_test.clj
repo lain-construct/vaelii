@@ -214,7 +214,7 @@
 
    "checks/constraint-violation"
    {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
-             :disjoint :functional :asymmetric :irreflexive :anti-symmetric}
+             :disjoint :functional :asymmetric :anti-transitive :irreflexive :anti-symmetric}
     :why   (str "the same relabel over every `constraint-problem` kind, arbitrable ones "
                 "included — the decontextualization lift, the equality twin and abduction "
                 "refuse where a firing arbitrates")}
@@ -228,7 +228,7 @@
                 "vocabulary, minted across `checks`, `rules`, `sentex` and `naming`")}
 
    "settle/constraint-exposure-entries"
-   {:kinds #{:functional :asymmetric}
+   {:kinds #{:functional :asymmetric :anti-transitive}
     :why   (str "one arm per declared property, and the entry names the property that "
                 "convicted rather than repeating it as a literal")}
 

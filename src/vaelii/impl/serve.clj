@@ -108,6 +108,8 @@
    :prove        (op v/prove)
    :provable?    (op v/provable?)
    :in?          (op v/in?)
+   :believed?    (op v/believed?)
+   :belief-status (op v/belief-status)
    :believed     (op v/believed)
    :why          (op v/why)
    :why-not      (op v/why-not)
@@ -273,7 +275,7 @@
   #{:naming :not-well-formed :not-ground :not-range-restricted :not-indexable
     :shape :not-encodable
     :arg-type :inter-arg-type :arg-genl :quoted-arg-type :arg-position :arg-constraint-kind :arity
-    :disjoint :functional :asymmetric :unknown-option :bad-handle
+    :disjoint :functional :asymmetric :anti-transitive :unknown-option :bad-handle
     :unknown-handle :bad-level :exception-not-closed :not-stratified :naf-not-closed
     :quantifier-not-local :quantified-conjunction
     :not-watchable :not-checkable :not-assertible
@@ -715,5 +717,8 @@
                  :data {:port port :host host :dir (or dir :memory)
                         :auth posture :hosts hosts}})
     (announce-auth! host posture hosts)
+    ;; `:max-threads` here as in `start`: `http-threads` is one half of the pair
+    ;; `subscribe/max-parked` is pinned against, and a daemon run from the command line
+    ;; has to hold the same relationship as one a test starts
     (jetty/run-jetty (app kb {:host host :token token})
-                     {:port port :host host :join? true})))
+                     {:port port :host host :join? true :max-threads http-threads})))

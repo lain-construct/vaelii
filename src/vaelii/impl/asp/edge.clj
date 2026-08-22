@@ -66,9 +66,51 @@
 
   ## Availability
 
-  `edge-solver` degrades rather than fails: with no clingo and no clasp reachable
-  it delegates to `solve/local-solver`, so installing it is always safe."
+  `edge-solver` degrades rather than fails **when there is no backend at all**: with no
+  clingo and no clasp reachable it delegates to `solve/local-solver`, so installing it is
+  always safe.  Degradation is confined to that case on purpose — see below.
+
+  ## A result that is not an answer
+
+  A backend's result is an answer set only at `:optimum` or `:sat`.  `:interrupted`
+  (the time limit, `config/asp-time-limit`, or a signal) and `:unknown` carry **no**
+  witness, and every reader here maps an atom's absence to *defeated* or *not kept* —
+  so read as an answer, an empty result defeats every contested assumption and labels
+  every choice head false.  `answered?` gates each reader.
+
+  **With a backend present, `edge-solver` decides nothing rather than degrading.**  The
+  stub and ASP disagree — measured on two nogoods sharing a member, the stub defeats
+  `{1,3}` where the optimum defeats `{2}` — and the two are not interchangeable halves of
+  one answer.  A labeling solve that runs out of budget while the classification solve
+  beside it finishes would pair a stub labeling with an ASP classification, which
+  `label/check-agrees` reports as `:labeling-inconsistent`, blaming the encoding for a
+  disagreement the fallback introduced.  Worse across a settle's defeat rounds: round 1
+  interrupted and round 2 not yields a belief set neither solver would produce, differing
+  run to run on identical knowledge — the order-independence invariant in docs/nmtms.md
+  is a claim about *knowledge*, and a wall clock is not knowledge.  So `undecided` is
+  returned instead: no defeat, the contested assumptions all stand, and `:error` names
+  what went wrong for a caller that can act on it.  With no backend the two degrade
+  together and stay consistent for free — `classify-program` claims nothing without one —
+  which is why that case, and only that case, still falls back.
+
+  A backend that **throws** — clingo's `:solver-failed`, clasp's `:solver-unavailable`,
+  a JNA `Error` against a missing libclingo — reads the same way, and the catch is here
+  rather than at the caller because this is the seam a native failure crosses.  Left to
+  propagate it would unwind whatever arbitration was in progress: `settle`'s
+  `resolve-contradictions` calls the solver *after* an earlier round already mutated the
+  TMS, so the throw would leave a half-arbitrated KB behind — stale `:conflicts`,
+  `settle-finish` never reached, `reset-touched!` never run.  `undecided` leaves the KB
+  as the round found it and hands the failure back as data.
+
+  `:unsat` is different and keeps its own reading: a definite *no model*, the same answer
+  in every run, so it costs the invariant nothing.  Each reader has a word for it —
+  `edge-solver` degrades, `kept-of` keeps nothing, `enumerate-optima` is empty.
+
+  The imperative readers (`kept-of`, `enumerate-optima`, `classify-program`) refuse an
+  unanswered result with `:solver-failed` rather than return a world nobody computed.
+  They are not mid-arbitration, so a throw there costs nothing and says more."
   (:require
+   [taoensso.trove :as trove]
    [vaelii.impl.asp.aspif :as aspif]
    [vaelii.impl.asp.atoms :as atoms]
    [vaelii.impl.asp.solver :as solver]
@@ -199,8 +241,56 @@
       :assumptions ordered
       :doomed      doomed})))
 
+(defn- answered?
+  "Is `result` an answer set — an optimum proven, or a model found with nothing to
+  optimize?  `:unsat` is a definite *no model*, which each reader handles on its own
+  terms; `:interrupted` and `:unknown` are no result at all (see the ns docstring)."
+  [result]
+  (contains? #{:optimum :sat} (:status result)))
+
+(defn- unanswered-ex
+  "The `:solver-failed` exception for a result that is not an answer, naming the mode
+  and the status.  A *value* rather than a throw, because `edge-solver` carries it back
+  in `:error` where the imperative readers raise it."
+  [mode result]
+  (ex-info (str "the ASP backend returned no answer for a " (name mode)
+                " solve: " (name (:status result :unknown))
+                (when (= :interrupted (:status result))
+                  " (the time limit, VAELII_ASP_TIME_LIMIT, or a signal)"))
+           {:type :solver-failed :mode mode :status (:status result)}))
+
+(defn- unanswered!
+  "Refuse a result that is not an answer, naming the mode and the status."
+  [mode result]
+  (throw (unanswered-ex mode result)))
+
+(defn- backend-failed-ex
+  "`e` — whatever the backend threw — as one `:solver-failed`-shaped exception.
+
+  The backends fail in several currencies: `clingo/chk!` raises `:solver-failed` with
+  the `:op` that returned zero, clasp raises `:solver-unavailable` when the binary is
+  not there, and a JNA lookup against a missing or wrong-ABI libclingo raises an
+  `Error` carrying no data at all.  A caller ranking a failure wants one shape, so the
+  original `ex-data` is kept (its `:type` wins, since `:solver-unavailable` says more
+  than the generic one) and the throwable rides as the cause."
+  [^Throwable e]
+  (ex-info (str "the ASP backend failed: " (or (ex-message e) (.getName (class e))))
+           (merge {:type :solver-failed} (ex-data e))
+           e))
+
 (defn- interpret
-  "Read `result`'s answer set back into the `Solver` contract."
+  "Read `result`'s answer set back into the `Solver` contract.  `result` has been
+  `answered?`-checked by the caller.
+
+  `:violated` is ordered **highest caller priority first, then by content** — the
+  `Solver` contract in `solve.clj`.  Taken as they come, the witnesses arrive in
+  violation-atom order and the `:doomed` ones ahead of them, which is `translate`'s
+  nogood sort: a key of `[members priority hard]` that omits `:sentence`, so two
+  constraint rules grounding to the same choice heads at the same priority tie, and
+  `sort-by`'s stability then decides the reading by which arrived first.  Sorting here
+  rather than widening that key keeps the cost off the grounding path — the nogood sort
+  runs over every nogood a program has, this one over the handful that could not be
+  satisfied, which in practice is none (see the ns docstring)."
   [{:keys [table by-label assumptions doomed]} result]
   (let [true-labels (set (:atoms result))
         defeated    (into #{} (remove #(true-labels (atoms/label-of-atom table (atoms/atom-of-sentex table %))))
@@ -208,15 +298,21 @@
         violated    (into (vec doomed)
                           (keep by-label)
                           (sort true-labels))]
-    {:defeat defeated :violated violated}))
+    {:defeat defeated
+     :violated (nm/sort-by-content-key
+                (fn [ng] [(- (long (or (:priority ng) 0))) (:sentence ng)])
+                nm/compare-form violated)}))
 
 (defn kept-of
   "The chosen-true assumption handles of one `:label` answer set, read back through
   translation `t`'s atom table — the single-answer-set counterpart to `interpret`'s
   defeat set (kept = assumptions − defeated).  `solve-context`'s `:one` mode reads a
   labeling with it.  An `:unsat` result carries no true labels, so this returns `#{}`
-  (nothing kept)."
+  (nothing kept); an `:interrupted` or `:unknown` one is refused (`:solver-failed`),
+  since its empty atom list would read the same way and mean nothing."
   [{:keys [table assumptions]} result]
+  (when-not (or (answered? result) (= :unsat (:status result)))
+    (unanswered! :label result))
   (let [true-labels (set (:atoms result))]
     (into #{} (filter #(true-labels (atoms/label-of-atom table (atoms/atom-of-sentex table %))))
           assumptions)))
@@ -236,7 +332,9 @@
   `:fixed` handles are reported `:true`: known-true background is assumed by every
   model, which is what makes it background rather than something the solver decides.
   With no ASP backend every contested assumption is genuinely one of several options,
-  so it is reported `:supportable` and nothing is claimed forced or excluded.
+  so it is reported `:supportable` and nothing is claimed forced or excluded.  An
+  enumeration the backend did not finish is refused (`:solver-failed`): a cautious set
+  read off a cut-short stream would call forced what was merely not yet ruled out.
 
   Below `vaelii.core` on purpose — the classification is a property of the encoding and
   the backend, not of any KB — so `settle` can stamp it onto the TMS as belief settles.
@@ -249,6 +347,9 @@
       :else
       (let [{:keys [aspif table]} (translate program {:tiebreak? false})
             {:keys [cautious brave]} (solver/classify-both aspif)
+            _        (doseq [[mode r] [[:classify-true cautious] [:classify-supportable brave]]]
+                       (when-not (or (answered? r) (= :unsat (:status r)))
+                         (unanswered! mode r)))
             in-every (handles-of table (:atoms cautious))
             in-some  (handles-of table (:atoms brave))]
         {:true        (into (set fixed) (filter in-every) assumptions)
@@ -270,24 +371,48 @@
   * `[#{h} …]`  — one handle-set per optimum otherwise.
 
   With assumptions but no nogoods every choice can be kept, so the single optimum keeps
-  them all; a `functional`/`disjoint`/`¬` clash is what splits the optima apart."
+  them all; a `functional`/`disjoint`/`¬` clash is what splits the optima apart.  A
+  program whose hard constraints admit no model is `:unsat` and enumerates to `[]`; an
+  enumeration the backend did not finish is refused (`:solver-failed`) rather than
+  returned as the optima it happened to reach."
   [{:keys [assumptions] :as program}]
   (cond
     (empty? assumptions)      []
     (not (solver/available?)) nil
     :else
     (let [{:keys [aspif table]} (translate program {:tiebreak? false})
-          {:keys [witnesses]}   (solver/solve aspif :all-optima)]
+          result                (solver/solve aspif :all-optima)
+          {:keys [witnesses]}   (if (or (answered? result) (= :unsat (:status result)))
+                                  result
+                                  (unanswered! :all-optima result))]
       ;; distinct: two optimal *models* can project to the same set of chosen
       ;; assumptions (they differ only in violation atoms), and those are one labeling
       (into [] (distinct) (map #(handles-of table %) witnesses)))))
 
+(defn- undecided
+  "The `Solver` answer for a solve that produced no answer set with a backend present:
+  **nothing is decided**.  No defeat, so every contested assumption stands exactly as it
+  did; `:violated` still carries the `:doomed` nogoods, which `translate` settled without
+  solving anything.  `:error` is the `ExceptionInfo` naming why, for a caller that can act
+  on it — `asp.label`'s `solved-labeling` raises it, so an imperative refuses with
+  `:solver-failed` instead of committing a labeling nobody computed.
+
+  Deciding nothing rather than degrading is what keeps belief a function of knowledge
+  rather than of a wall clock (see the ns docstring), and returning it rather than
+  throwing is what keeps a native failure from unwinding an arbitration in progress."
+  [t ^Throwable err]
+  (trove/log! {:level :error :id ::no-answer-set
+               :msg  (str "deciding nothing — " (ex-message err))
+               :data (assoc (ex-data err) :assumptions (count (:assumptions t)))})
+  {:defeat #{} :violated (vec (:doomed t)) :error err})
+
 (def edge-solver
   "An ASP-backed `solve/Solver`.  Install with `(core/set-solver kb edge-solver)`.
 
-  Falls back to `solve/local-solver` when no ASP backend is reachable, so this is
-  safe to install unconditionally; check `(solver/available?)` if you need to know
-  which one will run."
+  Falls back to `solve/local-solver` when **no** ASP backend is reachable, so this is
+  safe to install unconditionally; check `(solver/available?)` if you need to know which
+  one will run.  With a backend present it answers from the backend or decides nothing —
+  it never mixes the two, and it never throws (see the ns docstring, and `undecided`)."
   (reify solve/Solver
     (solve [_ program]
       (let [{:keys [aspif] :as t} (translate program)]
@@ -296,9 +421,27 @@
           (nil? aspif)             {:defeat #{} :violated (vec (:doomed t))}
           (not (solver/available?)) (solve/solve solve/local-solver program)
           :else
-          (let [result (solver/solve aspif :label)]
-            (if (= :unsat (:status result))
-              ;; every contradiction is soft, so this should be unreachable; if the
-              ;; encoding ever regresses, degrade rather than lie about belief.
-              (solve/solve solve/local-solver program)
-              (interpret t result))))))))
+          ;; Only the backend call is guarded, and it is guarded against `Throwable`:
+          ;; a native seam fails as an `Error` as readily as an exception, and a
+          ;; failure there must not unwind an arbitration already in progress.  A
+          ;; `settle` that threw out of `resolve-contradictions` would leave a
+          ;; half-arbitrated KB — round 1's defeats landed, stale `:conflicts`,
+          ;; `settle-finish` never reached and `reset-touched!` never run.  Deciding
+          ;; nothing leaves the KB exactly as the round found it.
+          (let [result (try (solver/solve aspif :label)
+                            (catch Throwable e {:status :failed :error (backend-failed-ex e)}))]
+            (cond
+              (answered? result) (interpret t result)
+              (:error result) (undecided t (:error result))
+              ;; `:unsat` should be unreachable — every contradiction settle sends is
+              ;; soft — and is a definite answer wherever it does arrive: the same
+              ;; program is `:unsat` in every run, so the stub's reading of it is stable
+              ;; and costs the order-independence invariant nothing.
+              (= :unsat (:status result))
+              (do (trove/log! {:level :warn :id ::unsat
+                               :msg  "the ASP program was unsatisfiable; deciding with the local solver"
+                               :data {:assumptions (count (:assumptions t))}})
+                  (solve/solve solve/local-solver program))
+              ;; `:interrupted` (the time limit) or `:unknown`: no witness to read, and
+              ;; the stub's answer is a different solver's, not this one's.
+              :else (undecided t (unanswered-ex :label result)))))))))

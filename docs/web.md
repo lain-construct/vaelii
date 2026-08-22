@@ -33,9 +33,10 @@ took.
 ### Working on it: `lein browser`
 
 `lein run` gives you a page and no way in. **`lein browser`** is `lein repl` with the
-browser already running: a prompt, a page, and a **reload channel** — `(require
-'vaelii.impl.web :reload)` at the prompt, or over nREPL from an editor through
-`.nrepl-port`, and the next request serves the new code.
+browser already running: a prompt, a page, and a **reload channel** — **edit any source
+file and refresh**, and the next request serves the new code with no REPL step at all
+(`(require 'vaelii.impl.web :reload)` at the prompt, or over nREPL through `.nrepl-port`,
+does the same on demand).
 
 That last part is the whole reason the command exists, because the failure it avoids is
 silent. **A ring handler is a value, and Jetty holds the one it was started with**, so a
@@ -43,10 +44,15 @@ reload can redefine every var on the page and change nothing about what is serve
 namespace reloads, the page does not, and there is nothing to see. `start`'s `:reload?`
 serves through `reloading-handler`, which reads `#'app` per request: a reload gives the
 var a new function object, an identity check misses once, the routes are rebuilt, and
-every request after that is the new code. A namespace the browser merely *calls* needs no
-help — those calls already go through vars, so reloading `vaelii.impl.svg` lands on the
-next request with nothing rebuilt. `-main` does **not** use it: a served process pays for
-a reload it will never do.
+every request after that is the new code. What reloads the namespace **from disk** in the
+first place is ring-devel's `wrap-reload` (`hot-reloading`), layered over that handler in
+the same `:reload?` path: it reloads the changed files under `src` before each request, so
+a plain file edit reaches the running server with no REPL. (ring-devel ships in the
+`:dev`/`:repl` profiles only — resolved lazily, absent from the served jar, like the
+profiler.) A namespace the browser merely *calls* needs nothing beyond that reload — those
+calls already go through vars, so a changed `vaelii.impl.svg` lands on the next request
+with nothing rebuilt. A plain served process pays for a reload it will never do, so
+`-main` takes this path only when `VAELII_DEV` is set.
 
 **Both halves are loopback**, and the pairing is why it is not configurable from there
 [why](defenses.md#loopback-only-for-the-browser-plus-nrepl-pairing) — the profile pins
@@ -445,6 +451,12 @@ silently vanished. It **names the job holding the writer** and links to it, sinc
 purpose — it asks about the KB this request would actually write, so loading a second KB
 in the background never stops you writing to the one on screen.
 
+**And it names the KB it judged**, which is not the same as naming the active one. The
+door derefs the holder once and hands that KB to the refusal and to the write, precisely
+because `/kbs/activate` can re-point it at any moment — so the entry that is active by the
+time the page renders is the one KB the refusal can be sure it is *not* about. Every arm
+reads the resolved KB's own name.
+
 `/kbs/export` is not guarded either, for a third reason: it writes the *filesystem*
 rather than a KB, so a load filling some other KB is no reason to refuse it. What an
 export cannot survive is the KB it is walking being written, and that exclusion runs
@@ -453,7 +465,15 @@ while the walk runs `write-refusal` refuses the write routes for that KB
 (`catalog/exporting-kb?`, asked by identity — the job claims no writer, so the claim
 registry cannot answer for it). The export job also takes the write monitor before it
 walks, so a synchronous write already past the refusal drains first rather than
-interleaving, exactly as a chaining job's does ([catalog.md](catalog.md)).
+interleaving ([catalog.md](catalog.md)).
+
+It takes it as a **barrier** and not as a hold, which is where it parts company with a
+chaining job. A chain writes the KB, so it keeps the monitor for its whole run and every
+synchronous write waits. An export writes no KB, and both `write-refusal` and `unload!`
+already refuse for the walk's whole duration — so the only thing left to wait for is the
+write that slipped past a door in the moment before the job was submitted. Holding it
+across the walk instead parks every later `/kbs/unload` on a Jetty worker for the length
+of a multi-minute dump, with no page and no progress, on ring-jetty's default pool of 50.
 
 ## Long work as jobs
 

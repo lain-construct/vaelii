@@ -40,6 +40,33 @@ Only the trie keeps explicit counters, because a *prefix* count aggregates the
 leaves beneath it. Every other index is a flat set whose cardinality is its own
 set size, so a count cannot drift from its extent.
 
+**A counter is a cardinality, so `kv-decrement` is floored at zero.** The two folds that
+implement it — `kv/apply-op` and the transient twin a bulk load takes — both stop at 0,
+and so does every backend that counts for itself, because the disk store replays its WAL
+through the same fold and a floor on one side alone would make a reopened index disagree
+with the one that wrote it. It costs nothing (the fold has the new value in hand) and
+changes no decision on the ordinary path, where a retraction reads the reply to find the
+nodes that emptied and asks `<= 0`. What it removes is a negative `[:trie :count prefix]`,
+which `plan/prefix-estimate` divides by: not a wrong estimate but a meaningless one.
+
+**The retraction is gated, the assert is not, and the asymmetry is the threat model.**
+`unindex-sentex!` decrements without looking and frees a node whose count reaches zero
+along with every handle under it, so one stray call — a handle never indexed here, or
+already removed — would take live sentexes out of the trie. It costs one membership probe
+on the leaf to make that a no-op, and any caller holding a stale handle can provoke it.
+`index-sentex` has no matching probe: its only two callers are `kb/create-sentex`, which
+indexes a handle it has just minted, and `reindex`, which walks each live handle once over
+an index it has just cleared — neither can index a handle twice, and the probe would be a
+hash lookup per assert on the flat store and a **second whole trie walk** per assert on the
+columnar one, on the path built for 100M facts.
+
+A gated retraction **logs** rather than passing silently (`::unindex-absent`, `:warn`, on
+both index stores). The no-op is safe and is not therefore right: the caller
+(`integrate/sentex-removed!`) deletes the record on the next line either way, so a genuine
+divergence leaves the trie handing out a handle whose record is gone, and that surfaces as
+a corrupt store somewhere else entirely. `reindex` is the repair; the log is what says to
+run it.
+
 Note what is deliberately **absent**: nothing here records a rule's direction or
 defeasibility as a queryable property (beyond the `:default` enumeration). Those are
 fields on the sentex record — see §3.
@@ -114,6 +141,18 @@ marker's arity spans (see *Structural subterms*). A marker in the pattern is mat
 exactly, like any token. **lookup contract:** pass a full path including a context
 slot. This answers *positional* pattern queries.
 
+**`p/leaf-at` is the other read of the same key, and it matches nothing.** It returns
+the leaf handles at the node a path names — one read, no walk and no fan — where
+`lookup` treats a variable in that path as a wildcard. The two agree exactly on a
+ground path and diverge the moment one carries a variable, which every non-ground
+sentex's key does (the key is α-renamed). **Dedup** is what wants the leaf and not the
+match: a sentex's key is a function of its sentence and context, so anything sharing
+them shares this leaf, and anything at another leaf is by construction another
+sentence — the extra candidates a match returns could never have been the answer, and
+`find-sentex-handle` would read the record of each to say so. Retrieval is the other
+question and stays `lookup`'s: there a pattern is asked what it matches, not where it
+is stored.
+
 ### Structural subterms
 
 A nested compound argument held as one opaque trie token can only be matched by whole-
@@ -141,7 +180,7 @@ walk may shrink the candidate set but never changes *which* sentexes match — a
 markerless (flat) key walks exactly as before. On the retrieval side,
 `res/*structural-index*` gates whether `candidate-handles` uses the structural trie
 (narrow on the deep positions) or the functor extent (a correct fallback superset).
-`find-sentex-handle` and the level-0 raw lookup read `p/lookup` directly, so they are
+The level-0 raw lookup reads `p/lookup` directly, so it is
 always structural; `sentexes-matching` and the matching levels go through `candidate-handles`, so
 the gate applies to them too — but only to the candidate *source*, never the matches
 (`unify` is the source of truth). `structural_index_test` is the oracle: on == off ==
@@ -299,6 +338,15 @@ predicate) and `[:rule-index :consequent pred] -> #{...}` (by consequent predica
 predicates *and* its consequent predicate, whatever its direction — so "what could
 conclude P?" is answerable for a forward-only rule too.
 
+A **negated antecedent** `(not (p ?x))` keys under `[:not p]` rather than under `not`
+(`rules/antecedent-key`), and an arriving negative fact `(not (p a))` triggers through
+that one key (`rules/trigger-keys`) — no subsumption fan, since `match1` unifies the two
+bodies whole and a negation on `dog` does not satisfy one on `animal`. So a negation
+reaches the rules with a negated antecedent on its own predicate, not every rule with a
+negated antecedent anywhere. A positive fact triggers through its predicate and its
+supertypes as before. The exception re-check index (§4) keeps its bare-`not` bucket: it
+is a coarse *whether-to-look* roster, and both of its sides agree on that spelling.
+
 A rule concluding a **variable** predicate — `(implies (holds ?p ?x ?y) (?p ?x ?y))`,
 allowed because range restriction binds `?p` to a concrete antecedent — has no concrete
 consequent predicate to key on, so its consequent is filed under one catch-all bucket,
@@ -311,6 +359,15 @@ blocked-firing paths. A variable functor in an *antecedent* is a different matte
 refused ([the split](defenses.md#a-variable-functor-rule-is-refused-not-silently-accepted)).
 An `:inert` rule concludes nothing in either engine, so a variable consequent on one keeps
 the canonical `?var0` — a dead key nothing reads — rather than the live catch-all.
+
+The dual question is a **goal** with a variable functor — `(?p Tom ?y)` — which names no
+consequent bucket and which any rule may conclude, `subsuming-unify` binding `?p` to the
+consequent's functor. `concluding-rule-handles` answers it with every rule, enumerated off
+the antecedent roster (`:rule-antecedents`) through the antecedent index — `O(rules)`,
+paid only for a variable functor, the same enumeration `chain/rule-firing-report` takes.
+So `(prove kb '(?p Tom ?y))` and `(query kb '(?p Tom ?y) ctx {:max-depth 2})` reach a
+rule concluding `ancestorOf` exactly as fact matching reaches a stored `parentOf` through
+the argument roots ([inference.md](inference.md), "Backward chaining").
 
 What may actually *fire* is **not indexed**. A rule's `:direction` and `:defeasible`
 are fields on its own sentex, put there by its `set/*Rule` wrapper (see

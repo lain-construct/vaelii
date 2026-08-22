@@ -75,6 +75,18 @@
     (not= 2 (count s)) (conj "disjointMetatype takes one argument")
     (nm/individual? m) (conj (str m " is an individual; disjointMetatype marks a metatype"))))
 
+(defn siblingDisjoint-problems [_ [_ c :as s]]
+  (cond-> []
+    (not= 2 (count s)) (conj "siblingDisjoint takes one argument")
+    (nm/individual? c) (conj (str c " is an individual; siblingDisjoint marks a collection"))))
+
+(defn siblingDisjointException-problems [_ [_ a b :as s]]
+  (cond-> []
+    (not= 3 (count s)) (conj "siblingDisjointException takes two arguments")
+    (nm/individual? a) (conj (str a " is an individual; siblingDisjointException relates types"))
+    (nm/individual? b) (conj (str b " is an individual; siblingDisjointException relates types"))
+    (= a b)            (conj (str a " siblingDisjointException with itself"))))
+
 (defn arg-constraint-problems
   "`arg` and `genlArg` — the two argument constraints — are structurally identical:
   a predicate, a positive-integer position, and a type.  They differ only in what

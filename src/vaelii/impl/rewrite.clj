@@ -72,13 +72,48 @@
   (let [ca (var-counts a)]
     (every? (fn [[v n]] (>= (get ca v 0) n)) (var-counts b))))
 
+(defn- root
+  "The root of `term`: its functor when compound, the atom itself otherwise — a
+  constant is a nullary function symbol under KBO, so an equal-weight pair differing at
+  a constant (`(g a ?x)` vs `(g b ?x)`) is decided by the precedence on the constants.
+
+  A functor may itself be compound — `((f ?x) a)` is a legal term — so this returns a
+  *term*, not always a symbol, and `prec-compare` is total over whatever it hands back."
+  [term]
+  (if (sequential? term) (first term) term))
+
+(defn- prec-compare
+  "`compare` made total over **every** term shape, not merely over the leaf classes.
+  Two values of the same class compare natively when that class compares an element at
+  a time without inspecting what is inside — a symbol, a string, a number, a keyword —
+  and values of different classes order by class name.
+
+  Everything else compares by its **printed form**: a compound root (`root` returns
+  `(f ?x)` for `((f ?x) a)`), a collection of any kind, and a vector whose elements are
+  of mixed classes, all of which `compare` refuses — either by not implementing
+  `Comparable` at all or by throwing on the first element pair it cannot rank.  A print
+  is derived from content alone, so the order stays what `prec>` promises: arbitrary,
+  deterministic, and identical whichever way round the equation was written.
+
+  Totality is the point.  `orient` is reached from the assert door, and a comparison
+  that throws there refuses an equation by exception rather than by returning nil —
+  which is not a refusal but a crash."
+  [a b]
+  (let [ca (if (nil? a) "" (.getName (class a)))
+        cb (if (nil? b) "" (.getName (class b)))]
+    (cond
+      (not= ca cb)                                (compare ca cb)
+      (and (instance? Comparable a) (not (coll? a))) (compare a b)
+      :else                                       (compare (pr-str a) (pr-str b)))))
+
 (defn- prec>
   "The symbol precedence: a fixed, **content-derived** total order on function symbols
-  (their natural `compare`), so orientation never depends on which equation was
-  asserted first.  Arbitrary but deterministic — it decides the *direction* of an
-  equal-weight rewrite, not whether one exists.  `(prec> a b)` is `a ≻_F b`."
+  (their natural `compare`, `prec-compare`), so orientation never depends on which
+  equation was asserted first.  Arbitrary but deterministic — it decides the
+  *direction* of an equal-weight rewrite, not whether one exists.  `(prec> a b)` is
+  `a ≻_F b`."
   [a b]
-  (neg? (compare b a)))
+  (neg? (prec-compare b a)))
 
 ;; Genuine in-file cycle: a same-root equal-weight pair is decided by `kbo-lex>` over the
 ;; arguments, and the first differing position is decided by `kbo>` again.  The recursion
@@ -101,10 +136,13 @@
   terminates whatever the rule set — the termination guarantee for schematic rewriting.
 
   Decided in order: the variable condition gates it; then the heavier side wins; an
-  equal-weight pair is decided by the root symbol precedence, and same-root by a
-  lexicographic comparison of the arguments.  With unit weights `term-size` *is* the
-  weight, so this refines the old size-only rule — it agrees on unequal sizes and
-  additionally orients an equal-size pair like `(f (g ?x))` vs `(g (f ?x))`."
+  equal-weight pair is decided by the precedence on the two roots (a constant's root
+  is itself), and same-root compounds by a lexicographic comparison of the arguments.
+  With unit weights `term-size` *is* the weight, so this refines a size-only rule —
+  it agrees on unequal sizes and additionally orients an equal-size pair like
+  `(f (g ?x))` vs `(g (f ?x))`, or `(g a ?x)` vs `(g b ?x)`.  A constant against a
+  same-named nullary compound (`c` vs `(c)`) is the one equal-weight, same-root pair
+  with no arguments to compare, and it is incomparable."
   [s t]
   (and (var-dominates? s t)
        (let [ws (term-size s) wt (term-size t)]
@@ -113,11 +151,13 @@
            (< ws wt)      false
            (sx/variable? s) false          ; a variable is minimal
            (sx/variable? t) false          ; equal weight + t a variable ⇒ not > (var cond already gates)
-           :else (let [f (first s) g (first t)]
+           :else (let [f (root s) g (root t)]
                    (cond
                      (prec> f g) true
                      (prec> g f) false
-                     :else       (kbo-lex> (rest s) (rest t))))))))
+                     (and (sequential? s) (sequential? t))
+                     (kbo-lex> (rest s) (rest t))
+                     :else       false))))))
 
 (defn orient
   "Orient `(equals l r)` into a terminating rewrite `[big small]`, or nil when no

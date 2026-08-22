@@ -859,12 +859,26 @@
 
 (defn- lits [pairs] (mapv second pairs))
 
+(defn- memo-opts
+  "The estimator options for one plan: the four index reads behind a `memoizing`
+  cache each, plus the context.  One cache for the life of a plan — and for the
+  `explain` that reports it, which re-costs every literal and would otherwise re-read
+  each subtype's count the ranking already paid for."
+  [context]
+  {:count-at           (memoizing p/count-at)
+   :count-children     (memoizing p/count-children)
+   :count-with-arg     (memoizing p/count-with-arg)
+   :count-with-functor (memoizing p/count-with-functor)
+   :context            context})
+
 (defn- plan-pairs
   "The whole ordering decision, once: the conjunction's literals in execution order as
   `[index literal]` pairs, beside the per-generator record of which block placed each
   one.  `order` takes the literals off it and `explain` reports the rest, so the two
   cannot drift — a flag computed beside the plan rather than with it can claim a
-  literal was placed by a rule that did not run."
+  literal was placed by a rule that did not run.  `:opts` is the memoized estimator
+  set the ranking read through, when it ran one, so `explain` costs its report off the
+  same cache rather than the index again."
   [kb goals context {:keys [bound consequent-pred est-override] :or {bound #{}}}]
   (let [goals (vec goals)]
     (if (or (not *enabled*) (< (count goals) 2))
@@ -879,13 +893,7 @@
           (let [bound' (into bound (mapcat (comp vars-of second) gens))
                 early  (ready defs bound')]
             {:pairs (vec (concat gens early recs (drop-i defs early))) :info {}})
-          (let [count-at*  (memoizing p/count-at)
-                kids*      (memoizing p/count-children)
-                with-arg*  (memoizing p/count-with-arg)
-                functor*   (memoizing p/count-with-functor)
-                opts       {:count-at count-at* :count-children kids*
-                            :count-with-arg with-arg* :count-with-functor functor*
-                            :context context}
+          (let [opts       (memo-opts context)
                 cost       (fn [g bnd]
                              (or (when est-override (est-override g bnd))
                                  (est-matches kb g bnd opts)))
@@ -913,7 +921,8 @@
                    acc       []]
               (if (empty? remaining)
                 (let [early (ready pending bound)]
-                  {:pairs (vec (concat acc early recs (drop-i pending early))) :info info})
+                  {:pairs (vec (concat acc early recs (drop-i pending early))) :info info
+                   :opts  opts})
                 (let [[_ l :as pick] (first remaining)
                       bound'         (into bound (vars-of l))
                       early          (ready pending bound')]
@@ -988,12 +997,14 @@
   recomputed, since the plan keeps only the block-local prefixes it ranked on and these
   are threaded across the whole execution order; they are computed by the same two calls
   `plan-pairs` costs with, `:est-override` included, so a reported number and the number
-  that chose the order are one cost model rather than two."
+  that chose the order are one cost model rather than two — and through the same
+  memoized reads (`memo-opts`), so a unary type literal's subtype fan is counted once for
+  the ranking and the report together, not once per call per literal."
   ([kb goals context] (explain kb goals context {}))
   ([kb goals context opts]
-   (let [{:keys [pairs info]} (plan-pairs kb goals context opts)
+   (let [{:keys [pairs info] memo :opts} (plan-pairs kb goals context opts)
          bound0   (or (:bound opts) #{})
-         est-opts {:context context}
+         est-opts (or memo (memo-opts context))
          ;; A deferred literal is not a generator, so `plan-pairs` never costs one and
          ;; never asks the override about one — and neither does this, or a literal the
          ;; model reads as transparent would report a fan-out it never has.

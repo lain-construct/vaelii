@@ -23,6 +23,7 @@ fix. The mechanism stays in the subsystem's own page and is linked, never restat
 | [`assert` refused it](#assert-refused-it) | a naming invariant — the `:type` says which |
 | [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | the argument's type is outside the hierarchy |
 | [`prove` returns more than I count](#prove-returns-more-solutions-than-there-are-answers) | one solution per derivation, not per answer |
+| [`do/label` refuses to re-run](#dolabel-refuses-to-re-run) | a previous run's labeling context has been written into, or has lost its marker |
 | [A foreign KB will not load](#a-foreign-kb-will-not-load) | no reader on the classpath |
 | [`open-kb` refuses an unknown backend](#open-kb-refuses-an-unknown-backend) | a `:backend`, `:records`, `:index` or `:tms` opt names something the storage layer doesn't implement |
 | [The disk KB will not open](#the-disk-kb-will-not-open) | another process holds the lock |
@@ -188,6 +189,26 @@ count of proofs.
 ```
 
 [api.md](api.md#choosing-a-query-function).
+
+## `do/label` refuses to re-run
+
+`:labeling-run-blocked` means the previous run's artifacts under this `Into` cannot be
+replaced, and a run that cannot replace them must not write beside them — two groundings
+in one `Into` make a `do/classify` that aggregates worlds from different solves. The
+`ex-data` names the contexts, in one of two keys:
+
+| key | what happened | fix |
+|---|---|---|
+| `:believed` | a labeling context, or `<Into>Class`, holds a **believed** sentex — everything a solve writes is inert, so this came from somewhere else | retract that sentex, or name a different `Into` |
+| `:orphaned` | a labeling context lost its `labelingOf` ownership marker, so nothing can rediscover it while its `genlCx` edge still holds it under the base | retract the context's extent and its `(genlCx <ctx> <Base>)` edge, or name a different `Into` |
+
+```clojure
+(v/sentexes-in-context kb 'CxPlan1)                        ; what is actually in there
+(v/sentexes-matching kb '(genlCx CxPlan1 CxUniverse) 'CxUniverse)   ; the placement edge
+```
+
+`:one` and `:sat` are never blocked — they persist nothing, so they have nothing to
+replace. [solving.md](solving.md).
 
 ## A foreign KB will not load
 

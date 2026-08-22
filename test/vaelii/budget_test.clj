@@ -10,11 +10,13 @@
       concatenating results across `resume` reconstructs the whole answer;
     * bounding never over-realizes (it terminates on an infinite source);
     * `:max-cost` is qualitative — it drops whole prover tiers before the search;
-    * `:max-depth` prunes the DFS's rule expansion."
+    * `:max-depth` prunes the DFS's rule expansion, and `:max-term-growth` raises its
+      other termination guard."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.budget :as budget]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.resolution :as res]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -226,6 +228,31 @@
                (set (map #(get % '?who)
                          (:results (v/prove-within kb goal CxFam {:max-depth 1}))))))))))
 
+(tu/deftest-kb prove-bounds-carries-the-term-growth-ceiling
+  (tu/with-terms [p SuccFn A CxRaise]
+    ;; (implies (p (SuccFn ?x)) (p ?x)): every expansion wraps one more SuccFn, so the
+    ;; stored answer sits twelve levels of *rule-invented* nesting past the query — past
+    ;; the shipped allowance, and reachable only by raising it
+    ;; backward only: fired forwards the rule would peel the stored term down to
+    ;; `(p A)` and store the answer, which is a different question from this one
+    (v/assert-rule kb [(list p (list SuccFn '?x))] (list p '?x) CxRaise {:direction :backward})
+    (v/assert kb (list p (nth (iterate #(list SuccFn %) A) 12)) CxRaise)
+    (let [run (fn [budget]
+                (:solutions (res/prove-from kb #(provers/candidate-rules kb % CxRaise)
+                                            CxRaise (budget/prove-bounds budget)
+                                            (res/initial-prove-stack kb [(list p A)] CxRaise)
+                                            [])))]
+      (testing "the shipped allowance cuts the branch four levels short of the fact"
+        (is (empty? (run nil))))
+      (testing "a raised ceiling reaches it"
+        (is (= [{}] (run {:max-term-growth 20}))))
+      (testing "the other bounds still translate"
+        (let [b (budget/prove-bounds {:max-ms 5000 :max-results 3 :max-depth 2})]
+          (is (some? (:deadline b)))
+          (is (= 3 (:max-results b)))
+          (is (= 2 (:max-depth b)))
+          (is (nil? (:max-term-growth b)) "unnamed is the default ceiling, not no ceiling"))))))
+
 ;; ---- the budget roster ----------------------------------------------------
 
 (deftest a-budget-bound-nothing-reads-is-refused
@@ -245,7 +272,7 @@
   (testing "a non-map budget is refused rather than read as unbounded"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
                           (budget/collect (range 5) :max-results))))
-  (testing "the four rostered bounds all pass at every door"
+  (testing "the five rostered bounds all pass at every door"
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [dog Muffet CxBudget]
         (v/assert kb (list dog Muffet) CxBudget)
@@ -253,7 +280,8 @@
                                                 {:max-ms 5000 :max-results 10
                                                  :max-cost :search}))))
         (is (= :complete (:status (v/prove-within kb (list dog '?x) CxBudget
-                                                  {:max-results 10 :max-depth 3})))))))
+                                                  {:max-results 10 :max-depth 3
+                                                   :max-term-growth 40})))))))
   (testing "and both anytime doors hold their budget to the roster"
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [dog]

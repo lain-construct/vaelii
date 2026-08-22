@@ -100,10 +100,10 @@
   "A hierarchy deep enough that a separation closes over several levels, two contexts so
   the scoping is exercised, and one declaration of each arbitrable kind.
 
-  Deliberately *incomplete*: `(disjoint dog cat)` and `(genl snake animal)` are left for
-  the operation stream to assert, since a declaration arriving over content already
-  stored is the case the retroactive sweep exists for and the case a region-only
-  discovery would miss.
+  Deliberately *incomplete*: `(disjoint dog cat)`, `(genl snake animal)` and
+  `(antiTransitive precedes)` are left for the operation stream to assert, since a
+  declaration arriving over content already stored is the case the retroactive sweep
+  exists for and the case a region-only discovery would miss.
 
   **Two rules concluding one literal**, so a clashing membership can be *derived* and can
   hold two justifications at once.  That is what lets a standing pair's `:priority` move
@@ -120,6 +120,9 @@
     (v/assert kb '(disjoint animal plant)   (first ctxs) {:strength :monotonic})
     (v/assert kb '(functional ageOf)        (first ctxs) {:strength :monotonic})
     (v/assert kb '(asymmetric parentOf)     (first ctxs) {:strength :monotonic})
+    ;; `precedes` carries no mark here: the stream asserts `(antiTransitive precedes)`
+    ;; over chains already stored, which is the retroactive half of the one kind whose
+    ;; nogood has three members rather than two.
     (doseq [from '[pet canine]]
       (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list from '?x)] '(dog ?x)))
                 (first ctxs) {:strength :monotonic}))))
@@ -129,16 +132,20 @@
 (defn- rand-op
   "One write, drawn to hit every route a clash can arrive by: a membership that
   separates against another, a second value for a functional slot, a converse of an
-  asymmetric claim, a retraction that can revive a defeated loser, a premise whose rule
-  *derives* a clashing membership (and a second premise giving that conclusion a stronger
-  second route), and — the retroactive cases — a separation or a genl edge arriving after
-  the content it convicts."
+  asymmetric claim, a step of a chain an `antiTransitive` mark forbids closing, a
+  retraction that can revive a defeated loser, a premise whose rule *derives* a clashing
+  membership (and a second premise giving that conclusion a stronger second route), and —
+  the retroactive cases — a separation, a genl edge or the chain mark itself arriving
+  after the content it convicts."
   [^java.util.Random rng]
   (let [ctx  (nth ctxs (.nextInt rng (count ctxs)))
         ind  #(nth inds  (.nextInt rng (count inds)))
         typ  #(nth types (.nextInt rng (count types)))
-        str8 #(if (zero? (.nextInt rng 3)) {:strength :monotonic} {})]
-    (case (.nextInt rng 13)
+        str8 #(if (zero? (.nextInt rng 3)) {:strength :monotonic} {})
+        ;; a small pool for `precedes`, so random pairs close a two-step chain often
+        ;; enough for the three-member nogood to be drawn rather than hoped for
+        near #(nth inds (.nextInt rng 3))]
+    (case (.nextInt rng 15)
       (0 1 2) [:assert (list (typ) (ind)) ctx (str8)]
       (3 4)   [:assert (list 'ageOf (ind) (.nextInt rng 4)) ctx (str8)]
       (5 6)   [:assert (list 'parentOf (ind) (ind)) ctx (str8)]
@@ -146,7 +153,9 @@
       8       [:assert '(disjoint dog cat) (first ctxs) {:strength :monotonic}]
       9       [:assert '(genl snake animal) (first ctxs) {:strength :monotonic}]
       (10 11) [:assert (list (if (even? (.nextInt rng 2)) 'pet 'canine) (ind)) ctx (str8)]
-      12      [:retract (list (if (even? (.nextInt rng 2)) 'pet 'canine) (ind)) ctx])))
+      12      [:retract (list (if (even? (.nextInt rng 2)) 'pet 'canine) (ind)) ctx]
+      13      [:assert (list 'precedes (near) (near)) ctx (str8)]
+      14      [:assert '(antiTransitive precedes) (first ctxs) {:strength :monotonic}])))
 
 (defn- apply-op!
   "Run one op, reporting the refusal rather than propagating it — a refusal is an

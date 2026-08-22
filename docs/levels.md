@@ -241,7 +241,9 @@ Three things make that true:
   a query mutates no belief for a pin to hold still against.
 
   This matters most at the level where it is least affordable. Level 7 is unbounded — it
-  terminates on the data, not on a depth — so it is the level whose full answer set costs
+  terminates on the data, not on a depth, under the DFS's two guards (the per-path goal
+  key and the term-growth ceiling, [inference.md](inference.md), "Backward chaining") —
+  so it is the level whose full answer set costs
   the most, *and* the one `escalate` reaches last and the browser is most likely to be
   paging. A level 7 that realized everything before returning would make merely asking
   whether it answers cost the whole search.

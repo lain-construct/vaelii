@@ -290,6 +290,41 @@
     (throw (ex-info (str "unknown :match " (pr-str match) " — want :prefix, :substring, or :regex")
                     {:type :unknown-option :match match}))))
 
+(defn- smallest-n
+  "The first `n` of `(sort xs)`, without sorting `xs`: a bounded selection over one pass,
+  O(m log n) for m hits against the full sort's O(m log m).  What `find-terms` with a
+  `:limit` answers — the browser's search box asks for 201 of a vocabulary per keystroke,
+  and on an imported ontology the hits for one letter run to tens of thousands.
+
+  **Identical to the full sort and take, ties included.**  `sort` is stable, so among
+  elements `compare` cannot tell apart it keeps the earlier ones; each candidate here
+  carries its position and the order is `compare` then position, which is that same
+  total order.  A max-heap of the `n` best so far, a new hit displacing the worst only
+  when it is strictly better, then the kept `n` sorted under the same order.
+
+  The heap's **initial capacity is not `n`**: `PriorityQueue(int)` allocates that array
+  before an element is added, and `n` is a caller's `:limit` — the browser's paging
+  computes it from a URL offset — so sizing on it turns a request for a million-th page
+  into a million-element array over a KB holding one hit.  It grows from a small floor
+  instead, which costs a few doublings in the one case where the hits really do run to
+  `n` and nothing at all in the case the bound exists for."
+  [n xs]
+  (let [n     (long n)
+        order (fn [[a i] [b j]]
+                (let [c (compare a b)] (if (zero? c) (compare i j) c)))
+        heap  (java.util.PriorityQueue. (int (min (max 1 n) 1024))
+                                        ^java.util.Comparator (fn [x y] (order y x)))]
+    (loop [xs (seq xs), i 0]
+      (when xs
+        (let [e [(first xs) i]]
+          (if (< (.size heap) n)
+            (.add heap e)
+            (when (neg? (order e (.peek heap)))
+              (.poll heap)
+              (.add heap e))))
+        (recur (next xs) (inc i))))
+    (into [] (map first) (sort order (vec (.toArray heap))))))
+
 (defn find-terms
   "The vocabulary terms whose name matches `q`, sorted by name.  This is the search a
   term picker wants: it filters the **term roster**, so it costs the size of the
@@ -324,14 +359,28 @@
                             (pr-str n))
                        {:type :unknown-option :limit n}))))
    (let [match? (term-matcher q opts)
-         hits   (sort (filter #(match? (str %)) (p/terms (:index kb))))]
-     (vec (if-let [n (:limit opts)] (take n hits) hits)))))
+         hits   (filter #(match? (str %)) (p/terms (:index kb)))]
+     (if-let [n (:limit opts)]
+       (smallest-n n hits)
+       (vec (sort hits))))))
 
 ;; ---- secondary roots: extent + cardinality from the other directions ----
 ;; The trie is ordered [pred args… ctx] and narrows only left-to-right, so it can
 ;; count "predicate P" but not "context C" or "X in argument position 2".
 
-(defn- records-of [kb handles]
+(defn- records-of
+  "The records behind `handles`, **lazily**: the handle set is read now, each record is
+  fetched as the seq is walked, and a handle whose record has gone by then is skipped.
+
+  Lazy on purpose, and the three extent readers below hand this seq back as it is.  A
+  root on an imported ontology runs to a hundred thousand records (`comment` alone,
+  on OpenCyc), and the browser shows fifty of them a page: a reader that fetched every
+  record to answer `(take 50 …)` would turn each page into a full walk of the root.
+  The price is that the seq reads **live** state — hold it across a write and what it
+  yields is what is stored when it is walked, not when it was asked for.  A caller that
+  wants a snapshot takes one with `vec`, and the daemon's wire does so for every
+  remote reader (`serve`'s `wire-safe`)."
+  [kb handles]
   (->> handles (map #(p/get-sentex (:records kb) %)) (filter some?)))
 
 ;; ## Stored vs believed — read this before comparing an extent with a count
@@ -388,7 +437,12 @@
   defeated or unsupported one included.  Pass `{:believed? true}` to keep only what
   the JTMS currently believes; that costs a TMS lookup per handle (O(n)), unlike the
   unfiltered read.  An opts key this fn does not read is refused (`:unknown-option`),
-  so a misspelt filter never silently answers the stored extent."
+  so a misspelt filter never silently answers the stored extent.
+
+  **A lazy seq over live state**, as the other two extent readers are: the handles are
+  read now and each record is fetched as the seq is walked, so `(take 50 …)` costs fifty
+  fetches however large the context — and a seq held across a write yields what is
+  stored when it is walked.  `vec` it for a snapshot."
   ([kb context] (sentexes-in-context kb context nil))
   ([kb context opts]
    (check-extent-opts! opts "sentexes-in-context")
@@ -408,7 +462,8 @@
   "Every **stored** fact sentex whose functor is `pred`, any arity, either polarity —
   a defeated or unsupported one included.  Pass `{:believed? true}` to keep only what
   the JTMS believes (O(n) in the extent).  An opts key this fn does not read is
-  refused (`:unknown-option`)."
+  refused (`:unknown-option`).  A lazy seq over live state, as `sentexes-in-context`
+  is — `vec` it for a snapshot."
   ([kb pred] (sentexes-with-functor kb pred nil))
   ([kb pred opts]
    (check-extent-opts! opts "sentexes-with-functor")
@@ -426,7 +481,8 @@
   "Every **stored** fact sentex holding `term` at 1-based argument position `pos` —
   a defeated or unsupported one included.  Pass `{:believed? true}` to keep only what
   the JTMS believes (O(n) in the extent).  An opts key this fn does not read is
-  refused (`:unknown-option`)."
+  refused (`:unknown-option`).  A lazy seq over live state, as `sentexes-in-context`
+  is — `vec` it for a snapshot."
   ([kb pos term] (sentexes-with-arg kb pos term nil))
   ([kb pos term opts]
    (check-extent-opts! opts "sentexes-with-arg")
@@ -1359,13 +1415,23 @@
                 ;; between predicates brings stored sub-predicate facts under the
                 ;; declarations already written above them
                 down  (special/entail-under-edge kb sentence)
+                ;; ...and, when this sentence is a `defn*` collection definition, the
+                ;; forward rule(s) it expands into — derived rule sentexes justified by
+                ;; this fact, so retracting or defeating it withdraws the rule and
+                ;; everything it concluded (docs/defns.md).  A non-`defn*` sentence pays
+                ;; one functor read and returns the empty result.
+                dfn   (special/materialize-defn-rules kb sentence h context)
                 mig   (update mig :violations into
                               (concat (:violations lift) (:violations args)
-                                      (:violations back) (:violations down)))
+                                      (:violations back) (:violations down)
+                                      (:violations dfn)))
                 seeds (-> [h]
                           (into (:new mig))
                           (into (:new lift))
                           (into (:new down))
+                          ;; the companion rule goes on the agenda so it fires over the
+                          ;; facts already stored, the way a minted generator rule does
+                          (into (:new dfn))
                           ;; a minted type makes this fact matchable at a type it did
                           ;; not have, so it goes on the agenda for the same reason the
                           ;; genl seeds below do — a rule on `(animal ?x)` must fire off
@@ -1981,6 +2047,7 @@
     :disjoint              a type membership the taxonomy separates
     :functional            a second, irreconcilable value for a functional slot
     :asymmetric            the converse of a claim a declared-asymmetric relation made
+    :anti-transitive       the two-step chain an antiTransitive relation forbids closing
 
   plus `:unrecovered-kb`, which is about neither the request nor the knowledge but the
   KB: every write door refuses one whose belief was never built over the store it opened,
@@ -2005,9 +2072,9 @@
   **Arbitrable is narrower than clashing**, and that is the half to read twice.  A clash
   against **known-true** content is refused under either policy — admitting it would
   store what the KB can never believe — so `check` reports one there whatever
-  `:constraints` says.  `:asymmetric` reads the opposing class that way in *both*
-  policies and is not policy-dependent at all.  What holds throughout is the promise
-  this docstring opens with: `check` predicts what `assert` would do.
+  `:constraints` says.  `:asymmetric` and `:anti-transitive` read the opposing class that
+  way in *both* policies and are not policy-dependent at all.  What holds throughout is
+  the promise this docstring opens with: `check` predicts what `assert` would do.
 
   The stages run in `assert`'s order and stop at the first that finds anything, since
   each later one reads the KB assuming the earlier ones held.  A rule is checked the
@@ -2628,6 +2695,12 @@
   (`vaelii.impl.sentex/AtomicSentex` / `RuleSentex`) is an internal detail: do not `instance?`-
   test it or rely on it, only its keys.
 
+  **The seq is lazy, over live state.**  Matches are fetched as it is walked, which is
+  what lets a consumer bound an open pattern — `(take n (sentexes-matching kb '(?p T ?y)))`
+  fetches n records, not the term's whole neighbourhood — and it means a seq held
+  across a write yields what is stored when it is walked.  `vec` it for a snapshot;
+  the daemon's wire does so for every remote caller.
+
   A ground reifiable NAT in the goal is reified to its existing constant first (dedup,
   never mint), so it matches the stored atomic form; an unknown NAT matches nothing.
 
@@ -2899,6 +2972,40 @@
   strategy and drives the ordinary stream."
   nil)
 
+(def query-opt-keys
+  "Every key `query` / `query?` read — its own dial and the node engine's, which is where
+  the rest go (`inference/solutions`): `:max-depth`, `:proof?`, `:strategy`,
+  `:portfolio?`, `:auto?` and `:racers`.  A key off this set is refused
+  (`:unknown-option`) rather than handed on, for `assert-opt-keys`' reason: the node
+  engine reads what it knows and ignores the rest, so `{:max-deph 3}` or `{:proof true}`
+  would answer facts-only with nothing to say it had.  `:first-result?` is a **strategy**
+  key, not a query one — `{:strategy {:first-result? true}}` — as are the signs and
+  weights in `vaelii.impl.tactics/defaults`.  Public so a caller can ask whether a key is
+  real before being told by a refusal."
+  #{:max-depth :proof? :strategy :portfolio? :auto? :racers})
+
+(def search-tree-opt-keys
+  "Every key `search-tree` reads: the depth, the search ordering, and the two bounds only a
+  debugger read takes — the node-expansion budget and the wall clock.
+
+  **Not `query`'s roster plus those two**, though the two doors run the same search.  A
+  debugger read is a fixed mode of it: `search-tree` runs under `:proof? true` and reaches
+  the node engine's session directly, never the portfolio path, so `:proof?`, `:portfolio?`,
+  `:auto?` and `:racers` are keys it overwrites or never looks at.  Admitting one would
+  re-create at this door the failure the roster closes at `query`'s — `{:proof? false}`
+  accepted and the proof returned anyway.  Public for `query-opt-keys`' reason."
+  #{:max-depth :strategy :node-budget :max-ms})
+
+(def compare-tacticians-opt-keys
+  "Every key `compare-tacticians` reads: `search-tree`'s two bounds and the depth, plus
+  `:tacticians` — the subset of orderings to run.
+
+  **`:strategy` is not on it.**  This door sets the ordering per row, which is the whole
+  point of running several, so a caller's `:strategy` would be accepted and discarded —
+  the silent default the rosters exist to refuse.  Name the orderings with `:tacticians`
+  instead.  Public for `query-opt-keys`' reason."
+  #{:max-depth :tacticians :node-budget :max-ms})
+
 (defn- query-options
   "`*query-options*` as the node engine's opts map, with `max-depth` folded in."
   [max-depth]
@@ -2914,26 +3021,27 @@
 
   The two dynamic channels are the ones `*query-engine*` already documents for routing a
   `prove` to the node engine, so a caller who has bound a depth for one read does not
-  have to learn a second place to bind it for another."
-  [opts]
-  ;; A non-map `opts` and a non-positive `:max-depth` both read as "no depth", which is
-  ;; not an error condition but a *different question* — the no-rule-expansion answer,
-  ;; returned as if it were the bounded one the caller asked for.  `(query kb g c :oops)`
-  ;; and `{:max-depth -3}` both did that silently.  Refused for `assert`'s reason: an
-  ;; answer taken at a setting nobody chose is indistinguishable downstream from one
-  ;; taken at a setting somebody did.  The key *roster* stays open, since the docstring
-  ;; hands everything it does not name to the node engine.
-  (when (and (some? opts) (not (map? opts)))
-    ;; `:got` and not `:options`: every other door puts the *roster* under `:options`
-    ;; (`opts/check!`), and this one has no roster to put there — the docstring hands
-    ;; every key it does not name to the node engine — so naming the value that way
-    ;; hands a caller reading the roster the thing it was refused for.
-    (throw (ex-info (str "query options must be a map, got " (pr-str opts))
-                    {:type :unknown-option :got opts})))
+  have to learn a second place to bind it for another.
+
+  `opt-keys` is the calling door's roster and `door` its name — `query-opt-keys`,
+  `search-tree-opt-keys`, `compare-tacticians-opt-keys`.  Each door passes what it
+  actually reads rather than a superset: a roster wider than the door is a key accepted
+  and then overwritten, which is the silent default this check exists to refuse."
+  [opts opt-keys door]
+  ;; A non-map `opts`, a key nothing reads and a non-positive `:max-depth` all read as
+  ;; "no depth", which is not an error condition but a *different question* — the
+  ;; no-rule-expansion answer, returned as if it were the bounded one the caller asked
+  ;; for.  `(query kb g c :oops)`, `{:max-deph 3}` and `{:max-depth -3}` would each do
+  ;; that silently.  Refused for `assert`'s reason: an answer taken at a setting nobody
+  ;; chose is indistinguishable downstream from one taken at a setting somebody did.
+  (opts/check! opts opt-keys door
+               (str "An option nothing reads takes the default in silence, which here"
+                    " is a search at a setting nobody chose — a misspelt depth answers"
+                    " facts-only as though no rule could reach the goal."))
   (when (and (contains? opts :max-depth)
              (some? (:max-depth opts))
              (not (nat-int? (:max-depth opts))))
-    (throw (ex-info (str "query :max-depth must be a non-negative integer, got "
+    (throw (ex-info (str door " :max-depth must be a non-negative integer, got "
                          (pr-str (:max-depth opts))
                          " — 0 permits no rule expansion (facts only), a real answer a"
                          " caller may ask for by name; a negative or non-integer depth"
@@ -3063,8 +3171,12 @@
   there is no derivation to show.
 
   Everything else in `opts` is the node engine's, defaulting from `*query-options*` —
-  `:strategy` (`vaelii.impl.tactics`), `:portfolio?`, `:auto?`, `:first-result?` — and
-  is ignored where no depth sends the query there.
+  `:strategy` (`vaelii.impl.tactics`), `:portfolio?`, `:auto?`, `:racers` — and is
+  ignored where no depth sends the query there.  That is the whole roster
+  (`query-opt-keys`); a key off it is refused (`:unknown-option`) rather than handed on,
+  since the engine would ignore it and `{:max-deph 3}` would answer facts-only with
+  nothing to say so.  A non-map `opts` and a `:max-depth` that is not a natural number
+  are refused the same way.
 
   Two things this is not.  `prove` is the *unbounded* backward chainer: it terminates
   on the data rather than on a bound, so it answers a chain deeper than any depth you
@@ -3075,7 +3187,7 @@
   ([kb goal context opts]
    (check-shape! (conjunction-goal-problem goal))
    (let [[goal context] (ist-goal kb goal context)
-         d     (query-depth opts)
+         d     (query-depth opts query-opt-keys "query")
          goals (goal-conjunction (prepare-goal-for-read kb goal context))]
      (cond
        ;; a depth: the node engine, whose leaf is the registry — so an antecedent is
@@ -3260,8 +3372,11 @@
 
   Bounded so a large KB cannot turn one read into an unbounded search: the depth bound, a
   node-expansion budget (`:node-budget`, default `inference/default-node-budget`), and an
-  optional wall-clock `:max-ms` that reports `:timeout` rather than hanging.  Everything
-  else in `opts` is the node engine's, `query`'s `:strategy` included.
+  optional wall-clock `:max-ms` that reports `:timeout` rather than hanging.  With
+  `:max-depth` and `:strategy` those four are the whole roster (`search-tree-opt-keys`) —
+  a debugger read is a fixed mode of `query`'s search, so `query`'s remaining keys are ones
+  this door overwrites or never reads; a key off the roster is refused (`:unknown-option`),
+  as at `query`.
 
   Returns `{:goals :context :strategy :status :bounded? :answers :nodes :stats}`;
   `:status` is `:complete`, `:bounded` or `:timeout`, and each answer carries the `:node`
@@ -3271,7 +3386,7 @@
   ([kb goal context opts]
    (check-shape! (conjunction-goal-problem goal))
    (let [[goal context] (ist-goal kb goal context)
-         d     (query-depth opts)
+         d     (query-depth opts search-tree-opt-keys "search-tree")
          goals (goal-conjunction (prepare-goal-for-read kb goal context))]
      (inference/search-tree kb goals context
                             (merge (query-options nil) opts
@@ -3290,15 +3405,17 @@
   differ from the others is a bug the completeness sweep says cannot happen — surfaced,
   not swallowed.
 
-  `opts` is `search-tree`'s, plus `:tacticians` — the subset to run
-  (`inference/default-compare-tacticians` otherwise).  Needs a depth for the same reason
-  `search-tree` does, and is bounded the same three ways; `:status` and `:ms` are per row."
+  `opts` is `compare-tacticians-opt-keys`: `search-tree`'s two bounds and its depth, plus
+  `:tacticians` — the subset to run (`inference/default-compare-tacticians` otherwise) —
+  and **not** `:strategy`, which this door sets per row and would otherwise accept and
+  discard.  Needs a depth for the same reason `search-tree` does, and is bounded the same
+  three ways; `:status` and `:ms` are per row."
   ([kb goal] (compare-tacticians kb goal '?ctx nil))
   ([kb goal context] (compare-tacticians kb goal context nil))
   ([kb goal context opts]
    (check-shape! (conjunction-goal-problem goal))
    (let [[goal context] (ist-goal kb goal context)
-         d     (query-depth opts)
+         d     (query-depth opts compare-tacticians-opt-keys "compare-tacticians")
          goals (goal-conjunction (prepare-goal-for-read kb goal context))]
      (inference/compare-tacticians kb goals context
                                    (merge (query-options nil) opts
@@ -3310,6 +3427,28 @@
   "Register an additional prover (implementing vaelii.impl.provers/Prover) on `kb`."
   [kb prover]
   (swap! (:provers kb) conj prover) kb)
+
+(defn add-evaluatable
+  "Register a plain Clojure fn `f` as the evaluatable predicate/function `pred` on `kb` —
+  the one-liner for a *computed* relation, so a caller wanting one need not hand-write a
+  five-method `provers/Prover`.  Two shapes, chosen by `opts`:
+
+  * a **check** predicate — `(add-evaluatable kb 'evenSum (fn [a b] (even? (+ a b))))`
+    makes `(evenSum 2 4)` hold and `(evenSum 1 2)` fail; every argument must be ground;
+  * a **result-binding** function — `(add-evaluatable kb 'sumOf + {:result :first})`
+    binds `(sumOf ?r 2 3)` to `?r = 5`; the output slot `:result` names may be a variable
+    to bind or a value to check, and the rest are the ground inputs `f` receives.
+
+  `opts` (a map, or nil) is `provers/evaluatable`'s — `:result`, `:arity`, `:cost` and
+  `:completeness`, whose defaults (`:lookup`, 100) suit a purely computed relation.  The
+  fn is a real fn value the caller supplies, so this evaluates no KB data through
+  `clojure.core/eval`.  Composes with `add-prover` and returns `kb`; the wrapped fn then
+  answers a direct `ask` / `query` goal and — the node engine's leaf being the registry —
+  discharges a conjunct or rule antecedent inside a `query` with a `:max-depth`, where it
+  reads as a `:leaf` of the derivation.  The DFS `prove` (leaf: stored facts) and forward
+  materialization do not reach it (docs/inference.md)."
+  ([kb pred f] (add-evaluatable kb pred f nil))
+  ([kb pred f opts] (add-prover kb (provers/evaluatable pred f opts))))
 
 (defn register-modal-predicate!
   "Grant `pred` belief-style projection: after this, `(pred agent sentence)` is answered
@@ -3577,13 +3716,13 @@
    (let [[goal context] (ist-goal kb goal context)
          goals (goal-conjunction (prepare-goal-for-read kb goal context))]
      (if (inference-engine? (:max-depth budget))
-       ;; the node engine's continuation *is* the unrealized tail of its result
-       ;; stream, and the frontier behind it is a value the session holds — so a
-       ;; bounded run needs nothing this engine does not already have
-       (budget/collect (inference/search-seq
-                        (inference/session kb goals context
-                                           (query-options (:max-depth budget))))
-                       budget)
+       ;; the node engine's continuation is the session itself — the frontier behind
+       ;; it is a value the session holds — and the bounds are checked per node
+       ;; expansion rather than per yielded solution (`inference/search-within`), so
+       ;; a wide unproductive stretch cannot run past the deadline
+       (inference/search-within (inference/session kb goals context
+                                                   (query-options (:max-depth budget)))
+                                budget)
        (run-prove-step kb context budget
                        (res/initial-prove-stack kb goals context))))))
 
@@ -3695,13 +3834,18 @@
   the engine represents it and hands the ranking to the application.
 
   Each entry is
-  `{:nogood #{h1 h2} :handles [h1 h2] :priority int :kind kw-or-nil
+  `{:nogood #{h ..} :handles [h ..] :priority int :kind kw-or-nil
     :sentence (contradicts ..)
     :sides [{:handle :sentence :context :defeat-class :justifications [...]} ...]}`,
-  carrying both handles and both sides' justifications — the material an argument is
-  made from.  `:kind` names the constraint a definitional clash violated
-  (`:disjoint` / `:functional` / `:asymmetric`) and is nil for a rebuttal;
-  `:priority` ranks a definitional clash (3–4) above a rebuttal (1–2).
+  carrying every member's handle and every side's justifications — the material an
+  argument is made from.  `:kind` names the constraint a definitional clash violated
+  (`:disjoint` / `:functional` / `:asymmetric` / `:anti-transitive`) and is nil for a
+  rebuttal; `:priority` ranks a definitional clash (3–4) above a rebuttal (1–2).
+
+  **Two members is the common case, not the contract.**  A rebuttal and the pairwise
+  constraints name two sides; an `antiTransitive` chain names **three** — the two steps
+  and the direct step, which cannot all hold (docs/nmtms.md) — so a reader that
+  destructures `:handles` as a pair is reading a coincidence.
 
   A dilemma is what *rebutting* defeat leaves behind.  **Undercutting** — \"this rule
   does not apply here\" — is written as an `exceptWhen` on the rule, which blocks
@@ -3842,6 +3986,7 @@
   | `:arity` | a conclusion whose length disagrees with the arity the predicate declares or inherits | the check's problem map |
   | `:disjoint` | a membership putting a term in two types declared disjoint | the check's problem map |
   | `:functional` / `:asymmetric` | a second filler for a functional slot, or both directions of an asymmetric predicate | the check's problem map |
+  | `:anti-transitive` | the direct step beside a two-step chain of an `antiTransitive` predicate — the one kind naming **two** other sentexes (`:opposing-handles`), so the nogood `settle` weighs is a triple | the check's problem map |
   | `:irreflexive` | a self tuple `(P a a)` of a predicate declared `irreflexive` — a lone tuple with no pair to weigh, so it refuses rather than arbitrates | the check's problem map |
   | `:anti-symmetric` | both directions of an `antiSymmetric` predicate whose two arguments no equality could merge (two numbers, a compound) — the mergeable case derives `(equals a b)` instead | the check's problem map |
   | `:not-stratified` | a derived `genl` / `genlCx` edge would put a cycle through negation in the rule set, or a minted generator would feed one | `:cycle` `:message` |
@@ -4323,13 +4468,61 @@
             {:added added :removed (dissoc removed :seeds)}))))))
 
 (defn in?
-  "Is the sentex handle currently believed (JTMS IN)?"
+  "Is the sentex handle raw structural JTMS IN, before contextual exceptions?
+
+  When this answers true but a contextual read cannot see the sentex, call
+  `belief-status` to inspect the exception and assertion-context inheritance gates."
   [kb handle]
   (jtms/in? (:tms kb) (the-handle handle "in?")))
 
+(defn believed?
+  "Is `handle` JTMS IN after the `(except ...)` cascade visible from `context`?
+
+  This is contextual belief force only.  It deliberately does not require `context`
+  to inherit the sentex's assertion context; `belief-status` reports that final
+  visibility gate separately.  nil and unknown handles answer false; a non-handle is
+  refused with `:bad-handle`, exactly as `in?`."
+  [kb handle context]
+  (let [h (the-handle handle "believed?")]
+    (boolean (and (jtms/in? (:tms kb) h)
+                  (not (res/excepted? kb h context))))))
+
+(defn belief-status
+  "Explain `handle`'s belief and visibility from `context` as a deterministic map.
+
+  Separates storage, raw JTMS IN, context-visible exception force, assertion-context
+  inheritance, and the two terminal answers `:believed?` / `:visible?`.  `:exceptions`
+  is ordered by assertion context and content; nested meta-exceptions are under
+  `:excepted-by`.
+  nil and unknown handles report absent storage and raw belief; a dangling exception
+  may still appear in `:exceptions` / `:excepted?`. Malformed handles are refused with
+  `:bad-handle`."
+  [kb handle context]
+  (let [h       (the-handle handle "belief-status")
+        stored  (when-some [h h] (p/get-sentex (:records kb) h))
+        raw-in? (boolean (jtms/in? (:tms kb) h))
+        {:keys [exceptions excepted?]} (res/exception-status kb h context)
+        believed? (boolean (and raw-in? (not excepted?)))
+        assertion-context (:context stored)
+        path (when stored
+               (some->> (tax/reach-support (:taxonomy kb) :genlCx
+                                           context assertion-context context)
+                        (mapv (fn [[supporter-h supporter-context]]
+                                {:handle supporter-h :context supporter-context}))))]
+    {:handle h
+     :view-context context
+     :stored? (boolean stored)
+     :in? raw-in?
+     :assertion-context assertion-context
+     :exceptions exceptions
+     :excepted? excepted?
+     :inherited-path path
+     :believed? believed?
+     :visible? (boolean (and believed? (some? path)))}))
+
 (defn believed
-  "The subset of `handles` currently believed, as a set — `in?` asked of many handles
-  at once.  Belief is a label already computed on the JTMS node, so this is one map
+  "The subset of `handles` raw structural JTMS IN, as a set — `in?` asked of many
+  handles at once.  IN is a label already computed on the JTMS node, so this is one map
   read per handle either way; what the batch form saves is the **call**, which for a
   remote client (`vaelii.impl.serve`) is a whole round-trip.  A page listing n rows
   asks once instead of n times.
@@ -5590,6 +5783,15 @@
       ;; a fork would answer its base's excepts off a roster of its own that nothing filled.
       ;; Before the settle for the same reason too — `justification-excepted?` reads it.
       (kb/rebuild-excepted! kb)
+      ;; ...and the two rule rosters, third of the same kind: nothing above replays rule
+      ;; *indexing*, which is where they are bumped, so a KB that did not build them as
+      ;; the rules arrived has none.  Before the settle, which reads them for the
+      ;; visibility seeds.
+      (kb/rebuild-rule-roster! kb)
+      ;; The first cache reconcile ran before the visibility roster existed, so it
+      ;; could narrow only against JTMS belief. Re-run through the common transition
+      ;; boundary now that recovery can also answer which declarations are excepted.
+      (special/reconcile-belief-change! kb)
       ;; ...and the settle that finishes the rebuild is told it *is* one, so the exposure
       ;; pass stays out of it: what it reports is what a change newly made jointly visible,
       ;; and a restore changes nothing (`settle/*rebuilding?*`).  On the certified fast path
@@ -5848,11 +6050,21 @@
   callers who want rules to fire MUST pass `{:max-depth N}` explicitly — a silent
   default depth would turn a derivable fact into a false `:unknown`.
 
+  `opts` is `query`'s roster (`query-opt-keys`) and a key off it is refused
+  (`:unknown-option`), checked **here** rather than downstream: the branch below reaches
+  `query` only when `:max-depth` is present, so a misspelt depth that never reached the
+  roster would take the `ask` arm and answer the very false `:unknown` the paragraph
+  above says must not happen.
+
   When both sides are provable the verdict is `:contradiction` unless the argumentation
   stub resolves it: a `:monotonic` justification wins over a `:default` one (the engine
   itself leaves both standing — paraconsistent tolerance, docs/nmtms.md)."
   ([kb asent context] (argue kb asent context nil))
   ([kb asent context opts]
+   (opts/check! opts query-opt-keys "argue"
+                (str "An option nothing reads takes the default in silence, which here is"
+                     " the no-rule-expansion read — a misspelt depth answers :unknown for"
+                     " a sentence a rule derives."))
    (let [neg       (list 'not asent)
          for-r     (argue-results kb asent context opts)
          against-r (argue-results kb neg context opts)

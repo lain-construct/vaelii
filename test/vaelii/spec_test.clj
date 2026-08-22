@@ -20,6 +20,7 @@
             [clojure.spec.test.alpha :as stest]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.impl.core-context :as core-context]
             [vaelii.impl.spec :as vspec]
             [vaelii.test-util :as tu]))
 
@@ -84,8 +85,9 @@
         gap     (into (sorted-set)
                       (comp (filter (comp opts? val)) (map key) (remove specced))
                       (ns-publics 'vaelii.core))]
-    (is (= '#{abduce argue assert-many bulk-assert-facts! check clear-caches compare-tacticians
-              edit-with-consequences! export! fork import! kb-quality preview search-tree}
+    (is (= '#{abduce add-evaluatable argue assert-many bulk-assert-facts! check clear-caches
+              compare-tacticians edit-with-consequences! export! fork import! kb-quality preview
+              search-tree}
            gap)
         "the opts-taking publics `public-syms` does not reach — named in its docstring")))
 
@@ -178,6 +180,28 @@
            (is (map? (v/why-not kb h)))
            (is (map? (v/why-not kb (list dog Rex) CxSpec)))
            (v/contexts-of kb (list dog Muffet))))))))
+
+(deftest a-context-denoting-application-is-a-context-at-the-boundary
+  ;; `assert`'s own shape check admits a ground application of a declared
+  ;; `contextDenotingFunction` and reifies it to its `cx/` constant (docs/context-nat.md),
+  ;; and the reads that take a context take the same form.  A `::context` narrower than
+  ;; that door refuses under `instrument` a write the engine accepts without it — so an
+  ;; instrumented caller could not store into a time-indexed context at all.
+  (tu/with-neutral-kb [kb #(doto (tu/fresh) core-context/load-into)]
+    (tu/with-terms [likes Tom Ann]
+      (let [cxfn (symbol (str "CxTmpSpec" (System/nanoTime) "Fn"))
+            expr (list cxfn 'CxMonad (list 'DatetimeFn "2000"))]
+        (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+        (v/assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+        (instrumented
+         (testing "the write door takes the application where it takes a symbol"
+           (is (nat-int? (v/assert kb (list likes Tom Ann) expr))))
+         (testing "and so do the reads that take a context"
+           (is (= [{'?x Ann}] (vec (v/ask kb (list likes Tom '?x) expr))))
+           (is (nat-int? (v/handle-of kb (list likes Tom Ann) expr))))
+         (testing "while a string is still no context, at the boundary as at the door"
+           (is (= :instrument (rejection #(v/assert kb (list likes Tom Ann) "CxSpec"))))
+           (is (= :instrument (rejection #(v/ask kb (list likes Tom '?x) "CxSpec"))))))))))
 
 ;; ---- the guard instrumentation hides ------------------------------------
 

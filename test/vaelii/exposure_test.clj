@@ -1175,13 +1175,19 @@
     (for [x xs, tail (orderings (remove #{x} xs))]
       (into [x] tail))))
 
-(deftest the-declaration-arriving-last-is-the-one-order-this-policy-leaves-alone
-  ;; **An absence, stated as a test rather than only in a docstring.**  Under `:refuse`
-  ;; the deciding sweep does not run (`settle/clash-candidates` gates it on
-  ;; `checks/arbitrating?`), so a `(functional P)` declaration landing after the facts it
-  ;; convicts reaches nothing — exactly as the door refuses an identical fact written one
-  ;; line later and says nothing about the one written before it.  Every *other* order of
-  ;; the mark, the edge that carries it down and the two claims is reported.
+(deftest every-arrival-order-of-a-cross-context-clash-reports-it-once
+  ;; **All three ingredients are triggers, so all six orders report.**  A pair split
+  ;; across a visibility edge needs the mark, the `genl` edge that carries it down to the
+  ;; predicate the facts are written under, and the two claims themselves — and whichever
+  ;; of the three lands last is what the pass has to reach back from.  The mark's own
+  ;; sentence is a trigger for exactly that reason: the two facts it convicts move nothing
+  ;; when it arrives, so a pass reading only the region would report this in five orders
+  ;; out of six and let the mark decide the sixth.
+  ;;
+  ;; **Once**, not once per member and not once per route.  Both facts and the edge can
+  ;; be reached in one settle, and the entry is keyed on the handle set to collapse them
+  ;; (`settle/constraint-exposure-entries`), so a count above one is a report that depends
+  ;; on how the clash was found rather than on what it is.
   (tu/with-terms [CxA CxB CxW birthYear measureOf Tom]
     (doseq [order (orderings [:declaration :edge :facts])]
       (tu/with-cleared-kb [k tu/fresh]
@@ -1194,10 +1200,8 @@
                     :facts       #(do (v/assert k (list birthYear Tom 1970) CxA)
                                       (v/assert k (list birthYear Tom 1980) CxB))}]
           (doseq [s order] ((step s)))
-          (let [n (count (filter (comp #{:functional} :violation) (v/violations k)))]
-            (if (= :declaration (last order))
-              (is (zero? n) (str "the declared absence, under " (pr-str order)))
-              (is (= 1 n) (str "reported under " (pr-str order))))))))))
+          (is (= 1 (count (filter (comp #{:functional} :violation) (v/violations k))))
+              (str "reported once under " (pr-str order))))))))
 
 ;;; ── every bounded pass owes a test of what fires its notice ───────────
 ;;

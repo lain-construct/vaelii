@@ -37,8 +37,26 @@
   the *reverse* map is an atom holding a vector, so a decode — which runs on every fetch,
   under a different lock — reads it without one and still sees a safely published entry."
   (:require [vaelii.impl.disk.files :as f]
-            [vaelii.impl.sentex :as sx])
-  (:import [java.util HashMap]))
+            [vaelii.impl.sentex :as sx]
+            vaelii.impl.tokens)
+  (:import [java.util HashMap]
+           [vaelii.impl.tokens Key]))
+
+;; The forward map is keyed on `tokens/Key`, the same wrapper the in-RAM `TokenDict`
+;; keys on, so the two dictionaries agree on what one token is: `hasheq`/`equiv`, under
+;; which `2` and `(int 2)` are one entry, where a bare `HashMap` on the token reads them
+;; as two.  The record codec only ever interns symbols and keywords, which either keying
+;; reads alike; the index snapshot (`vaelii.impl.disk.index-snapshot`) interns every trie
+;; token through this same log — numbers and whole compound terms included — and a
+;; second durable id for an integral pair leaves the reloaded dictionary one entry short
+;; of the log, the `:torn-snapshot` mismatch, on every later open.
+;;
+;; A log **already holding** such a pair is a different question from writing another
+;; one, and it is `duplicate-count` / `repair-duplicates!` below that answer it: the
+;; forward map is what collapses the pair, so the two counts differ by exactly the number
+;; of frames the log holds twice, and a rewrite is what makes the dictionary reloadable
+;; again.  Which caller may rewrite is not this namespace's call — an id is cited by
+;; whatever cited it — so the repair is offered and never taken here.
 
 (defrecord TokenLog [log path fwd rev lock])
 
@@ -63,7 +81,7 @@
       ;; restart, when the token came from a canonicalized sentence
       (f/scan-log log (fn [_ tok]
                         (let [tok (sx/intern-sym tok)]
-                          (.put fwd tok (Integer/valueOf (count @rev)))
+                          (.put fwd (Key. tok) (Integer/valueOf (count @rev)))
                           (vswap! rev conj! tok))))
       (->TokenLog log path fwd (atom (persistent! @rev)) (Object.))
       (catch Throwable t
@@ -74,11 +92,11 @@
   "The id for `tok`, allocating (and durably recording) a fresh one if it is new."
   ^long [{:keys [^HashMap fwd rev lock log]} tok]
   (locking lock
-    (if-let [id (.get fwd tok)]
+    (if-let [id (.get fwd (Key. tok))]
       (long id)
       (let [id (count @rev)]
         (f/append-record! log tok)    ; written before the frame that cites it; `fsynh!` orders the fsyncs
-        (.put fwd tok (Integer/valueOf id))
+        (.put fwd (Key. tok) (Integer/valueOf id))
         (swap! rev conj tok)
         (long id)))))
 
@@ -94,6 +112,52 @@
                       {:type :damaged-dictionary :id id :dictionary-size (count v)})))))
 
 (defn token-count ^long [{:keys [rev]}] (count @rev))
+
+(defn duplicate-count
+  "How many of the log's frames hold a token some earlier frame already holds — Java-unequal
+  but Clojure-equal, an integral pair such as `2` and `(int 2)`.
+
+  Zero for a log this build wrote: `intern!` looks the token up under `Key`, so the pair
+  never gets a second frame.  A log written before the forward map was keyed that way can
+  hold one, and the arithmetic is exact rather than a scan — the reverse vector is one
+  entry per frame and the forward map one per *distinct* token, so their difference is
+  the number of frames that collapse.
+
+  It is the difference between a dictionary that reloads whole and one that does not, and
+  so between an index snapshot that maps and one that is rebuilt on every open forever:
+  `index-snapshot/load-dictionary!` re-interns the log in id order, and a collapsing pair
+  shifts every id after it — which is what the mapped edges cite."
+  ^long [{:keys [^HashMap fwd rev]}]
+  (- (count @rev) (.size fwd)))
+
+(defn repair-duplicates!
+  "Rewrite the log with each Clojure-equal token once, keeping first-encounter order, and
+  return the new entry count.  A no-op returning the current count when there is nothing
+  to repair.
+
+  **The ids move**, which is the whole reason this is a separate call rather than
+  something `open-token-log` does for itself.  Every id past the first duplicate shifts
+  down, so this is only ever legal for a caller whose citations are derived state it is
+  about to rebuild — the index snapshot's dictionary, whose ids are cited by the mapped
+  trie edges and nothing else, and only once that image is already condemned.  The record
+  store's log is the opposite case: its ids are cited by every frame it holds, and there
+  is no pair to repair in it anyway (only symbols and keywords are interned there, and
+  those are Java-equal exactly when they are Clojure-equal).
+
+  Durable before it returns, because the caller's next act is to trust the new numbering."
+  ^long [{:keys [^HashMap fwd rev lock log]}]
+  (locking lock
+    (let [kept (vec (distinct @rev))]                ; `distinct` is Clojure equality — the pair collapses
+      (when (< (count kept) (count @rev))
+        (f/truncate! log)
+        (.clear fwd)
+        (dotimes [i (count kept)]
+          (let [tok (nth kept i)]
+            (f/append-record! log tok)
+            (.put fwd (Key. tok) (Integer/valueOf i))))
+        (reset! rev kept)
+        (f/force! log true))
+      (count kept))))
 
 (defn clear!
   "Empty the dictionary and its log — only for a whole-store wipe, since it invalidates

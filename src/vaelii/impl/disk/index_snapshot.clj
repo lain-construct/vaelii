@@ -540,17 +540,42 @@
   `load-trie!` copies the node and edge skeletons into heap, both named in the header for
   what they are.
 
-  The two dictionaries do not agree on equality, and this is where that would show.  The
-  durable log keys a bare `HashMap` on the token, so two entries are one when
-  `.equals` says so; the in-RAM one keys `tokens/Key`, which defers to `hasheq`/`equiv`
-  and therefore reads `2` and `(int 2)` as one token where the log reads two.  The log
-  only ever holds symbols and keywords, which the two agree about — so the counts match,
-  and the **check is what makes that a fact rather than an assumption**.  A mismatch means
-  the id order has shifted and every mapped edge cites the wrong entry, silently, so it
-  throws into `load!`'s catch and the index is rebuilt from the records instead."
+  The two dictionaries must agree on equality, and this is where a disagreement would
+  show.  Both key `tokens/Key`, which defers to `hasheq`/`equiv`, so `2` and `(int 2)`
+  are one token in each — and the log holds numbers and whole compound terms as well as
+  symbols, since every trie token is interned through it.  The count check is what makes
+  the agreement a fact rather than an assumption: a mismatch means the id order has
+  shifted and every mapped edge cites the wrong entry, silently, so it throws into
+  `load!`'s catch and the index is rebuilt from the records instead.
+
+  **A log that already holds such a pair is repaired here rather than diagnosed forever.**
+  Written by a build whose forward map keyed on Java equality, it holds `2` and `(int 2)`
+  as two frames; every reload collapses them, every open reads the mismatch, and the
+  rebuilt index is snapshotted against the same unrepairable log — so the next open pays
+  for it again, and the one after that. `repair-duplicates!` rewrites the log without the
+  pair, which moves every id past it: legal exactly here, because this log's ids are cited
+  by the mapped edges and nothing else, and the commit marker is dropped **first** so a
+  crash between the two leaves no image describing a numbering the log no longer uses.
+  The throw then names the cause and says the repair happened, where `:torn-snapshot`
+  named the wrong one."
   [dict ^String root]
   (let [tl (dtok/open-token-log root)]
     (try
+      (let [dups (dtok/duplicate-count tl)]
+        (when (pos? dups)
+          (.delete (File. (meta-path root)))
+          (let [kept (dtok/repair-duplicates! tl)]
+            (throw (ex-info (str "the durable token dictionary at " root " holds " dups
+                                 " token(s) an older build wrote twice — Java-unequal but"
+                                 " Clojure-equal, an integral pair such as 2 and (int 2)"
+                                 " — so it reloads one entry short of the log per"
+                                 " duplicate and every id past the first has shifted."
+                                 " The log has been rewritten without them (" kept
+                                 " entries) and the index is being rebuilt from the"
+                                 " records, which are untouched; nothing is owed, and the"
+                                 " next open maps its image again")
+                            {:type :duplicate-tokens :path root
+                             :duplicates dups :entries kept})))))
       (tok/clear-tokens! dict)
       ;; interned on the way in, shape preserved.  A token is often a whole compound
       ;; term — the term index is keyed by one per record — so a dictionary rebuilt
@@ -592,10 +617,15 @@
 (defn load!
   "Map `dir/index` into `store`, or say why it cannot be.  Returns `{:index :mapped …}` or
   `{:index :rebuild :reason r}` with `r` one of `:absent` `:layout-changed` `:byte-order`
-  `:unsupported-platform` `:records-differ` `:entries-truncated` `:unreadable`.
+  `:unsupported-platform` `:records-differ` `:entries-truncated` `:duplicate-tokens`
+  `:unreadable`.
 
   The caller reindexes on any `:rebuild` — which is always legal, because the index is
-  derived state and this is a cache of it."
+  derived state and this is a cache of it.
+
+  `:duplicate-tokens` is the one rebuild that also **repairs** as it declines
+  (`load-dictionary!`), and so the one a reader should not expect twice over one
+  directory."
   [dir store stamp-fn]
   (let [root (snapshot-root dir)
         m    (f/read-nippy-file (meta-path root) nil)]
@@ -618,11 +648,14 @@
                                         root ms (long (:tokens m)) (long (:nodes (:trie m))))})
               {:index :mapped :ms ms :trie (:trie m) :roots (:roots m)}))
           (catch Throwable t
-            (trove/log! {:level :warn :id ::unreadable
-                         :msg (str "the index snapshot at " root " did not read ("
-                                   (.getMessage t) ") — rebuilding from the records")})
-            (p/clear-index! store)
-            {:index :rebuild :reason :unreadable}))))))
+            ;; a cause this open could do something about names itself, so the operator
+            ;; reads what happened rather than "did not read" a third time
+            (let [why (if (= :duplicate-tokens (:type (ex-data t))) :duplicate-tokens :unreadable)]
+              (trove/log! {:level :warn :id ::unreadable
+                           :msg (str "the index snapshot at " root " did not read ("
+                                     (.getMessage t) ") — rebuilding from the records")})
+              (p/clear-index! store)
+              {:index :rebuild :reason why})))))))
 
 (defn discard!
   "Delete a snapshot's commit marker — what a caller does when it knows the image is dead

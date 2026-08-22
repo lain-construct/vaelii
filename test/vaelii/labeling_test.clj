@@ -285,6 +285,32 @@
         (testing "and the program's assumptions are the dilemma's two sides"
           (is (= 2 (count (:assumptions program)))))))))
 
+(deftest a-labeling-whose-solve-did-not-finish-is-refused-not-committed
+  ;; The classification solve and the labeling solve are two solves, so a budget that
+  ;; runs out between them leaves one answered and the other not.  Degrading the
+  ;; unanswered half to the stub would commit a world the classification beside it
+  ;; contradicts, and `check-agrees` would report it as `:labeling-inconsistent` —
+  ;; blaming the encoding for a disagreement the fallback introduced.  The imperative
+  ;; refuses instead, and refuses *before* writing anything.
+  (when asp?
+    (tu/with-neutral-kb [kb tu/fresh]
+      (let [d   (dilemma kb)
+            ctx (tu/tmp-ctx "Labeling")
+            real solver/solve
+            e (with-redefs [solver/solve (fn [aspif mode]
+                                           (if (= mode :label)
+                                             {:status :interrupted :atoms [] :cost nil :raw nil}
+                                             (real aspif mode)))]
+                (is (thrown? clojure.lang.ExceptionInfo
+                             (v/assert kb (list 'do/labeling ctx) 'CxUniverse))))]
+        (testing "and it names the solver, not the encoding"
+          (is (= :solver-failed (:type (ex-data e))))
+          (is (= :interrupted (:status (ex-data e)))))
+        (testing "nothing was committed: the dilemma still stands, both sides believed"
+          (is (= {:positive true :negative true :reported 1} (belief-snapshot kb d))))
+        (testing "and no labeling context was minted"
+          (is (empty? (v/sentexes-in-context kb ctx))))))))
+
 ;; ---- 5. determinism -----------------------------------------------------
 
 (deftest the-labeled-side-does-not-depend-on-assertion-order

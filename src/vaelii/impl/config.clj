@@ -294,6 +294,21 @@
   []
   (prop-long "VAELII_CLINGO_MAX_BYTES" 3000 0 nil))
 
+(defn asp-time-limit
+  "The seconds **one ASP solve** may run before the backend is interrupted
+  (`VAELII_ASP_TIME_LIMIT`, default 60; 0 lifts the limit).  Both backends honour it —
+  clasp through `--time-limit`, in-process clingo by cancelling the solve handle — and
+  an interrupted solve reports `:interrupted`, which no consumer reads as an answer
+  (`asp.edge`): the edge solver decides nothing and an imperative refuses.
+
+  A solve runs on the single writer, so an unbounded one holds every write behind it —
+  but an **operation** makes as many solves as it needs, each with the whole budget: two
+  for a classification, three for `do/labeling`, one per defeat round for a settle.
+  docs/asp.md tabulates the multipliers, and a test pins the counts so the table cannot
+  drift from them."
+  []
+  (prop-long "VAELII_ASP_TIME_LIMIT" 60 0 nil))
+
 (def log-level-spellings
   "What `VAELII_LOG_LEVEL` reads, one spelling per level the dial takes.  A def rather
   than a literal inside the reader so that the environment and
@@ -338,4 +353,5 @@
   (log-level)
   (asp-solver)
   (clingo-max-program-bytes)
+  (asp-time-limit)
   nil)

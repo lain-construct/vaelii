@@ -172,22 +172,75 @@
 
 (defn- thaw-bytes [^bytes bs] (nippy/thaw bs))
 
-(defn append-record!
-  "Append a nippy-serialized value to the log; return the byte offset of the `[len]`
-  prefix.  The length prefix + payload are packed into one buffer and written with a
-  single `.write` (a per-record append is the hot path; four one-byte `writeInt`
-  syscalls would dominate).  Caller must hold the log's write lock."
-  ^long [^RandomAccessFile log-raf value]
-  (let [bs  (freeze-bytes value)
-        n   (alength bs)
-        off (.length log-raf)
+(defn- write-fully-at!
+  "Write every remaining byte of `bb` to `ch` at file position `pos` — positional, so
+  the RAF's shared file pointer is neither used nor moved, and looped because a channel
+  write may be short."
+  [^FileChannel ch ^java.nio.ByteBuffer bb ^long pos]
+  (loop [p pos]
+    (when (.hasRemaining bb)
+      (recur (+ p (long (.write ch bb p)))))))
+
+(defn- append-bytes!
+  "Append `buf` — one or more complete frames, already packed — at the log's end and
+  return the offset it landed at.  **All or nothing.**  A write that fails partway
+  (`ENOSPC`, an I/O error) would otherwise leave a frame whose length prefix claims more
+  bytes than follow it, with the session appending past it: the next dirty open's
+  length-chain walk (`log-tail-offset`) would then step from that prefix into the
+  middle of a later frame, read garbage as a length, stop, and truncate everything
+  after — records fsynced by later ticks included.  So the log is set back to its
+  pre-write length before the failure travels, and what it holds is frames the walk
+  can step over, or nothing new.  Two syscalls on the hot path: the length and the
+  one positional write.  Caller must hold the log's write lock."
+  ^long [^RandomAccessFile log-raf ^bytes buf]
+  (let [off (.length log-raf)]
+    (try
+      (write-fully-at! (.getChannel log-raf) (java.nio.ByteBuffer/wrap buf) off)
+      (catch Throwable t
+        (try (.setLength log-raf off)
+             (catch Throwable rollback (.addSuppressed t rollback)))
+        (throw t)))
+    off))
+
+(defn- frame-bytes
+  "One frame — `[len: i32][payload]` — as a byte array."
+  ^bytes [^bytes payload]
+  (let [n   (alength payload)
         buf (byte-array (+ 4 n))
         bb  (java.nio.ByteBuffer/wrap buf)]
     (.putInt bb n)
-    (.put bb bs)
-    (.seek log-raf off)
-    (.write log-raf buf)
-    off))
+    (.put bb payload)
+    buf))
+
+(defn append-record-sized!
+  "Append a nippy-serialized value to the log as one frame; return `[offset
+  payload-length]` — the byte offset of the `[len]` prefix, and how many payload bytes
+  follow it, which is what an idx slot records (`write-slot!`), so the caller needs no
+  second length read to learn it.  All-or-nothing (`append-bytes!`).  Caller must hold
+  the log's write lock."
+  [^RandomAccessFile log-raf value]
+  (let [bs (freeze-bytes value)]
+    [(append-bytes! log-raf (frame-bytes bs)) (alength bs)]))
+
+(defn append-record!
+  "Append a nippy-serialized value to the log; return the byte offset of the `[len]`
+  prefix.  `append-record-sized!` for a caller that also wants the payload length."
+  ^long [^RandomAccessFile log-raf value]
+  (append-bytes! log-raf (frame-bytes (freeze-bytes value))))
+
+(defn append-records!
+  "Append every value in `values` to the log, each its own frame, **as one write**:
+  the frames are packed into a single buffer and land together or not at all
+  (`append-bytes!`), so a batch of ops is never half on disk.  Returns the offset of
+  the first frame, or the log length when `values` is empty.  Caller must hold the
+  log's write lock."
+  ^long [^RandomAccessFile log-raf values]
+  (let [frames (mapv #(frame-bytes (freeze-bytes %)) values)
+        total  (reduce (fn [^long acc ^bytes f] (+ acc (alength f))) 0 frames)
+        buf    (byte-array total)
+        bb     (java.nio.ByteBuffer/wrap buf)]
+    (doseq [^bytes f frames] (.put bb f))
+    (append-bytes! log-raf buf)))
 
 (defn- read-at
   "Fill `bb` from `ch` starting at file position `pos`; true iff it filled completely
@@ -225,8 +278,8 @@
 (defn read-slot
   "Read a slot by id: `{:offset :length :flags :gen :tombstone?}`, or nil when the
   slot is past EOF (unwritten), empty (offset=-1), or a zero-filled gap
-  (offset=0 AND length=0, left by `.setLength` growing the idx past its high-water
-  mark — no real record has length 0, so this is unambiguous).
+  (offset=0 AND length=0, left where a slot written past the idx's end grew it over
+  unwritten ids — no real record has length 0, so this is unambiguous).
 
   One positional read of the 24 bytes, decoded in memory: a short read *is* the
   past-EOF test, so this costs neither a `.length` call to make that test nor a seek
@@ -297,16 +350,19 @@
   (bit-and 0x3 (unsigned-bit-shift-right flags strength-shift)))
 
 (defn write-slot!
-  "Write a slot for `id`, growing the idx file if needed (the gap is zero-filled and
-  read back as unwritten)."
+  "Write a slot for `id` — the 24 bytes packed in memory and written with **one
+  positional channel write**, the mirror of `read-slot`: a `RandomAccessFile` is
+  unbuffered, so a seek plus four primitive writes is five syscalls for 24 bytes.  A
+  slot past the file's end grows it, and the gap is read back as unwritten
+  (`read-slot`'s zero test)."
   [^RandomAccessFile idx-raf id offset length flags gen]
-  (let [pos (* (long id) slot-bytes)]
-    (when (> pos (.length idx-raf)) (.setLength idx-raf pos))
-    (.seek idx-raf pos)
-    (.writeLong idx-raf (long offset))
-    (.writeLong idx-raf (long length))
-    (.writeInt  idx-raf (unchecked-int flags))
-    (.writeInt  idx-raf (unchecked-int gen))))
+  (let [bb (java.nio.ByteBuffer/allocate slot-bytes)]
+    (.putLong bb (long offset))
+    (.putLong bb (long length))
+    (.putInt  bb (unchecked-int flags))
+    (.putInt  bb (unchecked-int gen))
+    (.flip bb)
+    (write-fully-at! (.getChannel idx-raf) bb (* (long id) slot-bytes))))
 
 (defn- slot-flags-consistent?
   "Would this `flags` word answer the same as the record — directly, or by falling back?
@@ -647,12 +703,18 @@
 
 (defn delete-compact-temps!
   "Remove the commit marker then both temps (marker first, so a crash mid-cleanup
-  can't leave a marker without its temps).  Idempotent."
+  can't leave a marker without its temps).  Idempotent.
+
+  The fsync is what makes the *removal* durable, so it is owed only when a directory
+  entry actually went away — `.delete` answers that, and the common call finds nothing
+  to delete.  `clear-records!` runs this per kind on every wipe, so an unconditional
+  fsync would charge a whole-store flush per kind to a wipe that had no compaction in
+  flight."
   [^String marker ^String log-tmp ^String idx-tmp]
-  (.delete (File. marker))
-  (.delete (File. log-tmp))
-  (.delete (File. idx-tmp))
-  (fsync-dir! marker))
+  (let [m (.delete (File. marker))
+        l (.delete (File. log-tmp))
+        i (.delete (File. idx-tmp))]
+    (when (or m l i) (fsync-dir! marker))))
 
 ;; A single log with no idx (the KV write-ahead log) compacts the same way, minus the
 ;; idx temp.  The original log is authoritative until the temp fully replaces it, so a
@@ -664,11 +726,12 @@
   {:tmp (str log-path ".compact") :marker (str log-path ".compact-commit")})
 
 (defn delete-log-compact-temps!
-  "Remove a single-log compaction's marker then temp (marker first).  Idempotent."
+  "Remove a single-log compaction's marker then temp (marker first).  Idempotent.
+  Fsyncs only when a delete landed, for the reason `delete-compact-temps!` gives."
   [^String marker ^String tmp]
-  (.delete (File. marker))
-  (.delete (File. tmp))
-  (fsync-dir! marker))
+  (let [m (.delete (File. marker))
+        t (.delete (File. tmp))]
+    (when (or m t) (fsync-dir! marker))))
 
 (defn recover-log-compaction!
   "Finish or discard a crash-interrupted single-log compaction, BEFORE the log opens.

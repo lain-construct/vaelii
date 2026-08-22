@@ -48,3 +48,31 @@
     (v/assert kb (list 'not (list hungry Muffet)) 'CxUniverse {:strength :default})
     (v/assert kb (list hungry Muffet) 'CxUniverse {:strength :monotonic})
     (is (= :true (:verdict (v/argue kb (list hungry Muffet) 'CxUniverse))))))
+
+(tu/deftest-kb argue-refuses-an-option-it-does-not-read-at-its-own-door
+  ;; `argue` reaches `query` only when `:max-depth` is there and takes the
+  ;; no-rule-expansion `ask` arm otherwise, so a roster checked downstream is not checked
+  ;; at all for exactly the misspelling that matters: `{:max-deph 3}` would answer
+  ;; `:unknown` for a sentence a rule derives, which is the failure the docstring says
+  ;; must not happen.  The check is `argue`'s own, and the roster is `query`'s.
+  (tu/with-terms [dog hasFur Muffet]
+    (v/assert kb (list dog Muffet) 'CxUniverse)
+    (v/assert-rule kb [(list dog '?x)] (list hasFur '?x) 'CxUniverse {:direction :backward})
+    (let [goal    (list hasFur Muffet)
+          refusal (fn [opts]
+                    (try (v/argue kb goal 'CxUniverse opts) nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+      (testing "a misspelt depth is refused rather than taking the facts-only arm"
+        (doseq [opts [{:max-deph 3} {:max-depth 3 :max-deph 4} {:nonsense 1}]]
+          (let [d (refusal opts)]
+            (is (= :unknown-option (:type d)) (pr-str opts))
+            (is (= (vec (sort v/query-opt-keys)) (:options d)) "and the refusal names the roster")
+            (is (seq (:unknown d))))))
+      (testing "a non-map opts too"
+        (is (= :unknown-option (:type (refusal :oops))))
+        (is (= :unknown-option (:type (refusal [:max-depth 3])))))
+      (testing "and every rostered key still answers"
+        (is (= :true (:verdict (v/argue kb goal 'CxUniverse {:max-depth 3}))))
+        (is (= :true (:verdict (v/argue kb goal 'CxUniverse
+                                        {:max-depth 3 :strategy :depth-first}))))
+        (is (= :unknown (:verdict (v/argue kb goal 'CxUniverse nil))))))))

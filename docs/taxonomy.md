@@ -110,7 +110,7 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 | a rule concluding | the cache behind it | reached by |
 |---|---|---|
 | `genl` `genlCx` | the two closures | `:derived?` |
-| `disjoint` `disjointMetatype` | disjointness, and the metatype mark | `:derived?` |
+| `disjoint` `disjointMetatype` `siblingDisjoint` `siblingDisjointException` | disjointness, the metatype and sibling marks, and the exemption | `:derived?` |
 | `arity` `inverse` | the arity and inverse caches | `:derived?` |
 | `transitive` `symmetric` `asymmetric` `reflexive` `functional` `forcedDecontextualizedPredicate` `abduciblePredicate` `reifiableFunction` `unreifiableFunction` | the predicate-metadata marks | `:derived?` |
 | `rewriteOf` `sameAs` `equals` | the equality partition, and migration | by name — the arm's return value is the twins and the violations, which `:derived?` would discard ([equality.md](equality.md)) |
@@ -260,9 +260,19 @@ and `genls` / `specs` walk it on demand.
   so an acyclic relation carries an empty map and reads identically.
 - Maintaining it, and the two directions are not symmetric. An edge that **closes** a
   cycle merges two components, which is a question about the whole graph rather than
-  about the edge, so `activate` surrenders the potential (`:loose?`) and
-  `restore-depths` recomputes both parts in one O(V+E) pass — Tarjan for the components,
-  then Kahn for the heights over the condensation.
+  about the edge, so `activate` condenses the whole relation on the spot — one O(V+E)
+  pass, Tarjan for the components, then Kahn for the heights over the condensation —
+  and `:scc` holds the merged component the moment the edge is active. It has to:
+  the assert that closes the cycle forward-chains before it settles, and a firing the
+  closing edge seeds reads `:scc` to place its conclusion on the component's one
+  representative. **A relation that is already loose is no exception**, though it is the
+  one place the cost shows: with no potential to prune it, the guard walks `b`'s whole
+  up-closure instead of a prefix of it, so it is gated on `a` already being a node — an
+  edge introducing a fresh sub can be reached by nothing, which is the parent-first
+  arrival a loose batch is still mostly made of. The condensation that follows lifts
+  `:loose?` with it, so the batch pays for the cycle once rather than once per edge
+  after it. What the loose mark still short-circuits is the *acyclic* repair, which has
+  no sound base to build on.
 - A deletion can **split** a component, and a stale component is the one thing here that
   would answer *true* for a pair no longer connected, so it is never left standing. But a
   split is a question about the component alone: an edge can only break the strong
@@ -319,6 +329,22 @@ universal, and the interning above rests on it. So do the identity, storage, tri
 and stratification reads, each marked `global on purpose` at its site. The
 scoped-or-not split per check, and the exposure of clashes only a descendant can see
 whole, are docs/contexts.md's story.
+
+A visibility `except` (docs/contexts.md) can hide a *supporter* from a reader, and then
+the context-only filter is not enough: the scoped walk asks the KB, per supporter, whether
+that handle is believed and unhidden from the concrete reader (`supporter-visible?`,
+installed by the KB), and the memo key carries the reader and a **visibility
+generation** that moves whenever an except arrives, leaves, or flips belief — and
+whenever a settle's region names a supporter of either relation, since a supporter
+moving belief can change what a reader sees through an edge that stays active. That
+path is gated **per relation** (`relation-filter-active?`): it runs only while some
+roster target is a supporter of the relation being read, or of `genlCx`, whose holes move
+every reader's cone. A supporter no except targets is visible iff it is believed, which
+the active edge set already records, so an except on an ordinary fact leaves every
+taxonomy read on the context-only path. `context-down` is the read with no single
+reader — each candidate descendant brings its own cone — so under an except that
+reaches `genlCx` it filters the raw candidates by each one's own forward walk and
+memoizes the answer per context, stamped on the same generations.
 
 ### The equality partition reads the same way
 
@@ -389,7 +415,10 @@ Three consequences worth stating:
 - **`activate` reads `:loose?`, not just the dynamic var.** An insert arriving onto an
   unrepaired potential neither prunes its cycle check with it nor pushes a lift through
   it: both would be building on a stale base, and `raise-depth`'s termination argument
-  rests on a cycle check made *with* that base.
+  rests on a cycle check made *with* that base. It still **makes** the cycle check —
+  unpruned, and gated on the sub already being a node — because `:scc` is what
+  `placement-rep` reads and a component found only at the batch's settle is a firing
+  placed on whichever member it happened to see.
 
 `recover` replays every stored edge, so it is a bulk load and is deferred like one,
 repairing once before anything reads the relation back (~2.8× on a 16k-edge chain).
@@ -531,7 +560,7 @@ change an answer the engine gives. Why the widest bottleneck and not the shortes
 
 ## Disjointness
 
-Two mechanisms declare that types share no instance; both are closed under `genl`
+Three mechanisms declare that types share no instance; all are closed under `genl`
 (subtypes of disjoint types are disjoint):
 
 - `(disjoint TypeA TypeB)` — an explicit pair.
@@ -540,7 +569,11 @@ Two mechanisms declare that types share no instance; both are closed under `genl
   metatype and its members are cached (`:metatype-members`, reference-counted on the
   `(M T)` sentex) and `disjoint?` consults them, so the clique is a property of the
   code rather than of the store. Asserting the metatype after its members, or a
-  member after the metatype, both work; neither writes a `(disjoint …)` sentex.
+  member after the metatype, both work; neither writes a `(disjoint …)` sentex. A
+  membership is recorded while the mark is **stored**, whatever its label
+  (`stored-disjoint-metatype?`): the `(M T)` sentex is a supporter, and belief follows
+  it through the flat-cache reconcile, so a member stated while the mark is defeated
+  separates the moment the mark revives, in either order of arrival.
 
   Recording rather than asserting the clique is deliberate — [why recording beats
   asserting the clique](defenses.md#recording-a-disjoint-clique-beats-asserting-it).
@@ -548,8 +581,57 @@ Two mechanisms declare that types share no instance; both are closed under `genl
   `recover` re-reads the `(M T)` sentexes after marking the metatypes. The browser's
   disjointness list computes the induced disjoint pairs rather than querying for them,
   for the same reason — there are no `(disjoint …)` sentexes to query.
+- `(siblingDisjoint C)` — a collection whose **specializations** (the types below `C`
+  under `genl`) are pairwise disjoint, *unless one is a `genl` of the other*. It is the
+  metatype clique keyed off the `genl` closure rather than a recorded member set: only
+  the mark on `C` is cached (`:sibling-disjoint`, reference-counted on the
+  `(siblingDisjoint C)` sentex), and `disjoint?` reads `C`'s specializations off `specs`
+  the way the metatype arm reads its members. So nothing quadratic is stored, dropping
+  the mark releases every pair at once, and a specialization added later — an `(A C)`
+  membership is a mistake, but a `(genl A C)` edge is the shape — is separated the
+  moment it is believed.
 
-**Both mechanisms separate any term, not only individuals.** `checks/checkable-term?`
+  The genl-relatedness exception is essential and not a special case: a type and its
+  own supertype are both specializations of `C`, so without it the mark would separate
+  a subtype from the very type it refines. It is read over the **whole** KB, not the
+  reader's context cone — the same global test `(disjoint a b)` applies when it refuses
+  a genl-related pair as ill-formed — which is what keeps the sibling arm monotone on
+  visibility, so a descendant context never separates a pair the whole edge set knows
+  overlaps.
+
+  **Covering is out of scope.** `siblingDisjoint` says the specializations do not
+  *overlap*; it does not say they *exhaust* `C`. There is no declaration that an
+  instance of `C` must belong to one of its specializations, so a bare `C` with no
+  further membership violates nothing. Disjointness is the half a truth-maintained KB
+  can refuse a write against; exhaustiveness would be a closed-world claim over an
+  open-world extent.
+- `(siblingDisjointException X Y)` — an escape hatch exempting the one pair `X`, `Y` that
+  a `siblingDisjoint` mark (or a `disjointMetatype`) would otherwise force disjoint. It is
+  keyed as an unordered pair exactly like `disjoint` (`:sib-exception-index`,
+  reference-counted on the `(siblingDisjointException X Y)` sentex) and read by
+  `disjointness-test` as one map lookup behind the `genl-related?` guard the sibling and
+  metatype arms already carry; the explicit-`disjoint` arm is deliberately *not* exempted,
+  since `(disjoint X Y)` is a hard assertion you retract to undo. A Braille reading, both a
+  `reading` and a `touch_perception`, is the case it exists for.
+
+  **Pair-local, and it does not leak to subtypes.** The exemption spares `X`, `Y` alone:
+  each stays disjoint from the parent's *other* specializations, and an exception on
+  `(X, Y)` leaves `(X', Y)` disjoint for a subtype `X'` of `X`. That falls out for free —
+  each read tests the *exact* pair drawn from the two `genl` closures, so nothing wider is
+  ever spared.
+
+  **Read globally, not through the reader's cone**, exactly as `genl-related?` is. An
+  exception *removes* a clash, so a context-scoped exception would let a more-specific
+  reader see *fewer* clashes than the KB holds — the non-monotone direction `disjoint?`
+  forbids. The sentex still carries a context and retracts / rebuilds normally; only its
+  read is unscoped. This is the deliberate divergence from Cyc's per-Mt exceptions, and in
+  fact more faithful to disjointness — Cyc has no scoped variant. Asserting an exception
+  releases a standing clash and retracting one re-arms the pair (`clash-vocabulary`
+  compares the exception set, so its move re-derives every known pair); an exception
+  present *ab initio* whose pair therefore never entered the clash set is re-armed on
+  retract by the settle's own sweep off `:sib-exc-dirty`.
+
+**All three separating mechanisms — `disjoint`, `disjointMetatype` and `siblingDisjoint` — separate any term, not only individuals.** `checks/checkable-term?`
 admits every non-variable symbol, so the predicate meta-ontology is enforced the same
 way the domain is: `(relationKind …)` is a `disjointMetatype` over
 `instanceRelationPredicate` and `typeRelationPredicate`, and a predicate declared both
@@ -627,9 +709,9 @@ halves.
 A declaration changes what already-stored content *means*, so the settle that admits
 one re-examines the content written before it — or the KB would answer differently
 depending on whether the separation or the memberships were written first, which is
-the invariant [nmtms.md](nmtms.md) opens with. Seven sentence shapes reach back:
-`disjoint`, `disjointMetatype`, a new `(M T)` member of a metatype, `genl`,
-`genlCx`, and (for the nogood path) `functional` and `asymmetric`.
+the invariant [nmtms.md](nmtms.md) opens with. Eight sentence shapes reach back:
+`disjoint`, `disjointMetatype`, `siblingDisjoint`, a new `(M T)` member of a metatype,
+`genl`, `genlCx`, and (for the nogood path) `functional` and `asymmetric`.
 
 The reach is **two questions**, and keeping them apart is what makes a bounded sweep
 buy real coverage:
@@ -951,12 +1033,18 @@ maintained by `integrate-sentex`:
   two numbers, a compound — is the hard contradiction refused at the door instead (`:type`
   `:anti-symmetric`), like a numeric functional clash. A self tuple's converse is itself
   and `(equals a a)` is trivial, so it is admitted.
-- `(antiTransitive P)` — DECLARED, and the chain conviction **deferred** (see
-  [nmtms.md](nmtms.md)). What is enforced is its classification and the disjointness
-  `(disjoint transitive antiTransitive)`: no predicate is declared both. The
-  `(P a b) ∧ (P b c) ⇒ ¬(P a c)` clash is a three-party nogood the settle machinery forms
-  only pairwise, and a partial door-only check would decide the same three facts
-  differently in different arrival orders.
+- `(antiTransitive P)` — a *constraint* whose conviction spans **three** claims: `(P a b)`
+  and `(P b c)` believed make `(P a c)` contradictory, the dual of `transitive`. The three
+  are one nogood rather than three pairs, weighed by the same rule any contradiction is
+  (`settle/decide-nogood` over the whole member set): a chain that is known true refuses
+  the direct step at the door, a chain with one defeasible step has that step defeated
+  instead, and three equal defaults are a three-sided dilemma the engine reports and
+  declines to decide ([nmtms.md](nmtms.md)). Read up the predicate hierarchy like the other
+  constraint marks, and probed at the marked predicate, so `(antiTransitive parentOf)`
+  convicts a `fatherOf` chain. It does **not** imply `irreflexive`: a self tuple `(P a a)`
+  is its own whole chain, names no second sentex to weigh, and is admitted exactly as an
+  `asymmetric` predicate's is. Its disjointness `(disjoint transitive antiTransitive)`
+  holds beside that: no predicate is declared both.
 - `(equivalenceRelation P)` — no engine code: three shipped CxCore forward rules derive
   `(symmetric P)`, `(transitive P)` and `(reflexive P)`, each a real mark the engine
   enforces in turn. A `(genl equivalenceRelation symmetric)` subsumption edge would answer
@@ -966,8 +1054,8 @@ maintained by `integrate-sentex`:
 
 **The constraint marks are read up the predicate hierarchy; the generative marks
 are not.** Which family a mark belongs to decides whether it descends, and the reader
-differs by mark. `tax/props-over` walks up for `asymmetric`, `functional`, `irreflexive`
-and `anti-symmetric`, the `::prop-kind` marks on the `:props` roster. `arity` is no prop at all:
+differs by mark. `tax/props-over` walks up for `asymmetric`, `functional`, `irreflexive`,
+`anti-symmetric` and `anti-transitive`, the `::prop-kind` marks on the `:props` roster. `arity` is no prop at all:
 `checks/declared-arity` reads it off the arity table and the predicate-type memberships,
 falling back to `inherited-arity` where the predicate declares nothing of its own. And
 `inverse` has a reader of its own, `tax/inverses-under`, which walks the hierarchy the
@@ -980,6 +1068,7 @@ other way.
 | `functional` | yes | two `fatherOf` mothers for one child are two `parentOf` values |
 | `irreflexive` | yes | a `fatherOf` self tuple is a `parentOf` self tuple |
 | `anti-symmetric` | yes | a `fatherOf` pair both ways is a `parentOf` pair both ways, merged under the super's mark |
+| `anti-transitive` | yes | a `fatherOf` chain is a `parentOf` chain, and the steps may be spelled one at each level |
 | `transitive`, `symmetric`, `reflexive`, `transitiveInArg` | **no** | a licence generates tuples, and generating them under a predicate nobody declared preserving is manufacturing knowledge |
 | `inverse` | the other direction — a partner on a **sub**-predicate answers the super's goal (`tax/inverses-under`) | a hop recorded either way round is a hop |
 

@@ -1001,31 +1001,54 @@
 ;; moves.
 
 (def arbitrable-kinds
-  "The definitional violations that name a pair of believed sentexes rather than a
+  "The definitional violations that name **other believed sentexes** rather than a
   malformed sentence, so `settle` can arbitrate them like any other contradiction."
-  #{:disjoint :functional :asymmetric})
+  #{:disjoint :functional :asymmetric :anti-transitive})
+
+(defn opposing-handles
+  "The believed sentexes a violation is *against*, as a vector of handles — empty when
+  it names none.
+
+  Two spellings, one reading.  The pairwise kinds name a single opposing sentex in
+  `:opposing-handle` and always did; `:anti-transitive` convicts a two-step chain and the
+  direct step **together**, so it names both other members in `:opposing-handles` (the
+  nogood is a triple, not a pair — docs/nmtms.md).  Every consumer that weighs a
+  violation against what it opposes reads this rather than either key, so a kind naming
+  two is weighed exactly as one naming one is, and the published `:opposing-handle` on
+  the three older kinds is left where callers already read it."
+  [v]
+  (cond
+    (seq (:opposing-handles v)) (filterv integer? (:opposing-handles v))
+    (integer? (:opposing-handle v)) [(:opposing-handle v)]
+    :else []))
 
 (defn- opposing-class
-  "The defeat class of the sentex a violation is *against*, or nil when it names
-  none.  Read from the TMS rather than from the record's `:strength`, because a
-  derived opposing claim is a premise of nothing and carries its class only on the
-  node."
+  "The **weakest** defeat class among the sentexes a violation is against, or nil when it
+  names none.  Read from the TMS rather than from the record's `:strength`, because a
+  derived opposing claim is a premise of nothing and carries its class only on the node.
+
+  Weakest, because the one question asked of it is whether the newcomer could ever be
+  believed beside what it opposes (`against-known-true?`): a chain with one defeasible
+  step is a chain the arbitration can break, so a refusal there would refuse content the
+  KB can perfectly well hold.  Over a single opposing sentex — every kind but
+  `:anti-transitive` — this is that sentex's class and nothing has changed."
   [kb v]
-  (when-let [h (:opposing-handle v)]
-    (jtms/defeat-class (:tms kb) h)))
+  (let [hs (opposing-handles v)]
+    (when (seq hs)
+      (reduce strength/min (map #(jtms/defeat-class (:tms kb) %) hs)))))
 
 (defn- with-opposing-class
-  "Stamp a violation with its opposing sentex's defeat class, so every consumer reads
+  "Stamp a violation with its opposing sentexes' defeat class, so every consumer reads
   the same answer rather than each fetching it again."
   [kb v]
-  (if (and v (:opposing-handle v)) (assoc v :opposing-class (opposing-class kb v)) v))
+  (if (and v (seq (opposing-handles v))) (assoc v :opposing-class (opposing-class kb v)) v))
 
 (defn arbitrable?
   "Can `settle` arbitrate this violation instead of the caller refusing it — does it
-  name an opposing believed sentex to form a nogood with?"
+  name opposing believed sentexes to form a nogood with?"
   [v]
   (boolean (and v (contains? arbitrable-kinds (:type v))
-                (integer? (:opposing-handle v)))))
+                (seq (opposing-handles v)))))
 
 (defn- against-known-true?
   "Is the opposing side known-true — the fixed background a solve reasons *from*?
@@ -1077,13 +1100,17 @@
   "Does this violation refuse the sentence on the **assert** path?
 
   `:asymmetric` reads the class either way — that is the line it draws, and the one the
-  other two are generalized to.  `:disjoint` and `:functional` refuse unconditionally
-  until `kb`'s constraint policy (`arbitrating?`) opts into the same rule.  Everything
-  else is a malformed sentence or an open-world judgement and refuses outright."
+  other two are generalized to.  `:anti-transitive` reads it the same way, over the
+  *weakest* step of the chain it convicts (`opposing-class`), so a chain the arbitration
+  could break is arbitrated and one it could not is refused.  `:disjoint` and
+  `:functional` refuse unconditionally until `kb`'s constraint policy (`arbitrating?`)
+  opts into the same rule.  Everything else is a malformed sentence or an open-world
+  judgement and refuses outright."
   [kb v]
   (when v
     (case (:type v)
-      :asymmetric             (against-known-true? v)
+      (:asymmetric
+       :anti-transitive)      (against-known-true? v)
       (:disjoint :functional) (or (not (arbitrating? kb)) (against-known-true? v))
       true)))
 
@@ -1382,68 +1409,248 @@
   canonicalizes to a different sentence anyway, and a predicate for which it did not
   would be symmetric rather than asymmetric.
 
+  **The context that decides self is the sentence's own — `home` — and not the asker.**
+  The two are the same at the door and differ wherever `settle` asks a stored sentex's
+  question from a *vantage* that sees more than its own context (`clash-vantages`): there,
+  keying self on the asker excluded the twin **stored in the vantage** as though the
+  candidate were it.  `(P a a)` written in a general context and again in one that sees it
+  is a real pair, and it was reported or not according to which of the two was written
+  last — the specific one arriving second convicts from its own context and is found,
+  the general one arriving second is asked from the specific vantage and threw its partner
+  away.  Order-dependence in what the KB believes, which `clash_oracle_test`'s streams
+  measure and `docs/nmtms.md` forbids.
+
   Ground binary sentences only; an open or n-ary one has no converse to speak of."
-  [kb sentence context]
-  (let [pred (nm/functor sentence)
-        args (vec (nm/args sentence))]
-    (when (and (symbol? pred) (= 2 (count args))
-               (every? sx/ground-term? args))
-      (let [marked   (sort (tax/props-over (:taxonomy kb) :asymmetric pred context))
-            ;; read once the mark is there to convict against, so an unmarked predicate
-            ;; pays no canonicalization for it
-            self     (when (seq marked) (:sentence (res/kb-sentex kb sentence context)))
-            claims   (for [q marked
-                           :let [converse (list q (second args) (first args))
-                                 ;; compared against the *canonical* spelling: the matcher
-                                 ;; probes through `kb-sentex`, so a comparison
-                                 ;; predicate's converse is stored folded (`greaterThan B
-                                 ;; A` as `lessThan A B`) and the raw form would match no
-                                 ;; record — leaving `stated` empty and the duplicate
-                                 ;; opposing sentexes this second read exists to supply
-                                 ;; unsupplied
-                                 stored-c (:sentence (res/kb-sentex kb converse context))
-                                 stated   (for [m   (res/matches-visible kb converse context)
-                                                :let [sxr (nth m 2) h (first m)]
-                                                :when (= stored-c (:sentence sxr))]
-                                            {:polarity :for :handle h
-                                             :sentence (:sentence sxr)
-                                             :context (:context sxr)
-                                             :class (or (jtms/defeat-class (:tms kb) h)
-                                                        :default)})]
-                           o (concat (filter #(= :for (:polarity %))
-                                             (inherit/surviving kb converse context))
-                                     stated)
-                           :when (not (and (= self (:sentence o))
-                                           (= context (:context o))))]
-                       (assoc o ::mark q ::converse converse))
-            opposing (->> claims
-                          ;; one `pr-str` + two `str` in the key — built once per claim,
-                          ;; not per comparison; the `[rank …]` tuple orders under `compare`
-                          (nm/sort-by-content-key (juxt #(- (strength/rank-of (:class %)))
-                                                        #(str (:context %))
-                                                        #(pr-str (:sentence %))
-                                                        #(str (::mark %)))
-                                                  compare)
-                          (reduce (fn [acc o]
-                                    (if (some #(= (:handle %) (:handle o)) acc)
-                                      acc
-                                      (conj acc o)))
-                                  []))]
-        (for [o opposing
-              :let [q (::mark o) converse (::converse o)]]
-          {:type :asymmetric :sentence sentence :pred q
-           :opposing (:sentence o) :opposing-handle (:handle o)
-           :message (str "asymmetric: " q " cannot hold both ways, and "
-                         (pr-str (:sentence o))
-                         (if (= :monotonic (:class o)) " is known true" " is believed")
-                         (when (not= (:sentence o) converse)
-                           (str " (which reaches " (pr-str converse)
-                                " by argument preservation)")))})))))
+  ([kb sentence context] (asymmetry-problems kb sentence context context))
+  ([kb sentence context home]
+   (let [pred (nm/functor sentence)
+         args (vec (nm/args sentence))]
+     (when (and (symbol? pred) (= 2 (count args))
+                (every? sx/ground-term? args))
+       (let [marked   (sort (tax/props-over (:taxonomy kb) :asymmetric pred context))
+             ;; read once the mark is there to convict against, so an unmarked predicate
+             ;; pays no canonicalization for it
+             self     (when (seq marked) (:sentence (res/kb-sentex kb sentence context)))
+             claims   (for [q marked
+                            :let [converse (list q (second args) (first args))
+                                  ;; compared against the *canonical* spelling: the matcher
+                                  ;; probes through `kb-sentex`, so a comparison
+                                  ;; predicate's converse is stored folded (`greaterThan B
+                                  ;; A` as `lessThan A B`) and the raw form would match no
+                                  ;; record — leaving `stated` empty and the duplicate
+                                  ;; opposing sentexes this second read exists to supply
+                                  ;; unsupplied
+                                  stored-c (:sentence (res/kb-sentex kb converse context))
+                                  stated   (for [m   (res/matches-visible kb converse context)
+                                                 :let [sxr (nth m 2) h (first m)]
+                                                 :when (= stored-c (:sentence sxr))]
+                                             {:polarity :for :handle h
+                                              :sentence (:sentence sxr)
+                                              :context (:context sxr)
+                                              :class (or (jtms/defeat-class (:tms kb) h)
+                                                         :default)})]
+                            o (concat (filter #(= :for (:polarity %))
+                                              (inherit/surviving kb converse context))
+                                      stated)
+                            :when (not (and (= self (:sentence o))
+                                            (= home (:context o))))]
+                        (assoc o ::mark q ::converse converse))
+             opposing (->> claims
+                           ;; one `pr-str` + two `str` in the key — built once per claim,
+                           ;; not per comparison; the `[rank …]` tuple orders under `compare`
+                           (nm/sort-by-content-key (juxt #(- (strength/rank-of (:class %)))
+                                                         #(str (:context %))
+                                                         #(pr-str (:sentence %))
+                                                         #(str (::mark %)))
+                                                   compare)
+                           (reduce (fn [acc o]
+                                     (if (some #(= (:handle %) (:handle o)) acc)
+                                       acc
+                                       (conj acc o)))
+                                   []))]
+         (for [o opposing
+               :let [q (::mark o) converse (::converse o)]]
+           {:type :asymmetric :sentence sentence :pred q
+            :opposing (:sentence o) :opposing-handle (:handle o)
+            :message (str "asymmetric: " q " cannot hold both ways, and "
+                          (pr-str (:sentence o))
+                          (if (= :monotonic (:class o)) " is known true" " is believed")
+                          (when (not= (:sentence o) converse)
+                            (str " (which reaches " (pr-str converse)
+                                 " by argument preservation)")))}))))))
 
 (defn- asymmetry-problem
   "The strongest `(asymmetric P)` violation, for the refusal paths."
   [kb sentence context]
   (first (asymmetry-problems kb sentence context)))
+
+(defn- chain-steps
+  "The believed steps matching `pattern` from `context`, as `[handle sentex binding]`
+  triples — `binding` being what `var` bound.
+
+  One `matches-visible` probe, so the predicate's **spec closure** is fanned exactly as
+  it is everywhere else a mark descends: a probe at `parentOf` reads a `fatherOf` step,
+  and a step written at the general spelling is read by a probe at it.  Belief-filtered
+  by the matcher, so a defeated step is no step."
+  [kb pattern context var]
+  (for [[h b sx] (res/matches-visible kb pattern context)]
+    [h sx (get b var)]))
+
+(defn- lead-from-source?
+  "For the closing role, is `(q a ?m)` the smaller end to enumerate than `(q ?m b)`?
+
+  Both ends enumerate the **same** set of midpoints — `{m : (q a m) ∧ (q m b)}` — so this
+  decides only which side is walked and which is probed per candidate, never the answer.
+  The two argument roots are read for their cardinality alone (`could-clash?` reads the
+  same counts the same over-approximating way: they span every predicate and either
+  polarity, so they bound the walk rather than describing it).  A non-symbol has no root
+  and cannot be led from."
+  [kb a b]
+  (let [idx  (:index kb)
+        wide Long/MAX_VALUE
+        out  (if (symbol? a) (p/count-with-arg idx 1 a) wide)
+        in   (if (symbol? b) (p/count-with-arg idx 2 b) wide)]
+    (<= out in)))
+
+(defn- chain-triples
+  "The forbidden triples `{(q a c), (q a m), (q m c)}` the tuple `(q a b)` is a member of,
+  as `[first-step second-step closing]` in **role** order, each element a stored sentex or
+  `::self` for the tuple being checked.
+
+  Three roles, and all three are asked, because the settle's discovery walks the sentexes
+  a settle *moved* and forms the nogood from whichever member it holds: a triple only two
+  of whose members could convict it would be found or missed according to which one
+  arrived last (`clash_oracle_test`, \"conviction has to be symmetric\").  The tuple is
+
+  * the **closing** step, over each midpoint `m` with `(q a m)` and `(q m b)` believed;
+  * the **first** step, over each `c` with `(q b c)` and the closing `(q a c)` believed;
+  * the **second** step, over each `z` with `(q z a)` and the closing `(q z b)` believed.
+
+  The closing role leads from whichever argument root is smaller (`lead-from-source?`)
+  and probes the far leg bound; the other two roles have one bound end each and no choice
+  to make.  A step reachable **only** by argument preservation is not enumerated — see
+  the docstring of `antitransitivity-problems`."
+  [kb q a b context]
+  (concat
+   (if (lead-from-source? kb a b)
+     (for [[_ _ m :as s1] (chain-steps kb (list q a '?m) context '?m)
+           s2             (chain-steps kb (list q m b) context nil)]
+       [s1 s2 ::self])
+     (for [[_ _ m :as s2] (chain-steps kb (list q '?m b) context '?m)
+           s1             (chain-steps kb (list q a m) context nil)]
+       [s1 s2 ::self]))
+   (for [[_ _ c :as s2] (chain-steps kb (list q b '?c) context '?c)
+         cl             (chain-steps kb (list q a c) context nil)]
+     [::self s2 cl])
+   (for [[_ _ z :as s1] (chain-steps kb (list q '?z a) context '?z)
+         cl             (chain-steps kb (list q z b) context nil)]
+     [s1 ::self cl])))
+
+(defn- antitransitivity-problems
+  "Every `(antiTransitive P)` violation a sentence commits in `context`.
+
+  `(antiTransitive parentOf)` says a two-step chain forbids the direct step: believing
+  `(P a m)` and `(P m c)` makes `(P a c)` contradictory, the dual of `transitive` and the
+  reason no predicate is declared both (`(disjoint transitive antiTransitive)`).  So the
+  conviction names **two** other believed sentexes rather than one, and the violation
+  carries `:opposing-handles` where the pairwise kinds carry `:opposing-handle` —
+  `settle` weighs the three together as one nogood (docs/nmtms.md).
+
+  Only a chain every step of which is **`:monotonic`** refuses, which is
+  `asymmetry-problems`' rule read over a set rather than over a single claim: the
+  opposing class stamped on the violation is the *weakest* of the two steps
+  (`opposing-class`), so `refuses-assert?` refuses exactly when the newcomer could never
+  be believed beside them and arbitrates otherwise.  At equal class the triple is a
+  represented dilemma in `(contradictions kb)` — three claims, none of which the engine
+  will pick between, which is what `decide-nogood` does with any tie.
+
+  **The mark is read up the predicate hierarchy** (`tax/props-over`) and the steps are
+  probed **at the marked predicate**, exactly as `asymmetry-problems` reads its converse:
+  `(antiTransitive parentOf)` with `(genl fatherOf parentOf)` convicts a `fatherOf` chain,
+  and a chain written half at each spelling is one chain.  Empty when nothing at or above
+  the sentence's predicate is marked — one map read on a KB that declares none, which is
+  every bulk load.
+
+  **A sentence is not its own step**, on the rule `asymmetry-problems` states: a stored
+  copy of the very claim being checked (same canonical sentence, same `home` context) is
+  excluded, so re-asserting a fact does not convict it against itself.  `home` is the
+  sentence's own context and not the asker's, for the reason that docstring records at
+  length: a twin stored in the *vantage* a stored sentex is asked from is a partner and
+  not a self.  What that leaves
+  is real and is kept: a triple that collapses to two distinct sentexes — `(P a b)` beside
+  `(P b b)` — is a two-member nogood weighed like any pair, and a self tuple `(P a a)`,
+  whose whole triple is itself, names no other sentex at all and so convicts nothing.
+  `antiTransitive` does not hand you `irreflexive` any more than `asymmetric` does
+  (docs/taxonomy.md); a KB that wants the self tuple refused declares the mark that
+  refuses it.
+
+  **A step reached only by argument preservation is not enumerated.**
+  `asymmetry-problems` reads `inherit/surviving` beside the stored converse; here that
+  would make conviction one-sided — preservation reads a goal's arguments upwards, so the
+  specific claim asks about the general one and never the reverse (docs/nmtms.md, \"Where
+  conviction is one-sided\") — and a triple only one of whose members convicts is a triple
+  the incremental discovery finds or misses by arrival order.  A stated absence, not an
+  oversight: the spec fan above is what the mark's descension needs, and it is symmetric.
+
+  **Every** violation, not the first, for the reason `disjoint-problems` gives: a hub term
+  chains several ways, and which triple is reported may not depend on the order the
+  postings came back in.  Deduped on the pair of opposing handles, so one triple reached
+  under two marks above the predicate, or from two roles, is one violation — the
+  content-first mark kept, as `first-per-slot` keeps its `via`.  Ordered weakest-opposing
+  first, so the refusal path (which takes the first) decides against the chain that most
+  nearly refuses, and then by content, so nothing rests on iteration order.
+
+  Ground binary sentences only; an open or n-ary one is no step of a chain."
+  ([kb sentence context] (antitransitivity-problems kb sentence context context))
+  ([kb sentence context home]
+   (let [pred (nm/functor sentence)
+         args (vec (nm/args sentence))]
+     (when (and (symbol? pred) (= 2 (count args))
+                (every? sx/ground-term? args))
+       (let [tms    (:tms kb)
+             [a b]  args
+             marked (sort (tax/props-over (:taxonomy kb) :anti-transitive pred context))
+             ;; read once the mark is there to convict against, so an unmarked predicate
+             ;; pays no canonicalization for it
+             self   (when (seq marked) (:sentence (res/kb-sentex kb sentence context)))
+             self?  (fn [s] (and (= self (:sentence s)) (= home (:context s))))
+             ;; the triple as sentences, in role order, with the checked sentence in its
+             ;; own place — what the message reads and what orders one violation against
+             ;; another
+             said   (fn [s] (if (= ::self s) self (:sentence (second s))))
+             found  (for [q     marked
+                          steps (chain-triples kb q a b context)
+                          :let  [others (remove #(or (= ::self %) (self? (second %))) steps)]
+                          ;; every member is this very claim (a self tuple's whole
+                          ;; triple), so there is no second sentex to weigh
+                          :when (seq others)
+                          :let  [hs    (mapv first others)
+                                 chain (mapv said steps)]]
+                      {:type :anti-transitive :sentence sentence :pred q
+                       :chain chain
+                       :opposing-handles hs
+                       :weakest (reduce strength/min (map #(jtms/defeat-class tms %) hs))
+                       :message (str "antiTransitive: " q " chains " (pr-str (first chain))
+                                     " and " (pr-str (second chain))
+                                     ", so the direct step " (pr-str (nth chain 2))
+                                     " cannot hold too")})]
+         (->> found
+              (nm/sort-by-content-key
+               (juxt #(- (strength/rank-of (:weakest %)))
+                     #(pr-str (:chain %))
+                     #(str (:pred %)))
+               compare)
+              (reduce (fn [[acc seen] v]
+                        (let [k (set (:opposing-handles v))]
+                          (if (contains? seen k) [acc seen] [(conj acc v) (conj seen k)])))
+                      [[] #{}])
+              first
+              (mapv #(dissoc % :weakest))))))))
+
+(defn- antitransitivity-problem
+  "The violation whose chain most nearly refuses, for the refusal paths."
+  [kb sentence context]
+  (first (antitransitivity-problems kb sentence context)))
 
 (defn- irreflexivity-problems
   "Every `(irreflexive P)` violation a self tuple `(P a a)` commits in `context`.
@@ -1577,7 +1784,8 @@
         (asymmetry-problem kb chk context)
         (functional-problem kb chk context)
         (irreflexivity-problem kb chk context)
-        (antisymmetry-problem kb chk context))))
+        (antisymmetry-problem kb chk context)
+        (antitransitivity-problem kb chk context))))
 
 ;; ---- what the argument constraints *entail* ------------------------------
 ;; `args-problem` and `genls-problem` read `arg` / `genlArg` as constraints to test,
@@ -1945,17 +2153,30 @@
   argument root handed the memberships back.  That order is handle order, which is
   arrival order, which is the one thing belief may not depend on.
 
-  Only the three arbitrable arms run.  The argument constraints cannot produce a pair,
-  and on this path the sentence is already stored — so whatever they would say about it
-  was said when it was written."
-  [kb sentence context]
-  (let [chk   (checked-sentence sentence)
-        types (kb/membership-reader kb context)]
-    (->> (concat (disjoint-problems kb chk context types)
-                 (functional-problems kb chk context)
-                 (asymmetry-problems kb chk context))
-         (map #(with-opposing-class kb %))
-         (filter arbitrable?))))
+  Only the four arbitrable arms run.  The argument constraints cannot name a second
+  sentex, and on this path the sentence is already stored — so whatever they would say
+  about it was said when it was written.
+
+  `:anti-transitive` names **two** other sentexes rather than one, and is read here the
+  same way: `opposing-handles` is what the discovery forms its nogood from, so a triple
+  arrives as one entry with three members and a pair as one with two.
+
+  **`context` is the asker and `home` is where the sentence lives**, and the two arms that
+  tell a partner from the sentence *itself* read `home` (`asymmetry-problems` records
+  what keying that on the asker cost).  The three-argument form is the door's, where a
+  sentence is asked about from the context it is being written into and the two are one;
+  a caller asking a **stored** sentex's question from a vantage owes the four-argument
+  form and its own `(:context s)`."
+  ([kb sentence context] (arbitrable-violations kb sentence context context))
+  ([kb sentence context home]
+   (let [chk   (checked-sentence sentence)
+         types (kb/membership-reader kb context)]
+     (->> (concat (disjoint-problems kb chk context types)
+                  (functional-problems kb chk context)
+                  (asymmetry-problems kb chk context home)
+                  (antitransitivity-problems kb chk context home))
+          (map #(with-opposing-class kb %))
+          (filter arbitrable?)))))
 
 (defn check-ground
   "Reject a non-rule sentence that still contains pattern variables.
@@ -1980,7 +2201,12 @@
   [kb sentence context]
   (let [s (res/kb-sentex kb sentence context)]
     (when (and (nil? (:antecedent s)) (not (sx/ground? s))
-               (not (rewrite/schematic-equation? sentence)))
+               (not (rewrite/schematic-equation? sentence))
+               ;; a `defn*` collection definition carries the member variable `?x` in
+               ;; its condition argument, the way a schematic equation carries its schema
+               ;; variables — it is stored to retract and belief-follow, and it expands
+               ;; into the rules where those variables belong (docs/defns.md)
+               (not (sx/defn-sentence? sentence)))
       (throw (ex-info (str "not ground: " (pr-str sentence)
                            " contains a variable — a fact must be ground"
                            " (write a universal claim as a rule)")
@@ -2115,9 +2341,14 @@
   (its antecedent predicates) and negatively (the predicates its exceptWhen exceptions
   and its `unknown` antecedents mention, plus the equality relations when it reads
   `different`).  The exceptWhen predicates come from the rule's meta-sentexes, so kb is
-  needed."
+  needed.
+
+  The antecedents are read as **dependency** predicates, not as index keys: an edge is
+  followed by looking the predicate up among the concluders, and a conclusion is filed
+  by `consequent-predicate` — which spells a negation `not` where the index key spells
+  it `[:not pred]` (`rules/dependency-predicates`)."
   [kb handle rule-sentex]
-  (let [antes (rules/antecedent-predicates (:sentence rule-sentex))]
+  (let [antes (rules/dependency-predicates (:sentence rule-sentex))]
     {:id               handle
      :label            (str "rule#" handle)
      :antecedent-preds antes
@@ -2166,7 +2397,8 @@
   exceptions, which is most of them."
   [kb sentence inner context]
   (let [[_ _ exception] (sx/peel-rule-wrapper sentence)
-        antes             (rules/antecedent-predicates inner)
+        ;; dependency spelling, not the index key: `rule-graph-node` says why
+        antes             (rules/dependency-predicates inner)
         ;; negatives: the exception's predicates, the `unknown` antecedents' *and* the
         ;; **aggregate** bodies'.  All three read what the KB believes rather than a
         ;; fact the firing names, so a cycle through any of them is unstratified — a

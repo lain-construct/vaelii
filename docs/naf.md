@@ -188,9 +188,14 @@ leaves. This is the `exceptWhen` block/sweep/revive path, reused verbatim:
   Tweety))` is answered under Tweety's representative, so merging Tweety with a Birdy
   that flies makes the inner query derivable with nothing on `flies` having moved at
   all — and the firing's own stored binding is now a spelling the KB does not answer
-  under. `special/recheck-equality-edge` is the trigger and `chain/settled-bindings` is
-  what the firing is re-checked with; [exceptions.md](exceptions.md) has the shape,
-  which `unknown` inherits along with the rest of the machinery.
+  under. `special/recheck-equality-edge` is the trigger, and the inner query is put in
+  its context's normal form before it is evaluated (`provers/condition-normalizer`), so
+  the binding and any constant the antecedent was written with are both asked under the
+  representative. This is the direction where the wrong answer is **unsound** rather
+  than merely unguarded: an `unknown` reporting a term absent when the KB answers it
+  under another spelling draws a conclusion, where a silently-false exception only fails
+  to withdraw one. [exceptions.md](exceptions.md) has the shape, which `unknown`
+  inherits along with the rest of the machinery.
 - At the next `settle`, the queued firings are re-evaluated; a firing whose `S` is now
   derivable is **blocked**, and the ordinary dependency-directed sweep **deletes** the
   conclusion and everything resting on it — *garbage collection, not defeat*, exactly
@@ -203,7 +208,10 @@ leaves. This is the `exceptWhen` block/sweep/revive path, reused verbatim:
 The settle-time firing filter (`firing-reachable?`) shapes the exception's conjuncts
 and the `unknown` antecedents' inner queries the same way: a ground inner narrows
 against the trigger, an existential one (`(thereExists ?x …)`, never ground) falls
-through to "keep", which is the safe over-approximation.
+through to "keep", which is the safe over-approximation. Both sides of that comparison
+are read under the equality-class representative, so a firing bound to a retired
+spelling narrows against a trigger spelled under the representative rather than being
+dropped as unrelated ([exceptions.md](exceptions.md), "The re-check index").
 
 ## Stratification
 

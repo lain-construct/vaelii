@@ -81,8 +81,8 @@
   both of whose sides `ctx` sees, each tagged with its `:dispute-class`
   (`:contradiction` — a coexisting `:default` dilemma / `:conflict` — a `:monotonic`
   irreducible clash) and its stable `:dispute-id`.  The engine entry's own `:kind`
-  (`:disjoint` / `:functional` / `:asymmetric`, nil for a plain rebuttal) rides along
-  unchanged.
+  (`:disjoint` / `:functional` / `:asymmetric` / `:anti-transitive`, nil for a plain
+  rebuttal) rides along unchanged.
 
   This is the per-channel view the whole-KB `contradictions` cannot give: 'what is
   disputed *here*'.  It hides nothing and invents nothing — the union of `disputes-in`

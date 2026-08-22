@@ -1440,6 +1440,77 @@
         (if (= 1 (count antes)) (first antes) (apply list and-functor antes))
         conseq))
 
+;; ---- definitional collection relations -----------------------------------
+;; `defnNecessary` / `defnSufficient` / `defnIff` tie a collection's membership to a
+;; defining condition on the member, expanded into ordinary forward rules at assert
+;; (docs/defns.md).  A `defn*` fact is stored like any other — so it retracts and
+;; belief-follows — and carries the member variable `?x` inside its condition argument,
+;; which is why it is exempted from the ground check the way a schematic equation is.
+
+(def defn-member-var
+  "The distinguished variable a `defn*` sentence names the member by.  `(defnNecessary
+  Coll <cond>)` reads `<cond>` as a condition on `?x` and expands to a rule relating
+  `(Coll ?x)` to it.  One fixed spelling, so the member stays identifiable after
+  canonicalization renames every other variable in the condition."
+  '?x)
+
+(def defn-predicates
+  "The three definitional collection relations, each expanded into forward rules at
+  assert (docs/defns.md).  A syntactic set, read where a `defn*` sentence must be
+  recognized: exempted from the ground check (its condition carries `?x`), given a
+  well-formedness arm, and materialized into companion rules."
+  '#{defnNecessary defnSufficient defnIff})
+
+(defn defn-sentence?
+  "Is `sentence` one of the definitional collection relations — `defnNecessary`,
+  `defnSufficient` or `defnIff`?  Read off the functor, so it recognizes the fact a
+  `defn*` assertion stores rather than any rule it expands into."
+  [sentence]
+  (and (sequential? sentence) (contains? defn-predicates (first sentence))))
+
+(defn- defn-condition-antecedents
+  "A `defn*` condition read as an antecedent list — a leading `and` flattened, anything
+  else the single antecedent — so a conjunctive sufficient condition becomes a
+  conjunctive rule body."
+  [cond]
+  (if (and (sequential? cond) (= and-functor (first cond)))
+    (vec (rest cond))
+    [cond]))
+
+(defn defn-companion-rules
+  "The forward rule sentence(s) a `defn*` sentence expands into, each relating
+  `(Coll ?x)` to the condition on the member `?x`:
+
+    (defnNecessary  Coll C) -> [(implies (Coll ?x) C)]   ; member => condition
+    (defnSufficient Coll C) -> [(implies C (Coll ?x))]   ; condition => member
+    (defnIff        Coll C) -> both
+
+  Built from the sentence as written, where the member is still `?x`; each rule is
+  canonicalized when stored, and a necessary condition that is a conjunction splits into
+  one rule per conjunct like any conjunctive consequent."
+  [[pred coll cond]]
+  (let [member     (list coll defn-member-var)
+        necessary  (rule-sentence [member] cond)
+        sufficient (rule-sentence (defn-condition-antecedents cond) member)]
+    (case pred
+      defnNecessary  [necessary]
+      defnSufficient [sufficient]
+      defnIff        [necessary sufficient])))
+
+(defn defn-condition-problems
+  "Why the `defn*` sentence `s` is not well-formed, as problem strings (empty if OK).
+  The condition must mention the member variable `?x`: a condition that does not name
+  the member says nothing about membership, and would expand to a rule that concludes it
+  vacuously (necessary) or is not range-restricted (sufficient)."
+  [[pred _coll cond :as s]]
+  (cond-> []
+    (not= 3 (count s))
+    (conj (str pred " takes a collection and a condition on the member " defn-member-var))
+
+    (and (= 3 (count s)) (not (some-symbol? #(= defn-member-var %) cond)))
+    (conj (str pred " states a condition on the member " defn-member-var ", but "
+               (pr-str cond) " does not mention " defn-member-var))))
+
 ;; ---- construction --------------------------------------------------------
 
 (defn- constructed-sentex

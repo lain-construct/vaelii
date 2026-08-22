@@ -279,6 +279,7 @@
       (with-rete rete-kb
         (doseq [f '[(parentOf I0 I1) (parentOf I1 I2) (parentOf I2 I3)
                     (siblingOf I1 I4) (siblingOf I5 I1)
+                    (siblingOf I8 I8)      ; palindrome: the mirror binds it identically
                     (owns I0 I1) (dog I1) (poodle I2) (cat I3) (bird I4) (penguin I5)
                     (ageOf I0 3) (ageOf I1 4) (bestFriendOf I6 I7)
                     ;; sub-predicate facts, so a super's pattern has something to fan to
@@ -294,6 +295,12 @@
                       (parentOf I9 ?z)       ; no matches
                       (siblingOf ?x I1)      ; symmetric, needs the mirror
                       (siblingOf I1 ?y)      ; symmetric, other order
+                      ;; symmetric with BOTH arguments open — the shape that pins the
+                      ;; dedup key.  One stored fact answers twice and differently (the
+                      ;; mirror swaps the bindings), so a dedup keyed on the handle alone
+                      ;; drops the second; the palindrome above is the other side of the
+                      ;; same key, and must answer exactly once.
+                      (siblingOf ?x ?y)
                       (animal ?a)            ; unary subtype fan-out
                       (dog ?a)               ; subtype (poodle satisfies)
                       (bird ?b)

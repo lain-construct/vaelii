@@ -116,10 +116,82 @@
                    (wrap-input (ByteArrayInputStream. bs) compression)))]
     (thaw-until-eof in)))
 
+;; ---- the stream behind a lazy seq -------------------------------------------
+;; A reader hands back a lazy seq over an open file, and a lazy seq cannot tell when its
+;; consumer stops asking — a `take`, a `doseq` whose body threw, an install that refused
+;; a malformed frame.  Three things close the stream, so none of those leaks a handle:
+;;
+;; - **full consumption**, at the EOF step, the common case;
+;; - **a failure inside the seq** — a torn chunk, an undecodable frame — closes it before
+;;   the throw travels (`closing-on-failure`);
+;; - **the seq being dropped**: a `Cleaner` watches the step closure every unrealized
+;;   tail holds, and closes the stream once nothing holds one any more.  GC-timed, so a
+;;   consumer that knows it stopped early calls `close-frames!` instead of waiting.
+;;
+;; The cleaner tracks the *step closure*, not the head: a consumer walking a `doseq`
+;; drops the head as it goes, while the closure stays reachable from the tail still to be
+;; realized, and is dropped exactly when the rest of the seq is.
+
+(def ^:private ^java.lang.ref.Cleaner cleaner (java.lang.ref.Cleaner/create))
+
+;; `close-frames!` needs the closer for a seq a caller hands back, and the head cannot
+;; carry it in metadata: `clojure.lang.LazySeq.withMeta` is `new LazySeq(meta, seq())`, so
+;; `with-meta` on the head **realizes its first element** — the reader would decompress and
+;; thaw a whole chunk at construction, for every reader built and never consumed.  So the
+;; head stays untouched and the closers live here, keyed on identity through weak
+;; references: an entry holds nothing alive, and both `framed` and `close-frames!` sweep
+;; the cleared ones, so a reader nobody closes explicitly costs one dead entry until the
+;; next call and nothing after it.  The queue holds one entry per *open* reader.
+(def ^:private ^java.util.concurrent.ConcurrentLinkedQueue open-readers
+  (java.util.concurrent.ConcurrentLinkedQueue.))
+
+(defn- sweep-readers!
+  "Drop registry entries whose seq has been collected, and run `f` on the entry whose seq
+  is `frames` (removing it).  One pass; the registry is a handful of entries."
+  [frames f]
+  (let [^java.util.Iterator it (.iterator open-readers)]
+    (loop []
+      (when (.hasNext it)
+        (let [e ^clojure.lang.MapEntry (.next it)
+              s (.get ^java.lang.ref.WeakReference (key e))]
+          (cond
+            (nil? s)              (.remove it)
+            (identical? s frames) (do (.remove it) (f (val e)))
+            :else                 nil))
+        (recur)))))
+
+(defn- closing-on-failure
+  "Run `(read)` and return its value; a throw closes `in` first, then travels."
+  [^InputStream in read]
+  (try (read)
+       (catch Throwable t
+         (try (.close in) (catch Throwable _ nil))
+         (throw t))))
+
+(defn- framed
+  "The lazy seq `(step)` over `in` — **unrealized**, so nothing is read until it is asked
+  for — with the stream's close registered on the step closure for the dropped-seq case
+  and in `open-readers` for `close-frames!`."
+  [^InputStream in step]
+  (.register cleaner step (fn [] (try (.close in) (catch Throwable _ nil))))
+  (let [s (step)]
+    (sweep-readers! nil (fn [_] nil))
+    (.add open-readers
+          (clojure.lang.MapEntry. (java.lang.ref.WeakReference. s) #(.close in)))
+    s))
+
+(defn close-frames!
+  "Close the stream behind a seq one of the readers below returned, for a consumer that
+  stopped before the end.  Idempotent; a no-op on any other seq."
+  [frames]
+  (when frames (sweep-readers! frames (fn [c] (c))))
+  nil)
+
 (defn read-chunked-seq
   "Lazy seq of frames from a v6+ chunked stream file: a run of `[int32 length]
   [compressed chunk]`.  Chunks are read serially and thawed on demand, so the whole
-  file never sits in heap.  The stream closes when fully consumed."
+  file never sits in heap.  The stream closes when fully consumed, when a read or thaw
+  inside it fails, or when the seq is dropped; `close-frames!` closes it sooner."
   [file compression]
   (let [^DataInputStream in (DataInputStream.
                              (BufferedInputStream. (io/input-stream (io/file file))))
@@ -132,22 +204,23 @@
                         (catch EOFException _ nil)))
         step (fn step []
                (lazy-seq
-                (if-let [bs (read-frame!)]
-                  (concat (thaw-chunk bs compression) (step))
+                (if-let [bs (closing-on-failure in read-frame!)]
+                  (concat (closing-on-failure in #(thaw-chunk bs compression)) (step))
                   (do (.close in) nil))))]
-    (step)))
+    (framed in step)))
 
 (defn read-window-seq
   "Lazy seq of frames from a legacy v4/v5 stream file — one compression window over
-  back-to-back frames, read serially.  The stream closes when fully consumed."
+  back-to-back frames, read serially.  The stream closes as `read-chunked-seq`'s does."
   [file compression]
   (let [^DataInputStream in (DataInputStream.
                              (BufferedInputStream.
                               (wrap-input (io/input-stream (io/file file)) compression)))
         step (fn step []
                (lazy-seq
-                (let [item (try (nippy/thaw-from-in! in) (catch EOFException _ ::eof))]
+                (let [item (closing-on-failure
+                            in #(try (nippy/thaw-from-in! in) (catch EOFException _ ::eof)))]
                   (if (identical? ::eof item)
                     (do (.close in) nil)
                     (cons item (step))))))]
-    (step)))
+    (framed in step)))

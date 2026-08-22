@@ -66,7 +66,13 @@
   the candidate lookup changes.  This is the sole seam the incremental matcher needs,
   because the trigger match (`match1`) is already selective and everything else —
   placement, exceptions, the definitional checks, justification dedup — is reused
-  verbatim.  See docs/inference.md, \"Incremental rule matching\"."
+  verbatim.  See docs/inference.md, \"Incremental rule matching\".
+
+  With the reference bound, a substituted antecedent that has a bound indexable
+  argument **and a functor with sub-predicates** is read through
+  `res/matches-hierarchical` instead (`join-matches`) — the same set by an argument
+  lead rather than a trie walk per sub-predicate.  Binding this var to anything else
+  switches that off, so the seam's caller sees every non-trigger antecedent."
   res/match-pattern)
 
 (def ^:dynamic *suppress-duplicate-firings*
@@ -238,10 +244,70 @@
     (boolean (and (seq calcs)
                   (some #(qkb/inconsistent? % kb pctx) calcs)))))
 
+(def ^:dynamic *declarations-cell*
+  "Per-run cache of `inherit/declarations-exist?` — whether the KB declares any
+  preservation at all — as a volatile holding the answer, or nil (unknown, read on the
+  next ask); the var itself is nil outside a chaining run, where the gate reads the
+  index.
+
+  `preserving-antecedent?` is asked of every non-trigger antecedent of every firing
+  attempt, and its first question is this one: two cardinality reads that answer false
+  for nearly every KB there is.  Bound once by `chain`, like `*evaluatable-preds*`, and
+  unlike it **invalidated** from inside the run: a run can *derive* a declaration, and
+  every join after that placement must see it — the datum that placed it re-joins the
+  rules it moved (`inherit/rejoin-rules`), and a datum arriving later triggers them
+  afresh, both through this gate.  `derive-conclusion` resets the cache when a placed
+  conclusion **roots** at a declaration functor (`placed-functor`, since the conclusion
+  the join hands over may still be wearing an `ist` frame or a `not`), so the next ask
+  pays the two reads once more and caches the true.  A declaration leaves only outside a
+  run (`retract!`), so a cached true never goes stale inside one."
+  nil)
+
+(defn- declarations-exist?
+  "The run's cached answer when a run has bound one (reading the index once per
+  invalidation), else `inherit/declarations-exist?` live."
+  [kb]
+  (if-let [v *declarations-cell*]
+    (if-some [x @v]
+      x
+      (vreset! v (inherit/declarations-exist? kb)))
+    (inherit/declarations-exist? kb)))
+
+(defn- placed-functor
+  "The functor a conclusion literal roots at **once it is placed**, which is not always
+  the functor it is written with.  An `(ist Ctx S)` names the context S goes into and
+  places S (`place-conseq`), and a negation roots under its positive body's predicate
+  (`kv/root-keys` — polarity lives in the record, so `(not (p a))` counts under `p` and
+  never under `not`).  So neither `ist` nor `not` is ever the answer here, and a
+  conclusion wearing either would otherwise be read as a functor no declaration uses."
+  [c]
+  (when (sequential? c)
+    (let [c (if (= sx/ist-functor (nm/functor c)) (nth c 2 nil) c)
+          f (nm/functor c)]
+      (if (= sx/not-functor f) (nm/functor (kb/body-under-not c)) f))))
+
+(defn- note-placed-declaration!
+  "A placed conclusion roots at a preservation declaration's functor: forget the run's
+  cached answer to whether any exist, so the next join asks again.
+
+  Asked of every firing that reached placement, whether or not it minted a handle: a
+  conclusion that dedups onto a stored sentex places a *justification*, which is what
+  makes the declaration believed, so \"nothing new was created\" is not \"nothing
+  changed\".  Only a cached **false** can go stale — a declaration leaves only outside a
+  run (`retract!`) — so a run that has not yet answered the question, or has answered it
+  yes, skips the scan."
+  [conjuncts]
+  (when-let [v *declarations-cell*]
+    (when (and (false? @v)
+               (some #(contains? inherit/declarations (placed-functor %)) conjuncts))
+      (vreset! v nil))))
+
 (defn- preserving-antecedent?
   "Does `ante` name a predicate carrying a preserved argument position, visible from
   `context`?  False for every literal in a KB that declares no preservation, at the
-  cost of the O(1) gate in front of `inherit/positions`.
+  cost of the gate in front of `inherit/positions` — read once per chaining run
+  (`*declarations-cell*`, re-read after a derived declaration), so the per-antecedent
+  cost there is a var deref and a symbol test.
 
   A negation is not one: preservation licenses claims and never refutations, which is
   the same line `inherit/ground-goal?` draws."
@@ -249,6 +315,7 @@
   (and (sequential? ante) (seq ante)
        (let [f (nm/functor ante)]
          (and (symbol? f) (not= 'not f) (seq (nm/args ante))
+              (declarations-exist? kb)
               (boolean (seq (inherit/positions kb f context)))))))
 
 (defn- inheritance-withdrawn?
@@ -400,9 +467,10 @@
 ;; ---- forward chaining ---------------------------------------------------
 
 ;; **Deferred antecedents.**  A deferred (evaluable) literal — `lessThan`,
-;; `greaterThan`, `evaluate`, `different` (`sentex/deferred-predicates`) — is not a
-;; stored fact.  It is *computed* from the bindings the other antecedents produced,
-;; which is why `vaelii.impl.sentex` holds it back to the end of the canonical
+;; `greaterThan`, `evaluate`, `different` (`sentex/deferred-predicates`), and a
+;; predicate the KB registered with `add-evaluatable` (`deferred-antecedent?`) — is not
+;; a stored fact.  It is *computed* from the bindings the other antecedents produced,
+;; which is why `vaelii.impl.sentex` holds a built-in back to the end of the canonical
 ;; antecedent order and `vaelii.impl.plan` pulls it forward only once its inputs are
 ;; bound.  Joining it with `match-pattern` therefore looks up a fact nobody ever
 ;; stored, finds nothing, and kills the whole join — silently, since an empty join is
@@ -410,6 +478,13 @@
 ;; chainers never had that bug because they discharge every antecedent through
 ;; `provers/solve-goal`, where the evaluable provers live.  The join below goes to the
 ;; same registry rather than growing a second evaluator that could disagree with it.
+;;
+;; A **registered evaluatable** takes the same path, so `ask` agrees with `query` on a
+;; forward rule with an evaluatable antecedent.  It differs from a built-in in one
+;; respect: it is per-KB, so it is not in the static `deferred-predicates` set the
+;; canonical order pins on, and `planned-join` pins it after its binders by cost instead
+;; (`provers/evaluatable-est-override`) — which is what keeps the firing order-independent
+;; whether the facts or the rule arrive first.
 
 (defn- solve-deferred
   "Solve a deferred antecedent against `bindings` by **computing** it: the substituted
@@ -432,11 +507,19 @@
   precisely the silent-empty-join failure this whole section exists to remove."
   [kb literal bindings]
   (let [g (res/substitute literal bindings)]
-    (when-let [unbound (seq (sx/deferred-input-vars g))]
-      (throw (ex-info (str "deferred antecedent " (pr-str g) " reached the join with unbound "
-                           "input " (pr-str (vec unbound)) " — it is computed, not looked up, "
-                           "so an earlier antecedent must bind its inputs")
-                      {:type :unbound-deferred :literal literal :goal g :unbound (vec unbound)})))
+    ;; The unbound-input guard is for the built-in deferred literals, whose input/output
+    ;; split `sentex/deferred-input-vars` knows statically.  A KB evaluatable's output
+    ;; slot is the prover's (`add-evaluatable`'s `:result`), which is not in that map, so
+    ;; a result-binding evaluatable's own output would read here as an unbound *input* and
+    ;; throw spuriously.  Its readiness is left to the prover instead — `EvaluatableFn`
+    ;; yields nothing until its inputs are ground — and `planned-join`'s `est-override`
+    ;; orders it after their binders so it lands ground.
+    (when (sx/deferred-literal? literal)
+      (when-let [unbound (seq (sx/deferred-input-vars g))]
+        (throw (ex-info (str "deferred antecedent " (pr-str g) " reached the join with unbound "
+                             "input " (pr-str (vec unbound)) " — it is computed, not looked up, "
+                             "so an earlier antecedent must bind its inputs")
+                        {:type :unbound-deferred :literal literal :goal g :unbound (vec unbound)}))))
     (map #(merge bindings %) (provers/solve-goal kb g '?ctx))))
 
 ;; ---- qualitative antecedents: joining on what a network entails ----------
@@ -606,14 +689,150 @@
   hand the pair to a trigger that cannot make it.
 
   The sub-predicate closure rather than the functor alone, because `match-pattern`
-  fans the functor first and mirrors each fanned literal on **its** own declaration."
+  fans the functor first and mirrors each fanned literal on **its** own declaration.
+  Driven from the declared symmetric predicates (a handful) tested against the closure,
+  as `matches-hierarchical` does, rather than the closure scanned for a mark: a broad
+  functor's closure is the whole type hierarchy, and this runs per join."
   [kb ante]
   (and (sequential? ante) (= 3 (count ante))
        (let [f (nm/functor ante)]
          (and (symbol? f) (not (sx/variable? f))
-              (let [tx (:taxonomy kb)]
-                (boolean (some #(tax/has-prop? tx :symmetric %)
-                               (res/sub-predicates kb f nil))))))))
+              (let [tx    (:taxonomy kb)
+                    specs (res/sub-predicates kb f nil)]
+                (boolean (some #(contains? specs %) (tax/props tx :symmetric))))))))
+
+(defn- symmetric-mirror
+  "The mirror of `fact` when the KB reads it as one — a binary literal whose own
+  predicate is declared `symmetric`, and whose arguments differ — else nil.
+
+  A symmetric fact is stored in one orientation (the canonical sort) and *means* both,
+  which is why `res/raw-match` probes both when a join reaches it.  A trigger reaches it
+  the other way round: the fact arrives and `res/match1` unifies it as written, so the
+  combination that needs the mirror is enumerated by nobody, and the same two facts
+  derive a conclusion or not depending on which arrived second.  Asked of the **fact**
+  and once per datum: it is the fact's own declaration that makes its mirror true, and a
+  super-predicate being symmetric says nothing about the sub the fact is stated at."
+  [kb fact]
+  (when (and (sequential? fact) (= 3 (count fact)))
+    (let [f (nm/functor fact)]
+      (when (and (symbol? f) (not (sx/variable? f))
+                 (contains? (tax/props (:taxonomy kb) :symmetric) f))
+        (let [m (sx/mirror-literal fact)]
+          (when-not (= m fact) m))))))
+
+(defn- trigger-bindings
+  "The binding maps a datum makes at one antecedent position: what `fact` unifies to,
+  and what its symmetric `mirror` unifies to when there is one and it binds differently.
+
+  Two rather than one is what keeps a symmetric antecedent at the *trigger* position
+  reading the same as it does at a join position, and with it the run's independence from
+  arrival order.  Distinct, because an antecedent that binds both orientations the same
+  way (a repeated variable, or a position the mirror does not reach) has made one firing,
+  not two — and a duplicate would be a second justification for a conclusion the first
+  already carries."
+  [kb ante fact mirror]
+  (let [b0 (res/match1 kb ante fact)
+        b1 (when mirror (res/match1 kb ante mirror))]
+    (cond
+      (and b0 b1 (not= b0 b1)) [b0 b1]
+      b0                       [b0]
+      b1                       [b1]
+      :else                    nil)))
+
+(def ^:dynamic *evaluatable-preds*
+  "Per-run cache of the KB's `add-evaluatable` predicate functors
+  (`provers/evaluatable-preds`) — the ones forward chaining computes through the prover
+  registry instead of looking up as stored facts, exactly as it does the built-in
+  `sentex/deferred-predicates`.  Bound once per run by `chain`, since the registry is
+  fixed for the run and rebuilding the set per antecedent would allocate on the hot join
+  path.  Nil outside a run — the `solve-rule` `why-not` reaches through, say — where
+  `deferred-antecedent?` reads the registry directly.  Empty for the common KB with no
+  registered evaluatables."
+  nil)
+
+(defn- evaluatable-antecedent-preds
+  "This KB's registered evaluatable functors, from the per-run cache when a chaining run
+  has bound it, else read straight off the registry (`provers/evaluatable-preds`)."
+  [kb]
+  (or *evaluatable-preds* (provers/evaluatable-preds kb)))
+
+(defn- deferred-antecedent?
+  "Is `ante` a **computed** antecedent for `kb` — a built-in evaluable
+  (`sentex/deferred-predicates`) or a predicate the KB registered with
+  `add-evaluatable`?  Forward chaining discharges these through the prover registry
+  (`solve-deferred`) rather than looking them up with `*matcher*`, so `ask` reaches the
+  same evaluatable the query engine's leaf does and the two agree on a rule with an
+  evaluatable antecedent.
+
+  A registered evaluatable is *not* in canonical antecedent order's deferred set (that
+  set is static, evaluatables are per-KB), so `planned-join` instead pins it after its
+  binders with `provers/evaluatable-est-override` — which is why the ordering holds
+  regardless of assertion order.
+
+  Called per antecedent on the join hot path, so the registered-evaluatable arm is gated
+  on a non-empty predicate set first: the common KB registers none, so this collapses to
+  the built-in `sx/deferred-literal?` check with only a set-empty test added."
+  [kb ante]
+  (or (sx/deferred-literal? ante)
+      (let [preds (evaluatable-antecedent-preds kb)]
+        (and (seq preds)
+             (sequential? ante) (seq ante)
+             (contains? preds (first ante))))))
+
+(defn- fanning-functor?
+  "Does `g`'s functor have a fan for the argument lead to collapse — a sub-predicate
+  closure wider than the functor itself, or a **variable** functor, which names no
+  predicate and so puts every argument behind it at level 0 of the trie?
+
+  The closure is reflexive, so `> 1` is \"something other than the functor is in it\".
+  Read at the wildcard vantage, which is the one `join-matches` matches at: the global
+  closure, memoized on the taxonomy generation (`tax/specs`), so this is a cached set
+  and a `count` rather than a walk."
+  [kb g]
+  (let [f (first g)]
+    (or (sx/variable? f)
+        (> (count (res/sub-predicates kb f '?ctx)) 1))))
+
+(defn- join-matches
+  "The stored facts satisfying the substituted antecedent `g` at the wildcard context —
+  `[handle bindings …]` pairs, the set `res/match-pattern` returns.
+
+  Two readers answer the same question, and the choice between them is the one the
+  query side already makes (`res/matches-visible`).  `*matcher*` is the reference: the
+  count-aware trie, one walk per member of the functor's sub-predicate closure, and the
+  seam the rete alpha matcher binds.  For a literal with a **bound indexable argument**
+  — a type test `(animal ?x)` with `?x` already bound, the commonest non-trigger
+  antecedent there is — that fan is `|specs|` trie walks to confirm one membership (364
+  for `animal` on the starter, six figures under a `thing`-rooted antecedent on a large
+  KB) per firing attempt, where `res/matches-hierarchical` leads from the argument's
+  own postings: one predicate-agnostic slot read narrowed to the closure in memory, or
+  one scoped read per spec when that side is smaller (`res/*lead-side*`).  Same belief
+  filter, same polarity check, same symmetric mirror, same exceptWhen-meta skip, and the
+  same `?ctx` binding — `matches_hierarchical_test` holds the two to the identical set.
+
+  **The lead is for the fan, so a functor with no sub-predicates keeps the trie.**  A
+  singleton closure is `match-pattern`'s own fast path — one cached set lookup and a
+  single `raw-match`, whose `candidate-handles` already reads the argument roots for the
+  shape the trie cannot narrow (a ground argument behind a variable) and the trie for the
+  shapes it can.  There is no `|specs|` fan there to collapse, and the lead is not free:
+  three volatiles, a pattern memo, two `prof/profiling?` derefs and `lead-agnostic?`'s
+  own `count-with-arg` probe.  Measured over 2,000 firings of a binary join on `:memory`,
+  the same 2,000 conclusions: 52,003 index reads through the lead against 48,003 through
+  the trie, and the whole difference is the argument families.  `fanning-functor?` is the
+  gate, and `join_lead_cost_test` measures at width 0 as well as at 4 and 16 so a lead
+  taken over nothing fails there.
+
+  The lead is taken only when the reference matcher is the one bound: a rete run keeps
+  its seam, and `res/*hierarchical-retrieval*` false (the reference-retrieval sweep)
+  keeps the trie everywhere, so the join is the reference under exactly the bindings
+  the rest of the engine is."
+  [kb g]
+  (if (and res/*hierarchical-retrieval*
+           (identical? *matcher* res/match-pattern)
+           (res/lead-literal? g)
+           (fanning-functor? kb g))
+    (res/matches-hierarchical kb g '?ctx)
+    (*matcher* kb g '?ctx)))
 
 (defn- join-antecedent
   "Extend the partial join `states` ({:bindings :handles :matched}) by one antecedent.
@@ -675,7 +894,7 @@
     ;; a missing one.
     (sx/aggregate? ante) states
 
-    (sx/deferred-literal? ante)
+    (deferred-antecedent? kb ante)
     (mapcat (fn [{:keys [bindings handles matched]}]
               (map (fn [b] {:bindings b :handles handles :matched matched})
                    (solve-deferred kb ante bindings)))
@@ -686,7 +905,7 @@
           calc  (qualitative-antecedent kb ante)
           keep? (when (and admit (nil? calc) (not (mirrored-antecedent? kb ante))) admit)
           hit   (mapcat (fn [{:keys [bindings handles matched]}]
-                          (for [[h b2] (*matcher* kb (res/substitute ante bindings) '?ctx)
+                          (for [[h b2] (join-matches kb (res/substitute ante bindings))
                                 :when (or (nil? keep?) (keep? h))]
                             {:bindings (merge bindings b2) :handles (conj handles h)
                              :matched  (conj matched [af h])}))
@@ -705,7 +924,9 @@
   this is a pure cost decision, the same one `res/planned-antecedents` makes for the
   backward chainers.  `plan/order` pins the operational literals exactly as canonical
   antecedent order did: the deferred (evaluable) and `unknown` (NAF) literals never
-  outrun what binds them, and the recursive literal stays put (`consequent-pred`).
+  outrun what binds them, and the recursive literal stays put (`consequent-pred`).  A
+  KB-registered evaluatable is not in that static set, so it is pinned by cost instead —
+  the `:est-override` below reports it maximally unselective until its inputs are bound.
   Antecedents are substituted with `b0` before planning so the trigger's bindings make
   the estimates exact, mirroring the backward path.
 
@@ -719,10 +940,15 @@
   neither reads it nor disturbs it."
   [kb antecedents b0 consequent-pred seed admit]
   (let [subbed (mapv #(res/substitute % b0) antecedents)
-        post   (set (rules/post-join-literals subbed))]
+        post   (set (rules/post-join-literals subbed))
+        ;; A registered evaluatable is not in `plan/order`'s static deferred set, so it is
+        ;; pinned after its binders by cost instead — computed, so maximally unselective
+        ;; until its inputs are bound.  Nil (no override) for the common KB with none, and
+        ;; it never disturbs the index model the other antecedents are ranked by.
+        est    (provers/evaluatable-est-override (evaluatable-antecedent-preds kb))]
     (reduce (fn [states ante] (if (post ante) states (join-antecedent kb ante states admit)))
             seed
-            (plan/order kb subbed '?ctx {:consequent-pred consequent-pred}))))
+            (plan/order kb subbed '?ctx {:consequent-pred consequent-pred :est-override est}))))
 
 (defn- arrival-admit
   "The filter `complete-antecedents` puts on the handles the join yields, or nil when
@@ -785,7 +1011,7 @@
   cost planner orders it among the rest."
   [kb antecedents trigger-idx trigger-handle b0 consequent-pred]
   (let [trigger-ante (nth antecedents trigger-idx)
-        handle-only? (not (sx/deferred-literal? trigger-ante))
+        handle-only? (not (deferred-antecedent? kb trigger-ante))
         to-join      (if handle-only?
                        (vec (keep-indexed (fn [j a] (when (not= j trigger-idx) a)) antecedents))
                        (vec antecedents))
@@ -1172,6 +1398,25 @@
                 (distinct))
           ctxs)))
 
+(defn- exception-aware-placements
+  "Placement candidates for `handles` while one of them is hidden somewhere.
+
+  Assertion contexts alone are no longer sufficient in that case: an exception can
+  hide a supporter at its own context while a meta-exception restores it in only one
+  descendant cone.  Enumerate the contexts that structurally see every assertion,
+  retain the readers that see every exact supporter, then keep only their maximal
+  elements.  `excepted-anywhere?` is the coarse gate, so the ordinary placement path
+  still takes no cone walk when none of this firing's supporters is targeted."
+  [kb handles contexts]
+  (let [tax (:taxonomy kb)]
+    (if (some #(res/excepted-anywhere? kb %) handles)
+      (let [common  (tax/common-descendants tax contexts)
+            visible (filter (fn [ctx]
+                              (every? #(res/supporter-visible? kb % ctx) handles))
+                            common)]
+        (tax/maximal-contexts tax visible))
+      (tax/maximal-common-descendant-contexts tax contexts))))
+
 (defn- placement-ingredients
   "Where a firing's conclusion may live, and which taxonomy supporters it names getting
   there: `[placement-contexts {placement-context [edge-handle]}]`.  Both relations are
@@ -1206,7 +1451,7 @@
   firing whose candidates *some* of which see a path keeps only those, and does not also
   descend below the others.  Placing under both would need the union re-maximalized, and
   the case — incomparable candidates disagreeing about one edge — is exotic."
-  [kb rule raw-c ist? links fact-ctxs]
+  [kb rule raw-c ist? links fact-handles fact-ctxs]
   (let [tax (:taxonomy kb)]
     (if ist?
       (let [c  (when (nm/context? (second raw-c)) (second raw-c))
@@ -1215,7 +1460,8 @@
           [[c] {c (into (mapv first hs) (visibility-support tax c (keep second hs)))}]
           [nil nil]))
       (let [ingredients (cons (:context rule) fact-ctxs)
-            base        (tax/maximal-common-descendant-contexts tax ingredients)]
+            supporters  (cons (:rule-handle rule) fact-handles)
+            base        (exception-aware-placements kb supporters ingredients)]
         (if (empty? links)
           ;; no subsumption to witness, so the whole support map is the visibility one —
           ;; and it is empty for the firing whose rule and facts are where the conclusion
@@ -1369,7 +1615,7 @@
   (let [ist?        (and (sequential? raw-c) (= sx/ist-functor (first raw-c)))
         conseq      (if ist? (nth raw-c 2) raw-c)         ; (ist Ctx S) concludes S ...
         fact-ctxs   (map :context facts)
-        [placements support] (placement-ingredients kb rule raw-c ist? links fact-ctxs)]
+        [placements support] (placement-ingredients kb rule raw-c ist? links handles fact-ctxs)]
     (if (empty? placements)
       ;; The join completed — every antecedent matched — and then the conclusion
       ;; evaporated: no context sees everything the firing rests on (sibling
@@ -1543,6 +1789,8 @@
         ;; grinding through matches that all turn out blocked is exactly the stretch that
         ;; otherwise looks hung
         (when *tick* (*tick* (count new)))
+        ;; a placed preservation declaration changes what every later join may inherit
+        (note-placed-declaration! conjuncts)
         {:new new}))))
 
 (defn rule-view-of
@@ -1795,9 +2043,31 @@
     (doseq [[c d] deltas] (qkb/note-joined kb calc c (:baseline d)))
     fired))
 
-(defn- rejoin-preserving
+(defn- symmetric-rejoin-rules
+  "The forward rules to re-join because `fact` is a `(symmetric P)` **declaration**.
+
+  The matcher mirrors a literal only once its predicate is declared, so the pairs a
+  `(sibOf ?a ?b)` antecedent reaches change the moment the declaration lands — and the
+  facts that would have triggered those firings have already arrived, so nothing else
+  will enumerate them.  Without this, the same four sentences derive a conclusion or not
+  depending on whether the declaration came last: 6 of the 24 orderings, and the whole
+  of the difference is that a stored fact means its mirror too.
+
+  `genls(P)`, not `specs`: `mirrored-antecedent?` asks whether *any sub-predicate* of an
+  antecedent's functor is symmetric, so declaring `sibOf` moves an antecedent on
+  `relatedTo` above it as well as one on `sibOf` itself.  Answered by a symbol compare
+  for every datum that is not one of these declarations."
+  [kb fact]
+  (when (and (sequential? fact) (= 2 (count fact)) (= 'symmetric (nm/functor fact)))
+    (let [p (first (nm/args fact))]
+      (when (and (symbol? p) (not (sx/variable? p)))
+        (not-empty
+         (into #{} (mapcat #(p/rules-by-antecedent (:index kb) %))
+               (tax/genls (:taxonomy kb) p)))))))
+
+(defn- rejoin-in-full
   "Re-join in full every forward rule the arriving datum moved a preserved predicate
-  for.
+  for, or newly declared symmetric.
 
   In full rather than at a trigger position, and the reason is the qualitative one: the
   arriving sentence need not unify with the antecedent it enabled.  `(genl chihuahua
@@ -1808,7 +2078,9 @@
   reached by joining rather than by matching.
 
   Bounded by the rules carrying an antecedent on a declared predicate, which is none
-  for every KB that declares no preservation and none for nearly every KB that does."
+  for every KB that declares no preservation and none for nearly every KB that does.
+  The symmetric caller is bounded the same way — by the rules with an antecedent over
+  the predicate just declared — and is reached only by a declaration datum."
   [kb rules max-depth truncated]
   (reduce (fn [nh rh]
             (let [rsx (p/get-sentex (:records kb) rh)]
@@ -1841,7 +2113,12 @@
   [kb datum max-depth truncated]
   (let [fact     (:sentence (p/get-sentex (:records kb) datum))
         ffn      (nm/functor fact)
-        preds    (tax/genls (:taxonomy kb) ffn)
+        ;; read once per datum, not per candidate position: what makes the mirror true is
+        ;; the fact's own `symmetric` declaration, and every position asks the same fact
+        mirror   (symmetric-mirror kb fact)
+        ;; a positive fact's predicate and its supertypes; a negative fact's one
+        ;; `[:not pred]` key (`rules/antecedent-key`), negation taking no subsumption fan
+        preds    (rules/trigger-keys (:taxonomy kb) fact)
         ;; the antecedent index is complete, so each candidate's own record decides
         ;; whether it may fire here: forward-capable is the only question
         rhs      (into #{} (mapcat #(p/rules-by-antecedent (:index kb) %)) preds)
@@ -1875,9 +2152,15 @@
         ;; are, and answers nil after two cardinality reads for a KB that declares
         ;; none.
         prhs     (inherit/rejoin-rules kb fact)
+        ;; And one layer over again, for the matcher rather than for a prover: a
+        ;; `(symmetric P)` datum changes which pairs a P antecedent reaches, and the facts
+        ;; it reaches them over have already arrived.  A symbol compare for every datum
+        ;; that is not such a declaration.
+        srhs     (symmetric-rejoin-rules kb fact)
         trigger  (cond->> rhs
                    qrhs (remove qrhs)
-                   prhs (remove prhs))
+                   prhs (remove prhs)
+                   srhs (remove srhs))
         ;; forward-capable *and believed*: the antecedent index posts on storage, so a
         ;; rule whose support has gone is still a candidate here and is refused on its
         ;; record rather than by the lookup (`res/rule-believed?`)
@@ -1889,22 +2172,33 @@
         (let [rsx (p/get-sentex (:records kb) rh)]
           (if-not (forward? rh rsx)
             nh
-            (let [{:keys [antecedents consequent] :as rule} (rule-view-of kb rh rsx)
-                  cpred (nm/functor consequent)]
+            ;; The trigger match runs over the record's own antecedents, and the
+            ;; chainer's view — which re-derives them beside the NAF and post-join
+            ;; literals and probes the exception roster — is built only once a
+            ;; position unifies.  A candidate is any rule with an antecedent on the
+            ;; datum's predicate or a supertype of it, and for a broad type most of
+            ;; them unify at none of their positions; the view is a per-firing cost,
+            ;; not a per-candidate one.
+            (let [antecedents (:antecedent rsx)
+                  cpred       (nm/functor (:consequent rsx))
+                  rule        (delay (rule-view-of kb rh rsx))]
               (reduce (fn [nh2 i]
-                        (if-let [b0 (res/match1 kb (nth antecedents i) fact)]
-                          (reduce (fn [nh3 state]
-                                    (into nh3 (:new (derive-conclusion kb rule state max-depth truncated))))
-                                  nh2
-                                  (complete-antecedents kb antecedents i datum b0 cpred))
-                          nh2))
+                        (reduce
+                         (fn [nh3 b0]
+                           (reduce (fn [nh4 state]
+                                     (into nh4 (:new (derive-conclusion kb @rule state max-depth truncated))))
+                                   nh3
+                                   (complete-antecedents kb antecedents i datum b0 cpred)))
+                         nh2
+                         (trigger-bindings kb (nth antecedents i) fact mirror)))
                       nh
                       (range (count antecedents)))))))
       []
       trigger)
      (concat
       (when (seq qrhs) (rejoin-qualitative kb qcal qrhs max-depth truncated))
-      (when (seq prhs) (rejoin-preserving kb prhs max-depth truncated))))))
+      (when (seq prhs) (rejoin-in-full kb prhs max-depth truncated))
+      (when (seq srhs) (rejoin-in-full kb srhs max-depth truncated))))))
 
 (defn- process-datum
   "In a global chain, a rule datum fires if it is forward-capable — defeasible or
@@ -2018,6 +2312,17 @@
                   kb/*chain-authoritative-functors* (when (>= (count seed)
                                                               kb/chain-authority-min-frontier)
                                                       (java.util.HashMap.))
+                  ;; The KB's registered evaluatables, read once: the registry is fixed
+                  ;; for a run, and forward chaining reads this set on the hot join path to
+                  ;; treat an `add-evaluatable` predicate as a computed antecedent
+                  ;; (`deferred-antecedent?`).  A nested run over another KB rebinds it to
+                  ;; that KB's set.  Empty for the common KB with none.
+                  *evaluatable-preds* (provers/evaluatable-preds kb)
+                  ;; Whether the KB declares any preservation, read on the first join
+                  ;; that asks and forgotten when a firing places a declaration
+                  ;; (`note-placed-declaration!`) — per run, and a fresh cell per run
+                  ;; for the reason `arrivals` is.
+                  *declarations-cell* (volatile! nil)
                   *agenda-arrivals* arrivals]
           (arrive! seed)
           (loop [agenda (into clojure.lang.PersistentQueue/EMPTY seed)]

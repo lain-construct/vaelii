@@ -1,8 +1,38 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.settle-region-cost-test
-  "What a settle re-derives, as a **count** — the gate on the two memos being retired
-  against the region that moved rather than against a global stamp.
+  "What a settle costs **the region**, as counts: how often the relabelled region is
+  materialized, and how much is re-derived against it.  Two claims, and both are exact
+  integers rather than durations, for `assert_cost_test`'s reason — a call count is a
+  property of the algorithm where a millisecond is a property of the box.
+
+  ## One: how many times the region is materialized
+
+  `jtms/touched` is the relabelled region, and on the dense network reading it copies the
+  whole bitmap into a boxed set — the KB's size on a rebuild, which is the path that
+  network exists to make fit.  So the number of reads per settle is a cost in its own
+  right, and it is pinned below at **2** for a one-pass settle and **3** for a two-pass
+  one: `passes + 1`.
+
+  The two, in the order they happen:
+
+  1. **the pass's own region**, a delay shared by the pass's discovery, its defeat rounds
+     and its revival re-seed — one per settle pass, and the one that is *supposed* to be
+     there.
+  2. **the finish's own region**, forced by the first consumer handed `@region` as an
+     argument — the exposure pass, which then declines the work at its own vocabulary
+     gate.  A rebuild declines all three exposure passes and the read still happens,
+     because `record-clashes!` below them takes the region unconditionally.
+
+  `passes + 1` is what the hoist that produced this shape set out to leave, and this file
+  was pinned at `passes + 2` for one release while a third read stood in the way:
+  `special/refresh-supersessions` read the region itself rather than taking the value
+  `settle-finish` holds four lines above the call, so a KB that had never merged anything
+  materialized the whole region — on the dense network, the KB's size on a rebuild — to
+  reconcile an empty superseded set.  It takes the value now.  A read appearing here
+  again is the regression this counts.
+
+  ## Two: what a settle re-derives
 
   `clash-nogoods` and `negation-nogoods` each carry every standing pair forward from the
   last settle, and each abandons the carry when something the pairing depends on moves.
@@ -13,10 +43,7 @@
   that is a load quadratic in its own contradictions.  Nothing in the oracles can see it:
   both answers are correct.
 
-  So the claim here is a count, and the counts are exact integers rather than durations,
-  for `assert_cost_test`'s reason: a call count is a property of the algorithm where a
-  millisecond is a property of the box.  Two workloads, one per memo, each built as the
-  KB that turns its guard on:
+  Two workloads, one per memo, each built as the KB that turns its guard on:
 
   * a lone `genl` edge with nothing above or below it, retracted and re-asserted on a KB
     of n standing definitional dilemmas it separates nothing of.  Every edge write bumps
@@ -40,6 +67,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.impl.settle :as settle]
             [vaelii.test-util :as tu]))
 
@@ -47,6 +75,79 @@
   "Standing dilemmas per workload.  Large enough that a per-pair term reads as a
   three-digit count rather than as a rounding one, small enough to cost a second."
   60)
+
+;; ---- how many times the region is materialized ---------------------------
+
+(defn- region-reads
+  "`jtms/touched` calls made while `f` runs.  Redefined rather than instrumented, because
+  the count is the whole measurement and the engine carries no counter for it — and
+  because a *materialization* is what costs, so the seam has to be the read and not the
+  set it hands back.  `jtms/revived` reaches the region through this var too, so its
+  one-arity is counted where it forces one and the value-taking arity is not, which is
+  the distinction the hoist turns on."
+  [f]
+  (let [calls (atom 0)
+        orig  jtms/touched]
+    (with-redefs [jtms/touched (fn [& args] (swap! calls inc) (apply orig args))]
+      (f))
+    @calls))
+
+(def ^:private one-pass-reads
+  "Region materializations a settle that converges in one pass costs: the pass's own
+  delay and the finish's delay.  `passes + 1`, which is the shape the hoist set out to
+  leave — the ns docstring names the third read this file used to carry and why it went."
+  2)
+
+(deftest a-settle-materializes-its-region-once-per-pass-and-once-at-the-finish
+  (let [kb (tu/isolated-fresh)]
+    (try
+      (tu/with-shipped-config
+        ;; one write outside the count, so no reading below is a class-loading first call
+        (v/assert kb '(srmWarm SrmWarm) 'CxUniverse {})
+        (testing "a plain fact — nothing derived, nothing opposed, nothing merged"
+          (is (= one-pass-reads (region-reads #(v/assert kb '(srmPlain SrmA) 'CxUniverse {})))))
+        (testing "a forward rule firing"
+          (v/assert-rule kb ['(srmTrig ?x)] '(srmConcl ?x) 'CxUniverse {:direction :forward})
+          (is (= one-pass-reads (region-reads #(v/assert kb '(srmTrig SrmB) 'CxUniverse {}))))
+          (is (v/ask? kb '(srmConcl SrmB) 'CxUniverse) "the firing must have placed"))
+        (testing "and a retraction"
+          (let [h (v/handle-of kb '(srmPlain SrmA) 'CxUniverse)]
+            (is (= one-pass-reads (region-reads #(v/retract! kb h)))))))
+      (finally (tu/clear-kb! kb)))))
+
+(deftest a-batch-is-charged-per-settle-and-not-per-write
+  ;; the reading `with-deferred-settle` exists for: fifty facts and one settle, so the
+  ;; region is materialized what a settle costs and not what the batch holds
+  (let [kb (tu/isolated-fresh)]
+    (try
+      (tu/with-shipped-config
+        (v/assert kb '(srmWarm SrmWarm) 'CxUniverse {})
+        (is (= one-pass-reads
+               (region-reads #(v/with-deferred-settle kb
+                                (dotimes [i 50]
+                                  (v/assert kb (list 'srmBatch (symbol (str "SrmZ" i)))
+                                            'CxUniverse {})))))))
+      (finally (tu/clear-kb! kb)))))
+
+(deftest a-defeat-costs-one-region-read-and-a-revival-costs-two
+  ;; The per-*pass* term, isolated.  A monotonic negation arriving over a default fact
+  ;; defeats it within the one pass that discovers it; retracting the winner revives the
+  ;; fact, and the revival takes a second pass — so the reading moves by exactly one, which
+  ;; is what says the growth term is the pass and not the belief move.
+  (let [kb (tu/isolated-fresh)]
+    (try
+      (tu/with-shipped-config
+        (v/assert kb '(srmNeg SrmX) 'CxUniverse {})
+        (testing "the defeat converges in one pass"
+          (is (= one-pass-reads
+                 (region-reads #(v/assert kb '(not (srmNeg SrmX)) 'CxUniverse
+                                          {:strength :monotonic}))))
+          (is (not (v/ask? kb '(srmNeg SrmX) 'CxUniverse)) "the default must have lost"))
+        (testing "the revival takes a second, and one more region read with it"
+          (let [h (v/handle-of kb '(not (srmNeg SrmX)) 'CxUniverse)]
+            (is (= (inc one-pass-reads) (region-reads #(v/retract! kb h)))))
+          (is (v/ask? kb '(srmNeg SrmX) 'CxUniverse) "the default must be believed again")))
+      (finally (tu/clear-kb! kb)))))
 
 ;; ---- the clash memo ------------------------------------------------------
 

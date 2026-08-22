@@ -1,6 +1,7 @@
 # Resource-bounded / anytime inference
 
-- **Covers:** the budget a query runs under (`:max-ms`/`:max-results`/`:max-cost`/`:max-depth`),
+- **Covers:** the budget a query runs under
+  (`:max-ms`/`:max-results`/`:max-cost`/`:max-depth`/`:max-term-growth`),
   the partial-result contract `ask-within`/`prove-within` return, and what `resume` continues.
 - **Not here:** the chainers and prover registry a budget bounds → [inference.md](inference.md);
   the lookup-to-query stack whose laziness the budget spends → [levels.md](levels.md).
@@ -33,10 +34,14 @@ continuation** rather than a lazy tail.
 **The node engine's state is a value.** Routed to by `core/*query-engine*`
 ([inference.md](inference.md)), it stops between two node expansions and what it leaves
 behind is an **agenda** — a frontier, a node registry, a claimed-key set — rather than a
-continuation closure. Its result stream expands one node per result pulled, so
-`budget/collect` bounds it exactly as it bounds every lazy stream, and nothing
-engine-specific is needed to resume it: the unrealized tail carries the session, and the
-session carries the search.
+continuation closure. `inference/search-within` drives it under a budget and checks the
+bounds **before every node expansion**, not between yielded results: one pull of its
+lazy result stream (`search-seq`) steps until a node yields, so a wide unproductive
+frontier — a converging rule graph under a generous depth — would otherwise run whole
+before a deadline held between results was seen. The session is the continuation, and
+`:resume` drives the same session further; solutions an expansion completed past a
+`:max-results` cap head the next step rather than being dropped, so a cap of *n* returns
+exactly *n*.
 
 Which node it stops *on* is the one thing a bound makes visible. An exhaustive run
 expands the same nodes under every ordering, so the node engine's tacticians
@@ -64,6 +69,7 @@ A budget is a map of optional bounds; any subset, and `nil` / `{}` means unbound
 | `:max-results` | stop after this many solutions | both |
 | `:max-cost` | a qualitative prover-cost ceiling (a tier keyword) | `ask-within` |
 | `:max-depth` | transformation (rule-expansion) depth | `prove-within` |
+| `:max-term-growth` | how far a rule may grow a subgoal's nesting | `prove-within` |
 
 `:max-ms` is checked **between** yielded solutions — the honest granularity is one
 solution, so a single blocking pull (a closure fixpoint, one deep proof) is not
@@ -173,6 +179,19 @@ depth rather than by `resume`. It is the analogue of Cyc's
 `:max-transformation-depth`, distinct from forward chaining's `:max-depth`
 (recursion-detection cap) though named alike.
 
+## `:max-term-growth` — the other termination guard
+
+The DFS's second guard is a ceiling on how far a **rule** may grow a subgoal's
+compound nesting past what its own derivation path has already met
+(`res/default-max-term-growth`, 8 — the mechanism is
+[inference.md](inference.md), "Backward chaining"). It is a pruning bound like
+`:max-depth`, and it is on whether the caller names one or not: a rule that wraps a
+function around a head variable asks a fresh goal per expansion, so without a ceiling
+the search does not return at all. What the budget key buys is **raising** it, for a KB
+whose derivations legitimately build terms deeper than the allowance —
+`{:max-term-growth 40}`. The node-engine arm ignores it, terminating on `:max-depth`
+instead.
+
 ## What it is not
 
 - **No mid-solution interruption.** The deadline is checked between yielded
@@ -191,7 +210,9 @@ depth rather than by `resume`. It is the analogue of Cyc's
 The budget layer adds no engine of its own. `ask-within` runs `ask` over a possibly
 cost-filtered registry and `collect`s the lazy result; `prove-within` runs the same DFS
 through `res/prove-from`, which is the resumable core `prove` itself delegates to, and
-wraps its batch in the same contract. Both normalize their goal through
+wraps its batch in the same contract — or, routed to the node engine, drives a session
+through `inference/search-within`, which builds the same contract per expansion. Both
+normalize their goal through
 `prepare-goal-for-read`, the same step `ask` / `prove` / `sentexes-matching` take — a
 reifiable NAT reified to the constant it denotes, a merge-retired term rewritten to
 its representative. That is what "same answers as `ask`" rests on, and a read path

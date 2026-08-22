@@ -25,6 +25,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.plan :as plan]
+            [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
@@ -1232,3 +1233,36 @@
             (is (some? row) (str "the broad literal is in the plan — " (pr-str gs)))
             (is (= (walked (:goal row) (:bound-before row)) (:est-matches row))
                 (pr-str gs))))))))
+
+;; ---- explain costs its report off the plan's own reads --------------------
+
+(tu/deftest-kb explain-reads-the-index-once-for-the-ranking-and-the-report
+  ;; `explain` re-costs every literal in execution order to report `:est-matches`,
+  ;; `:est-rows` and `:est-prefix`, and a unary type literal's two estimators each read
+  ;; `count-at` once per member of its subtype closure.  Those reads go through the
+  ;; memoized set the ranking already filled (`memo-opts`), so what the report adds
+  ;; over the plan is flat in how wide the hierarchy is — the node engine asks this of
+  ;; every enqueued child (`tactics/base-estimate`), where a fan re-read per child is
+  ;; the whole of the estimate's cost.
+  (tu/with-terms [broad_t rel CxExplain]
+    (let [widen! (fn [n]
+                   (doseq [_ (range n)]
+                     (let [t (tu/tmp-type "pe_sub") x (tu/tmp-ind "PeX")]
+                       (v/assert kb (list 'genl t broad_t) CxExplain)
+                       (v/assert kb (list t x) CxExplain)
+                       (v/assert kb (list rel x x) CxExplain))))
+          goals  [(list broad_t '?x) (list rel '?x '?y)]
+          reads  (fn [f]
+                   (prof/start)
+                   (try (f) (finally nil))
+                   (reduce + 0 (vals (:reads (prof/stop)))))
+          delta  (fn []
+                   (- (reads #(doall (plan/explain kb goals CxExplain)))
+                      (reads #(plan/order kb goals CxExplain))))]
+      (widen! 4)
+      (let [narrow (delta)]
+        (widen! 12)
+        (let [wide (delta)]
+          (is (= narrow wide)
+              (str "the report's reads over the plan's must not grow with the subtype "
+                   "width (" narrow " -> " wide ")")))))))

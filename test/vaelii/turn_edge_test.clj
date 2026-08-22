@@ -67,8 +67,8 @@
                      (list bar '?x '?y '?z) 'CxUniverse {:direction :backward})
       (testing "the rule computes the third argument from the first two"
         (is (= '{?a 3 ?b 4 ?c 7}
-               (first (v/query kb (list bar '?a '?b '?c) 'CxUniverse
-                               {:max-depth 2})))))
+               (tu/sole-answer (v/query kb (list bar '?a '?b '?c) 'CxUniverse
+                                        {:max-depth 2})))))
       (testing "a ground query is checked against the computed value"
         (is (v/query? kb (list bar 3 4 7) 'CxUniverse {:max-depth 2}))
         (is (not (v/query? kb (list bar 3 4 8) 'CxUniverse {:max-depth 2})))))))

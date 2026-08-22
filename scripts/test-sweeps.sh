@@ -30,6 +30,12 @@
 # question (docs/inference.md).  Every such stand-aside says why at the call site.
 # A count that moves for any other reason is a run that skipped something.
 #
+# Eight assertions, and the number is CHECKED at the foot of this script rather than
+# left to be read: `config_expected_delta` in scripts/lib/suite-configs.sh carries it,
+# a shortfall that is not in the table fails the run, and adding a stand-aside means
+# adding a line there with its reason.  Standing aside is the thing being counted, so
+# doing it silently is the thing to make impossible.
+#
 # WHY THIS IS A SCRIPT AND NOT A CI JOB.  It is both, and the local one is the
 # gate.  `deep.yml` runs these five and the eight backends on a runner, which is
 # 209 job-minutes against a 2,000-minute monthly allowance — nine runs a month,
@@ -140,6 +146,7 @@ child_pgid=""
 current_sweep=""
 current_log=""
 FAILED=()
+COUNT_PAIRS=()
 DONE_RUNS=()
 rev=""
 prev_rev=""
@@ -235,6 +242,9 @@ for sweep in "${SWEEPS[@]}"; do
 
   summary=$(run_summary "$log")
   counts=$(run_counts "$log")
+  # the count on its own, for the cross-run comparison at the foot of this script
+  run_asserts=$(run_assertions "$log")
+  [[ -n "$run_asserts" ]] && COUNT_PAIRS+=("$sweep:$run_asserts")
 
   if [[ $code -eq 0 ]]; then mark="$TICK"; else mark="$CROSS"; FAILED+=("$sweep"); fi
   printf '  %s %-16s %-52s %8s  %s\n' \
@@ -268,10 +278,35 @@ else
   fi
 fi
 
+# ---- did every run run the same suite? ---------------------------------------
+# A green set of runs has still said nothing if one of them ran fewer assertions than the
+# rest: a namespace that failed to load, a `deftest` that stood aside without saying so, a
+# gate that inherited a switch and measured nothing.  Every one of those is green.
+# `config_expected_delta` in suite-configs.sh carries the two stand-asides that are real
+# and says why; anything else is reported here and fails the run.  Skipped when something
+# already failed — an error aborts the rest of its namespace, so the shortfall means
+# nothing — and when the runs did not all compile one revision.
+deltas_bad=0
+if [[ ${#FAILED[@]} -eq 0 && ${#COUNT_PAIRS[@]} -gt 1 ]]; then
+  if [[ $(printf '%s\n' "${REVS[@]}" | sort -u | wc -l) -le 1 ]]; then
+    if ! delta_report=$(assertion_deltas_ok "${COUNT_PAIRS[@]}"); then
+      echo "${BOLD}assertion counts: a run did not run what the others ran${OFF}"
+      echo "$delta_report"
+      echo "  ${DIM}Every run passed, so this is a test that did not run rather than one that"
+      echo "  failed.  Find what the short run skipped, or record a deliberate stand-aside"
+      echo "  in config_expected_delta with its reason.${OFF}"
+      deltas_bad=1
+    fi
+  else
+    echo "${DIM}assertion counts: not compared — the runs did not all compile one revision${OFF}"
+  fi
+fi
+
 if [[ ${#FAILED[@]} -eq 0 ]]; then
   echo "${GREEN}${BOLD}all ${#SWEEPS[@]} sweeps green${OFF} ${matrix_rev}" \
        "${DIM}($OUT_DIR/)${OFF}"
-  exit 0
+  [[ $deltas_bad -eq 0 ]] && exit 0
+  exit 1
 fi
 echo "${RED}${BOLD}${#FAILED[@]} of ${#SWEEPS[@]} failed:${OFF} ${FAILED[*]} ${DIM}(${matrix_rev})${OFF}"
 for s in "${FAILED[@]}"; do

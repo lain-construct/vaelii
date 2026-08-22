@@ -725,6 +725,136 @@
       (is (empty? (v/sentexes-matching kb '(mseen ?x) ctx))
           "merged first, the rule never concludes"))))
 
+(deftest the-exception-fact-arriving-after-the-merge-reaches-the-same-belief
+  (testing "a trigger spelled under the representative reaches a firing bound to the
+            retired spelling"
+    ;; The third order.  The rule fires for `MOne` with nothing excepting it, the merge
+    ;; retires `MOne` in favour of `MTwo` (the exception is still false, so the firing
+    ;; stands and is twinned under the representative), and only then does `(mskip
+    ;; MTwo)` arrive.  That trigger is keyed on `mskip` and narrowed by argument
+    ;; shape: the firing's *stored* binding is `MOne`, its re-check asks about `MTwo`,
+    ;; and the two orders above agree that the answer is no conclusion at all.
+    (tu/with-cleared-kb [kb tu/isolated-fresh]
+      (merge-rule! kb)
+      (v/assert kb '(mmark MOne) ctx)
+      (v/assert kb '(rewriteOf MTwo MOne) ctx)
+      (is (= '["(mseen MTwo)"]
+             (mapv #(pr-str (:sentence %)) (v/sentexes-matching kb '(mseen ?x) ctx)))
+          "fires, and the merge re-spells the conclusion under the representative")
+      (v/assert kb '(mskip MTwo) ctx)
+      (is (empty? (v/sentexes-matching kb '(mseen ?x) ctx))
+          "the exception holds under the firing's settled binding, so it is swept")
+      (is (empty? (v/sentexes-matching kb '(mseen ?x) '?c))
+          "under either spelling, in any context"))))
+
+;; ---- and every one of the 24 orders, not the three written out above ----
+;;
+;; A block condition is decided three times over — at derive time, from a trigger, and
+;; off a refusal record — and a merge can arrive before, between or after each part of
+;; the knowledge.  So the property is about the whole permutation set rather than about
+;; a path, and the sweeps below run all 24 orderings of four assertions and require them
+;; to agree.  They differ in *where* the retired spelling sits: in the firing's binding,
+;; in the condition's own constant, and inside an `(unknown …)`.  The third is the one
+;; whose wrong answer is a conclusion drawn rather than one withheld — an `unknown`
+;; reporting a term absent when it has an answer under its representative is unsound,
+;; where a silent exception merely fails to guard.
+
+(defn- orderings
+  "Every ordering of `coll` — a small local permutation, since the sweeps below are over
+  four assertions and the suite carries no combinatorics dependency."
+  [coll]
+  (if (empty? coll)
+    [[]]
+    (mapcat (fn [x] (map #(vec (cons x %)) (orderings (remove #{x} coll)))) coll)))
+
+(defn- belief-per-order
+  "`{belief [order …]}` over every ordering of `ops` — a map of assertion thunks — with
+  `read` taking the belief once each order has been asserted into its own cleared KB."
+  [ops read]
+  (reduce (fn [acc order]
+            (tu/with-cleared-kb [kb tu/isolated-fresh]
+              (doseq [k order] ((get ops k) kb))
+              (update acc (read kb) (fnil conj []) order)))
+          {}
+          (orderings (keys ops))))
+
+(defn- one-belief!
+  "Assert that every ordering of `ops` reaches `expected`, naming the orders that did
+  not when one does not."
+  [label ops read expected]
+  (let [outcome (belief-per-order ops read)]
+    ;; the key set, so a failure prints the beliefs that disagreed rather than 24
+    ;; orderings twice over; the message carries the tally and the divergent orders
+    (is (= #{expected} (set (keys outcome)))
+        (str label ": belief depends on arrival order — "
+             (pr-str (into {} (map (fn [[b os]] [b (count os)])) outcome))
+             ", the divergent orders being "
+             (pr-str (mapcat val (dissoc outcome expected)))))))
+
+(deftest every-arrival-order-of-a-merge-reaches-one-belief
+  (testing "the firing's own binding is the retired spelling"
+    ;; `(mskip MOne)` is asserted under the retired spelling and canonicalized at the
+    ;; door, the rule binds `?x` to `MOne`, and the exception has to be asked under the
+    ;; representative wherever the merge lands in the order.
+    (one-belief! "a bound term"
+                 {:rule  #(merge-rule! %)
+                  :mark  #(v/assert % '(mmark MOne) ctx)
+                  :merge #(v/assert % '(rewriteOf MTwo MOne) ctx)
+                  :skip  #(v/assert % '(mskip MOne) ctx)}
+                 #(mapv :sentence (v/sentexes-matching % '(mseen ?x) '?c))
+                 []))
+  (testing "the exception conjunct's own constant is the retired spelling"
+    ;; Nothing the firing binds has merged at all: what moved is a term the *rule* was
+    ;; written with, and a rule is held back from an individual-only rewrite migration,
+    ;; so the stored condition keeps naming `BOne` for good.
+    (one-belief! "a conjunct constant"
+                 {:rule  #(v/assert % '(exceptWhen (bskip BOne)
+                                                   (set/defaultRule
+                                                    (implies (and (bmark ?x)) (bseen ?x))))
+                                    ctx)
+                  :mark  #(v/assert % '(bmark BM1) ctx)
+                  :merge #(v/assert % '(rewriteOf BTwo BOne) ctx)
+                  :fact  #(v/assert % '(bskip BTwo) ctx)}
+                 #(mapv :sentence (v/sentexes-matching % '(bseen ?x) '?c))
+                 []))
+  (testing "a firing's own binding, in the polarity where the wrong answer is unsound"
+    ;; `(unknown (yskip ?x))` asked under the stored binding is answered *absent* about a
+    ;; term the KB answers under its representative, so the rule concludes where it must
+    ;; not — where a silently-false exception merely fails to guard.
+    (one-belief! "a naf inner query"
+                 {:rule  #(v/assert % '(set/defaultRule
+                                        (implies (and (ymark ?x) (unknown (yskip ?x)))
+                                                 (yseen ?x)))
+                                    ctx)
+                  :mark  #(v/assert % '(ymark YOne) ctx)
+                  :merge #(v/assert % '(rewriteOf YTwo YOne) ctx)
+                  :fact  #(v/assert % '(yskip YOne) ctx)}
+                 #(mapv :sentence (v/sentexes-matching % '(yseen ?x) '?c))
+                 [])))
+
+(deftest a-merged-binding-does-not-re-check-every-firing-a-rule-ever-made
+  (testing "a trigger that can block nothing costs no level-6 query, merges or not"
+    ;; The narrowing compares the firing's stored bindings with the trigger, and both
+    ;; sides are read under the representative — so a KB whose every firing bound a
+    ;; merged term narrows exactly as one that merged nothing.  Waving a merged binding
+    ;; through instead costs one level-6 query per firing per arriving fact, and on an
+    ;; `owl:sameAs`-style import the partition is most of the individuals.
+    (let [cost (fn [merged?]
+                 (tu/with-cleared-kb [kb tu/isolated-fresh]
+                   (excepted-rule! kb)
+                   (dotimes [i 20]
+                     (probe! kb i)
+                     (when merged?
+                       (v/assert kb (list 'rewriteOf (symbol (str "PY" i))
+                                          (symbol (str "PX" i)))
+                                 ctx)))
+                   [(counting-evaluations
+                     #(v/assert kb '(skipX Unrelated0) ctx))
+                    (count (v/sentexes-matching kb '(seenX ?x) '?c))]))]
+      (is (= [0 20] (cost false)) "20 firings, one unrelated trigger, nothing merged")
+      (is (= [0 20] (cost true))
+          "the same trigger re-checked every firing because each bound a merged term"))))
+
 (deftest a-genlCx-edge-retakes-a-census-with-no-firing-to-key-on
   (testing "an aggregate rule is exempt from the placement-cone narrowing"
     ;; The narrowing above reads where a rule's firings were *placed*, which is sound for

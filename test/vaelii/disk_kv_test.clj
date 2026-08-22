@@ -99,17 +99,23 @@
               (is (nil? (kv/kv-get b2 [:v])))
               (dkv/close! b2))))))))
 
-(deftest set-overwrite-and-negative-counter-round-trip
+(deftest set-overwrite-and-floored-counter-round-trip
+  ;; The floor is the WAL's to reproduce as much as the live map's: a counter is a
+  ;; cardinality (`kv/KvBackend`), and `apply-op` is both the live fold and the replay, so
+  ;; a store reopened over five decrements of an absent key must read what the store that
+  ;; wrote them read.  A floor applied on only one side is a reopened index that disagrees
+  ;; with the running one.
   (with-tmp
     (fn [dir]
       (let [b (dkv/open-kv-backend dir)]
         (kv/kv-add-to-set b [:k] 'a) (kv/kv-add-to-set b [:k] 'b)
         (kv/kv-put b [:k] #{'x 'y 'z})              ; overwrite the whole set at the key
-        (dotimes [_ 5] (kv/kv-decrement b [:c]))         ; a counter driven negative
+        (dotimes [_ 5] (is (zero? (long (kv/kv-decrement b [:c])))
+                           "a decrement below zero answers the floor, not a negative"))
         (dkv/close! b))
       (let [b (dkv/open-kv-backend dir)]
         (is (= #{'x 'y 'z} (kv/kv-members b [:k])) "kv-put overwrote, not merged")
-        (is (= -5 (kv/kv-get b [:c])) "a negative counter round-trips")
+        (is (zero? (long (kv/kv-get b [:c]))) "and the replay lands on the same floor")
         (dkv/close! b)))))
 
 (deftest compact-then-write-then-reopen-is-consistent

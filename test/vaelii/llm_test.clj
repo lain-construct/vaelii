@@ -108,7 +108,75 @@
         (is (some? error))))
     (testing "results are bounded"
       (let [{:keys [result]} (tools/call kb "kb_terms" {} {:max-result-chars 20})]
-        (is (str/includes? result "truncated"))))))
+        (is (str/includes? result "truncated"))
+        (is (= 20 (count (first (str/split-lines result)))) "cut at the bound exactly")))
+    (testing "and the bound is on the printing, so a broad read realizes only what it shows
+              — the op below never ends, and a reader that printed it whole would not either"
+      (let [realized (atom 0)
+            endless  (map (fn [i] (swap! realized inc)
+                            {:id i :sentence (list 'dog 'Muffet) :context 'CxEndless})
+                          (range))]
+        (with-redefs [serve/ops (assoc serve/ops :sentexes-in-context (fn [_ _] endless))]
+          (let [{:keys [ok result]} (tools/call kb "kb_sentexes_in_context" {"context" "CxEndless"}
+                                                {:max-result-chars 300})]
+            (is ok)
+            (is (str/includes? result "truncated at 300"))
+            (is (str/starts-with? result "({:id 0"))
+            (is (< @realized 200) (str @realized " records realized to show 300 characters"))))))))
+
+(tu/deftest-kb a-stream-stays-lazy-wherever-it-sits-in-the-answer
+  ;; A `LazySeq` test only ever caught the top-level case, and a depth-first walk
+  ;; underneath it realized the rest: an op answering `{:rows <stream>}`, or anything
+  ;; behind a `cons`, was walked whole before the bounded writer ran.  And `cycle`,
+  ;; `iterate` and `repeat` are not `LazySeq` at all, so a seq with no end was handed to
+  ;; the walker and the read died of memory rather than answering its first few dozen.
+  (let [shapes {"a bare stream"      identity
+                "a stream in a map"  (fn [s] {:rows s})
+                "a stream in a list" (fn [s] (list :head s))
+                "a stream behind a cons" (fn [s] (cons :head s))
+                "a stream in a vector"   (fn [s] [:head s])}]
+    (doseq [[label wrap] shapes]
+      (let [realized (atom 0)
+            endless  (map (fn [i] (swap! realized inc) {:id i}) (range))]
+        (with-redefs [serve/ops (assoc serve/ops :sentexes-in-context
+                                       (fn [_ _] (wrap endless)))]
+          (let [{:keys [ok result]} (tools/call kb "kb_sentexes_in_context" {"context" "CxEndless"}
+                                                {:max-result-chars 300})]
+            (is ok label)
+            (is (str/includes? result "truncated at 300") label)
+            (is (< @realized 500) (str label ": " @realized " elements realized for 300 characters")))))))
+  (testing "and a seq that is not a LazySeq is bounded the same way"
+    ;; each of these hangs — or dies of memory — under a walk that realizes to project
+    (doseq [[label answer] {"cycle"        (cycle [1 2])
+                            "iterate"      (iterate inc 0)
+                            "repeat"       (repeat :x)
+                            "a nested cycle" {:rows (cycle [1 2])}}]
+      (with-redefs [serve/ops (assoc serve/ops :sentexes-in-context (fn [_ _] answer))]
+        (let [{:keys [ok result]} (tools/call kb "kb_sentexes_in_context" {"context" "CxEndless"}
+                                              {:max-result-chars 300})]
+          (is ok label)
+          (is (str/includes? result "truncated at 300") label))))))
+
+(deftest one-write-cannot-carry-the-result-past-its-bound
+  ;; The bound was tested *after* each write, so what it really held was `limit` plus the
+  ;; longest single write — and one `print-method` call hands over a whole string: a
+  ;; symbol's name, an object's `str`.  A term four hundred thousand characters long is
+  ;; the memory the bound exists to refuse, appended whole to keep three hundred of it.
+  ;; Read off the writer rather than off `render`, since `render` cut the oversized
+  ;; buffer back down and the answer looked right either way.
+  (let [bounded  @#'tools/bounded-pr-str
+        long-sym (symbol (apply str (repeat 400000 \x)))]
+    (doseq [[label x] {"a symbol printed in one write" [long-sym]
+                       "a string printed character by character" [(apply str (repeat 400000 \y))]
+                       "an unbounded stream"           (range 100000)}]
+      (let [[s cut?] (bounded x 300)]
+        (is cut? label)
+        (is (= 300 (count s))
+            (str label ": the writer kept " (count s) " characters to bound the result at 300"))))
+    (testing "and a printing that fits is not cut at all"
+      (let [[s cut?] (bounded [:a :b] 300)]
+        (is (not cut?))
+        (is (= "[:a :b]" s))))))
 
 ;; ---- the system prompt is generated from the KB -------------------------
 

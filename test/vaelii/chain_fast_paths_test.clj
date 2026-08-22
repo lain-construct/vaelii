@@ -20,9 +20,12 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as vr]
+            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (defn- fwd [antes conseq]
@@ -92,6 +95,38 @@
                                   (= sentence (list ra X Y)))
                                 (:justifications fast))))
             "ra(X,Y) is justified once per witness, never more")))))
+
+;; ---- the authority memo across a canonicalization move ------------------
+;; A bulk run arms `kb/*chain-authoritative-functors*`: for a functor the store held
+;; nothing under, a handle-cache miss is taken as proof of absence and the trie walk
+;; skipped.  The cache empties whenever the canon stamp moves — here a rule concluding
+;; `(symmetric P)` moves it mid-fixpoint — and the memo must follow it, or every
+;; conclusion stored before the move is stored again after it.
+
+(deftest the-authority-memo-follows-the-handle-cache-across-a-stamp-move
+  (tu/with-terms [linkOf edgeOf markOf pairOf A B CxLinks]
+    (let [n         (+ kb/chain-authority-min-frontier 6)   ; a bulk frontier: the memo is armed
+          pair      (fn [i] [(symbol (str A i)) (symbol (str B i))])
+          handles   (fn [kb sentence]
+                      (p/lookup (:index kb) (sx/path (res/kb-sentex kb sentence CxLinks))))]
+      (tu/with-cleared-kb [kb tu/fresh]
+        (v/assert kb (list 'genlCx CxLinks 'CxUniverse) 'CxUniverse {:strength :monotonic})
+        (v/assert kb (fwd [(list linkOf '?x '?y)] (list edgeOf '?x '?y)) CxLinks {:chain? false})
+        (v/assert kb (fwd [(list markOf '?p)] (list 'symmetric '?p)) CxLinks {:chain? false})
+        (v/assert kb (list markOf pairOf) CxLinks {:chain? false})
+        (doseq [i (range n)]
+          (let [[a b] (pair i)]
+            (v/assert kb (list linkOf a b) CxLinks {:chain? false})))
+        (v/forward-chain kb {})
+        (testing "the run moved the canon stamp: the symmetric declaration was concluded once"
+          (is (= 1 (count (handles kb (list 'symmetric pairOf))))))
+        (testing "one handle per conclusion, on either side of the move"
+          (is (= n (count (v/sentexes-with-functor kb edgeOf)))
+              "exactly one edgeOf per linkOf")
+          (is (every? #(= 1 (count (handles kb (apply list edgeOf (pair %))))) (range n))
+              "no conclusion is stored under two handles"))
+        (testing "a believed sentence matches once"
+          (is (= 1 (count (v/sentexes-matching kb (apply list edgeOf (pair 3)) CxLinks)))))))))
 
 ;; ---- the dedup index's coherence transitions ----------------------------
 ;; Bare TMSes, no KB: the transitions under test are jtms-internal, and handle

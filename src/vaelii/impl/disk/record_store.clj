@@ -60,6 +60,7 @@
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.tokens :as dtok]
             [vaelii.impl.io.fingerprint :as fp]
+            [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.strength :as strength]))
 
@@ -101,14 +102,53 @@
 ;; `compacting` boxes the copy-on-write compactor's state while a compaction is in
 ;; flight, else nil.  `store!`/`kill!` fold the ids they touch into `:touched`, and
 ;; `clear-records!` sets `:aborted` — both under the kind lock, so the compactor's
-;; delta reconcile sees a consistent view.  See `compact-kind!`.
-(defrecord Kind [log idx lock live-ids log-path idx-path compacting cache enc dec])
+;; delta reconcile sees a consistent view.  See `compact-kind!`.  `failed` holds the
+;; failure of a compaction that could not install its result past the commit point,
+;; else nil; while set, every read and write refuses (`usable!`).
+(defrecord Kind [log idx lock live-ids log-path idx-path compacting failed cache enc dec])
 
 (defn- track-touched
   "Record `id` in an in-flight compaction's touched set (a no-op when none is running).
   Called under the kind lock, so it races nothing."
   [k id]
   (swap! (:compacting k) (fn [c] (if c (update c :touched conj id) c))))
+
+(defn- usable!
+  "Refuse an access to kind `k` once a compaction has failed **past its commit point**
+  (`compact-kind!`): the live log and idx may be half-copied, so a read off them is
+  garbage and a write into them is lost.  `failed` holds the failure; the next open
+  finishes the install off the commit marker, and until then the store says so rather
+  than answering.
+
+  **Who consults it, and who deliberately does not.**  Every access to the *files* does —
+  `store!`, `fetch`, `kill!`, `premise-strength`'s slot read — and so do the two that
+  read the idx and act on what it says: `slot-fingerprint`, whose answer is a claim about
+  the record set that a derived image is then validated against, and `kind-dead-ratio` /
+  `compact-kind!`, which would otherwise rewrite a log from a half-copied idx and lose
+  every record the copy had not reached.  A refusal from the dead-ratio read is what the
+  durability daemon already treats as *do not compact* (it scores a throwing read 0.0).
+
+  The rest do not, and each is fail-safe for its own reason rather than by oversight:
+
+  - `sentex-ids` / `justification-ids` / `premise-ids` answer from the in-memory live-id
+    sets, which the file state cannot corrupt.  A caller that then fetches one of those
+    handles is refused there, which is where the refusal belongs — the enumeration is
+    honest about what the store holds, and only the bytes are in doubt.
+  - `fsync` forces bytes already written.  Nothing is read and nothing decided, the
+    commit marker and the fsynced temps are what the next open repairs from either way,
+    and `close!` runs it — so refusing would leave file handles open on the directory
+    `backend/close-dir!` is trying to release, trading a harmless flush for a leak.
+  - `clear-records!` is the one path that must proceed *because* the kind failed: a wipe
+    supersedes the pending install, drops the marker and the temps under the same lock,
+    and clears `failed`.  Consulting this would leave a store no call could repair."
+  [k]
+  (when-let [t @(:failed k)]
+    (throw (ex-info (str "disk record store: a compaction of " (:log-path k)
+                         " failed after its commit point — the live files are unusable"
+                         " until the store is reopened, which finishes the install off"
+                         " the commit marker")
+                    {:type :compaction-failed :log (:log-path k)}
+                    t))))
 
 (defn- open-kind
   "Open (recovering) the log/idx pair `dir/<name>.{log,idx}` and build its live-id set.
@@ -138,7 +178,7 @@
           (f/scan-idx! idx (fn [id _ _ flags]
                              (.add live id)
                              (when slot-tap (slot-tap id flags))))
-          (->Kind log idx (Object.) (atom (set live)) log-path idx-path (atom nil)
+          (->Kind log idx (Object.) (atom (set live)) log-path idx-path (atom nil) (atom nil)
                   (when (pos? cache-cap) (lru cache-cap)) enc dec))
         (catch Throwable t
           (f/close! log)
@@ -157,8 +197,8 @@
   ([k id rec] (store! k id rec false))
   ([k id rec premise?]
    (locking (:lock k)
-     (let [off  (f/append-record! (:log k) ((:enc k) rec))
-           plen (- (f/log-length (:log k)) off 4)]  ; payload length (frame minus prefix)
+     (usable! k)
+     (let [[off plen] (f/append-record-sized! (:log k) ((:enc k) rec))]
        ;; the premise's strength rides the slot too (bits 2..3), so `premise-strength`
        ;; reads it off the idx the open walk already makes rather than paging the record
        (f/write-slot! (:idx k) id off plen
@@ -176,9 +216,14 @@
   handle this store could have issued reads as nil: a non-integer (callers pass an
   informant keyword/symbol to `get-sentex`) and a negative one (which would otherwise
   reach `read-slot` as a negative file position and throw).  Both are the nil the memory
-  store returns for a key it does not hold — a lookup must not depend on the backend."
+  store returns for a key it does not hold — a lookup must not depend on the backend.
+
+  Refused outright — cache hit or not — once the kind is `failed`: a cached value would
+  still be right, but a store half of whose reads answer and half refuse is harder to
+  reason about than one that says so on every call."
   [k id]
   (when (and (integer? id) (not (neg? (long id))))
+    (usable! k)
     (let [^java.util.Map c (:cache k)]
       (or (when c (.get c id))
           ;; the lock is kept even though both reads are now positional (they neither use
@@ -199,6 +244,7 @@
   [k id]
   (when (contains? @(:live-ids k) id)
     (locking (:lock k)
+      (usable! k)
       (f/tombstone-slot! (:idx k) id)
       (track-touched k id))
     (swap! (:live-ids k) disj id)
@@ -225,7 +271,12 @@
       (store! (:sentexes kinds) id rec (some? (:strength rec)))
       (when (:strength rec) (swap! premises conj id))
       id))
-  (get-sentex [_ id] (fetch (:sentexes kinds) id))
+  ;; Tallied by kind (`vaelii.impl.profile`), the same seam the RAM store carries, and
+  ;; this is the store the number is *about*: a miss here is a positional slot read, a
+  ;; positional frame read and a nippy thaw, where an index read is a map lookup.  On the
+  ;; protocol method rather than inside `fetch`, so the two stores count the same events —
+  ;; `mark-premise` below re-fetches where the RAM store reaches into its state map.
+  (get-sentex [_ id] (prof/record-fetch :sentex) (fetch (:sentexes kinds) id))
   (delete-sentex! [_ id]
     (kill! (:sentexes kinds) id)
     (swap! premises disj id)
@@ -236,14 +287,14 @@
     (let [id (clear-counter! counter (or (:id justification) (p/next-id this)))]
       (store! (:justifications kinds) id (assoc justification :id id))
       id))
-  (get-justification [_ id] (fetch (:justifications kinds) id))
+  (get-justification [_ id] (prof/record-fetch :justification) (fetch (:justifications kinds) id))
   (delete-justification! [_ id]
     (kill! (:justifications kinds) id)
     (kill! (:provenance kinds) id)
     nil)
 
   (put-provenance    [_ id prov] (store! (:provenance kinds) id prov) prov)
-  (get-provenance    [_ id]      (fetch (:provenance kinds) id))
+  (get-provenance    [_ id]      (prof/record-fetch :provenance) (fetch (:provenance kinds) id))
   (delete-provenance! [_ id]     (kill! (:provenance kinds) id) nil)
 
   (sentex-ids    [_] (set @(:live-ids (:sentexes kinds))))
@@ -294,7 +345,7 @@
     ;; depend on the backend for a key it does not hold.
     (let [k (:sentexes kinds)]
       (if (and (integer? id) (not (neg? (long id))))
-        (if-let [slot (locking (:lock k) (f/read-slot (:idx k) id))]
+        (if-let [slot (locking (:lock k) (usable! k) (f/read-slot (:idx k) id))]
           (let [rank (f/slot-strength (:flags slot))]
             (if (pos? rank)
               (strength/class-of-rank rank)
@@ -311,7 +362,15 @@
         (when-let [^java.util.Map c (:cache k)] (.clear c))
         ;; an in-flight compaction snapshotted the pre-wipe state — tell it to abort
         ;; (discard its temps) rather than replay them over the now-empty files.
-        (swap! (:compacting k) (fn [c] (when c (assoc c :aborted true))))))
+        (swap! (:compacting k) (fn [c] (when c (assoc c :aborted true))))
+        ;; A compaction that failed past its commit point left the marker and both temps
+        ;; on disk for the next open to finish the install off — so a wipe that leaves
+        ;; them is undone by that open, which replays the pre-wipe records over the
+        ;; truncated files.  The wipe supersedes the install: drop the marker and the
+        ;; temps under the same lock, and the kind is usable again.
+        (let [{:keys [log-tmp idx-tmp marker]} (f/compact-temp-paths (:log-path k) (:idx-path k))]
+          (f/delete-compact-temps! marker log-tmp idx-tmp))
+        (reset! (:failed k) nil)))
     (reset! premises #{})
     (reset! counter 1)
     ;; the dictionary goes with them: no frame survives to hold an id, and keeping the
@@ -330,11 +389,16 @@
   record through `fingerprint/accumulator`) would put
   all of them back on the open path.  What it detects is every way the record set can
   change under a snapshot — a record added, deleted, or re-stored (a re-store appends a
-  new frame, so the handle's offset moves)."
+  new frame, so the handle's offset moves).
+
+  It consults `usable!`: this is a *claim about the record set*, and a half-copied idx
+  would answer with a fingerprint describing no version of the records that ever existed
+  — which a derived image would then be stamped with, or validated against."
   [{:keys [kinds]}]
   (let [k   (:sentexes kinds)
         acc (fp/slot-accumulator)]
     (locking (:lock k)
+      (usable! k)
       (f/scan-idx! (:idx k) (fn [id offset length _flags] (acc id offset length))))
     (acc)))
 
@@ -549,6 +613,7 @@
   bytes are summed from the live slots (offset + 4 + length)."
   ^double [k]
   (locking (:lock k)
+    (usable! k)
     (let [total (f/log-length (:log k))
           live  (volatile! 0)]
       (f/scan-idx! (:idx k) (fn [_ _ length _] (vswap! live + (+ 4 (long length)))))
@@ -597,6 +662,7 @@
         ;; snapshot (brief lock) — the live slots as of now; everything so far sits at
         ;; offset < cutoff (immutable), so the rewrite can read it lock-free.
         snapshot (locking (:lock k)
+                   (usable! k)
                    (let [live (java.util.ArrayList.)]
                      (f/scan-idx! (:idx k)
                                   (fn [id off len flags] (.add live [id off len flags])))
@@ -613,9 +679,8 @@
       ;; — an unannotated slot is answered from its record — but it would quietly put
       ;; every later open back to decoding the whole store.
       (doseq [[id off _len flags] snapshot]
-        (let [rec  (f/read-record rlog off)
-              noff (f/append-record! tlog rec)
-              plen (- (f/log-length tlog) noff 4)]
+        (let [rec         (f/read-record rlog off)
+              [noff plen] (f/append-record-sized! tlog rec)]
           (f/write-slot! tidx id noff plen flags 0)))
       (f/close! rlog)
       ;; reconcile + swap (brief lock)
@@ -630,9 +695,8 @@
               (doseq [id touched]
                 (let [slot (f/read-slot (:idx k) id)]
                   (if (and slot (not (:tombstone? slot)))
-                    (let [rec  (f/read-record (:log k) (:offset slot))
-                          noff (f/append-record! tlog rec)
-                          plen (- (f/log-length tlog) noff 4)]
+                    (let [rec         (f/read-record (:log k) (:offset slot))
+                          [noff plen] (f/append-record-sized! tlog rec)]
                       (f/write-slot! tidx id noff plen (:flags slot) 0))
                     (f/tombstone-slot! tidx id))))
               ;; preserve the high-water mark so `next-id` (1 + max-slot) never reissues
@@ -656,12 +720,39 @@
         ;; session** never goes through recovery, and `f/open-log` seeks to `.length`
         ;; while `f/open-idx` does not truncate.  It would open these and append, and the
         ;; reconcile would replay a temp holding this run's slots over the live index,
-        ;; resurrecting records deleted in between.  A failure **after** the marker must
-        ;; leave them: it is the commit point, `replay-temp-onto-raf!` truncates before
-        ;; copying, and the next open finishes the replay off the marker.
+        ;; resurrecting records deleted in between.
         (f/close! tlog) (f/close! tidx)
-        (when-not @committed? (f/delete-compact-temps! marker log-tmp idx-tmp))
-        (throw t))
+        (if-not @committed?
+          (do (f/delete-compact-temps! marker log-tmp idx-tmp)
+              (throw t))
+          ;; A failure **after** the marker leaves the temps: it is the commit point,
+          ;; the fsynced temps are the truth, and `replay-temp-onto-raf!` truncates
+          ;; before copying — so the live files may now be half-copied while the
+          ;; session keeps running over them.  Retry the install once, the same replay
+          ;; an open would make off the marker.  If that fails too, the kind is flipped
+          ;; into `failed`: every read and write refuses with `:compaction-failed`
+          ;; rather than answering off a torn log, and the next open finishes the
+          ;; install.
+          (let [again (try (locking (:lock k)
+                             (f/replay-temp-onto-raf! (:log k) log-tmp)
+                             (f/replay-temp-onto-raf! (:idx k) idx-tmp)
+                             (f/delete-compact-temps! marker log-tmp idx-tmp))
+                           nil
+                           (catch Throwable t2 (.addSuppressed t2 t) t2))]
+            (if again
+              (do (reset! (:failed k) again)
+                  (trove/log! {:level :error :id ::compaction-failed
+                               :msg (str "disk record store: compaction of " (:log-path k)
+                                         " failed after its commit point and the retry"
+                                         " failed too — the store refuses reads and writes"
+                                         " until it is reopened")
+                               :error again})
+                  (throw again))
+              (trove/log! {:level :warn :id ::compaction-retried
+                           :msg (str "disk record store: installing the compacted "
+                                     (:log-path k) " failed after its commit point and"
+                                     " succeeded on retry")
+                           :error t})))))
       (finally
         ;; stop delta tracking even if the rewrite threw
         (reset! (:compacting k) nil)

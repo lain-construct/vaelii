@@ -132,6 +132,41 @@
         (is (= #{Bob Cid} (binding [v/*query-options* :depth-first]
                             (zs (v/query kb goal CxQ {:max-depth 3})))))))))
 
+(tu/deftest-kb a-key-query-does-not-read-is-refused-not-handed-to-the-engine
+  ;; The node engine reads the keys it knows and ignores the rest, so an open roster here
+  ;; would let `{:max-deph 3}` answer facts-only with nothing to say a rule was never
+  ;; expanded — the silent-default failure every other door refuses.  The roster is the
+  ;; union of `query`'s own dial and the engine's, and it is public.
+  (tu/with-terms [parentOf anc Ann Bob CxQ]
+    (v/assert kb (list parentOf Ann Bob) CxQ)
+    (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxQ
+                   {:direction :backward})
+    (let [goal    (list anc Ann '?z)
+          refusal (fn [opts]
+                    (try (v/query kb goal CxQ opts) nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+      (testing "every key on the roster is taken"
+        (is (= #{:max-depth :proof? :strategy :portfolio? :auto? :racers} v/query-opt-keys))
+        (is (= [{'?z Bob}] (vec (v/query kb goal CxQ {:max-depth 2 :strategy :depth-first
+                                                      :auto? false :portfolio? false
+                                                      :racers [:cost :depth-first]}))))
+        (is (= [{'?z Bob}] (map :bindings (v/query kb goal CxQ {:max-depth 2 :proof? true})))))
+      (testing "a misspelt one is refused by name, at `query` and `query?` alike"
+        (doseq [opts [{:max-deph 2} {:proof true :max-depth 2} {:max-depth 2 :strategy :cost :portfolio true}]]
+          (let [d (refusal opts)]
+            (is (= :unknown-option (:type d)) (pr-str opts))
+            (is (= (vec (sort v/query-opt-keys)) (:options d)) "and the refusal names the roster")
+            (is (seq (:unknown d))))
+          (is (= :unknown-option
+                 (:type (try (v/query? kb goal CxQ opts) nil
+                             (catch clojure.lang.ExceptionInfo e (ex-data e))))))))
+      (testing "a non-map opts is refused the same way"
+        (is (= :unknown-option (:type (refusal :oops))))
+        (is (= :unknown-option (:type (refusal [:max-depth 2])))))
+      (testing "and nil opts is the no-rule-expansion read, as ever"
+        (when-not (tu/query-engine-override)
+          (is (empty? (v/query kb goal CxQ nil))))))))
+
 (tu/deftest-kb a-bounded-query-answers-a-subset-of-what-prove-answers
   ;; The two engines terminate on different things — `query` on its bound, `prove` on the
   ;; data — so within the bound they must agree, and past it `prove` may know more.  A
@@ -155,3 +190,42 @@
           (is (= proved (bounded 6))))
         (testing "while a shallow one is a strict subset"
           (is (< (count (bounded 1)) (count proved))))))))
+
+(tu/deftest-kb each-debugger-door-rosters-what-it-actually-reads
+  ;; A roster wider than its door is the silent default one level in: `search-tree` runs
+  ;; under `:proof? true` and never reaches the portfolio path, and `compare-tacticians`
+  ;; sets the ordering per row — so `query`'s roster handed to either accepts a key the
+  ;; door then overwrites.  `{:strategy :cost}` at `compare-tacticians` is the one that
+  ;; reads worst: taken, discarded, and four rows come back under the default orderings
+  ;; as though the caller had named none.
+  (tu/with-terms [parentOf anc Ann Bob CxDbg]
+    (v/assert kb (list parentOf Ann Bob) CxDbg)
+    (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxDbg
+                   {:direction :backward})
+    (let [goal (list anc Ann '?z)
+          data (fn [f opts] (try (f kb goal CxDbg opts) nil
+                                 (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+      (testing "the rosters are public and are what each door reads"
+        (is (= #{:max-depth :strategy :node-budget :max-ms} v/search-tree-opt-keys))
+        (is (= #{:max-depth :tacticians :node-budget :max-ms} v/compare-tacticians-opt-keys)))
+      (testing "search-tree refuses the keys it would overwrite or never read"
+        (doseq [opts [{:max-depth 2 :proof? false} {:max-depth 2 :portfolio? true}
+                      {:max-depth 2 :auto? true}   {:max-depth 2 :racers [:cost]}
+                      {:max-deph 2}]]
+          (let [d (data v/search-tree opts)]
+            (is (= :unknown-option (:type d)) (pr-str opts))
+            (is (= (vec (sort v/search-tree-opt-keys)) (:options d))))))
+      (testing "compare-tacticians refuses :strategy, which it sets per row"
+        (doseq [opts [{:max-depth 2 :strategy :cost} {:max-depth 2 :proof? true}
+                      {:max-depth 2 :portfolio? true}]]
+          (let [d (data v/compare-tacticians opts)]
+            (is (= :unknown-option (:type d)) (pr-str opts))
+            (is (= (vec (sort v/compare-tacticians-opt-keys)) (:options d))))))
+      (testing "and every rostered key still answers"
+        (is (= :complete (:status (v/search-tree kb goal CxDbg
+                                                 {:max-depth 2 :strategy :depth-first
+                                                  :node-budget 200 :max-ms 5000}))))
+        (is (= [:cost] (mapv :tactician
+                             (v/compare-tacticians kb goal CxDbg
+                                                   {:max-depth 2 :tacticians [:cost]
+                                                    :node-budget 200 :max-ms 5000}))))))))

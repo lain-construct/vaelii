@@ -76,3 +76,68 @@ config_wants_disk() {
     *) return 1 ;;
   esac
 }
+
+# ---- how many assertions a configuration is EXPECTED to run short ----------
+#
+# The suite is failing-set-identical across all thirteen, and the assertion COUNT moves
+# only where a test says why.  `test-backends.sh` and `test-sweeps.sh` have both stated
+# that for as long as they have existed; what follows is the same claim, checked.  Any
+# other difference is a run that skipped something the others ran — a namespace that
+# failed to load, a `deftest` that stood aside without saying so, a switch that turned a
+# gate off — and every one of those reads as a green run.
+#
+# Two tests stand aside on purpose, and they are the whole table:
+#
+#   4   `profile_test/the-fan-tally-counts-what-the-walk-touched` — the `:fan` tally is
+#       the one that is not index-independent, since the columnar trie walks natively and
+#       counts no node probes.  It asserts that instead of standing aside (docs/profile.md).
+#   8   the four `tu/query-engine-override` sites in `backward_test`, `query_test` and
+#       `inference_test` — `prove` returns one solution per derivation on the DFS and one
+#       per answer on the node engine, so counting its results is a DFS question.
+#
+# MEASURED, at both selectors, so the table does not depend on which one is running:
+# `logs/test-matrix/run-92715` at `:all` puts the two columnar runs 4 below and the two
+# node-engine runs 8 below, and the contributing namespaces alone reproduce both at
+# `:default` (profile_test 86 -> 82, the three query namespaces 356 -> 348).  Neither
+# stand-aside sits in a `^:slow` test, which is why the two selectors agree.
+#
+# A new stand-aside belongs here with its reason, in the commit that adds it.
+config_expected_delta() {
+  case "$1" in
+    memory-columnar|disk-columnar) printf '4' ;;
+    query-engine|tactician)        printf '8' ;;
+    *)                             printf '0' ;;
+  esac
+}
+
+# Check `name:assertions` pairs against that table.  Prints one line per configuration
+# whose shortfall is not the expected one and returns 1; silent and 0 when they all hold.
+#
+# The baseline is the highest `count + expected`, not simply the highest count, and that
+# is what makes a SUBSET checkable: `./scripts/test-sweeps.sh query-engine tactician`
+# runs two configurations that are both expected to be 8 short, and against a bare
+# maximum each would look like the full count and the other would look 0 short.
+# Reconstructing the full count from every run and taking the highest gives the same
+# baseline whichever configurations were asked for.
+assertion_deltas_ok() {
+  local pair name count baseline=0 full actual expected bad=0
+  for pair in "$@"; do
+    count="${pair##*:}"
+    case "$count" in ''|*[!0-9]*) continue ;; esac
+    full=$(( count + $(config_expected_delta "${pair%%:*}") ))
+    (( full > baseline )) && baseline=$full
+  done
+  (( baseline == 0 )) && return 0            # nothing finished; nothing to compare
+  for pair in "$@"; do
+    name="${pair%%:*}"; count="${pair##*:}"
+    case "$count" in ''|*[!0-9]*) continue ;; esac
+    expected=$(config_expected_delta "$name")
+    actual=$(( baseline - count ))
+    if (( actual != expected )); then
+      printf '  %-16s ran %s assertions — %s short of %s, where the table expects %s\n' \
+        "$name" "$count" "$actual" "$baseline" "$expected"
+      bad=1
+    fi
+  done
+  return $bad
+}

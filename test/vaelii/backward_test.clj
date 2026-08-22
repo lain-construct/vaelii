@@ -6,6 +6,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.plan :as plan]
+            [vaelii.impl.resolution :as res]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -185,3 +186,101 @@
           (is (every? empty? ground))
           (is (v/provable? kb (list shared Someone) CxDeriv)
               "provable? asks whether there is one, not how many"))))))
+
+;; ---- the term-growth ceiling ---------------------------------------------
+;; The per-path goal key keeps its ground arguments, so a rule that wraps a function
+;; around a head variable asks a fresh goal per expansion and the key never repeats.
+;; The second half of the loop guard is a ceiling on how far a subgoal's terms may
+;; nest past the query's (`res/default-max-term-growth`): relative, so recursion that
+;; shrinks a term is never touched.
+
+(defn- within-ms
+  "`f`'s value, or `::timeout` when it has not returned after `ms` — the shape a
+  termination claim is tested in, since a hang has no value to assert on."
+  [ms f]
+  (let [fut (future (f))
+        r   (deref fut ms ::timeout)]
+    (when (= r ::timeout) (future-cancel fut))
+    r))
+
+(deftest term-depth-reads-argument-nesting
+  (is (= 0 (res/term-depth '(p A))))
+  (is (= 0 (res/term-depth '(p ?x ?y))))
+  (is (= 1 (res/term-depth '(p (SuccFn A)))))
+  (is (= 2 (res/term-depth '(p A (SuccFn (SuccFn ?x))))))
+  (is (= 0 (res/term-depth 'A))))
+
+(tu/deftest-kb a-term-growing-rule-terminates-at-the-ceiling
+  (tu/with-terms [p SuccFn A CxGrow]
+    ;; (implies (p (SuccFn ?x)) (p ?x)): every expansion wraps one more SuccFn
+    (v/assert-rule kb [(list p (list SuccFn '?x))] (list p '?x) CxGrow)
+    (testing "with nothing stored, the search cuts at the ceiling and answers no"
+      (is (false? (within-ms 20000 #(v/provable? kb (list p A) CxGrow)))))
+    (testing "a fact within the allowance is still reached through the rule"
+      (v/assert kb (list p (list SuccFn (list SuccFn A))) CxGrow)
+      (is (true? (within-ms 20000 #(v/provable? kb (list p A) CxGrow)))))
+    (testing "the level stack's unbounded level terminates on the same rule"
+      (is (not= ::timeout
+                (within-ms 20000 #(doall (v/explain-levels kb (list p A) CxGrow))))))))
+
+(tu/deftest-kb a-term-shrinking-recursion-is-not-bounded
+  (tu/with-terms [q SuccFn Zero CxShrink]
+    ;; (implies (q ?x) (q (SuccFn ?x))): a goal about a numeral counts it down
+    (v/assert-rule kb [(list q '?x)] (list q (list SuccFn '?x)) CxShrink)
+    (v/assert kb (list q Zero) CxShrink)
+    (let [deep (nth (iterate #(list SuccFn %) Zero) 12)]
+      (testing "twelve levels of descent, past the growth allowance, still answer —
+                the ceiling is relative to the query and a shrinking goal never meets it"
+        (is (true? (within-ms 20000 #(v/provable? kb (list q deep) CxShrink))))))))
+
+(tu/deftest-kb a-deep-stored-term-a-conjunct-bound-raises-the-ceiling-for-the-next
+  (tu/with-terms [deepOf baseOf holdsIt okFor FooFn Zed Aye Other CxDeep]
+    ;; ten levels of nesting is past the allowance, and no rule grew any of it: the
+    ;; term is stored that deep, and the second conjunct only inherits it
+    (let [deep (nth (iterate #(list FooFn %) Zed) 10)]
+      (v/assert kb (list deepOf Aye deep) CxDeep)
+      (v/assert kb (list baseOf deep) CxDeep)
+      ;; a handful of stored `holdsIt` facts, so the planner leads with `deepOf` — the
+      ;; order that binds the deep term before the conjunct that has to inherit it
+      (doseq [i (range 6)] (v/assert kb (list holdsIt (symbol (str Other i))) CxDeep))
+      (v/assert-rule kb [(list baseOf '?y)] (list holdsIt '?y) CxDeep {:direction :backward})
+      (v/assert-rule kb [(list deepOf '?x '?y) (list holdsIt '?y)] (list okFor '?x) CxDeep
+                     {:direction :backward})
+      (testing "the derivation is found: only a rule's own nesting meets the ceiling"
+        (is (= [{}] (v/prove kb (list okFor Aye) CxDeep))))
+      (testing "the node engine agrees, as it must within its depth bound"
+        (is (= [{}] (v/query kb (list okFor Aye) CxDeep {:max-depth 4}))))
+      (testing "reordering the conjunction changes cost, never the answer set"
+        (binding [plan/*enabled* false]
+          (is (= #{{'?y deep}}
+                 (set (v/prove kb [(list deepOf Aye '?y) (list holdsIt '?y)] CxDeep))
+                 (set (v/prove kb [(list holdsIt '?y) (list deepOf Aye '?y)] CxDeep)))))))))
+
+;; ---- a variable-functor goal expands rules ---------------------------------
+;; `(?p Tom ?y)` names no consequent bucket, and any rule may conclude it once `?p`
+;; binds — so the candidate rules are every rule, read off the antecedent roster, and
+;; `subsuming-unify` binds the functor per rule.  Fact matching answers the open functor
+;; through the argument roots; rule expansion has to answer it the same way, in both
+;; engines, or the open question silently sees the stored half of the KB.
+
+(tu/deftest-kb a-variable-functor-goal-expands-a-concrete-consequent-rule
+  (tu/with-terms [parentOf ancestorOf Tom Bob CxOpen]
+    (v/assert kb (list parentOf Tom Bob) CxOpen)
+    (let [rh    (v/assert kb (list 'set/backwardRule
+                                   (list 'implies (list parentOf '?x '?y)
+                                         (list ancestorOf '?x '?y)))
+                          CxOpen)
+          preds (fn [sols] (set (map #(get % '?p) sols)))]
+      (testing "the concrete goal answers through the rule"
+        (is (= #{{'?y Bob}} (set (v/query kb (list ancestorOf Tom '?y) CxOpen {:max-depth 2})))))
+      (testing "the node engine binds the open functor to the rule's consequent predicate"
+        (is (= #{parentOf ancestorOf}
+               (preds (v/query kb (list '?p Tom '?y) CxOpen {:max-depth 2})))))
+      (testing "and so does the DFS"
+        (is (= #{parentOf ancestorOf}
+               (preds (v/prove kb (list '?p Tom '?y) CxOpen)))))
+      (testing "a ground open-functor goal finds the derived predicate too"
+        (is (= #{parentOf ancestorOf}
+               (preds (v/prove kb (list '?p Tom Bob) CxOpen)))))
+      (testing "the candidate set for an open functor is every rule, read off the roster"
+        (is (contains? (set (res/concluding-rule-handles kb '?p CxOpen)) rh))))))

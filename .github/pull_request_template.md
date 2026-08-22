@@ -30,8 +30,8 @@ None
 - [ ] **Each commit's `author` is the person who signed it off** — a change someone else
       drafted is landed by re-authoring it, not by appending a second sign-off
       (CONTRIBUTING.md §7).
-- [ ] `Signed-off-by:`, `Co-Authored-By:` and `Co-developed-by:` name human
-      collaborators only — never a tool, bot or agent account (CONTRIBUTING.md §7).
+- [ ] `Signed-off-by:`, `Co-Authored-By:` and `Co-developed-by:` each name a human
+      contributor who stands behind the account (CONTRIBUTING.md §7).
 - [ ] New features and bug fixes have tests; a bug-fix test fails before the fix and
       passes after (CONTRIBUTING.md §5).
 - [ ] `lein gate` passes locally — lint, the suite, and the perf claims.

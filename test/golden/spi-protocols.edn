@@ -36,6 +36,7 @@
   index-load "[[store entries]]",
   index-rule "[[store handle ante-preds conseq-pred]]",
   index-sentex "[[store sentex handle]]",
+  leaf-at "[[store path]]",
   lookup "[[store pattern]]",
   rules-by-antecedent "[[store pred]]",
   rules-by-consequent "[[store pred]]",

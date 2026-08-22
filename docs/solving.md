@@ -80,6 +80,20 @@ contract.
         'CxUniverse)
 ```
 
+**A negated choice literal is joined like a positive one**, against the same index and
+after them, so it may be partially ground and its own variables count as bindings:
+
+```clojure
+;; every pick must be taken — one nogood per ground (pick c), each forbidding that
+;; head's absence.  `?c` is bound by nothing but this literal, and that is enough.
+(assert kb '(set/hardConstraint (implies (not (pick ?c)) (mustPick ?c))) 'CxUniverse)
+```
+
+A negated literal matching *no* head drops its binding rather than constraining
+anything, and that is the right answer either way: an atom that does not exist is
+absent in every model, so it can never be false-*together* with the rest and the
+requirement it guards is vacuous for that binding.
+
 **Hard and soft differ at the encoding** ([asp.md](asp.md)). A hard nogood renders as an
 ASPIF integrity constraint — no violation atom, no minimize term — so a model whose whole
 signed body holds is excluded outright. A soft one takes the weak-constraint path the
@@ -158,19 +172,48 @@ the markers back through the term index, so a user context that happens to be na
 numbered slot an unrelated context already occupies, so it is never written into
 either. Two belt-and-braces guards back this: the sweep refuses to touch a context
 holding any *believed* sentex (everything a solve writes is inert by construction),
-and `retract!` tears an inert sentex down directly.
+and `retract!` tears an inert sentex down directly. And the sweep takes a context's
+own **extent**, plus — for a marked labeling context only — the one `(genlCx <ctx>
+<Base>)` edge that placed it under *this run's* base, matched whole rather than by its
+functor: a sentex *about* a solve context asserted from elsewhere (an edge a user hung
+under `<Into>Class` or under a context of their own, a claim naming `<Into>1`) is that
+user's and survives. Hanging a labeling under contexts of one's own is the ordinary way
+to read a solved world beside other knowledge, and a functor-wide sweep would delete
+those edges on the next run.
 
 **Replace-on-rerun, under `:all`** (the other two modes write nothing to replace).
 Re-running `do/label` with the same `Into` clears the previous run's artifacts before
 writing the new ones: every marked labeling context — its truth values, its marker, *and*
-its `genlCx` edge, so a surplus stale context (a run that shrank from three
-labelings to two) drops out of the hierarchy and `do/classify`
+its placement edge under the base, so a surplus stale context (a run that shrank from
+three labelings to two) drops out of the hierarchy and `do/classify`
 cannot sweep it back in — plus the classification. So a solve converges instead of
 accreting; without the sweep, two groundings' truth values would union into one
 context, and an inert `(head)` beside an inert `(not head)` asserts nothing at all. A
 run that grounds *no* choices clears too — "no labelings" is its honest result. The
 one exception is `:no-backend`: nothing was computed, so the previous artifact is left
 standing.
+
+**A run that cannot replace what is there refuses**, with `:labeling-run-blocked`, and
+refuses before the solve rather than after it. Two things stop the sweep, and
+proceeding past either is worse than not running at all:
+
+- **A labeling context somebody has asserted believed content into.** The sweep
+  declines to touch it — that is the guard above, and it is right — but the old marker
+  then survives beside the new run's, and `do/classify` aggregates two groundings into
+  one classification.
+- **A labeling whose `labelingOf` marker has been retracted.** The marker is an
+  ordinary sentex, and rediscovery is the only way the sweep finds a context, so losing
+  one hides that context from the sweep forever while its `genlCx` edge goes on holding
+  it in the hierarchy — a believed monotonic edge nothing will ever retract, and one
+  more leaked slot on every re-run. It is recognized instead by what a marker-less
+  artifact still is: a slot name, a non-empty extent with nothing believed in it, and
+  this run's own placement edge under `Base`.
+
+Believed content is what distinguishes a user's context from a lost artifact, and it is
+decisive in both directions: a context of one's own that occupies a slot — even one hung
+under this very base — is neither swept nor refused over. The refusal names what is in
+the way; retracting that context's extent, or naming a different `Into`, clears it.
+`(do/label _ _ :one)` and `:sat` are unaffected, having nothing to replace.
 
 ```clojure
 (assert kb '(set/assumptionRule (implies (candidate ?c) (color ?c red))) 'CxUniverse)
@@ -204,7 +247,18 @@ standing.
 The result is `{:base :into :choices [..] :labelings [{:context :true [..] :false [..]}]
 :count n}`, with `:context` nil under `:one` / `:sat`, phase timings (`:ground-ms`,
 `:translate-ms`, `:solve-ms`) for a profiling caller, and `:count 0` plus a `:reason`
-(`:no-choices`, `:no-backend`) when there is nothing to solve or no backend to solve it.
+when there is no labeling to report: `:no-choices` (nothing was ground), `:no-backend`
+(nothing could be solved), or `:unsatisfiable`.
+
+**`:unsatisfiable` is the answer when the hard constraints admit no model.** A hard
+at-least-one over choices every other hard constraint forbids has no solution, and
+"none" is what a solve of it reports. It matters most under `:one` / `:sat`, where a
+single answer set comes back: an infeasible program keeps nothing, and *keeping
+nothing* is indistinguishable in shape from the one perfectly ordinary world in which
+every choice happened to be false — which for such a program is a world its own
+constraints exclude. So the count is 0 and the reason says why, rather than one
+labeling being reported that no model backs. Under `:all` the same program enumerates
+nothing and reports `:count 0` on its own.
 
 ## `(do/classify Into)`
 

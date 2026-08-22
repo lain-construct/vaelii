@@ -54,6 +54,7 @@
   See docs/inference.md."
   (:require [clojure.set :as set]
             [clojure.walk :as walk]
+            [vaelii.impl.budget :as budget]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.protocols :as p]
@@ -534,9 +535,11 @@
         sols))))
 
 (defn search-seq
-  "The session's solutions, lazily — one node expanded per pull, so a bounded consumer
-  (`budget/collect`) stops the search where it stops reading.  A node that completes
-  nothing costs the consumer nothing but does advance the search."
+  "The session's solutions, lazily — one node expanded per pull, so a consumer that
+  stops reading stops the search.  A node that completes nothing costs the consumer
+  nothing but does advance the search: one pull runs `step!` until a node yields, so a
+  wide unproductive stretch is inside one element.  A **deadline** therefore cannot be
+  held between elements of this seq; `search-within` is the bounded drive."
   [sess]
   (lazy-seq
    (loop []
@@ -545,6 +548,49 @@
          (nil? r) nil
          (seq r)  (concat r (search-seq sess))
          :else    (recur))))))
+
+(defn search-within
+  "Drive `sess` under `budget` — `:max-ms` and `:max-results` — and return the
+  partial-result contract `budget/collect` returns (`:results` / `:status` / `:count` /
+  `:elapsed-ms` / `:resume`), the shape `core/prove-within` promises.
+
+  The bounds are checked **before every node expansion**, not between yielded
+  solutions: a `step!` that completes nothing still advances the clock, and a wide
+  unproductive frontier — a converging rule graph under a generous depth — can run
+  many of them before a node yields.  `budget/collect` over `search-seq` would check
+  the deadline only once that node had, which is after the whole stretch.  Here the
+  deadline stops the drive at the next node, within one expansion of the bound.
+
+  The session is the continuation: its frontier is state the next step picks up, so
+  `:resume` drives the same session further under a fresh budget.  Solutions a step
+  completed past a `:max-results` cap ride the continuation as `pending` rather than
+  being dropped or over-delivered — exactly n are returned, and the rest head the
+  next step.  The order of checks is `collect`'s — cap, deadline, then work — so
+  `:capped` with work left and `:timeout` with work left mean what they mean there."
+  ([sess budget] (search-within sess budget []))
+  ([sess budget pending]
+   (budget/check-budget! budget)
+   (let [max-results (:max-results budget)
+         dl          (budget/deadline budget)
+         start       (System/nanoTime)]
+     (loop [pending (vec pending), acc (transient [])]
+       (cond
+         (and max-results (>= (count acc) (long max-results)))
+         (budget/from-batch (persistent! acc) :capped start
+                            (fn [b] (search-within sess b pending)))
+
+         (and dl (>= (System/nanoTime) (long dl)))
+         (budget/from-batch (persistent! acc) :timeout start
+                            (fn [b] (search-within sess b pending)))
+
+         (seq pending)
+         (recur (subvec pending 1) (conj! acc (nth pending 0)))
+
+         :else
+         (let [r (step! sess)]
+           (if (nil? r)
+             (budget/from-batch (persistent! acc) :complete start nil)
+             (recur (vec r) acc))))))))
 
 (defn- run-one
   "One search, under one strategy — the whole engine, and what every mode below drives."

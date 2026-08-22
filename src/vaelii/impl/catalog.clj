@@ -397,10 +397,15 @@
 
 ;; `load-source`'s claim is a read-test-write across two touches of `state`, which one
 ;; `swap!` cannot express (it throws rather than retrying, and a `swap!` fn must be
-;; retryable).  This makes the two one step.  The *other* claim — that only one job writes
-;; at a time — is the registry's, under its own monitor, and nothing here takes them in
-;; the other order.
-(defonce ^:private load-monitor (Object.))
+;; retryable).  This makes the two one step — the entry key it picks, the already-loaded
+;; test and the registration.  `export-entry!`'s one-export-at-a-time check is the same
+;; shape over the job registry (`exporting?`, then `jobs/submit`) and takes the same
+;; monitor, so two export requests arriving together cannot both pass it.  `unload!`'s
+;; export test is the third, and takes it for a reason the first two do not have: its
+;; check and `export-entry!`'s read *different* registries, so the two are serialized only
+;; by sharing this.  The *other* claim — that only one job writes at a time — is the
+;; registry's, under its own monitor, and nothing here takes them in the other order.
+(defonce ^:private start-monitor (Object.))
 
 (defn- now [] (System/currentTimeMillis))
 
@@ -478,6 +483,19 @@
   "The KB the browser should be reading, or nil when nothing is loaded."
   []
   (:kb (entry (active))))
+
+(defn name-of
+  "What to call `kb` — the name of the entry holding it, or nil for a KB this registry
+  never heard of.  By identity, like `exporting-kb?` and `write-blocked?`.
+
+  A page that has *resolved* a KB and judged it asks this rather than `active-entry`:
+  `activate` re-points the holder at any moment and takes no monitor, so the active entry
+  a moment later can be a different KB — and a refusal that named it would name the KB it
+  did not judge."
+  [kb]
+  (when kb
+    (let [{:keys [entries order]} @state]
+      (some #(let [e (get entries %)] (when (identical? kb (:kb e)) (:name e))) order))))
 
 (defn loading?
   "Is a load running?  One runs at a time: a load claims this process's writer, and two at
@@ -790,74 +808,76 @@
   ([source-id] (load-source source-id {}))
   ([source-id params]
    (let [src (or (source source-id)
-                 (throw (ex-info (str "no KB source " (pr-str source-id)) {:type :unknown-source})))
-         key (entry-key src)]
-     ;; Check and claim under one monitor.  The already-loaded test and the `swap!` that
-     ;; registers the entry are two separate touches of `@state`, and two requests arriving
-     ;; together on Jetty's pool each passed both — both spawned a loader, and two
-     ;; background loaders then wrote the same stores.  That is the exact case this guard
-     ;; exists to refuse, and it is the one it missed.  A *second load* is refused a layer
-     ;; down, by the writer claim in the registry.
-     (locking load-monitor
-       (when (entry key)
-         (throw (ex-info (str (:name src) " is already loaded — unload it first")
-                         {:type :already-loaded :key key})))
-       ;; The status and progress here are what an entry reads for the moment between being
-       ;; registered and its job's id landing on it — `with-job` prefers the job the instant
-       ;; there is one.  Not redundant: a caller rendering an entry in that window would
-       ;; otherwise be handed a nil status, and the page names it.
-       (swap! state (fn [s]
-                      (-> s
-                          (assoc-in [:entries key]
-                                    {:key key :source (dissoc src :options) :name (:name src)
-                                     :params params :status :running :started (now)
-                                     :progress {:phase :starting :done 0 :total (:total src)}})
-                          (update :order #(vec (distinct (conj % key)))))))
-       (try
-         (let [id (jobs/submit
-                   {:label      (str "Load " (:name src))
-                    :kind       :load
-                    ;; the KB does not exist yet — `run-load` opens it — so the claim is
-                    ;; made without naming it, and `write-blocked?` reads the entry for
-                    ;; the identity once there is one
-                    :writes     true
-                    :progress   {:phase :starting :done 0 :total (:total src)}
-                    :result-url "/kbs"
-                    :entry      key}
-                   (fn [progress!]
-                     ;; The entry outlives its job's report — a settled job ages out of the
-                     ;; registry after an hour — so the status the entry keeps *of its own*
-                     ;; has to be the settled one.  `with-job` prefers the job while there is
-                     ;; one and falls back to this; a fallback still reading `:running` is an
-                     ;; entry that never finishes loading, and two callers act on that: the
-                     ;; browser refuses every write to the KB (`write-blocked?`) and `unload!`
-                     ;; refuses `:still-stopping`, both of them for ever.
-                     (try
-                       (let [note-kb! (fn [kb where] (put-entry! key #(assoc % :kb kb :where where)))
-                             summary  (run-load src params progress! note-kb!)]
-                         ;; a cancelled or failed load leaves whatever had landed in its
-                         ;; stores; `unload!` is what takes those down
-                         ;; `:progress` settles with the status, as it does on the job
-                         ;; itself: the placeholder this entry registered with reads
-                         ;; `:starting`, and an hour on that is the only reading left
-                         (put-entry! key #(assoc % :summary summary :stats (stats (:kb %))
-                                                 :status :done :finished (now)
-                                                 :progress {:phase :done}))
-                         (swap! state (fn [s] (cond-> s (nil? (:active s)) (assoc :active key))))
-                         (trove/log! {:level :info :id ::loaded
-                                      :msg (str "loaded KB " key) :data summary})
-                         summary)
-                       (catch Throwable t
-                         (put-entry! key #(assoc % :status (if (jobs/cancelled? t) :cancelled :failed)
-                                                 :finished (now)
-                                                 :error (or (.getMessage t) (str (class t)))))
-                         (throw t)))))]
-           (put-entry! key #(assoc % :job id))
-           key)
-         (catch Throwable t
-           ;; nothing is running, so the entry is a claim on a KB that will never exist
-           (drop-entry! key)
-           (throw t)))))))
+                 (throw (ex-info (str "no KB source " (pr-str source-id)) {:type :unknown-source})))]
+     ;; Pick the key, check and claim under one monitor.  The already-loaded test and the
+     ;; `swap!` that registers the entry are two separate touches of `@state`, and two
+     ;; requests arriving together on Jetty's pool can each pass both — both spawn a
+     ;; loader, and two background loaders then write the same stores.  The key is picked
+     ;; inside for the same reason: a `:repeat?` source's suffix is one past the highest
+     ;; *registered*, so two generated loads keyed outside the monitor both read
+     ;; `generated#1` and the second's registration overwrites the first's.  A *second
+     ;; load* is refused a layer down, by the writer claim in the registry.
+     (locking start-monitor
+       (let [key (entry-key src)]
+         (when (entry key)
+           (throw (ex-info (str (:name src) " is already loaded — unload it first")
+                           {:type :already-loaded :key key})))
+         ;; The status and progress here are what an entry reads for the moment between being
+         ;; registered and its job's id landing on it — `with-job` prefers the job the instant
+         ;; there is one.  Not redundant: a caller rendering an entry in that window would
+         ;; otherwise be handed a nil status, and the page names it.
+         (swap! state (fn [s]
+                        (-> s
+                            (assoc-in [:entries key]
+                                      {:key key :source (dissoc src :options) :name (:name src)
+                                       :params params :status :running :started (now)
+                                       :progress {:phase :starting :done 0 :total (:total src)}})
+                            (update :order #(vec (distinct (conj % key)))))))
+         (try
+           (let [id (jobs/submit
+                     {:label      (str "Load " (:name src))
+                      :kind       :load
+                      ;; the KB does not exist yet — `run-load` opens it — so the claim is
+                      ;; made without naming it, and `write-blocked?` reads the entry for
+                      ;; the identity once there is one
+                      :writes     true
+                      :progress   {:phase :starting :done 0 :total (:total src)}
+                      :result-url "/kbs"
+                      :entry      key}
+                     (fn [progress!]
+                       ;; The entry outlives its job's report — a settled job ages out of the
+                       ;; registry after an hour — so the status the entry keeps *of its own*
+                       ;; has to be the settled one.  `with-job` prefers the job while there is
+                       ;; one and falls back to this; a fallback still reading `:running` is an
+                       ;; entry that never finishes loading, and two callers act on that: the
+                       ;; browser refuses every write to the KB (`write-blocked?`) and `unload!`
+                       ;; refuses `:still-stopping`, both of them for ever.
+                       (try
+                         (let [note-kb! (fn [kb where] (put-entry! key #(assoc % :kb kb :where where)))
+                               summary  (run-load src params progress! note-kb!)]
+                           ;; a cancelled or failed load leaves whatever had landed in its
+                           ;; stores; `unload!` is what takes those down
+                           ;; `:progress` settles with the status, as it does on the job
+                           ;; itself: the placeholder this entry registered with reads
+                           ;; `:starting`, and an hour on that is the only reading left
+                           (put-entry! key #(assoc % :summary summary :stats (stats (:kb %))
+                                                   :status :done :finished (now)
+                                                   :progress {:phase :done}))
+                           (swap! state (fn [s] (cond-> s (nil? (:active s)) (assoc :active key))))
+                           (trove/log! {:level :info :id ::loaded
+                                        :msg (str "loaded KB " key) :data summary})
+                           summary)
+                         (catch Throwable t
+                           (put-entry! key #(assoc % :status (if (jobs/cancelled? t) :cancelled :failed)
+                                                   :finished (now)
+                                                   :error (or (.getMessage t) (str (class t)))))
+                           (throw t)))))]
+             (put-entry! key #(assoc % :job id))
+             key)
+           (catch Throwable t
+             ;; nothing is running, so the entry is a claim on a KB that will never exist
+             (drop-entry! key)
+             (throw t))))))))
 
 (defn cancel!
   "Ask a running load to stop at its next progress report.  `!` because what it leaves
@@ -892,7 +912,13 @@
   - **an export is walking it.**  `export!` fetches record by record with no snapshot to
     walk instead, so a release landing mid-walk leaves the dump a dump of a KB that
     stopped existing halfway through.  Refused as `:still-exporting` — the walk finishes
-    against a live KB, and the retry is one the operator makes after it does.
+    against a live KB, and the retry is one the operator makes after it does.  **That test
+    and the release are one step under `start-monitor`**, the monitor `export-entry!`
+    checks and submits under: two touches of separate registries otherwise, so an unload
+    and an export arriving together each pass their own check, and if the unload wins the
+    race for the stores the walk dumps an emptied KB and reports `{:ok true}` over a
+    summary that looks exactly right.  The entry is dropped inside the monitor too, so an
+    export that was waiting on it finds no entry rather than a released one.
   - **the release itself failed.**  Reported rather than logged and forgotten: the entry
     keeps its place with status `:unreleased` and the reason on it, is not active (a KB
     whose stores half-closed is the one thing here nobody can vouch for), and the throw
@@ -928,38 +954,49 @@
      ;; and an export is a reader of exactly this KB, mid-request.  Not cancelled for the
      ;; operator: a dump takes minutes and is nobody's to throw away on the way past, so
      ;; the unload is what gives way.
-     (when (exporting-kb? (:kb (entry key)))
-       (throw (ex-info (str (:name e) " is being exported — the dump walks its records one"
-                            " by one, so releasing them now would leave it a dump of a KB"
-                            " that stopped existing halfway through.  Wait for the export,"
-                            " or cancel it, then unload.")
-                       {:type :still-exporting :key key})))
-     (let [{:keys [backend dir]} (:where (entry key))
-           run-in (or run-in (fn [work] (work)))]
-       (try
-         (run-in (fn []
-                   (case backend
-                     :memory (when-let [kb (:kb (entry key))] (v/clear! kb))
-                     :disk   (disk/close-dir! dir)
-                     nil)))
-         (catch Exception ex
-           (let [why (or (.getMessage ex) (str (class ex)))]
-             (trove/log! {:level :warn :id ::unload-problem
-                          :msg (str "releasing KB " key ": " why)})
-             ;; the entry's own status, and the load job's dropped with it: that job
-             ;; finished `:done` and `with-job` prefers it while it is there, so leaving it
-             ;; on would report the settled load over the failed release
-             (put-entry! key #(-> (dissoc % :job)
-                                  (assoc :status :unreleased :finished (now)
-                                         :error (str "did not release cleanly — " why))))
-             (swap! state update :active #(when (not= % key) %))
-             (fall-back-active!)
-             (throw (ex-info (str (:name e) " did not release cleanly — " why
-                                  ".  It is still listed, and unloading it again retries"
-                                  " the release.")
-                             {:type :unreleased :key key :backend backend} ex))))))
-     (drop-entry! key)
-     (fall-back-active!)
+     ;;
+     ;; Checked and acted on under `start-monitor` — `export-entry!`'s monitor — because
+     ;; the test and the release are two touches of two separate registries, and the export
+     ;; that has to lose this race is the one that has not submitted yet.  Outside it, both
+     ;; requests pass their own check, the release lands first, and the walk dumps an
+     ;; emptied KB under a summary that reads as a clean export.  `drop-entry!` is inside
+     ;; for the other half of the same reason: an export blocked here must find the entry
+     ;; *gone* rather than find it released.  The loader wait above stays outside — it is
+     ;; about the load, it can take thirty seconds, and an export cannot start against a
+     ;; KB a loader is still writing anyway.
+     (locking start-monitor
+       (when (exporting-kb? (:kb (entry key)))
+         (throw (ex-info (str (:name e) " is being exported — the dump walks its records one"
+                              " by one, so releasing them now would leave it a dump of a KB"
+                              " that stopped existing halfway through.  Wait for the export,"
+                              " or cancel it, then unload.")
+                         {:type :still-exporting :key key})))
+       (let [{:keys [backend dir]} (:where (entry key))
+             run-in (or run-in (fn [work] (work)))]
+         (try
+           (run-in (fn []
+                     (case backend
+                       :memory (when-let [kb (:kb (entry key))] (v/clear! kb))
+                       :disk   (disk/close-dir! dir)
+                       nil)))
+           (catch Exception ex
+             (let [why (or (.getMessage ex) (str (class ex)))]
+               (trove/log! {:level :warn :id ::unload-problem
+                            :msg (str "releasing KB " key ": " why)})
+               ;; the entry's own status, and the load job's dropped with it: that job
+               ;; finished `:done` and `with-job` prefers it while it is there, so leaving it
+               ;; on would report the settled load over the failed release
+               (put-entry! key #(-> (dissoc % :job)
+                                    (assoc :status :unreleased :finished (now)
+                                           :error (str "did not release cleanly — " why))))
+               (swap! state update :active #(when (not= % key) %))
+               (fall-back-active!)
+               (throw (ex-info (str (:name e) " did not release cleanly — " why
+                                    ".  It is still listed, and unloading it again retries"
+                                    " the release.")
+                               {:type :unreleased :key key :backend backend} ex))))))
+       (drop-entry! key)
+       (fall-back-active!))
      true)))
 
 (defn activate
@@ -1074,7 +1111,9 @@
 ;;
 ;; The two predicates that say an export is running — `exporting?` and `exporting-kb?` —
 ;; are registry reads and sit up with `loading?`, since `unload!` asks one of them before
-;; it releases anything.
+;; it releases anything.  It asks under `start-monitor`, which is the monitor the check
+;; and the submit below are one step under: an unload and an export are a race over the
+;; same stores, and the loser has to be the one that has not started.
 
 (defn export-entry!
   "Write the KB in entry `key` out as a dump in `dir`, on its own thread, and return the
@@ -1106,48 +1145,60 @@
   [key dir opts]
   (when (str/blank? (str dir))
     (throw (ex-info "an export needs a destination directory" {:type :no-destination})))
-  (when (exporting?)
-    (throw (ex-info "an export is already running" {:type :export-busy})))
-  (let [e  (entry key)
-        kb (:kb e)]
-    (when-not e
-      (throw (ex-info (if key (str "no loaded KB " (pr-str key)) "nothing is loaded to export")
-                      {:type :unknown-entry :key key})))
-    (when-not (in-process? key)
-      (throw (ex-info (str (:name e) " is served by a daemon, so its dump is written on"
-                           " that daemon's own host — export it from there")
-                      {:type :not-in-process :key key})))
-    (when (write-blocked? kb)
-      (throw (ex-info (str (:name e) " is still loading — a dump of a KB something is"
-                           " still writing is a dump of no single state")
-                      {:type :still-loading :key key})))
-    (let [run-in (:run-in opts (fn [work] (work)))
-          opts   (dissoc opts :run-in)
-          id (jobs/submit
-              {:label      (str "Export " (:name e))
-               :kind       :export
-               ;; a dump is bytes on the filesystem, so this claims no writer — claiming
-               ;; one would refuse a load of some *other* KB, which has no bearing on the
-               ;; dump; `exporting-kb?` is how the write doors refuse for this one.  It is
-               ;; never hard-interrupted either, for the same reason a KB-writing job is
-               ;; not: an interrupt mid-frame leaves a file torn rather than short
-               :result-url "/kbs"
-               :entry      key :name (:name e) :dir (str dir)
-               :variant    (:variant opts :records)
-               :progress   {:phase :starting :done 0}}
-              (fn [progress!]
-                (let [summary (run-in #(v/export! kb (str dir) (assoc opts :on-progress progress!)))]
-                  (trove/log! {:level :info :id ::exported
-                               :msg (str "exported KB " key " to " (:dir summary))
-                               :data summary})
-                  summary)))]
-      (jobs/job id))))
+  ;; the one-at-a-time check and the submit are one step under the monitor: the export
+  ;; claims no writer, so the registry's own claim cannot refuse a second one, and two
+  ;; requests arriving together would otherwise each read `exporting?` false and both start
+  (locking start-monitor
+    (when (exporting?)
+      (throw (ex-info "an export is already running" {:type :export-busy})))
+    (let [e  (entry key)
+          kb (:kb e)]
+      (when-not e
+        (throw (ex-info (if key (str "no loaded KB " (pr-str key)) "nothing is loaded to export")
+                        {:type :unknown-entry :key key})))
+      (when-not (in-process? key)
+        (throw (ex-info (str (:name e) " is served by a daemon, so its dump is written on"
+                             " that daemon's own host — export it from there")
+                        {:type :not-in-process :key key})))
+      (when (write-blocked? kb)
+        (throw (ex-info (str (:name e) " is still loading — a dump of a KB something is"
+                             " still writing is a dump of no single state")
+                        {:type :still-loading :key key})))
+      (let [run-in (:run-in opts (fn [work] (work)))
+            opts   (dissoc opts :run-in)
+            id (jobs/submit
+                {:label      (str "Export " (:name e))
+                 :kind       :export
+                 ;; a dump is bytes on the filesystem, so this claims no writer — claiming
+                 ;; one would refuse a load of some *other* KB, which has no bearing on the
+                 ;; dump; `exporting-kb?` is how the write doors refuse for this one.  It is
+                 ;; never hard-interrupted either, for the same reason a KB-writing job is
+                 ;; not: an interrupt mid-frame leaves a file torn rather than short
+                 :result-url "/kbs"
+                 :entry      key :name (:name e) :dir (str dir)
+                 :variant    (:variant opts :records)
+                 :progress   {:phase :starting :done 0}}
+                (fn [progress!]
+                  (let [summary (run-in #(v/export! kb (str dir) (assoc opts :on-progress progress!)))]
+                    (trove/log! {:level :info :id ::exported
+                                 :msg (str "exported KB " key " to " (:dir summary))
+                                 :data summary})
+                    summary)))]
+        (jobs/job id)))))
 
 (defn cancel-export!
-  "Ask a running export to stop at its next chunk boundary.  `!` because what it leaves
-  behind is a directory holding part of a dump."
+  "Ask the export that is **running** to stop at its next chunk boundary, and answer
+  whether there was one to ask.  `!` because what it leaves behind is a directory holding
+  part of a dump.
+
+  Asked of the running set rather than of `jobs/latest`: the panel shows the last export's
+  report for an hour after it settles, and the newest export of any status is one that
+  finished this morning — `jobs/cancel!` answers true for any job the registry still
+  holds, so cancelling that one reported a cancellation nothing was cancelled by, over a
+  dump already written."
   []
-  (boolean (some-> (jobs/latest :export) :id jobs/cancel!)))
+  (boolean (some-> (first (filter #(= :export (:kind %)) (jobs/running)))
+                   :id jobs/cancel!)))
 
 (defn register!
   "File an already-built KB as a settled entry and make it active if nothing else is —

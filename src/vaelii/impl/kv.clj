@@ -69,6 +69,7 @@
   against 87 ms on the flat map — so the op exists to let each backend answer with the
   probe it already has (a hash lookup, a binary search, a bitmap test)."
   (:require [clojure.set :as set]
+            [taoensso.trove :as trove]
             [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]))
@@ -100,7 +101,17 @@
   (kv-put  [b k v] "Set `k` to `v`.")
   (kv-delete  [b k]   "Delete `k`.")
   (kv-increment [b k]   "Increment the counter at `k`; return the new value.")
-  (kv-decrement [b k]   "Decrement the counter at `k`; return the new value.")
+  ;; **Clamped at zero**, and the counters are why.  Every counter key this index writes
+  ;; is a *cardinality* — how many sentexes live under a trie prefix — and a cardinality
+  ;; is not negative.  `plan/prefix-estimate` divides its selectivity by these, and a
+  ;; negative one there is not a wrong estimate but a meaningless one; `unindex-present!`
+  ;; reads the reply to decide which nodes died, and `<= 0` is what it asks, so the floor
+  ;; changes no decision on the ordinary path.  It is free: the fold has the new value in
+  ;; hand either way.
+  ;;
+  ;; A backend that answers 0 to a decrement of an absent key is therefore telling the
+  ;; truth rather than rounding: the key holds no sentexes, and it held none before.
+  (kv-decrement [b k]   "Decrement the counter at `k`, floored at 0; return the new value.")
   ;; sets
   (kv-add-to-set     [b k member] "Add `member` to the set at `k`.")
   (kv-remove-from-set     [b k member] "Remove `member` from the set at `k` (dropping the key when it empties).")
@@ -150,13 +161,18 @@
   must be able to say so by name rather than delete it.  `unknown-op!` is that throw,
   named so the transient fold beside this one raises the same thing: a bulk load taking
   the transient path and an ordinary write taking this one may not disagree about what
-  an unreadable op is."
+  an unreadable op is.
+
+  `:decrement` floors at zero, per the `KvBackend` contract: these counters are
+  cardinalities.  The floor is in every fold rather than in one of them, because the WAL
+  replays through this and the live write went through a backend — a floor applied on
+  only one side would make a reopened store disagree with the one that wrote it."
   [m [op k a]]
   (case op
     :put  [(assoc m k a) nil]
     :delete  [(dissoc m k) nil]
     :increment (let [v (inc (long (get m k 0)))] [(assoc m k v) v])
-    :decrement (let [v (dec (long (get m k 0)))] [(assoc m k v) v])
+    :decrement (let [v (max 0 (dec (long (get m k 0))))] [(assoc m k v) v])
     :add-to-set [(update m k (fnil conj #{}) a) nil]
     :remove-from-set (let [s (disj (get m k) a)]
                        [(if (empty? s) (dissoc m k) (assoc m k s)) nil])
@@ -393,6 +409,56 @@
   on the read path — the reason it is a dynamic var and not a field."
   nil)
 
+(defn- unindex-present!
+  "Take `handle`, stored at the trie leaf of `pth` (`sx/path sentex`), out of every
+  index family — the caller has established it is there (`unindex-sentex!`).  Two
+  batches instead of a round trip per trie level: one to drop the leaf handle and
+  decrement every level's counter, whose replies decide which nodes died; one to delete
+  the dead nodes' keys, detach them from their parents, and clean the term index and
+  roots."
+  [backend sentex pth handle]
+  (let [n        (count pth)
+        terms    (sentex-terms sentex)
+        roster   (roster-retires backend terms handle)             ; reads the pre-write postings
+        slots    (slot-retires backend sentex handle)              ; likewise
+        prefixes (mapv #(subvec pth 0 %) (range n -1 -1))          ; leaf .. root
+        replies  (kv-batch backend
+                           (cons [:remove-from-set (leaf-key pth) handle]
+                                 (map (fn [prefix] [:decrement (count-key prefix)]) prefixes)))
+        dead     (keep (fn [[prefix c]] (when (<= (long c) 0) prefix))
+                       (map vector prefixes (rest replies)))]
+    (kv-batch backend
+              (concat
+               (mapcat (fn [prefix]
+                         ;; the node is empty: drop its counter *and* both of its
+                         ;; sets, or an orphaned [:trie :count prefix] leaves
+                         ;; plan/prefix-estimate costing off a phantom count forever;
+                         ;; then detach its edge from the parent's child set.
+                         (cond-> [[:delete (count-key prefix)]
+                                  [:delete (set-key prefix)]
+                                  [:delete (leaf-key prefix)]]
+                           (pos? (count prefix))
+                           (conj [:remove-from-set (set-key (subvec pth 0 (dec (count prefix))))
+                                  (nth pth (dec (count prefix)))])))
+                       dead)
+               (map (fn [t] [:remove-from-set (term-key t) handle]) terms)
+               (map (fn [k] [:remove-from-set k handle]) (root-keys sentex))
+               roster slots
+               ;; the batch seal, last on purpose — `sealed-prefix` says why
+               [[:decrement (count-key sealed-prefix)]]))
+    ;; the mirror of the assert tally in `index-sentex`, and the reason it is a separate
+    ;; one: `dead` is the only quantity here the sentex does not decide.  Every other
+    ;; number is a property of what is being retracted; how many trie nodes empty
+    ;; is a property of what is left behind it (`vaelii.impl.profile`).
+    (when (prof/profiling?)
+      (prof/record-index-retract sentex {:levels (inc n)
+                                         :terms  (count terms)
+                                         :roots  (count (root-keys sentex))
+                                         :roster (count roster)
+                                         :slots  (count slots)
+                                         :dead   (count dead)}))
+    handle))
+
 (defrecord KvIndexStore [backend]
   p/IndexStore
   ;; One batch, not three round trips: the trie levels, the inverted term index, and
@@ -434,53 +500,27 @@
                                          :slots  (count slots)}))
       handle))
 
-  ;; Two batches instead of a round trip per trie level: one to drop the leaf handle
-  ;; and decrement every level's counter, whose replies decide which nodes died; one
-  ;; to delete the dead nodes' keys, detach them from their parents, and clean the
-  ;; term index and roots.
+  ;; **Gated on the handle being at the leaf.**  The counters are decremented without
+  ;; looking, and a node whose count reaches zero is deleted with every handle at its
+  ;; leaf — so one stray unindex (a handle never indexed here, or indexed and already
+  ;; removed) would take live nodes, and the sentexes stored under them, out of the
+  ;; trie.  One membership probe on the leaf — a hash lookup on every backend, no
+  ;; protocol read tallied — makes a stray unindex a no-op instead.
+  ;;
+  ;; **And says so**, because the no-op is safe and not therefore right.  The caller is
+  ;; `integrate/sentex-removed!`, which deletes the record on the next line whether or
+  ;; not anything came out of the index: a genuine record/index divergence therefore
+  ;; leaves the trie handing out a handle whose record is gone, which reads as a
+  ;; corrupted store several operations later and nowhere near here.  Silence made that
+  ;; indistinguishable from a caller retracting a handle twice.  `reindex` is the repair,
+  ;; and the log is what tells somebody to run it.
   (unindex-sentex! [_ sentex handle]
-    (let [pth      (sx/path sentex)
-          n        (count pth)
-          terms    (sentex-terms sentex)
-          roster   (roster-retires backend terms handle)             ; reads the pre-write postings
-          slots    (slot-retires backend sentex handle)              ; likewise
-          prefixes (mapv #(subvec pth 0 %) (range n -1 -1))          ; leaf .. root
-          replies  (kv-batch backend
-                             (cons [:remove-from-set (leaf-key pth) handle]
-                                   (map (fn [prefix] [:decrement (count-key prefix)]) prefixes)))
-          dead     (keep (fn [[prefix c]] (when (<= (long c) 0) prefix))
-                         (map vector prefixes (rest replies)))]
-      (kv-batch backend
-                (concat
-                 (mapcat (fn [prefix]
-                           ;; the node is empty: drop its counter *and* both of its
-                           ;; sets, or an orphaned [:trie :count prefix] leaves
-                           ;; plan/prefix-estimate costing off a phantom count forever;
-                           ;; then detach its edge from the parent's child set.
-                           (cond-> [[:delete (count-key prefix)]
-                                    [:delete (set-key prefix)]
-                                    [:delete (leaf-key prefix)]]
-                             (pos? (count prefix))
-                             (conj [:remove-from-set (set-key (subvec pth 0 (dec (count prefix))))
-                                    (nth pth (dec (count prefix)))])))
-                         dead)
-                 (map (fn [t] [:remove-from-set (term-key t) handle]) terms)
-                 (map (fn [k] [:remove-from-set k handle]) (root-keys sentex))
-                 roster slots
-                 ;; the batch seal, last on purpose — `sealed-prefix` says why
-                 [[:decrement (count-key sealed-prefix)]]))
-      ;; the mirror of the assert tally above, and the reason it is a separate one:
-      ;; `dead` is the only quantity here the sentex does not decide.  Every other
-      ;; number is a property of what is being retracted; how many trie nodes empty
-      ;; is a property of what is left behind it (`vaelii.impl.profile`).
-      (when (prof/profiling?)
-        (prof/record-index-retract sentex {:levels (inc n)
-                                           :terms  (count terms)
-                                           :roots  (count (root-keys sentex))
-                                           :roster (count roster)
-                                           :slots  (count slots)
-                                           :dead   (count dead)}))
-      handle))
+    (let [pth (sx/path sentex)]
+      (if (kv-member? backend (leaf-key pth) handle)
+        (unindex-present! backend sentex pth handle)
+        (trove/log! {:level :warn :id ::unindex-absent
+                     :data {:handle handle :path pth :context (:context sentex)}})))
+    handle)
 
   ;; Every read below tallies the **family** that answered it (`vaelii.impl.profile`),
   ;; one entry per protocol call: a deref and a `nil?` check when nobody is asking, and
@@ -559,6 +599,11 @@
             (recur frontier' (rest qs)
                    (+ visits (count frontier))
                    (max widest (count frontier'))))))))
+
+  ;; The exact leaf — one hash read of the node the path names, no walk and no fan.
+  ;; Tallied as retrieval like `lookup` beside it, because that is what it is; it records
+  ;; no fan, having none to record.
+  (leaf-at [_ path] (prof/record-read :trie-lookup) (kv-members backend (leaf-key (vec path))))
 
   (sentexes-in-context [_ context] (prof/record-read :context-root) (kv-members backend (ctx-key context)))
   (count-in-context    [_ context] (prof/record-read :context-root) (kv-count    backend (ctx-key context)))

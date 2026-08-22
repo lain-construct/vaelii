@@ -735,6 +735,93 @@
         (is (= 3 (:believed (first os)))))
       (tu/clear-kb! (tu/test-kb)))))
 
+(deftest an-antitransitive-triple-settles-the-same-way-in-every-arrival-order
+  ;; A nogood of three, and the case a pairwise engine could not represent: the mark and
+  ;; the three tuples in all 24 orders, landing on one belief set and one report.  Each
+  ;; member convicts the other two (`checks/chain-triples`, three roles), so which of them
+  ;; the region happened to hold last cannot decide whether the clash exists — and the
+  ;; entry is keyed on the handle *set*, so a triple reached from three sides is one
+  ;; dilemma rather than three.
+  (binding [checks/*arbitrate-constraints?* true]
+    (let [ops [#(v/assert % '(antiTransitive zprecedes) 'CxUniverse)
+               #(v/assert % '(zprecedes Za Zb) 'CxUniverse)
+               #(v/assert % '(zprecedes Zb Zc) 'CxUniverse)
+               #(v/assert % '(zprecedes Za Zc) 'CxUniverse)]
+          observe (fn [kb]
+                    {:believed (into #{} (filter #(seq (v/sentexes-matching kb % 'CxUniverse)))
+                                     '[(zprecedes Za Zb) (zprecedes Zb Zc) (zprecedes Za Zc)])
+                     :clashes  (into #{}
+                                     (map (fn [c] [(:kind c)
+                                                   (into #{} (map :sentence) (:sides c))]))
+                                     (v/contradictions kb))
+                     :conflicts (count (v/conflicts kb))})
+          os (into #{} (map (fn [ordering]
+                              (let [kb (tu/fresh)]
+                                (doseq [op ordering] (op kb))
+                                (observe kb))))
+                   (permutations ops))]
+      (is (= 1 (count os))
+          (str "anti-transitive triple: " (count os) " distinct outcomes across 24 orderings — "
+               (pr-str os)))
+      (testing "one clash naming all three, and all three still believed"
+        (is (= 3 (count (:believed (first os)))))
+        (is (= 1 (count (:clashes (first os)))))
+        (is (= [:anti-transitive] (mapv first (:clashes (first os)))))
+        (is (= 3 (count (second (first (:clashes (first os)))))))
+        (is (zero? (:conflicts (first os)))))
+      (tu/clear-kb! (tu/test-kb)))))
+
+(tu/deftest-kb a-derived-closing-step-is-placed-and-defeated-with-a-why-not
+  ;; The firing row of the table in docs/nmtms.md, for the three-member nogood: a rule
+  ;; has no caller to refuse, so the conclusion is placed and `settle` weighs it against
+  ;; the chain — which is what leaves the loser a reason instead of `:not-stored`.
+  (tu/with-terms [zprec zhints Qa Qb Qc]
+    (v/assert kb (list 'antiTransitive zprec) 'CxUniverse)
+    (v/assert kb (list zprec Qa Qb) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list zprec Qb Qc) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'set/defaultRule
+                       (vr/rule-sentence [(list zhints '?x '?y)] (list zprec '?x '?y)))
+              'CxUniverse)
+    (v/assert kb (list zhints Qa Qc) 'CxUniverse)
+    (let [h (v/handle-of kb (list zprec Qa Qc) 'CxUniverse)]
+      (is (some? h) "the conclusion is stored rather than dropped")
+      (is (not (v/in? kb h)) "and defeated, being the one defeasible member")
+      (is (= :defeated (:reason (v/why-not kb h))))
+      (is (every? #(v/ask? kb % 'CxUniverse) [(list zprec Qa Qb) (list zprec Qb Qc)])
+          "the known-true chain is untouched"))))
+
+(tu/deftest-kb an-antitransitive-triple-survives-a-rebuild
+  ;; A nogood is state, and a three-member one is no different: a rebuild that came up
+  ;; without it would believe the defeated step again and report no dilemma, so the KB
+  ;; would answer differently either side of a restart.
+  (tu/with-terms [zprec Ra Rb Rc]
+    (v/assert kb (list 'antiTransitive zprec) 'CxUniverse)
+    (v/assert kb (list zprec Ra Rb) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list zprec Rb Rc) 'CxUniverse)
+    (v/assert kb (list zprec Ra Rc) 'CxUniverse {:strength :monotonic})
+    (let [h (v/handle-of kb (list zprec Rb Rc) 'CxUniverse)]
+      (is (not (v/in? kb h)) "the one defeasible step is defeated before the rebuild")
+      (v/recover kb)
+      (is (not (v/in? kb h)) "and still defeated after it"))))
+
+(deftest an-antitransitive-declaration-arriving-last-is-arbitrated
+  ;; The retroactive half, which `functional` and `asymmetric` already have: a mark
+  ;; arriving over content stored long before it has to reach back over that content
+  ;; (`settle/declaration-implicates`), or the answer would depend on whether the
+  ;; declaration was written first.
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb]
+      (tu/with-terms [zprec Pa Pb Pc]
+        (v/assert kb (list zprec Pa Pb) 'CxUniverse)
+        (v/assert kb (list zprec Pb Pc) 'CxUniverse)
+        (v/assert kb (list zprec Pa Pc) 'CxUniverse)
+        (is (empty? (v/contradictions kb)))
+        (v/assert kb (list 'antiTransitive zprec) 'CxUniverse)
+        (let [cs (v/contradictions kb)]
+          (is (= 1 (count cs)) "the declaration convicts what was already stored")
+          (is (= :anti-transitive (:kind (first cs))))
+          (is (= 3 (count (:sides (first cs))))))))))
+
 (tu/deftest-kb a-functional-clash-on-the-assert-path-arbitrates-when-asked-to
   (binding [checks/*arbitrate-constraints?* true]
     (tu/with-kb [kb]

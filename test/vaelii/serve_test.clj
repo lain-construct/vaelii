@@ -17,6 +17,7 @@
   `authed-app` serve with one.  A `VAELII_API_TOKEN` in the shell running the suite
   therefore changes nothing here."
   (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [taoensso.trove :as trove]
@@ -114,6 +115,14 @@
           (is (:ok r))
           (is (map? (:result r)))
           (is (= (list dog Muffet) (:sentence (:result r))))))
+      (testing "contextual belief and its status dispatch as EDN-clean reads"
+        (let [h (v/handle-of kb (list dog Muffet) CxServe)
+              believed-r (post-op handler :believed? [h CxServe])
+              status-r   (post-op handler :belief-status [h CxServe])]
+          (is (= {:ok true :result true :status 200} believed-r))
+          (is (:ok status-r))
+          (is (= h (get-in status-r [:result :handle])))
+          (is (true? (get-in status-r [:result :visible?])))))
       (testing "preview answers what a batch would believe, and stores nothing"
         ;; served with the writes because it applies the batch and rolls it back — the
         ;; daemon is the single writer, which is exactly the condition it needs
@@ -592,7 +601,15 @@
   (testing "and the parked ceiling leaves the daemon threads to answer everything else"
     (is (< sub/max-parked (quot serve/http-threads 2))
         (str "max-parked " sub/max-parked " must stay well under http-threads "
-             serve/http-threads " — a parked poll holds one of them"))))
+             serve/http-threads " — a parked poll holds one of them")))
+  (testing "every way the daemon is started passes the pool size — `start` and `-main`
+            alike, or the command-line daemon runs on Jetty's default and the pair above
+            holds for the tests only"
+    (let [src   (slurp (io/resource "vaelii/impl/serve.clj"))
+          calls (re-seq #"\(jetty/run-jetty[^\n]*\n[^\n]*" src)]
+      (is (= 2 (count calls)) "the two starts, and no third that could forget")
+      (doseq [c calls]
+        (is (re-find #":max-threads http-threads" c) c)))))
 
 (deftest the-client-mirrors-the-daemons-wait-ceiling
   ;; `vaelii.impl.client` carries its own copy rather than requiring the daemon's, which

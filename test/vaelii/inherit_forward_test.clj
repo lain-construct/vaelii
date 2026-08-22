@@ -17,6 +17,8 @@
   (:require [clojure.set :as set]
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.chain :as chain]
+            [vaelii.impl.settle :as settle]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -209,6 +211,77 @@
       (v/retract! kb (v/handle-of kb (list 'transitive partOf) ctx))
       (is (not (holds? kb (list schedule Piston))))
       (is (holds? kb (list schedule Car)) "the stated claim is untouched"))))
+
+(tu/deftest-kb a-declaration-derived-inside-a-run-licenses-the-joins-after-it
+  ;; The forward path gates every preserved-antecedent question on "does this KB
+  ;; declare any preservation at all", cached per chaining run
+  ;; (`chain/*declarations-cell*`).  A run can *derive* the declaration — here one fact
+  ;; fires two rules that conclude both `transitiveInArg`s — and everything the same run
+  ;; joins after that placement has to see it: the declaration datum's own re-join of the
+  ;; rules it moved, and any later datum's ordinary trigger.  A cache read once at the
+  ;; start of the run and never forgotten answers "none" to both.
+  (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t
+                  largerThan outweighs preservesBoth]
+    (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
+                :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
+    (let [quiet {:chain? false}
+          _     (v/assert kb (list 'asymmetric largerThan) ctx quiet)
+          _     (v/assert kb (list largerThan dog_t cat_t) ctx quiet)
+          rh    (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
+                          ctx quiet)
+          _     (v/assert kb (list 'implies (list preservesBoth '?p)
+                                   (list 'transitiveInArg '?p 1 'genl)) ctx quiet)
+          _     (v/assert kb (list 'implies (list preservesBoth '?p)
+                                   (list 'transitiveInArg '?p 2 'genl)) ctx quiet)
+          fh    (v/assert kb (list preservesBoth largerThan) ctx quiet)]
+      (testing "nothing has chained yet"
+        (is (not (holds? kb (list outweighs dog_t cat_t)))))
+      ;; One run, seeded in this order: the rule datum joins first and asks the gate
+      ;; while no declaration exists; the fact datum then derives both declarations,
+      ;; whose own datums re-join the rule — under the same run's cache.
+      (chain/chain-all kb [rh fh] nil)
+      (settle/settle kb)
+      (testing "the declarations were derived inside the run"
+        (is (holds? kb (list 'transitiveInArg largerThan 1 'genl)))
+        (is (holds? kb (list 'transitiveInArg largerThan 2 'genl))))
+      (testing "and the joins after them inherit"
+        (is (holds? kb (list outweighs dog_t cat_t)))
+        (is (holds? kb (list outweighs chihuahua_t maine_coon_t)))
+        (is (= 9 (count (v/sentexes-matching kb (list outweighs '?x '?y) ctx))))))))
+
+(tu/deftest-kb a-declaration-derived-through-an-ist-consequent-invalidates-the-cache-too
+  ;; The same hole as the test above, reached through the `ist` door: a rule concluding
+  ;; `(ist Cx (transitiveInArg …))` places the declaration exactly as a bare consequent
+  ;; does — `place-conseq` unwraps the frame — so the run's cached "no declarations
+  ;; exist" has to be forgotten on the **placed** form and not on the functor the join
+  ;; happens to be holding, which for this rule is `ist`.
+  (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t
+                  largerThan outweighs preservesBoth]
+    (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
+                :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
+    (let [quiet {:chain? false}
+          _     (v/assert kb (list 'asymmetric largerThan) ctx quiet)
+          _     (v/assert kb (list largerThan dog_t cat_t) ctx quiet)
+          rh    (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
+                          ctx quiet)
+          _     (v/assert kb (list 'implies (list preservesBoth '?p)
+                                   (list 'ist ctx (list 'transitiveInArg '?p 1 'genl)))
+                          ctx quiet)
+          _     (v/assert kb (list 'implies (list preservesBoth '?p)
+                                   (list 'ist ctx (list 'transitiveInArg '?p 2 'genl)))
+                          ctx quiet)
+          fh    (v/assert kb (list preservesBoth largerThan) ctx quiet)]
+      (testing "nothing has chained yet"
+        (is (not (holds? kb (list outweighs dog_t cat_t)))))
+      (chain/chain-all kb [rh fh] nil)
+      (settle/settle kb)
+      (testing "the declarations were derived inside the run, through the ist frame"
+        (is (holds? kb (list 'transitiveInArg largerThan 1 'genl)))
+        (is (holds? kb (list 'transitiveInArg largerThan 2 'genl))))
+      (testing "and the joins after them inherit"
+        (is (holds? kb (list outweighs dog_t cat_t)))
+        (is (holds? kb (list outweighs chihuahua_t maine_coon_t)))
+        (is (= 9 (count (v/sentexes-matching kb (list outweighs '?x '?y) ctx))))))))
 
 (tu/deftest-kb the-inverse-declaration-fires-upward
   (tu/with-terms [dog_t animal_t thing_t hasA aboutIt]

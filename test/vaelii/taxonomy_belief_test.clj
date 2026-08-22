@@ -172,6 +172,31 @@
         (is (every? symbol? (v/contexts kb)))
         (is (not (:merged? (snapshot))) "no equality class exists, so no filter")))))
 
+(tu/deftest-kb retracting-a-defeated-merge-leaves-the-partition-no-trace-of-it
+  ;; `:out` is the partition's record of which supporters are defeated, read against
+  ;; `:support`.  A supporter that is *retracted* while defeated leaves `:handles`,
+  ;; `:handle-edge` and `:support` — and `:out` with them, or the set grows by one entry
+  ;; per such retraction for the KB's life.  A merge rewrites its own negation's terms,
+  ;; so the defeated supporter here is a rule-derived equality whose trigger is defeated;
+  ;; retracting the trigger sweeps it.
+  (tu/with-terms [flag Switch Aa Bb]
+    (v/assert kb (list 'implies (list flag '?s) (list 'sameAs Aa Bb)) 'CxUniverse
+              {:strength :monotonic})
+    (let [h   (v/assert kb (list flag Switch) 'CxUniverse)
+          eq  #(:equality @(:taxonomy kb))
+          e   (first (:handles (eq)))]
+      (is (some? e) "the rule derives the merge")
+      (is (= Aa (tax/representative (:taxonomy kb) Bb)))
+      (v/assert kb (list 'not (list flag Switch)) 'CxUniverse {:strength :monotonic})
+      (is (false? (v/in? kb e)) "the derived merge is defeated with its trigger")
+      (is (contains? (:out (eq)) e) "and the partition records it OUT")
+      (is (= Bb (tax/representative (:taxonomy kb) Bb)) "merging nothing")
+      (v/retract! kb h)
+      (is (nil? (v/sentex kb e)) "retracting the trigger sweeps the derived merge")
+      (is (not (contains? (:out (eq)) e)) "and it leaves :out")
+      (is (not (contains? (:handles (eq)) e)))
+      (is (not (contains? (:handle-edge (eq)) e))))))
+
 (tu/deftest-kb recover-drops-an-edge-whose-sentex-is-gone
   (tu/with-terms [sub_t super_t CxStory]
     (let [h (v/assert kb (list 'genl sub_t super_t) CxStory)]

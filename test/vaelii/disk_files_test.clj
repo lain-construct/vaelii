@@ -192,6 +192,57 @@
         (is (= good-end (f/log-length log)) "truncate-log! drops the torn tail")
         (f/close! log)))))
 
+;; ---- an append is all or nothing ---------------------------------------
+;; A write that fails partway (`ENOSPC`, an I/O error) must not leave a frame whose
+;; prefix promises bytes that never landed: the session would append past it, and the
+;; next dirty open's length walk would step from that prefix into the middle of a later
+;; frame and truncate everything after it.  The failure is injected under the private
+;; write primitive, which is the one seam between the packed frame and the channel.
+
+(defn- failing-after
+  "A stand-in for `write-fully-at!` that lands the first `k` bytes of the buffer and
+  then fails — a torn write."
+  [k]
+  (fn [^java.nio.channels.FileChannel ch ^java.nio.ByteBuffer bb ^long pos]
+    (let [head (java.nio.ByteBuffer/wrap (byte-array (take k (.array bb))))]
+      (.write ch head pos)
+      (throw (java.io.IOException. "no space left on device")))))
+
+(deftest a-torn-append-leaves-the-log-as-it-was
+  (with-tmp
+    (fn [dir]
+      (let [log  (f/open-log (str dir "/t.log"))
+            _    (f/append-record! log {:v 1})
+            before (f/log-length log)]
+        (testing "a single record"
+          (with-redefs [f/write-fully-at! (failing-after 3)]
+            (is (thrown? java.io.IOException (f/append-record! log {:v :lost}))))
+          (is (= before (f/log-length log)) "the log is set back to its pre-write length"))
+        (testing "a batch"
+          (with-redefs [f/write-fully-at! (failing-after 9)]
+            (is (thrown? java.io.IOException (f/append-records! log [[:put :a 1] [:put :b 2]]))))
+          (is (= before (f/log-length log)) "none of the batch is on disk"))
+        (testing "the log is appendable and walkable afterwards"
+          (let [off (f/append-record! log {:v 2})]
+            (is (= before off) "the next frame lands where the torn one was rolled back from")
+            (is (= {:v 2} (f/read-record log off)))
+            (is (= (f/log-length log) (f/log-tail-offset log))
+                "the length walk reaches the end — no torn frame is left mid-log")))
+        (f/close! log)))))
+
+(deftest a-batch-appends-every-frame-in-order
+  (with-tmp
+    (fn [dir]
+      (let [log (f/open-log (str dir "/t.log"))
+            ops [[:put :a 1] [:add-to-set :s 7] [:increment :c] [:delete :a]]
+            off (f/append-records! log ops)
+            seen (atom [])]
+        (is (zero? off) "the batch lands at the log's end, returning the first frame's offset")
+        (f/scan-log log (fn [_ v] (swap! seen conj v)))
+        (is (= ops @seen) "one frame per op, in order — the replay reads them as single appends")
+        (is (= (f/log-length log) (f/append-records! log [])) "an empty batch writes nothing")
+        (f/close! log)))))
+
 ;; ---- the length-only tail walk ------------------------------------------
 ;; `log-tail-offset` is what the open path uses instead of `scan-log`.  It must agree
 ;; with `scan-log` wherever `scan-log` was right, and it must keep working where

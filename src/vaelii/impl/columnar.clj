@@ -66,7 +66,8 @@
   because the walk reads them at every frontier node, which is the index's hottest loop
   — a volatile read there is paid per node per lookup, to buy a guarantee the engine's
   own single writer never needs."
-  (:require [vaelii.impl.dense-kv :as dense]
+  (:require [taoensso.trove :as trove]
+            [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.dense-roots :as dense-roots]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.profile :as prof]
@@ -111,7 +112,7 @@
 (defprotocol PTrie
   ;; public trie ops (the IndexStore trie families bottom out here)
   (t-insert!   [t path handle] "Insert a sentex handle at the leaf of `path` (a token seq).")
-  (t-remove!   [t path handle] "Remove `handle` from `path`'s leaf, pruning nodes that empty; answers how many of the path's own nodes emptied.")
+  (t-remove!   [t path handle] "Remove `handle` from `path`'s leaf, pruning nodes that empty; answers how many of the path's own nodes emptied, or **-1** when `handle` was not at that leaf (the path absent, or the handle never there) — nothing was removed and nothing counted down.")
   (t-count-at  [t prefix]      "Subtree leaf count at a path prefix (0 if absent).")
   (t-children  [t prefix]      "Decoded child edge tokens at a prefix (a vector, [] if absent).")
   (t-child-count [t prefix]    "How many child edges sit at a prefix — the width, without decoding it.")
@@ -434,27 +435,35 @@
           (let [tid (tok/token-id dict (nth pv i))
                 c   (long (if (neg? tid) -1 (-get-child this node tid)))]
             (if (neg? c)
-              0                                                  ; absent path ⇒ nothing to remove
+              -1                                                 ; absent path ⇒ nothing to remove
               (recur c (inc i) (conj! nodes c) (conj! tids tid))))
           (let [nodes (persistent! nodes)                        ; n+1 entries: root..terminus
-                tids  (persistent! tids)]                        ; n entries: edge token-ids
-            (when-let [lp (-leaf-postings this (nth nodes n))]
-              (dense/prem! lp handle))
-            (dotimes [k (inc n)] (-dec-count! this (nth nodes k)))
-            ;; counts are non-increasing down the path, so the dead nodes are a suffix;
-            ;; cut the topmost one from its (live) parent and free its subtree.  A dead
-            ;; root (empty KB) is never removed — cut its single remaining child instead.
-            (let [t (loop [k 0]
-                      (cond (> k n) -1
-                            (<= (-count-of this (nth nodes k)) 0) k
-                            :else (recur (inc k))))]
-              (if (neg? t)
-                0
-                (let [cut (if (zero? t) 1 t)]
-                  (when (<= cut n)
-                    (-detach! this (nth nodes (dec cut)) (nth tids (dec cut)))
-                    (-free-subtree! this (nth nodes cut)))
-                  (- (inc n) t)))))))))
+                tids  (persistent! tids)
+                lp    (-leaf-postings this (nth nodes n))]
+            ;; gated on the handle being at the leaf: the counts below come down without
+            ;; looking, and a node that reaches zero is freed with its whole subtree, so a
+            ;; stray remove — a handle never stored here, or already taken out — would cut
+            ;; live nodes and every sentex under them.  One `pcontains?` makes it a no-op.
+            (if-not (and lp (dense/pcontains? lp handle))
+              -1
+              (do
+                (dense/prem! lp handle)
+                (dotimes [k (inc n)] (-dec-count! this (nth nodes k)))
+                ;; counts are non-increasing down the path, so the dead nodes are a
+                ;; suffix; cut the topmost one from its (live) parent and free its
+                ;; subtree.  A dead root (empty KB) is never removed — cut its single
+                ;; remaining child instead.
+                (let [t (loop [k 0]
+                          (cond (> k n) -1
+                                (<= (-count-of this (nth nodes k)) 0) k
+                                :else (recur (inc k))))]
+                  (if (neg? t)
+                    0
+                    (let [cut (if (zero? t) 1 t)]
+                      (when (<= cut n)
+                        (-detach! this (nth nodes (dec cut)) (nth tids (dec cut)))
+                        (-free-subtree! this (nth nodes cut)))
+                      (- (inc n) t)))))))))))
 
   (t-count-at [this prefix]
     (let [nd (-node-at this prefix)] (if (neg? nd) 0 (-count-of this nd))))
@@ -722,22 +731,31 @@
                                          :roster (count roster)
                                          :slots  (count slots)})))
     handle)
+  ;; A stray unindex — `t-remove!` answers -1 when the handle is not at the leaf — touches
+  ;; nothing: the roots and the term index are left as they are, the same no-op
+  ;; `KvIndexStore` makes off its leaf probe, and it says so for that store's reason.  The
+  ;; caller deletes the record next either way, so a genuine record/index divergence would
+  ;; otherwise surface as a handle with no record, several operations away from the store
+  ;; that diverged.  `reindex` is the repair.
   (unindex-sentex! [_ sentex handle]
-    (let [dead   (long (t-remove! trie (sx/path sentex) handle))
-          terms  (kv/sentex-terms sentex)
-          roster (kv/roster-retires roots terms handle) ; reads the pre-write postings
-          slots  (kv/slot-retires roots sentex handle)] ; likewise
-      (kv/kv-batch roots
-                   (concat (map (fn [t] [:remove-from-set (kv/term-key t) handle]) terms)
-                           (map (fn [k] [:remove-from-set k handle]) (kv/root-keys sentex))
-                           roster slots))
-      (when (prof/profiling?)
-        (prof/record-index-retract sentex {:levels (inc (count (sx/path sentex)))
-                                           :terms  (count terms)
-                                           :roots  (count (kv/root-keys sentex))
-                                           :roster (count roster)
-                                           :slots  (count slots)
-                                           :dead   dead})))
+    (let [dead (long (t-remove! trie (sx/path sentex) handle))]
+      (if (neg? dead)
+        (trove/log! {:level :warn :id ::unindex-absent
+                     :data {:handle handle :path (sx/path sentex) :context (:context sentex)}})
+        (let [terms  (kv/sentex-terms sentex)
+              roster (kv/roster-retires roots terms handle) ; reads the pre-write postings
+              slots  (kv/slot-retires roots sentex handle)] ; likewise
+          (kv/kv-batch roots
+                       (concat (map (fn [t] [:remove-from-set (kv/term-key t) handle]) terms)
+                               (map (fn [k] [:remove-from-set k handle]) (kv/root-keys sentex))
+                               roster slots))
+          (when (prof/profiling?)
+            (prof/record-index-retract sentex {:levels (inc (count (sx/path sentex)))
+                                               :terms  (count terms)
+                                               :roots  (count (kv/root-keys sentex))
+                                               :roster (count roster)
+                                               :slots  (count slots)
+                                               :dead   dead})))))
     handle)
   ;; the same family labels `KvIndexStore` records, for the same reason: the split
   ;; between a retrieval walk and the planner's selectivity probes is the reading that
@@ -748,6 +766,9 @@
   (children [_ prefix]  (prof/record-read :trie-counts) (t-children trie prefix))
   (count-children [_ prefix] (prof/record-read :trie-counts) (t-child-count trie prefix))
   (lookup   [_ pattern] (prof/record-read :trie-lookup) (t-lookup   trie pattern))
+  ;; the exact leaf — the trie's own `t-leaves-at`, which walks the path's nodes and
+  ;; decodes nothing else.  Tallied as retrieval, like the walk above it.
+  (leaf-at  [_ path]    (prof/record-read :trie-lookup) (t-leaves-at trie path))
 
   ;; the non-trie families — flat key→handle-set maps — read/write the shared backend
   (sentexes-in-context   [_ c]        (p/sentexes-in-context   embedded c))

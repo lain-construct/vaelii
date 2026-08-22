@@ -104,7 +104,9 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; engine, bounded at that many rule rewrites.  There
                                                ; is no default depth — name the smallest that works
                                                ; goal = a sentence, or a VECTOR of them, at any depth
-                                               ; opts: {:max-depth n :proof? true} + node-engine keys
+                                               ; opts: {:max-depth n :proof? true} + the node engine's
+                                               ; :strategy :portfolio? :auto? :racers — the whole
+                                               ; roster is `query-opt-keys`; a key off it is refused
 (prove kb goal context)                        ; recur DFS backward chaining -> [solutions].  The
                                                ; UNBOUNDED one: terminates on the data, facts+rules
                                                ; goal = a sentence, or a VECTOR of them = a
@@ -133,11 +135,20 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; the frontier reached with its itemized estimate and the
                                                ; rewrite that produced it.  Needs a depth; bounded by a
                                                ; node budget + :max-ms (docs/inference.md, docs/web.md)
+                                               ; opts: `search-tree-opt-keys` — :max-depth :strategy
+                                               ; :node-budget :max-ms, and nothing else
 (compare-tacticians kb goal context {:max-depth n}) ; the same goal under each tactician -> one row per
                                                ; ordering: its tree-stats, wall-clock :ms, and :answers
                                                ; SET.  Every complete tactician returns the same set —
                                                ; the rows let you verify it, not trust it
+                                               ; opts: `compare-tacticians-opt-keys` — the same three
+                                               ; bounds + :tacticians, and NOT :strategy (set per row)
 (add-prover kb prover)                         ; register a custom prover
+(add-evaluatable kb pred f opts)               ; wrap a plain fn as a computed predicate -> kb.
+                                               ; A check (all args ground, truthy holds) or, with
+                                               ; {:result :first|:last|n}, a value bound into that
+                                               ; slot.  A fn value, never eval of data
+                                               ; (docs/inference.md)
 (add-reasoner kb :allen :rcc8)                 ; register shipped ones by name -> kb
 (reasoners)                                    ; the roster: the six algebras + :duration :metric-time
 (reasoner :allen)                              ; one as a value, for a registry of your own
@@ -249,6 +260,10 @@ default-chain-opts                              ; the bounds a chain run takes w
 (sentexes-in-context kb ctx [opts]) / (count-in-context kb ctx)              ; context root
 (sentexes-with-functor kb pred [opts]) / (count-with-functor kb pred)    ; functor root
 (sentexes-with-arg kb pos term [opts]) / (count-with-arg kb pos term)    ; argument-position root
+                                                ; each extent is a LAZY seq over live state:
+                                                ; records fetched as it is walked, so (take n …)
+                                                ; costs n; a seq held across a write yields what
+                                                ; is stored when walked — `vec` it for a snapshot
 (ist kb Ctx sentence)                           ; ist: find or create sentence in Ctx -> handle
                                                 ; `(ist Ctx S)` is also a READ goal — every read
                                                 ; taking a sentence and a context takes one, Ctx
@@ -267,8 +282,16 @@ default-chain-opts                              ; the bounds a chain run takes w
 (provenance kb handle)                          ; the per-handle bookkeeping map, or nil
 (add-provenance kb handle m)                     ; merge application fields into it
 (retract! kb handle)                            ; teardown -> {:removed-sentexes n :removed-justifications n}
-(in? kb handle)
-(believed kb handles)                           ; in? in batch -> the set of handles that are IN
+(in? kb handle)                                 ; raw structural JTMS IN, before contextual exceptions
+(believed? kb handle context)                   ; IN after exceptions visible from context, before
+                                                ; assertion-context inheritance
+(belief-status kb handle context)               ; deterministic diagnostic map:
+                                                ; {:handle :view-context :stored? :in?
+                                                ;  :assertion-context :exceptions :excepted?
+                                                ;  :inherited-path :believed? :visible?}
+                                                ; :exceptions is context/content ordered; every node
+                                                ; is {:handle :in? :in-force? :excepted-by}
+(believed kb handles)                           ; in? in batch -> the set of raw-IN handles
 (why kb handle opts?)                           ; proof tree: support -> rule + recursive antecedents,
                                                 ; terminating at premises, cycle-guarded, originalized
                                                 ; opts {:max-depth n} (default 256); a branch at the
@@ -286,6 +309,14 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; delegates to the handle arity, except that a
                                                 ; stored-but-disbelieved one is checked for an
                                                 ; exception first
+(argue kb asent context opts)                   ; four-valued epistemic status of one ground sentence:
+                                                ; :true / :false / :unknown / :contradiction, with the
+                                                ; results and justifications of BOTH sides.  No opts
+                                                ; and it is `ask` (no rule expands); {:max-depth n} and
+                                                ; it is `query`.  There is no default depth here either
+                                                ; opts: `query-opt-keys`, checked at THIS door — a
+                                                ; misspelt depth checked downstream is never checked at
+                                                ; all, and answers :unknown for a derivable sentence
 ;; introspection: sentex, justification, supporting-justifications, dependent-justifications, premise?, defeat-class
 ;;   both justification listings are ordered by CONTENT — the informant's own sentence,
 ;;   then the antecedent sentences — and so is the antecedent vector inside each
@@ -352,6 +383,14 @@ A **sentex map** has the stable keys `:id` (the handle), `:sentence`, `:context`
 `:truth`, and for a rule `:antecedent` / `:consequent` / `:direction`.  Key into it.
 The concrete record class behind it (`vaelii.impl.sentex/AtomicSentex` / `RuleSentex`) is an
 `impl` detail and not part of the contract — never `instance?`-test it.
+
+**The sentex-map readers are lazy, over live state.**  `sentexes-matching` and the three
+extent readers fetch records as their seq is walked, which is what lets a consumer bound
+an open read — the browser shows fifty of an imported ontology's hundred thousand
+`comment`s a page by taking fifty, not by fetching them all — and it means a seq held
+across a write yields what is stored when it is walked, not when it was asked for.
+`vec` one for a snapshot.  Over the daemon wire every answer is realized before it is
+sent (`wire-safe`), so a remote caller always holds a snapshot.
 
 ## Batched assertion
 
@@ -509,7 +548,8 @@ real key?" does not have to find out from a wrong answer.
 **Every door holds a roster, not just these two.**  An option map is a request, and a key
 a door does not read is a request it cannot honour — so it is refused rather than
 dropped, at `forward-chain`, the extent readers (`sentexes-in-context` /
-`-with-functor` / `-with-arg`), `query`, `preview`, `edit-with-consequences!`, `export!`,
+`-with-functor` / `-with-arg`), `query`, `search-tree`, `compare-tacticians`, `argue`,
+`preview`, `edit-with-consequences!`, `export!`,
 `import!`, `find-terms`, `abduce`, the anytime budget maps, and `open-kb`.  The failure a
 roster exists to stop is not a crash but a *different answer*: `{:max-derivation n}` at
 `forward-chain` ran unbounded, `{:believed true}` at an extent reader answered the stored
@@ -517,9 +557,21 @@ extent with defeated defaults in it, and an `open-kb` mount or durability key na
 axis opened a KB other than the one asked for.  Each of those is a plausible answer to a
 question nobody asked, which is the shape of failure hardest to notice from the outside.
 
-One roster is open on purpose and says so: `query`'s, which hands what it does not name
-to the node engine.  Everywhere else a key off the roster is `:unknown-option`, and
-`check` reports what the writing door would throw.  The CLI keeps a roster of its own —
+`query`'s roster is **`query-opt-keys`**: its own dial plus the node engine's keys, which
+is where everything but `:max-depth` and `:proof?` goes — and the engine reads what it
+knows and ignores the rest, so an open roster there would let `{:max-deph 3}` answer
+facts-only with nothing to say it had.
+
+**A roster is what its door reads, never a superset.**  The two debugger reads run
+`query`'s search in a fixed mode, so each holds its own: **`search-tree-opt-keys`**
+(`:max-depth :strategy :node-budget :max-ms`) drops the keys that door overwrites or never
+looks at, and **`compare-tacticians-opt-keys`** trades `:strategy` for `:tacticians`,
+because that door sets the ordering per row.  A roster wider than its door is a key
+accepted and then discarded — the same silent default a roster exists to refuse, one
+level in.
+
+Everywhere a key off the roster is
+`:unknown-option`, and `check` reports what the writing door would throw.  The CLI keeps a roster of its own —
 its `--` flags, refused the same way and for the same reason — since a command line is
 not an option map.
 

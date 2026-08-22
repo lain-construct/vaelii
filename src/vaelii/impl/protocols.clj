@@ -8,7 +8,14 @@
 
 (defprotocol RecordStore
   "The record store — canonical sentexes and justifications, keyed by integer handle.
-  The durable ground truth: everything else the KB holds is derived from it."
+  The durable ground truth: everything else the KB holds is derived from it.
+
+  **The three fetches are counted** (`vaelii.impl.profile`'s `:fetches`), because a
+  record read is not an index read and no index tally can stand in for one: a probe that
+  narrows to a single `lookup` and then pages a record per candidate handle costs almost
+  nothing by `:reads` and everything by this.  Every implementation tallies its own kind
+  on the protocol method, so the number counts what a *caller* asked for and not what a
+  backend does internally."
   (put-sentex      [store sentex] "Persist a sentex; return its handle.")
   (get-sentex       [store id]     "Fetch a sentex by handle, or nil.")
   (delete-sentex!   [store id]     "Remove a sentex record.")
@@ -53,6 +60,19 @@
   (index-sentex    [store sentex handle] "Insert a ground sentex handle into the trie.")
   (unindex-sentex!  [store sentex handle] "Remove a sentex handle from the trie.")
   (lookup    [store pattern]       "Handles whose path matches a full pattern.")
+  ;; The **exact leaf**, where `lookup` is a match.  A path carrying a variable is a
+  ;; wildcard to `lookup` — the token fans over every child at that level — so asking it
+  ;; for one sentex's own key costs the whole extent of that shape.  This asks the node
+  ;; the path names and nothing else: no walk, no fan, one read.
+  ;;
+  ;; That is what **dedup** wants and the only thing it wants.  A stored sentex's key is
+  ;; α-renamed (`sentex/key-tokens`), so two sentences that differ only in variable names
+  ;; land on one leaf and the record decides between them (`kb/find-sentex-handle`); a
+  ;; sentence stored under a *different* key is by construction not the same sentence, so
+  ;; a wildcard's extra candidates could never have been the answer.  Retrieval is the
+  ;; other question and stays `lookup`'s: a pattern is asked there to find what it
+  ;; matches, not to find itself.
+  (leaf-at   [store path]          "Handles stored exactly at `path`'s leaf — an exact read, never a wildcard match.")
   (count-at  [store prefix]        "Sentex count under a path prefix.")
   (children  [store prefix]        "Child tokens registered under an interior prefix.")
   ;; How *many* children, without building them.  This is the trie's own distinct-value

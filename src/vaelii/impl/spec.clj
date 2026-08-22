@@ -26,12 +26,13 @@
   (`genls`, `context-up`, …) are specced too, since a wrong-arity call to one of
   them is exactly the kind of mistake instrumentation should surface early.
 
-  **Fourteen publics that take an option map are outside it**, and instrumenting says
+  **Fifteen publics that take an option map are outside it**, and instrumenting says
   nothing about their arguments: the batch writes (`assert-many`,
   `bulk-assert-facts!`), the fork and the two consequence readers over it (`fork`,
   `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`),
-  the two search-back reads (`search-tree`, `compare-tacticians`), the four-valued
-  epistemic-status read (`argue`), and `check`, `abduce`, `kb-quality`, `clear-caches`.
+  the two search-back reads (`search-tree`, `compare-tacticians`), the evaluatable-prover
+  registration (`add-evaluatable`), the four-valued epistemic-status read (`argue`), and
+  `check`, `abduce`, `kb-quality`, `clear-caches`.
   A roster test in
   `vaelii.spec-test` holds that list against `vaelii.core`'s own arglists, so the
   gap is a set somebody has to edit rather than a claim that goes stale in silence:
@@ -43,8 +44,14 @@
 ;; ---- building blocks ----------------------------------------------------
 
 (s/def ::kb map?)                          ; a KB record satisfies map?
-(s/def ::context symbol?)                  ; a Cx-prefixed CapitalCamelCase symbol, or the
-                                           ; open '?ctx variable the read paths default to
+;; A context is a Cx-prefixed CapitalCamelCase symbol, the open `?ctx` variable the read
+;; paths default to — or a **context-denoting application** `(CxTimeFn CxMonad (DatetimeFn
+;; "2000"))`, which the doors reify to its `cx/` constant before anything downstream reads
+;; it (docs/context-nat.md).  The spec admits the *shape*; whether the head is a declared
+;; `contextDenotingFunction` and the application ground is the door's own `:shape` check,
+;; which needs the KB.  Narrower than the door, instrumentation would refuse a write into a
+;; context the engine accepts.
+(s/def ::context (s/or :name symbol? :context-nat seq?))
 (s/def ::sentence some?)                   ; a sentence (a list) — never nil
 (s/def ::goal (s/or :one seq?              ; a single goal sentence …
                     :conjunction           ; … or a vector of them (a conjunctive query)
@@ -111,7 +118,7 @@
 ;; declarations bind a tuple without an index probe per super-predicate
 ;; (`taxonomy/arg-declaration-props`).
 (s/def ::prop-kind #{:transitive :symmetric :asymmetric :reflexive :functional
-                     :irreflexive :anti-symmetric
+                     :irreflexive :anti-symmetric :anti-transitive
                      :decontextualized :forced-decontextualized :target-following
                      :abducible :reifiable :unreifiable :quoting :context-denoting :modal
                      :declares-arg-isa :declares-arg-genl :declares-quoted-arg
@@ -209,6 +216,14 @@
 
 (s/fdef vaelii.core/contexts-of
   :args (s/cat :kb ::kb :sentence ::sentence))
+
+(s/fdef vaelii.core/believed?
+  :args (s/cat :kb ::kb :handle ::handle-arg :context ::context)
+  :ret boolean?)
+
+(s/fdef vaelii.core/belief-status
+  :args (s/cat :kb ::kb :handle ::handle-arg :context ::context)
+  :ret map?)
 
 ;; ---- reads: the lookup-to-query stack -----------------------------------
 
@@ -357,7 +372,7 @@
   `clojure.spec.test.alpha/instrument` / `unstrument`.  This is the single-item
   shape-carrying surface: everything that takes a handle, context, level, strength
   or direction, the option and budget maps those carry, plus the taxonomy and
-  equality reads.  The fourteen opts-taking publics it does **not** reach are named in
+  equality reads.  The fifteen opts-taking publics it does **not** reach are named in
   this namespace's docstring and pinned by `vaelii.spec-test`."
   '[vaelii.core/open-kb
     vaelii.core/assert
@@ -421,6 +436,8 @@
     vaelii.core/sentexes-with-arg
     vaelii.core/count-with-arg
     vaelii.core/in?
+    vaelii.core/believed?
+    vaelii.core/belief-status
     vaelii.core/sentex
     vaelii.core/justification
     vaelii.core/premise?

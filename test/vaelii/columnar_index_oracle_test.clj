@@ -287,6 +287,30 @@
     (both #(p/lookup % (sx/path as-int)) mem col)
     (is (zero? (p/count-at col [])))))
 
+(deftest a-stray-unindex-takes-nothing-with-it
+  ;; The trie's counters come down without looking, and a node that reaches zero is
+  ;; deleted with every handle at its leaf — so an unindex of a handle that is not at
+  ;; the leaf (never indexed, or already removed) is gated on one membership probe and
+  ;; touches nothing.  Otherwise one stray call would take a live sibling's nodes, and
+  ;; the sibling with them, out of the trie.
+  (doseq [[label store] [["flat"     (mem/memory-index-store       {:space 79})]
+                         ["columnar" (columnar/columnar-index-store {:space 79})]]]
+    (p/clear-index! store)
+    (let [kept   (sx/sentex '(sLikes SAnn SBob) 'CxStray)
+          ghost  (sx/sentex '(sLikes SAnn SCat) 'CxStray)     ; shares the prefix, never indexed
+          pth    (sx/path kept)]
+      (p/index-sentex store kept 7)
+      (p/unindex-sentex! store ghost 8)                       ; a handle never stored
+      (p/unindex-sentex! store kept 9)                        ; the right path, the wrong handle
+      (is (= #{7} (p/lookup store pth)) (str label ": the stored handle is still at its leaf"))
+      (is (= 1 (p/count-at store [])) (str label ": the root count is untouched"))
+      (is (= 1 (p/count-at store (subvec pth 0 2))) (str label ": the shared prefix's count is untouched"))
+      (is (= #{7} (p/sentexes-with-term store 'SAnn)) (str label ": the term index is untouched"))
+      (p/unindex-sentex! store kept 7)
+      (p/unindex-sentex! store kept 7)                        ; a second removal of the same handle
+      (is (empty? (p/lookup store pth)) (str label ": the real removal took"))
+      (is (zero? (p/count-at store [])) (str label ": and the counts are back at zero, not below")))))
+
 ;; ---- the mapped snapshot: a round trip is one more representation --------
 
 (defn- tmpdir ^String []

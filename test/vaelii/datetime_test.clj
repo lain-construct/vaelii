@@ -18,6 +18,64 @@
     (is (not (dt/datetime-term? (dtf "2000-13-xx"))))
     (is (not (dt/datetime-term? 'Foo)))))
 
+(deftest malformed-shapes-are-not-datetime-terms
+  (testing "a time part needs a full date in front of it"
+    (is (not (dt/datetime-term? (dtf "2000T13:00"))))
+    (is (not (dt/datetime-term? (dtf "2000-01T13"))))
+    (is (not (dt/datetime-term? (dtf "T13")))))
+  (testing "the date and time halves are each bounded at three fields"
+    (is (not (dt/datetime-term? (dtf "2000-01-15-12"))))
+    (is (not (dt/datetime-term? (dtf "2000-01-15T13:30:00:00"))))
+    (is (dt/datetime-term? (dtf "2000-01-15T13:30:00"))))
+  (testing "an empty field is not a field"
+    (is (not (dt/datetime-term? (dtf "2000-"))))
+    (is (not (dt/datetime-term? (dtf "2000-01-15T"))))
+    (is (not (dt/datetime-term? (dtf "")))))
+  (testing "fields after the year are range-checked"
+    (is (not (dt/datetime-term? (dtf "2000-13"))))
+    (is (not (dt/datetime-term? (dtf "2000-00"))))
+    (is (not (dt/datetime-term? (dtf "2000-01-32"))))
+    (is (not (dt/datetime-term? (dtf "2000-01-15T24"))))
+    (is (not (dt/datetime-term? (dtf "2000-01-15T13:60"))))
+    (is (not (dt/datetime-term? (dtf "2000-01-15T13:30:60"))))
+    (is (dt/datetime-term? (dtf "2000-12-31T23:59:59"))))
+  (testing "so a mis-shaped pair nests nothing"
+    (is (not (dt/subinterval? (dtf "2000T13:00") (dtf "2000-13"))))
+    (is (not (dt/subinterval? (dtf "2000-01-15-12") (dtf "2000-01-15"))))))
+
+(deftest every-field-is-bounded-by-its-own-width
+  ;; The parse runs inside the structural `genlCx` producer, in the settle/relabel loop,
+  ;; where nothing may throw.  A field wider than its own width is what would make it:
+  ;; the read of an unbounded run of digits overflows before any range check is reached.
+  ;; So the widths are the refusal, and every rejection here is a nil rather than a throw.
+  (testing "a year wider than four digits is refused, not read"
+    (is (not (dt/datetime-term? (dtf "99999"))))
+    (is (not (dt/datetime-term? (dtf "99999999999999999999"))))
+    (is (not (dt/subinterval? (dtf "99999999999999999999-01") (dtf "99999999999999999999")))
+        "and the pair declines rather than throwing on either side"))
+  (testing "and so is a later field, which the range check alone could not survive"
+    (is (not (dt/datetime-term? (dtf "2000-001"))))
+    (is (not (dt/datetime-term? (dtf "2000-99999999999999999999"))))
+    (is (not (dt/datetime-term? (dtf "2000-01-15T99999999999999999999")))))
+  (testing "the four-digit year itself still parses, padded or not"
+    (is (dt/datetime-term? (dtf "2000")))
+    (is (dt/datetime-term? (dtf "0001")))
+    (is (dt/datetime-term? (dtf "999")))))
+
+(deftest the-basic-iso-format-is-refused-rather-than-misread
+  ;; `"20260821"` is ISO 8601's *basic* format for the 21st of August 2026.  Read as an
+  ;; extended-format year it is the year 20,260,821 — a term that looks like a day, nests
+  ;; under nothing anyone wrote, and silently names a different interval from
+  ;; `"2026-08-21"`.  This namespace reads the extended format alone, so the basic one is
+  ;; refused; the year's width is what refuses it.
+  (is (not (dt/datetime-term? (dtf "20260821"))))
+  (is (not (dt/datetime-term? (dtf "202608"))))
+  (is (not (dt/subinterval? (dtf "20260821") (dtf "2026")))
+      "so it nests under nothing, rather than nesting somewhere unrelated")
+  (testing "the extended spelling of the same day is the one that reads"
+    (is (dt/datetime-term? (dtf "2026-08-21")))
+    (is (dt/subinterval? (dtf "2026-08-21") (dtf "2026")))))
+
 (deftest containment-nests-by-field
   (testing "a finer interval is inside a coarser one it shares fields with"
     (is (dt/subinterval? (dtf "2000-01") (dtf "2000")))

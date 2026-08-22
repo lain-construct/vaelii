@@ -236,6 +236,75 @@
             "a retraction takes the class with it, leaving none to inherit")))
     (tu/clear-kb! (tu/test-kb))))
 
+;; ---- a block condition asked over a merged term -------------------------
+
+(defn- blocked-observe
+  "The reading a block-condition scenario is judged by: every conclusion the KB holds on
+  `seen`, the backward door's answer for each of `subjects`, and the clash report.  The
+  stored sentences alone would not separate a conclusion that was never drawn from one
+  drawn and then swept under a name nobody asks about."
+  [seen subjects]
+  (fn [kb]
+    {:seen      (set (map :sentence (v/sentexes-matching kb (list seen '?x) '?c)))
+     :asked     (mapv #(v/ask? kb (list seen %) 'CxUniverse) subjects)
+     :conflicts (count (v/conflicts kb))}))
+
+(deftest a-block-condition-over-a-merged-term-is-order-independent
+  ;; A block condition is decided three times over — at derive time from the firing's
+  ;; raw bindings, again from a trigger, and again off a refusal record — and a merge
+  ;; can retire the spelling either the *binding* or the *conjunct's own constant* is
+  ;; written in.  A goal asked under a retired spelling comes back honestly empty, and
+  ;; an empty block condition reads as **not excepted**, so the same four sentences
+  ;; believed the conclusion or not depending on where the merge landed: 6 of these 24
+  ;; orderings for a retired binding, 12 of 24 for a retired conjunct constant.
+  ;;
+  ;; `except_recheck_test/every-arrival-order-of-a-merge-reaches-one-belief` walks the
+  ;; same two shapes over the stored sentences; this reads the backward door and the
+  ;; clash report beside them, which is what a stored-sentence reading cannot see.
+  (testing "the firing's own binding is the retired spelling"
+    ;; `(qmark QOne)` binds `?x` to a term the merge retires, and the exception has to be
+    ;; asked under the representative wherever in the order the merge lands.
+    (let [ops [#(v/assert % '(exceptWhen (qskip ?x)
+                                         (set/defaultRule (implies (and (qmark ?x)) (qseen ?x))))
+                          'CxUniverse)
+               #(v/assert % '(qmark QOne) 'CxUniverse)
+               #(v/assert % '(rewriteOf QTwo QOne) 'CxUniverse)
+               #(v/assert % '(qskip QOne) 'CxUniverse)]
+          result (one-outcome! "a merged binding" ops (blocked-observe 'qseen '[QOne QTwo]))]
+      (is (= {:seen #{} :asked [false false] :conflicts 0} result)
+          "the excepted binding concludes nothing under either spelling, forward or backward")))
+  (testing "the exception conjunct's own constant is the retired spelling"
+    ;; Nothing the firing binds has merged: what moved is a term the *rule* was written
+    ;; with, and an individual-only rewrite holds a rule back from migration, so the
+    ;; stored condition keeps naming `COne` for good.
+    (let [ops [#(v/assert % '(exceptWhen (cskip COne)
+                                         (set/defaultRule (implies (and (cmark ?x)) (cseen ?x))))
+                          'CxUniverse)
+               #(v/assert % '(cmark CBase) 'CxUniverse)
+               #(v/assert % '(rewriteOf CTwo COne) 'CxUniverse)
+               #(v/assert % '(cskip CTwo) 'CxUniverse)]
+          result (one-outcome! "a merged conjunct constant" ops (blocked-observe 'cseen '[CBase]))]
+      (is (= {:seen #{} :asked [false] :conflicts 0} result)
+          "a conjunct naming a retired term is asked under the representative that answers")))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest naf-over-a-merged-term-is-order-independent
+  ;; The same root cause in the polarity where the wrong answer is **unsound**.  An
+  ;; `(unknown S)` inner query asked under a retired spelling is answered *absent* about a
+  ;; term the KB has an answer for under its representative, so the rule concludes where
+  ;; it must not — where a silently-false exception merely fails to guard.  This one did
+  ;; not vary with the ordering at all: it drew the conclusion in all 24.
+  (let [ops [#(v/assert % '(set/defaultRule
+                            (implies (and (nmark ?x) (unknown (nskip ?x))) (nseen ?x)))
+                        'CxUniverse)
+             #(v/assert % '(nmark NOne) 'CxUniverse)
+             #(v/assert % '(rewriteOf NTwo NOne) 'CxUniverse)
+             #(v/assert % '(nskip NOne) 'CxUniverse)]
+        result (one-outcome! "naf over a merged term" ops (blocked-observe 'nseen '[NOne NTwo]))]
+    (testing "a term with an answer under its representative is not absent"
+      (is (= {:seen #{} :asked [false false] :conflicts 0} result))))
+  (tu/clear-kb! (tu/test-kb)))
+
 ;; ---- the represented dilemma --------------------------------------------
 
 (deftest nixon-diamond-is-the-same-dilemma-every-time
@@ -336,6 +405,222 @@
         (is (= 3 (count (:order result))) "the batch opens all three")
         (is (= (sort (:order result)) (:order result))
             "the previewed list is in content order too, and by the same call")))
+    (tu/clear-kb! (tu/test-kb))))
+
+;; ---- a declaration that arrives after the content it convicts -----------
+;;
+;; A constraint declaration is an ingredient of the clash exactly as the two facts are,
+;; so all three orderings of "declaration, fact, fact" are the same knowledge and the KB
+;; owes them the same answer.  The engine has two doors for that answer and the arrival
+;; order picks which: a fact written *after* the declaration is refused at the door (or
+;; weighed into `contradictions` where the opposing claim is defeasible), and a
+;; declaration written after the facts is reported by the settle's exposure pass, with
+;; belief untouched.  Both declarations take the second door by the same route: a
+;; declaration in the settle's moved region says what it puts back in question, and the
+;; pass sweeps that.
+;;
+;; **So what a single outcome means here is that the clash is *accounted for*, not that
+;; every ordering picks the same door.** Which door is the constraint policy's business
+;; (`checks/arbitrating?`), and under `:refuse` the two answers are deliberately
+;; different things: a refusal turns a write away, a report leaves belief alone and names
+;; what it found.  What may not vary is whether the KB says anything at all — and the
+;; failure these tests are the net for is silence: a mark arriving last, and the pair it
+;; forbids standing, believed, and mentioned by nothing.
+;;
+;; The reading `one-outcome!` compares is therefore the account and the believed extent
+;; — never the door, which is what the orderings are entitled to differ on.  Two things
+;; keep that from being a weakened boolean.  The **count** is compared, not its
+;; positivity, so an engine that refused a write *and* reported the pair, or reported one
+;; pair twice, fails exactly as one that did neither does.  And every ordering's full
+;; reading is kept, so the tests below can go on to check that the doors actually used
+;; are the two that exist and that each ordering used exactly one — a claim about the
+;; whole set that no single outcome can carry.
+;;
+;; At `:default` the extent is identical across every ordering too, so the map there is
+;; the strongest reading available: the same beliefs, and one account of the clash in
+;; them.
+
+(defn- refusing-assert
+  "An `assert` op at `strength` that survives the door turning it away, recording the
+  refusal in `refusals` instead.  The refusal is one of the two doors these tests read: a
+  KB that refuses the write and a KB that reports the pair have both answered, and one
+  that does neither has not."
+  [refusals strength sentence]
+  (fn [kb]
+    (try (v/assert kb sentence 'CxUniverse {:strength strength})
+         (catch clojure.lang.ExceptionInfo _ (swap! refusals inc)))))
+
+(defn- constraint-reading
+  "How one KB accounted for a definitional clash — per door, summed, and the extent the
+  account is about.
+
+  `mapv` on the ledger kinds and the extent, `count` everywhere else: every reader here
+  is lazy over live state, and this map outlives the KB the ordering walk built it from."
+  [kb refusals pattern]
+  (let [reported (mapv :violation (v/violations kb))
+        weighed  (count (v/contradictions kb))
+        stuck    (count (v/conflicts kb))]
+    {:refused   refusals
+     :reported  reported
+     :weighed   weighed
+     :stuck     stuck
+     :accounted (+ refusals (count reported) weighed stuck)
+     :believed  (vec (sort (mapv (comp pr-str :sentence)
+                                 (v/sentexes-matching kb pattern 'CxUniverse))))}))
+
+(defn- constraint-outcome!
+  "Every ordering of `sentences` at `strength`, as `{:invariant … :readings […]}`.
+
+  `:invariant` is `one-outcome!`'s verdict over the part that may not vary — the account
+  and, at `:default`, the extent; `:readings` is every ordering's full reading, for the
+  claims about the *set* of doors used that a single outcome cannot make."
+  [label strength sentences pattern]
+  (let [refusals (atom 0)
+        seen     (atom [])
+        ops      (mapv #(refusing-assert refusals strength %) sentences)
+        invariant
+        (one-outcome!
+         label ops
+         (fn [kb]
+           (let [full (constraint-reading kb @refusals pattern)]
+             (reset! refusals 0)
+             (swap! seen conj full)
+             ;; the extent joins the invariant only where nothing is refused — at
+             ;; `:monotonic` the refused write is a fact the KB legitimately does not
+             ;; hold, and which fact that is depends on which of the two was written
+             ;; first, exactly as two known-true claims about one slot always have
+             (cond-> (select-keys full [:accounted :stuck])
+               (= :default strength) (assoc :believed (:believed full))))))]
+    {:invariant invariant :readings @seen}))
+
+(defn- one-door-each!
+  "Assert that every ordering used exactly one of the two doors, and that both doors are
+  used across the set — a scenario where one door answers every ordering is one that
+  never exercised the other."
+  [readings]
+  (let [doors (mapv (fn [r]
+                      (cond-> #{}
+                        (pos? (:refused r))        (conj :refused)
+                        (seq (:reported r))        (conj :reported)
+                        (pos? (:weighed r))        (conj :weighed)
+                        (pos? (:stuck r))          (conj :stuck)))
+                    readings)]
+    (is (every? #(= 1 (count %)) doors)
+        (str "every ordering answers by exactly one door — " (pr-str (frequencies doors))))
+    (is (< 1 (count (distinct doors)))
+        (str "and the scenario reaches more than one of them — " (pr-str (frequencies doors))))))
+
+(deftest a-late-asymmetric-mark-is-accounted-for-in-every-ordering
+  ;; `(asymmetric asBelow)` with both directions of one pair: 6 orderings, and the two
+  ;; that put the declaration last are the ones with no door left to refuse at — both
+  ;; facts are already stored and believed when the mark lands, so the exposure pass is
+  ;; the whole of what keeps `conflicts`, `contradictions` and `violations` from all
+  ;; being empty over a pair the KB's own vocabulary forbids.
+  (let [{:keys [invariant readings]}
+        (constraint-outcome! "late asymmetric mark" :monotonic
+                             ['(asymmetric asBelow) '(asBelow Aa Bb) '(asBelow Bb Aa)]
+                             '(asBelow ?x ?y))]
+    (testing "the clash is answered exactly once, whichever of the three arrived last"
+      (is (= 1 (:accounted invariant)))
+      (is (zero? (:stuck invariant))
+          "one side is turned away or the pair is named — never an irreducible conflict"))
+    (one-door-each! readings)
+    (testing "and the door the late mark takes is the ledger, with both facts standing"
+      (let [late (filterv #(= 2 (count (:believed %))) readings)]
+        (is (= 2 (count late)) "two of the six put the mark last")
+        (is (every? #(= [:asymmetric] (:reported %)) late))))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-late-asymmetric-mark-leaves-the-same-beliefs-in-every-ordering
+  ;; The same three sentences at `:default`, where the door refuses nothing — an
+  ;; `asymmetric` violation refuses only against a known-true converse — so the whole
+  ;; believed extent is identical across all 6 and joins the reading.  What remains for
+  ;; arrival order to pick is the account: a represented dilemma when a fact arrived
+  ;; last, a ledger entry when the mark did.
+  (let [{:keys [invariant readings]}
+        (constraint-outcome! "late asymmetric mark at :default" :default
+                             ['(asymmetric asAside) '(asAside Aa Bb) '(asAside Bb Aa)]
+                             '(asAside ?x ?y))]
+    (testing "both directions stand in every ordering, and the clash is named once"
+      (is (= ["(asAside Aa Bb)" "(asAside Bb Aa)"] (:believed invariant)))
+      (is (= 1 (:accounted invariant)))
+      (is (zero? (:stuck invariant))))
+    (one-door-each! readings)
+    (testing "nothing is refused — a default converse is weighed or reported, not turned away"
+      (is (every? #(zero? (:refused %)) readings)))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-late-mark-over-a-transitive-relation-is-accounted-for-in-every-ordering
+  ;; The same pair with `(transitive asAbove)` in the scenario: 4 sentences, 24
+  ;; orderings, and a second declaration whose own arrival reaches back over the same
+  ;; facts.  Transitivity closes the pair into the self-tuples `(asAbove Aa Aa)` and
+  ;; `(asAbove Bb Bb)`, which `asymmetric` admits — so the clash under test is still the
+  ;; two-way pair, now under a predicate whose extent both marks descend through.
+  (let [{:keys [invariant readings]}
+        (constraint-outcome! "late mark over a transitive relation" :monotonic
+                             ['(transitive asAbove) '(asymmetric asAbove)
+                              '(asAbove Aa Bb) '(asAbove Bb Aa)]
+                             '(asAbove ?x ?y))]
+    (testing "the clash is answered exactly once, whichever of the four arrived last"
+      (is (= 1 (:accounted invariant)))
+      (is (zero? (:stuck invariant))))
+    (one-door-each! readings)
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-late-anti-transitive-mark-is-accounted-for-in-every-ordering
+  ;; The third mark, and the one whose clash is a **triple**: `antiTransitive` convicts
+  ;; the two chain steps and the direct step together, so the entry names three halves
+  ;; and no two of them are the pair.  4 sentences, 24 orderings.
+  (let [{:keys [invariant readings]}
+        (constraint-outcome! "late antiTransitive mark" :monotonic
+                             ['(antiTransitive parOfx) '(parOfx Aa Bb)
+                              '(parOfx Bb Cc) '(parOfx Aa Cc)]
+                             '(parOfx ?x ?y))]
+    (testing "the chain is answered exactly once, whichever of the four arrived last"
+      (is (= 1 (:accounted invariant)))
+      (is (zero? (:stuck invariant))))
+    (one-door-each! readings)
+    (testing "the six orderings that put the mark last name the chain in the ledger"
+      (let [late (filterv #(= 3 (count (:believed %))) readings)]
+        (is (= 6 (count late)))
+        (is (every? #(= [:anti-transitive] (:reported %)) late))))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-late-functional-mark-is-accounted-for-in-every-ordering
+  ;; The second mark, over two fillers no merge can reconcile — `(functional P)` between
+  ;; two *symbols* is co-reference and the KB derives an equality from it instead, so a
+  ;; clash needs values the partition cannot hold (docs/equality.md).
+  (let [{:keys [invariant readings]}
+        (constraint-outcome! "late functional mark" :monotonic
+                             ['(functional ageOfx) '(ageOfx Aa 3) '(ageOfx Aa 4)]
+                             '(ageOfx ?x ?y))]
+    (testing "the slot is answered exactly once, whichever of the three arrived last"
+      (is (= 1 (:accounted invariant)))
+      (is (zero? (:stuck invariant))))
+    (one-door-each! readings)
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-late-mark-answers-the-way-a-late-disjointness-does
+  ;; The precedent the choice above is made against, asserted rather than assumed: a late
+  ;; `(disjoint A B)` over an already-clashing pair reports and leaves belief alone.  The
+  ;; two must agree door for door, or the KB is treating "the declaration came last"
+  ;; differently according to which declaration it is.
+  (let [marked (constraint-outcome! "late asymmetric mark, per door" :monotonic
+                                    ['(asymmetric asBeside) '(asBeside Aa Bb)
+                                     '(asBeside Bb Aa)]
+                                    '(asBeside ?x ?y))
+        separated (constraint-outcome! "late disjointness, per door" :monotonic
+                                       ['(disjoint tdogx tcatx) '(tdogx Rexx)
+                                        '(tcatx Rexx)]
+                                       '(?t Rexx))
+        doors (fn [{:keys [readings]}]
+                (frequencies (mapv #(-> % (select-keys [:refused :weighed :stuck])
+                                        (assoc :reported (count (:reported %))))
+                                   readings)))]
+    (is (= (:invariant marked) (:invariant separated))
+        "one account of the clash, whichever declaration arrived last")
+    (is (= (doors marked) (doors separated))
+        "and the same doors in the same proportions — only the entry kind differs")
     (tu/clear-kb! (tu/test-kb))))
 
 ;; ---- retraction and revival ---------------------------------------------
@@ -577,3 +862,143 @@
       (is (true? (:alice-bird result)) "the projection reaches the genl closure")
       (is (zero? (:contradictions result)) "isolated agents raise no contradiction")))
   (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-symmetric-antecedent-is-order-independent-at-either-position
+  ;; A symmetric fact is stored in one orientation and *means* both, and the two ways a
+  ;; rule reaches it disagreed about that: the join probes both argument orders, while
+  ;; the trigger unified the arriving fact as written.  So the combination that needed
+  ;; the mirror was enumerated by nobody when the symmetric fact arrived **second**, and
+  ;; the same three sentences derived the conclusion or not depending on which was last.
+  ;; 6 orderings, and the fourth reading below is the full join, which was always right.
+  (let [ops     [#(v/assert % '(symmetric sibOf) 'CxUniverse {:strength :monotonic})
+                 #(v/assert % '(implies (and (ownsPet ?o ?a) (sibOf ?a ?b)) (alsoOwns ?o ?b))
+                            'CxUniverse {:direction :forward})
+                 #(v/assert % '(ownsPet Bob Tib) 'CxUniverse)
+                 #(v/assert % '(sibOf Rex Tib) 'CxUniverse)]
+        observe (fn [kb]
+                  {:mirrored (boolean (seq (v/sentexes-matching kb '(alsoOwns Bob Rex) 'CxUniverse)))
+                   ;; `mapv`: the extent readers are lazy over live state, and this map
+                   ;; outlives the KB the ordering walk built it from
+                   :supports (mapv #(count (:support (v/why kb (:id %))))
+                                   (v/sentexes-matching kb '(alsoOwns ?o ?b) 'CxUniverse))
+                   :conflicts (count (v/conflicts kb))})
+        result  (one-outcome! "symmetric antecedent" ops observe)]
+    (testing "and the one outcome is the join's reading"
+      (is (true? (:mirrored result))
+          "the pair the mirror makes is derived whichever fact arrived second")
+      (is (= [1] (:supports result))
+          "one conclusion, justified once — the mirror of a fact is not a second premise")
+      (is (zero? (:conflicts result))))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-symmetric-fact-reaches-a-rule-stated-over-its-super-predicate
+  ;; The mirror is the *fact's* own declaration, and the antecedent that has to see it
+  ;; need not be written at the fact's own predicate: `(genl gsibOf gkinOf)` puts a
+  ;; `gkinOf` antecedent above a `gsibOf` fact, so the pairs that antecedent reaches
+  ;; move when `gsibOf` is declared symmetric.  Both halves of the reach have to fan the
+  ;; sub-predicates — the trigger's mirror, and the re-join a late declaration owes — and
+  ;; either one reading only the antecedent's own functor loses the conclusion in the
+  ;; orderings that put the fact or the declaration last.  5 assertions, 120 orderings.
+  ;;
+  ;; The super-predicate carries facts of its own beside the sub's, which is the
+  ;; arrangement a real hierarchy is in and the one that makes the conclusion **set** the
+  ;; claim rather than its count: a mirror taken where the pair does not call for one, or
+  ;; a super-predicate fact read as though it were symmetric, both read as an extra
+  ;; conclusion rather than as nothing at all.  They arrive with the sub's fact as one op
+  ;; — what the orderings are about is where the *declaration*, the edge and the rule fall
+  ;; against the facts, not how the facts fall against each other.
+  (let [ops     [#(v/assert % '(symmetric gsibOf) 'CxUniverse {:strength :monotonic})
+                 #(v/assert % '(genl gsibOf gkinOf) 'CxUniverse {:strength :monotonic})
+                 #(v/assert % '(implies (and (gownsPet ?o ?a) (gkinOf ?a ?b)) (gAlsoOwns ?o ?b))
+                            'CxUniverse {:direction :forward})
+                 #(v/assert % '(gownsPet Bob Tib) 'CxUniverse)
+                 #(do (v/assert % '(gsibOf Rex Tib) 'CxUniverse)
+                      (doseq [[a b] '[[Ann Bea] [Cal Dee] [Eve Fay] [Gil Hal] [Ida Jem]]]
+                        (v/assert % (list 'gkinOf a b) 'CxUniverse)))]
+        observe (fn [kb]
+                  (let [cs (v/sentexes-matching kb '(gAlsoOwns ?o ?b) 'CxUniverse)]
+                    {:conclusions (set (map :sentence cs))
+                     ;; sorted: the extent readers promise the set, not the order
+                     :supports    (vec (sort (map #(count (:support (v/why kb (:id %)))) cs)))
+                     :conflicts   (count (v/conflicts kb))}))
+        result  (one-outcome! "symmetric under a super-predicate" ops observe)]
+    (testing "and the one outcome is the mirrored pair, derived once"
+      (is (= '#{(gAlsoOwns Bob Rex)} (:conclusions result))
+          "the sub-predicate's mirror reaches an antecedent stated above it")
+      (is (= [1] (:supports result))
+          "one conclusion, justified once — the mirror of a fact is not a second premise")
+      (is (zero? (:conflicts result))))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-symmetric-antecedent-mid-chain-is-order-independent
+  ;; The 4-op case above the previous two has the symmetric literal at the rule's last
+  ;; antecedent, where the trigger and the join are the only two readers.  Here it sits
+  ;; **between** two others, so the mirror has to hold whichever way the completion runs:
+  ;; the symmetric fact arriving last triggers at the middle position and both neighbours
+  ;; are joined outward from the mirrored binding, while either neighbour arriving last
+  ;; reaches the middle by a join from one side and the far one by a join from the other.
+  ;; 5 assertions, 120 orderings, and only `(mSpans Bo Zed)` is entailed — a mirror
+  ;; applied where the chain does not need one would show up as a second conclusion.
+  (let [ops     [#(v/assert % '(symmetric mlinkOf) 'CxUniverse {:strength :monotonic})
+                 #(v/assert % '(implies (and (mheadOf ?o ?a) (mlinkOf ?a ?b) (mtailOf ?b ?c))
+                                        (mSpans ?o ?c))
+                            'CxUniverse {:direction :forward})
+                 #(v/assert % '(mheadOf Bo Tib) 'CxUniverse)
+                 #(v/assert % '(mlinkOf Rex Tib) 'CxUniverse)
+                 #(v/assert % '(mtailOf Rex Zed) 'CxUniverse)]
+        observe (fn [kb]
+                  (let [cs (v/sentexes-matching kb '(mSpans ?o ?c) 'CxUniverse)]
+                    {:conclusions (set (map :sentence cs))
+                     :supports    (vec (sort (map #(count (:support (v/why kb (:id %)))) cs)))
+                     :conflicts   (count (v/conflicts kb))}))
+        result  (one-outcome! "symmetric mid-chain" ops observe)]
+    (testing "and the one outcome is the chain the mirror closes, derived once"
+      (is (= '#{(mSpans Bo Zed)} (:conclusions result)))
+      (is (= [1] (:supports result)))
+      (is (zero? (:conflicts result))))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-symmetric-fact-does-not-mirror-what-was-not-declared-symmetric
+  ;; The mirror is the *fact's* own declaration, not its supertype's: `sibOf` being
+  ;; symmetric says nothing about a `knowsOf` fact, and a rule over one must not read a
+  ;; pair the KB never stated.
+  (let [kb (tu/test-kb)]
+    (tu/clear-kb! kb)
+    (v/assert kb '(implies (likesOf ?a ?b) (fanOf ?a ?b)) 'CxUniverse {:direction :forward})
+    (v/assert kb '(likesOf Ann Bea) 'CxUniverse)
+    (is (= '[(fanOf Ann Bea)]
+           (mapv :sentence (v/sentexes-matching kb '(fanOf ?a ?b) 'CxUniverse)))
+        "no mirrored conclusion off an undeclared predicate")
+    (tu/clear-kb! kb)))
+
+(deftest a-symmetric-fact-mirrors-from-the-lead-position-too
+  ;; The sibling of the test above, with the arrangement that hides the defect removed.
+  ;; There, the super-predicate carries five facts of its own, which is enough to move the
+  ;; planner off leading the join with the symmetric literal.  Here it carries none, so
+  ;; `(gkinOf ?a ?b)` is the cheapest literal and leads — and a lead-position match is the
+  ;; one place a symmetric fact's mirror was dropped, because both retrieval paths deduped
+  ;; the mirror probe by **handle**: an all-variable pattern binds one stored fact twice
+  ;; and differently, and the second binding was read as a repeat of the first.
+  ;;
+  ;; It failed forward *and* backward, which is what says the defect was in the matcher
+  ;; rather than in chaining: 48 of these 120 orderings derived nothing, and `prove` of
+  ;; the mirrored pair failed in exactly those.  Both readings are here for that reason.
+  (let [ops     [#(v/assert % '(symmetric lsibOf) 'CxUniverse {:strength :monotonic})
+                 #(v/assert % '(genl lsibOf lkinOf) 'CxUniverse {:strength :monotonic})
+                 #(v/assert % '(implies (and (lownsPet ?o ?a) (lkinOf ?a ?b)) (lAlsoOwns ?o ?b))
+                            'CxUniverse {:direction :forward})
+                 #(v/assert % '(lownsPet Bob Tib) 'CxUniverse)
+                 #(v/assert % '(lsibOf Rex Tib) 'CxUniverse)]
+        observe (fn [kb]
+                  {:conclusions (set (map :sentence (v/sentexes-matching
+                                                     kb '(lAlsoOwns ?o ?b) 'CxUniverse)))
+                   ;; the backward half of the same question, asked of the mirror
+                   :proved      (boolean (seq (v/prove kb '(lkinOf Tib Rex))))
+                   :conflicts   (count (v/conflicts kb))})
+        result  (one-outcome! "symmetric in the lead position" ops observe)]
+    (testing "and the one outcome is the mirrored pair, forward and backward"
+      (is (= '#{(lAlsoOwns Bob Rex)} (:conclusions result)))
+      (is (true? (:proved result))
+          "the mirror answers a goal, not only a join")
+      (is (zero? (:conflicts result))))
+    (tu/clear-kb! (tu/test-kb))))

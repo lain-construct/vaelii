@@ -1,5 +1,543 @@
 # Changelog
 
+## 0.11.0 — 2026-08-22 — "contradiction solving, arrival order, and the durable log"
+
+- **`antiTransitive` convicts the chain it forbids.** `(antiTransitive P)` shipped
+  classified and disjoint from `transitive`, with the conviction itself declared and not
+  enforced: `(P a b)` and `(P b c)` believed left `(P a c)` admitted in silence. The three
+  are now **one nogood**, which is the first whose members are three rather than two — a
+  known-true chain refuses the direct step at the door (`:type :anti-transitive`), a chain
+  with one defeasible step has that step defeated, and three equal defaults are a
+  three-sided dilemma `contradictions` reports and the engine declines to decide. The mark
+  descends the predicate hierarchy like the other constraint marks, so it convicts a
+  `fatherOf` chain under `(antiTransitive parentOf)`; it does not imply `irreflexive`, and
+  a step reached only by argument preservation is not enumerated. *Class:* **Breaking** —
+  a KB that declared the mark and stored a chain is now told about it: refused where the
+  chain is known true, one member disbelieved where the strengths differ, and reported as
+  a dilemma where they do not. `:nogood` / `:handles` / `:sides` on a clash report can
+  hold three members where a reader may have assumed two. *Migration:* drop the mark, or state the chain's exception,
+  where the declaration was documentation rather than a constraint.
+  *Breaks:* `antiTransitive`, `:anti-transitive`, `:opposing-handles`, `contradictions`,
+  `conflicts`, `check`
+  [docs/nmtms.md](docs/nmtms.md), [docs/taxonomy.md](docs/taxonomy.md)
+
+- **Register a computed predicate or function in one line.** `add-evaluatable` wraps a
+  plain Clojure fn as an evaluatable prover — a *check* over ground arguments (a truthy
+  return is the predicate holding, like `lessThan`) or a *result-binding* function
+  (`:result` names the output slot a value binds, like `evaluate`) — so a calculated
+  relation no longer needs a hand-written five-method `Prover`. The fn is a value the
+  caller supplies, never `eval` of KB data. It answers a direct `ask` / `query` goal and,
+  the node engine's leaf being the registry, joins and discharges a rule antecedent under a
+  `:max-depth`, reading as a leaf of a `{:proof? true}` derivation. *Class:* **Additive** —
+  one new public fn (`vaelii.core/add-evaluatable`); no existing behaviour changes and
+  nothing to migrate. [docs/inference.md](docs/inference.md), [docs/api.md](docs/api.md)
+
+- **Definitional collection relations: membership tied to a defining condition.**
+  `(defnNecessary Coll C)` / `(defnSufficient Coll C)` / `(defnIff Coll C)` tie a
+  collection's membership to a condition on the member `?x` — necessary (member ⇒
+  condition), sufficient (condition ⇒ member), or both. Each expands at assert into an
+  ordinary forward rule (`(implies (Coll ?x) C)` and/or `(implies C (Coll ?x))`),
+  materialized as a derived rule sentex justified by the `defn*` fact alone — so the
+  entailment inherits rule indexing, forward chaining, placement, retraction and
+  belief-following for free, exactly as a generator's minted rule does. Open-world only:
+  nothing closes the collection's complement, so a thing the condition is silent about is
+  neither concluded a member nor a non-member. *Class:* **Additive** — new `CxCore`
+  vocabulary and one derivation off it; a KB using neither predicate is unchanged.
+  [docs/defns.md](docs/defns.md)
+
+- **Sibling disjointness: a collection's specializations separate themselves.**
+  `(siblingDisjoint C)` marks a collection so any two of its `genl`-specializations
+  share no instance, *unless one is a `genl` of the other* — Cyc's
+  `siblingDisjointCollectionType` shape, without hand-asserting every pair. It is the
+  `disjointMetatype` clique keyed off the `genl` closure rather than a recorded member
+  set: only the mark is cached, `disjoint?` reads the separated pairs off `specs`, and
+  it raises contradictions through the same JTMS/ASP path as `disjoint` — refused where
+  written, reported as an exposed clash where only a descendant context can see it.
+  Covering (whether the specializations exhaust `C`) is out of scope. *Class:*
+  **Additive** — new vocabulary and one taxonomy cache; a KB naming no `siblingDisjoint`
+  behaves exactly as before. [docs/taxonomy.md](docs/taxonomy.md),
+  [docs/glossary.md](docs/glossary.md)
+- **An escape hatch for a pair that must overlap.** `(siblingDisjointException X Y)`
+  exempts the one pair `X`, `Y` that a `siblingDisjoint` mark or a `disjointMetatype`
+  would otherwise force disjoint — a Braille reading is both a `reading` and a
+  `touch_perception` — without disturbing either type's disjointness from the parent's
+  other specializations. Pair-local and non-leaking to subtypes, keyed like `disjoint`,
+  belief-following, and read over the whole KB rather than the reader's cone (an exemption
+  removes a clash, so a scoped one would be non-monotone). *Class:* **Additive** — new
+  vocabulary and one taxonomy cache; a KB naming no `siblingDisjointException` behaves
+  exactly as before. [docs/taxonomy.md](docs/taxonomy.md),
+  [docs/from-cyc.md](docs/from-cyc.md)
+
+- **Why a sentex is believed, or is not, as a map instead of a bisection.** `belief-status`
+  reports one handle from one context with the stages held apart — stored, raw JTMS `in?`,
+  the `except` cascade visible from the asking context, assertion-context inheritance — and
+  the two terminal answers `:believed?` and `:visible?` computed off them, so a read that
+  came back empty names the gate that closed it. The `:exceptions` forest is ordered by
+  assertion context and content and nests a meta-exception under `:excepted-by`, so the
+  same knowledge prints the same report whatever order it arrived in. `believed?` is the
+  boolean beside it — JTMS IN after the visible cascade, deliberately *not* gated on the
+  asker inheriting the sentex's assertion context, which is the separate `:visible?` the
+  map reports. Both refuse a malformed handle with `:bad-handle`, as `in?` does. The hot
+  boolean path and the diagnostic forest read one visible-exception index, so they cannot
+  disagree about scope. *Class:* **Additive** — two new public fns; nothing existing moves.
+  [docs/api.md](docs/api.md), [docs/exceptions.md](docs/exceptions.md)
+
+### One handle per canonical sentence
+
+- **A bulk run's authority memo follows the handle cache's generation.** The memo that
+  lets a forward-chaining run read a miss as absence outlived the cache it rests on: the
+  cache empties whenever the canon stamp moves — a rule concluding `(symmetric P)` moves
+  it mid-fixpoint — and every conclusion stored before the move was stored again after
+  it, two handles for one sentence. The cache carries a generation now, and the memo
+  drops its verdicts when it steps. *Class:* Fix; a KB that derived a declaration
+  mid-chain held duplicate records. [docs/canonicalization.md](docs/canonicalization.md),
+  [docs/inference.md](docs/inference.md)
+
+- **A non-ground sentence resolves to the handle whose stored sentence it equals.** A
+  pattern keys the trie α-renamed, so the lookup answered every stored sentex of the same
+  shape and the first was taken: two `exceptWhen` exceptions on one rule naming different
+  rule variables collapsed into one — and the sick bird flew — as did
+  `(defnSufficient C (kin ?x ?y))` beside `(defnSufficient C (kin ?y ?x))`. Candidates
+  are now selected by stored sentence, one record read each, paid only by a non-ground
+  atomic. *Class:* Fix; an exception that was silently dropped is now stored.
+  [docs/exceptions.md](docs/exceptions.md), [docs/canonicalization.md](docs/canonicalization.md)
+
+### The same knowledge in any order
+
+- **An asymmetric twin stored in the vantage is a partner, not the sentence itself.**
+  `asymmetry-problems` decided *self* by the context it was asked **from** rather than by
+  the sentence's own, so a stored `(P a a)` asked from a vantage that sees more than its
+  own context threw away the twin stored in that vantage as though it were itself: the
+  same self tuple written in a general context and again in one that sees it was a
+  reported dilemma when the specific side arrived last and silence when the general side
+  did. The checks take the sentence's `home` context now; the door, where the two are one,
+  is unchanged. *Class:* Fix on order independence. [docs/nmtms.md](docs/nmtms.md)
+
+- **Metatype membership records on the mark's storage, not its belief.** `(M T)` asserted
+  while `(disjointMetatype M)` was defeated was never recorded, so reviving the mark
+  separated nothing — where the same four facts in the other order separated the pair —
+  and a member retracted while the mark was OUT leaked its cache entry for the life of
+  the KB. *Class:* Fix on order independence. [docs/taxonomy.md](docs/taxonomy.md)
+
+- **A firing bound to a merged term is always an exception candidate.** The re-check
+  narrowing compares stored bindings by argument shape while the re-evaluation rewrites
+  them to the context's elected representative, so a firing bound to a retired spelling
+  was never re-checked: the conclusion stood when the exception arrived after the merge
+  and was swept when it arrived before. *Class:* Fix on order independence.
+  [docs/exceptions.md](docs/exceptions.md), [docs/equality.md](docs/equality.md)
+
+- **A cycle-closing `genlCx` edge condenses the relation in place.** The assert that
+  closes a context cycle chains before it settles, so a firing it seeded read the
+  pre-merge component and placed its conclusion on whichever member it saw, while the
+  same firing re-derived after the settle landed on the term-min representative — two
+  sentexes for one claim in contexts that see each other. The cyclic arm runs
+  `repair-depths` now. *Class:* Fix on order independence.
+  [docs/taxonomy.md](docs/taxonomy.md), [docs/contexts.md](docs/contexts.md)
+
+- **A symmetric fact reaches a rule the same way at either position.** A symmetric fact is
+  stored in one orientation and *means* both: the join probes both argument orders, and
+  the trigger unified the arriving datum as written — so the combination needing the
+  mirror was enumerated by nobody, and the same four sentences derived the conclusion or
+  not depending on which arrived last. A `(symmetric P)` declaration arriving *after* the
+  facts re-joins in full every forward rule with an antecedent over `P`, the route a
+  preserved predicate already took. All 24 orderings of {declaration, rule, two facts}
+  agree; 12 did not. *Class:* Fix on order independence.
+  [docs/inference.md](docs/inference.md), [docs/inherit.md](docs/inherit.md)
+
+- **A symmetric fact answers twice when the pattern asks twice.** All three retrieval
+  paths deduped the mirror probe by *handle*. For a palindrome that is right; but a
+  pattern whose arguments are both variables binds one stored fact twice and differently,
+  and the second binding was read as a repeat and dropped. It bit only where such a
+  literal **leads** the join — a plan decision — so the same knowledge answered or not
+  depending on which literal was cheapest: 48 of 120 orderings, `prove` failing in exactly
+  those. Every path keys the dedup on the handle *and* the bindings — including the `rete`
+  sweep's alpha matcher, which reimplements the probe rather than reusing it, and owes the
+  identical set the reference path returns. *Class:* Fix on order independence.
+  [docs/indexing.md](docs/indexing.md), [docs/inference.md](docs/inference.md)
+
+- **A block condition is one question, asked under one spelling.** An `exceptWhen`
+  conjunct and an `(unknown S)` inner query were evaluated as written, while the firing's
+  bindings were rewritten to the class representative at re-check and not at derive time —
+  and the conjunct's own constants were never rewritten at all. The goal named a spelling
+  the KB no longer answers under, and the honest empty read as *not excepted* — and, for
+  `unknown`, as *absent*, which draws a conclusion rather than failing to withdraw one.
+  Over 24 arrival orders: 6 diverged on a retired binding, 12 on a retired constant, and
+  an `unknown` over either was wrong in all 24. *Class:* Fix on order independence.
+  [docs/exceptions.md](docs/exceptions.md), [docs/naf.md](docs/naf.md)
+
+- **The derivation path reaches every integrate arm the rebuild does.** A forward-derived
+  sentex ran only the closure arms, so a rule-derived `(except (sentexHandle H))` queued
+  no firing for the sweep and a rule-derived `(M T)` for a disjoint metatype separated
+  nothing — until a restart replayed the store and disagreed with the running KB.
+  *Class:* Fix; the live KB and the recovered one answer alike.
+  [docs/taxonomy.md](docs/taxonomy.md), [docs/exceptions.md](docs/exceptions.md)
+
+### Storage and the durable log
+
+- **A dedup probe reads the exact leaf, not a match of it.** `find-sentex-handle` asked
+  `p/lookup` for the sentex's own trie key, and a key carrying a variable — which every
+  non-ground key does, since keys are α-renamed — is a *wildcard* there: it fanned over
+  every stored sentex of that shape and read the record of each to tell them apart, at a
+  positional read and a nippy thaw apiece on a paged store. `handle-of` and `why-not` are
+  public, RPC ops and CLI commands, so the pattern is the caller's to choose; measured at
+  800 candidates, 2779 µs per call against 13 µs. `p/leaf-at` reads the node the path
+  names and nothing else — the whole candidate set, since anything at another leaf is
+  another sentence. *Class:* **Breaking** — one method added to the `IndexStore` seam
+  ([docs/storage.md](docs/storage.md)), so an out-of-tree index implements `leaf-at`; it
+  is the leaf handles at an exact path, which every trie already holds.
+  *Migration:* implement `leaf-at` on any `IndexStore` outside this tree; the shipped
+  backends all carry it.
+  *Breaks:* `leaf-at`, `IndexStore`, `find-sentex-handle`
+  [docs/indexing.md](docs/indexing.md)
+
+- **An append is all or nothing.** A write that failed partway through a frame left a
+  length prefix promising bytes that never followed, and the next dirty open walked from
+  it into the middle of a later frame, truncated there, and tombstoned every slot past
+  that point — records fsynced by later ticks. The log is set back to its pre-write
+  length before the failure travels, and a WAL batch packs into one buffer and one write.
+  *Class:* Fix; a durable store could lose committed records to a partial write.
+  [docs/storage.md](docs/storage.md)
+
+- **A compaction that fails past its commit point retries, then refuses.** Once the
+  commit marker is written the temps are the truth and the live log is truncated before
+  the copy, so a failure there left it half-copied while the session kept reading it. The
+  install is retried under the kind lock; a second failure flips the kind into a failed
+  state where every read and write refuses with `:compaction-failed` until the store is
+  reopened. *Class:* **Additive** — one new refusal `:type`.
+  [docs/storage.md](docs/storage.md)
+
+- **The durable token dictionary is keyed as the in-RAM one is.** The token log's forward
+  map keyed on Java `.equals`, the `TokenDict` it reloads into on `hasheq` — under which
+  `2` and `(int 2)` are one token — so an integral pair minted a second durable id and
+  every later open read `:torn-snapshot`. *Class:* Fix; an index snapshot over numeric
+  arguments now reloads. [docs/storage.md](docs/storage.md), [docs/indexing.md](docs/indexing.md)
+
+- **...and a log that already holds such a pair is repaired, not rediagnosed forever.**
+  Keying the map fixed what gets written; a log written before it still held both frames,
+  and every open reloaded one entry short, threw `:torn-snapshot` naming the wrong cause,
+  rebuilt the index from the records, and snapshotted it against the same unrepairable
+  log — so the next open paid for it again. The open that meets one drops the commit
+  marker, rewrites the log without the duplicate, and declines as `:duplicate-tokens`,
+  naming what happened. *Class:* Fix; one open repairs it and the next maps its image.
+  [docs/storage.md](docs/storage.md)
+
+- **A stray unindex touches nothing.** Removal decremented every counter on the path
+  without looking, so one unindex of a handle that was never at the leaf took a live
+  sibling's nodes out of the trie. Both the flat and columnar backends probe the leaf
+  first. *Class:* Fix; a double retraction could unindex a believed sentex.
+  [docs/indexing.md](docs/indexing.md)
+
+- **A durable fork gates and rebuilds its own half through the merged mount.** A fork's
+  own index half is its delta over the base — copy-on-write counters, tombstones,
+  removal records — not an index of its own records, but the coverage gate held it to one
+  and so rebuilt on every remount, dropping every removal (a retracted inherited fact
+  reappeared) and shadowing the base's counters. Both gates read the merged mount now, as
+  a plain disk KB does. *Class:* Fix; a remounted fork answered with facts it had
+  retracted. [docs/overlay.md](docs/overlay.md)
+
+- **A bulk load's transient takes only its own backend's writes.** The binding was a bare
+  per-thread volatile, so while a load ran over one backend every other memory-backend
+  write on that thread landed in its transient — invisible to its own backend, then
+  persisted into the wrong map. *Class:* Fix; concurrent KBs on one thread no longer
+  cross. [docs/storage.md](docs/storage.md)
+
+- **A frame reader releases its file when the consumer stops early.** The chunked and
+  windowed readers closed only at EOF, so a refused snapshot frame or an aborted import
+  leaked the handle; a failure inside the seq closes before the throw travels, a Cleaner
+  closes a dropped seq, and `close-frames!` closes on request. *Class:* Fix.
+  [docs/storage.md](docs/storage.md)
+
+- **A divergent unindex says so, and a counter is a cardinality.** The leaf gate that made
+  a stray unindex a no-op also made a genuine index/record divergence indistinguishable
+  from one — and the caller deletes the record either way, so the trie would keep handing
+  out a handle whose record is gone. It logs `::unindex-absent` now. Beside it,
+  `kv-decrement` is floored at zero: every counter the index writes is a cardinality and
+  `plan/prefix-estimate` divides by them. *Class:* Breaking for an out-of-tree
+  `KvBackend`, which now fails `kv_backend_test` if it lets one go negative.
+  *Migration:* floor `kv-decrement` at zero in an out-of-tree `KvBackend`; the shipped
+  backends already do.
+  *Breaks:* `kv-decrement` [docs/indexing.md](docs/indexing.md)
+
+- **Record fetches are counted, beside the index reads.** A probe that narrows to one
+  index read and then pages a record per candidate scores well on the tally that existed
+  and badly on the one that did not — which is how a probe reading 2779 µs where it now
+  reads 13 shipped. `vaelii.impl.profile` carries `:fetches` by kind. *Class:* **Additive**
+  — one new snapshot key. [docs/storage.md](docs/storage.md), [docs/profile.md](docs/profile.md)
+
+### Inference
+
+- **A term-growing subgoal is cut at a ceiling over the query's depth.** `prove`,
+  `provable?`, level 7 and `explain-levels` did not terminate on a rule that nests a
+  function application around a head variable — `(implies (p (SuccFn ?x)) (p ?x))` —
+  because the loop guard keys on the goal and every expansion asks one nobody has asked.
+  A subgoal nesting compound terms more than `:max-term-growth` (default 8) deeper than
+  the query is cut as a repeated key is. *Class:* Breaking; a search that ran forever now
+  stops. *Migration:* raise `:max-term-growth` for a proof that genuinely builds terms.
+  *Breaks:* `:max-term-growth`, `prove`, `provable?`, `explain-levels`
+  [docs/inference.md](docs/inference.md), [docs/levels.md](docs/levels.md)
+
+- **A variable-functor goal expands every rule, not none.** `(?p Tom ?y)` answered stored
+  facts through the argument roots and silently expanded no rule at all, because the
+  consequent probe looked the variable up as a predicate. Candidates now come off the
+  rule roster, with the functor bound per rule. *Class:* Fix; an open-predicate query
+  returns derived answers. [docs/inference.md](docs/inference.md),
+  [docs/indexing.md](docs/indexing.md)
+
+- **A deadline stops the node engine at the next expansion, not the next answer.** One
+  pull of the search seq steps until a node yields, so a wide unproductive frontier ran
+  whole before the budget was seen — 25–40 ms for a 2 ms budget. The session is driven
+  under the budget now, with the same partial-result contract. *Class:* Fix on the
+  anytime contract. [docs/anytime.md](docs/anytime.md)
+
+### Contradiction solving
+
+- **A solve that returned no answer set is not read as defeat-everything.** Every reader
+  maps an absent atom to *defeated*, so an interrupted or unknown result defeated every
+  contested assumption and labeled every choice head false. `edge-solver` degrades to the
+  local solver and logs it; `kept-of`, `enumerate-optima` and `classify-program` refuse
+  with `:solver-failed`. `:unsat` keeps its reading. *Class:* Breaking; a caller reading
+  a solve that did not finish now meets a refusal instead of a silent verdict.
+  *Migration:* catch `:solver-failed` where a solve may be interrupted, or lift the time
+  limit with `VAELII_ASP_TIME_LIMIT=0`.
+  *Breaks:* `:solver-failed`, `:interrupted`, `kept-of`, `enumerate-optima`,
+  `classify-program`
+  [docs/asp.md](docs/asp.md), [docs/solving.md](docs/solving.md)
+
+- **Every solve is bounded by a time limit.** A hard program wedged the single writer:
+  neither backend carried one. `VAELII_ASP_TIME_LIMIT` (default 60 s, `0` lifts it)
+  reaches clasp as `--time-limit` and in-process clingo as an async solve cancelled when
+  the budget is spent, both reporting the new `:interrupted` status; the clingo handle is
+  closed in a `finally`. *Class:* **Additive** — one setting and one status; a solve that
+  finished inside a minute is unchanged. [docs/asp.md](docs/asp.md),
+  [docs/operations.md](docs/operations.md)
+
+- **The solve sweep takes a context's extent, not everything about it.** `clear-context!`
+  retracted every sentex *mentioning* a solve context from any context, so a user's own
+  `genlCx` edge into a classification context was retracted by `classify`. The sweep
+  takes the extent plus the placement edges the solve itself minted.
+  *Class:* Fix. [docs/labeling.md](docs/labeling.md)
+
+- **One ruling per arbiter per dispute.** `resolve-by-majority` re-ruled without looking
+  at what stood, so a house that swung got a second known-true ruling beside the first —
+  a clash no ruling could settle. A standing ruling for the other side is retracted
+  first, and the majority path withdraws its own when the count dissolves into a tie.
+  *Class:* Fix, plus one new public read (`standing-rulings`) and a `:withdrawn` key on
+  the result. [docs/koinii.md](docs/koinii.md)
+
+- **...and a ruling is found again for every dispute it settles.** Canonical dedup gives
+  one sentex per sentence and context, so an arbiter upholding one claim against two
+  opponents stamps a single handle twice — and the `:adjudication` tag held one dispute
+  id, the later. The earlier dispute then read no standing ruling, skipped the guard
+  above, and took a second monotonic ruling beside the first; two orders of the same
+  operations gave different belief sets. The tag holds a set, the id is compared sorted,
+  the retract-and-replace is one `edit!`, and an arbiter who is a **party** is refused
+  (`:arbiter-is-party`) — a ruling lands in the arbiter's own context, so for a party it
+  restamped their own claim or deleted it. *Class:* Breaking on one impl read
+  (`who-ruled` answers `:dispute-ids`), Additive for the refusal.
+  *Migration:* read `who-ruled`'s `:dispute-ids` as a set where a single id was expected,
+  and name an arbiter who is not a party to the dispute.
+  *Breaks:* `who-ruled`, `:dispute-ids`, `:arbiter-is-party`
+  [docs/koinii.md](docs/koinii.md)
+
+- **The edge solver refuses rather than degrades when a backend is present.** An
+  interrupted or failed solve decided nothing, then fell back to the local solver — whose
+  answer *differs*, and is documented as differing. So belief depended on whether a solve
+  finished: one settle round timing out and the next not produced a belief set neither
+  solver would give. It now decides nothing and says so. *Class:* Breaking; a caller
+  reading `{:defeat :violated}` also gets `:error`.
+  *Migration:* handle `:error` where the degraded local answer was relied on, or lift the
+  bound with `VAELII_ASP_TIME_LIMIT=0` so the solve finishes.
+  *Breaks:* `:error`, `edge-solver`, `:solver-failed`
+  [docs/asp.md](docs/asp.md)
+
+- **A backend failure is a result, not an exception through a settle.** Nothing caught
+  `:solver-failed` or `:solver-unavailable`, so a native failure unwound
+  `resolve-contradictions` after a round had already defeated things: a half-arbitrated
+  KB, stale `:conflicts`, and `reset-touched!` never run. The settle now finishes with the
+  contested pair standing and logs what it did. *Class:* Fix. [docs/asp.md](docs/asp.md)
+
+- **An infeasible program has no labeling, in every mode.** `kept-of` kept `#{}` for
+  `:unsat`, but `:one` and `:sat` wrapped it as one optimum and reported `:count 1` with a
+  full labeling of a world violating every hard constraint — while `:all` correctly
+  reported none. *Class:* Breaking; the two modes documented as feasible at scale now
+  report `:count 0 :reason :unsatisfiable`. *Migration:* read `:count` rather than
+  treating a returned labeling as evidence the program was feasible.
+  *Breaks:* `:unsatisfiable`
+  [docs/solving.md](docs/solving.md)
+
+- **A negated choice literal binds its own variables.** A hard constraint whose variable
+  occurs only under a negated choice head grounded to nothing at all —
+  `(set/hardConstraint (implies (not (pick ?c)) (mustPick ?c)))` contributed no nogood and
+  the labeling violated it, with no refusal and no warning. This is the at-least-one idiom
+  the encoding's own docstring gives. *Class:* Fix. [docs/solving.md](docs/solving.md)
+
+- **A run that cannot replace the last one refuses instead of writing beside it.** A
+  labeling context whose ownership marker was retracted, or one written into, made the
+  replace-on-rerun sweep a no-op — so the next run accreted a second grounding beside the
+  first and `classify` aggregated both, which is what the namespace says must never
+  happen. *Class:* Additive — one new refusal `:type` (`:labeling-run-blocked`).
+  [docs/solving.md](docs/solving.md), [docs/troubleshooting.md](docs/troubleshooting.md)
+
+- **The `:violated` reading is content-ordered.** The contradiction sort key omitted the
+  sentence, so two nogoods tying on members, priority and hardness interned in arrival
+  order and the report came back permuted. The program text was identical either way, so
+  belief was never at risk — only the reading. *Class:* Fix. [docs/asp.md](docs/asp.md)
+
+- **`VAELII_ASP_TIME_LIMIT` bounds one solve, and an operation makes several.** Both the
+  setting's docstring and the operations row framed it as the single writer's exposure. A
+  classification is two solves, `do/labeling` three, and a settle one per defeat round —
+  each with the whole budget. The docs tabulate the multipliers and a test pins the counts
+  so the table cannot drift. *Class:* neither label; what changed is what the KB says
+  about itself. [docs/asp.md](docs/asp.md), [docs/operations.md](docs/operations.md)
+
+### Equality, taxonomy and dates
+
+- **`kbo>` decides an equal-weight pair that differs at a constant.** The equal-weight
+  branch took the first argument of both sides unconditionally, so
+  `(equals (UnitFn Meter ?n) (UnitFn Metre ?n))` reached the lexicographic step on two
+  atoms and `assert` threw; on the derivation path it aborted the chaining fixpoint. The
+  comparison now runs on roots and recurses only where both sides are compounds.
+  *Class:* Fix; a schematic equation that threw is now oriented.
+  [docs/equational.md](docs/equational.md)
+
+- **`del-equality!` drops the retracted handle from the partition's `:out`.** An equality
+  retracted while defeated left its handle in the OUT set for the life of the KB.
+  *Class:* Fix. [docs/equality.md](docs/equality.md)
+
+- **A datetime bounds its date and time halves separately.** Only the total field count
+  was checked, so `"2000T13:00"` read as a thirteenth month and a day zero, and
+  `subinterval?` nested intervals the strings never named. Every field is now range-
+  checked behind a full date. *Class:* Refusal; a string that parsed into nonsense is
+  refused. [docs/time.md](docs/time.md)
+
+### The API, the web and jobs
+
+- **`query` refuses an option it does not read.** The roster was open, so `{:max-deph 3}`
+  or `{:proof true}` answered facts-only with nothing to say a rule was never expanded.
+  `query-opt-keys` is public, as `assert-opt-keys` is, and covers the door's dial and the
+  engine's reads. *Class:* Breaking; a key `query` ignored is now `:unknown-option`.
+  *Migration:* spell the rostered key.
+  *Breaks:* `:unknown-option`, `query-opt-keys`, `query`, `query?`
+  [docs/api.md](docs/api.md)
+
+- **A write door judges and writes one KB, resolved once per request.** The holder was
+  dereferenced up to four times per write, and `/kbs/activate` takes no monitor — so a
+  switch landing between the refusal and the write put an edit on a KB whose loader is
+  this process's writer, breaking the single-writer contract from the browser.
+  *Class:* Fix. [docs/web.md](docs/web.md)
+
+- **`reset-registry!` waits for a cancelled job to stop before forgetting it.** An
+  unsettled chain job lost its entry — and with it the writer claim — while its thread
+  kept writing. Every job is cancelled, waited on for up to 30 s, and any that will not
+  settle is kept and logged. *Class:* Fix. [docs/operations.md](docs/operations.md)
+
+- **One export at a time is checked and claimed as one step.** The read of `exporting?`
+  sat outside the monitor, so two requests arriving together both started, and a repeat
+  source's entry key was computed outside it too. *Class:* Fix.
+  [docs/catalog.md](docs/catalog.md)
+
+- **`::context` admits a context-denoting application.** The doors take a ground
+  `(CxTimeFn …)` and reify it, but the spec was `symbol?`, so under `instrument` a write
+  into a time-indexed context was refused before the door saw it. *Class:* Fix under
+  `instrument` only. [docs/context-nat.md](docs/context-nat.md)
+
+- **`serve`'s `-main` passes the thread-pool size, as `start` does.** The command-line
+  daemon ran on Jetty's default, so the pinned `max-parked << http-threads` relationship
+  held for the tests only. *Class:* Fix. [docs/operations.md](docs/operations.md)
+
+- **A refusal names the KB it judged, not the active one.** The write doors resolve the
+  holder once and hand that KB to both the refusal and the write, precisely because
+  `/kbs/activate` re-points it at any moment — and then all three refusal arms printed the
+  active entry's name, which is the one KB the page can be sure it did *not* judge.
+  *Class:* Fix. [docs/web.md](docs/web.md)
+
+- **`argue` holds `query`'s roster at its own door, and each debugger door rosters what it
+  reads.** `argue` called `query` only when `:max-depth` was present and `ask` otherwise,
+  so the misspelling the roster exists to catch was still silent there — turning a
+  derivable fact into a false `:unknown`, which `argue`'s own docstring names as the thing
+  to prevent. And the two debugger doors took the union roster while overwriting
+  `:strategy` and `:proof?` themselves, so a caller's strategy was accepted and discarded.
+  *Class:* Breaking; a key these doors ignored is now `:unknown-option`.
+  *Migration:* spell the rostered key, and stop passing `:strategy` or `:proof?` to the
+  debugger doors, which set both themselves.
+  *Breaks:* `argue`, `search-tree`, `compare-tacticians`, `:unknown-option`
+  [docs/api.md](docs/api.md)
+
+### Efficiency
+
+None of these change an answer; each is pinned by a test that fails on the old cost.
+
+- **The forward join takes its argument lead only where there is a fan to collapse.** A
+  functor with no sub-predicates has none, and `res/match-pattern`'s own fast path answers
+  it in one probe — where the lead paid three volatiles, a pattern memo and an extra count
+  probe for nothing. Two index reads per firing on the commonest join shape.
+  [docs/inference.md](docs/inference.md)
+
+- **The supersession refresh takes the region the finish already read.** `settle-finish`
+  reads the relabelled region once into a delay so its consumers do not each pay for it —
+  on the dense network a read boxes the whole bitmap, KB-sized on a rebuild — and this one
+  consumer read it again, ungated, so a KB that had never merged anything materialized the
+  region to reconcile an empty superseded set. [docs/nmtms.md](docs/nmtms.md)
+
+- **A clingo drain keeps the models its mode reads.** Every model was retained though the
+  classify modes read only the last: 618 accumulated on a 400-node colouring at a two
+  second budget, and with the limit lifted it is unbounded. [docs/asp.md](docs/asp.md)
+
+- **An export drains the writes it must and holds nothing after.** The route wrapped the
+  whole walk in the write monitor, against its own comment, so unloading any KB during a
+  multi-minute dump parked a Jetty worker for the dump's length — and `/kbs/unload` is the
+  one write route the refusal does not turn back first. [docs/web.md](docs/web.md)
+
+- **Four new counted gates, because a ratio cannot see a constant.** `lein perf` asserts
+  growth and the `*_cost_test` files assert exact integers; between them sat three classes
+  nothing could see, each of which shipped a defect this release fixes. Now pinned: what
+  one firing costs at the trigger position, what a probe costs in *record* fetches, that a
+  bounded read allocates for the answer rather than for the request, and how many times a
+  settle materializes its region. A fifth prices the durable write path, counted and as a
+  ratio — a path `lein perf` had no check for at all.
+  [docs/profile.md](docs/profile.md)
+
+- **One `except` no longer turns `context-down` into N filtered walks.** The active branch
+  filtered every descendant through an unmemoized reachability walk whenever the whole-KB
+  roster held any `except` at all: on a 1500-context lattice, 2 µs → 46 ms after one
+  unrelated `(except (sentexHandle h))`, paid per `genlCx` write, per multi-context
+  placement and per prover scope. The filter is gated per relation, the filtered answer
+  memoized on the visibility generation. [docs/taxonomy.md](docs/taxonomy.md)
+
+- **A settle reads its relabelled region once per pass.** `touched` was materialized six
+  to twelve times per settle, each read copying the dense network's whole bitmap into a
+  boxed set — the KB's size on a rebuild, on the path that network exists to make fit.
+  Region members' records are read once per settle rather than per defeat round, and the
+  except scans sit behind a non-empty except roster. [docs/nmtms.md](docs/nmtms.md)
+
+- **A negated antecedent is keyed by its body's predicate.** All of them filed under the
+  one key `not`, so each arriving negation ran the rule view over every position of every
+  rule negated anywhere. [docs/indexing.md](docs/indexing.md)
+
+- **A bound-argument antecedent joins through the argument lead.** A join to confirm a
+  single membership walked the trie once per member of the antecedent's sub-predicate
+  closure — 364 on the starter, six figures under a `thing`-rooted antecedent — where the
+  backward path answers it with one slot read. [docs/indexing.md](docs/indexing.md)
+
+- **A candidate rule's view is built once an antecedent unifies**, not for every candidate
+  of every datum; the preservation gate and the symmetry test are read once per chaining
+  run, invalidated when a firing places a declaration. [docs/inference.md](docs/inference.md)
+
+- **`explain` costs its report off the ranking's memoized reads**, where it re-costed
+  every literal with raw index reads — and the node engine pays `explain` per enqueued
+  child. [docs/inference.md](docs/inference.md)
+
+- **`find-terms` with a `:limit` selects its n smallest** instead of sorting every hit;
+  the browser's search box asks for 201 of the vocabulary per keystroke. The answer is
+  the stable sort's prefix, ties included. [docs/api.md](docs/api.md)
+
+- **The web view holds the type set by reference**, read only when a page asks — it copied
+  ~125k symbols per request, `/jobs` and `/caches` included. [docs/web.md](docs/web.md)
+
+- **An LLM tool result is printed into a bounded writer**, not `pr-str`'d whole and then
+  cut: a broad read realizes a few dozen records to show 4,000 characters, where it
+  printed megabytes to keep four kilobytes. [docs/llm.md](docs/llm.md)
+
 ## 0.10.0 — 2026-08-20 — "more than one agent over one knowledge base"
 
 - **Koinii: several agents coordinate over one shared knowledge base.** A new layer,

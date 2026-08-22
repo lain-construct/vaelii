@@ -188,7 +188,7 @@
             (list 'length Lunch '(QuantityFn 1 Hour)))
     (testing "the sum, in seconds because Second is the base unit of Duration"
       (is (= '(QuantityFn 5400 Second)
-             (get (first (v/ask kb (list 'totalDuration (list 'list Breakfast Lunch) '?d) C))
+             (get (tu/sole-answer (v/ask kb (list 'totalDuration (list 'list Breakfast Lunch) '?d) C))
                   '?d))))
     (testing "and a ground total checks in whatever unit it is written"
       (is (v/ask? kb (list 'totalDuration (list 'list Breakfast Lunch)
@@ -203,7 +203,7 @@
             (list 'length Breakfast '(QuantityFn 30 Minute))
             (list 'length Lunch '(QuantityFn 1 Hour)))
     (is (= '(QuantityFn 0 Second)
-           (get (first (v/ask kb (list 'overlapDuration Breakfast Lunch '?d) C)) '?d)))))
+           (get (tu/sole-answer (v/ask kb (list 'overlapDuration Breakfast Lunch '?d) C)) '?d)))))
 
 (tu/deftest-kb six-hours-then-six-hours-is-twelve-hours
   ;; Metric time over the same instants: bounds on a gap, closed by all-pairs shortest
@@ -214,7 +214,7 @@
             (list 'temporalDistance Noon Dusk '(QuantityFn 6 Hour)))
     (testing "the composed gap, bound as a measure"
       (is (= '(QuantityFn 43200 Second)
-             (get (first (v/ask kb (list 'temporalDistance Dawn Dusk '?d) C)) '?d))))
+             (get (tu/sole-answer (v/ask kb (list 'temporalDistance Dawn Dusk '?d) C)) '?d))))
     (testing "and checked against the way a person would write it"
       (is (v/ask? kb (list 'temporalDistance Dawn Dusk '(QuantityFn 12 Hour)) C))
       (is (not (v/ask? kb (list 'temporalDistance Dawn Dusk '(QuantityFn 11 Hour)) C))))))

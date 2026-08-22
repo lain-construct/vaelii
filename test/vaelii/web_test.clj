@@ -10,6 +10,7 @@
             [vaelii.impl.catalog :as cat]
             [vaelii.impl.guard :as guard]
             [vaelii.impl.jobs :as jobs]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.impl.starter :as starter]
             [vaelii.impl.svg :as svg]
             [vaelii.impl.web :as web]
@@ -31,8 +32,7 @@
   the fast path plus whatever the test itself waits — so a run that outlasts that wait under
   load stays running into the next test, where `write-blocked?` reads it as the writer and
   refuses every write with \"Nothing was written\", one leaked job cascading down the rest of
-  the namespace.  Cancel is cooperative (`forward-chain` reports about four times a second,
-  and a report is where it lands), so each running job is cancelled and then waited for
+  the namespace.  `jobs/reset-registry!` cancels each running job and waits for it to stop
   before the registry is cleared and the next test reuses the KB — the writer released, not
   merely forgotten, since two writers on one store are the thing the single-writer contract
   forbids.
@@ -42,11 +42,7 @@
   themselves two writers."
   [f]
   (try (f)
-       (finally
-         (let [live (jobs/running)]
-           (doseq [j live] (jobs/cancel! (:id j)))
-           (doseq [j live] (jobs/wait (:id j) 60000)))
-         (jobs/reset-registry!))))
+       (finally (jobs/reset-registry!))))
 
 (use-fixtures :each (tu/neutral) drained)
 
@@ -56,6 +52,17 @@
            headers (assoc :headers headers))))
 
 (def ^:private htmx {"hx-request" "true"})
+
+(deftest the-view-holds-the-type-set-by-reference-and-reads-it-only-when-a-page-asks
+  ;; `view` is built for every route.  The type set colours a term and counts the types,
+  ;; so a page that does neither — the jobs screen, a fragment continuation — must not
+  ;; pay for it, and a page that does must not copy it: on an imported ontology the copy
+  ;; was ~125k `conj`s per request, and over `--attach` a 125k-symbol transfer per page.
+  (let [vw (web/view tu/*kb* {})]
+    (is (not (realized? (:types vw))) "nothing is read until a page asks")
+    (is (identical? (v/types tu/*kb*) @(:types vw)) "and what is read is the taxonomy's own set"))
+  (with-redefs [acc/types (fn [& _] (throw (ex-info "the type set was read" {})))]
+    (is (= 200 (:status (GET "/jobs"))) "a page that colours no term never reads it")))
 
 (deftest default-page-shows-upper-ontology
   (let [r (GET "/")]
@@ -138,7 +145,8 @@
     (let [r (GET "/front/rows" "section=predicates&offset=50")]
       (is (= 200 (:status r)))
       (is (not (re-find #"<html" (:body r))))
-      (is (re-find #"<li>" (:body r)))))
+      ;; rows carry a `title` (the full comment) now, so the tag is `<li …>` not `<li>`
+      (is (re-find #"<li[ >]" (:body r)))))
   (testing "an unknown section is empty rather than an error"
     (is (str/blank? (str/trim (:body (GET "/front/rows" "section=nonsense&offset=0")))))))
 
@@ -1559,6 +1567,53 @@
     (testing "and is collapsible rather than one flat wall"
       (is (re-find #"<details" (:body r)))
       (is (re-find #"<summary" (:body r))))))
+
+(tu/deftest-kb an-exception-blocked-justification-is-not-labelled-supporting
+  ;; A conclusion IN via one *valid* rule and one *exception-blocked* rule whose arguments
+  ;; are all IN.  The block is genuine — the bird justification is placed first (before any
+  ;; exception) and blocked later, so it is a blocked justification in the network, not a
+  ;; refused firing (`kb.clj :refused`).  The proof tree must call the bird rule blocked and
+  ;; count only the bat rule as supporting; belief in the arguments alone would call both
+  ;; supporting and read "2 of 2".
+  (let [CxFly (tu/tmp-ctx "Fly")
+        bird (tu/tmp-type) penguin (tu/tmp-type) bat (tu/tmp-type)
+        flies (tu/tmp-pred) Opus (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx CxFly 'CxWell) 'CxUniverse {:strength :monotonic})
+    ;; bird => flies, then a bird fact: the justification for (flies Opus) is placed here,
+    ;; before the exception exists
+    (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) CxFly)
+    (v/assert kb (list bird Opus) CxFly)
+    ;; bat => flies, and a bat fact: a second, un-excepted support that keeps (flies Opus) IN
+    (v/assert kb (list 'set/defaultRule (list 'implies (list bat '?x) (list flies '?x))) CxFly)
+    (v/assert kb (list bat Opus) CxFly)
+    ;; except the bird rule for penguins, and make Opus one: this blocks the *already-placed*
+    ;; bird justification while the bat one keeps the conclusion believed
+    (v/assert kb (list 'exceptWhen (list penguin '?x)
+                       (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))))
+              CxFly)
+    (v/assert kb (list penguin Opus) CxFly)
+    (let [h   (v/handle-of kb (list flies Opus) CxFly)
+          sup (v/supporting-justifications kb h)]
+      (testing "the scenario is the one under test: IN, two supports, one of them blocked"
+        (is (v/in? kb h) "(flies Opus) is believed — carried by the bat rule")
+        (is (= 2 (count sup)) "two justifications conclude it: the bird rule and the bat rule")
+        (is (seq (jtms/blocked (:tms kb))) "the bird justification is JTMS-blocked, not swept"))
+      (let [blk  (jtms/blocked (:tms kb))
+            body (:body (GET (str "/why/" h)))]
+        (testing "the why-page counter reports 1 of 2, not 2 of 2"
+          (is (str/includes? body "1 of 2 justifications currently support this"))
+          (is (not (str/includes? body "2 of 2 justifications currently support this"))))
+        (testing "exactly one justification is labelled supporting — the blocked one is not"
+          (is (= 1 (count (re-seq #">supporting</span>" body)))))
+        (testing "the blocked justification's own page says the exception blocks it, not that an argument is OUT"
+          (let [jblk (first (filter #(contains? blk (:id %)) sup))
+                jok  (first (remove #(contains? blk (:id %)) sup))
+                bblk (:body (GET (str "/justification/" (:id jblk))))
+                bok  (:body (GET (str "/justification/" (:id jok))))]
+            (is (str/includes? bblk "not supporting"))
+            (is (str/includes? bblk "exception holds"))
+            (is (not (str/includes? bblk "arguments are OUT")))
+            (is (str/includes? bok "supports its conclusion"))))))))
 
 (tu/deftest-kb the-sentex-page-links-to-the-proof-tree
   (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))

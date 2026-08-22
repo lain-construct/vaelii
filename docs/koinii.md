@@ -214,14 +214,30 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   assertion of the upheld side. Its strength defeats the losing `:default` side, so the clash
   clears, `why` explains who ruled, and — the point — **retracting the ruling reopens the
   dispute**, cascading through the JTMS. A ruling koinii could not undo would be a worse store
-  than one that stays honestly disputed.
+  than one that stays honestly disputed. One ruling per arbiter per dispute: ruling the
+  other side retracts the arbiter's standing ruling first, since two monotonic rulings on
+  one clash would be a `:conflict` no ruling can settle. Both moves land in **one settle**
+  (`edit!` adds before it removes), so a refusal on the replacement cannot leave the
+  arbiter having withdrawn a ruling and asserted nothing.
+
+  A ruling is found again by the `:adjudication` tag on its provenance, which holds the
+  **set** of disputes it settles: canonical dedup gives one sentex per sentence and
+  context, so an arbiter upholding one claim against two opponents stamps a single handle
+  twice, and a single-valued tag would leave the earlier dispute reading no standing
+  ruling at all — then taking a second one beside the first. The dispute id is compared
+  in the sorted spelling `dispute-id` builds, since a caller may hold the pair either way
+  round. An arbiter who is **a party** to the dispute is refused (`:arbiter-is-party`): a
+  ruling lands in the arbiter's own context, so for a party it would restamp their own
+  claim or retract it, deleting the disputed sentence rather than settling the clash.
 - **Majority vote** — a ballot is a meta-sentex on the disputed claim (`votesFor` /
   `votesAgainst`), knowledge like every other move, so `why` explains a decision as "the
   majority voted, here are the ballots." The decision reuses the arbiter's reversible
   monotonic assertion; the honest part is that **a tie upholds nothing** — an evenly-split
   house stays open rather than being decided by fiat, which is the whole reason to count
   instead of decree. A voter who cast both stances has *spoiled* their ballot, counted on
-  neither side.
+  neither side. The count is the authority every time it is taken: a house that swings
+  withdraws the standing ruling and rules the other side, and one that dissolves into a
+  tie withdraws it and stays open (`:withdrawn` in the result names what was retired).
 
 **Trust-resolve** — automatic resolution by source trust — is deliberately out of scope for
 this layer; it is engine-side reputation work, and reaching for it here would resolve

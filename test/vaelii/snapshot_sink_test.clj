@@ -302,3 +302,40 @@
         (is (= n (count (vec (frames/read-chunked-seq f :none))))
             "and the file round-trips to the whole corpus"))
       (finally (rm-rf! dir)))))
+
+(deftest a-reader-dropped-early-releases-its-file
+  ;; The chunked reader is a lazy seq over an open file, and a consumer that stops
+  ;; before the end — an install refusing a frame, a `take` — cannot be seen by the seq.
+  ;; `close-frames!` closes the stream on request; a failure inside the seq closes it
+  ;; before the throw travels; and the file is released when the seq is dropped.
+  (let [dir (temp-dir "release")]
+    (try
+      (let [^File f (File. dir "section.nippy.stream")
+            n      40]
+        (frames/write-frames! f (map (fn [i] [i (str "v" i)]) (range n))
+                              {:compression :none :chunk-size 4})
+        (testing "closed on request, mid-read, the rest of the seq is refused rather than read"
+          (let [s (frames/read-chunked-seq f :none)]
+            (is (= [0 "v0"] (first s)))
+            (frames/close-frames! s)
+            (frames/close-frames! s)                     ; idempotent
+            (is (thrown? java.io.IOException (dorun (drop 4 s)))
+                "the chunk after the one already thawed needs the stream, and it is closed")))
+        (testing "a full read closes the stream itself, and a second close is harmless"
+          (let [s (frames/read-chunked-seq f :none)]
+            (is (= n (count s)))
+            (frames/close-frames! s)))
+        (testing "a torn chunk closes the stream before the failure travels"
+          (let [^File torn (File. dir "torn.nippy.stream")]
+            (io/copy f torn)
+            ;; overwrite the second chunk's payload with bytes no thaw accepts, keeping
+            ;; its length prefix intact so the reader asks the stream for it
+            (with-open [raf (java.io.RandomAccessFile. torn "rw")]
+              (let [len (.readInt raf)]
+                (.seek raf (+ 4 len 4))
+                (.write raf (byte-array 16 (byte 0x7f)))))
+            (let [s (frames/read-chunked-seq torn :none)]
+              (is (= [0 "v0"] (first s)) "the first chunk thaws")
+              (is (thrown? Exception (dorun (drop 4 s))) "the second does not")
+              (frames/close-frames! s)))))                   ; closed under the failure; a no-op
+      (finally (rm-rf! dir)))))

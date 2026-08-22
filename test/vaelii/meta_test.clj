@@ -133,7 +133,7 @@
     (is (v/ask? kb '(functional birthYearOf)))
     (is (not (v/ask? kb '(symmetric parentOf)))))
   (testing "and enumerated"
-    (is (= '#{siblingOf marriedTo friendOf}
+    (is (= '#{siblingOf marriedTo friendOf siblingDisjointException}
            (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))))
     ;; `genl` and `genlCx` are in the enumeration because CxCore asserts (transitive genl)
     ;; / (transitive genlCx) outright.  They *are* transitive; answering them from cached

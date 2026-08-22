@@ -278,9 +278,10 @@
   (let [m (read-manifest source)]
     (if-let [why (decision m stamp)]
       {:index :rebuild :reason why}
-      (let [expected (long (get-in m [:sections index-section :count]))]
+      (let [expected (long (get-in m [:sections index-section :count]))
+            frames   (volatile! nil)]
         (try
-          (let [n (install-entries! index (read-section source index-section))]
+          (let [n (install-entries! index (vreset! frames (read-section source index-section)))]
             (if (= (long n) expected)
               {:index :replayed :entries n}
               (do (trove/log! {:level :warn :id ::index-short
@@ -291,4 +292,7 @@
             (trove/log! {:level :warn :id ::index-unreadable
                          :msg (str "snapshot index section unreadable (" (ex-message e)
                                    ") — rebuilding from the records")})
-            {:index :rebuild :reason :entries-truncated}))))))
+            {:index :rebuild :reason :entries-truncated})
+          ;; an install that refused a frame stopped before the section's end, and the
+          ;; file behind the seq is still open until somebody says so
+          (finally (frames/close-frames! @frames)))))))

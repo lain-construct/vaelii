@@ -45,7 +45,7 @@
   (v/assert kb '(conversionFactor Minute Second 60) C)
   (v/assert kb '(conversionFactor Hour Second 3600) C))
 
-(defn- bound [kb goal] (get (first (v/ask kb goal C)) '?d))
+(defn- bound [kb goal] (get (tu/sole-answer (v/ask kb goal C)) '?d))
 
 ;; ---- the algorithm, without a KB ----------------------------------------
 
@@ -316,7 +316,7 @@
     (v/assert kb (list 'temporalDistance Q R '(QuantityFn 1 Hour)) CxInner)
     (testing "the inner context sees both, so it composes the chain"
       (is (= '(QuantityFn 7200 Second)
-             (get (first (v/ask kb (list 'temporalDistance P R '?d) CxInner)) '?d))))
+             (get (tu/sole-answer (v/ask kb (list 'temporalDistance P R '?d) CxInner)) '?d))))
     (testing "the outer sees only its own, so it composes nothing"
       (is (empty? (v/ask kb (list 'temporalDistance P R '?d) C))))
     (testing "retracting a link breaks the chain — the network is read, not cached"
@@ -400,7 +400,7 @@
               two units — a separation and a duration are written the same way, so the two
               subsystems have to read the pair the same way"
       (is (= '(QuantityFn 3960 Second)
-             (get (first (v/ask kb (list 'totalDuration (list 'list A) '?d) C)) '?d)))
+             (get (tu/sole-answer (v/ask kb (list 'totalDuration (list 'list A) '?d) C)) '?d)))
       (is (= '(QuantityFn 3960 Second) (bound kb (list 'temporalDistance P Q '?d)))))))
 
 ;; ---- who is told the network cannot be satisfied --------------------------

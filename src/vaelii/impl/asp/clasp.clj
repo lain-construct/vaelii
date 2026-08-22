@@ -10,11 +10,16 @@
    to run or produces no parseable output.
 
    The four modes match the user-facing reason API in vaelii.impl.asp.reason:
-   :label, :all-optima, :classify-true, :classify-supportable."
+   :label, :all-optima, :classify-true, :classify-supportable.
+
+   Every run carries `--time-limit` from `config/asp-time-limit` (0 lifts it): a
+   solve that hits it comes back `Result: UNKNOWN` with `TIME LIMIT: 1`, read here
+   as `:interrupted`."
   (:require
    [cheshire.core :as json]
    [clojure.java.shell :as shell]
-   [clojure.string :as str]))
+   [clojure.string :as str]
+   [vaelii.impl.config :as config]))
 
 (def ^{:dynamic true
        :doc "Name (or absolute path) of the clasp executable. Bind to point
@@ -57,12 +62,27 @@
           (throw (ex-info "failed to parse clasp JSON output"
                           {:type :solver-failed :exit exit :out out :err err} e)))))))
 
+(defn- interrupted?
+  "Did clasp stop before it finished — the time limit, or a signal?  Reported as flags
+   beside `Result` rather than in it: a run that found a model before the limit still
+   says `SATISFIABLE`, and that model is not the answer the mode asked for."
+  [parsed]
+  (boolean (some #(= 1 (get parsed (keyword %))) ["TIME LIMIT" "INTERRUPTED"])))
+
 (defn- status-of [parsed]
-  (case (:Result parsed)
-    "OPTIMUM FOUND" :optimum
-    "SATISFIABLE"   :sat
-    "UNSATISFIABLE" :unsat
-    :unknown))
+  (if (interrupted? parsed)
+    :interrupted
+    (case (:Result parsed)
+      "OPTIMUM FOUND" :optimum
+      "SATISFIABLE"   :sat
+      "UNSATISFIABLE" :unsat
+      :unknown)))
+
+(defn- time-limit-args
+  "`--time-limit=N` for a positive `config/asp-time-limit`, nothing for 0."
+  []
+  (let [n (config/asp-time-limit)]
+    (when (pos? n) [(str "--time-limit=" n)])))
 
 (defn- all-witnesses [parsed]
   (or (-> parsed :Call first :Witnesses) []))
@@ -109,16 +129,19 @@
      :classify-supportable — atoms in at least one minimum-cost witness
 
    Returns:
-     :status    — :optimum | :sat | :unsat | :unknown
+     :status    — :optimum | :sat | :unsat | :interrupted | :unknown
      :atoms     — vector of atom-name strings
      :cost      — optimum cost (nil if no minimize statement or unsat)
      :witnesses — vector of value vectors (only populated for :all-optima)
-     :raw       — full parsed JSON (for diagnostics)"
+     :raw       — full parsed JSON (for diagnostics)
+
+   `:interrupted` is the time limit (`config/asp-time-limit`) or a signal: whatever
+   atoms ride beside it are a model found on the way, not the answer."
   [aspif-text mode]
   (let [argv (or (mode-args mode)
                  (throw (ex-info (str "unknown clasp mode: " mode)
                                  {:type :unknown-option :mode mode :valid (keys mode-args)})))
-        parsed (invoke-clasp argv aspif-text)
+        parsed (invoke-clasp (concat argv (time-limit-args)) aspif-text)
         status (status-of parsed)]
     (case mode
       :label

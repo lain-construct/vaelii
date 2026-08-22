@@ -815,16 +815,20 @@
   The three window sets between them are the whole belief delta, and this is the corner
   of it that costs work rather than a report: `touched` minus `touched-in` is what
   gained belief, and minus `touched-new` is the part of *that* which is not a datum the
-  writer has already chained from."
-  [tms]
-  (let [t (touched tms)]
-    (if (empty? t)
-      #{}
-      (let [was-in (touched-in tms)
-            born   (touched-new tms)]
-        (into #{}
-              (comp (remove was-in) (remove born) (filter #(in? tms %)))
-              t)))))
+  writer has already chained from.
+
+  The two-arity takes `touched` as the caller already read it — `settle` reads the
+  region once per pass and hands the value to everything in the pass that wants it,
+  since the dense network materializes a fresh set on every read."
+  ([tms] (revived tms (touched tms)))
+  ([tms t]
+   (if (empty? t)
+     #{}
+     (let [was-in (touched-in tms)
+           born   (touched-new tms)]
+       (into #{}
+             (comp (remove was-in) (remove born) (filter #(in? tms %)))
+             t)))))
 
 (defn reset-touched!
   "Clear the accumulated touched sets (see `touched` / `touched-in` / `touched-new`).

@@ -257,6 +257,15 @@ racing:
 | `:still-exporting` | a dump walking it record by record, with no snapshot to walk instead ([`exporting-kb?`](#and-back-out-again)) |
 | `:unreleased` | nothing: the release itself threw |
 
+**The `:still-exporting` test and the release are one step**, under the same monitor
+`export-entry!` checks and submits under. They read different registries — the unload asks
+the job registry whether a walk is running, the export asks the catalog whether a loader
+is — so nothing but that shared monitor orders them, and outside it an unload and an
+export arriving together each pass their own check. If the release lands first the walk
+then dumps a KB that was emptied under it, and reports `{:ok true}` over a summary that
+reads exactly like a clean export. The entry is dropped inside the monitor too, so an
+export held at the door finds it gone rather than finding it released.
+
 The first two are retried after the thing holding the KB lets go. The third is the
 truth-telling one. A release can fail — an index that will not fsync, a component that
 throws on close — and logging that and dropping the entry would tell the operator it had
@@ -283,6 +292,11 @@ It is deliberately **not** an entry. An export produces no KB, and filing it as 
 put a second handle on a KB somebody could then unload out from under the writer. The
 newest export job in the registry is the panel's report — which is what lets it say where
 the dump went after the job has finished.
+
+That report is the newest export of **any** status, which is why `cancel-export!` does not
+read it: `jobs/cancel!` answers true for any job the registry still holds, so cancelling
+the newest would report a cancellation of a dump that finished an hour ago and is already
+written. It asks the *running* set instead, and answers false when nothing is running.
 
 That closes the loop. `classify` keys on `meta.edn` and `export!` writes it **last**, so
 the moment a dump lands under the search path it is a `:dump` source, and export-then-reload

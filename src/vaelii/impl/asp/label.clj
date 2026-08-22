@@ -144,7 +144,13 @@
   With no backend the two degrade together and stay consistent for free:
   `classify-program` reports every contested assumption `:supportable` and claims
   nothing, so any labeling the stub produces satisfies a classification that asserts
-  no `:true` and no `:false`."
+  no `:true` and no `:false`.
+
+  **With a backend the pairing is all-or-nothing**, which is what makes the reasoning
+  above sound in both directions: `edge-solver` answers from the backend or decides
+  nothing (`asp.edge`, \"A result that is not an answer\"), so a labeling solve that ran
+  out of budget can never be silently answered by the stub while the classification
+  beside it came from ASP."
   [kb]
   (if (solver/available?) edge/edge-solver @(:solver kb)))
 
@@ -182,11 +188,19 @@
   engine's own belief.  A dilemma `settle` declined was decided by nobody — **both
   sides are IN** — so reading current belief would copy both halves of the
   contradiction into the labeling and recreate the dilemma one level down.  Here the
-  solve is the only thing that decides."
+  solve is the only thing that decides.
+
+  So a solve that decided nothing is refused rather than read.  `edge-solver` hands an
+  interrupted or failed solve back as `{:defeat #{} … :error e}` instead of degrading or
+  throwing, and an empty defeat set is otherwise a perfectly good answer — *keep
+  everything* — which is precisely the reading that would materialize both halves of a
+  dilemma into one world.  `:error` is the bit that tells the two apart, and raising it
+  here is what makes an imperative refuse with `:solver-failed`."
   [kb program]
-  (let [{:keys [defeat]} (solve/solve (labeling-solver kb) program)
-        given-up (set defeat)]
-    (into #{} (remove given-up) (:assumptions program))))
+  (let [{:keys [defeat error]} (solve/solve (labeling-solver kb) program)]
+    (when error (throw error))
+    (let [given-up (set defeat)]
+      (into #{} (remove given-up) (:assumptions program)))))
 
 (defn label-dilemmas
   "Classify the dilemmas `kb` currently holds, then materialize one optimal labeling

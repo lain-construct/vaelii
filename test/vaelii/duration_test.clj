@@ -44,7 +44,7 @@
   (v/assert kb '(conversionFactor Minute Second 60)   C)
   (v/assert kb '(conversionFactor Hour Second 3600)   C))
 
-(defn- bound [kb goal] (get (first (v/ask kb goal C)) '?d))
+(defn- bound [kb goal] (get (tu/sole-answer (v/ask kb goal C)) '?d))
 
 ;; ---- totalDuration -------------------------------------------------------
 
@@ -147,7 +147,7 @@
     (v/assert kb (list 'length B '(QuantityFn 30 Minute)) CxInner)
     (testing "the inner context sees both lengths"
       (is (= '(QuantityFn 9000 Second)
-             (get (first (v/ask kb (list 'totalDuration (list 'list A B) '?d) CxInner))
+             (get (tu/sole-answer (v/ask kb (list 'totalDuration (list 'list A B) '?d) CxInner))
                   '?d))))
     (testing "the outer sees only its own, so the total has a component it cannot read"
       (is (empty? (v/ask kb (list 'totalDuration (list 'list A B) '?d) C))))

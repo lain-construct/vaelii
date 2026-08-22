@@ -16,7 +16,8 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.impl.asp.aspif :as aspif]
             [vaelii.impl.asp.atoms :as atoms]
-            [vaelii.impl.asp.solver :as solver]))
+            [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.config :as config]))
 
 (def ^:private asp? (solver/available?))
 
@@ -145,6 +146,48 @@
                               (aspif/minimize 1 [[2 1]])
                               (aspif/show 1 "a") (aspif/show 2 "b")])]
       (is (= ["b"] (:atoms (solver/solve prog :label)))))))
+
+(defn- pigeonhole
+  "`n` pigeons into `n-1` holes, as ASPIF — unsatisfiable, and exponentially hard for a
+  clause-learning solver to prove so, which is what makes it a program that does not
+  finish inside a one-second budget."
+  [n]
+  (let [holes (range 1 n)
+        id    (fn [p h] (+ (* (dec p) (dec n)) h))]
+    (aspif/render
+     (concat
+      (for [p (range 1 (inc n)), h holes] (aspif/choice (id p h)))
+      ;; every pigeon sits somewhere
+      (for [p (range 1 (inc n))] (aspif/constraint (mapv #(- (id p %)) holes)))
+      ;; no two share a hole
+      (for [h holes, p1 (range 1 (inc n)), p2 (range (inc p1) (inc n))]
+        (aspif/constraint [(id p1 h) (id p2 h)]))))))
+
+(defn- backends
+  "Every backend this JVM can actually run, as `[name solve-fn]` — clasp when the
+  binary answers, clingo when libclingo loaded."
+  []
+  (cond-> []
+    (do (require 'vaelii.impl.asp.clasp)
+        ((resolve 'vaelii.impl.asp.clasp/available?)))
+    (conj ["clasp" (resolve 'vaelii.impl.asp.clasp/solve)])
+    (try (require 'vaelii.impl.asp.clingo)
+         ((resolve 'vaelii.impl.asp.clingo/available?))
+         (catch Throwable _ false))
+    (conj ["clingo" (resolve 'vaelii.impl.asp.clingo/solve)])))
+
+(deftest ^:slow a-solve-past-the-time-limit-is-interrupted-not-answered
+  ;; The budget bounds the single writer's exposure to a hard program, on either
+  ;; backend — clasp through its flag, clingo by cancelling the handle — and what comes
+  ;; back says so, rather than reading as an answer set with nothing in it.
+  (doseq [[nm solve] (backends)]
+    (with-redefs [config/asp-time-limit (constantly 1)]
+      (let [t0 (System/nanoTime)
+            r  (solve (pigeonhole 13) :label)
+            ms (/ (- (System/nanoTime) t0) 1e6)]
+        (testing (str nm " stops at the budget and reports it")
+          (is (= :interrupted (:status r)))
+          (is (< ms 20000) "interrupted within a few seconds of the one-second limit"))))))
 
 (deftest both-backends-agree
   ;; The facade routes by program size and availability; a program must mean the

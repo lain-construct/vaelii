@@ -206,16 +206,19 @@
 
 (deftest a-job-the-registry-has-dropped-is-not-recreated-by-its-own-settling
   ;; Every write to a job is guarded, and this is the one that made the guard necessary: the
-  ;; *completion* swap. A job released after `reset-registry!` filed `{:status :done
-  ;; :finished …}` under an id nothing held — a job with no `:started`, absent from `:order`
-  ;; so no listing showed it, permanent, and enough to make `job` throw on the way to
-  ;; rendering it.
+  ;; *completion* swap.  Unguarded, a job released after the registry forgot it files
+  ;; `{:status :done :finished …}` under an id nothing holds — a job with no `:started`,
+  ;; absent from `:order` so no listing shows it, permanent, and enough to make `job` throw
+  ;; on the way to rendering it.  Neither `sweep` nor `reset-registry!` drops a running
+  ;; job, so the drop is made by hand: what a job past every bound looks like to the map.
   (let [release (promise)
         id      (jobs/submit {:label "Outlives the registry" :kind :test}
                              (fn [_] @release {:done true}))
         ;; the future is the only handle left once the registry has forgotten the job
         f       (:future (get-in @@#'jobs/state [:jobs id]))]
-    (jobs/reset-registry!)
+    (swap! @#'jobs/state (fn [s] (-> s
+                                     (update :jobs dissoc id)
+                                     (update :order #(vec (remove #{id} %))))))
     (deliver release true)
     ;; the completion swap runs before the body returns, so a resolved future means it has
     ;; had its chance to file — no sleep, and nothing timing-dependent to assert against
@@ -243,6 +246,60 @@
       (is (nil? (jobs/job id)))
       (is (empty? (jobs/jobs)))
       (is (empty? (jobs/running))))))
+
+(deftest resetting-waits-for-a-running-job-to-stop-before-forgetting-it
+  ;; forgetting a job releases its writer claim, so a reset that dropped a running one
+  ;; would leave its thread writing with nobody able to see it — the next writing job
+  ;; admitted beside it, a test fixture clearing the KB it is still filling.  The job
+  ;; here is released from another thread while the reset is waiting, and the reset
+  ;; must not return until the job's thread has actually stopped.
+  (let [release  (promise)
+        reported (promise)
+        stopped  (promise)
+        id       (jobs/submit {:label "Chain it" :kind :chain :writes ::some-kb}
+                              (fn [progress!]
+                                (try
+                                  (progress! {:phase :chaining :done 1})
+                                  (deliver reported true)
+                                  @release
+                                  ;; the cancel the reset sent lands here
+                                  (progress! {:phase :chaining :done 2})
+                                  {}
+                                  (finally (deliver stopped true)))))]
+    (is (deref reported 30000 nil))
+    (future (Thread/sleep 150) (deliver release true))
+    (jobs/reset-registry!)
+    (is (realized? stopped) "the reset returned only after the thread unwound")
+    (is (empty? (jobs/jobs)) "and the settled job was forgotten")
+    (is (nil? (jobs/writer)))
+    (is (= id (jobs/submit {:label "Next" :kind :test} (constantly {})))
+        "with nothing kept, the id counter restarts")
+    (testing "and a writing job is admitted now that the writer is really released"
+      (is (string? (jobs/submit {:label "Chain again" :kind :chain :writes ::some-kb}
+                                (constantly {})))))
+    (doseq [j (jobs/jobs)] (settled (:id j)))))
+
+(deftest a-job-that-will-not-stop-is-kept-through-a-reset-and-still-holds-the-writer
+  ;; the other outcome of the bounded wait: a job that never reaches a progress report
+  ;; cannot be cancelled cooperatively, and a reset that forgot it would be the sweep's
+  ;; forbidden drop by another name.  So it stays, still the writer, with its id reserved.
+  (with-redefs-fn {#'jobs/reset-wait-ms 100}
+    (fn []
+      (let [release (promise)
+            id      (jobs/submit {:label "Load a corpus" :kind :load :writes true}
+                                 (fn [_] @release {}))]
+        (try
+          (jobs/reset-registry!)
+          (is (= id (:id (jobs/writer))) "kept, and still this process's writer")
+          (is (= :cancelling (:status (jobs/job id))) "asked to stop, and not yet stopped")
+          (let [e (try (jobs/submit {:label "Chain it" :kind :chain :writes true} (constantly {}))
+                       (catch clojure.lang.ExceptionInfo e e))]
+            (is (= :job-busy (:type (ex-data e))) "so a second writer is still refused"))
+          (is (not= id (jobs/submit {:label "Reads only" :kind :test} (constantly {})))
+              "and the id counter did not restart over a kept job")
+          (finally
+            (deliver release true)
+            (settled id)))))))
 
 (deftest cancelling-a-settled-job-leaves-its-terminal-status
   ;; the :cancelling write goes through update-job! guarded on the job not having

@@ -3,13 +3,17 @@
 (ns vaelii.asp-solver-test
   "The backend facade's routing policy, pinned pure — what AUTO does at the size
   cutoff, and what it does when only one backend can run at all — plus the typed
-  refusal a missing clasp binary earns.  No solve here needs libclingo or a real
-  clasp: the policy fn takes its facts as arguments, and the refusal test points
-  the binary var at a name nothing resolves."
+  refusal a missing clasp binary earns, and what the in-process backend does when a
+  native call fails.  No solve here needs libclingo or a real clasp: the policy fn
+  takes its facts as arguments, the refusal test points the binary var at a name
+  nothing resolves, and the clingo test stands in for the whole C API by redefining
+  the one fn every native call goes through."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.asp.clasp :as clasp]
+            [vaelii.impl.asp.clingo :as clingo]
             [vaelii.impl.asp.solver :as solver]
-            [vaelii.impl.solve :as solve]))
+            [vaelii.impl.solve :as solve])
+  (:import [com.sun.jna.ptr PointerByReference]))
 
 (def ^:private choose #'solver/choose-backend)
 
@@ -37,6 +41,56 @@
     (let [e (is (thrown? clojure.lang.ExceptionInfo
                          (clasp/solve "asp 1 0 0\n0\n" :label)))]
       (is (= :solver-unavailable (:type (ex-data e)))))))
+
+(deftest a-failing-handle-close-does-not-replace-the-failure-that-caused-it
+  ;; `drain-handle` closes the solve handle in a `finally`, because freeing a control
+  ;; with one still open is undefined behaviour.  A `finally` that throws *replaces*
+  ;; the exception on its way out, and the one it would replace is the informative
+  ;; one: `chk!` names the native call that returned zero in `:op`, and nothing else
+  ;; records which it was.  Both halves fail here — the drain and the close — and the
+  ;; drain's failure is the one that must come out.
+  (let [drain #'clingo/drain-handle
+        seen  (atom [])]
+    (with-redefs [clingo/ci (fn [nm & _]
+                              (swap! seen conj nm)
+                              (if (= nm "clingo_solve_handle_close")
+                                (throw (UnsatisfiedLinkError. "clingo_solve_handle_close"))
+                                0))]                        ; 0 ⇒ chk! refuses
+      (let [e (is (thrown? clojure.lang.ExceptionInfo (drain (PointerByReference.) 0 :optimal)))]
+        (testing "the drain's own failure survives, naming the call that failed"
+          (is (= :solver-failed (:type (ex-data e))))
+          (is (= "resume" (:op (ex-data e)))))))
+    (testing "and the close was still attempted, which is what the finally is for"
+      (is (some #{"clingo_solve_handle_close"} @seen)))))
+
+(deftest a-drain-keeps-only-the-models-its-mode-reads
+  ;; A search streams: a 400-node colouring at a two-second budget yields 618 models to
+  ;; a `:label` solve that reads one and 184 to a cautious enumeration that reads the
+  ;; last, every one of them a map of freshly marshaled atom-label strings.  What
+  ;; retention may not do is change the answer, so the two facts `finalize` needs from
+  ;; the models it never sees — the optimum cost, and whether any model came back
+  ;; optimality-proven — are folded in as they pass rather than read off what was kept.
+  (let [keep' #'clingo/keep-model
+        m     (fn [atoms cost opt?] {:atoms atoms :cost cost :optimal? opt?})
+        fold  (fn [retain ms]
+                (reduce #(keep' %1 %2 retain) {:models [] :optimum nil :any-optimal? false} ms))
+        ;; costs improving, then a plateau at the optimum
+        stream [(m ["a"] [3] false) (m ["b"] [2] false) (m ["c"] [1] true) (m ["d"] [1] true)]]
+    (testing ":optimal keeps the plateau at the best cost and drops what it beat"
+      (let [r (fold :optimal stream)]
+        (is (= [["c"] ["d"]] (mapv :atoms (:models r))))
+        (is (= [1] (:optimum r)))
+        (is (true? (:any-optimal? r)))))
+    (testing ":last keeps one — the one a classify enumeration converges to"
+      (let [r (fold :last stream)]
+        (is (= [["d"]] (mapv :atoms (:models r))))
+        (is (= [1] (:optimum r)) "and the optimum a dropped model set still stands")))
+    (testing "a proven flag on a dropped model still counts, so the status cannot slip"
+      (is (true? (:any-optimal? (fold :last [(m ["a"] [1] true) (m ["b"] [1] false)])))))
+    (testing "no minimize statement: every cost empty, nothing beats anything"
+      (let [r (fold :optimal [(m ["a"] [] false) (m ["b"] [] false)])]
+        (is (= 2 (count (:models r))))
+        (is (nil? (:optimum r)))))))
 
 (deftest content-key-survives-an-ambient-print-length
   ;; the key decides which side of a tie gives way; under a REPL's *print-length*

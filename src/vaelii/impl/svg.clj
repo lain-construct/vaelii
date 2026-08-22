@@ -236,8 +236,9 @@
 
   `aria-label` is what a screen reader is told the image shows; it is `role=\"img\"`
   because the prose above it, not the picture, is the accessible answer.  The `viewBox`
-  is the crop, and `width=100%` with `preserveAspectRatio` is what makes the drawing
-  scale to the column instead of a fixed pixel canvas."
+  is the crop, and an intrinsic pixel `width`/`height` (one user unit to one CSS px) draws
+  the graph at its natural size — a wide one scrolls inside `.kb-graph-fig` rather than
+  shrinking to an unreadable strip on a narrow column."
   [{:keys [nodes edges aria-label]}]
   (when (seq nodes)
     (let [[x0 y0 x1 y1] (bbox nodes edges)
@@ -247,7 +248,10 @@
              :xmlns "http://www.w3.org/2000/svg"
              :viewBox (str/join " " (map #(long (Math/round (double %)))
                                          [(- x0 margin) (- y0 margin) w h]))
-             :width "100%" :preserveAspectRatio "xMidYMid meet"}
+             ;; an intrinsic pixel size (1 user unit = 1 CSS px) so the graph is drawn at
+             ;; its natural width and a wide one scrolls inside `.kb-graph-fig` rather than
+             ;; shrinking to an unreadable strip on a narrow (portrait) column
+             :width w :height h :preserveAspectRatio "xMidYMid meet"}
        (arrow-defs)
        ;; edges first, so a line is never drawn over the label it connects
        (map edge-el edges)

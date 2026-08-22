@@ -74,11 +74,13 @@
     arity       {:enforced "checks/arity-problem at the door, settle/report-arity-reach! over content stored before it"}
     disjoint    {:enforced "taxonomy/add-disjoint, read by checks/disjoint-problems and arbitrated by settle"}
     disjointMetatype {:enforced "taxonomy/mark-disjoint-metatype — the clique consulted, never stored"}
+    siblingDisjoint {:enforced "taxonomy/mark-sibling-disjoint — the specialization clique keyed off the genl closure, consulted like disjointMetatype and arbitrated by settle"}
+    siblingDisjointException {:enforced "taxonomy/add-sib-exception — exempts one pair the sibling clique or a disjointMetatype would separate; read globally in disjointness-test, and a retract re-arms through settle's :sib-exc-dirty sweep"}
     functional  {:enforced "checks/functional-problems, and special/derive-functional-equalities on two symbols; also a binaryPredicate type"}
     asymmetric  {:enforced "checks/asymmetry-problem — a nogood against the converse; also a binaryPredicate type"}
     irreflexive {:enforced "checks/irreflexivity-problem — a self tuple (P a a) is refused at the door; also a binaryPredicate type"}
     antiSymmetric {:enforced "checks/antisymmetry-problems, and special/derive-antisymmetric-equalities merging two symbols a believed converse forces equal; also a binaryPredicate type"}
-    antiTransitive {:enforced "the classification and its disjointness with transitive — no predicate is both; a binaryPredicate type. The (P a b)(P b c) chain conviction is a three-party nogood the settle machinery does not yet form, so it is DEFERRED (docs/nmtms.md)"}
+    antiTransitive {:enforced "taxonomy prop :anti-transitive — checks/antitransitivity-problems convicts the two-step chain and the direct step together, as the one nogood whose members are three rather than two (settle/decide-nogood reads the whole set); plus its disjointness with transitive — no predicate is both — and a binaryPredicate type"}
     equivalenceRelation {:enforced "generic forward chaining: the three CxCore rules derive (symmetric P), (transitive P) and (reflexive P), each enforced in turn; also a binaryPredicate type"}
     variableArity {:enforced "checks/arity-problem — the one exemption from the arity check"}
     relationKind  {:enforced "generic: a disjointMetatype, so its two members separate each other"}
@@ -102,6 +104,11 @@
     abduciblePredicate   {:enforced "taxonomy prop :abducible — the gate on what abduce may hypothesize"}
     modalPredicate       {:enforced "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide which predicates project their sentence into the agent's context"}
     targetFollowingPredicate {:enforced "taxonomy prop :target-following — the mark core/retract-following-metas! reads to tear down a meta-sentex when the sentex it names by handle is retracted"}
+
+    ;; ---- definitional collection relations, expanded into forward rules ----
+    defnNecessary  {:enforced "special/materialize-defn-rules — expands to the forward rule (implies (Coll ?x) C), member => condition"}
+    defnSufficient {:enforced "special/materialize-defn-rules — expands to the forward rule (implies C (Coll ?x)), condition => member"}
+    defnIff        {:enforced "special/materialize-defn-rules — both directions, the necessary rule and the sufficient one"}
 
     ;; ---- placement and lifting --------------------------------------------
     decontextualizedPredicate       {:enforced "special — the CxUniverse lift, retroactive over the extent"}

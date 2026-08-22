@@ -11,7 +11,7 @@
   second lives or dies on the argument-slot roster.  Nothing in the engine answers that
   from the outside, so this is the instrument that does.
 
-  Five tallies, one per question:
+  Seven tallies, one per question:
 
   * **`:goals`** — every retrieval decision the matchers took, keyed by the literal's
     *shape* and by the access path that shape chose.  This is the distribution an index
@@ -30,6 +30,17 @@
     first token, with the node probes it cost.  A walk that narrows visits one node per
     level; a walk that fans out visits the whole child set at the level it got stuck, and
     this is where that shows up as a number rather than as an anecdote.
+  * **`:sift`** — the three widths of one set-algebra retrieval: how many candidates the
+    argument-root probe returned, how many reached `unify`, how many matched.  Keyed like
+    `:goals`, and the read-efficiency reading a layout change is judged on.
+  * **`:fetches`** — every `RecordStore` fetch, by kind.  **The other index**: a `:reads`
+    figure prices what the trie and the roots were asked, and says nothing at all about
+    the records those handles then name.  The two come apart exactly where it hurts — a
+    probe that narrows to one index read and then fetches a record per candidate handle
+    reads *well* by `:reads` and badly by this — and on the durable store a fetch is a
+    positional slot read, a positional frame read and a nippy thaw past the LRU, which is
+    orders above what any index read costs.  `record_fetch_cost_test` is the gate set from
+    it.
   * **`:writes`** — what one `index-sentex` wrote, per family, keyed by functor.  Every
     family is a tax on every assert, so a policy that *adds* one is priced here.
   * **`:retracts`** — the same for `unindex-sentex!`, and a separate tally rather than a
@@ -84,6 +95,14 @@
   * A retrieval that reaches the index without going through either matcher has no
     shape here: the direct `p/lookup` callers (`find-sentex-handle`, the level-0 raw
     read) appear in `:fan` and `:reads` and not in `:goals`.
+  * **`:fetches` counts the protocol call, not the work behind it.**  A store's own
+    internal reads are its own business — the durable store re-reads a record inside
+    `mark-premise` where the RAM one reaches into its state map — so counting those would
+    make the tally a reading of which backend is running.  What is counted is
+    `p/get-sentex` / `p/get-justification` / `p/get-provenance`, which is the number a
+    caller controls: an overlay fetch that consults the base and then the fork counts
+    twice, which is what a fork costs.  A fetch answering **nil** counts, because the
+    caller paid for it.
 
   ## Reading it
 
@@ -92,9 +111,9 @@
   has an opinion."
   (:require [vaelii.impl.sentex :as sx]))
 
-;; nil when off; otherwise `{:t0 <nanos> :goals {} :reads {} :fan {} :writes {}}`.  One
-;; atom rather than a flag beside a store, so a seam cannot read the flag on and the
-;; store as nil.
+;; nil when off; otherwise `{:t0 <nanos> :goals {} :reads {} :fan {} :sift {} :fetches {}
+;; :writes {} :retracts {}}`.  One atom rather than a flag beside a store, so a seam
+;; cannot read the flag on and the store as nil.
 (defonce ^:private tally (atom nil))
 
 (defn profiling?
@@ -107,7 +126,8 @@
   derived from a workload nobody stored, so nothing it holds is knowledge and re-running
   the workload recomputes it."
   []
-  (reset! tally {:t0 (System/nanoTime) :goals {} :reads {} :fan {} :sift {} :writes {} :retracts {}})
+  (reset! tally {:t0 (System/nanoTime) :goals {} :reads {} :fan {} :sift {} :fetches {}
+                 :writes {} :retracts {}})
   nil)
 
 (defn- read-out [t]
@@ -123,6 +143,7 @@
        :reads   {family count}
        :fan     {first-token {:calls :visits :widest :handles :decades {n count}}}
        :sift    {[functor truth adornment path] {:calls :returned :unified :matched}}
+       :fetches {kind count}
        :writes  {functor {:asserts :levels :terms :roots :roster :slots}}
        :retracts {functor {:retracts :levels :terms :roots :roster :slots :dead}}}"
   []
@@ -183,6 +204,26 @@
   [family]
   (when @tally
     (swap! tally update-in [:reads family] (fnil inc 0))))
+
+;; ---- the record-fetch tally ---------------------------------------------
+
+(defn record-fetch
+  "Tally one `RecordStore` fetch against the kind that answered it — `:sentex`,
+  `:justification` or `:provenance`.  The record-store twin of `record-read`, and it
+  exists because the two quantities move independently: `find-sentex-handle` narrowed
+  from a wildcard `lookup` to the exact `leaf-at` moved **no** `:reads` figure and took
+  a fetch per candidate handle off the dedup path (2,779 µs against 13 µs per call at
+  800 candidates).  A read tally could not see that and nothing else counted it.
+
+  Keyed by kind rather than by handle or by functor: what a policy would change is
+  whether a *kind* is paged at all — the record for a candidate, the justification for
+  a support walk, the provenance nothing but the browser reads — and a per-handle key
+  would hold the whole workload.
+
+  A deref and a `nil?` check when the instrument is off, like every seam here."
+  [kind]
+  (when @tally
+    (swap! tally update-in [:fetches kind] (fnil inc 0))))
 
 ;; ---- the sift tally -----------------------------------------------------
 

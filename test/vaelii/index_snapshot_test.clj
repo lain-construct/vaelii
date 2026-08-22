@@ -394,3 +394,36 @@
           (let [[kb2 rebuilds] (opening dir)]
             (is (zero? rebuilds))
             (is (= want (answers kb2)))))))))
+
+;; ---- a dictionary an older build wrote twice ----------------------------
+
+(deftest a-token-log-holding-a-duplicate-is-repaired-rather-than-rediagnosed
+  ;; The forward map keys on `tokens/Key`, so `2` and `(int 2)` are one entry — but a log
+  ;; written before it did can hold both as separate frames.  It then reloads one entry
+  ;; short of the log, every id past the pair shifts, and the image is condemned; the
+  ;; rebuilt index is snapshotted against the same log, so the *next* open is condemned
+  ;; too, and the one after that.  One open repairs it and the next maps again.
+  (with-snapshot-dir
+    (fn [dir]
+      (let [kb   (build! (v/open-kb {:records :disk :index :columnar :dir dir :recover? false}))
+            want (answers kb)]
+        (backend/close-dir! dir)
+        ;; `(bornIn SnapMuffet 1970)` put a Long in the dictionary; append the Integer an
+        ;; older build would have minted beside it.  Nothing else on disk moves.
+        (let [log (f/open-log (str (snap/snapshot-root dir) "/tokens.log"))]
+          (try (f/append-record! log (int 1970)) (finally (f/close! log))))
+        (testing "the decision names the duplicate, not a torn image"
+          (let [m (f/read-nippy-file (meta-path dir) nil)]
+            (is (= {:index :rebuild :reason :duplicate-tokens}
+                   (select-keys (snap/load! dir (scratch-index :dups)
+                                            (constantly (:records m)))
+                                [:index :reason])))))
+        (testing "the KB opens, rebuilds once, and answers"
+          (let [[kb2 rebuilds] (opening dir)]
+            (is (= 1 rebuilds) "the records were the fallback")
+            (is (= want (answers kb2)))))
+        (backend/close-dir! dir)
+        (testing "and the repaired log lets the next open map its image again"
+          (let [[kb3 rebuilds] (opening dir)]
+            (is (zero? rebuilds) "the duplicate is gone for good, not diagnosed forever")
+            (is (= want (answers kb3)))))))))

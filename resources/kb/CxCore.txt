@@ -153,6 +153,33 @@
          "(disjointMetatype ?metatype) means that every pair of ?metatype's member types is disjoint. The clique is consulted rather than stored, so it costs nothing quadratic and retraction reaches all of it: dropping ?metatype releases every pair at once, and dropping one member releases exactly that member's pairs.")
 (unaryPredicate disjointMetatype)
 
+;; ---- definitional collection relations -----------------------------------
+;; Three relations tie a collection's membership to a defining condition on the member
+;; ?x, each expanded into ordinary forward rules at assert (docs/defns.md).  The fact is
+;; stored like any other — so it retracts and belief-follows — and its condition argument
+;; is a sentence carrying ?x, which is why arg 2 is typed as a thing (a compound term is
+;; not classified) and arg 1 with genlArg (the collection names a kind, like disjoint's).
+;; Neither relationKind: they relate a kind to a sentence, so they are honestly mixed and
+;; left unmarked, as resultIsa is.
+
+(comment defnNecessary
+         "(defnNecessary ?collection ?condition) means that every instance of ?collection satisfies ?condition — a necessary condition on membership, written over the member ?x. Expands to the forward rule (implies (?collection ?x) ?condition), so an instance's membership entails the condition of it. Open-world: it says what members must satisfy, never that satisfying it makes a member (that is defnSufficient), and never that a non-member fails it.")
+(binaryPredicate defnNecessary)
+(genlArg defnNecessary 1 thing)
+(arg defnNecessary 2 thing)
+
+(comment defnSufficient
+         "(defnSufficient ?collection ?condition) means that anything satisfying ?condition is an instance of ?collection — a sufficient condition for membership, written over the member ?x. Expands to the forward rule (implies ?condition (?collection ?x)), so a thing meeting the condition is concluded a member. Open-world: it says what makes a member, never that a member must satisfy it (that is defnNecessary), and it draws no non-membership from the condition failing.")
+(binaryPredicate defnSufficient)
+(genlArg defnSufficient 1 thing)
+(arg defnSufficient 2 thing)
+
+(comment defnIff
+         "(defnIff ?collection ?condition) means that ?condition is both necessary and sufficient for membership in ?collection — an instance satisfies it exactly when it is a member, written over the member ?x. Expands to both forward rules defnNecessary and defnSufficient state, and nothing more: it does not close the collection's complement, so a thing whose condition is merely unknown is neither concluded a member nor concluded a non-member (docs/defns.md).")
+(binaryPredicate defnIff)
+(genlArg defnIff 1 thing)
+(arg defnIff 2 thing)
+
 (comment evaluate
          "(evaluate ?result ?expression) means that ?result is the value of the symbolic ?expression. So (evaluate ?sum (+ 1 2)) binds ?sum to 3. A safe whitelist over +, -, *, /, mod, min, max, abs and expt rather than clojure eval, computed on demand and never stored.")
 (binaryPredicate evaluate)
@@ -336,6 +363,19 @@
          "(set/inertRule ?rule) means that ?rule is asserted inert. Stored and documented but never used for inference in either direction, which is how a rule stating something the engine implements in code gets written down where a reader will find it. A virtual wrapper interpreted on assert.")
 (set/inertRule (implies (?pred . ?args) (ist CxUniverse (?pred . ?args))))
 
+(comment siblingDisjoint
+         "(siblingDisjoint ?collection) means that any two specializations of ?collection — the types below it under genl — share no instance, unless one is itself a genl of the other. The clique is consulted rather than stored, exactly as disjointMetatype's is: no (disjoint …) sentex per pair, dropping the mark releases every pair at once, and a specialization arriving as a later genl edge is separated the moment it is believed. The genl-relatedness exception is what keeps a specialization disjoint from its siblings without being separated from its own supertypes, which are specializations of ?collection too; it is read over the whole KB, the way (disjoint a b) refuses a genl-related pair. Whether those specializations cover ?collection is a separate claim this one does not make.")
+(unaryPredicate siblingDisjoint)
+(genlArg siblingDisjoint 1 thing)
+
+(comment siblingDisjointException
+         "(siblingDisjointException ?type1 ?type2) means that the one pair ?type1, ?type2 is permitted to overlap even though a siblingDisjoint mark (or a disjointMetatype) would otherwise force it disjoint. It exempts only that pair: each type stays disjoint from the parent's other specializations, and the exemption does not leak to subtypes, since each read tests the exact pair drawn from the two genl closures. Read over the whole KB, not the reader's context cone, because an exception removes a clash and a scoped one would let a more specific reader see fewer clashes than the KB holds. A Braille reading, both a Reading and a TouchPerception, is the shape of it.")
+(binaryPredicate siblingDisjointException)
+(symmetric siblingDisjointException)
+(typeRelationPredicate siblingDisjointException)
+(genlArg siblingDisjointException 1 thing)
+(genlArg siblingDisjointException 2 thing)
+
 (comment symmetric
          "(symmetric ?predicate) means that ?predicate is symmetric. Whenever (?predicate a b) holds so does (?predicate b a), and the two spellings of a ground fact store as one sentex, since the arguments of a symmetric predicate are sorted into canonical order. Declared of siblingOf and marriedTo, for instance. Also a type: (symmetric P) classifies P as a binaryPredicate.")
 (unaryPredicate symmetric)
@@ -403,7 +443,7 @@
 (transitive genlCx)
 
 (comment antiTransitive
-         "(antiTransitive ?predicate) means that a two-step chain forbids the direct step, the dual of transitive: believing (?predicate a b) and (?predicate b c) makes (?predicate a c) contradictory. The chain conviction is DECLARED here and NOT yet enforced by the engine — a nogood over the direct step and the two chain steps is a three-party clash the settle machinery forms only pairwise (docs/nmtms.md), and a partial door-only check would decide the same three facts differently in different arrival orders, which the order-independence invariant forbids. What IS enforced is the classification and its disjointness with transitive: no predicate is declared both. Also a type: (antiTransitive P) classifies P as a binaryPredicate. Declared of a relation such as parentOf (a grandparent is not a parent), for instance.")
+         "(antiTransitive ?predicate) means that a two-step chain forbids the direct step, the dual of transitive: believing (?predicate a b) and (?predicate b c) makes (?predicate a c) contradictory. The three are one nogood — a set that must not hold in full — rather than a pair, so the engine weighs them together the way it weighs any contradiction (docs/nmtms.md): a chain that is known true refuses the direct step at the door, a chain with one defeasible step has that step defeated instead, and three equal defaults are a dilemma the engine reports and declines to decide. The mark is read up the predicate hierarchy, so (antiTransitive parentOf) convicts a fatherOf chain. It does not imply irreflexive: a self tuple (P a a) is its own whole chain, names no second sentex to weigh, and is admitted exactly as an asymmetric predicate's is. Its disjointness with transitive holds too: no predicate is declared both. Also a type: (antiTransitive P) classifies P as a binaryPredicate. Declared of a relation such as parentOf (a grandparent is not a parent), for instance.")
 (unaryPredicate antiTransitive)
 (decontextualizedPredicate antiTransitive)
 (genl antiTransitive binaryPredicate)

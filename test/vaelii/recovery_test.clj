@@ -10,6 +10,7 @@
   store is empty on the way out."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.chain :as chain]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.starter :as starter]
             [vaelii.impl.taxonomy :as tax]
@@ -122,6 +123,58 @@
       (v/recover kb2)
       (is (v/disjoint? kb2 dog cat)
           "membership must be rebuilt, not just the metatype mark"))))
+
+(tu/deftest-kb recover-rebuilds-sibling-disjoint-marks
+  ;; Only the `(siblingDisjoint C)` sentex is durable; the pairs it separates are read
+  ;; off the genl closure, not stored.  So recovery has to re-mark the parent *and*
+  ;; rebuild the closure it reads through, or a restart silently loses every separation.
+  (let [collection (tu/tmp-type) dog (tu/tmp-type) cat (tu/tmp-type)]
+    (v/assert kb (list 'genl dog collection) 'CxUniverse)
+    (v/assert kb (list 'genl cat collection) 'CxUniverse)
+    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (is (v/disjoint? kb dog cat))
+    (let [kb2 (restart)]
+      (v/recover kb2)
+      (is (v/disjoint? kb2 dog cat)
+          "the mark and the genl closure it reads must both be rebuilt"))))
+
+(tu/deftest-kb recover-rebuilds-a-sibling-disjoint-exception
+  ;; The exception is a belief-following sentex keyed like disjoint; only the sentex is
+  ;; durable.  Recovery must replay it and re-mark the exemption, or a restart re-separates
+  ;; a pair the KB exempts — while a non-exempted sibling stays separated.
+  (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type) c (tu/tmp-type)]
+    (v/assert kb (list 'genl a collection) 'CxUniverse)
+    (v/assert kb (list 'genl b collection) 'CxUniverse)
+    (v/assert kb (list 'genl c collection) 'CxUniverse)
+    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+    (is (not (v/disjoint? kb a b)))
+    (is (v/disjoint? kb a c))
+    (let [kb2 (restart)]
+      (v/recover kb2)
+      (is (not (v/disjoint? kb2 a b))
+          "the exemption must be rebuilt, not just the mark")
+      (is (v/disjoint? kb2 a c)
+          "and the mark it excepts still separates a non-exempted pair"))))
+
+(tu/deftest-kb recover-agrees-about-a-defeated-exception
+  ;; The exceptions cache follows belief like the others: a defeated exception does not
+  ;; exempt.  rebuild-taxonomy replays the *stored* exception (the defeated one included) so
+  ;; :cache-support records every asserting sentex, and the reconcile recover runs drops it
+  ;; by belief — the same answer either side of a restart.
+  (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type)]
+    (v/assert kb (list 'genl a collection) 'CxUniverse)
+    (v/assert kb (list 'genl b collection) 'CxUniverse)
+    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse {:strength :default})
+    (v/assert kb (list 'not (list 'siblingDisjointException a b)) 'CxUniverse {:strength :monotonic})
+    (let [before (v/disjoint? kb a b)
+          kb2    (restart)]
+      (is before "a defeated exception does not exempt in memory")
+      (v/recover kb2)
+      (is (v/disjoint? kb2 a b) "nor after a restart")
+      (is (= before (v/disjoint? kb2 a b))
+          "the answer must not change across a restart"))))
 
 (tu/deftest-kb recover-agrees-about-a-defeated-declaration
   ;; The four flat caches follow belief now, like genl: a defeated `(disjoint A B)`
@@ -376,3 +429,31 @@
         (testing "a post-recover retraction of a reason still withdraws it"
           (v/retract! kb2 (v/handle-of kb2 (list 'genl chihuahua_t dog_t) 'CxUniverse))
           (is (not (v/in? kb2 h))))))))
+
+(tu/deftest-kb recover-rebuilds-the-rule-rosters
+  ;; The two rosters `special/visibility-seeds` reads are derived from storage and no
+  ;; store holds them, so a restart starts with neither.  Nothing above the rebuild puts
+  ;; them back: recovery replays justifications and the stored special-predicate sentexes,
+  ;; never rule *indexing*, which is where they are bumped.  Without the rebuild a
+  ;; recovered KB reports no rules at all and seeds a post-restart `genlCx` edge with
+  ;; none — arrival-order dependence in the machinery that exists to remove it.
+  (tu/with-terms [bird flies departed alive CxAviary]
+    (v/assert kb (list 'genlCx CxAviary 'CxUniverse) 'CxUniverse)
+    (v/assert-rule kb [(list bird '?x)] (list flies '?x) CxAviary)
+    (v/assert-rule kb [(list 'not (list departed '?x)) (list bird '?x)]
+                   (list alive '?x) CxAviary)
+    (let [live-antes @(:rule-antecedents kb)
+          live-ctxs  @(:rule-contexts kb)]
+      (testing "the live roster counts what arrived, negated antecedents by [:not pred]"
+        (is (= 2 (get live-antes bird)))
+        (is (= 1 (get live-antes [:not departed])))
+        (is (= 2 (get live-ctxs CxAviary))))
+      (let [kb2 (restart)]
+        (v/recover kb2)
+        (testing "a reopened KB's rosters are the live ones, entry for entry"
+          (is (= live-antes @(:rule-antecedents kb2)))
+          (is (= live-ctxs @(:rule-contexts kb2))))
+        (testing "so the reads off them answer as they did before the restart"
+          (is (= 2 (count (chain/rule-firing-report kb2))))
+          (is (= (count (chain/rule-firing-report kb))
+                 (count (chain/rule-firing-report kb2)))))))))

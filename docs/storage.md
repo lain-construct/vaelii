@@ -33,6 +33,27 @@ Two protocols keep the reasoning code independent of any backend:
   `[structured-key value]` projection all four index backends share — what a dump
   writes, and why an index written by one loads into another.
 
+**The three record fetches are counted.** `get-sentex`, `get-justification` and
+`get-provenance` each tally against their kind through `vaelii.impl.profile`'s
+`:fetches` — the record-store twin of the `:reads` tally the index keeps, and its own
+number because the two move independently. The worked case is `kb/find-sentex-handle`,
+which asks the trie where one sentence is stored. Asked with `p/lookup`, a variable in the
+path is a **wildcard**: the walk fans over every stored sentex of the same shape and the
+caller reads the record behind each to find the one that is actually this sentence — one
+index read by `:reads`, unimpeachable, and 2,779µs per call at 800 candidates. `p/leaf-at`
+is the exact read that answers the same question in one, at 13µs and no record read at
+all, and the `:reads` count is identical either way. On the durable store each of those
+fetches is a positional slot read, a positional frame read and a nippy thaw past the LRU —
+orders above what any index read costs. `test/vaelii/record_fetch_cost_test.clj` is the
+gate: a non-ground `handle-of` must fetch **no** records, whatever the extent of the
+pattern's shape.
+
+The tally sits on the protocol method rather than inside a backend's own fetch, so it
+counts what a caller asked for and not what a backend does to answer: the durable store
+re-reads a record inside `mark-premise` where the RAM one reaches into its state map, and
+a number covering both would be a reading of which backend is running. An overlay fetch
+that consults the base and then the fork counts twice, which is what a fork costs.
+
 A `KB` record bundles the two stores with the twenty-odd other slots the engine hangs off
 one value — the prover registry, the solver, the contradiction and violation bookkeeping,
 the settle and chain statistics, the resident qualitative networks, the match and naming
@@ -192,7 +213,7 @@ distinction matters because they have different repairs:
   so over an empty network they all match nothing and pass vacuously — and nothing
   re-runs them later, so the store keeps content its own constraints forbid. `recover` is
   the repair.
-- **No index.** `assert` dedups through `p/lookup`. Over an index that opened empty every
+- **No index.** `assert` dedups through `p/leaf-at`. Over an index that opened empty every
   assert misses and mints a **second handle for a sentence already stored**, and
   `reindex` cannot merge the two afterwards because they are two records rather than two
   index entries. `reindex` is the repair, and `recover` alone is not — it reads the index
@@ -262,6 +283,16 @@ records.
 One part of it does not work: the token dictionary is **not** vocabulary-scaled, so it
 is read into heap whole and its cost grows with the number of distinct terms rather
 than with residency.
+
+The dictionary is also the one mismatch class that **repairs itself**. Its log is keyed
+on `tokens/Key`, so `2` and `(int 2)` are one entry; a log written before it was keyed
+that way holds both as frames, reloads one entry short per pair, and shifts every id the
+mapped edges cite — so the image is condemned, and the rebuilt one is snapshotted against
+the same log, condemning the next open too. `:duplicate-tokens` is that diagnosis, and
+the open that makes it drops the commit marker and rewrites the log without the pair
+before it declines. Rewriting moves ids, which is legal here and only here: this log's
+ids are cited by the mapped edges alone, where the record store's log is cited by every
+frame it holds (and cannot hold a pair — only symbols and keywords are interned there).
 
 #### The belief certificate (`vaelii.belief.snapshot`, off by default)
 
@@ -356,7 +387,13 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   points at, then the thaw.  Both are `FileChannel` reads that name their offset, so
   neither uses nor moves the RAF's shared file pointer, and neither pays the seek and
   four primitive reads an unbuffered `RandomAccessFile` would charge for the same bytes
-  (measured: that was 52% of a warm fetch).  Only the small set of live handles per kind
+  (measured: that was 52% of a warm fetch).  A **write** is the mirror: the frame is
+  packed and lands in one positional write at the log's end, the slot in one positional
+  write of its 24 bytes — four syscalls per record, the two length reads included — and
+  an append is **all or nothing**: a write that fails partway sets the log back to its
+  pre-write length before the failure travels, so no frame ever promises bytes that did
+  not land (a torn frame mid-log is what the next dirty open's length walk would stop
+  at, truncating every record after it).  Only the small set of live handles per kind
   sits in RAM (for O(1) enumeration), plus a **bounded LRU of hot records**
   (`vaelii.disk.cache`, `:cache-capacity`, 0 disables) — sound because a record is an
   immutable value and the three paths that change what lives at an id all maintain it
@@ -418,7 +455,10 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   `[:put k v]`, `[:delete k]`, `[:increment k]`, `[:decrement k]`), so a set-add logs the one added
   member — O(1) — and a bulk load of N members into one root writes O(N) WAL bytes,
   rather than logging the resulting value — [why the op, not the
-  value](defenses.md#the-index-wal-logs-the-operation-not-the-value).
+  value](defenses.md#the-index-wal-logs-the-operation-not-the-value).  An index batch —
+  one `index-sentex`'s ops — is packed into one buffer and lands in **one write**, so
+  the batch is on disk whole or not at all, and the RAM map, published after the write,
+  never disagrees with the log about which ops happened.
   Replay folds each frame through the same `apply-op` that applies a live op; `compact!`
   rewrites the log as one `[:put k v]` op per live key, so every frame is a uniform op
   and the reader needs no snapshot-vs-delta discrimination.  Compaction is this store's

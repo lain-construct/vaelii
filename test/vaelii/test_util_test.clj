@@ -14,7 +14,9 @@
   `:each` net-neutrality fixture exists to catch, since a clear removes the content that
   fixture recorded its baseline against.  Adding no KB is what leaves the space as it was
   found."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.java.io :as io]
+            [clojure.set :as set]
+            [clojure.test :refer [deftest is testing]]
             [vaelii.test-util :as tu]))
 
 (defn- refusal
@@ -29,6 +31,16 @@
            (cond (nil? e)                                   nil
                  (instance? clojure.lang.ExceptionInfo e)   e
                  :else                                      (recur (ex-cause e)))))))
+
+(defn- recorded
+  "The `clojure.test` reports `f` emits, captured instead of counted — so a test can
+  assert that a harness helper FAILS without failing itself.  `with-redefs` on the
+  multimethod is the documented way in: `do-report` is what `is` calls."
+  [f]
+  (let [out (atom [])]
+    (with-redefs [clojure.test/do-report #(swap! out conj %)]
+      (f))
+    @out))
 
 (deftest with-kb-takes-a-symbol-and-refuses-an-init-form
   (testing "the one-symbol form is what expands"
@@ -60,3 +72,66 @@
     (is (some? kb))
     (is (= {:sentexes 0 :justifications 0} (tu/content-count kb))
         "fresh means empty, not merely bound")))
+
+;; ---- the sweep roster, against the table the scripts read ---------------
+
+(defn- sweep-envs-in-the-shell-table
+  "The environment variables `scripts/lib/suite-configs.sh` selects its sweeps with, read
+  out of `SWEEP_ENVS` — the shell half of a roster the Clojure half has to match.  Read as
+  text rather than by running bash: what is wanted is the *spellings*, and a name spelt
+  only in one of the two files is the whole finding."
+  []
+  (let [txt   (slurp (io/file "scripts/lib/suite-configs.sh"))
+        block (second (re-find #"(?s)SWEEP_ENVS=\((.*?)\n\)" txt))]
+    (set (map second (re-seq #"\b(VAELII_[A-Z_]+)=" (or block ""))))))
+
+(deftest every-sweep-is-rostered-with-the-vars-it-replaces
+  ;; The gap this closes.  A sweep installs its implementation by altering a ROOT, and a
+  ;; counted gate (`assert_cost_test`, `lead_side_cost_test`, `join_lead_cost_test`) is a
+  ;; claim about one configuration — so every root a sweep replaces has to be a root
+  ;; `tu/shipped-defaults` can hand back.  `VAELII_RETE` was not, and
+  ;; `join_lead_cost_test` measured the alpha matcher's join for as long as that was true.
+  ;; Adding a sweep to the shell table now fails here until it is rostered, and rostering
+  ;; it is where its vars get named.
+  (let [shell    (sweep-envs-in-the-shell-table)
+        rostered (set (map :env tu/sweeps))]
+    (is (seq shell) "the SWEEP_ENVS block was found and parsed — the finding is not an empty read")
+    (is (= shell rostered)
+        (str "the sweep roster and scripts/lib/suite-configs.sh disagree: "
+             "only in the shell " (sort (set/difference shell rostered))
+             ", only in tu/sweeps " (sort (set/difference rostered shell))))
+    (testing "and every var a sweep names is one the pin can hand back"
+      (doseq [sym (mapcat :vars tu/sweeps)]
+        (is (contains? tu/shipped-defaults (requiring-resolve sym))
+            (str sym " is rostered but absent from tu/shipped-defaults"))))))
+
+(deftest the-pin-hands-back-a-shipped-default-a-sweep-replaced
+  ;; The property the gates rely on, over the var that actually bit: whatever the root
+  ;; says, the pin reads the reference matcher inside.  Written against a `binding` rather
+  ;; than an `alter-var-root` so the test itself leaves no root moved.
+  (let [matcher   (requiring-resolve 'vaelii.impl.chain/*matcher*)
+        reference (get tu/shipped-defaults matcher)]
+    (is (some? reference) "the matcher is rostered")
+    (with-bindings* {matcher ::something-else}
+      (fn []
+        (is (= ::something-else (var-get matcher)) "the sweep's replacement is what is installed")
+        (tu/with-shipped-config
+          (is (identical? reference (var-get matcher))
+              "and inside the pin the shipped reader is what answers"))))))
+
+;; ---- sole-answer ---------------------------------------------------------
+
+(deftest sole-answer-returns-the-one-and-says-so-when-there-are-two
+  ;; The harness's own refusal, in this namespace's sense: what `sole-answer` must not do
+  ;; is accept a two-answer set and hand back one of them, which is `first`'s whole
+  ;; behaviour and the reason the call sites moved off it.
+  (testing "one answer comes back, and nothing is asserted about the reader")
+  (is (= '{?d 3} (tu/sole-answer ['{?d 3}])))
+  (testing "an empty set is not an answer either"
+    (is (= :fail (:type (last (recorded #(tu/sole-answer [])))))))
+  (testing "two answers fail, and the message carries both"
+    (let [[result] (recorded #(tu/sole-answer ['{?d 3} '{?d 4}] '(temporalDistance P R ?d)))]
+      (is (= :fail (:type result)))
+      (is (re-find #"got 2" (:message result)))
+      (is (re-find #"temporalDistance" (:message result))
+          "the goal is named, so the failure says which query grew a second answer"))))

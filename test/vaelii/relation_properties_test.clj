@@ -8,9 +8,10 @@
   * **`antiSymmetric`** — a believed converse `(P b a)` merges the two arguments,
     deriving `(equals a b)`, the antisymmetric twin of what `functional` does with two
     symbol values.
-  * **`antiTransitive`** — DECLARED, and the chain conviction DEFERRED (docs/nmtms.md):
-    what is enforced is its classification and `(disjoint transitive antiTransitive)`.
-    These tests pin the enforced part and the deferral both.
+  * **`antiTransitive`** — the two-step chain and the direct step are convicted
+    **together**, as the one nogood whose members are three rather than two
+    (docs/nmtms.md).  Its classification and `(disjoint transitive antiTransitive)` are
+    enforced beside that.
   * **`equivalenceRelation`** — no engine code: three CxCore forward rules derive
     `symmetric`, `transitive` and `reflexive`, each enforced in turn.
 
@@ -201,16 +202,116 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list 'transitive flowsInto) U))))))
 
-(tu/deftest-kb the-antitransitive-chain-conviction-is-deferred
-  ;; The honest limit: a two-step chain does NOT yet make the direct step contradictory.
-  ;; Pinning it here means the day the settle machinery grows a three-party nogood, this
-  ;; test flips and is updated deliberately rather than silently.
+(tu/deftest-kb a-known-true-chain-refuses-the-direct-step
+  ;; The conviction, read the way `asymmetric` reads its converse: what refuses at the
+  ;; door is a chain the arbitration could never break.
+  (tu/with-terms [parentOf Alice Bob Carol]
+    (v/assert kb (list 'antiTransitive parentOf) U)
+    (v/assert kb (list parentOf Alice Bob) U {:strength :monotonic})
+    (v/assert kb (list parentOf Bob Carol) U {:strength :monotonic})
+    (testing "the check predicts the refusal, and the assert makes it"
+      (is (= [:anti-transitive] (mapv :type (v/check kb (list parentOf Alice Carol) U))))
+      (is (= :anti-transitive (ex-type #(v/assert kb (list parentOf Alice Carol) U)))))
+    (testing "and the violation names both steps, not one"
+      (let [v (first (v/check kb (list parentOf Alice Carol) U))]
+        (is (= 2 (count (:opposing-handles v))))
+        (is (= #{(v/handle-of kb (list parentOf Alice Bob) U)
+                 (v/handle-of kb (list parentOf Bob Carol) U)}
+               (set (:opposing-handles v))))))))
+
+(tu/deftest-kb the-chain-is-convicted-from-whichever-member-arrives-last
+  ;; Conviction has to be symmetric or the discovery would find the triple by arrival
+  ;; order: the closing step convicts the chain, and each step convicts the other step
+  ;; beside the closing tuple (`checks/chain-triples`, three roles).
+  (tu/with-terms [parentOf Alice Bob Carol]
+    (v/assert kb (list 'antiTransitive parentOf) U)
+    (v/assert kb (list parentOf Alice Carol) U {:strength :monotonic})
+    (v/assert kb (list parentOf Alice Bob) U {:strength :monotonic})
+    (testing "the second step closes the same triple and is refused in its turn"
+      (is (= [:anti-transitive] (mapv :type (v/check kb (list parentOf Bob Carol) U))))
+      (is (= :anti-transitive (ex-type #(v/assert kb (list parentOf Bob Carol) U)))))))
+
+(tu/deftest-kb three-defaults-are-one-dilemma-of-three-members
+  ;; The `:default` reading, and the one that says this is a nogood rather than a
+  ;; directional rule: no member out-ranks the others, so none is defeated and the whole
+  ;; set is reported.  A pairwise engine could not say this at all.
   (tu/with-terms [parentOf Alice Bob Carol]
     (v/assert kb (list 'antiTransitive parentOf) U)
     (v/assert kb (list parentOf Alice Bob) U)
     (v/assert kb (list parentOf Bob Carol) U)
-    (testing "the direct step is admitted — the chain nogood is not formed"
-      (is (v/assert kb (list parentOf Alice Carol) U)))))
+    (testing "the direct step is admitted — nothing here out-ranks anything"
+      (is (empty? (v/check kb (list parentOf Alice Carol) U)))
+      (is (v/assert kb (list parentOf Alice Carol) U)))
+    (let [cs (v/contradictions kb)]
+      (testing "and the KB says so, once, over all three"
+        (is (= 1 (count cs)))
+        (is (= :anti-transitive (:kind (first cs))))
+        (is (= 3 (count (:sides (first cs)))))
+        (is (= #{(v/handle-of kb (list parentOf Alice Bob) U)
+                 (v/handle-of kb (list parentOf Bob Carol) U)
+                 (v/handle-of kb (list parentOf Alice Carol) U)}
+               (:nogood (first cs)))))
+      (testing "all three stay believed — a dilemma is represented, not decided"
+        (is (every? #(v/ask? kb % U)
+                    [(list parentOf Alice Bob) (list parentOf Bob Carol)
+                     (list parentOf Alice Carol)]))))))
+
+(tu/deftest-kb the-one-defeasible-member-of-a-chain-is-the-one-defeated
+  ;; The mixed case: a unique weakest member is what a nogood of any width is decided on
+  ;; (`settle/decide-nogood`), so the defeasible step loses to the two known-true claims
+  ;; and keeps a `why-not` while it does.
+  (tu/with-terms [parentOf Alice Bob Carol]
+    (v/assert kb (list 'antiTransitive parentOf) U)
+    (v/assert kb (list parentOf Alice Bob) U {:strength :monotonic})
+    (v/assert kb (list parentOf Bob Carol) U)
+    (is (v/assert kb (list parentOf Alice Carol) U {:strength :monotonic}))
+    (testing "the default step is the member that goes"
+      (is (not (v/ask? kb (list parentOf Bob Carol) U)))
+      (is (v/ask? kb (list parentOf Alice Bob) U))
+      (is (v/ask? kb (list parentOf Alice Carol) U))
+      (is (= :defeated (:reason (v/why-not kb (v/handle-of kb (list parentOf Bob Carol) U))))))
+    (testing "and a decided clash is not also a standing dilemma"
+      (is (empty? (v/contradictions kb))))))
+
+(tu/deftest-kb the-antitransitive-mark-is-read-up-the-predicate-hierarchy
+  ;; The descension every constraint mark takes: the sub's tuples ARE the super's, so a
+  ;; chain spelled at a sub-predicate is a chain the super's mark convicts — and which
+  ;; spelling arrived last decides nothing.
+  (tu/with-terms [parentOf fatherOf Alice Bob Carol]
+    (v/assert kb (list 'antiTransitive parentOf) U)
+    (v/assert kb (list 'genl fatherOf parentOf) U)
+    (v/assert kb (list fatherOf Alice Bob) U {:strength :monotonic})
+    (v/assert kb (list fatherOf Bob Carol) U {:strength :monotonic})
+    (is (= [:anti-transitive] (mapv :type (v/check kb (list fatherOf Alice Carol) U))))
+    (is (= :anti-transitive (ex-type #(v/assert kb (list fatherOf Alice Carol) U))))))
+
+(tu/deftest-kb an-antitransitive-self-tuple-is-admitted
+  ;; The stated absence: `(P a a)` is its own two-step chain, so the triple collapses onto
+  ;; one sentex and there is no second claim to weigh — a lone tuple, which this engine
+  ;; refuses at the door or not at all (`checks/antitransitivity-problems`).
+  ;; `antiTransitive` does not hand you `irreflexive`, exactly as `asymmetric` does not.
+  (tu/with-terms [parentOf Alice]
+    (v/assert kb (list 'antiTransitive parentOf) U)
+    (is (empty? (v/check kb (list parentOf Alice Alice) U)))
+    (is (v/assert kb (list parentOf Alice Alice) U))
+    (is (v/ask? kb (list parentOf Alice Alice) U))
+    (is (empty? (v/contradictions kb)))))
+
+(tu/deftest-kb retracting-the-antitransitive-mark-releases-the-chain
+  ;; The clash follows belief in the *declaration* as much as in the facts: the mark is
+  ;; the whole of what makes the three a nogood.
+  (tu/with-terms [parentOf Alice Bob Carol]
+    (let [decl (v/assert kb (list 'antiTransitive parentOf) U)]
+      (v/assert kb (list parentOf Alice Bob) U)
+      (v/assert kb (list parentOf Bob Carol) U)
+      (v/assert kb (list parentOf Alice Carol) U)
+      (is (= 1 (count (v/contradictions kb))))
+      (v/retract! kb decl)
+      (testing "the three are ordinary facts again"
+        (is (empty? (v/contradictions kb)))
+        (is (every? #(v/ask? kb % U)
+                    [(list parentOf Alice Bob) (list parentOf Bob Carol)
+                     (list parentOf Alice Carol)]))))))
 
 ;;; ── equivalenceRelation: three marks, no engine code ──────────────────
 

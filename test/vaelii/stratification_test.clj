@@ -102,6 +102,36 @@
                   CxBird))
     (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxBird))))
 
+(tu/deftest-kb a-cycle-that-runs-through-a-negated-antecedent-is-refused
+  ;; The antecedent index keys a negation by its body's predicate (`[:not flies]`) and
+  ;; a *conclusion* is keyed by its functor root (`not`), so the dependency has to be
+  ;; looked up under the spelling the concluders are filed by
+  ;; (`rules/dependency-predicates`) or the edge "reads (not (flies …))" ->
+  ;; "concludes (not (flies …))" is a lookup in an empty bucket and the cycle is
+  ;; accepted.  It ends in an exception fixpoint that does not converge.
+  (tu/with-terms [birdy flies grounded CxNeg]
+    (is (v/assert kb (except-rule (list grounded '?x) [(list birdy '?x)]
+                                  (list 'not (list flies '?x)))
+                  CxNeg)
+        "the first rule is fine: nothing concludes its exception's predicate yet")
+    (let [data (refusal kb (vr/rule-sentence [(list birdy '?x) (list 'not (list flies '?x))]
+                                             (list grounded '?x))
+                        CxNeg)]
+      (testing "reading the negation the excepted rule concludes closes the cycle"
+        (is (= :not-stratified (:type data)))
+        (is (str/includes? (cycle-text data) (str grounded)))))))
+
+(tu/deftest-kb without-the-negation-the-same-two-rules-are-stratified
+  ;; The control for the test above: the same shape written with a positive literal on
+  ;; a predicate nothing else concludes, so there is no cycle to find and the refusal
+  ;; there is attributable to the negation rather than to the shape of the rules.
+  (tu/with-terms [birdy fliesNot grounded staysPut CxNeg]
+    (is (v/assert kb (except-rule (list grounded '?x) [(list birdy '?x)] (list fliesNot '?x))
+                  CxNeg))
+    (is (v/assert kb (vr/rule-sentence [(list birdy '?x) (list staysPut '?x)]
+                                       (list grounded '?x))
+                  CxNeg))))
+
 ;; ---- positive recursion is not a cycle through negation ------------------
 ;; DECISION: "A purely positive cycle is ordinary recursion, which the engine
 ;; supports and bounds by depth."  Each test here keeps an unrelated excepted rule in

@@ -308,6 +308,70 @@
         (is (= (set inds)
                (values (answers kb [(list wideOf '?x)] CxWide) '?x)))))))
 
+(defn- wide-unproductive!
+  "`target` concluded by `n` backward rules whose antecedents nothing stores — a frontier
+  of `n` children each expanding to nothing — plus one route that answers: `(have A)`."
+  [kb target have A ctx n]
+  (v/with-deferred-settle kb
+    (doseq [i (range n)]
+      (v/assert-rule kb [(list (tu/tmp-pred (str "unprod" i)) '?x)] (list target '?x) ctx
+                     {:direction :backward}))
+    (v/assert-rule kb [(list have '?x)] (list target '?x) ctx {:direction :backward})
+    (v/assert kb (list have A) ctx)))
+
+(tu/deftest-kb a-deadline-stops-the-drive-at-the-next-node-not-the-next-answer
+  ;; `search-seq` pulls one element by stepping until a node yields, so a deadline held
+  ;; between its elements is held only after a whole unproductive stretch — here the
+  ;; root's expansion builds the whole frontier, and every child but one expands to
+  ;; nothing.  `search-within` checks the bounds before every expansion, so a deadline
+  ;; that passes inside the stretch stops the drive at the next node; the session it
+  ;; leaves behind is the continuation.  Two milliseconds is well under what the stretch
+  ;; costs and well over one expansion, so the count below is a shape, not a timing.
+  (tu/with-terms [target have HaveA CxDl]
+    (let [width 160]
+      (wide-unproductive! kb target have HaveA CxDl width)
+      (let [goals [(list target '?x)]
+            sess  (inf/session kb goals CxDl {:max-depth 3})
+            r     (inf/search-within sess {:max-ms 2})]
+        (is (= :timeout (:status r)))
+        (is (< (:expanded (inf/tree-stats sess)) width)
+            "the deadline must stop the drive inside the unproductive frontier, not after it")
+        (is (< (:elapsed-ms r) 5000) "and the step returns near its bound, not near the run's")
+        (is (fn? (:resume r)))
+        (testing "resuming the same session under a generous budget finishes the search"
+          (let [r2 ((:resume r) {:max-ms 60000})]
+            (is (= :complete (:status r2)))
+            (is (= #{HaveA} (values (into (set (:results r)) (:results r2)) '?x)))
+            (is (nil? (:resume r2)))))
+        (testing "the front door holds the same line under the node engine"
+          (binding [v/*query-engine* :inference, inf/*max-depth* 3]
+            (let [r  (v/prove-within kb (list target '?x) CxDl {:max-ms 2 :max-depth 3})
+                  r2 (v/resume r {:max-ms 60000})]
+              (is (= :timeout (:status r)))
+              (is (< (:elapsed-ms r) 5000))
+              (is (= :complete (:status r2)))
+              (is (= #{HaveA} (values (into (set (:results r)) (:results r2)) '?x))))))))))
+
+(tu/deftest-kb a-result-cap-returns-exactly-n-and-carries-the-rest
+  ;; One expansion can complete several solutions at once; a cap of n returns n and the
+  ;; remainder heads the continuation rather than being dropped or over-delivered.
+  (tu/with-terms [wideOf CxCap]
+    (let [inds (mapv #(symbol (str "TmpCap" % "Node")) (range 5))]
+      (doseq [i inds] (v/assert kb (list wideOf i) CxCap))
+      (let [sess (inf/session kb [(list wideOf '?x)] CxCap {:max-depth 2})
+            r1   (inf/search-within sess {:max-results 2})]
+        (is (= :capped (:status r1)))
+        (is (= 2 (:count r1)))
+        (loop [r r1, acc (vec (:results r1))]
+          (if (:resume r)
+            (let [r' ((:resume r) {:max-results 2})
+                  acc (into acc (:results r'))]
+              (is (<= (:count r') 2))
+              (recur r' acc))
+            (do (is (= :complete (:status r)))
+                (is (= (set inds) (values (set acc) '?x)))
+                (is (= 5 (count acc)) "each answer once across the steps"))))))))
+
 ;; ---- the selector --------------------------------------------------------
 
 (tu/deftest-kb the-selector-routes-and-defaults-to-the-dfs
